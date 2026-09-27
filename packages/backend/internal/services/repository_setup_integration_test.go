@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	productdb "github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -147,6 +148,77 @@ func TestRepositorySetupDurableAdmissionAndRuntimeCompletion(t *testing.T) {
 	row, err := reconnected.Read(ctx, repoID, userID, repo, input.Job, input.RequestID)
 	require.NoError(t, err)
 	require.True(t, row.Terminal)
+}
+
+func TestRepositorySetupDeletionRemovesOnlyOwnedReceipts(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	product := NewRepositorySetupService(pool, NewRepositoryJobService(db.New(pool), nil, pool), nil)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: product, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Fatal("admission must not start a runtime")
+		return nil, nil
+	})})
+	require.NoError(t, err)
+	product.SetFlowDispatcher(dispatcher)
+	var records []SetupRecord
+	for range 2 {
+		userID, repoID := setupTestUserAndRepo(t, pool)
+		input := setupFixtureInput(t)
+		input.RequestID = uuid.NewString()
+		require.NoError(t, pool.QueryRow(ctx, `SELECT u.username||'/'||r.name FROM repositories r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, repoID).Scan(&input.Repo))
+		input.Digest = setupCandidateDigest(input, false)
+		input.WorkspaceID = uuid.NewString()
+		_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, input.WorkspaceID, repoID, userID)
+		require.NoError(t, err)
+		record, err := product.Request(ctx, repoID, userID, input)
+		require.NoError(t, err)
+		records = append(records, record)
+	}
+	removed, retained := records[0], records[1]
+	deleteRepository := func() error {
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+		token := strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
+		_, err = tx.Exec(ctx, `INSERT INTO repository_storage_operations
+			(repository_id,operation_type,token,storage_route_key,source_owner,source_repo,source_user_id)
+			SELECT r.id,'delete',$2,'static',u.username,r.name,r.user_id
+			FROM repositories r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, removed.RepositoryID, token)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `SELECT set_config('smithers.repository_storage_operation_token',$1,TRUE)`, token)
+		require.NoError(t, err)
+		if err = db.New(tx).DeleteRepo(ctx, removed.RepositoryID); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	// Upgrade an existing installation with setup rows, not just an empty
+	// schema: the old constraint refuses deletion until migration 52 runs.
+	_, err = pool.Exec(ctx, `ALTER TABLE repository_setup_requests
+		DROP CONSTRAINT repository_setup_requests_repository_id_fkey,
+		ADD CONSTRAINT repository_setup_requests_repository_id_fkey FOREIGN KEY(repository_id) REFERENCES repositories(id);
+		DELETE FROM smithers_product_migrations WHERE version=52`)
+	require.NoError(t, err)
+	require.ErrorContains(t, deleteRepository(), "repository_setup_requests_repository_id_fkey")
+	require.NoError(t, productdb.Apply(ctx, pool))
+	require.NoError(t, deleteRepository())
+	var remaining int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_setup_requests WHERE id=$1`, removed.ID).Scan(&remaining))
+	require.Zero(t, remaining)
+	_, err = product.Read(ctx, retained.RepositoryID, retained.UserID, retained.Input.Repo, retained.Input.Job, retained.Input.RequestID)
+	require.NoError(t, err)
+
+	scope := repositoryJobFlowScope(removed.RepositoryID, removed.UserID)
+	_, err = product.ResolveFlowHostTarget(ctx, flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, BindingKind: repositorySetupBinding, BindingID: removed.ID, WorkspaceID: removed.Input.WorkspaceID})
+	var failure repositoryJobFlowFailure
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, "runtime_target_not_found", failure.FlowRuntimeCode())
+	require.False(t, failure.FlowRuntimeRetryable())
+	projection, err := json.Marshal(map[string]string{"kind": repositorySetupBinding, "id": removed.ID})
+	require.NoError(t, err)
+	require.NoError(t, product.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection}}))
 }
 
 func TestRepositorySetupProjectionRejectsForeignAndMissingCompletion(t *testing.T) {

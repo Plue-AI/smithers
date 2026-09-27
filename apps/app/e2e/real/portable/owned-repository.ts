@@ -36,6 +36,8 @@ export const withOwnedRepository = async <T>(
   const name = fixtureProtocolId(`smithers-matrix-${randomUUID().slice(0, 12)}`)
   const fullName = `${owner!.login}/${name}`
   const path = repositoryApiPath(fullName)
+  let bodyFailed = false
+  let bodyError: unknown
   try {
     const created = creation === "ui"
       ? await createRepositoryThroughUi(page, name)
@@ -45,15 +47,24 @@ export const withOwnedRepository = async <T>(
     expect(created.status(), `create ${fullName}: ${await created.text()}`).toBe(201)
     expect(await created.json()).toMatchObject({ name, full_name: fullName, private: true, default_bookmark: "main" })
     return await use({ name, fullName, path })
+  } catch (error) {
+    bodyFailed = true
+    bodyError = error
+    throw error
   } finally {
-    const existing = await realApi(page, request, "GET", path)
-    if (existing.status() === 200) {
-      const deleted = await realApi(page, request, "DELETE", path)
-      expect(deleted.status(), `delete ${fullName}`).toBe(204)
-    } else {
-      expect(existing.status(), `probe possibly-created ${fullName}`).toBe(404)
+    try {
+      const existing = await realApi(page, request, "GET", path)
+      if (existing.status() === 200) {
+        const deleted = await realApi(page, request, "DELETE", path)
+        expect(deleted.status(), `delete ${fullName}`).toBe(204)
+      } else {
+        expect(existing.status(), `probe possibly-created ${fullName}`).toBe(404)
+      }
+      expect((await realApi(page, request, "GET", path)).status()).toBe(404)
+    } catch (cleanupError) {
+      if (bodyFailed) throw new AggregateError([bodyError, cleanupError], `${String(bodyError)}\nRepository cleanup also failed: ${String(cleanupError)}`)
+      throw cleanupError
     }
-    expect((await realApi(page, request, "GET", path)).status()).toBe(404)
   }
 }
 

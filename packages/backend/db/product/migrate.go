@@ -85,6 +85,7 @@ var migrationRegistry = []migrationSpec{
 	{49, "migrations/0049_box_host_private_execution.sql"},
 	{50, "migrations/0050_drop_workspace_capability_bindings.sql"},
 	{51, "migrations/0051_agent_review_notes.sql"},
+	{52, "migrations/0052_repository_setup_delete.sql"},
 }
 
 type migration struct {

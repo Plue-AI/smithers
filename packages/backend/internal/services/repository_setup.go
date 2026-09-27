@@ -235,6 +235,12 @@ func (s *RepositorySetupService) ProjectFlowRuntime(ctx context.Context, update 
 	}
 	defer tx.Rollback(ctx)
 	record, err := scanSetup(tx.QueryRow(ctx, "SELECT "+setupColumns+" FROM repository_setup_requests WHERE id=$1 FOR UPDATE", correlation.ID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Repository deletion removes its setup correlation. A late runtime
+		// observation has no product row left to update; retrying it cannot
+		// recreate the deleted repository or its receipt.
+		return nil
+	}
 	if err != nil {
 		return err
 	}
