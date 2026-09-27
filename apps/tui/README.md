@@ -131,7 +131,7 @@ receipts. It follows running workers while chat stays usable. Inspection reads
 the journal up to the selected event, so later results do not appear early.
 Restoring a session reconstructs the same timeline from its saved events.
 Worker tabs show `queued` (waiting for a pool seat), `requested`, `running`,
-`waiting` for children, `parked` (⏸ with a reset time), `done`, `failed`, or
+`waiting` for children, `parked` (with a reset time), `done`, `failed`, or
 `cancelled`. Running, waiting, and parked workers auto-relaunch from their
 recorded steps when the TUI restarts. Queued workers keep the chat context
 captured with their request. A worker refused by a rate limit or quota parks
@@ -231,9 +231,10 @@ with a 300 ms delay and real completion/failure as its end. A `tree:<rootId>`
 tab appears when a worker gains children; its rows update from tab state.
 
 Each worker's tab, and its row in the list beside the chat at 100 columns or
-wider, shows a status glyph in its color (`◌` requested, `◷` queued, a spinner
-running, `◔` waiting on children, `⏸` parked, `✓` done, `✗` failed, `■`
-stopped), its model and its clock. Tabs are
+wider, shows the status glyph subagent cards share (`@smthrs/rpc/SubagentCard`):
+`◐◓◑◒` turning while requested, running or waiting on children, else `●`, in
+the color of its state (running, waiting for queued, parked or children, done,
+failed, stopped), its model and its clock. Tabs are
 never shortened: when they overflow, `‹ n` and `n ›` count and open the hidden
 ones. Click a tab or a worker to open it. A worker's tab heads its transcript,
 drawn with the chat's own cells, with its status, model, clock and tokens, and

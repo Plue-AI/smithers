@@ -514,7 +514,7 @@ export function App(props: AppProps) {
     runs: flowRuns,
     plugins: pluginTabs,
     views: uiPanels.filter((panel) => !pluginPanels.includes(panel)),
-    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now, tick, tabEta(tab)),
+    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now, tabEta(tab)),
     runEta: (run) => eta(Estimate.runId(run), run.status, run.launchedAt ?? run.startedAt)
   })
   const clickTab = (id: string) => {
@@ -1787,7 +1787,6 @@ export function App(props: AppProps) {
                 active={surface}
                 models={props.models}
                 now={now}
-                tick={tick}
                 eta={tabEta}
                 onSelect={clickTab}
               />

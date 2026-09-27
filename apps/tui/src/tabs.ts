@@ -3,6 +3,7 @@
  * worker list and the worker view: its status glyph and color, its model,
  * its clock, and the actions its status allows.
  */
+import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as WorkerControls from "@smthrs/rpc/WorkerControls"
 import * as Keys from "./keys.ts"
 import { delegateModels } from "./models.ts"
@@ -13,26 +14,19 @@ import type { Tab } from "./workspace.ts"
 /** `queued` waits for a free seat. */
 export type Status = Tab["status"]
 
-/** `tick` is the app clock's spinner frame, so every running glyph turns together. */
-export const style = (status: Status, tick: string): { readonly glyph: string; readonly tone: string } => {
-  switch (status) {
-    case "requested":
-      return { glyph: "◌", tone: color.muted }
-    case "queued":
-      return { glyph: "◷", tone: color.warning }
-    case "running":
-      return { glyph: tick, tone: color.info }
-    case "waiting":
-      return { glyph: "◔", tone: color.info }
-    case "parked":
-      return { glyph: "⏸", tone: color.warning }
-    case "done":
-      return { glyph: "✓", tone: color.success }
-    case "failed":
-      return { glyph: "✗", tone: color.danger }
-    case "cancelled":
-      return { glyph: "■", tone: color.faint }
-  }
+/** Palette keys, read at draw time so a theme change reaches them. */
+const tones = {
+  running: "info",
+  waiting: "warning",
+  done: "success",
+  failed: "danger",
+  stopped: "faint"
+} as const satisfies Record<SubagentCard.Tone, keyof typeof color>
+
+/** The shared subagent glyph at `now`, in this palette's colors, so every running glyph turns together. */
+export const style = (status: Status, now: number): { readonly glyph: string; readonly tone: string } => {
+  const { glyph, tone } = SubagentCard.glyph(status, now)
+  return { glyph, tone: color[tones[tone]] }
 }
 
 export const live = WorkerControls.live

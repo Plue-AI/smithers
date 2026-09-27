@@ -96,8 +96,8 @@ const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number, eta: string)
   `${Tabs.model(tab.seat, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}${eta === "" ? "" : ` ${eta}`}`
 
 /** A worker's tab chip: glyph, title, model, clock and estimate. */
-export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number, tick: string, eta = ""): Chip => {
-  const { glyph, tone } = Tabs.style(tab.status, tick)
+export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number, eta = ""): Chip => {
+  const { glyph, tone } = Tabs.style(tab.status, now)
   return {
     id: `tab:${tab.id}`,
     label: tab.title,
@@ -113,7 +113,6 @@ export function WorkerList(props: {
   readonly active: string
   readonly models: ReadonlyArray<Model>
   readonly now: number
-  readonly tick: string
   /** The worker's estimate label, empty when there is none. */
   readonly eta: (tab: Tab) => string
   readonly onSelect: (id: string) => void
@@ -121,7 +120,7 @@ export function WorkerList(props: {
   return (
     <box style={{ flexDirection: "column" }}>
       {props.tabs.map((tab) => {
-        const { glyph, tone } = Tabs.style(tab.status, props.tick)
+        const { glyph, tone } = Tabs.style(tab.status, props.now)
         const selected = props.active === `tab:${tab.id}`
         return (
           <box
@@ -189,7 +188,7 @@ export function WorkerView(props: {
     if (props.selected !== undefined) scroll.current?.scrollChildIntoView(props.selected)
   }, [props.selected])
   const { tab, transcript } = props
-  const { glyph, tone } = Tabs.style(tab.status, props.tick)
+  const { glyph, tone } = Tabs.style(tab.status, props.now)
   const usage = transcript.usage
   const facts = [
     Tabs.model(tab.seat, props.models),

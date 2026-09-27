@@ -1,4 +1,5 @@
 import { testRender } from "@opentui/react/test-utils"
+import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { afterEach, describe, expect, it } from "bun:test"
 import { act } from "react"
 import * as Keys from "../src/keys.ts"
@@ -43,7 +44,7 @@ const tab = (id: string, status: Tabs.Status, extra: Partial<Tab> = {}): Tab =>
 const models = [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "openai" }]
 
 describe("worker status", () => {
-  it("gives every status its own glyph and color", () => {
+  it("draws the shared subagent glyph in this palette", () => {
     const statuses: ReadonlyArray<Tabs.Status> = [
       "requested",
       "queued",
@@ -54,14 +55,18 @@ describe("worker status", () => {
       "failed",
       "cancelled"
     ]
-    const styles = statuses.map((status) => Tabs.style(status, "⠋"))
-    expect(new Set(styles.map((each) => each.glyph)).size).toBe(statuses.length)
-    expect(new Set(styles.map((each) => `${each.glyph}${each.tone}`)).size).toBe(statuses.length)
-    expect(Tabs.style("queued", "⠋").tone).toBe(color.warning)
-    expect(Tabs.style("parked", "⠋").tone).toBe(color.warning)
-    expect(Tabs.style("running", "⠙").glyph).toBe("⠙")
-    expect(Tabs.style("failed", "⠋").tone).toBe(color.danger)
-    expect(Tabs.style("done", "⠋").tone).toBe(color.success)
+    for (const status of statuses) {
+      expect(Tabs.style(status, 150).glyph).toBe(SubagentCard.glyph(status, 150).glyph)
+    }
+    expect(Tabs.style("running", 0).glyph).toBe("◐")
+    expect(Tabs.style("running", 150).glyph).toBe("◓")
+    expect(Tabs.style("running", 0).tone).toBe(color.info)
+    expect(Tabs.style("queued", 0).tone).toBe(color.warning)
+    expect(Tabs.style("parked", 0).tone).toBe(color.warning)
+    expect(Tabs.style("waiting", 0).tone).toBe(color.warning)
+    expect(Tabs.style("failed", 0)).toEqual({ glyph: "●", tone: color.danger })
+    expect(Tabs.style("done", 0)).toEqual({ glyph: "●", tone: color.success })
+    expect(Tabs.style("cancelled", 0)).toEqual({ glyph: "●", tone: color.faint })
   })
 
   it("names the model by its delegate alias, its label, then its id", () => {
@@ -184,7 +189,6 @@ describe("WorkerList", () => {
         active="tab:a"
         models={models}
         now={4_000}
-        tick="⠋"
         eta={() => ""}
         onSelect={(id) => opened.push(id)}
       />,
@@ -192,9 +196,9 @@ describe("WorkerList", () => {
       8
     )
     const frame = captureCharFrame()
-    expect(frame).toContain("⠋ Worker a")
+    expect(frame).toContain(`${Tabs.style("running", 4_000).glyph} Worker a`)
     expect(frame).toContain("sol · 3.0s")
-    expect(frame).toContain(`${Tabs.style("queued", "⠋").glyph} Worker b`)
+    expect(frame).toContain(`${Tabs.style("queued", 4_000).glyph} Worker b`)
     const row = find(frame, "Worker b")
     await mockMouse.click(row.x, row.y)
     expect(opened).toEqual(["tab:b"])
@@ -239,7 +243,7 @@ describe("WorkerView", () => {
       24
     )
     const frame = captureCharFrame()
-    expect(frame).toContain("⠋ Worker a")
+    expect(frame).toContain(`${Tabs.style("running", 4_000).glyph} Worker a`)
     expect(frame).toContain("sol · 3.0s")
     expect(frame).toContain("3.0s")
     expect(frame).toContain("↑18k ↓2.3k")
@@ -300,7 +304,7 @@ describe("WorkerView", () => {
       24
     )
     const frame = captureCharFrame()
-    expect(frame).toContain("✗ Worker a")
+    expect(frame).toContain("● Worker a")
     expect(frame).toContain("Seat quota exhausted")
     expect(frame).toContain("1.0s")
     const retry = find(frame, "r Resume")

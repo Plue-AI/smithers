@@ -50,7 +50,7 @@ export const rows = (input: {
     ...input.tabs.filter((tab) => workNoticeVisible(tab, now))
       .map((tab) => ({
         id: tab.id,
-        text: `${Tabs.style(tab.status, tick).glyph} ${
+        text: `${Tabs.style(tab.status, now).glyph} ${
           input.approvals.some((request) => request.source === tab.id) ? `${tabTitle(tab)} · approval` : tabToast(tab)
         }`,
         tone: tab.status === "failed" ? "danger" as const : "info" as const
