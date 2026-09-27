@@ -5,7 +5,8 @@ const AUDIENCE = "smithers-review";
 
 /**
  * GitHub Actions OIDC claims the worker reads. Other claims may appear in the
- * token but are ignored: identity comes from immutable repository and owner IDs, the PR number (when
+ * token but are ignored: identity comes from immutable repository and owner IDs
+ * and the trusted workflow from `job_workflow_ref`, the PR number (when
  * inferrable) from `event_name` + `ref`.
  */
 export interface OidcClaims {
@@ -22,6 +23,8 @@ export interface OidcClaims {
   ref_type?: string;
   event_name?: string;
   pull_request?: { number?: number };
+  /** `owner/repo/path@ref` of the workflow file that defines the job (trustedWorkflow.ts). */
+  job_workflow_ref?: string;
 }
 
 export interface OidcVerifyResult {

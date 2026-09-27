@@ -10,7 +10,8 @@ import { runGh } from "../../src/github/runGh.ts";
 import { GH_CREDENTIAL_REASON, ghCredentialsAvailable, liveSuiteGate } from "../support/liveSuite.ts";
 
 /**
- * What `.github/workflows/pr-review.yml` does with a real GitHub event.
+ * What `.github/workflows/pr-review.yml` and the reusable `review.yml` it calls do
+ * with a real GitHub event.
  *
  * The workflow itself cannot be run from here: its first step mints a GitHub
  * OIDC token, which only Actions issues, and its review posts to a pull
@@ -30,41 +31,58 @@ const enabled = liveSuiteGate({
 /** This app's own directory: any real directory works as gh's cwd for an API call. */
 const PKG_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-const workflow = parse(
-  readFileSync(new URL("../../../../.github/workflows/pr-review.yml", import.meta.url), "utf8"),
-) as {
-  on: Record<string, { types?: string[] }>;
+type WorkflowFile = {
+  on: Record<string, { types?: string[] } | null>;
   permissions: Record<string, string>;
-  jobs: Record<string, { steps: Array<{ uses?: string }>; env?: Record<string, string> }>;
+  jobs: Record<string, {
+    uses?: string;
+    permissions?: Record<string, string>;
+    steps?: Array<{ uses?: string }>;
+    env?: Record<string, string>;
+  }>;
 };
+const readWorkflow = (name: string) =>
+  parse(readFileSync(new URL(`../../../../.github/workflows/${name}`, import.meta.url), "utf8")) as WorkflowFile;
+const workflow = readWorkflow("pr-review.yml");
+const reusable = readWorkflow("review.yml");
+const reviewPermissions = { "id-token": "write", contents: "read", "pull-requests": "write" };
 
 describe("pr-review.yml", () => {
-  test("runs main's action, never the action code of the pull request under review", () => {
-    // The job holds the review identity and PR write; a local `uses: ./…`
-    // would run the pull request's own checkout with both.
-    const steps = workflow.jobs.review.steps;
-    expect(steps.map((entry) => entry.uses)).toEqual(["smithersai/smithers/apps/review/action@main"]);
+  test("calls main's reusable review workflow, the only token the service accepts", () => {
+    // On pull_request this file comes from the pull request; its token names
+    // review.yml@refs/heads/main only while it calls that workflow by name.
+    expect(workflow.jobs.review.uses).toBe("smithersai/smithers/.github/workflows/review.yml@main");
+    expect(workflow.jobs.review.steps).toBeUndefined();
+    expect(Object.keys(workflow.jobs)).toEqual(["review"]);
   });
 
-  test("asks for exactly the three permissions the action needs", () => {
-    expect(workflow.permissions).toEqual({
-      "id-token": "write",
-      contents: "read",
-      "pull-requests": "write",
-    });
+  test("grants exactly the three permissions the review needs, only to the review job", () => {
+    expect(workflow.permissions).toEqual({});
+    expect(workflow.jobs.review.permissions).toEqual(reviewPermissions);
   });
 
   test("triggers only on the events the gate reviews", () => {
     // The gate skips every other pull_request action with a reason, so a
     // trigger the gate does not review is a job that starts and does nothing.
-    expect(new Set(workflow.on.pull_request.types)).toEqual(
+    expect(new Set(workflow.on.pull_request?.types)).toEqual(
       new Set(["opened", "synchronize", "reopened", "ready_for_review"]),
     );
-    expect(workflow.on.issue_comment.types).toEqual(["created"]);
+    expect(workflow.on.issue_comment?.types).toEqual(["created"]);
   });
 
   test("carries no provider key or 0.x subscription secret", () => {
     expect(workflow.jobs.review.env).toBeUndefined();
+    expect(reusable.jobs.review.env).toBeUndefined();
+  });
+});
+
+describe("review.yml", () => {
+  test("takes no inputs and runs main's action, never the pull request's action code", () => {
+    // An input could redirect the token or change what runs; a local
+    // `uses: ./…` would run the pull request's checkout with the identity.
+    expect(reusable.on).toEqual({ workflow_call: null });
+    expect(reusable.jobs.review.steps?.map((entry) => entry.uses)).toEqual(["smithersai/smithers/apps/review/action@main"]);
+    expect(reusable.jobs.review.permissions).toEqual(reviewPermissions);
   });
 });
 

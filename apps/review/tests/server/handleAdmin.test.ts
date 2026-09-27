@@ -1,6 +1,7 @@
 import { sha256Hex } from "../../src/server/sha256Hex.ts";
 import { describe, expect, test } from "bun:test";
 import { createReviewWorker } from "../../src/server/worker.ts";
+import { DEFAULT_TRUSTED_WORKFLOW_REF } from "../../src/server/sessions/trustedWorkflow.ts";
 import { buildTestEnv } from "./helpers/buildTestEnv.ts";
 
 function makeWorker() {
@@ -36,6 +37,36 @@ describe("admin endpoints", () => {
     const body = (await list.json()) as { repos: Array<{ repo: string; mode: string; prsPerMonth: number }> };
     expect(body.repos).toHaveLength(1);
     expect(body.repos[0]).toMatchObject({ repo: "octo/widgets", mode: "auto", quiz: "auto", prsPerMonth: 10 });
+  });
+
+  test("repo upsert configures the trusted workflows: omitted keeps, null restores the default, invalid is refused", async () => {
+    const env = await buildTestEnv();
+    const worker = makeWorker();
+    const own = "octo/widgets/.github/workflows/smithers-review.yml@refs/heads/main";
+    const upsert = async (extra: Record<string, unknown>) => worker.fetch(
+      new Request("https://review.test/api/admin/repos", {
+        method: "POST",
+        headers: { authorization: "Bearer test-admin", "content-type": "application/json" },
+        body: JSON.stringify({ repo: "octo/widgets", repositoryId: "1", ownerId: "7", mode: "auto", prsPerMonth: 10, spendCapUsd: 25, ...extra }),
+      }),
+      env,
+    );
+    const listed = async () => {
+      const list = await worker.fetch(new Request("https://review.test/api/admin/repos", { headers: { authorization: "Bearer test-admin" } }), env);
+      return ((await list.json()) as { repos: Array<{ allowedWorkflowRefs: string[] }> }).repos[0].allowedWorkflowRefs;
+    };
+    const created = await upsert({});
+    expect(((await created.json()) as { allowedWorkflowRefs: string[] }).allowedWorkflowRefs).toEqual([DEFAULT_TRUSTED_WORKFLOW_REF]);
+    expect((await upsert({ allowedWorkflowRefs: [own] })).status).toBe(200);
+    expect(await listed()).toEqual([own]);
+    expect((await upsert({ prsPerMonth: 11 })).status).toBe(200);
+    expect(await listed()).toEqual([own]);
+    for (const bad of [[], "x", [own, "octo/widgets/.github/workflows/a.yml@refs/pull/1/merge"], ["octo/widgets/a.yml@refs/heads/main"]]) {
+      expect((await upsert({ allowedWorkflowRefs: bad })).status).toBe(400);
+    }
+    expect(await listed()).toEqual([own]);
+    expect((await upsert({ allowedWorkflowRefs: null })).status).toBe(200);
+    expect(await listed()).toEqual([DEFAULT_TRUSTED_WORKFLOW_REF]);
   });
 
   test("repo upsert accepts an explicit quiz mode and rejects invalid values", async () => {

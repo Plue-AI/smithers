@@ -35,10 +35,7 @@ on:
   issue_comment:
     types: [created]
 
-permissions:
-  id-token: write       # proves your repo's identity to the review service
-  contents: read        # check out the PR
-  pull-requests: write  # post the review
+permissions: {}
 
 concurrency:
   group: smithers-review-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -46,13 +43,16 @@ concurrency:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: smithersai/smithers/apps/review/action@main
+    permissions:
+      id-token: write       # proves your repo's identity to the review service
+      contents: read        # check out the PR
+      pull-requests: write  # post the review
+    uses: smithersai/smithers/.github/workflows/review.yml@main
 ```
 
-The three permissions are the whole set the action needs: `id-token: write` proves your repository's identity to the review service, `contents: read` checks out the PR, and `pull-requests: write` posts the review.
+The three permissions are the whole set the review needs: `id-token: write` proves your repository's identity to the review service, `contents: read` checks out the PR, and `pull-requests: write` posts the review.
+
+The job calls Smithers' reusable review workflow instead of listing steps. On `pull_request`, GitHub runs this file as the pull request has it, so anyone who can push a branch could edit it. The service accepts only a token whose `job_workflow_ref` is `smithersai/smithers/.github/workflows/review.yml@refs/heads/main`, which a job gets only by calling that workflow; any other token is refused with `403 oidc: untrusted workflow`. To trust a different workflow, ask the operator to set your registration's allowed workflow refs.
 
 :::caution
 Keep the workflow on `pull_request`. Never switch it to `pull_request_target`: the review agents execute the PR's code, and `pull_request_target` would hand that code elevated credentials.

@@ -7,6 +7,7 @@ import { claimReviewSlot } from "./claimReviewSlot.ts";
 import { lookupApiKey, type ApiKeyRecord } from "./lookupApiKey.ts";
 import { lookupRepo } from "./lookupRepo.ts";
 import { mintSession } from "./mintSession.ts";
+import { allowedWorkflowRefs, isTrustedWorkflow } from "./trustedWorkflow.ts";
 import { verifyOidc } from "./verifyOidc.ts";
 
 export interface HandleSessionsDeps {
@@ -67,7 +68,8 @@ function resolveOidcPullRequestNumber(
  * Failure mapping:
  *  - 400 unparseable body / missing auth material
  *  - 401 OIDC fails signature/issuer/audience/expiry, or unknown api key
- *  - 403 repo not registered, api key not authorized for repo, or unscoped api key
+ *  - 403 repo not registered, api key not authorized for repo, unscoped api key,
+ *    or an OIDC token whose job_workflow_ref is not an allowed workflow
  *  - 402 plan quota for this calendar month is spent
  *  - 409 a comment-mode repo's OIDC token is not from an issue_comment event
  *  - 503 the issuer's JWKS is unreachable, so the token cannot be judged yet
@@ -89,7 +91,7 @@ export async function handleSessions(
   let repo: string;
   let pr: number;
   let apiKey: ApiKeyRecord | null = null;
-  let oidcIdentity: { repositoryId: string; ownerId: string } | undefined;
+  let oidcIdentity: { repositoryId: string; ownerId: string; jobWorkflowRef: unknown } | undefined;
   let oidcEventName: string | undefined;
 
   if (typeof body.oidcToken === "string" && body.oidcToken.length > 0) {
@@ -107,7 +109,7 @@ export async function handleSessions(
     const repositoryId = githubRepositoryId(claims.repository_id);
     const ownerId = githubRepositoryId(claims.repository_owner_id);
     if (!repositoryId || !ownerId) return jsonError(401, "oidc: missing repository identity");
-    oidcIdentity = { repositoryId, ownerId };
+    oidcIdentity = { repositoryId, ownerId, jobWorkflowRef: claims.job_workflow_ref };
     repo = claims.repository;
     const resolvedPr = resolveOidcPullRequestNumber(claims, body.pr);
     if (!resolvedPr.ok) return jsonError(400, resolvedPr.message);
@@ -149,6 +151,15 @@ export async function handleSessions(
     }
     if (registration.repository_id !== oidcIdentity.repositoryId || registration.owner_id !== oidcIdentity.ownerId) {
       return jsonError(403, "oidc: repository identity mismatch");
+    }
+    // A pull request can edit its repository's workflow files, so only a
+    // token from a job the trusted workflow defines is a review identity.
+    const allowed = allowedWorkflowRefs(registration.allowed_workflow_refs);
+    if (!isTrustedWorkflow(oidcIdentity.jobWorkflowRef, allowed)) {
+      return jsonError(403, "oidc: untrusted workflow", {
+        jobWorkflowRef: typeof oidcIdentity.jobWorkflowRef === "string" ? oidcIdentity.jobWorkflowRef : null,
+        allowedWorkflowRefs: allowed,
+      });
     }
   }
   // Keep existing mixed-case ledger keys intact; new registrations use lowercase.

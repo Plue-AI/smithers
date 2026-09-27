@@ -1,5 +1,6 @@
 import { githubRepositoryId } from "../githubRepositoryId.ts";
 import { lookupRepo } from "../sessions/lookupRepo.ts";
+import { allowedWorkflowRefs, isAllowedWorkflowRef } from "../sessions/trustedWorkflow.ts";
 import type { ReviewWorkerEnv } from "../env.ts";
 import { jsonError } from "../jsonError.ts";
 import { monthKey } from "../monthKey.ts";
@@ -13,6 +14,7 @@ interface UpsertBody {
   quiz?: unknown;
   prsPerMonth?: unknown;
   spendCapUsd?: unknown;
+  allowedWorkflowRefs?: unknown;
 }
 
 interface RepoListRow {
@@ -23,6 +25,7 @@ interface RepoListRow {
   quiz: string;
   prs_per_month: number;
   spend_cap_usd: number;
+  allowed_workflow_refs: string | null;
   created_at: number;
 }
 
@@ -62,8 +65,18 @@ export async function handleAdminRepos(request: Request, env: ReviewWorkerEnv, n
     const repositoryId = githubRepositoryId(body.repositoryId);
     const ownerId = githubRepositoryId(body.ownerId);
     if (!repositoryId || !ownerId) return jsonError(400, "repositoryId and ownerId must be positive integer IDs");
+    // Omitted keeps the stored trusted workflows, null restores the default,
+    // and a list replaces them.
+    if (body.allowedWorkflowRefs !== undefined && body.allowedWorkflowRefs !== null &&
+        !(Array.isArray(body.allowedWorkflowRefs) && body.allowedWorkflowRefs.length > 0 &&
+          body.allowedWorkflowRefs.every(isAllowedWorkflowRef))) {
+      return jsonError(400, "allowedWorkflowRefs must be null or a non-empty list of owner/repo/.github/workflows/<file>@<refs/heads/…|refs/tags/…|sha>");
+    }
     const existing = await lookupRepo(env.DB, body.repo);
     const repo = existing?.repo ?? body.repo.toLowerCase();
+    const storedWorkflowRefs = body.allowedWorkflowRefs === undefined
+      ? existing?.allowed_workflow_refs ?? null
+      : body.allowedWorkflowRefs === null ? null : JSON.stringify(body.allowedWorkflowRefs);
     if ((existing?.repository_id && existing.repository_id !== repositoryId) ||
         (existing?.owner_id && existing.owner_id !== ownerId)) {
       return jsonError(409, "repository identity is already bound");
@@ -74,12 +87,12 @@ export async function handleAdminRepos(request: Request, env: ReviewWorkerEnv, n
     let changed: number | undefined;
     try {
       const result = await env.DB.prepare(
-        `INSERT INTO repos (repo, mode, quiz, prs_per_month, spend_cap_usd, created_at, repository_id, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(repo) DO UPDATE SET mode = excluded.mode, quiz = excluded.quiz, prs_per_month = excluded.prs_per_month, spend_cap_usd = excluded.spend_cap_usd, repository_id = excluded.repository_id, owner_id = excluded.owner_id
+        `INSERT INTO repos (repo, mode, quiz, prs_per_month, spend_cap_usd, created_at, repository_id, owner_id, allowed_workflow_refs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(repo) DO UPDATE SET mode = excluded.mode, quiz = excluded.quiz, prs_per_month = excluded.prs_per_month, spend_cap_usd = excluded.spend_cap_usd, repository_id = excluded.repository_id, owner_id = excluded.owner_id, allowed_workflow_refs = excluded.allowed_workflow_refs
          WHERE (repos.repository_id IS NULL OR repos.repository_id = excluded.repository_id)
            AND (repos.owner_id IS NULL OR repos.owner_id = excluded.owner_id)`,
       )
-        .bind(repo, body.mode, quiz, body.prsPerMonth, body.spendCapUsd, now, repositoryId, ownerId)
+        .bind(repo, body.mode, quiz, body.prsPerMonth, body.spendCapUsd, now, repositoryId, ownerId, storedWorkflowRefs)
         .run();
       changed = result.meta.changes;
     } catch (error) {
@@ -90,14 +103,17 @@ export async function handleAdminRepos(request: Request, env: ReviewWorkerEnv, n
     }
     if (changed === 0) return jsonError(409, "repository identity is already bound");
     return Response.json(
-      { repo: repo.toLowerCase(), repositoryId, ownerId, mode: body.mode, quiz, prsPerMonth: body.prsPerMonth, spendCapUsd: body.spendCapUsd },
+      {
+        repo: repo.toLowerCase(), repositoryId, ownerId, mode: body.mode, quiz, prsPerMonth: body.prsPerMonth,
+        spendCapUsd: body.spendCapUsd, allowedWorkflowRefs: allowedWorkflowRefs(storedWorkflowRefs),
+      },
       { status: 200 },
     );
   }
   if (request.method === "GET") {
     const month = monthKey(now);
     const repos = await env.DB.prepare(
-      "SELECT repo, repository_id, owner_id, mode, quiz, prs_per_month, spend_cap_usd, created_at FROM repos ORDER BY repo",
+      "SELECT repo, repository_id, owner_id, mode, quiz, prs_per_month, spend_cap_usd, allowed_workflow_refs, created_at FROM repos ORDER BY repo",
     ).all<RepoListRow>();
     const usage = await env.DB.prepare(
       "SELECT repo, SUM(cost_usd) AS cost_usd FROM usage_events WHERE created_at >= ? GROUP BY repo",
@@ -121,6 +137,7 @@ export async function handleAdminRepos(request: Request, env: ReviewWorkerEnv, n
         quiz: r.quiz,
         prsPerMonth: r.prs_per_month,
         spendCapUsd: r.spend_cap_usd,
+        allowedWorkflowRefs: allowedWorkflowRefs(r.allowed_workflow_refs),
         createdAt: r.created_at,
         usage: {
           spendUsd: usageByRepo.get(r.repo) ?? 0,

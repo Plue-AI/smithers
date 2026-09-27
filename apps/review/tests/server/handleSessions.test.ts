@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { jwksCache } from "../../src/server/sessions/jwksCache.ts";
+import { DEFAULT_TRUSTED_WORKFLOW_REF } from "../../src/server/sessions/trustedWorkflow.ts";
 import { createReviewWorker } from "../../src/server/worker.ts";
 import type { ReviewWorkerEnv } from "../../src/server/env.ts";
 import { buildTestEnv } from "./helpers/buildTestEnv.ts";
@@ -22,6 +23,7 @@ function baseClaims(repo: string, pr: number, exp: number) {
     repository_owner_id: "7",
     repository_owner: repo.split("/")[0],
     ref: `refs/pull/${pr}/merge`,
+    job_workflow_ref: DEFAULT_TRUSTED_WORKFLOW_REF,
   };
 }
 
@@ -91,6 +93,51 @@ describe("POST /api/sessions (OIDC)", () => {
       expect(await env.DB.prepare("SELECT COUNT(*) AS c FROM reviewed_prs").first<{ c: number }>()).toEqual({ c: 0 });
     },
   );
+
+  test.each([
+    ["the pull request's own workflow file", "octo/widgets/.github/workflows/pr-review.yml@refs/pull/1/merge"],
+    ["the trusted workflow on a pull request branch", "smithersai/smithers/.github/workflows/review.yml@refs/heads/pr-branch"],
+    ["a different workflow file at main", "smithersai/smithers/.github/workflows/ci.yml@refs/heads/main"],
+    ["no job_workflow_ref claim", undefined],
+  ])("refuses a token from %s before spending quota", async (_, jobWorkflowRef) => {
+    const env = await buildTestEnv();
+    await registerRepo(env, REPO);
+    const token = await signTestJwt(keypair, {
+      ...baseClaims(REPO, 1, Math.floor(Date.now() / 1000) + 600),
+      job_workflow_ref: jobWorkflowRef,
+    });
+    const response = await makeWorker(jwks.url).fetch(new Request("https://review.test/api/sessions", {
+      method: "POST", body: JSON.stringify({ oidcToken: token }),
+    }), env);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "oidc: untrusted workflow",
+      jobWorkflowRef: jobWorkflowRef ?? null,
+      allowedWorkflowRefs: [DEFAULT_TRUSTED_WORKFLOW_REF],
+    });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS c FROM sessions").first<{ c: number }>()).toEqual({ c: 0 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS c FROM reviewed_prs").first<{ c: number }>()).toEqual({ c: 0 });
+  });
+
+  test("a registration's allowed workflows replace the default", async () => {
+    const env = await buildTestEnv();
+    await registerRepo(env, REPO);
+    const own = "octo/widgets/.github/workflows/smithers-review.yml@refs/heads/main";
+    await env.DB.prepare("UPDATE repos SET allowed_workflow_refs = ?").bind(JSON.stringify([own])).run();
+    const worker = makeWorker(jwks.url);
+    const mint = async (pr: number, jobWorkflowRef: string) =>
+      (await worker.fetch(new Request("https://review.test/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          oidcToken: await signTestJwt(keypair, {
+            ...baseClaims(REPO, pr, Math.floor(Date.now() / 1000) + 600),
+            job_workflow_ref: jobWorkflowRef,
+          }),
+        }),
+      }), env)).status;
+    expect(await mint(1, own)).toBe(200);
+    expect(await mint(2, DEFAULT_TRUSTED_WORKFLOW_REF)).toBe(403);
+  });
 
   test("case variants share the stored registration and its quota", async () => {
     const env = await buildTestEnv();

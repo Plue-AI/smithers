@@ -107,4 +107,8 @@ ALTER TABLE repos ADD COLUMN owner_id TEXT;
 CREATE UNIQUE INDEX repos_repository_id_idx ON repos(repository_id);
 CREATE UNIQUE INDEX repos_name_idx ON repos(repo COLLATE NOCASE);
 `,
+}, {
+  name: "0003_allowed_workflow_refs.sql",
+  sql: `ALTER TABLE repos ADD COLUMN allowed_workflow_refs TEXT;
+`,
 }] as const;

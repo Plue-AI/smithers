@@ -133,7 +133,7 @@ jobs:
       - name: "Validate GitHub Actions workflows"
         uses: "docker://rhysd/actionlint@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f"
         with:
-          "args": ".github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-auth.yml .github/workflows/apps-deploy.yml .github/workflows/distribution.yml .github/workflows/canary.yml .github/workflows/pr-review.yml .github/workflows/reliability.yml .github/workflows/native-windows.yml .github/workflows/mirror-sync.yml"
+          "args": ".github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-auth.yml .github/workflows/apps-deploy.yml .github/workflows/distribution.yml .github/workflows/canary.yml .github/workflows/pr-review.yml .github/workflows/review.yml .github/workflows/reliability.yml .github/workflows/native-windows.yml .github/workflows/mirror-sync.yml"
       - name: "Install Go"
         uses: "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"
         with:

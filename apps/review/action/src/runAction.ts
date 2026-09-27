@@ -123,6 +123,10 @@ async function main(): Promise<void> {
   let session: Awaited<ReturnType<typeof createSession>>;
   try {
     oidcToken = await fetchOidcToken();
+    // Nothing after this mints a token: drop the request credential so no
+    // process this one starts can find it in its parent's environment.
+    delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
     session = await createSession({ serviceUrl, oidcToken, pr: decision.prNumber });
   } catch (error) {
     await setStatus(
@@ -154,6 +158,16 @@ async function main(): Promise<void> {
       `⏭️ smithers review skipped: this repository is not registered with the review service — ${NOT_REGISTERED_HINT}`,
     );
     return;
+  }
+  if (session.status === "untrusted-workflow") {
+    // A job that lists this action as a step, instead of calling the
+    // reusable review workflow, carries its own workflow file's identity.
+    await setStatus(`❌ smithers review failed: the job must call smithersai/smithers/.github/workflows/review.yml@main${runLink}`);
+    throw new Error(
+      `the review service accepts only tokens from ${session.allowedWorkflowRefs.join(", ") || "no workflow"}; ` +
+        `this job's workflow is ${session.jobWorkflowRef ?? "unknown"}. Replace the job's steps with ` +
+        "`uses: smithersai/smithers/.github/workflows/review.yml@main` (see the smithers review README).",
+    );
   }
   if (session.status === "error") {
     await setStatus(`❌ smithers review failed: could not create a review session${runLink}`);

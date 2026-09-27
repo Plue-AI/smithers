@@ -9,6 +9,7 @@ import { buildTestEnv } from "../server/helpers/buildTestEnv.ts";
 import { rsaKeypair } from "../server/helpers/rsaKeypair.ts";
 import { serveJwks } from "../server/helpers/serveJwks.ts";
 import { signTestJwt } from "../server/helpers/signTestJwt.ts";
+import { DEFAULT_TRUSTED_WORKFLOW_REF } from "../../src/server/sessions/trustedWorkflow.ts";
 
 const RUN_ACTION = fileURLToPath(new URL("../../action/src/runAction.ts", import.meta.url));
 const FAKE_GH = fileURLToPath(new URL("./fixtures/fake-gh", import.meta.url));
@@ -202,7 +203,7 @@ describe("runAction (subprocess)", () => {
   });
 
   /** The real review worker for octo/widgets in `mode`, plus the runner's OIDC endpoint, on one local origin. */
-  async function startReviewService(mode: "auto" | "comment") {
+  async function startReviewService(mode: "auto" | "comment", jobWorkflowRef = DEFAULT_TRUSTED_WORKFLOW_REF) {
     jwksCache.clear();
     const keypair = await rsaKeypair(`runaction-${mode}-mode`);
     const jwks = serveJwks([keypair.publicJwk]);
@@ -229,6 +230,7 @@ describe("runAction (subprocess)", () => {
       repository_owner: "octo",
       ref: "refs/pull/42/merge",
       event_name: "pull_request",
+      job_workflow_ref: jobWorkflowRef,
     });
     const service = Bun.serve({
       port: 0,
@@ -293,6 +295,50 @@ describe("runAction (subprocess)", () => {
       const reviewed = await env.DB.prepare("SELECT COUNT(*) AS c FROM reviewed_prs").first<{ c: number }>();
       expect(reviewed?.c).toBe(0);
       const sessions = await env.DB.prepare("SELECT COUNT(*) AS c FROM sessions").first<{ c: number }>();
+      expect(sessions?.c).toBe(0);
+    } finally {
+      service.stop();
+    }
+  }, 20_000);
+
+  test("a job that lists the action as a step fails with the reusable workflow to call, spending nothing", async () => {
+    const service = await startReviewService("auto", "octo/widgets/.github/workflows/smithers-review.yml@refs/pull/42/merge");
+    try {
+      const eventPath = join(tmp, "event.json");
+      await writeFile(eventPath, JSON.stringify({
+        action: "synchronize",
+        pull_request: {
+          number: 42,
+          draft: false,
+          head: { sha: "deadbeef", repo: { full_name: "octo/widgets" } },
+          base: { repo: { full_name: "octo/widgets" } },
+        },
+      }));
+      const child = Bun.spawn(["bun", RUN_ACTION], {
+        cwd: PKG_ROOT,
+        env: {
+          ...process.env,
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_EVENT_PATH: eventPath,
+          GITHUB_REPOSITORY: "octo/widgets",
+          GITHUB_WORKSPACE: PKG_ROOT,
+          GITHUB_RUN_ID: "",
+          ACTIONS_ID_TOKEN_REQUEST_URL: `http://127.0.0.1:${service.port}/oidc`,
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: "runner-token",
+          SMITHERS_REVIEW_SERVICE_URL: `http://127.0.0.1:${service.port}`,
+          SMITHERS_GH_BIN: FAKE_GH,
+          SMITHERS_FAKE_GH_LOG: join(tmp, "gh.log"),
+          SMITHERS_FAKE_GH_STDOUT: "",
+          SMITHERS_FAKE_GH_EXIT: "0",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain("uses: smithersai/smithers/.github/workflows/review.yml@main");
+      expect(stderr).toContain("octo/widgets/.github/workflows/smithers-review.yml@refs/pull/42/merge");
+      const sessions = await service.env.DB.prepare("SELECT COUNT(*) AS c FROM sessions").first<{ c: number }>();
       expect(sessions?.c).toBe(0);
     } finally {
       service.stop();

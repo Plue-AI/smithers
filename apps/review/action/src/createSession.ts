@@ -39,6 +39,7 @@ export type SessionOutcome =
   | { status: "payment-required"; message: string }
   | { status: "unavailable"; message: string }
   | { status: "not-registered"; message: string }
+  | { status: "untrusted-workflow"; jobWorkflowRef: string | null; allowedWorkflowRefs: string[] }
   | { status: "comment-mode" }
   | { status: "error"; message: string };
 
@@ -91,7 +92,20 @@ export async function createSession(input: CreateSessionInput): Promise<SessionO
     return { status, message: message || "review service payment required" };
   }
   if (res.status === 403) {
-    return { status: "not-registered", message: (await bodyText(res)) || "repository not registered" };
+    const raw = await bodyText(res);
+    try {
+      const body = JSON.parse(raw) as { error?: unknown; jobWorkflowRef?: unknown; allowedWorkflowRefs?: unknown };
+      if (body.error === "oidc: untrusted workflow") {
+        return {
+          status: "untrusted-workflow",
+          jobWorkflowRef: typeof body.jobWorkflowRef === "string" ? body.jobWorkflowRef : null,
+          allowedWorkflowRefs: Array.isArray(body.allowedWorkflowRefs)
+            ? body.allowedWorkflowRefs.filter((ref): ref is string => typeof ref === "string")
+            : [],
+        };
+      }
+    } catch { /* Older services may return plain text. */ }
+    return { status: "not-registered", message: raw || "repository not registered" };
   }
   if (res.status === 409) return { status: "comment-mode" };
   if (!res.ok) {

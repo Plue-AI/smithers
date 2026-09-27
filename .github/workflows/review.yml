@@ -1,0 +1,19 @@
+name: smithers review
+# The review job every repository calls by name at smithers' main. Its OIDC
+# token names this file at refs/heads/main (job_workflow_ref), which is the
+# only identity the review service accepts by default; a pull request that
+# edits its own caller workflow can no longer mint one. It takes no inputs,
+# so a caller cannot redirect the token or change what runs.
+on:
+  workflow_call:
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write       # proves the repo's identity to the review service
+      contents: read        # check out the PR
+      pull-requests: write  # post the review
+    steps:
+      - uses: smithersai/smithers/apps/review/action@main

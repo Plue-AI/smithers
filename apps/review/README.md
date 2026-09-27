@@ -37,10 +37,7 @@ on:
   issue_comment:
     types: [created]
 
-permissions:
-  id-token: write       # proves your repo's identity to the review service
-  contents: read        # check out the PR
-  pull-requests: write  # post the review
+permissions: {}
 
 concurrency:
   group: smithers-review-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -48,15 +45,27 @@ concurrency:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: smithersai/smithers/apps/review/action@v1.0.0-rc.0
+    permissions:
+      id-token: write       # proves your repo's identity to the review service
+      contents: read        # check out the PR
+      pull-requests: write  # post the review
+    uses: smithersai/smithers/.github/workflows/review.yml@main
 ```
 
 Keep the workflow on `pull_request`. Never switch it to
 `pull_request_target`. Review seats receive untrusted diffs and have no tools
 or repository access. Keep the job on the less-privileged PR event.
+
+The job calls smithers' reusable review workflow by name; it cannot run its
+own steps. On `pull_request`, GitHub takes this file from the pull request, so
+anyone who can push a branch could edit it. The service therefore accepts only
+tokens whose `job_workflow_ref` is
+`smithersai/smithers/.github/workflows/review.yml@refs/heads/main`, which a
+job gets only by calling that workflow. A token from any other workflow is
+refused with `403 oidc: untrusted workflow`. To trust a different workflow
+(for example your own at your default branch, which only `issue_comment`
+reviews carry), ask the operator to set your registration's
+`allowedWorkflowRefs`.
 
 3. **Trigger a review.** Comment on any PR:
 

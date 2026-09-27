@@ -104,6 +104,19 @@ describe("createSession", () => {
     }
   });
 
+  test("403 untrusted workflow: carries the claim and the allowed refs", async () => {
+    svc = serveSession(() => Response.json({
+      error: "oidc: untrusted workflow",
+      jobWorkflowRef: "octo/widgets/.github/workflows/r.yml@refs/pull/1/merge",
+      allowedWorkflowRefs: ["smithersai/smithers/.github/workflows/review.yml@refs/heads/main", 7],
+    }, { status: 403 }));
+    expect(await createSession({ serviceUrl: svc.url, oidcToken: "x" })).toEqual({
+      status: "untrusted-workflow",
+      jobWorkflowRef: "octo/widgets/.github/workflows/r.yml@refs/pull/1/merge",
+      allowedWorkflowRefs: ["smithersai/smithers/.github/workflows/review.yml@refs/heads/main"],
+    });
+  });
+
   test("409: maps to comment-mode", async () => {
     svc = serveSession(() => Response.json({ error: "comment-mode", repo: "octo/widgets" }, { status: 409 }));
     const outcome = await createSession({ serviceUrl: svc.url, oidcToken: "x" });

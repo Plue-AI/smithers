@@ -5,20 +5,18 @@ on:
   issue_comment:
     types: [created]
 
-permissions:
-  id-token: write       # proves your repo's identity to the review service
-  contents: read        # check out the PR
-  pull-requests: write  # post the review
+permissions: {}
 
 concurrency:
   group: smithers-review-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
+  # The job holds the review identity and PR write, so it runs main's
+  # reusable review workflow by name: the service accepts only its token.
   review:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # The job holds the review identity and PR write, so it runs main's action,
-    # never the pull request's own action code.
-    steps:
-      - uses: smithersai/smithers/apps/review/action@main
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    uses: smithersai/smithers/.github/workflows/review.yml@main

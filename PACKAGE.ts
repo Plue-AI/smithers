@@ -369,6 +369,7 @@ const ci = Smithers.GithubCiGen({
             ".github/workflows/distribution.yml",
             ".github/workflows/canary.yml",
             ".github/workflows/pr-review.yml",
+            ".github/workflows/review.yml",
             ".github/workflows/reliability.yml",
             ".github/workflows/native-windows.yml",
             ".github/workflows/mirror-sync.yml"

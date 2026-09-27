@@ -57,9 +57,13 @@ loading the review snapshot.
 ## CI
 
 `.github/workflows/pr-review.yml` dogfoods the action in `action/` on this
-repo. It is the README's workflow with the action referenced at `@main`, never
-as `./apps/review/action`: the job holds the review identity and PR write, so
-a pull request never runs its own action code there. The
+repo. It is the README's workflow: it calls the reusable
+`.github/workflows/review.yml` at `@main`, which runs the action at `@main`,
+never `./apps/review/action`. The job holds the review identity and PR write,
+so a pull request never runs its own action code there, and the service
+accepts only a token from `review.yml@refs/heads/main`
+(`src/server/sessions/trustedWorkflow.ts`). The reusable workflow takes no
+inputs, so a caller cannot redirect the token or change what runs. The
 repository is registered with the review service, so its reviews run on
 metered inference and it passes no provider key. It stays on
 `pull_request` and `issue_comment` (never `pull_request_target`) with
