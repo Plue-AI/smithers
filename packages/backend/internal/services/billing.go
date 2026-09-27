@@ -214,10 +214,13 @@ type billingPlanDefinition struct {
 }
 
 type BillingService struct {
-	queries       BillingBaseQuerier
-	stripe        StripeBillingClient
-	credits       BillingCreditLedger
-	emailSender   BillingEmailSender
+	queries     BillingBaseQuerier
+	stripe      StripeBillingClient
+	credits     BillingCreditLedger
+	emailSender BillingEmailSender
+	// notices, when set, holds billing notices until the webhook
+	// transaction commits (see processStripeEventTx).
+	notices       *[]billingNotice
 	config        BillingServiceConfig
 	priceCatalog  map[string]billingPlanDefinition
 	checkoutPlans map[string]map[string]billingPlanDefinition
@@ -779,6 +782,11 @@ func (s *BillingService) processStripeEventTx(ctx context.Context, txq billingTx
 	if txService.credits, err = creditLedgerInTransaction(s.credits, tx); err != nil {
 		return err
 	}
+	// Notices go out after commit: a sender may block, so never while the
+	// transaction holds the credit account lock a model call's settlement
+	// waits on, and never for an event that rolls back (smithersai/smithers#2193).
+	var notices []billingNotice
+	txService.notices = &notices
 	claimed, err := txService.claimStripeProcessedEvent(ctx, eventID, eventType)
 	if err != nil {
 		return err
@@ -791,6 +799,9 @@ func (s *BillingService) processStripeEventTx(ctx context.Context, txq billingTx
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return pkgerrors.Internal("failed to commit stripe webhook transaction").WithCause(err)
+	}
+	for _, notice := range notices {
+		s.sendBillingNotification(ctx, notice.account, notice.subject, notice.body)
 	}
 	return nil
 }
@@ -2498,7 +2509,17 @@ func (s *BillingService) claimStripeProcessedEvent(ctx context.Context, eventID,
 	return true, nil
 }
 
+// billingNotice is a billing email held until its webhook commits.
+type billingNotice struct {
+	account       db.BillingAccount
+	subject, body string
+}
+
 func (s *BillingService) sendBillingNotification(ctx context.Context, account db.BillingAccount, subject, body string) {
+	if s.notices != nil {
+		*s.notices = append(*s.notices, billingNotice{account, subject, body})
+		return
+	}
 	if s.emailSender == nil {
 		return
 	}
