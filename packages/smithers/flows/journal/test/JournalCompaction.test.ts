@@ -148,13 +148,17 @@ const stubbedRows = (
   )
 
 /**
- * Records every compaction-policy seeding COUNT and yields before running it.
+ * Records every compaction-policy seeding COUNT and holds it until `overlap`
+ * rows have committed.
  *
- * The yield opens the scheduling window the lost-count race needs: without a
+ * The hold opens the scheduling window the lost-count race needs: without a
  * per-run permit both settlements pass the "is the counter seeded" check before
- * either one answers it.
+ * either one answers it. It also fixes what the COUNT sees. Two concurrent
+ * durable emits commit in whatever order the database serves them, so on a
+ * server database the first seeding COUNT could otherwise run before or after
+ * the other commit.
  */
-const yieldingCounts = (seeds: Array<string>): DatabaseDecorator =>
+const overlappingCounts = (seeds: Array<string>, overlap: number): DatabaseDecorator =>
   Layer.merge(
     Layer.effect(
       SqlClient.SqlClient,
@@ -166,9 +170,12 @@ const yieldingCounts = (seeds: Array<string>): DatabaseDecorator =>
             if (typeof statement.compile !== "function") return statement
             const sqlText = statement.compile()[0]
             if (!sqlText.includes("COUNT(*) AS total")) return statement
+            const committed = base<{ readonly rows: number | string }>`
+              SELECT COUNT(*) AS "rows" FROM flows_journal_events
+            `.pipe(Effect.map(([row]) => Number(row?.rows ?? 0) >= overlap))
             return Effect.sync(() => {
               seeds.push(sqlText)
-            }).pipe(Effect.andThen(Effect.yieldNow), Effect.andThen(statement))
+            }).pipe(Effect.andThen(TestDatabase.until(committed)), Effect.andThen(statement))
           }
         }) as SqlClient.SqlClient
       })
@@ -1124,10 +1131,12 @@ describe("the compaction policy hook", () => {
             payload: { value: 0 }
           }, { disableChecks: true })
         ).pipe(Effect.forkChild({ startImmediately: true }))
-        for (let attempt = 0; attempt < 8; attempt++) {
-          yield* Effect.yieldNow
-        }
+        // The unrelated run's floors are cold, so its admission reads SQL
+        // first. That read is real I/O on a server database, which no count of
+        // scheduler turns waits for; the capture stays gated throughout.
+        yield* TestDatabase.until(Effect.sync(() => unrelated.pollUnsafe() !== undefined))
         expect(unrelated.pollUnsafe()?._tag).toBe("Success")
+        expect(crossing.pollUnsafe()).toBeUndefined()
 
         yield* Deferred.succeed(gate, undefined)
         expect((yield* Fiber.join(crossing)).seq).toBe(0)
@@ -1339,7 +1348,7 @@ describe("the compaction policy hook", () => {
                 })
             }
           },
-          yieldingCounts(seeds)
+          overlappingCounts(seeds, 2)
         )),
         Effect.scoped
       )
