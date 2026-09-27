@@ -92,8 +92,22 @@ export const make = (options: Options) => {
       method,
       ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
     })
-    if (!response.ok) throw new Error(`Issue sync ${method} ${path}: HTTP ${response.status}`)
+    if (!response.ok) {
+      throw Object.assign(new Error(`Issue sync ${method} ${path}: HTTP ${response.status}`), {
+        status: response.status
+      })
+    }
     return response.json()
+  }
+  // 409: another worker already settled this row (a replayed lapsed claim), so this receipt is moot.
+  const settle = async (id: number, receipt: unknown): Promise<boolean> => {
+    try {
+      await request(`/deliveries/${id}`, "PUT", receipt)
+      return true
+    } catch (error) {
+      if (isRecord(error) && error["status"] === 409) return false
+      throw error
+    }
   }
   const ingest = async (body: unknown, event?: ExternalEvent): Promise<"ignored" | "applied"> => {
     const receipt = await request("/events", "POST", body)
@@ -132,8 +146,7 @@ export const make = (options: Options) => {
         if (d.event !== "comment.created") continue
         const found = await options.connector.reconcile(d, `issue-sync-reconcile:${d.id}:${crypto.randomUUID()}`)
         if (found !== undefined) {
-          await request(`/deliveries/${d.id}`, "PUT", { state: "sent", message_id: found, token: "" })
-          completed++
+          if (await settle(d.id, { state: "sent", message_id: found, token: "" })) completed++
         }
         continue
       }
@@ -150,7 +163,7 @@ export const make = (options: Options) => {
       } catch (error) {
         const failure = failureOf(error)
         const partial = (failure?.deliveredMessageIds?.length ?? 0) > 0
-        await request(`/deliveries/${d.id}`, "PUT", {
+        await settle(d.id, {
           state: failure !== undefined && failure.outcomeUnknown !== true && !partial ? "failed" : "outcome_unknown",
           token,
           message_id: partial ? failure!.deliveredMessageIds!.join(",") : d.message_id,
@@ -160,13 +173,13 @@ export const make = (options: Options) => {
       }
       // A failed receipt write leaves the row dispatching for replay; it is not an unknown outcome.
       try {
-        await request(`/deliveries/${d.id}`, "PUT", {
+        const settled = await settle(d.id, {
           state: result.unsupported === undefined ? "sent" : "unsupported",
           token,
           message_id: result.messageId,
           ...(result.unsupported === undefined ? {} : { error: result.unsupported })
         })
-        completed++
+        if (settled) completed++
       } catch (error) {
         unsettled.push(error)
       }

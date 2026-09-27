@@ -406,3 +406,42 @@ it("acknowledges a refused event without waking the host", async () => {
   expect(await sync.ingest(events()[0]!)).toBe("ignored")
   expect(wakes).toEqual([])
 })
+it("lets a stale worker finish quietly after a lapsed claim was replayed and settled", async () => {
+  const server = await startFixture((_req, res) => json(res, 200, { ok: true, result: { message_id: 20 } }))
+  const { runtime, execute } = durable(server)
+  try {
+    let state = "pending", lapsed = false
+    const receipts: any[] = []
+    const request = async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/deliveries")) {
+        return Response.json(state === "sent" ? [] : [row({ state, claim_token: lapsed ? "claim" : "" })])
+      }
+      if (init?.method === "POST") {
+        state = "dispatching"
+        return Response.json({ state, token: "claim" })
+      }
+      if (state === "sent") return new Response(null, { status: 409 })
+      const r = JSON.parse(String(init?.body))
+      receipts.push(r)
+      state = r.state
+      return Response.json({})
+    }
+    let resume!: () => void
+    const paused = new Promise<void>((resolve) => (resume = resolve))
+    const hung = Sync.make({
+      ...options,
+      request,
+      execute: { ...execute, post: async (p, id) => (await paused, execute.post(p, id)) }
+    }).drain()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    lapsed = true
+    expect(await Sync.make({ ...options, request, execute }).drain()).toBe(1)
+    resume()
+    expect(await hung).toBe(0)
+    expect(server.requests).toHaveLength(1)
+    expect(receipts).toEqual([expect.objectContaining({ state: "sent", token: "claim" })])
+  } finally {
+    await runtime.dispose()
+    await server.close()
+  }
+})

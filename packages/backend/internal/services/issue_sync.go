@@ -461,7 +461,7 @@ func (s *IssueService) CompleteIssueSync(ctx context.Context, actor *db.User, ow
 	}
 	var issueID, commentID int64
 	var event, root, provider string
-	err = tx.QueryRow(ctx, `SELECT d.issue_id,(e.payload->'comment'->>'id')::bigint,e.event_type,t.thread_id,t.provider FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE d.id=$1 AND t.owner_id=$2 AND i.repository_id=$3 AND d.state IN ('dispatching','outcome_unknown') AND (d.claim_token=$4 OR ($4='' AND $5='sent')) FOR UPDATE OF d,t`, id, actor.ID, r.ID, in.Token, in.State).Scan(&issueID, &commentID, &event, &root, &provider)
+	err = tx.QueryRow(ctx, `SELECT d.issue_id,(e.payload->'comment'->>'id')::bigint,e.event_type,t.thread_id,t.provider FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE d.id=$1 AND t.owner_id=$2 AND i.repository_id=$3 AND d.state IN ('dispatching','outcome_unknown') AND (d.claim_token=$4 OR ($4='' AND $5='sent' AND d.state='outcome_unknown')) FOR UPDATE OF d,t`, id, actor.ID, r.ID, in.Token, in.State).Scan(&issueID, &commentID, &event, &root, &provider)
 	if err != nil {
 		return api.Conflict("delivery claim changed")
 	}

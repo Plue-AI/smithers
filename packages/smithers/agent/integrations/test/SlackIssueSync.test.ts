@@ -582,3 +582,12 @@ it.each(["comment.created", "comment.edited"])(
     expect(receipts[0]).toMatchObject({ state: "failed" })
   }
 )
+it("leaves a reconciled row to the worker that already settled it", async () => {
+  const { sync } = drainFixture([row({ state: "outcome_unknown" })], executor(), {
+    request: async (path) =>
+      path.endsWith("/deliveries")
+        ? Response.json([row({ state: "outcome_unknown" })])
+        : new Response(null, { status: 409 })
+  })
+  expect(await sync.drain()).toBe(0)
+})
