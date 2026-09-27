@@ -252,7 +252,8 @@ against the sets you compose. A gap where a block should be is the answer.
 ### PostgreSQL configuration
 
 `SMITHERS_POSTGRES_URL` selects PostgreSQL for native filename opens unless
-`SMITHERS_BACKEND=sqlite` is set. An explicit PostgreSQL URL selects it directly.
+`SMITHERS_BACKEND=sqlite` is set. `DATABASE_URL` counts only with
+`SMITHERS_BACKEND=postgres`. An explicit PostgreSQL URL selects it directly.
 Install the optional `@effect/sql-pg` peer at the version pinned by this package.
 
 Migrate the full composed set before starting stores. Independently racing

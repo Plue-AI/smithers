@@ -16,10 +16,11 @@ records use the same services and migration identities.
 SQLite is the local default. `NodeDatabase.layer({ filename })` and
 `BunDatabase.layer({ filename })` select PostgreSQL when given a
 `postgres://` or `postgresql://` connection string, or when
-`SMITHERS_POSTGRES_URL` (preferred) or `DATABASE_URL` is set. Set
-`SMITHERS_BACKEND=sqlite` to keep filename opens on SQLite despite an ambient
-connection string. An explicit PostgreSQL URL still selects PostgreSQL.
-`SMITHERS_BACKEND=postgres` requires a connection string.
+`SMITHERS_POSTGRES_URL` is set. A generic `DATABASE_URL` selects PostgreSQL
+only with `SMITHERS_BACKEND=postgres`, which requires one of the two. Set
+`SMITHERS_BACKEND=sqlite` to keep filename opens on SQLite despite
+`SMITHERS_POSTGRES_URL`. An explicit PostgreSQL URL still selects PostgreSQL.
+`:memory:` and `file:` URI opens always stay on SQLite.
 
 Install the optional adapter alongside the database package:
 

@@ -69,14 +69,21 @@ describe("the shared verb pre-handler", () => {
     const inherited = await Effect.runPromise(Effect.flip(Globals.guard({}).pipe(legacy([]))))
     expect(inherited.message).toBe(Environment.unsupportedBackendMessage)
     vi.unstubAllEnvs()
-    // A supported backend passes the guard and says nothing.
+    // A supported backend passes the guard, says nothing, and reaches the
+    // stores through the variable they read.
+    vi.stubEnv("SMITHERS_BACKEND", "")
+    await Effect.runPromise(Globals.guard({ backend: "postgres", environment: {} }).pipe(legacy([])))
+    expect(process.env.SMITHERS_BACKEND).toBe("postgres")
     await Effect.runPromise(Globals.guard({ backend: "sqlite", environment: {} }).pipe(legacy([])))
+    expect(process.env.SMITHERS_BACKEND).toBe("sqlite")
+    vi.unstubAllEnvs()
     expect(written).toEqual([])
   })
 
   it("warns that --credential exposes the secret it was handed", async () => {
     const errors: Array<unknown> = []
     vi.spyOn(console, "error").mockImplementation((...args) => void errors.push(args.join(" ")))
+    vi.stubEnv("SMITHERS_BACKEND", "")
     capture()
     await Effect.runPromise(
       Globals.guard({ credential: "sk-secret", backend: "sqlite", environment: {} }).pipe(legacy([]))

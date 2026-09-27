@@ -85,5 +85,13 @@ export const guard = (options: Options): Effect.Effect<void, CliError.Unsupporte
     if (fromEnvironment !== undefined) {
       return yield* Effect.fail(new CliError.UnsupportedError({ message: fromEnvironment }))
     }
+    // The flag is the variable's command-line form, and the stores read the
+    // variable: `--backend postgres` lets DATABASE_URL select PostgreSQL.
+    const backend = options.backend
+    if (backend !== undefined && backend !== "") {
+      yield* Effect.sync(() => {
+        process.env.SMITHERS_BACKEND = backend
+      })
+    }
     yield* legacyNotice
   })

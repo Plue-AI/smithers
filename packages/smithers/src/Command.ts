@@ -90,8 +90,7 @@ const global = {
     Flag.optional,
     Flag.withDescription("Project root to act on, instead of walking up from the working directory")
   ),
-  // Hidden, and the one removed flag with a supported value: `sqlite` names
-  // the backend rc.0 has, so it is a no-op rather than a refusal.
+  // Hidden: the command-line form of SMITHERS_BACKEND (`sqlite` or `postgres`).
   backend: Flag.String("backend").pipe(Flag.optional, Flag.withHidden)
 }
 

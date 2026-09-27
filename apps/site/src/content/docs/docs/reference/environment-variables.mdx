@@ -21,7 +21,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_MCP_CONFIG` | operator | Path to the MCP server array the local executor projects into a run's flow catalog. | `--mcp-config` |
 | `SMITHERS_OPENAI_AUTH` | operator | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. `chatgpt` reads the codex CLI's ChatGPT session at `$CODEX_HOME/auth.json` instead of `OPENAI_API_KEY`; any other value refuses the seat. | none |
 | `SMITHERS_BACKEND` | operator | Database backend: `sqlite` or `postgres`. Any other value exits 1 with `unsupported_database`. | `--backend` (hidden) |
-| `SMITHERS_POSTGRES_URL` | operator | PostgreSQL connection string; selects PostgreSQL (`DATABASE_URL` is the fallback). | none |
+| `SMITHERS_POSTGRES_URL` | operator | PostgreSQL connection string; selects PostgreSQL (`DATABASE_URL` counts only with `SMITHERS_BACKEND=postgres`). | none |
 | `SMITHERS_BUG_ENDPOINT` | operator | Where `smthrs bug` posts its report. | none |
 | `SMITHERS_JJ_PATH` | operator | Explicit path to the `jj` binary. | none |
 | `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | operator | Absolute path to the `smithers-jj-export` filesystem helper, when it is not in a searched location. | none |

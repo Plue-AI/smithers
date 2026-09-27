@@ -12,17 +12,30 @@ import { basename, resolve } from "node:path"
  */
 export const isUrl = (value: string): boolean => /^postgres(?:ql)?:\/\//.test(value)
 
+/** SQLite keeps memory and URI opens; an environment never redirects them to a
+ * persistent shared schema.
+ * @since 1.0.0
+ * @private
+ */
+const sqliteOwned = (filename: string): boolean =>
+  filename === "" || filename === ":memory:" || filename.startsWith("file:")
+
 /** Explicit URLs select one schema; environment selection preserves each local store's identity.
+ * Only Smithers' own settings select PostgreSQL: `SMITHERS_POSTGRES_URL`, or the generic
+ * `DATABASE_URL` when `SMITHERS_BACKEND=postgres` asks for it.
  * @since 1.0.0
  * @private
  */
 export const layer = (filename: string): Layer.Layer<SqlClient> | undefined => {
   const explicit = isUrl(filename)
-  const url = explicit ? filename : process.env.SMITHERS_POSTGRES_URL?.trim() || process.env.DATABASE_URL?.trim()
-  if (!url && process.env.SMITHERS_BACKEND === "postgres") {
+  const backend = process.env.SMITHERS_BACKEND
+  if (!explicit && (backend === "sqlite" || sqliteOwned(filename))) return undefined
+  const url = explicit ? filename : process.env.SMITHERS_POSTGRES_URL?.trim() ||
+    (backend === "postgres" ? process.env.DATABASE_URL?.trim() : undefined)
+  if (!url && backend === "postgres") {
     throw new Error("PostgreSQL requires SMITHERS_POSTGRES_URL or DATABASE_URL")
   }
-  if (!url || (!explicit && process.env.SMITHERS_BACKEND === "sqlite")) return undefined
+  if (!url) return undefined
   if (!isUrl(url)) throw new Error("PostgreSQL configuration requires a postgres:// or postgresql:// URL")
   let parsed: URL
   try {

@@ -9,6 +9,10 @@ import { existsSync } from "node:fs"
  */
 export const exists = (filename: string): boolean =>
   /^postgres(?:ql)?:\/\//.test(filename) ||
-  (process.env.SMITHERS_BACKEND !== "sqlite" &&
-    Boolean(process.env.SMITHERS_POSTGRES_URL?.trim() || process.env.DATABASE_URL?.trim())) ||
+  (filename !== "" && filename !== ":memory:" && !filename.startsWith("file:") &&
+    process.env.SMITHERS_BACKEND !== "sqlite" &&
+    Boolean(
+      process.env.SMITHERS_POSTGRES_URL?.trim() ||
+        (process.env.SMITHERS_BACKEND === "postgres" && process.env.DATABASE_URL?.trim())
+    )) ||
   existsSync(filename)
