@@ -322,6 +322,7 @@ const repositoryFixtures = [
   "proposal-review",
   "push",
   "remote-source",
+  "reply-trust",
   "retention",
   "review-eval",
   "selection",

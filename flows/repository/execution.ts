@@ -502,20 +502,14 @@ export const executionLayers = (
         ) {
           return null
         }
-        const payload = object(event.payload), original = object(input.event.payload), issue = object(original.issue)
-        const author = object(issue.user),
-          comment = object(payload.comment),
-          sender = object(comment.user ?? payload.sender)
-        const identity = (value: Record<string, unknown>) =>
-          typeof value.id === "number"
-            ? `id:${value.id}`
-            : typeof value.login === "string"
-            ? `login:${value.login}`
-            : ""
-        const allowedTeam = event.source === "github" &&
-          ["OWNER", "MEMBER", "COLLABORATOR"].includes(String(comment.author_association))
+        const payload = object(event.payload), original = object(input.event.payload)
+        const comment = object(payload.comment)
+        // The backend decides whether a comment is a maintainer's own text (its
+        // author and its last writer are maintainer people) and stamps it; a
+        // run credential or chat sync writes as the owner's user id, so neither
+        // the author's identity nor GitHub's author_association is trust.
         if (
-          !identity(sender) || (!allowedTeam && identity(author) !== identity(sender)) ||
+          comment.smithers_text_by_maintainer !== true ||
           previous.publicActions.some((action) => object(action).comment_id === comment.id)
         ) {
           return null
