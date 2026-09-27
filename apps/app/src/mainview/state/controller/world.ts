@@ -3,6 +3,7 @@ import { parseWikilinks, restoreWikilinks } from "@smthrs/ui/vault"
 import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, rootFrameId, WIKI_DISPLAY_NAME } from "../AppState"
 import type { Card, WorldDocument } from "../AppState"
 import type { AppStore } from "../AppStore"
+import type { PreparedWikiEdit } from "../../flows/CommandGesture"
 import { linkGraphOf, linksOf, neighbourhoodOf, notesOf, resolveLink } from "../../wiki/VaultAdapter"
 import { actorSharedState } from "../ActorBindings"
 import type { ControllerContext } from "./context"
@@ -34,6 +35,7 @@ export interface WorldController {
   readonly clearConversation: (options?: { readonly summarize?: boolean }) => Promise<string | void>
   readonly selectWorldDocument: (id: string) => string | void
   readonly changeWorldDocument: (id: string, body: string) => Promise<string | void>
+  readonly prepareWorldDocument: (id: string, body: string) => PreparedWikiEdit | undefined
   readonly selectWikiCardDocument: (cardId: string, documentId: string) => string | void
   readonly setWikiCardView: (cardId: string, view: "outline" | "document") => string | void
   readonly createWorldDocument: () => void
@@ -59,7 +61,7 @@ export interface WikiEditorHandle {
 
 export const createWorldController = (
   ctx: ControllerContext,
-  deps: { readonly nextOrdinal: () => number; readonly cloudWiki?: { readonly scrollEditor?: (id: string, cardId: string, line: number) => boolean; readonly editCloudWiki: (id: string, body: string) => Promise<string | void> } }
+  deps: { readonly nextOrdinal: () => number; readonly cloudWiki?: { readonly scrollEditor?: (id: string, cardId: string, line: number) => boolean; readonly editCloudWiki: (id: string, body: string) => Promise<string | void>; readonly prepareCloudWiki?: (id: string, body: string) => PreparedWikiEdit | undefined } }
 ): WorldController => {
   let pendingClear: AbortController | undefined
   let disposed = false
@@ -210,6 +212,16 @@ export const createWorldController = (
       return `There is no ${WIKI_DISPLAY_NAME} note with id ${id}.`
     }
     ctx.store.dispatch({ type: "world.document.selected", actor: "user", id })
+  }
+
+  const prepareWorldDocument = (id: string, body: string): PreparedWikiEdit | undefined => {
+    const document = ctx.store.collections.worldDocuments.get(id)
+    if (disposed || document === undefined || ctx.commandActor !== "user") return undefined
+    if (document.cloud !== undefined) return deps.cloudWiki?.prepareCloudWiki?.(id, restoreWikilinks(body))
+    const saved = ctx.store.dispatch({ type: "world.document.upserted", actor: "user",
+      document: updateDocumentBody(document, body), select: false }).isPersisted.promise
+    void saved.catch(() => {})
+    return { complete: async () => { await saved }, release: () => {} }
   }
 
   const changeWorldDocument = async (id: string, body: string): Promise<string | void> => {
@@ -429,6 +441,7 @@ export const createWorldController = (
     clearConversation,
     selectWorldDocument,
     changeWorldDocument,
+    prepareWorldDocument,
     createWorldDocument,
     removeWorldDocument,
     confirmWorldDelete,

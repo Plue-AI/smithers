@@ -123,7 +123,8 @@ Collections `app-models`, `app-seats`; nothing is seeded — builtin rows arrive
 (`parity-hosts.test.ts:240` lists `model` in API_HEADS). Flows: `model.list`,
 `model.new`, `model.edit`, `model.save`, `model.show`, `model.remove`, `model.test`,
 `model.assign` — a FRESH namespace; never reuse a retired `agent.*` name.
-APP_PROJECTOR_VERSION 10 -> 11; APP_SCHEMA_VERSION stays 14. Presentation reaches the
+The model-seat migration advances APP_PROJECTOR_VERSION from 10 to 11 without
+requiring a storage schema change. Presentation reaches the
 card body through `CardActions.presentation`. Follow the app's existing CSS/card idiom;
 do not introduce `@smthrs/ui` form components apps/app has never imported.
 

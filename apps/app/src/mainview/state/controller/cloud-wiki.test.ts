@@ -1,3 +1,8 @@
+import { scopedControllers } from "../ControllerTestScope"
+import { silentAgent } from "../TestFixtures"
+import type { AppServices } from "../AppController"
+import { enforceSchemaVersion } from "../../chain/SchemaVersion"
+import { ENVELOPE_STORAGE_KEY } from "../../chain/TransactionalStorage"
 import type { StorageApi } from "@tanstack/db"
 import { afterEach, describe, expect, test } from "bun:test"
 import * as Y from "yjs"
@@ -8,6 +13,7 @@ import { createCloudWikiController } from "./cloud-wiki"
 import { createControllerContext } from "./context"
 import { createFramesController } from "./frames"
 
+const createAppController = scopedControllers()
 const cleanup: Array<() => void> = []
 afterEach(() => {
   cleanup.splice(0).forEach((close) => close())
@@ -74,12 +80,7 @@ const fixture = async (storage = memory()) => {
     state_vector: encodeWikiState(Y.encodeStateVector(doc))
   })
   const connect = (store: AppStore) => {
-    const ctx = createControllerContext(store, {
-      available: false,
-      startTurn: async () => ({ status: "started" }),
-      cancelTurn: async () => {},
-      subscribe: () => () => {}
-    }, {
+    const services: AppServices = {
       fetchImpl: async (input, init) => {
         const url = String(input)
         if (url.includes("/stream?")) {
@@ -124,7 +125,8 @@ const fixture = async (storage = memory()) => {
         }
         throw new Error(`Unexpected Wiki request ${url}`)
       }
-    })
+    }
+    const ctx = createControllerContext(store, silentAgent, services)
     // Forking announces itself through the toast law; a bare context has no failure controller.
     ctx.resolveToast = (key, outcome) => {
       store.dispatch({ type: "toast.resolved", actor: "system", key, ...outcome })
@@ -133,9 +135,9 @@ const fixture = async (storage = memory()) => {
     cleanup.push(() => {
       ctx.dispose()
     })
-    return { ctx, wiki }
+    return { ctx, wiki, services }
   }
-  const { ctx, wiki } = connect(store)
+  const { ctx, wiki, services } = connect(store)
   cleanup.push(() => doc.destroy())
   const emit = (event: string, data: unknown, seq?: number) => {
     for (const stream of streams) {
@@ -158,6 +160,7 @@ const fixture = async (storage = memory()) => {
     ctx,
     wiki,
     posts,
+    services,
     remote,
     bootstrap,
     emit,
@@ -183,7 +186,239 @@ const fixture = async (storage = memory()) => {
   }
 }
 
+const commandsFor = (f: Awaited<ReturnType<typeof fixture>>) => {
+  const admissions: Array<ReturnType<typeof Promise.withResolvers<void>>> = []
+  const controller = createAppController({ ...f.store, dispatch: transition => {
+    const receipt = f.store.dispatch(transition)
+    if (transition.type !== "command.intent.accepted" || transition.name !== "wiki.edit") return receipt
+    const held = Promise.withResolvers<void>()
+    admissions.push(held)
+    return new Proxy(receipt, { get: (target, key, receiver) => key === "isPersisted"
+    ? { ...target.isPersisted, promise: target.isPersisted.promise.then(() => held.promise) }
+    : Reflect.get(target, key, receiver) })
+  } }, silentAgent, f.services)
+  return { controller, admissions }
+}
+
 describe("cloud Wiki controller", () => {
+  test("a store with unadmitted Wiki input refuses version-14 writers without changing its bytes", async () => {
+    const f = await fixture()
+    await f.wiki.openCloudWiki(repo, "home")
+    const prepared = f.wiki.prepareCloudWiki(id, "# Private draft")!
+    try {
+      await f.store.settled?.()
+      const before = f.storage.getItem(ENVELOPE_STORAGE_KEY)
+      expect(f.store.committedWorldDocument(id)?.cloud?.pending[0]?.admitted).toBe(false)
+      expect(() => enforceSchemaVersion(f.storage, { version: 14 })).toThrow("cannot be opened")
+      expect(f.storage.getItem(ENVELOPE_STORAGE_KEY)).toBe(before)
+      expect(f.posts).toHaveLength(0)
+    } finally { prepared.release() }
+  })
+  test("queued Wiki commands never project an older body over newer native typing", async () => {
+    const f = await fixture()
+    const { controller, admissions } = commandsFor(f)
+    await controller.openCloudWiki(repo, "home")
+    let text = f.store.collections.worldDocuments.get(id)!.body
+    const replacements: string[] = []
+    controller.attachWorldEditor(id, "card", {
+      getMarkdown: () => text,
+      setMarkdown: value => { replacements.push(value); text = value },
+      scrollToLine: () => true
+    })
+    const firstBody = "# Page\n\nStart C", latestBody = "# Page\n\nStart Collaboration"
+    text = firstBody
+    const first = controller.commands.run("wiki.edit", `${id} ${JSON.stringify(text)}`)
+    text = latestBody
+    const latest = controller.commands.run("wiki.edit", `${id} ${JSON.stringify(text)}`)
+    try {
+      await f.store.settled?.()
+      expect(f.posts).toHaveLength(0)
+      admissions[0]!.resolve()
+      expect((await first).status).toBe("executed")
+      expect(text).toBe(latestBody)
+      expect(replacements).toEqual([])
+      expect(f.bootstrap().page.body).toBe(firstBody)
+      admissions[1]!.resolve()
+      expect((await latest).status).toBe("executed")
+      expect(f.bootstrap().page.body).toBe(latestBody)
+      expect(f.store.collections.worldDocuments.get(id)?.cloud?.pending).toEqual([])
+    } finally {
+      for (const held of admissions) held.resolve()
+      await Promise.all([first, latest])
+    }
+  })
+
+  test("a later accepted edit includes earlier typing without replaying it when receipts finish backwards", async () => {
+    const f = await fixture()
+    const { controller, admissions } = commandsFor(f)
+    await controller.openCloudWiki(repo, "home")
+    const first = controller.commands.run("wiki.edit", `${id} ${JSON.stringify("# Page\n\nC")}`)
+    const latest = controller.commands.run("wiki.edit", `${id} ${JSON.stringify("# Page\n\nCollaboration")}`)
+    try {
+      admissions[1]!.resolve()
+      expect((await latest).status).toBe("executed")
+      expect(f.bootstrap().page.body).toBe("# Page\n\nCollaboration")
+      const posts = f.posts.length
+      admissions[0]!.resolve()
+      expect((await first).status).toBe("executed")
+      expect(f.posts).toHaveLength(posts)
+      expect(f.store.collections.worldDocuments.get(id)?.body).toBe("# Page\n\nCollaboration")
+    } finally {
+      for (const held of admissions) held.resolve()
+      await Promise.all([first, latest])
+    }
+  })
+
+  test("a peer update and a held acknowledgement cannot publish or overwrite unadmitted typing", async () => {
+    const f = await fixture()
+    const { controller, admissions } = commandsFor(f)
+    await controller.openCloudWiki(repo, "home")
+    const ack = Promise.withResolvers<void>()
+    f.pause(ack.promise)
+    const first = controller.commands.run("wiki.edit", `${id} ${JSON.stringify("# Page\n\nStart C")}`)
+    admissions[0]!.resolve()
+    await until(() => f.posts.length === 1)
+    const latest = controller.commands.run("wiki.edit", `${id} ${JSON.stringify("# Page\n\nStart Collaboration")}`)
+    try {
+      f.remote("# Peer\n\n# Page\n\nStart C")
+      await until(() => f.store.collections.worldDocuments.get(id)?.body.includes("Peer") === true)
+      expect(f.store.collections.worldDocuments.get(id)?.body).toContain("Collaboration")
+      ack.resolve()
+      expect((await first).status).toBe("executed")
+      expect(f.posts).toHaveLength(1)
+      expect(f.bootstrap().page.body).not.toContain("Collaboration")
+      admissions[1]!.resolve()
+      expect((await latest).status).toBe("executed")
+      expect(f.bootstrap().page.body).toContain("Collaboration")
+      expect(f.bootstrap().page.body).toContain("Peer")
+      expect(f.store.collections.worldDocuments.get(id)?.cloud?.pending).toEqual([])
+    } finally {
+      ack.resolve()
+      for (const held of admissions) held.resolve()
+      await Promise.all([first, latest])
+    }
+  })
+
+  test("Refresh cannot admit an active gesture; refused input stays local until an explicit retry", async () => {
+    const f = await fixture()
+    const { controller, admissions } = commandsFor(f)
+    await controller.openCloudWiki(repo, "home")
+    const pending = controller.commands.run("wiki.edit", `${id} ${JSON.stringify("# Saved private draft")}`)
+    try {
+      await controller.retryCloudWiki(id)
+      expect(f.posts).toHaveLength(0)
+      admissions[0]!.reject(new Error("admission storage failed"))
+      expect((await pending).status).toBe("failed")
+      expect(f.store.collections.worldDocuments.get(id)?.body).toBe("# Saved private draft")
+      expect(f.posts).toHaveLength(0)
+      await controller.retryCloudWiki(id)
+      expect(f.bootstrap().page.body).toBe("# Saved private draft")
+      expect(f.store.collections.worldDocuments.get(id)?.cloud?.pending).toEqual([])
+    } finally {
+      for (const held of admissions) held.resolve()
+      await pending
+    }
+  })
+
+  test("resubmitting the same refused text admits its existing update without duplicating it", async () => {
+    const f = await fixture()
+    const { controller, admissions } = commandsFor(f)
+    await controller.openCloudWiki(repo, "home")
+    const args = `${id} ${JSON.stringify("# Same saved draft")}`
+    const first = controller.commands.run("wiki.edit", args)
+    admissions[0]!.reject(new Error("admission failed"))
+    expect((await first).status).toBe("failed")
+    const update = f.store.collections.worldDocuments.get(id)!.cloud!.pending[0]!
+    const second = controller.commands.run("wiki.edit", args)
+    try {
+      expect(f.store.collections.worldDocuments.get(id)?.cloud?.pending).toHaveLength(1)
+      expect(f.posts).toHaveLength(0)
+      admissions[1]!.resolve()
+      expect((await second).status).toBe("executed")
+      expect(f.posts).toHaveLength(1)
+      expect(f.posts[0]).toMatchObject({ update_id: update.updateId, update: update.update })
+      expect(f.bootstrap().page.body).toBe("# Same saved draft")
+    } finally {
+      for (const held of admissions) held.resolve()
+      await second
+    }
+  })
+
+  test("reload retains a prepared edit privately until Refresh authorizes publication", async () => {
+    const f = await fixture()
+    await f.wiki.openCloudWiki(repo, "home")
+    const prepared = f.wiki.prepareCloudWiki(id, "# Recovered draft")!
+    await f.store.settled?.()
+    prepared.release()
+    const reopened = await f.reopen()
+    expect(reopened.store.collections.worldDocuments.get(id)?.body).toBe("# Recovered draft")
+    await reopened.wiki.openCloudWiki(repo, "home")
+    expect(f.posts).toHaveLength(0)
+    expect(reopened.store.collections.worldDocuments.get(id)?.cloud?.pending[0]?.admitted).toBe(false)
+    await reopened.wiki.retryCloudWiki(id)
+    expect(f.bootstrap().page.body).toBe("# Recovered draft")
+    expect(reopened.store.collections.worldDocuments.get(id)?.cloud?.pending).toEqual([])
+  })
+
+  test("sign-out retires a prepared command without publishing or restoring its text", async () => {
+    const f = await fixture()
+    const { controller, admissions } = commandsFor(f)
+    await controller.openCloudWiki(repo, "home")
+    const pending = controller.commands.run("wiki.edit", `${id} ${JSON.stringify("# Private draft")}`)
+    try {
+      await f.store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
+      admissions[0]!.resolve()
+      expect((await pending).status).toBe("failed")
+      expect(f.posts).toHaveLength(0)
+      expect(f.store.collections.worldDocuments.get(id)).toBeUndefined()
+    } finally {
+      for (const held of admissions) held.resolve()
+      await pending
+    }
+  })
+
+  test("agent edits wait for admission before changing local text or publishing", async () => {
+    const f = await fixture()
+    const { controller, admissions } = commandsFor(f)
+    await controller.openCloudWiki(repo, "home")
+    const before = f.store.collections.worldDocuments.get(id)!.body
+    const pending = controller.commands.runForAgent("wiki.edit", `${id} ${JSON.stringify("# Agent edit")}`)
+    try {
+      await f.store.settled?.()
+      expect(f.store.collections.worldDocuments.get(id)?.body).toBe(before)
+      expect(f.posts).toHaveLength(0)
+      admissions[0]!.resolve()
+      expect((await pending).status).toBe("executed")
+      expect(f.bootstrap().page.body).toBe("# Agent edit")
+      expect(f.store.collections.worldDocuments.get(id)?.updatedBy).toBe("system")
+    } finally {
+      for (const held of admissions) held.resolve()
+      await pending
+    }
+  })
+
+  test("local Wiki edits also prepare the latest text without replaying delayed commands", async () => {
+    const f = await fixture()
+    const { controller, admissions } = commandsFor(f)
+    await f.store.dispatch({ type: "world.document.upserted", actor: "user", select: false,
+      document: { id: "local-note", path: "Note.md", title: "Note", body: "# Note", tags: [], links: [], sources: [], confidence: 1 }
+    }).isPersisted.promise
+    const first = controller.commands.run("wiki.edit", `local-note ${JSON.stringify("# Note\n\nC")}`)
+    const latest = controller.commands.run("wiki.edit", `local-note ${JSON.stringify("# Note\n\nCollaboration")}`)
+    try {
+      expect(f.store.collections.worldDocuments.get("local-note")?.body).toBe("# Note\n\nCollaboration")
+      admissions[0]!.resolve()
+      expect((await first).status).toBe("executed")
+      expect(f.store.collections.worldDocuments.get("local-note")?.body).toBe("# Note\n\nCollaboration")
+      admissions[1]!.resolve()
+      expect((await latest).status).toBe("executed")
+      expect(f.posts).toHaveLength(0)
+    } finally {
+      for (const held of admissions) held.resolve()
+      await Promise.all([first, latest])
+    }
+  })
+
   test("open embeds the real page, persists a local edit, and reconciles a peer edit into the same row/editor", async () => {
     const f = await fixture()
     expect(await f.wiki.openCloudWiki(repo, "home")).toMatchObject({ value: expect.stringContaining("# Page") })

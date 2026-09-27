@@ -2,6 +2,8 @@ import { decideApprovalAnswerInput } from "../ApprovalAnswerState"
 import { browserWriteRefusal, lostActRefusal } from "../BrowserWriteFailure"
 import { decideFormFieldInput } from "./forms"
 import { reserveBrowserCommandGesture } from "../../flows/CommandGesture"
+import type { PreparedWikiEdit } from "../../flows/CommandGesture"
+import { payloadFor } from "../../flows/SlashPayload"
 import { digest } from "@smthrs/core/Digest"
 import type { CommandLifecycle, CommandRequest, PendingCommandInput } from "../../flows/CommandLifecycle"
 import { canonicalEventValue } from "../EventValue"
@@ -21,7 +23,8 @@ const currentHttpCall = (ctx: ControllerContext, call: CommandRequest["httpCall"
 
 /** Command facts contain metadata only. Pending human edits never execute a form submission. */
 export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?: (request: CommandRequest) => void,
-  setInputMode?: (mode: InputMode) => Promise<void>): CommandLifecycle => ({
+  setInputMode?: (mode: InputMode) => Promise<void>,
+  prepareWikiEdit?: (id: string, body: string) => PreparedWikiEdit | undefined): CommandLifecycle => ({
   before: createPrivacyActions(ctx).before,
   reserveGesture: (request, args, named) => {
     if (ctx.disposed || request.actor !== "user") return undefined
@@ -52,6 +55,13 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
         const inputModeChanged = setInputMode(mode as InputMode)
         void inputModeChanged.catch(() => {})
         return { name, inputModeChanged, release: () => {} }
+      }
+    }
+    if (request.name === "wiki.edit" && prepareWikiEdit !== undefined) {
+      const parsed = named === undefined ? payloadFor("wiki.edit", args, undefined, new Set()) : { payload: named }
+      if (!("error" in parsed) && typeof parsed.payload.documentId === "string" && typeof parsed.payload.body === "string") {
+        const edit = prepareWikiEdit(parsed.payload.documentId, parsed.payload.body)
+        if (edit !== undefined) return { name, wikiEditPrepared: edit.complete, release: edit.release }
       }
     }
     return reserveBrowserCommandGesture(name)

@@ -1251,6 +1251,7 @@ export const createAppController = (
     clearConversation,
     selectWorldDocument,
     changeWorldDocument,
+    prepareWorldDocument,
     createWorldDocument,
     removeWorldDocument,
     confirmWorldDelete,
@@ -2016,7 +2017,7 @@ export const createAppController = (
   }
   const registry = createCommandRegistry(commandActions, actors.select(commandActions), createCommandIntentLifecycle(ctx, request => {
     if (request.actor === "user" && request.source === "command") recommender.noteDispatch(request.name)
-  }, inputMode.setInputMode))
+  }, inputMode.setInputMode, prepareWorldDocument))
   /*
    * The user's one door (slash, button, pill, form submit) also answers the
    * standing recommendation: the recommender reports the dispatched flow as

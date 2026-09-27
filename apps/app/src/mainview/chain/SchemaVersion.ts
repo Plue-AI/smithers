@@ -31,9 +31,11 @@ import { parseSchemaStamp } from "./SchemaStamp"
 
 /**
  * The shape version of everything AppStore persists. Bump it whenever a
- * persisted schema changes in a way an older row cannot satisfy.
+ * persisted schema changes in a way an older row cannot satisfy, or an
+ * older writer would misinterpret new authority fields.
  */
-export const APP_SCHEMA_VERSION = 14
+// Version 14 writers do not understand private, unadmitted Wiki deltas.
+export const APP_SCHEMA_VERSION = 15
 
 /** The prefix AppStore gives every persisted collection's storage key. */
 export const PERSISTED_KEY_PREFIX = "smithers-mvp."

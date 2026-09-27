@@ -1,5 +1,11 @@
 import { Context } from "effect"
 
+/** Local text is prepared synchronously; publication still waits for command admission. */
+export interface PreparedWikiEdit {
+  readonly complete: () => Promise<string | void>
+  readonly release: () => void
+}
+
 /** Local input preparation or a browser reservation from the original human gesture. */
 export interface CommandGesture {
   readonly name: string
@@ -8,6 +14,7 @@ export interface CommandGesture {
   readonly chatInputCurrent?: () => boolean
   /** The local preference already changed; the binding awaits its save without replaying it. */
   readonly inputModeChanged?: Promise<void>
+  readonly wikiEditPrepared?: PreparedWikiEdit["complete"]
   readonly hasWriteOnly?: (field: string) => boolean
   readonly takeWriteOnly?: (field: string) => string | undefined
   readonly release: () => void

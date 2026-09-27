@@ -16,7 +16,9 @@ export const CloudWikiState = z.object({
   pending: z.array(z.object({
     updateId: z.string().uuid(),
     update: z.string(),
-    actor: z.enum(["user", "smithers"])
+    actor: z.enum(["user", "smithers"]),
+    // Older saved updates were created by already-admitted handlers.
+    admitted: z.boolean().optional()
   }))
 })
 export type CloudWikiState = z.infer<typeof CloudWikiState>

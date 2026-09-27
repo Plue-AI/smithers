@@ -84,8 +84,19 @@ the existing `Y.Text("markdown")`; surrogate pairs remain intact. A per-mount
 Yjs client ID is reused across that controller's edits. It is a codec identity,
 not a new application entity or a replacement for native JJ change IDs.
 
+Human typing prepares the local document through the dispatcher during the input
+event, before waiting for command admission. Its pending delta records
+`admitted: false`. The accepted flow authorizes that edit and its earlier local
+deltas without replaying their Markdown over newer typing. Agents continue to
+wait for admission and authorization before changing the document.
+
 The dispatcher persists the updated state and `{UUID, exact delta bytes, actor}`
-before `POST /updates`. Only one POST per page is outstanding. A returned
+before `POST /updates`. Publication reads the committed, admitted prefix of the
+pending queue; a newer optimistic edit cannot leave through an older save.
+Older saved updates without an admission field remain compatible because their
+handlers already passed admission. Storage schema 15 fences older writers that
+would discard the admission field; compatible version-14 data still upgrades.
+Only one POST per page is outstanding. A returned
 acknowledgement must match the UUID and page ID and its causal state must contain
 the submitted delta, including deletions. It removes only that pending UUID and
 merges the server state with any newer locally queued edits. A lost response
@@ -98,6 +109,11 @@ page ID and revision must agree. Events trigger a bootstrap refresh, with rename
 events using their new slug. The stream reconnects after interruption with a
 two-second backoff. Reconnection does not resend a pending edit by itself;
 Refresh or a subsequent edit retries the persisted queue.
+
+A refused or interrupted command leaves its prepared text local. Refresh can
+explicitly admit recovered edits, but excludes gestures still awaiting their
+own command receipts. Resubmitting the same text reuses the saved update identity
+and bytes. Merely reopening a page does not admit an unaccepted draft.
 
 An explicit refresh is required to resume collaboration after reload or a branch
 change. Restoring a frame snapshot marks its cloud rows cached inside the existing
@@ -147,8 +163,10 @@ updates and SSE decoding. Its checked-in synthetic Yrs deletion fixture verifies
 that acknowledgement containment includes deleted text and concurrent insertions. `cloud-wiki.test.ts` covers peer rename/editor refresh,
 lost acknowledgement and actual store reload, newer typing while POST waits,
 acknowledgement containment, account revocation, deletion/slug reuse, and historic
-fork fencing. `WikiFlows.test.ts` checks schema forms and actor parity. The
-Chromium Wiki test edits through the real Milkdown adapter, reloads persisted
+fork fencing. Delayed and reversed command receipts cover native text retention,
+peer merges, held acknowledgements, refused admission, explicit retry and private
+reload recovery. `WikiFlows.test.ts` checks schema forms and actor parity. The
+Chromium and WebKit Wiki test edits through the real Milkdown adapter, reloads persisted
 state and view, and checks unchanged component identity on maximize/restore with
 the composer visible in that test host. The current shell separately owns
 Command-K visibility and keyboard focus. Backend native/Postgres tests and proxy bounds tests are

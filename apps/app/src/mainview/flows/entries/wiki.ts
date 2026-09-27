@@ -93,7 +93,8 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     args: "<documentId> <JSON Markdown string>",
     input: Schema.Struct({ documentId: Schema.String, body: Schema.String }),
     form: { fields: { body: { label: "Markdown" } }, args: (payload) => `${payload.documentId} ${JSON.stringify(payload.body)}` },
-    handler: ({ documentId, body }) => actions.changeWorldDocument(documentId, body)
+    handler: ({ documentId, body }, _signal, _call, gesture) =>
+      gesture?.wikiEditPrepared?.() ?? actions.changeWorldDocument(documentId, body)
   }),
   flow({
     name: "wiki.card.select",

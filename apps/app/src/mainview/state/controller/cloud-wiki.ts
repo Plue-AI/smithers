@@ -14,6 +14,7 @@ import {
 } from "../../wiki/CloudWiki"
 import type { CloudWikiDocument } from "../../wiki/CloudWiki"
 import type { CloudWikiState } from "../../wiki/CloudWikiState"
+import type { PreparedWikiEdit } from "../../flows/CommandGesture"
 import { actorSharedState } from "../ActorBindings"
 import type { Card, WorldDocument } from "../AppState"
 import { DEFAULT_BRANCH_ID } from "../AppState"
@@ -32,6 +33,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     const sends = new Map<string, Promise<string | void>>()
     const editors = new Map<string, Map<string, MarkdownEditorHandle>>()
     const clients = new Map<string, number>()
+    const preparations = new Set<string>()
     let disposed = false
     let lifetime = new AbortController()
     const branch = () => ctx.store.session().activeBranchId ?? DEFAULT_BRANCH_ID
@@ -143,8 +145,13 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           const document = read(id)
           const watch = watches.get(id)
           if (document === undefined || watch?.valid() !== true || watch !== operationWatch) return
-          const pending = document.cloud.pending[0]
-          if (pending === undefined) return
+          // Optimistic rows may include newer input or an admission write
+          // still in storage. Only the committed, admitted prefix may leave.
+          const saved = ctx.store.committedWorldDocument(id)?.cloud
+          if (saved?.accountLogin !== document.cloud.accountLogin || saved.branchId !== document.cloud.branchId ||
+            saved.pageId !== document.cloud.pageId) return
+          const pending = saved.pending[0]
+          if (pending === undefined || pending.admitted === false) return
           const { cloud } = document
           const answer = yield* api.update(cloud.repo, cloud.slug, cloud.pageId, pending.updateId, pending.update)
           if (!watch.valid() || watches.get(id) !== watch) return
@@ -307,6 +314,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       sessionSubscription.unsubscribe()
       documentSubscription.unsubscribe()
       editors.clear()
+      preparations.clear()
     })
     return {
       provide,
@@ -319,6 +327,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       watches,
       editors,
       clients,
+      preparations,
       branch,
       login,
       disposed: () => disposed
@@ -438,21 +447,27 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     )
   }
 
-  const editCloudWiki = async (id: string, body: string): Promise<string | void> => {
+  const stageEdit = (id: string, body: string, needsAdmission: boolean): PreparedWikiEdit | string => {
     const document = shared.read(id)
     if (document === undefined) return "This cloud Wiki page is no longer available."
-    if (document.body === body) return
-    if (shared.watches.get(id)?.valid() !== true || document.cloud.phase === "deleted") {
+    const unchanged = document.body === body
+    if (unchanged && document.cloud.pending.length === 0) return { complete: async () => {}, release: () => {} }
+    const watch = shared.watches.get(id)
+    if (watch?.valid() !== true || document.cloud.phase === "deleted") {
       return "Refresh this Wiki page before editing it. Its recorded text has been preserved."
     }
-    try {
+    let updateId = document.cloud.pending.at(-1)?.updateId ?? ""
+    let saved: Promise<unknown> = Promise.resolve()
+    if (!unchanged) {
       let clientId = shared.clients.get(id)
       if (clientId === undefined) {
         clientId = crypto.getRandomValues(new Uint32Array(1))[0]!
         shared.clients.set(id, clientId)
       }
       const edit = editWikiState(document.cloud.state, body, clientId)
-      await shared.run(shared.persist({
+      updateId = crypto.randomUUID()
+      if (needsAdmission) shared.preparations.add(updateId)
+      saved = shared.run(shared.persist({
         ...document,
         body,
         links: [...new Set(parseWikilinks(body).map((link) => link.target).filter(Boolean))],
@@ -461,23 +476,76 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           state: edit.state,
           error: null,
           pending: [...document.cloud.pending, {
-            updateId: crypto.randomUUID(),
-            update: edit.update,
-            actor: ctx.commandActor
+            updateId, update: edit.update, actor: ctx.commandActor,
+            ...(needsAdmission ? { admitted: false } : {})
           }]
         }
       }, ctx.commandActor))
+    }
+    void saved.catch(() => {})
+    return {
+      release: () => { if (!unchanged) shared.preparations.delete(updateId) },
+      complete: async () => {
+        try {
+          await saved
+          if (!watch.valid() || shared.watches.get(id) !== watch) return "Refresh this Wiki page before editing it. Its recorded text has been preserved."
+          const current = shared.read(id)!
+          const index = current.cloud.pending.findIndex(item => item.updateId === updateId)
+          // The accepted text includes its earlier local edits, but never
+          // a newer keystroke. Delayed handlers authorize without replaying.
+          if (index !== -1 && current.cloud.pending.slice(0, index + 1).some(item => item.admitted === false)) {
+            await shared.run(shared.persist({ ...current, cloud: { ...current.cloud,
+              pending: current.cloud.pending.map((item, ordinal) => ordinal <= index ? { ...item, admitted: true } : item)
+            } }, ctx.commandActor))
+          }
+          return await shared.flush(id)
+        } catch (error) {
+          return error instanceof CloudWikiError ? error.message : "The Wiki edit could not be saved locally."
+        }
+      }
+    }
+  }
+
+  const prepareCloudWiki = (id: string, body: string): PreparedWikiEdit | undefined => {
+    if (ctx.commandActor !== "user") return undefined
+    try {
+      const edit = stageEdit(id, body, true)
+      return typeof edit === "string" ? undefined : edit
+    } catch {
+      // Invalid text still reaches the ordinary flow's validation/refusal.
+      return undefined
+    }
+  }
+
+  const editCloudWiki = async (id: string, body: string): Promise<string | void> => {
+    try {
+      const edit = stageEdit(id, body, false)
+      return typeof edit === "string" ? edit : await edit.complete()
     } catch (error) {
       return error instanceof CloudWikiError ? error.message : "The Wiki edit could not be saved locally."
     }
-    return shared.flush(id)
   }
 
-  const retryCloudWiki = (id: string): Promise<string | void | { value: string }> => {
+  const retryCloudWiki = async (id: string): Promise<string | void | { value: string }> => {
     const document = shared.read(id)
-    return document === undefined ?
-      Promise.resolve("This cloud Wiki page is no longer available.") :
-      openCloudWiki(document.cloud.repo, document.cloud.slug, document.cloud.pageId)
+    if (document === undefined) return "This cloud Wiki page is no longer available."
+    // Refresh can explicitly publish recovered/refused input. It cannot
+    // authorize an edit whose own command is still awaiting admission.
+    const retry = new Set(document.cloud.pending.filter(item => item.admitted === false &&
+      !shared.preparations.has(item.updateId)).map(item => item.updateId))
+    const result = await openCloudWiki(document.cloud.repo, document.cloud.slug, document.cloud.pageId)
+    if (typeof result === "string" || retry.size === 0) return result
+    const current = shared.read(id)
+    if (current === undefined || current.cloud.accountLogin !== document.cloud.accountLogin ||
+      current.cloud.branchId !== document.cloud.branchId || shared.watches.get(id)?.valid() !== true) return result
+    try {
+      await shared.run(shared.persist({ ...current, cloud: { ...current.cloud,
+        pending: current.cloud.pending.map(item => retry.has(item.updateId) ? { ...item, admitted: true } : item)
+      } }, ctx.commandActor))
+      return await shared.flush(id) ?? result
+    } catch (error) {
+      return error instanceof CloudWikiError ? error.message : "The Wiki edit could not be saved locally."
+    }
   }
 
   const attachWorldEditor = (id: string, slot: string, editor: MarkdownEditorHandle | null): void => {
@@ -497,5 +565,5 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     }
     return false
   }
-  return { listCloudWiki, openCloudWiki, editCloudWiki, retryCloudWiki, attachWorldEditor, scrollEditor }
+  return { listCloudWiki, openCloudWiki, editCloudWiki, prepareCloudWiki, retryCloudWiki, attachWorldEditor, scrollEditor }
 }
