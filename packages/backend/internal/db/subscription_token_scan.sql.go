@@ -198,6 +198,51 @@ func (q *Queries) ListOrgSecretValuesAfter(ctx context.Context, arg ListOrgSecre
 	return items, nil
 }
 
+const listOrgVariablesAfter = `-- name: ListOrgVariablesAfter :many
+SELECT id, organization_id, name, value
+FROM organization_variables
+WHERE id > $1
+ORDER BY id
+LIMIT $2
+`
+
+type ListOrgVariablesAfterParams struct {
+	AfterID  int64 `json:"after_id"`
+	PageSize int32 `json:"page_size"`
+}
+
+type ListOrgVariablesAfterRow struct {
+	ID             int64  `json:"id"`
+	OrganizationID int64  `json:"organization_id"`
+	Name           string `json:"name"`
+	Value          string `json:"value"`
+}
+
+func (q *Queries) ListOrgVariablesAfter(ctx context.Context, arg ListOrgVariablesAfterParams) ([]ListOrgVariablesAfterRow, error) {
+	rows, err := q.db.Query(ctx, listOrgVariablesAfter, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOrgVariablesAfterRow{}
+	for rows.Next() {
+		var i ListOrgVariablesAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.Name,
+			&i.Value,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrganizationRepositoryIDs = `-- name: ListOrganizationRepositoryIDs :many
 SELECT id
 FROM repositories
@@ -259,6 +304,51 @@ func (q *Queries) ListRepositorySecretValuesAfter(ctx context.Context, arg ListR
 			&i.RepositoryID,
 			&i.Name,
 			&i.ValueEncrypted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRepositoryVariablesAfter = `-- name: ListRepositoryVariablesAfter :many
+SELECT id, repository_id, name, value
+FROM repository_variables
+WHERE id > $1
+ORDER BY id
+LIMIT $2
+`
+
+type ListRepositoryVariablesAfterParams struct {
+	AfterID  int64 `json:"after_id"`
+	PageSize int32 `json:"page_size"`
+}
+
+type ListRepositoryVariablesAfterRow struct {
+	ID           int64  `json:"id"`
+	RepositoryID int64  `json:"repository_id"`
+	Name         string `json:"name"`
+	Value        string `json:"value"`
+}
+
+func (q *Queries) ListRepositoryVariablesAfter(ctx context.Context, arg ListRepositoryVariablesAfterParams) ([]ListRepositoryVariablesAfterRow, error) {
+	rows, err := q.db.Query(ctx, listRepositoryVariablesAfter, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRepositoryVariablesAfterRow{}
+	for rows.Next() {
+		var i ListRepositoryVariablesAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepositoryID,
+			&i.Name,
+			&i.Value,
 		); err != nil {
 			return nil, err
 		}

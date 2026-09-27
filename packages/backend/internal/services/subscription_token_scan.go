@@ -22,17 +22,21 @@ type StoredSubscriptionTokenScanCounts struct {
 	OrganizationSecrets     int64 `json:"organization_secrets"`
 	AgentEnvironmentSecrets int64 `json:"agent_environment_secrets"`
 	AgentEnvironments       int64 `json:"agent_environments"`
-	Workspaces              int64 `json:"workspaces"`
-	Snapshots               int64 `json:"snapshots"`
+	// Variables are plain text and refused on use; they carry no flag.
+	Variables  int64 `json:"variables"`
+	Workspaces int64 `json:"workspaces"`
+	Snapshots  int64 `json:"snapshots"`
 	// Unreadable counts secrets that did not decrypt; they are not flagged.
 	Unreadable int64 `json:"unreadable,omitempty"`
 }
 
-// ScanStoredSubscriptionTokens runs once per database (#2206). Secrets saved
+// ScanStoredSubscriptionTokens runs once per database (#2206). Secrets and
+// variables saved
 // before the hosted refusal are checked with the same detector the write and
 // use paths apply: each one holding a subscription token is flagged for
 // reconnecting, and every live workspace and snapshot of a repository that
-// held one (an organization secret: every repository of the organization) is
+// held one (an organization secret or variable: every repository of the
+// organization) is
 // marked rebuild-required. The receipt row makes later runs no-ops; replicas
 // racing at startup serialize on an advisory lock and the loser returns
 // ran=false. Only a deployment that refuses subscription tokens runs it.
@@ -85,7 +89,40 @@ func ScanStoredSubscriptionTokens(ctx context.Context, pool interface {
 		}
 	}
 
+	for after := int64(0); ; {
+		rows, err := q.ListRepositoryVariablesAfter(ctx, db.ListRepositoryVariablesAfterParams{AfterID: after, PageSize: storedSubscriptionTokenScanPage})
+		if err != nil {
+			return counts, false, fmt.Errorf("list repository variables: %w", err)
+		}
+		for _, row := range rows {
+			after = row.ID
+			if row.Value != "" && isSubscriptionToken(row.Name, row.Value) {
+				counts.Variables++
+				repositories[row.RepositoryID] = struct{}{}
+			}
+		}
+		if len(rows) < storedSubscriptionTokenScanPage {
+			break
+		}
+	}
+
 	organizations := map[int64]struct{}{}
+	for after := int64(0); ; {
+		rows, err := q.ListOrgVariablesAfter(ctx, db.ListOrgVariablesAfterParams{AfterID: after, PageSize: storedSubscriptionTokenScanPage})
+		if err != nil {
+			return counts, false, fmt.Errorf("list organization variables: %w", err)
+		}
+		for _, row := range rows {
+			after = row.ID
+			if row.Value != "" && isSubscriptionToken(row.Name, row.Value) {
+				counts.Variables++
+				organizations[row.OrganizationID] = struct{}{}
+			}
+		}
+		if len(rows) < storedSubscriptionTokenScanPage {
+			break
+		}
+	}
 	for after := int64(0); ; {
 		rows, err := q.ListOrgSecretValuesAfter(ctx, db.ListOrgSecretValuesAfterParams{AfterID: after, PageSize: storedSubscriptionTokenScanPage})
 		if err != nil {
@@ -202,6 +239,7 @@ func RunStoredSubscriptionTokenScan(ctx context.Context, pool interface {
 			"organization_secrets", counts.OrganizationSecrets,
 			"agent_environment_secrets", counts.AgentEnvironmentSecrets,
 			"agent_environments", counts.AgentEnvironments,
+			"variables", counts.Variables,
 			"workspaces", counts.Workspaces,
 			"snapshots", counts.Snapshots,
 			"unreadable", counts.Unreadable,

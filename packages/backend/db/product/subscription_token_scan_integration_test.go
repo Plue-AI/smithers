@@ -35,7 +35,11 @@ func TestStoredSubscriptionTokenScanFlagsRowsOnce(t *testing.T) {
 	exec(`INSERT INTO organizations(id,name,lower_name) VALUES(9,'acme','acme')`)
 	// 1 repo secret token, 2 org secret token (via org 9), 3 clean,
 	// 4 agent setup script token, 5 agent secret token.
-	exec(`INSERT INTO repositories(id,user_id,name,lower_name) VALUES(1,1,'r1','r1'),(3,1,'r3','r3'),(4,1,'r4','r4'),(5,1,'r5','r5')`)
+	exec(`INSERT INTO repositories(id,user_id,name,lower_name) VALUES(1,1,'r1','r1'),(3,1,'r3','r3'),(4,1,'r4','r4'),(5,1,'r5','r5'),(6,1,'r6','r6')`)
+	// 6 repository variable token; 3 has a clean variable.
+	// The token sits past the first page of 500 clean rows.
+	exec(`INSERT INTO repository_variables(id,repository_id,name,value) SELECT n,3,'V'||n,'clean' FROM generate_series(1,600) n`)
+	exec(`INSERT INTO repository_variables(id,repository_id,name,value) VALUES(700,6,'ANTHROPIC_AUTH_TOKEN','sk-ant-oat01-var')`)
 	exec(`INSERT INTO repositories(id,org_id,name,lower_name) VALUES(2,9,'r2','r2')`)
 	exec(`INSERT INTO repository_secrets(id,repository_id,name,value_encrypted) VALUES(1,1,'ANTHROPIC_AUTH_TOKEN',$1),(2,1,'ANTHROPIC_API_KEY',$2),(3,3,'OPENAI_API_KEY',$3)`,
 		seal("sk-ant-oat01-stored"), seal("sk-ant-api03-fine"), seal("sk-proj-fine"))
@@ -43,7 +47,7 @@ func TestStoredSubscriptionTokenScanFlagsRowsOnce(t *testing.T) {
 	exec(`INSERT INTO repository_agent_environments(repository_id,setup_script,environment_variables) VALUES(3,'npm ci','[]'),(4,'export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x','[]')`)
 	exec(`INSERT INTO repository_agent_environment_secrets(repository_id,name,value_encrypted) VALUES(5,'CODEX',$1),(3,'FINE',$2)`,
 		seal(`{"auth_mode":"chatgpt","tokens":{"refresh_token":"r"}}`), seal("fine"))
-	exec(`INSERT INTO workspaces(repository_id,user_id,status) VALUES(1,1,'running'),(2,1,'suspended'),(3,1,'running'),(4,1,'running'),(5,1,'failed')`)
+	exec(`INSERT INTO workspaces(repository_id,user_id,status) VALUES(1,1,'running'),(2,1,'suspended'),(3,1,'running'),(4,1,'running'),(5,1,'failed'),(6,1,'suspended')`)
 	exec(`INSERT INTO workspaces(repository_id,user_id,status,deleted_at) VALUES(1,1,'stopped',now())`)
 	exec(`INSERT INTO workspace_snapshots(repository_id,user_id,name) VALUES(1,1,'s1'),(3,1,'s3')`)
 
@@ -61,8 +65,8 @@ func TestStoredSubscriptionTokenScanFlagsRowsOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ran)
 	assert.Equal(t, services.StoredSubscriptionTokenScanCounts{
-		RepositorySecrets: 1, OrganizationSecrets: 1, AgentEnvironmentSecrets: 1, AgentEnvironments: 1,
-		Workspaces: 4, Snapshots: 1,
+		RepositorySecrets: 1, OrganizationSecrets: 1, AgentEnvironmentSecrets: 1, AgentEnvironments: 1, Variables: 1,
+		Workspaces: 5, Snapshots: 1,
 	}, counts)
 
 	flagged := func(sql string) []int64 {
@@ -82,7 +86,7 @@ func TestStoredSubscriptionTokenScanFlagsRowsOnce(t *testing.T) {
 	assert.Equal(t, []int64{1}, flagged(`SELECT id FROM repository_secrets WHERE subscription_token_flagged_at IS NOT NULL ORDER BY id`))
 	assert.Equal(t, []int64{1}, flagged(`SELECT id FROM organization_secrets WHERE subscription_token_flagged_at IS NOT NULL`))
 	assert.Equal(t, []int64{5}, flagged(`SELECT repository_id FROM repository_agent_environment_secrets WHERE subscription_token_flagged_at IS NOT NULL`))
-	assert.Equal(t, []int64{1, 2, 4, 5}, flagged(`SELECT repository_id FROM workspaces WHERE rebuild_required_at IS NOT NULL ORDER BY repository_id`))
+	assert.Equal(t, []int64{1, 2, 4, 5, 6}, flagged(`SELECT repository_id FROM workspaces WHERE rebuild_required_at IS NOT NULL ORDER BY repository_id`))
 	assert.Equal(t, []int64{1}, flagged(`SELECT repository_id FROM workspace_snapshots WHERE rebuild_required_at IS NOT NULL`))
 
 	var stored json.RawMessage

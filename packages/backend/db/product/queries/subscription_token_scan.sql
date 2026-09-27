@@ -80,3 +80,17 @@ SELECT id
 FROM repositories
 WHERE org_id = sqlc.arg(organization_id)::bigint
 ORDER BY id;
+
+-- name: ListRepositoryVariablesAfter :many
+SELECT id, repository_id, name, value
+FROM repository_variables
+WHERE id > sqlc.arg(after_id)
+ORDER BY id
+LIMIT sqlc.arg(page_size);
+
+-- name: ListOrgVariablesAfter :many
+SELECT id, organization_id, name, value
+FROM organization_variables
+WHERE id > sqlc.arg(after_id)
+ORDER BY id
+LIMIT sqlc.arg(page_size);
