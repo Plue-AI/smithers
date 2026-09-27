@@ -1206,7 +1206,7 @@ export const createAppController = (
   const tutorialChange = actors.pair(ctx, (context, select) =>
     createTutorialChangeController(context, select(workflowController), store.nextOrdinal, select(renderFlowForm)))
   const issueFlows = actors.pair(seamCtx, (context, select) =>
-    createIssueFlowsController(context, select(workflowController)))
+    createIssueFlowsController(context, select(workflowController), select(landingsSeam)))
   ctx.finishTutorialChange = tutorialChange.finishTutorialChange
   /* A change run that settled while the app was closed still owes its receipt check. */
   for (const card of store.collections.cards.values()) {

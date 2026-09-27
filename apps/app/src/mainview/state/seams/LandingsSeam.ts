@@ -11,6 +11,7 @@ import { publishRepoView, repoPaneCard } from "../EmbeddedHistory"
  * src/landings/landingsStore.ts executeCreate + src/smithersCloud/repoChanges.ts.
  */
 import type { Card } from "../AppState"
+import type { FieldOption } from "@smthrs/ui/flow-form"
 
 type PrPayload = Extract<Card, { kind: "pr" }>["payload"]
 type FileRow = NonNullable<PrPayload["files"]>[number]
@@ -32,12 +33,32 @@ export interface LandingsSeam {
     fromBookmark?: string
   ) => Promise<string | void>
   readonly landLanding: (number: number, repo?: string) => Promise<string | void>
+  /**
+   * One pull request as the context a review flow reads (the Review a PR
+   * app, `prs.triage`): its title, description, state, author, commits and
+   * files with the patches the diff read carried. No card; the run card is
+   * what follows.
+   */
+  readonly readLandingContext: (number: number, repo?: string) => Promise<string | LandingContext>
   readonly reviewLanding: (
     number: number,
     type: "approve" | "request_changes" | "comment",
     body: string,
     repo?: string
   ) => Promise<string | void>
+}
+
+/** What `readLandingContext` answers: the pull request as data for a review flow. */
+export interface LandingContext {
+  readonly repo: string
+  readonly number: number
+  readonly title: string
+  readonly body: string
+  readonly state: string
+  readonly author: string | null
+  readonly baseBranch?: string
+  readonly commits?: PrPayload["commits"]
+  readonly files?: PrPayload["files"]
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -151,6 +172,32 @@ const newestPerContext = (
 const repoApiRoot = (repo: string): string => {
   const [owner = "", name = ""] = repo.split("/")
   return `/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`
+}
+
+/** A pull request a review can still act on: not merged, closed or landed. */
+const reviewable = (state: string): boolean => !["merged", "closed", "landed"].includes(state.toLowerCase())
+
+/**
+ * A repository's open pull requests as a form's options (the Review a PR
+ * app's picker, controller/forms.ts `pull-requests`), one bounded page read
+ * exactly as the pull request list reads it. A refusal answers no options
+ * and its reason; nothing is invented.
+ */
+export const readLandingOptions = async (
+  ctx: Pick<SeamContext, "http" | "baseUrl">,
+  repo: string
+): Promise<{ readonly options: ReadonlyArray<FieldOption>; readonly error?: string }> => {
+  let response: Response
+  try {
+    response = await ctx.http(`${ctx.baseUrl}${repoApiRoot(repo)}/landings?limit=100`)
+  } catch {
+    return { options: [], error: `Pull requests for ${repo} couldn't be listed — the platform didn't answer.` }
+  }
+  if (!response.ok) return { options: [], error: await readRepositoryListError(response, `Pull requests for ${repo} couldn't be listed.`) }
+  const body: unknown = await response.json().catch(() => undefined)
+  if (!Array.isArray(body)) return { options: [], error: `Pull requests for ${repo} answered with a payload this app couldn't read.` }
+  return { options: body.map(parseLandingRow).filter((row): row is LandingRow => row !== null && reviewable(row.state))
+    .map((row) => ({ value: String(row.number), label: `#${row.number} ${row.title}` })) }
 }
 
 /** One jj change row: the parent walk is all a landing stack needs. */
@@ -478,7 +525,30 @@ export const createLandingsSeam = (ctx: SeamContext, renderRepositoryForm?: Repo
     return landingView(number, repo, stateOverride)
   }
 
+  const readLandingContext: LandingsSeam["readLandingContext"] = async (number, repoArg) => {
+    const target = resolveTargetRepo(ctx.store, repoArg)
+    if ("error" in target) return target.error
+    const repo = target.repo
+    let response: Response
+    try {
+      response = await ctx.http(`${landingsUrl(repo)}/${number}`)
+    } catch {
+      return `Pull request #${number} couldn't be read — the platform didn't answer.`
+    }
+    if (!response.ok) return readErrorMessage(response, `Pull request #${number} on ${repo} couldn't be read.`)
+    const landing = parseLandingDetail(await response.json().catch(() => undefined))
+    if (landing === null) return `Pull request #${number} on ${repo} answered with a payload this app couldn't read.`
+    const stack = await fetchStack(repo, number)
+    return {
+      repo, number, title: landing.title, body: landing.body, state: landing.state, author: landing.author,
+      ...(landing.targetBookmark === null ? {} : { baseBranch: landing.targetBookmark }),
+      ...(stack.commits === undefined ? {} : { commits: stack.commits }),
+      ...(stack.files === undefined ? {} : { files: stack.files })
+    }
+  }
+
   return {
+    readLandingContext,
     setTab: async (cardId, tab) => {
       const card = ctx.store.collections.cards.get(cardId)
       if (card?.kind !== "pr") return "That pull request card is no longer available."

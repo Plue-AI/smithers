@@ -53,3 +53,39 @@ test("a Cloud issue launches its workspace flow without waiting for a background
   expect(JSON.parse(input.args)).toEqual({issue})
   await store.dispose?.()
 })
+
+test("the Fix an issue app implements an issue picked on the home, read without a card, and the Review a PR app carries the pull request's context", async () => {
+  const { store, ctx } = await setup()
+  const calls: unknown[] = []
+  const workspaceId = "11111111-1111-4111-8111-111111111111"
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{ id: workspaceId, repoId: REPO, name: "Coding", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: REPO + "#workspace:" + workspaceId }).isPersisted.promise
+  const flows = createIssueFlowsController(ctx, {
+    listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
+    runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
+  }, {
+    readLandingContext: async (number, repo) => number === 4
+      ? { repo: repo ?? REPO, number, title: "Review", body: "Changes", state: "open", author: "ada", files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@" }] }
+      : `Pull request #${number} on ${repo} couldn't be read.`
+  })
+  // No issue card is open: the issue is read from the tracker and the run card is what follows.
+  expect([...store.collections.cards.values()].some(card => card.kind === "issue")).toBe(false)
+  expect(await flows.runIssueImplementation(3)).toEqual({ value: "launched" })
+  expect([...store.collections.cards.values()].some(card => card.kind === "issue")).toBe(false)
+  const [name, repo, input] = calls[0] as [string, string, { prompt: string }]
+  expect([name, repo]).toEqual(["coding/request", REPO])
+  const sent = JSON.parse(input.prompt.slice(input.prompt.indexOf("\n{") + 1)) as { number: number; title: string }
+  expect([sent.number, sent.title]).toEqual([3, "Issue 3"])
+  // An issue the tracker does not have is that refusal, never a launch.
+  expect(await flows.runIssueImplementation(99)).toContain("Issue #99")
+  expect(calls).toHaveLength(1)
+  // Review a PR: the flow's args are the pull request as data.
+  expect(await flows.triagePullRequest(4)).toEqual({ value: "launched" })
+  const [flow, target, triage] = calls[1] as [string, string, { args: string }]
+  expect([flow, target]).toEqual(["pr-triage", REPO])
+  expect(JSON.parse(triage.args)).toEqual({ kind: "pr", repo: REPO, number: 4, title: "Review", body: "Changes", state: "open", author: "ada",
+    files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@" }] })
+  expect(await flows.triagePullRequest(5)).toContain("couldn't be read")
+  expect(calls).toHaveLength(2)
+  await store.dispose?.()
+})

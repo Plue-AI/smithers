@@ -97,6 +97,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     runtime: ["cloud"],
     args: "[owner/repo] --flow <id> --slug <name> --schedule <cron> [--input <json>] [--tokens <n>] [--minutes <n>]",
     requires: ["signed-in"],
+    workflow: "repository/trigger",
     input: Registration,
     form: {
       submitLabel: "Prepare",
@@ -108,7 +109,8 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
       }))),
       fields: {
         repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" },
-        flow: { label: "Flow", placeholder: "nightly-lint" },
+        /* The Run it every night app picks among the repository's declared flows; a flow the projection lacks is still typed. */
+        flow: { label: "Flow", placeholder: "nightly-lint", optionsFrom: "repository-flows", kind: "text" },
         slug: { label: "Name", placeholder: "nightly" },
         schedule: { label: "Schedule", placeholder: "0 9 * * 1-5" },
         input: { label: "Input", placeholder: "{}" }

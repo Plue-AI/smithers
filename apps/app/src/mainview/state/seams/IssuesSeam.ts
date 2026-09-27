@@ -3,6 +3,7 @@ import { readRepositoryDetail } from "../RepositoryReadReceipts"
 import { readRepositoryListError,repositoryListRead,type RepositoryForm } from "./RepositoryListSeam"
 
 import type { Card } from "../AppState"
+import type { FieldOption } from "@smthrs/ui/flow-form"
 import { repositoryCiConfigured } from "../RepositoryJobs"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
@@ -200,6 +201,90 @@ const parseDetail = (
 const issueRowValue = (issue: IssueListRow, source = issue.source): string =>
   `#${issue.number} ${issue.title} · ${issue.state}${source === "github" ? " · GitHub" : ""}`
 
+/** The imported tracker's issues route for a repository. */
+const issuesRoute = (ctx: Pick<SeamContext, "baseUrl">, repo: string): string => {
+  const [owner = "", name = ""] = repo.split("/")
+  return `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`
+}
+
+/*
+ * IMPORT-READINESS (multi src/smithersCloud/importReadiness.ts): the
+ * `/api/repos/{o}/{r}/**` namespace only exists for repositories IMPORTED
+ * into Smithers Cloud — for a source-only repo every request there answers
+ * 404. The same repo's GitHub-source metadata still lists issues through
+ * `GET /api/user/github-repos/{o}/{r}/issues` (GET-only through the
+ * Worker), so reads degrade to the source list; mutations never fall back.
+ */
+const githubIssuesRoute = (ctx: Pick<SeamContext, "baseUrl">, repo: string, filter: "open" | "closed" | "all"): string => {
+  const [owner = "", name = ""] = repo.split("/")
+  // GitHub accepts state=all (only Plue's imported namespace rejects it).
+  return `${ctx.baseUrl}/api/user/github-repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues?state=${filter}`
+}
+
+/**
+ * The open issues of a repository as a form's options (the Fix an issue
+ * app's picker, controller/forms.ts `issues`): Smithers Cloud's own tracker,
+ * read exactly as the issues list reads it, and the GitHub-source list only
+ * when the repository is not imported. A refusal answers no options and its
+ * reason; nothing is invented.
+ */
+export const readIssueOptions = async (
+  ctx: Pick<SeamContext, "http" | "baseUrl">,
+  repo: string
+): Promise<{ readonly options: ReadonlyArray<FieldOption>; readonly error?: string }> => {
+  const option = (row: IssueListRow): FieldOption => ({ value: String(row.number), label: `#${row.number} ${row.title}` })
+  const read = async (url: string): Promise<{ readonly rows?: ReadonlyArray<unknown>; readonly status?: number; readonly error?: string }> => {
+    let response: Response
+    try {
+      response = await ctx.http(url)
+    } catch (error) {
+      return { error: unreachableSentence(`the backend to list issues for ${repo}`, error) }
+    }
+    if (!response.ok) return { status: response.status, error: await readRepositoryListError(response, `Listing issues for ${repo} failed (${response.status})`) }
+    const body: unknown = await response.json().catch(() => null)
+    return Array.isArray(body) ? { rows: body } : { error: `The backend answered issues for ${repo} with an unreadable payload` }
+  }
+  const native = await read(`${issuesRoute(ctx, repo)}?state=open`)
+  if (native.rows !== undefined) {
+    return { options: native.rows.flatMap((entry) => {
+      const parsed = parseListRow(entry)
+      return parsed === null || parsed.kind === "chat" ? [] : [option(parsed)]
+    }) }
+  }
+  if (native.status !== 404) return { options: [], error: native.error }
+  const github = await read(githubIssuesRoute(ctx, repo, "open"))
+  if (github.rows === undefined) return { options: [], error: github.error }
+  return { options: github.rows.flatMap((entry) => {
+    const parsed = parseGithubListRow(entry)
+    return parsed === null ? [] : [option(parsed)]
+  }) }
+}
+
+/**
+ * One imported issue's payload without a card: what `issue.implement` hands
+ * the coding flow when the person picked the issue on the app home rather
+ * than opening it first. Comments stay with the issue card.
+ */
+export const fetchIssuePayload = async (
+  ctx: Pick<SeamContext, "http" | "baseUrl">,
+  repo: string,
+  number: number
+): Promise<IssuePayload | string> => {
+  let response: Response
+  try {
+    response = await ctx.http(`${issuesRoute(ctx, repo)}/${number}`)
+  } catch (error) {
+    return unreachableSentence(`the backend to load issue #${number} in ${repo}`, error)
+  }
+  if (!response.ok) {
+    return response.status === 404
+      ? `Issue #${number} in ${repo} answered 404. For a GitHub issue, use /issues.view ${number} ${repo} --source github.`
+      : readErrorMessage(response, `Loading issue #${number} in ${repo} failed (${response.status})`)
+  }
+  const payload = parseDetail(await response.json().catch(() => null), repo, number, [])
+  return payload ?? `The backend answered issue #${number} in ${repo} with an unreadable payload`
+}
+
 
 
 export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: RepositoryForm, launchConversationTurn?: (text: string, turnId: string, owner: string) => Promise<boolean> | void): IssuesSeam => {
@@ -208,26 +293,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     const cloud = ctx.store.collections.cloudSessions.get("cloud")
     return identity?.state === "signed-in" ? identity.login : cloud?.state === "signed-in" ? cloud.username : undefined
   }
-  const issuesPath = (repo: string): string => {
-    const [owner = "", name = ""] = repo.split("/")
-    return `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`
-  }
-
-  /*
-   * IMPORT-READINESS (multi src/smithersCloud/importReadiness.ts): the
-   * `/api/repos/{o}/{r}/**` namespace only exists for repositories IMPORTED
-   * into Smithers Cloud — for a source-only repo every request there answers
-   * 404. The same repo's GitHub-source metadata still lists issues through
-   * `GET /api/user/github-repos/{o}/{r}/issues` (GET-only through the
-   * Worker), so reads degrade to the source list; mutations never fall back.
-   */
-  const githubSourceIssuesPath = (repo: string, filter: "open" | "closed" | "all"): string => {
-    const [owner = "", name = ""] = repo.split("/")
-    // GitHub accepts state=all (only Plue's imported namespace rejects it).
-    return `${ctx.baseUrl}/api/user/github-repos/${encodeURIComponent(owner)}/${
-      encodeURIComponent(name)
-    }/issues?state=${filter}`
-  }
+  const issuesPath = (repo: string): string => issuesRoute(ctx, repo)
+  const githubSourceIssuesPath = (repo: string, filter: "open" | "closed" | "all"): string => githubIssuesRoute(ctx, repo, filter)
 
   const notImported = (repo: string): string => `${repo} isn't imported yet — run /repos.import ${repo} first`
 

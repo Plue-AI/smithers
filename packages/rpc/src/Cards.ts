@@ -190,7 +190,13 @@ export const FORM_OPTION_PROVIDERS = [
   /* The credential NAMES the host listed on the models card. Never a value. */
   "credentials",
   /* The seats the host listed on the models card. */
-  "seats"
+  "seats",
+  /* The target repository's open issues (the Fix an issue app's picker). */
+  "issues",
+  /* The target repository's open pull requests (the Review a PR app's picker). */
+  "pull-requests",
+  /* The flows the target repository declares (.smithers/factory.json). */
+  "repository-flows"
 ] as const
 
 const cardBaseShape = {

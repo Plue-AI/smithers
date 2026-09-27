@@ -12,7 +12,15 @@ export const issueFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     handler: ({ number, repo }) => actions.runIssueFlow("repro", number, repo) }),
   flow({ name: "issue.poc", summary: "Build a proof of concept for an issue", runtimeAny: ["cloud"], input: NumberedTarget,
     confirm: "ask an agent to build a proof of concept", handler: ({ number, repo }) => actions.runIssueFlow("poc", number, repo) }),
+  /*
+   * The Fix an issue app (PRODUCT.md D-18): opened without a number it renders
+   * its form — the issue picker and Fix — then the coding run's card. The
+   * picker's rows are the repository's open issues (controller/forms.ts
+   * `issues`); the repository is the active one, never asked.
+   */
   flow({ name: "issue.implement", summary: "Plan and implement an issue with the workspace's coding flow", runtimeAny: ["cloud"], input: NumberedTarget,
+    requires: ["signed-in"], workflow: "coding/request",
+    form: { submitLabel: "Fix", fields: { number: { label: "Issue", optionsFrom: "issues", kind: "number" }, repo: { hidden: true } } },
     confirm: "research, plan, and implement the issue using the workspace's configured checks",
     handler: ({ number, repo }) => actions.runIssueImplementation(number, repo) }),
   flow({ name: "issue.add-flow", summary: "Add a flow to an issue", runtimeAny: ["cloud"],

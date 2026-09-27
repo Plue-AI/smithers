@@ -104,6 +104,7 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "chat.dictate", why: "microphone capture is the human's explicit gesture" },
   { name: "chat.queue", why: "the prompt queue is the human's composer" },
   { name: "chat.send", why: "turn mechanics: the model is already the turn; sending would nest one" },
+  { name: "wiki.ask", why: "turn mechanics: the question is the human's turn; the model reads a page with wiki.open" },
   { name: "chat.stop", why: "turn mechanics: stopping the model's own turn from inside it" },
   { name: "admin.reset", why: "destroys the whole store with no undo; the confirm dialog is the only door" },
   { name: "billing.upgrade", why: "external checkout with real money; the human clicks" },

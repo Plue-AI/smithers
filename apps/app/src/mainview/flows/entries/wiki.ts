@@ -32,8 +32,27 @@ export const wikiSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
   })
 ]
 
+/** Why `wiki.ask` is the human's alone: the question is their turn, as the composer is (entries/chat.ts). */
+export const WIKI_ASK_USER_ONLY_REASON = "the question is the human's turn; the model is already the turn, and asking would nest one — it reads a page with wiki.open"
+
 /** The `wiki.*` flows: notes and their confirms. */
 export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+  flow({
+    /*
+     * The Ask the codebase app (PRODUCT.md D-18): opened without a question it
+     * renders its form — the question box and Ask — and the answer is the
+     * conversation's next turn, which cites the Wiki (the Librarian's pages,
+     * wiki.open). The same turn the composer sends, under the app's name.
+     */
+    name: "wiki.ask",
+    summary: "Ask the codebase a question; the answer cites the Wiki",
+    userOnly: true,
+    userOnlyReason: WIKI_ASK_USER_ONLY_REASON,
+    args: "<question>",
+    form: { submitLabel: "Ask", fields: { question: { label: "Question" } } },
+    input: Schema.Struct({ question: Schema.String }),
+    handler: ({ question }) => { actions.send(question) }
+  }),
   flow({
     /* The stack refreshes the Wiki (StackSeam.refreshWiki); this door asks for it now and is the Retry of a failed refresh. */
     name: "wiki.create",

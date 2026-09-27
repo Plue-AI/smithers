@@ -46,6 +46,8 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "files.read", "findings.not-useful", "findings.please-fix", "flow.plan", "flow.run.retry", "flows",
     "github.app.choose", "github.app.open", "github.mirror-sync", "github.mirror.retry-ref",
     "github.reconcile", "history.bootstrap", "history.show", "issues",
+    /* The app home's doors (PRODUCT.md D-18): the browser spec covers the launch; the real workspace run is owed. */
+    "prs.triage", "wiki.ask",
     "issues.setup", "notifications.read-update", "notifications.tag", "plugins", "plugins.install",
     "plugins.list", "plugins.remove", "prs", "repo.choose", "repo.overview", "repo.tree", "repo.update",
     "repos.import.retry", "review.ack", "review.done", "review.reopen", "review.setup", "review.since-mine",

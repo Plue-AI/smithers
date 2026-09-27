@@ -121,6 +121,12 @@ export interface FlowMetadata {
    */
   readonly hosts?: ReadonlyArray<AppBootstrap["host"]>
   /**
+   * The repository flow this door launches when that is not the flow itself
+   * (`issue.implement` runs `coding/request`). The app home reads a tile's
+   * last result by it (cards/RepositoryHomeCard.tsx); nothing else does.
+   */
+  readonly workflow?: string
+  /**
    * A consequential act the MODEL may ask for but never perform: an
    * agent invocation does not run the handler — it posts a confirmation
    * message whose action button runs the flow as the user. The string is

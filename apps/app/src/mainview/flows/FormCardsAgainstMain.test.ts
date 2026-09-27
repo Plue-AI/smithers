@@ -355,6 +355,10 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     because: "The graph IS the third view of a run and the step list the fourth, so the line that refuses a bad one has to name them: main@origin says `runs.trace.view needs turns, timeline or graph` and this branch says `runs.trace.view needs turns, timeline, graph or steps` (SlashPayload.ts). Every swept line whose second token is not a view reads the new sentence; no card moves."
   },
   {
+    flow: "issue.implement", kind: "card", rows: 33,
+    because: "The Fix an issue app (PRODUCT.md D-18) opens this form: the number field is labeled Issue and offers the repository's open issues, and the repository is the active one rather than a field (entries/issue.ts form hints). Every swept line's card lists one field instead of two, and a line the grammar refuses no longer places its owner/repo token; a line it parses still carries its repository as given."
+  },
+  {
     flow: "triggers.register", kind: "sentence", rows: 6,
     because: "A limit the LINE names meets the rule the FIELD meets: `--tokens 500000` reached the Tokens field and was told nothing on production, while 500000 typed into that field and prepared is refused with the range before any network call (walk W1 item 4c). The register form routes to TriggersSeam.limitsRefusal, so two rows that used to read the grammar's usage line read the range instead, and four that said nothing now say it."
   },

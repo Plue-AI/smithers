@@ -13,8 +13,10 @@ import { manifests } from "../../plugins/catalog"
 import { actorSharedState } from "../ActorBindings"
 import { decideApprovalAnswerInput } from "../ApprovalAnswerState"
 import type { Card } from "../AppState"
-import { knownRepositories } from "../RepoContext"
+import { knownRepositories, resolveTargetRepo } from "../RepoContext"
 import { fileOptions,fileTargetKey } from "../seams/FilesSeam"
+import { readIssueOptions } from "../seams/IssuesSeam"
+import { readLandingOptions } from "../seams/LandingsSeam"
 import type { ControllerContext } from "./context"
 import { MODELS_CARD_ID, credentialOptions } from "./models"
 import { setupQuestionCardId } from "./repositorySetup"
@@ -241,7 +243,36 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       case "credentials": return credentialOptions(listed())
       case "seats":
         return (listed()?.seats ?? []).map((seat) => ({ value: seat.id, label: modelSeat(seat.id).label }))
+      /* The lists a card already holds answer at render; the seam read below refreshes them once the form is on screen. */
+      case "issues": {
+        const repo = targetRepo(draft)
+        const card = repo === undefined ? undefined : collections.cards.get(`issues-${repo}`)
+        return card?.kind === "issue-list"
+          ? card.payload.issues.filter((issue) => issue.state === "open" && issue.kind !== "chat").map((issue) => ({ value: String(issue.number), label: `#${issue.number} ${issue.title}` }))
+          : []
+      }
+      case "pull-requests": {
+        const repo = targetRepo(draft)
+        const card = repo === undefined ? undefined : collections.cards.get(`prs-${repo}`)
+        return card?.kind === "pr-list"
+          ? card.payload.landings.filter((landing) => !["merged", "closed", "landed"].includes(landing.state.toLowerCase()))
+            .map((landing) => ({ value: String(landing.number), label: `#${landing.number} ${landing.title}` }))
+          : []
+      }
+      case "repository-flows": {
+        const repo = targetRepo(draft)
+        return (repo === undefined ? [] : collections.repositoryFlows.get(repo)?.flows ?? [])
+          .map((row) => ({ value: row.id, label: row.summary === null ? row.id : `${row.id} · ${row.summary}` }))
+      }
     }
+  }
+
+  /** The repository a form's list options belong to: the draft's, else the active target. */
+  const targetRepo = (draft: FormDraft): string | undefined => {
+    const named = draft["repo"]
+    if (typeof named === "string" && named !== "") return named
+    const target = resolveTargetRepo(store, undefined)
+    return "error" in target ? undefined : target.repo
   }
 
   /** The fields as the card payload carries them: the seam's options resolved for this draft, arrays copied for the wire. */
@@ -302,6 +333,40 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       ...payload,
       fields: payload.fields.map(field => field.optionsFrom === "files" ? { ...field, options: answer.options } : field),
       ...(answer.error === undefined ? {} : { error: answer.error })
+    }, current.status)
+  }
+
+  /*
+   * The app home's pickers (issues, pull requests): the target repository's
+   * open rows, read from the seams once the form is on screen, the way the
+   * file chooser reads its files. A partial or failed read keeps what the
+   * card holds and states the error; it never invents a row.
+   */
+  const refreshListOptions = async (cardId: string): Promise<void> => {
+    const card = formCard(cardId)
+    if (card === undefined) return
+    const providers = new Set(card.payload.fields.flatMap((field) => field.optionsFrom === "issues" || field.optionsFrom === "pull-requests" ? [field.optionsFrom] : []))
+    if (providers.size === 0) return
+    const repo = targetRepo({ ...card.payload.draft, ...(typeof card.payload.given["repo"] === "string" ? { repo: card.payload.given["repo"] } : {}) })
+    if (repo === undefined) return
+    const selection = store.session().activeRepoKey
+    const seam = { store, baseUrl: ctx.baseUrl, http: ctx.boundedFetch }
+    const answers = await Promise.all([...providers].map(async (provider) =>
+      [provider, await (provider === "issues" ? readIssueOptions(seam, repo) : readLandingOptions(seam, repo))] as const))
+    if (ctx.disposed) return
+    const current = formCard(cardId)
+    if (current === undefined || current.ordinal !== card.ordinal || current.payload.flow !== card.payload.flow ||
+      current.status !== "active" || current.payload.submitting || store.session().activeRepoKey !== selection) return
+    const read = new Map(answers)
+    const error = answers.map(([, answer]) => answer.error).find((message) => message !== undefined)
+    const { error: _previous, ...payload } = current.payload
+    await patch(current, {
+      ...payload,
+      fields: payload.fields.map(field => {
+        const answer = field.optionsFrom === undefined ? undefined : read.get(field.optionsFrom as "issues" | "pull-requests")
+        return answer === undefined ? field : { ...field, options: [...answer.options] }
+      }),
+      ...(error === undefined ? {} : { error })
     }, current.status)
   }
 
@@ -451,6 +516,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     void rendered.isPersisted.promise.then(async () => {
       if (ctx.disposed) return
       await refreshFileList(cardId)
+      await refreshListOptions(cardId)
     }).catch(error => ctx.failures.report("form.file-list", error, cardId))
     const missing = missingFields(resolved, draft)
     return { cardId, missing: missing.length > 0 ? missing : resolved.map((field) => field.name) }
@@ -479,7 +545,10 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
      */
     const dependency = ["harness", "harnessId", "id", "roleId", "seat"].includes(name)
     await patch(card, { ...payload, draft, fields: dependency ? withOptions(card.payload.fields, draft) : card.payload.fields }, "active")
-    if (name === "repo") await refreshFileList(cardId)
+    if (name === "repo") {
+      await refreshFileList(cardId)
+      await refreshListOptions(cardId)
+    }
   }
 
   const describe = (outcome: CommandOutcome): string => {

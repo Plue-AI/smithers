@@ -87,6 +87,26 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     handler: ({ number, repo }) => actions.landLanding(number, repo)
   }),
   flow({
+    /*
+     * The Review a PR app (PRODUCT.md D-18): opened without a number it
+     * renders its form — the pull request picker and Review — then the run
+     * card of the repository's `pr-triage` flow, which answers a verdict with
+     * its notes. The pull request's title, description, commits and patches
+     * ride as the flow's context, the way `issue.implement` carries the issue.
+     * A review spends, so the model may ask and the human confirms.
+     */
+    name: "prs.triage",
+    summary: "Review a pull request with the repository's pr-triage flow",
+    runtime: ["cloud"],
+    requires: ["signed-in"],
+    workflow: "pr-triage",
+    confirm: "review the pull request with the repository's pr-triage flow",
+    args: "<number> [owner/repo]",
+    form: { submitLabel: "Review", fields: { number: { label: "PR", optionsFrom: "pull-requests", kind: "number" }, repo: { hidden: true } } },
+    input: NumberedTarget,
+    handler: ({ number, repo }) => actions.triagePullRequest(number, repo)
+  }),
+  flow({
     name: "prs.review",
     form: {
       fields: { text: { required: false }, repo: { optionsFrom: "cloud-repos", kind: "text" } },
