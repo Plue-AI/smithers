@@ -273,7 +273,7 @@ describe("ControlLive.watch following", () => {
     expect(new Set(keys).size).toBe(5)
     expect(keys).toContain(`plan:${observed.card.planId}:0`)
     expect(keys).toContain(`${observed.runId}:0`)
-    expect(observed.events.at(-1)).toMatchObject({
+    expect(observed.events.find((event) => event.kind === "control.signal.admitted")).toMatchObject({
       kind: "control.signal.admitted",
       runId: observed.runId
     })

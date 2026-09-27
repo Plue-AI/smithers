@@ -1,3 +1,4 @@
+import * as Dialect from "@smthrs/database/Dialect"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -32,9 +33,11 @@ describe("TriggerStore", () => {
       Effect.gen(function*() {
         const sql = yield* SqlClient.SqlClient
         yield* TriggerStore.TriggerStore
-        return yield* sql<{ readonly detail: string }>`
-          EXPLAIN QUERY PLAN SELECT * FROM flows_trigger_fires WHERE run_id = ${"run-1"}
+        return yield* TestDatabase.explain(
+          sql,
+          sql`SELECT * FROM flows_trigger_fires WHERE run_id = ${"run-1"}
         `
+        )
       }).pipe(Effect.provide(layerWithSql))
     )
     expect(plan.map((row) => row.detail).join("\n")).toContain("flows_trigger_fires_run_id")
@@ -71,11 +74,16 @@ describe("TriggerStore", () => {
         ) return yield* Effect.die("expected reservation")
         const restore = { triggerId: trigger.id, occurrence: 2, reservationId: pending.value.claim.reservationId }
         const before = yield* store.inspect(trigger.id)
-        yield* sql`CREATE TRIGGER refuse_rearm AFTER UPDATE OF pending_at_ms ON flows_triggers
-        WHEN NEW.pending_at_ms IS NOT NULL BEGIN SELECT RAISE(ABORT, 'rearm failed'); END`
+        yield* Dialect.trigger(sql, {
+          name: `refuse_rearm`,
+          table: `flows_triggers`,
+          event: `AFTER UPDATE OF pending_at_ms`,
+          when: `NEW.pending_at_ms IS NOT NULL`,
+          reject: "rearm failed"
+        })
         expect((yield* Effect.flip(store.restorePending(restore))).code).toBe("store")
         expect(yield* store.inspect(trigger.id)).toEqual(before)
-        yield* sql`DROP TRIGGER refuse_rearm`
+        yield* TestDatabase.dropTrigger(sql, "refuse_rearm")
         yield* store.restorePending(restore)
         expect(yield* store.inspect(trigger.id)).toEqual({ pendingAt: 2 })
       }).pipe(Effect.provide(layerWithSql))
@@ -572,8 +580,12 @@ describe("TriggerStore", () => {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const store = yield* TriggerStore.TriggerStore
         yield* store.register(trigger)
-        yield* sql`DROP TABLE flows_trigger_fires`
-        yield* sql`DROP TABLE flows_triggers`
+        yield* sql`DROP TABLE flows_trigger_fires ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`
+        yield* sql`DROP TABLE flows_triggers ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`
         return {
           read: yield* Effect.flip(store.list()),
           write: yield* Effect.flip(
@@ -608,8 +620,12 @@ describe("TriggerStore", () => {
       Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const store = yield* TriggerStore.TriggerStore
-        yield* sql`CREATE TRIGGER vanish AFTER INSERT ON flows_triggers
-          BEGIN DELETE FROM flows_triggers WHERE trigger_id = NEW.trigger_id; END`
+        yield* Dialect.trigger(sql, {
+          name: "vanish",
+          table: "flows_triggers",
+          event: "AFTER INSERT",
+          body: "DELETE FROM flows_triggers WHERE trigger_id = NEW.trigger_id;"
+        })
         return yield* Effect.flip(store.register(trigger))
       }).pipe(Effect.provide(layerWithSql))
     )

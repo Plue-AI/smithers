@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * Run health classification and the heal loop over it.
  *
@@ -674,7 +675,7 @@ describe("Monitor.run over the durable control plane", () => {
         )
         // The first beat has run and the second is asleep.
         const early = fiber.pollUnsafe()
-        yield* TestClock.adjust("1 minute")
+        yield* TestDatabase.until(TestClock.adjust("1 second").pipe(Effect.map(() => fiber.pollUnsafe() !== undefined)))
         return { early, report: yield* Fiber.join(fiber) }
       }).pipe(
         Effect.provide(durable()),

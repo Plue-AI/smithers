@@ -5,6 +5,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { affectedRows, DurableWriter } from "@smthrs/database/DurableWriter"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
@@ -252,7 +253,9 @@ export const make: Effect.Effect<
           }
           case "AdvanceCursor": {
             yield* sql`UPDATE flows_triggers
-              SET last_fired_at_ms = MAX(COALESCE(last_fired_at_ms, ${write.occurrence}), ${write.occurrence})
+              SET last_fired_at_ms = ${
+              Dialect.greatest(sql)
+            }(COALESCE(last_fired_at_ms, ${write.occurrence}), ${write.occurrence})
               WHERE trigger_id = ${fire.triggerId}`
             break
           }
@@ -401,14 +404,18 @@ export const make: Effect.Effect<
           // was skipped used to drag it backwards and replay settled work.
           if (result.outcome === "launched") {
             yield* sql`UPDATE flows_triggers
-              SET last_fired_at_ms = MAX(COALESCE(last_fired_at_ms, ${result.occurrence}), ${result.occurrence}),
+              SET last_fired_at_ms = ${
+              Dialect.greatest(sql)
+            }(COALESCE(last_fired_at_ms, ${result.occurrence}), ${result.occurrence}),
                 active_run_id = ${result.runId},
                 active_claimed_at_ms = NULL
               WHERE trigger_id = ${result.triggerId} AND active_run_id = ${result.reservationId}`
             return
           }
           yield* sql`UPDATE flows_triggers
-            SET last_fired_at_ms = MAX(COALESCE(last_fired_at_ms, ${result.occurrence}), ${result.occurrence}),
+            SET last_fired_at_ms = ${
+            Dialect.greatest(sql)
+          }(COALESCE(last_fired_at_ms, ${result.occurrence}), ${result.occurrence}),
               active_run_id = CASE
                 WHEN active_run_id = ${resultOwner} THEN NULL
                 ELSE active_run_id
@@ -535,16 +542,16 @@ export const make: Effect.Effect<
           // exists without a second count query.
           read(sql<FireRow>`
             SELECT trigger_id, occurrence_at_ms, outcome, run_id, error FROM flows_trigger_fires
-            WHERE (${query.triggerId ?? null} IS NULL OR trigger_id = ${query.triggerId ?? null})
-              AND (${query.runId ?? null} IS NULL OR run_id = ${query.runId ?? null})
-              AND (${query.outcome ?? null} IS NULL OR outcome = ${query.outcome ?? null})
-              AND (${query.cursor?.occurrence ?? null} IS NULL
+            WHERE ${query.triggerId === undefined ? sql`1 = 1` : sql`trigger_id = ${query.triggerId}`}
+              AND ${query.runId === undefined ? sql`1 = 1` : sql`run_id = ${query.runId}`}
+              AND ${query.outcome === undefined ? sql`1 = 1` : sql`outcome = ${query.outcome}`}
+              AND (${query.cursor === undefined ? 1 : 0} = 1
                 OR occurrence_at_ms < ${query.cursor?.occurrence ?? null}
                 OR (occurrence_at_ms = ${query.cursor?.occurrence ?? null} AND trigger_id < ${
             query.cursor?.triggerId ?? null
           }))
             ORDER BY occurrence_at_ms DESC, trigger_id DESC
-            LIMIT ${limit === undefined ? -1 : limit + 1}
+            LIMIT ${limit === undefined ? (Dialect.isPostgres(sql) ? null : -1) : limit + 1}
           `).pipe(Effect.map((rows) => historyPage(rows.map(fireRecord), limit)))
         )
       ),

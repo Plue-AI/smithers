@@ -45,6 +45,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
 import * as DurableWrites from "@smthrs/database/DurableWriter"
 import { Ownership, RunStore } from "@smthrs/run-store"
@@ -696,6 +697,7 @@ const makeRuntime = (
       SELECT child_id AS "childId", parent_id AS "parentId"
       FROM flows_run_parents WHERE ${within("child_id", scope)} ORDER BY seq DESC
     `.pipe(
+        sql.withTransaction,
         // Descending, so the lowest `seq` is written last and wins the key.
         Effect.map((rows) => new Map(rows.map((row) => [row.childId, row.parentId])) as ReadonlyMap<string, string>),
         Effect.catchIf(
@@ -762,18 +764,18 @@ const makeRuntime = (
         readonly createdAtMs: number
         readonly depth: number
       }>`
-      WITH RECURSIVE human_waits(waitRunId, ancestorId, depth) AS (
+      WITH RECURSIVE human_waits(wait_run_id, ancestor_id, depth) AS (
         SELECT run_id, run_id, 0 FROM flows_runs
         WHERE waiting_reason = ${ControlExecutor.humanWaitReason}
           AND status NOT IN ('completed', 'failed', 'cancelled')
         UNION
-        SELECT human_waits.waitRunId, step.execution_parent_id, human_waits.depth + 1
-        FROM flows_runs step JOIN human_waits ON step.run_id = human_waits.ancestorId
+        SELECT human_waits.wait_run_id, step.execution_parent_id, human_waits.depth + 1
+        FROM flows_runs step JOIN human_waits ON step.run_id = human_waits.ancestor_id
         WHERE step.execution_parent_id IS NOT NULL AND human_waits.depth < ${maxWaitTreeDepth}
-          AND COALESCE(json_extract(step.state_json, '$.onParentExit'), 'cancel') <> 'detach'
+          AND COALESCE(${Dialect.jsonText(sql, sql`step.state_json`, "$.onParentExit")}, 'cancel') <> 'detach'
       )
       SELECT
-        human_waits.ancestorId AS "ancestorId",
+        human_waits.ancestor_id AS "ancestorId",
         human_waits.depth AS "depth",
         parked.run_id AS "runId",
         parked.execution_flow AS "flowId",
@@ -781,10 +783,11 @@ const makeRuntime = (
         parked.waiting_token AS "waitingToken",
         parked.waiting_request AS "waitingRequest",
         parked.created_at_ms AS "createdAtMs"
-      FROM human_waits JOIN flows_runs parked ON parked.run_id = human_waits.waitRunId
-      WHERE ${within("human_waits.ancestorId", scope)}
-      ORDER BY human_waits.ancestorId, human_waits.depth, parked.created_at_ms, parked.run_id
+      FROM human_waits JOIN flows_runs parked ON parked.run_id = human_waits.wait_run_id
+      WHERE ${within("human_waits.ancestor_id", scope)}
+      ORDER BY human_waits.ancestor_id, human_waits.depth, parked.created_at_ms, parked.run_id
     `.pipe(
+        sql.withTransaction,
         Effect.map((rows) => {
           const index = new Map<string, Array<PendingWait>>()
           for (const row of rows) {
@@ -1178,12 +1181,12 @@ const makeRuntime = (
       const filters = request.filters
       const source = sql`CASE WHEN indexed.created_seq IS NULL THEN 1 ELSE 0 END`
       const sequence = sql`COALESCE(indexed.created_seq, 0)`
-      const controlState = sql`(json_type(runs.state_json, '$.runId') IS NOT NULL
-        OR json_type(runs.state_json, '$.flowId') IS NOT NULL
-        OR json_type(runs.state_json, '$.status') IS NOT NULL)`
-      const flowId = sql`CASE WHEN ${controlState} THEN json_extract(runs.state_json, '$.flowId')
-        ELSE json_extract(runs.state_json, '$.flowName') END`
-      const ownStatus = sql`CASE WHEN ${controlState} THEN json_extract(runs.state_json, '$.status')
+      const controlState = sql`(${Dialect.jsonText(sql, sql`runs.state_json`, "$.runId")} IS NOT NULL
+        OR ${Dialect.jsonText(sql, sql`runs.state_json`, "$.flowId")} IS NOT NULL
+        OR ${Dialect.jsonText(sql, sql`runs.state_json`, "$.status")} IS NOT NULL)`
+      const flowId = sql`CASE WHEN ${controlState} THEN ${Dialect.jsonText(sql, sql`runs.state_json`, "$.flowId")}
+        ELSE ${Dialect.jsonText(sql, sql`runs.state_json`, "$.flowName")} END`
+      const ownStatus = sql`CASE WHEN ${controlState} THEN ${Dialect.jsonText(sql, sql`runs.state_json`, "$.status")}
         ELSE CASE runs.status WHEN 'pending' THEN 'accepted' WHEN 'suspended' THEN 'parked' ELSE runs.status END END`
       // The listing filter has to agree with the summary the listing returns.
       // `summaryFrom` rolls a run tree's open human waits up onto the root's
@@ -1197,8 +1200,12 @@ const makeRuntime = (
             AND runs.run_id IN (SELECT ancestorId FROM human_wait_ancestry)
           THEN 'waiting-approval' ELSE ${ownStatus} END`
         : ownStatus
-      const storedParent = sql`CASE WHEN ${controlState} THEN json_extract(runs.state_json, '$.parentRunId') END`
-      const storedLineage = sql`CASE WHEN ${controlState} THEN json_extract(runs.state_json, '$.lineageId') END`
+      const storedParent = sql`CASE WHEN ${controlState} THEN ${
+        Dialect.jsonText(sql, sql`runs.state_json`, "$.parentRunId")
+      } END`
+      const storedLineage = sql`CASE WHEN ${controlState} THEN ${
+        Dialect.jsonText(sql, sql`runs.state_json`, "$.lineageId")
+      } END`
       const parent = includeSpawn
         ? sql`COALESCE(runs.parent_run_id,
             (SELECT parent_id FROM flows_run_parents WHERE child_id = runs.run_id ORDER BY seq LIMIT 1),
@@ -1236,7 +1243,7 @@ const makeRuntime = (
           SELECT step.execution_parent_id, human_wait_ancestry.depth + 1
           FROM flows_runs step JOIN human_wait_ancestry ON step.run_id = human_wait_ancestry.ancestorId
           WHERE step.execution_parent_id IS NOT NULL AND human_wait_ancestry.depth < ${maxWaitTreeDepth}
-            AND COALESCE(json_extract(step.state_json, '$.onParentExit'), 'cancel') <> 'detach'
+            AND COALESCE(${Dialect.jsonText(sql, sql`step.state_json`, "$.onParentExit")}, 'cancel') <> 'detach'
         )`
         : sql.literal("")
       return sql<RunCursor>`
@@ -1252,6 +1259,7 @@ const makeRuntime = (
       }
         LIMIT ${request.limit + 1}
       `.pipe(
+        sql.withTransaction,
         Effect.catchIf(
           (error) => includeSpawn && filters?.parentRunId !== undefined && missingTable("flows_run_parents")(error),
           () => runPageKeys(request, false, includeWaitRollup)

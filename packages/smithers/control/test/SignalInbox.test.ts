@@ -135,7 +135,9 @@ it("reports a failed durable claim rather than pretending another submitter won"
     Effect.gen(function*() {
       const runtime = yield* ControlRuntime
       const sql = yield* SqlClient.SqlClient
-      yield* sql`DROP TABLE control_run_keys`
+      yield* sql`DROP TABLE control_run_keys ${
+        sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+      }`
       expect(yield* Effect.flip(runtime.claimRunKey("claim", "fingerprint"))).toBeInstanceOf(PersistenceError)
     }).pipe(Effect.provide(durable()), Effect.scoped)
   ))

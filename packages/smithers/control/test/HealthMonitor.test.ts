@@ -1,5 +1,7 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Journal, JournalEvent } from "@smthrs/journal"
 import { Deferred, Effect, Fiber, Stream } from "effect"
+import * as Clock from "effect/Clock"
 import { TestClock } from "effect/testing"
 import { describe, expect, it } from "vitest"
 import { Control } from "../src/Control.ts"
@@ -7,6 +9,7 @@ import { ControlRuntime } from "../src/ControlRuntime.ts"
 import * as Health from "../src/Health.ts"
 import * as Monitor from "../src/Monitor.ts"
 import { durable, type DurableStack } from "./DurableStack.ts"
+import * as ObservedClock from "./ObservedClock.ts"
 
 const run = <A, E>(body: Effect.Effect<A, E, DurableStack>) =>
   Effect.runPromise(body.pipe(Effect.provide(durable()), Effect.scoped, Effect.orDie))
@@ -156,11 +159,14 @@ describe("configured Monitor over the durable control journal", () => {
             }
           }
         }).resolve("flow")
+        const observedClock = yield* ObservedClock.make
         const fiber = yield* Monitor.run({ runId, healthCheck, maxChecks: 4, stallBeats: 100 }).pipe(
+          Effect.provideService(Clock.Clock, observedClock.clock),
           Effect.forkChild({ startImmediately: true })
         )
         yield* Deferred.await(began[0]!)
         for (const [index, delay] of [20, 40, 10].entries()) {
+          yield* TestDatabase.until(observedClock.scheduled(times[index]! + delay))
           yield* TestClock.adjust(delay - 1)
           expect(times).toHaveLength(index + 1)
           yield* TestClock.adjust(1)

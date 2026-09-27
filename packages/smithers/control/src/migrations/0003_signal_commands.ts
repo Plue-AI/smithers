@@ -2,6 +2,7 @@
  * Durable signal admission and immutable wait bindings.
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -13,7 +14,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 export const signalCommands = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
   yield* sql`CREATE TABLE IF NOT EXISTS control_signal_commands (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    seq ${Dialect.identity(sql)},
     command_id TEXT NOT NULL UNIQUE,
     run_id TEXT NOT NULL,
     payload_json TEXT NOT NULL,

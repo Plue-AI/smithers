@@ -224,9 +224,16 @@ describe("a human wait parked on a nested execution", () => {
       const store = yield* RunStore.RunStore
       yield* Request.execute({}, { executionId: "run-6", discard: true })
       const parked = yield* parkedBelow("run-6")
+      let rootRow = ""
+      yield* TestDatabase.until(
+        store.get("run-6").pipe(Effect.map((row) => {
+          rootRow = row.status
+          return row.status === "suspended"
+        }))
+      )
       return {
         root: yield* runtime.getRun("run-6"),
-        rootRow: (yield* store.get("run-6")).status,
+        rootRow,
         holder: yield* runtime.getRun(parked.runId)
       }
     }))

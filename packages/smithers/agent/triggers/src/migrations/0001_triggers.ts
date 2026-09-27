@@ -1,4 +1,5 @@
 /** @since 0.1.0 */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -22,16 +23,16 @@ export const triggers: Effect.Effect<void, unknown, SqlClient.SqlClient> = Effec
     timezone TEXT,
     overlap TEXT NOT NULL CHECK (overlap IN ('skip', 'buffer-one', 'supersede')),
     catch_up TEXT NOT NULL CHECK (catch_up IN ('none', 'one', 'all')),
-    max_catch_up INTEGER NOT NULL CHECK (max_catch_up >= 0),
-    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-    revision INTEGER NOT NULL,
-    last_fired_at_ms INTEGER,
-    pending_at_ms INTEGER,
+    max_catch_up ${Dialect.integer(sql)} NOT NULL CHECK (max_catch_up >= 0),
+    enabled ${Dialect.integer(sql)} NOT NULL CHECK (enabled IN (0, 1)),
+    revision ${Dialect.integer(sql)} NOT NULL,
+    last_fired_at_ms ${Dialect.integer(sql)},
+    pending_at_ms ${Dialect.integer(sql)},
     active_run_id TEXT
   )`
   yield* sql`CREATE TABLE IF NOT EXISTS flows_trigger_fires (
     trigger_id TEXT NOT NULL,
-    occurrence_at_ms INTEGER NOT NULL,
+    occurrence_at_ms ${Dialect.integer(sql)} NOT NULL,
     outcome TEXT,
     run_id TEXT,
     error TEXT,

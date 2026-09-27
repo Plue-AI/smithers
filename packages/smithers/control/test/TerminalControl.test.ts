@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * Control requests against runs this process does not own, and against runs
  * nobody owns any more.
@@ -51,7 +52,7 @@ const database = Layer.mergeAll(
   RunStore.layer
 ).pipe(
   Layer.provideMerge(
-    Layer.provideMerge(Layer.merge(Migrations.layer, RunStoreMigrations.layer), TestDatabase.layer)
+    Layer.provideMerge(DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]), TestDatabase.layer)
   )
 )
 

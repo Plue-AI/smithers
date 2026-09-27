@@ -1,3 +1,6 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import * as Clock from "effect/Clock"
+import * as ObservedClock from "./ObservedClock.ts"
 /**
  * The monitor loop's defaults, its empty report, and the one failure it cannot
  * absorb.
@@ -72,13 +75,21 @@ describe("Monitor.run defaults", () => {
   it("beats ten times a second apart when it is given nothing but a run id", async () => {
     const report = await runOnTestClock(Effect.gen(function*() {
       const runId = yield* start("defaults")
-      const fiber = yield* Monitor.run({ runId }).pipe(Effect.forkChild({ startImmediately: true }))
+      const observedClock = yield* ObservedClock.make
+      const fiber = yield* Monitor.run({ runId }).pipe(
+        Effect.provideService(Clock.Clock, observedClock.clock),
+        Effect.forkChild({ startImmediately: true })
+      )
       // Nine sleeps separate ten beats. Advancing less than that would leave
       // the loop mid-interval, which is how a default that silently became
       // zero would still pass.
-      yield* TestClock.adjust("8 seconds")
+      for (let beat = 1; beat <= 8; beat++) {
+        yield* TestDatabase.until(observedClock.scheduled(beat * 1000))
+        yield* TestClock.adjust("1 second")
+      }
       const early = fiber.pollUnsafe()
-      yield* TestClock.adjust("2 seconds")
+      yield* TestDatabase.until(observedClock.scheduled(9000))
+      yield* TestClock.adjust("1 second")
       const finished = yield* Fiber.join(fiber)
       return { early, finished }
     }))

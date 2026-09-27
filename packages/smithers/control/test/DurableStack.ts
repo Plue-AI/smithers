@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * A complete durable `ControlLive` stack over one in-memory SQLite database.
  *
@@ -39,7 +40,7 @@ export const journalBundle: Layer.Layer<
 ).pipe(
   Layer.provideMerge(
     Layer.provideMerge(
-      Layer.merge(Migrations.layer, RunStoreMigrations.layer),
+      DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]),
       TestDatabase.layer
     )
   )
@@ -64,7 +65,7 @@ export const fileBundle = (
   ).pipe(
     Layer.provideMerge(
       Layer.provideMerge(
-        Layer.merge(Migrations.layer, RunStoreMigrations.layer),
+        DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]),
         Layer.provideMerge(DurableWriterModule.layer(), NodeDatabase.layer({ filename }))
       )
     )

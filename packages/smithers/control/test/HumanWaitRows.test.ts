@@ -81,9 +81,9 @@ describe("reading a nested human wait out of odd rows", () => {
       })
       // Past the column's own `json_valid` check, which is the only way this
       // value can exist. A park nobody can render is still a park.
-      yield* writer.write(sql`PRAGMA ignore_check_constraints = ON`)
+      yield* writer.write(TestDatabase.checks(sql, false))
       yield* writer.write(sql`UPDATE flows_runs SET waiting_request = 'not json' WHERE run_id = 'anonymous'`)
-      yield* writer.write(sql`PRAGMA ignore_check_constraints = OFF`)
+      yield* writer.write(TestDatabase.checks(sql, true))
 
       return (yield* runtime.getRun("root")).pendingWaits ?? []
     }))

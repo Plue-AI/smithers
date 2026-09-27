@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * The durable runtime against rows it did not write.
  *
@@ -47,7 +48,7 @@ const database = (): Layer.Layer<
   RunStore.layer.pipe(
     Layer.provideMerge(
       Layer.provideMerge(
-        Layer.merge(Migrations.layer, RunStoreMigrations.layer),
+        DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]),
         TestDatabase.layer
       )
     )
@@ -709,7 +710,10 @@ describe("SqlControlRuntime layers and stores", () => {
             Layer.provideMerge(
               Layer.merge(
                 NodeCrypto.layer,
-                Layer.provideMerge(Layer.merge(Migrations.layer, RunStoreMigrations.layer), TestDatabase.layer)
+                Layer.provideMerge(
+                  DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]),
+                  TestDatabase.layer
+                )
               )
             )
           )
@@ -806,8 +810,12 @@ describe("SqlControlRuntime when the tables are gone", () => {
     const failures = await withRuntime((runtime, sql) =>
       Effect.gen(function*() {
         const { runId } = yield* start(runtime, "dropped")
-        yield* sql`DROP TABLE control_mutations`
-        yield* sql`DROP TABLE control_run_messages`
+        yield* sql`DROP TABLE control_mutations ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`
+        yield* sql`DROP TABLE control_run_messages ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`
         return {
           signals: yield* Effect.flip(runtime.deliveredSignals(runId)),
           recorded: yield* Effect.flip(

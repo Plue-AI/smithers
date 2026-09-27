@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * The durable `ControlRuntime`: the shared `ControlLive` contract, plus what
  * only a durable adapter can be asked — surviving a restart, refusing a stale
@@ -39,7 +40,7 @@ const durableJournal = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(
     Layer.provideMerge(
-      Layer.merge(Migrations.layer, RunStoreMigrations.layer),
+      DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]),
       TestDatabase.layer
     )
   )

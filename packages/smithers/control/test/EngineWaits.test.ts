@@ -16,6 +16,7 @@
  * writers of one row.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import { DurableWriter } from "@smthrs/database"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import * as EngineStore from "@smthrs/engine-store/EngineStore"
@@ -216,6 +217,8 @@ const parkedRun = (runId: string, name: string) =>
     const state = yield* DurableEngineState.DurableEngineState
     const waiting = yield* state.waiting(runId)
     if (Option.isNone(waiting)) return yield* Effect.die(`run ${runId} did not park`)
+    const runs = yield* RunStore.RunStore
+    yield* TestDatabase.until(runs.get(runId).pipe(Effect.map((row) => row.status === "suspended")))
     return waiting.value
   })
 
@@ -226,10 +229,16 @@ describe("resuming a run the engine owns", () => {
       const store = yield* RunStore.RunStore
       const state = yield* DurableEngineState.DurableEngineState
       const waiting = yield* parkedRun("engine-parked", "approval")
-      const before = yield* store.get("engine-parked")
-
-      const receipt = yield* control.resume({ runId: "engine-parked", idempotencyKey: "resume:engine-parked" })
-      const after = yield* store.get("engine-parked")
+      const writer = yield* DurableWriter.DurableWriter
+      let snapshot: { before: RunStore.RunRow; after: RunStore.RunRow; receipt: { _tag: string } } | undefined
+      yield* TestDatabase.until(writer.write(Effect.gen(function*() {
+        const before = yield* store.get("engine-parked")
+        if (before.status !== "suspended") return false
+        const receipt = yield* control.resume({ runId: "engine-parked", idempotencyKey: "resume:engine-parked" })
+        snapshot = { before, receipt, after: yield* store.get("engine-parked") }
+        return true
+      })))
+      const { before, after, receipt } = snapshot!
 
       // The engine's own wake still works, which is the whole point: the
       // control plane did not take the row away from the driver that parked it.

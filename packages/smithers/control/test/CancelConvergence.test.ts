@@ -164,7 +164,9 @@ const awaitStatus = (
 ): Effect.Effect<string, unknown, RunStore.RunStore> =>
   Effect.gen(function*() {
     const store = yield* RunStore.RunStore
-    const row = yield* store.get(runId)
+    const row = yield* store.get(runId).pipe(
+      Effect.catchTag("@smthrs/run-store/RunStoreError", () => Effect.succeed({ status: "missing" }))
+    )
     if (predicate(row.status) || attempts <= 0) return row.status
     yield* Effect.sleep(Duration.millis(25))
     return yield* awaitStatus(runId, predicate, attempts - 1)

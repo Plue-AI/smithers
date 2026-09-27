@@ -1074,7 +1074,11 @@ describe("Scheduler over real SQLite", () => {
             yield* scheduler.runOnce
             yield* TestClock.setTime(2 * hour)
             yield* scheduler.runOnce
-            yield* Effect.yieldNow
+            yield* TestDatabase.until(
+              triggers.activeRun(declaration.id).pipe(
+                Effect.map((active) => Option.isSome(active) && active.value === "run-1")
+              )
+            )
           })
         )
         const acrossDeath = yield* triggers.activeRun(declaration.id)
@@ -1091,7 +1095,11 @@ describe("Scheduler over real SQLite", () => {
             runner.active.clear()
             yield* TestClock.setTime(4 * hour)
             yield* scheduler.runOnce
-            yield* Effect.yieldNow
+            yield* TestDatabase.until(
+              triggers.get(declaration.id).pipe(
+                Effect.map((row) => Option.isSome(row) && row.value.lastFiredAt === 4 * hour)
+              )
+            )
             return held
           })
         )

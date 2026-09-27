@@ -97,7 +97,7 @@ describe("control migrations", () => {
       yield* Migrations.run
       const sql = yield* SqlClient.SqlClient
       const rows = yield* sql<{ readonly name: string }>`
-        SELECT name FROM sqlite_master
+        SELECT name FROM ${TestDatabase.catalog(sql)}
         WHERE type = 'table' AND name LIKE 'control_%'
         ORDER BY name
       `

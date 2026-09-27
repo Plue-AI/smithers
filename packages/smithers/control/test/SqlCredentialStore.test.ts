@@ -267,7 +267,9 @@ describe("SqlCredentialStore", () => {
       Effect.gen(function*() {
         const sql = yield* SqlClient.SqlClient
         const store = yield* SqlCredentialStore.make
-        yield* sql`DROP TABLE control_credentials`.pipe(Effect.orDie)
+        yield* sql`DROP TABLE control_credentials ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`.pipe(Effect.orDie)
         return yield* Effect.forEach(
           [
             store.read("exa"),

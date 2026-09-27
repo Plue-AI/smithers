@@ -1,3 +1,4 @@
+import * as Dialect from "@smthrs/database/Dialect"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Journal, JournalEvent } from "@smthrs/journal"
@@ -237,8 +238,13 @@ describe("approval decisions are not merely resolutions", () => {
         const sql = yield* SqlClient.SqlClient
         const journal = yield* Journal.Journal
         const { target, token } = yield* pendingRequest
-        yield* sql`CREATE TEMP TRIGGER refuse_node_decision BEFORE UPDATE OF decision_json ON control_tokens
-        WHEN NEW.target_tag = 'Node' BEGIN SELECT RAISE(ABORT, 'injected decision failure'); END`
+        yield* Dialect.trigger(sql, {
+          name: `refuse_node_decision`,
+          table: `control_tokens`,
+          event: `BEFORE UPDATE OF decision_json`,
+          when: `NEW.target_tag = 'Node'`,
+          reject: "injected decision failure"
+        })
         const input = { target, scope: "remembered" as const, idempotencyKey: "decision:storage-fault", principal }
         const error = yield* Effect.flip(control.approve(input))
         expect(error._tag).toBe("/control/PersistenceError")
@@ -248,7 +254,7 @@ describe("approval decisions are not merely resolutions", () => {
         yield* journal.flush
         expect((yield* journal.entries({ runId: JournalEvent.RunId.make(target.runId), limit: 100 })).entries
           .filter((entry) => entry.eventType.startsWith("control.approval."))).toEqual([])
-        yield* sql`DROP TRIGGER refuse_node_decision`
+        yield* TestDatabase.dropTrigger(sql, "refuse_node_decision")
         expect((yield* control.approve(input))._tag).toBe("Accepted")
         expect((yield* runtime.registerApproval(target))._tag).toBe("Approved")
         expect((yield* runtime.grants).filter((grant) => grant.tokenId === token.tokenId)).toHaveLength(1)
