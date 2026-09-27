@@ -311,30 +311,30 @@ Check the configuration and flow discovery:
 
 ```bash
 smthrs doctor
-smthrs ls
+smthrs flow list
 ```
 
-`doctor` reports runtime and configuration problems without running a flow. `ls` should include `change` with the description from its frontmatter. Resolve any failing checks before launching.
+`doctor` reports runtime and configuration problems without running a flow. `flow list` should include `change` with the description from its frontmatter. Resolve any failing checks before launching.
 
 ## 4. Run and inspect it
 
 ```bash
-smthrs up change
+smthrs flow start change
 ```
 
-`up` plans the flow, grants its requested capabilities for this run, and launches it. Review the flow's instructions and capabilities before running it. The command stays attached until the run completes, fails, is cancelled, or waits for approval.
+`flow start` plans the flow, grants its requested capabilities for this run, and launches it. Review the flow's instructions and capabilities before running it. The command stays attached until the run completes, fails, is cancelled, or waits for approval.
 
 After it settles, list the runs and use the returned run id to inspect one:
 
 ```bash
-smthrs ps
-smthrs status <run-id>
-smthrs logs <run-id>
+smthrs runs list
+smthrs runs show <run-id>
+smthrs runs logs <run-id>
 ```
 
-A successful run appears as `completed`. Its transcript should contain the test instructions and source-directory explanation you requested. If it fails, `status` explains the diagnosis and `logs` shows the transcript.
+A successful run appears as `completed`. Its transcript should contain the test instructions and source-directory explanation you requested. If it fails, `runs show` explains the diagnosis and `runs logs` shows the transcript.
 
-Smithers records completed action results in the project's journal. A resumed run can reuse those results; starting another `up` creates a new run. See [durable execution](/docs/concepts/durable-execution/) for what replay preserves.
+Smithers records completed action results in the project's journal. A resumed run can reuse those results; starting another `flow start` creates a new run. See [durable execution](/docs/concepts/durable-execution/) for what replay preserves.
 
 ## Next steps
 
