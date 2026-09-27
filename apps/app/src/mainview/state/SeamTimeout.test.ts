@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
 import { createControllerContext } from "./controller/context"
-import { json, memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
+import { json, loadBox, memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -50,6 +50,7 @@ describe("a seam that never answers becomes an honest answer", () => {
         head: null
       }))
     })
+    await loadBox(store, "will/flows")
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const started = Date.now()

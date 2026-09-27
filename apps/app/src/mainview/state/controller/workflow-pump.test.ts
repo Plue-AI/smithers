@@ -7,6 +7,7 @@ import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
 import { createGatewaySeam } from "./gateway"
 import { createWorkflowPumpController } from "./workflow-pump"
+import { RUN_BOX_GONE } from "../RepoContext"
 import { AppEventIntegrityError } from "../AppEventStream"
 import type { StatusRollup } from "@smthrs/rpc/Health"
 import { readFileSync } from "node:fs"
@@ -33,6 +34,8 @@ const poll = async (cycles: Cycle[], options: {
   initialRun?: RuntimeRun
   resumeOnBoot?: boolean
   flowId?: string
+  /** A card recorded before every run named its box, in this phase. */
+  boxless?: Extract<Card, { kind: "run-trace" }>["payload"]["phase"]
   /** Receipts this browser fails to save, in dispatch order, before saving the rest. */
   saveFailures?: Array<{ type: string; error: Error }>
   /** Transitions the store refuses synchronously, once each, as `AppStore.dispatch` throws. */
@@ -41,10 +44,10 @@ const poll = async (cycles: Cycle[], options: {
   const flowId = options.flowId ?? summary.flowId
   let card: Extract<Card, { kind: "run-trace" }> = {
     id: "run-card", kind: "run-trace", title: "test", status: "active", createdAt: 1, ordinal: 1,
-    payload: { repo: "o/r", runId: "run-1", workflow: flowId, phase: "running", steps: [], result: null, lastSeq: 0, events: options.initialEvents }
+    payload: { repo: "o/r", ...(options.boxless === undefined ? { workspaceId: "box-1" } : {}), runId: "run-1", workflow: flowId, phase: options.boxless ?? "running", steps: [], result: null, lastSeq: 0, events: options.initialEvents }
   }
   const cards = new Map([[card.id, card]])
-  const scope = { repo: "o/r", runId: "run-1" }, key = runtimeRunKey(scope)
+  const scope = { repo: "o/r", runId: "run-1", ...(options.boxless === undefined ? { workspaceId: "box-1" } : {}) }, key = runtimeRunKey(scope)
   const runtimeRuns = new Map<string, RuntimeRun>()
   if (options.initialRun) {
     runtimeRuns.set(key, options.initialRun)
@@ -61,7 +64,7 @@ const poll = async (cycles: Cycle[], options: {
   const messages: string[] = []
   const dispatched: string[] = []
   const gateway = createGatewaySeam({
-    baseUrl: "https://test", errorMessageOf: async (_, fallback) => fallback,
+    baseUrl: "https://test", errorMessageOf: async (_, fallback) => fallback, bindingFor: () => ({ workspaceId: "box-1" }),
     fetch: async (_, init) => {
       const { payload } = JSON.parse(String(init?.body))
       const projection = payload.selector._tag
@@ -444,4 +447,14 @@ test("a page that repeats rows the card already holds changes no node's state", 
   const stateOf = (card: typeof once.card) =>
     [...runGraphOfCard(card)?.status ?? []].map(([id, run]) => [id, run.status, run.outcome])
   expect(stateOf(twice.card)).toEqual(stateOf(once.card))
+})
+
+test("boot keeps an old completed box-less card's verdict while its engine evidence is pending", async () => {
+  const started = { sequence: 1, kind: "control.engine.projection-started", occurredAt: 1, payload: { version: 1, executionId: "native", generation: 0 } }
+  for (const phase of ["completed", "running"] as const) {
+    const result = await poll([], { boxless: phase, initialEvents: [started], resumeOnBoot: true })
+    expect(result.journalRequests).toEqual([])
+    expect(result.run?.observer).toEqual(phase === "completed" ? { state: "connected", error: RUN_BOX_GONE } : { state: "stopped", error: RUN_BOX_GONE })
+    expect(result.card.payload.phase).toBe(phase === "completed" ? "completed" : "stopped")
+  }
 })

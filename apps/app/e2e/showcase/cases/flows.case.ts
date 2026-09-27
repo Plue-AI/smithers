@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test"
 import { showcase } from "../showcase"
+import { runningBox } from "../../playwright/cloudFixture"
 
 const REPO = "smithersai/smithers"
 const FLOW = "review-pr"
@@ -47,7 +48,7 @@ export default showcase({
     let registrationRuns = 0
     const registrationReceipt = Promise.withResolvers<void>()
     const triggerOperations: Array<string | undefined> = []
-    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox(REPO)] })
     await backend.json("/api/workflow/provision", { status: "ready", repo: REPO, gatewayId: "gw-1" })
     await backend.route(url => url.pathname.startsWith(`/api/repos/${REPO}/contents/flows/`), async route => {
       const url = new URL(route.request().url())
@@ -64,7 +65,6 @@ export default showcase({
         : route.fulfill({ json: { type: "file", encoding: "utf-8", content: "export const check = true" } })
     })
     await backend.json("/api/workflow/trigger-approval", { status: "ok", approvedAt: "2026-09-26T08:00:00Z", approvedBy: 1 })
-    await backend.json("/api/workflow/triggers", { status: "ok", repo: REPO, live: true, triggers: [], webhooks: [{ name: "github-pull-request", flowId: FLOW }] })
     await backend.json("/api/workflow/trigger-registrations", () => ({ status: "ok", rows: [
       { registrationId: "reg-nightly", slug: "nightly-review", flowId: FLOW, schedule: "0 3 * * *", enabled: !paused, ...(paused ? {} : { nextFireAt: "2026-09-26T03:00:00Z" }) }
     ] }))

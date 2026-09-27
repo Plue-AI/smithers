@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
-import { json, memoryStorage, settled, silentAgent } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settled, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -189,6 +189,7 @@ describe("a flow typed into the composer states its refusal", () => {
         return json(404, { message: `no stub for ${path}` })
       }
     })
+    await loadBox(store, "codeplanesmithers/canary-sandbox")
     controller.send("/flow.create a nightly lint flow codeplanesmithers/canary-sandbox")
     const refused = () => {
       const card = [...store.collections.cards.values()].find((entry) => entry.kind === "run-trace" && entry.payload.authoring !== undefined)

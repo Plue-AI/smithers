@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test"
 import { showcase } from "../showcase"
+import { runningBox } from "../../playwright/cloudFixture"
 
 const REPO = "smithersai/smithers"
 const gate = () => {
@@ -20,7 +21,7 @@ export default showcase({
     let rerunComplete = false
     let rerunProvisions = 0
     let runs = 0
-    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox(REPO)] })
     await backend.route(url => url.pathname === "/api/workflow/provision", async route => {
       if (runs > 0) { rerunProvisions += 1; await rerunPreparation.promise }
       else await preparation.promise

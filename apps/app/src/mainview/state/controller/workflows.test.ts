@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import type { RunSummaryRow } from "./gateway"
 import { scopedControllers } from "../ControllerTestScope"
 import { createAppStore } from "../AppStore"
-import { json, memoryStorage, scriptedToolAgent, settle, waitFor } from "../TestFixtures"
+import { json, loadBox, memoryStorage, scriptedToolAgent, settle, waitFor } from "../TestFixtures"
 
 const createAppController = scopedControllers()
 const repo = "owner/launch-test"
@@ -22,6 +22,7 @@ async function fixture(options: { workflowPreparationTimeoutMs?: number } = {}) 
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "launch-test", head: null }] }).isPersisted.promise
+  await loadBox(store, repo)
   const calls: Array<{ procedure: string; payload: Record<string, unknown>; repo: string; workspaceId?: string }> = []
   let provision = async () => json(200, { status: "ready" })
   let provisions = 0

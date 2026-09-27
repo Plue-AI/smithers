@@ -69,13 +69,14 @@ export const gatewayCall = async (
   repo: string,
   procedure: string,
   payload: unknown,
-  workspaceId?: string
+  /** The box the call names: the relay refuses a call that names none. */
+  workspaceId: string
 ): Promise<GatewayAnswer> => {
   const response = await realApi(page, request, "POST", "/api/workflow/rpc", {
     repo,
     procedure,
     payload,
-    ...(workspaceId === undefined ? {} : { workspaceId })
+    workspaceId
   })
   expect(response.status(), `${procedure} HTTP status`).toBe(200)
   const answer = await response.json() as GatewayAnswer
@@ -101,7 +102,7 @@ export const waitForTerminalRun = async (
   repo: string,
   runId: string,
   timeout: number,
-  workspaceId?: string
+  workspaceId: string
 ): Promise<RunSummary> => {
   let row: RunSummary | undefined
   await expect.poll(async () => {

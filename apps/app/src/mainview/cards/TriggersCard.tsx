@@ -7,17 +7,15 @@ import { flowAction } from "../flows/FlowAction"
  * Two sources, never mixed. The declared rows are the `on` table of
  * `.smithers/factory.json` read from the public mirror, each stating its
  * event in words and the flow it starts, under one pill naming where they
- * are declared. The live rows are the box's own registrations and exist
- * only when a signed-in session's box answered (`live`): the trigger store's
- * rows with their state (enabled, last fired, next fire, the run in flight)
- * and the webhook channels. Signed out there is no live column and no
- * placeholder for one. With nothing declared and no box answering, the card
+ * are declared. The live rows are the repository's schedules registered on
+ * Smithers Cloud and exist only for a signed-in session (`live`), with their
+ * state (enabled, next fire). Signed out there is no live column and no
+ * placeholder for one. With nothing declared and nothing registered, the card
  * is exactly one sentence. Register is the button door of triggers.register,
  * whose requirement makes sign-in the door; a registration Smithers Cloud
  * named carries Run now, the button door of triggers.run, and behind the flow
- * builder's flag Pause beside it, the button door of triggers.pause. A
- * trigger-store row with no registration name carries neither: both are Plue
- * routes keyed by that name.
+ * builder's flag Pause beside it, the button door of triggers.pause. A row
+ * stored with no registration name carries neither: both are keyed by it.
  */
 import { ruleFlows } from "@smthrs/rpc/FactoryProjection"
 import { Button } from "@smthrs/ui"
@@ -35,16 +33,9 @@ export interface TriggerListCardActions {
   readonly onRunCommand: RunCommand
 }
 
-/** The live state of one registered trigger, in words: only what the box stated. */
-export const triggerStateLabel = (trigger: TriggerListCard["payload"]["triggers"][number]): string => {
-  const parts = [
-    trigger.enabled ? "enabled" : "disabled",
-    trigger.lastFiredAt === undefined ? "never fired" : `last fired ${clockLabel(trigger.lastFiredAt)}`
-  ]
-  if (trigger.nextFireAt !== undefined) parts.push(`next ${clockLabel(trigger.nextFireAt)}`)
-  if (trigger.activeRunId !== undefined) parts.push(`running ${trigger.activeRunId}`)
-  return parts.join(" · ")
-}
+/** The live state of one registered trigger, in words: only what Smithers Cloud stated. */
+export const triggerStateLabel = (trigger: TriggerListCard["payload"]["triggers"][number]): string =>
+  trigger.nextFireAt === undefined ? (trigger.enabled ? "enabled" : "disabled") : `${trigger.enabled ? "enabled" : "disabled"} · next ${clockLabel(trigger.nextFireAt)}`
 
 export const TriggerListCardBody = ({
   card,
@@ -55,9 +46,8 @@ export const TriggerListCardBody = ({
   const { repo, triggers } = card.payload
   const declared = card.payload.declared ?? []
   const live = card.payload.live === true
-  const webhooks = live ? card.payload.webhooks ?? [] : []
   const liveRows = live ? triggers : []
-  const empty = declared.length === 0 && liveRows.length === 0 && webhooks.length === 0
+  const empty = declared.length === 0 && liveRows.length === 0
   const unreadRequest = card.payload.declared === undefined &&
     ((card.payload.preparations?.length ?? 0) > 0 || (card.payload.pauseRequests?.length ?? 0) > 0)
   return (
@@ -115,14 +105,6 @@ export const TriggerListCardBody = ({
                     </Button>
                   </>
                 )}
-              </li>
-            ))}
-            {webhooks.map((webhook) => (
-              <li key={`webhook:${webhook.name}`} className="workflow-list-row" data-webhook={webhook.name} data-source="box">
-                <span className="workflow-list-text">
-                  <strong>Webhook {webhook.name}</strong>
-                  {webhook.flowId === undefined ? null : <span>runs {webhook.flowId}</span>}
-                </span>
               </li>
             ))}
           </ul>

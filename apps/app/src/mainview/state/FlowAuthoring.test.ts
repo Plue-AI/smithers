@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { json, memoryStorage, settle, waitFor, silentAgent } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, waitFor, silentAgent } from "./TestFixtures"
 import type { Card } from "./AppState"
 import { runtimeRunKey } from "./RuntimeProjection"
 import { createControllerContext } from "./controller/context"
@@ -23,6 +23,8 @@ const fixture = () => {
   const fetchImpl = async (url: RequestInfo | URL, init?: RequestInit) => {
     if (String(url).includes("/provision")) return json(200, { status: "ready", repo: REPO })
     const body = JSON.parse(String(init?.body ?? "{}"))
+    /* The relay refuses a body that names no box, as the Worker does. */
+    if (typeof body.workspaceId !== "string") return json(400, { status: "error", code: "request_invalid", message: "Body must name a box: workspaceId." })
     const { procedure, payload } = body
     calls.push({ procedure, payload })
     if (procedure === "Plan") {
@@ -52,6 +54,7 @@ const fixture = () => {
 const ready = async (relay: ReturnType<typeof fixture>, storage = memoryStorage()) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await loadBox(store, REPO)
   const controller = createController(store, silentAgent, { fetchImpl: relay.fetchImpl, workflowPollMs: 1, toastDebounceMs: 0, toastAutoDismissMs: 10000 })
   return { store, controller }
 }

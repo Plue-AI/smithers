@@ -15,7 +15,7 @@ import type { Card } from "@smthrs/rpc/Cards"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { json, memoryStorage, scriptedToolAgent, settle, silentAgent, waitFor } from "./TestFixtures"
+import { json, loadBox, memoryStorage, scriptedToolAgent, settle, silentAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -271,9 +271,15 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>, loaded: strin
         head: null
       }))
     })
+    for (const [index, fullName] of loaded.entries()) await loadBox(store, fullName, `0b0c0d0e-0000-4000-8000-00000000000${index + 1}`)
   }
   await settle(2)
 }
+
+/** The box signIn loads for the n-th loaded repository (1-based). */
+const boxOf = (n = 1) => `0b0c0d0e-0000-4000-8000-00000000000${n}`
+const listId = (repo: string, n = 1) => `workflow-list@${encodeURIComponent(repo)}@${encodeURIComponent(boxOf(n))}`
+const W11_APPROVAL = `approval@${[REPO, boxOf(), "run-w11"].map(encodeURIComponent).join("@")}@open-pr`
 
 const runCard = (store: Awaited<ReturnType<typeof webStore>>): Extract<Card, { kind: "run-trace" }> | undefined => {
   const card = [...store.collections.cards.values()].find(card => card.kind === "run-trace" && card.payload.runId === "run-w11")
@@ -320,7 +326,7 @@ describe("wave 11 — the full journey: make me a workflow", () => {
     // wave-9 law: a toast past the debounce never keeps its running sentence.
     const toast = [...store.collections.toasts.values()].find((entry) => entry.key.startsWith("flow.provision"))
     expect(toast?.status).toBe("ok")
-    expect(toast?.title).toBe("Workspace ready")
+    expect(toast?.title).toBe("Box ready")
 
     // THE EMBED LAW: a card in the transcript, and the surface never moved.
     const card = runCard(store)
@@ -339,14 +345,14 @@ describe("wave 11 — the full journey: make me a workflow", () => {
     double.park("open-pr")
     await waitFor(() => runCard(store)?.payload.phase === "waiting-approval")
     expect(runCard(store)?.payload.phase).toBe("waiting-approval")
-    const approval = store.collections.cards.get("approval-run-w11-open-pr")
+    const approval = store.collections.cards.get(W11_APPROVAL)
     expect(approval?.kind).toBe("approval")
     expect(approval?.kind === "approval" && approval.payload.repo).toBe(REPO)
     expect(approval?.title).toContain("pull request")
 
     // The human decides. The decision goes back as the exact envelope the
     // gateway published, through THIS user's gateway.
-    await controller.commands.run("approval.approve", "approval-run-w11-open-pr")
+    await controller.commands.run("approval.approve", W11_APPROVAL)
     await settle(6)
     // The plan approval the launch itself takes is an `Approval.Submit` too;
     // the human's decision is the one on the run's own gate.
@@ -666,13 +672,13 @@ describe("wave 11 — the run card never silently stalls", () => {
 
     expect(double.state.runStatus).toBe("parked")
     // The card asked for the gate anyway, and reads honestly.
-    const approval = store.collections.cards.get("approval-run-w11-open-pr")
+    const approval = store.collections.cards.get(W11_APPROVAL)
     expect(approval?.kind).toBe("approval")
     expect(approval?.kind === "approval" && approval.payload.repo).toBe(REPO)
     expect(runCard(store)?.payload.phase).toBe("waiting-approval")
 
     // And it round-trips through this user's gateway like any other.
-    await controller.commands.run("approval.approve", "approval-run-w11-open-pr")
+    await controller.commands.run("approval.approve", W11_APPROVAL)
     await settle(6)
     const submitted = double.calls.find((call) => {
       const body = call.body as { procedure?: string; payload?: { target?: { _tag?: string } } } | undefined
@@ -736,8 +742,8 @@ describe("wave 11 — workflows are presented", () => {
     const outcome = await controller.commands.run("flow.list")
     expect(outcome.status).toBe("executed")
     expect(said(outcome)).toBe("Flows requested.")
-    await waitFor(() => store.collections.cards.get(`workflow-list-${REPO}`)?.loading === false)
-    const card = store.collections.cards.get(`workflow-list-${REPO}`)
+    await waitFor(() => store.collections.cards.get(listId(REPO))?.loading === false)
+    const card = store.collections.cards.get(listId(REPO))
     expect(card?.kind).toBe("workflow-list")
     expect(card?.kind === "workflow-list" && card.payload.workflows.map((entry) => entry.key)).toEqual([
       "create-flow",
@@ -757,10 +763,10 @@ describe("wave 11 — workflows are presented", () => {
       store.dispatch({ type: "repo.selected", actor: "user", id: "another/project" })
       expect((await controller.commands.run("flow.list")).status).toBe("executed")
       await waitFor(() => double.calls.some(call => call.path === "/api/workflow/provision"))
-      expect(double.calls.find((call) => call.path === "/api/workflow/provision")?.body).toEqual({ repo: "another/project" })
-      expect(store.collections.cards.has("workflow-list-another/project")).toBe(true)
+      expect(double.calls.find((call) => call.path === "/api/workflow/provision")?.body).toEqual({ repo: "another/project", workspaceId: boxOf(2) })
+      expect(store.collections.cards.has(listId("another/project", 2))).toBe(true)
       expect((await controller.commands.run("flow.list", REPO)).status).toBe("executed")
-      expect(store.collections.cards.has(`workflow-list-${REPO}`)).toBe(true)
+      expect(store.collections.cards.has(listId(REPO))).toBe(true)
     } finally { controller.dispose() }
   })
 

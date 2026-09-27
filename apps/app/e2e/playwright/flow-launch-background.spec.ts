@@ -1,5 +1,5 @@
 import { controlTabKey, expect, test, type Page } from "./browserTest"
-import { installCloudFixture } from "./cloudFixture"
+import { installCloudFixture, runningBox } from "./cloudFixture"
 
 const repo = "smithersai/smithers"
 const gate = () => { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve }); return { promise, release } }
@@ -15,7 +15,7 @@ test("flow launch leaves Chat usable through preparation, launch, reload and rem
   const preparation = gate(), launch = gate()
   let ready = false, complete = false
   const calls: Array<{ procedure: string; payload: { idempotencyKey?: string; selector?: { _tag: string } } }> = []
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox("smithersai/smithers")] })
   await page.route("**/api/workflow/provision", async route => {
     await preparation.promise
     await route.fulfill({ status: ready ? 200 : 503, headers: { "Retry-After": "0" }, json: ready ? { status: "ready" } : { code: "workspace_starting", message: "Waking up" } })
@@ -80,7 +80,7 @@ test("a launch refusal survives reload and its keyboard Retry reuses the request
   let refuse = true
   const refusal = gate()
   const plans: string[] = []
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox("smithersai/smithers")] })
   await page.route("**/api/workflow/provision", route => route.fulfill({ json: { status: "ready" } }))
   await page.route("**/api/workflow/rpc", async route => {
     const call = route.request().postDataJSON()

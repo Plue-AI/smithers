@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { CODING_PLAN } from "../../cards/fixtures/CodingPlan"
 import { createAppStore } from "../AppStore"
 import { scopedControllers } from "../ControllerTestScope"
-import { json, memoryStorage, silentAgent, waitFor } from "../TestFixtures"
+import { json, loadBox, memoryStorage, silentAgent, waitFor } from "../TestFixtures"
 
 /*
  * A plan card is scoped to the repository and the account OWNER that asked
@@ -14,10 +14,11 @@ const createAppController = scopedControllers()
 const repo = "owner/tutorial"
 const plan = { ...CODING_PLAN, changes: [CODING_PLAN.changes[0]!] }
 
-const fixture = async () => {
+const fixture = async (box = true) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "tutorial", head: null }] }).isPersisted.promise
+  if (box) await loadBox(store, repo)
   let planned: () => Promise<Response> = async () => json(200, plan)
   let login = "owner"
   const posts: string[] = []
@@ -61,6 +62,21 @@ test("a saved plan still starts after same-owner re-reads", async () => {
   expect(t.posts).toContain("/api/tutorial/change/preflight")
   const saved = t.store.collections.cards.get(card!.id)
   expect(saved?.kind === "run-trace" && saved.payload.input?.tutorialScope).toEqual({ repoKey: null, accountLogin: "owner" })
+})
+
+test("with no box, Start refuses on the plan card, keeps its door, and runs again once a box is open", async () => {
+  const t = await fixture(false)
+  await t.controller.suggestTutorialChange(repo)
+  const [card] = t.plans()
+  const refusal = `Open a box of ${repo} first: /box.open ${repo}`
+  expect(await t.controller.startTutorialChange(card!.id)).toBe(refusal)
+  expect(t.posts).not.toContain("/api/tutorial/change/preflight")
+  const saved = t.store.collections.cards.get(card!.id)
+  expect(saved?.status).toBe("active")
+  expect(saved?.kind === "run-trace" && saved.payload.error).toBe(refusal)
+  await loadBox(t.store, repo)
+  await t.controller.startTutorialChange(card!.id)
+  expect(t.posts).toContain("/api/tutorial/change/preflight")
 })
 
 test("a plan saved by another owner is refused after the account changes", async () => {

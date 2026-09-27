@@ -317,7 +317,7 @@ export const createControllerContext = (
    * A request that never answers has to become an answer.
    *
    * §22.6 / A.18: `POST /api/workflow/provision` never replied, so
-   * "Preparing your … workspace…" stood past 120s with no run card, no
+   * "Preparing your … box…" stood past 120s with no run card, no
    * timeout and no error — the silent-failure family with a spinner on top.
    * A bounded wait turns it into an honest refusal. It rides only on the
    * request/response seams; the streaming paths (the turn, the model relay)

@@ -32,10 +32,6 @@
  *     file. With `ref` it is the file AT that revision, read out of jj or
  *     git rather than off disk, which is what the Code tab asks for: the
  *     working tree moves, and this suite itself edits it;
- *   - `GET /api/workflow/triggers?repo=`, answered by relaying
- *     `List { _tag: "triggers" }` to the gateway and mapping the frame with
- *     the Worker's own `workflowTriggersFromFrame`, so the rows a card draws
- *     are the rows the trigger store holds;
  *   - `GET /api/workflow/trigger-registrations?repo=` and
  *     `GET /api/billing/balance`, the two routes a signed-in app reads on its
  *     own at boot. Left unanswered they were 404s, and the balance one put a
@@ -52,7 +48,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
-import { BILLING_BALANCE_PATH, WORKFLOW_TRIGGERS_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { BILLING_BALANCE_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import * as SyncAuth from "@smthrs/sync/SyncAuth"
 import * as SyncServer from "@smthrs/sync/SyncServer"
 import { Effect, Layer } from "effect"
@@ -61,13 +57,11 @@ import { randomUUID } from "node:crypto"
 import { readdir, readFile, stat } from "node:fs/promises"
 import { createServer } from "node:http"
 import { resolve } from "node:path"
-import type { GatewayRpcFrame } from "smithers-server/gatewayRpc"
 import { relayRpc, writeResponse } from "./workerRelay"
 import { TRIGGER_REGISTRATIONS_PATH } from "smithers-server/repositoryTriggers"
-import { LIST_TRIGGERS_PAYLOAD, workflowTriggersFromFrame } from "smithers-server/workflowTriggers"
 import { execFileSync } from "node:child_process"
 import { repositoryRoot, stackWith } from "../../../packages/smithers/test/BridgedEngineRun.ts"
-import { GRAPH_REPO } from "../e2e/graph/workspace.ts"
+import { GRAPH_BOX, GRAPH_FLOW, GRAPH_REPO, GRAPH_SCHEDULE } from "../e2e/graph/workspace.ts"
 import { AUTHENTICATED_USER_PATH } from "@smthrs/rpc/ApplicationAuth"
 import { SCOPED_TEST_USER } from "../e2e/playwright/identity.ts"
 
@@ -268,18 +262,23 @@ const startRelay = (gatewayUrl: string): Promise<{ url: string; close: () => Pro
             // No `flow:<slug>` repository job exists on this stack: the routes
             // that write one address Smithers Cloud, which nothing here talks
             // to, so the listing is empty and says so the way the Worker's own
-            // listing says it (`apps/server/src/repositoryTriggers.ts`). The
-            // schedule the card DOES draw is the box's own trigger-store row,
-            // which arrives through WORKFLOW_TRIGGERS_PATH below.
+            // listing says it (`apps/server/src/repositoryTriggers.ts`), with
+            // the one fixture schedule the graph draws beside its plan.
             if (url.pathname === TRIGGER_REGISTRATIONS_PATH) {
-              return json(response, 200, { status: "ok", repo: url.searchParams.get("repo") ?? REPO, rows: [] })
-            }
-            // The box's own schedules, mapped by the Worker's own reader, so a
-            // row a card draws is a row the trigger store holds.
-            if (url.pathname === WORKFLOW_TRIGGERS_PATH) {
               const repo = url.searchParams.get("repo") ?? REPO
-              return json(response, 200, workflowTriggersFromFrame(repo, await (await relayRpc(new Request(url, { method: "POST",
-                body: JSON.stringify({ repo, procedure: "List", payload: LIST_TRIGGERS_PAYLOAD }) }), gatewayUrl, CREDENTIAL)).json() as GatewayRpcFrame))
+              const next = new Date()
+              next.setUTCHours(3, 0, 0, 0)
+              if (next.getTime() <= Date.now()) next.setUTCDate(next.getUTCDate() + 1)
+              return json(response, 200, { status: "ok", repo, rows: repo !== REPO ? [] : [{
+                registrationId: GRAPH_SCHEDULE.id, slug: GRAPH_SCHEDULE.slug, flowId: GRAPH_FLOW,
+                schedule: GRAPH_SCHEDULE.cron, enabled: true, nextFireAt: next.toISOString()
+              }] })
+            }
+            // The one box of the repository: every flow call names it.
+            if (url.pathname === "/api/user/workspaces") {
+              const [owner, name] = REPO.split("/")
+              return json(response, 200, { workspaces: [{ workspace_id: GRAPH_BOX, repository_owner: owner, repository_name: name,
+                workspace_title: "Graph", state: "running", created_at: null }], total: 1 })
             }
             const addressed = CONTENTS.exec(url.pathname)
             if (addressed !== null) {

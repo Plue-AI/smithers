@@ -13,7 +13,6 @@
  * which is exactly what a flow with no history shows. A toast for a
  * prediction nobody asked for would be an error message about an enhancement.
  */
-import { gatewayBindingFor } from "../RepoContext"
 import type { ControllerContext } from "./context"
 import type { GatewayWorkspaceBinding } from "./gateway"
 
@@ -21,7 +20,7 @@ import type { GatewayWorkspaceBinding } from "./gateway"
 export type FlowDurationsReader = (
   repo: string,
   flowId: string,
-  binding?: GatewayWorkspaceBinding
+  binding: GatewayWorkspaceBinding
 ) => Promise<void>
 
 /**
@@ -36,11 +35,9 @@ export const createFlowDurationsReader = (ctx: ControllerContext): FlowDurations
   const turns = new Map<string, number>()
   return async (repo, flowId, binding) => {
     if (ctx.disposed) return
-    const resolved = binding ?? gatewayBindingFor(ctx.store, repo)
-    if ("error" in resolved) return
-    const pinned = { workspaceId: resolved.workspaceId }
+    const pinned = { workspaceId: binding.workspaceId }
     const epoch = ctx.accountEpoch
-    const key = JSON.stringify([repo, pinned.workspaceId ?? null, flowId])
+    const key = JSON.stringify([repo, pinned.workspaceId, flowId])
     const turn = (turns.get(key) ?? 0) + 1
     turns.set(key, turn)
     const durations = await ctx.gateway.flowDurations(repo, flowId, pinned)
@@ -50,7 +47,7 @@ export const createFlowDurationsReader = (ctx: ControllerContext): FlowDurations
       type: "flow-durations.loaded",
       actor: "system",
       repo,
-      ...(pinned.workspaceId === undefined ? {} : { workspaceId: pinned.workspaceId }),
+      workspaceId: pinned.workspaceId,
       flowId,
       rows: durations.value.map((row) => ({
         actionTag: row.actionTag,

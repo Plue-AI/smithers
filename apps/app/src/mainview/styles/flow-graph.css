@@ -214,18 +214,6 @@
 	color: var(--text-muted);
 }
 
-.flow-trigger-tick {
-	width: 8px;
-	height: 8px;
-	border-radius: var(--r-full);
-	background: var(--text-faint);
-}
-
-.flow-trigger-tick[data-live="true"] {
-	background: var(--success);
-}
-
-.flow-trigger-policy,
 .flow-trigger-doors {
 	display: flex;
 	flex-wrap: wrap;
@@ -233,16 +221,7 @@
 	gap: var(--sp-1);
 }
 
-.flow-trigger-chip {
-	padding: 0 var(--sp-1);
-	border: 1px solid var(--border);
-	border-radius: var(--r-full);
-	font-size: var(--fs-caption);
-	color: var(--text-muted);
-}
-
-.flow-trigger-fires,
-.flow-trigger-ledger {
+.flow-trigger-fires {
 	display: flex;
 	flex-direction: column;
 	gap: var(--sp-1);
@@ -251,20 +230,12 @@
 	list-style: none;
 }
 
-.flow-trigger-fires li,
-.flow-trigger-ledger li {
+.flow-trigger-fires li {
 	display: flex;
 	align-items: center;
 	gap: var(--sp-2);
 }
 
-.flow-trigger-pending {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--sp-2);
-}
-
-.flow-trigger-pending,
 .flow-trigger-zoned,
 .flow-trigger-utc {
 	font-size: var(--fs-caption);
@@ -273,15 +244,6 @@
 
 .flow-trigger-utc {
 	color: var(--text-muted);
-}
-
-.flow-trigger-outcome {
-	font-size: var(--fs-caption);
-}
-
-.flow-trigger-error {
-	font-size: var(--fs-caption);
-	color: var(--text);
 }
 
 /*
@@ -395,7 +357,6 @@
 }
 
 .flow-graph-drawer-word[data-state="running"],
-.flow-graph-drawer-word[data-state="fired"],
 .flow-graph-drawer-word[data-state="failed"] {
 	color: var(--text);
 }
@@ -568,10 +529,6 @@
 .flow-graph-trigger-node {
 	border-radius: var(--r-4) var(--r-4) var(--r-sm) var(--r-sm);
 	border-style: dashed;
-}
-
-.flow-graph-trigger-node[data-trigger-state="fired"] {
-	border-color: var(--brand);
 }
 
 /*

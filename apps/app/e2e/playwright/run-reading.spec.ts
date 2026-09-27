@@ -1,5 +1,5 @@
 import { controlTabKey, expect, test, type Locator, type Page } from "./browserTest"
-import { installCloudFixture } from "./cloudFixture"
+import { boxRunCardId, installCloudFixture, runningBox } from "./cloudFixture"
 import { preparedCodingJournal } from "../../src/mainview/cards/fixtures/CodingJournal"
 
 // Producer-shaped fixtures test the real shell, controller and persistence.
@@ -34,7 +34,7 @@ const command = async (page: Page, line: string) => {
 for (const width of [900, 390]) test(`the run reads in one column at ${width}px and its keyboard expansion survives reload`, async ({ page }, info) => {
   test.setTimeout(180_000)
   await page.setViewportSize({ width, height: 1000 })
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox("smithersai/smithers")] })
   await page.route("**/api/workflow/provision", route => route.fulfill({ json: { status: "ready", repo, gatewayId: "reading" } }))
   await page.route("**/api/workflow/rpc", route => {
     const call = route.request().postDataJSON() as { procedure: string; payload: { selector?: { _tag?: string }; after?: { value: number } } }
@@ -49,7 +49,7 @@ for (const width of [900, 390]) test(`the run reads in one column at ${width}px 
   const dismiss = page.getByRole("button", { name: "Dismiss", exact: true })
   if (await dismiss.isVisible()) await dismiss.click()
   await command(page, `/runs.open ${runId} ${repo}`)
-  const card = page.getByTestId(`card-flow-run-${runId}`)
+  const card = page.getByTestId(`card-${boxRunCardId(repo, runId)}`)
   const trace = card.getByTestId(`run-trace-${runId}`)
   await expect(trace.locator("[data-frame-line]")).toHaveCount(2)
   await expect(trace.getByLabel("Goals", { exact: true })).toBeVisible()
@@ -86,7 +86,7 @@ for (const width of [900, 390]) test(`the run reads in one column at ${width}px 
   await expect(trace.getByLabel("Waterfall", { exact: true })).toBeVisible()
   await page.reload()
   await expect(trace).toHaveAttribute("data-view", "timeline")
-  await command(page, `/runs.trace.select sourceCard=flow-run-${runId} ${runId} frame-1 9`)
+  await command(page, `/runs.trace.select sourceCard=${boxRunCardId(repo, runId)} ${runId} frame-1 9`)
   await expect(trace.locator('[data-goal="memory"]')).toHaveAttribute("data-state", "pending")
   await expect(trace.getByTestId(`run-outcome-${runId}`)).toHaveAttribute("data-phase", "failed")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()

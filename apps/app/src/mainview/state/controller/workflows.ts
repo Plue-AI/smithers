@@ -12,8 +12,7 @@ import { reconcileRunApprovals } from "./approval-reconciliation"
 import type { ControllerContext } from "./context"
 import type { GatewayWorkspaceBinding } from "./gateway"
 import { runCardIdFor, runScopeFromCard, sameRunScope } from "../RunReference"
-import { gatewayBindingFor, resolveTargetRepo, type GatewayBinding } from "../RepoContext"
-import { repositoryJobWorkspace } from "../RepositoryJobs"
+import { flowAuthoringBinding, gatewayBindingFor, recordedRunBinding, repositoryJobBinding, resolveTargetRepo } from "../RepoContext"
 import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import { FLOW_AUTHORING_ENTRY } from "@smthrs/rpc/FlowAuthoring"
 import { dismissReadyWorkspaceFailures, TOAST_SUPERSEDED, ZERO_BALANCE_EXHAUSTED_TEXT } from "./failures"
@@ -77,7 +76,7 @@ export interface WorkflowController {
   /** The refusal a $0 balance answers a launch with, already in the transcript; undefined when work may start. */
   readonly workflowBalanceGuard: () => string | undefined
   readonly workflowTargetRepo: (preferred?: string) => { readonly repo: string } | { readonly error: string }
-  readonly provisionWorkspace: (repo: string, binding?: GatewayWorkspaceBinding, signal?: AbortSignal) => Promise<true | string>
+  readonly provisionWorkspace: (repo: string, binding: GatewayWorkspaceBinding, signal?: AbortSignal) => Promise<true | string>
   readonly upsertRunCard: (args: {
     readonly cardId?: string
     readonly requireExisting?: boolean
@@ -86,7 +85,7 @@ export interface WorkflowController {
     readonly workflow: string
     readonly title: string
     readonly firstStep: string
-    readonly workspaceId?: string
+    readonly workspaceId: string
     readonly input?: Record<string, unknown>
     /** The run's kind (prototype, implement); absent for every other run. */
     readonly kind?: string
@@ -98,7 +97,7 @@ export interface WorkflowController {
     readonly workflow: string
     readonly input: Record<string, unknown>
     readonly title: string
-    readonly binding?: GatewayWorkspaceBinding
+    readonly binding: GatewayWorkspaceBinding
     readonly kind?: string
   }) => Promise<{ readonly runId: string } | LaunchRefusal>
   readonly requestRerun: (args: {
@@ -236,7 +235,7 @@ export const createWorkflowController = (
         const response = await boundedFetch(`${baseUrl}${WORKFLOW_PROVISION_PATH}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ repo, ...binding }),
+          body: JSON.stringify({ repo, workspaceId: binding.workspaceId }),
           signal
         })
         if (!response.ok) {
@@ -278,16 +277,13 @@ export const createWorkflowController = (
     }
   }
 
-  const provisionWorkspace = (repo: string, requestedBinding?: GatewayWorkspaceBinding, signal?: AbortSignal): Promise<true | string> => {
-    const binding = requestedBinding ?? gatewayBindingFor(store, repo)
-    if ("error" in binding) return Promise.resolve(binding.error)
-    return withToast(
-      `flow.provision.${repo}.${binding.workspaceId ?? "legacy"}`,
-      `Preparing your ${repo} workspace…`,
-      "Workspace ready",
+  const provisionWorkspace = (repo: string, binding: GatewayWorkspaceBinding, signal?: AbortSignal): Promise<true | string> =>
+    withToast(
+      `flow.provision.${repo}.${binding.workspaceId}`,
+      `Preparing your ${repo} box…`,
+      "Box ready",
       async () => { const result = await provisionWorkspaceImpl(repo, binding, signal); return result === true ? true : result.message }
     )
-  }
 
   const requests = createWorkflowLaunchController(ctx, nextTranscriptOrdinal, pumpWorkflowRun, async (repo, binding, signal, request, current) => {
     if (request.triggerRegistration) {
@@ -302,7 +298,7 @@ export const createWorkflowController = (
      */
     if (request.source !== undefined && request.workflow === "coding/request") {
       const provisioned = await provisionWorkspaceImpl(repo, binding, signal)
-      if (provisioned !== true || request.inputPrepared || binding.workspaceId === undefined) return provisioned
+      if (provisioned !== true || request.inputPrepared) return provisioned
       const pinned = await pinUserRefSource({ http: (url, init) => ctx.boundedFetch(url, { ...init, signal }), baseUrl: ctx.baseUrl },
         repo, binding.workspaceId, request.source, signal)
       if (!current()) return { code: "request_superseded", message: "This request belongs to a previous session." }
@@ -330,15 +326,17 @@ export const createWorkflowController = (
       .catch(error => ctx.failures.report("command.boundary", error, request.id))
   })
   const requestTriggerRegistration: WorkflowController["requestTriggerRegistration"] = async (repo, request) => {
-    const workspaceId = repositoryJobWorkspace(store.collections.cards.values(), repo, store.collections.identitySessions.get("identity")?.login ?? null)
-    const outcome = await requests.start({ repo, binding: { workspaceId }, workflow: "repository/trigger", input: {},
+    const binding = repositoryJobBinding(store, repo)
+    if ("error" in binding) return binding.error
+    const outcome = await requests.start({ repo, binding, workflow: "repository/trigger", input: {},
       triggerRegistration: request, actor: ctx.commandActor })
     return typeof outcome === "string" ? outcome : { value: `Registration requested for ${request.slug} on ${repo}.` }
   }
 
   const requestTriggerRun: WorkflowController["requestTriggerRun"] = async (repo, slug, operation = "fire") => {
-    const workspaceId = repositoryJobWorkspace(store.collections.cards.values(), repo, store.collections.identitySessions.get("identity")?.login ?? null)
-    const outcome = await requests.start({ repo, binding: { workspaceId }, workflow: "repository/trigger",
+    const binding = repositoryJobBinding(store, repo)
+    if ("error" in binding) return binding.error
+    const outcome = await requests.start({ repo, binding, workflow: "repository/trigger",
       input: { ...(operation === "fire" ? { requestId: crypto.randomUUID() } : {}), operation, repo, slug, input: {} }, triggerDispatch: { slug }, actor: ctx.commandActor })
     return typeof outcome === "string" ? outcome : { value: `Requested ${slug} on ${repo}.` }
   }
@@ -355,7 +353,7 @@ export const createWorkflowController = (
     readonly workflow: string
     readonly title: string
     readonly firstStep: string
-    readonly workspaceId?: string
+    readonly workspaceId: string
     readonly input?: Record<string, unknown>
     readonly kind?: string
     /** The plan the launch was approved on; absent for a run this client did not start. */
@@ -379,7 +377,7 @@ export const createWorkflowController = (
         ...held,
         repo: args.repo,
         gatewayBindingVersion: 1,
-        ...(args.workspaceId === undefined ? {} : { workspaceId: args.workspaceId }),
+        workspaceId: args.workspaceId,
         runId: args.runId,
         workflow: args.workflow,
         /* A monitor reopened after it settled keeps its recorded terminal status and failure. */
@@ -411,9 +409,9 @@ export const createWorkflowController = (
    * `toast-flow.plan:<id>`, and `JSON.stringify` is key-order sensitive, so
    * the same input typed twice in another order would grow a second card.
    */
-  const planCardId = (repo: string, name: string, input: Record<string, unknown>, against?: string, workspaceId?: string): string =>
+  const planCardId = (repo: string, name: string, input: Record<string, unknown>, against: string | undefined, workspaceId: string): string =>
     `flow-plan-${repo}-${name}-${Object.keys(input).length === 0 ? "" : digest(canonical(input)).slice(0, 16)}${
-      against === undefined ? "" : `-vs-${against}`}-workspace-${workspaceId === undefined ? "default" : digest(workspaceId).slice(0, 16)}`
+      against === undefined ? "" : `-vs-${against}`}-workspace-${digest(workspaceId).slice(0, 16)}`
 
   /*
    * Plan dedup state, shared by the user and agent bindings.
@@ -480,7 +478,7 @@ export const createWorkflowController = (
     const events = store.committedRuntimeRun(runtimeRunKey({
       repo,
       runId: against,
-      ...(card.payload.workspaceId === undefined ? {} : { workspaceId: card.payload.workspaceId })
+      workspaceId: binding.workspaceId
     }))?.events ?? []
     const previousNodes = card.payload.plan.nodes
     const durations = [...store.collections.flowDurations.values()]
@@ -572,7 +570,7 @@ export const createWorkflowController = (
             repo: args.repo,
             flowId: args.name,
             status: "done",
-            ...(args.binding.workspaceId === undefined ? {} : { workspaceId: args.binding.workspaceId }),
+            workspaceId: args.binding.workspaceId,
             ...(Object.keys(args.input).length === 0 ? {} : { input: args.input }),
             planId: planned.value.planId,
             digest: planned.value.digest,
@@ -623,6 +621,13 @@ export const createWorkflowController = (
     planAttempts.set(card.id, attempt)
     planning.set(card.id, epoch)
     const { repo, workspaceId, flowId: name, input = {}, against, previousPlan, sourceReceipt } = card.payload
+    if (workspaceId === undefined) {
+      // A plan asked before every plan named its box has none to reach.
+      planning.delete(card.id)
+      store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, status: "error",
+        payload: { ...card.payload, status: "failed", error: "This plan's box is gone." } } })
+      return
+    }
     void fillPlanCard({ id: card.id, repo, binding: { workspaceId }, name, input, attempt, epoch, request, against, previousPlan, sourceReceipt })
   }
   const resumePlans = () => {
@@ -654,7 +659,7 @@ export const createWorkflowController = (
       status: "failed",
       ...(args.request === undefined ? {} : { planRequest: args.request }),
       error: message,
-      ...(args.binding.workspaceId === undefined ? {} : { workspaceId: args.binding.workspaceId }),
+      workspaceId: args.binding.workspaceId,
       ...(Object.keys(args.input).length === 0 ? {} : { input: args.input })
     }
   }
@@ -664,7 +669,7 @@ export const createWorkflowController = (
     readonly workflow: string
     readonly input: Record<string, unknown>
     readonly title: string
-    readonly binding?: GatewayWorkspaceBinding
+    readonly binding: GatewayWorkspaceBinding
     readonly kind?: string
   }): Promise<{ readonly runId: string } | LaunchRefusal> => {
     const launch = await gateway.launch(args.repo, args.workflow, args.input, args.binding)
@@ -692,7 +697,7 @@ export const createWorkflowController = (
       workflow: args.workflow,
       title: args.title,
       firstStep: `Started ${args.workflow} on ${args.repo} (run ${runId}).`,
-      ...(launch.value.workspaceId === undefined ? {} : { workspaceId: launch.value.workspaceId }),
+      workspaceId: launch.value.workspaceId,
       input: args.input,
       ...(args.kind === undefined ? {} : { kind: args.kind }),
       ...(planned === undefined ? {} : { plan: planned })
@@ -776,24 +781,6 @@ export const createWorkflowController = (
     return message
   }
 
-  /**
-   * The box a flow is authored on: whatever the person selected, and otherwise
-   * the one this repository's reviewed jobs already run on, as the register
-   * door reads it (`TriggersSeam.jobWorkspace`). A relay call that names no
-   * workspace reaches the repository's product host, which carries neither the
-   * authoring pack nor the registrar.
-   */
-  const flowAuthoringBinding = (repo: string): GatewayBinding => {
-    const selected = gatewayBindingFor(store, repo)
-    if ("error" in selected || selected.workspaceId !== undefined) return selected
-    const jobs = repositoryJobWorkspace(
-      store.collections.cards.values(),
-      repo,
-      store.collections.identitySessions.get("identity")?.login ?? null
-    )
-    return jobs === undefined ? selected : { workspaceId: jobs }
-  }
-
   const createWorkflow = async (
     rawDescription: string,
     repoArg?: string
@@ -814,7 +801,7 @@ export const createWorkflowController = (
     if ("error" in target) return refuseCreate(target.error)
     if ("ask" in target) return askWhichRepo(description, target.ask)
     const repo = target.repo
-    const binding = flowAuthoringBinding(repo)
+    const binding = flowAuthoringBinding(store, repo)
     if ("error" in binding) return refuseCreate(binding.error)
     return authoring.request(description, repo, binding, ctx.commandActor)
   }
@@ -826,10 +813,8 @@ export const createWorkflowController = (
       const card = store.collections.cards.get(sourceCard)
       if (card?.kind !== "run-trace" && card?.kind !== "workflow-list" && card?.kind !== "flow-plan") return { error: "The source run or catalog card is unavailable." }
       if (repoArg !== undefined && repoArg !== card.payload.repo) return { error: "The source card belongs to another repository." }
-      if (card.kind === "workflow-list" && card.payload.gatewayBindingVersion !== 1) {
-        return { error: "This catalog has no recorded gateway. Refresh the flows from a source run first." }
-      }
-      return { repo: card.payload.repo, binding: card.payload.workspaceId === undefined ? {} : { workspaceId: card.payload.workspaceId } }
+      const binding = recordedRunBinding(card.payload, card.kind === "run-trace" ? undefined : "This card's box is gone.")
+      return "error" in binding ? binding : { repo: card.payload.repo, binding }
     }
     const target = workflowTargetRepo(repoArg)
     if ("error" in target) return target
@@ -870,10 +855,6 @@ export const createWorkflowController = (
   const requestRerun: WorkflowController["requestRerun"] = async ({ runId, ...args }) => {
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
-    if (args.binding.workspaceId === undefined) {
-      const balanceGuard = zeroBalanceGuard()
-      if (balanceGuard !== undefined) return balanceGuard
-    }
     return requests.start({ ...args, rerunOf: runId, actor: ctx.commandActor })
   }
 
@@ -884,13 +865,8 @@ export const createWorkflowController = (
     const target = workflowScope(repoArg, sourceCard)
     if ("error" in target) return target.error
     const { repo, binding } = target
-    // A selected cloud workspace executes with its own configured provider.
-    // Its gateway enforces workspace access, capacity and provider setup;
-    // the separate Smithers prepaid balance funds managed workflow launches.
-    if (binding.workspaceId === undefined) {
-      const balanceGuard = zeroBalanceGuard()
-      if (balanceGuard !== undefined) return balanceGuard
-    }
+    // A box executes with its own configured provider. Its gateway enforces
+    // box access, capacity and provider setup.
     const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
     const declaration = source?.kind === "workflow-list"
       ? source.payload.workflows.find(flow => flow.key === name)?.inputSchema
@@ -926,7 +902,6 @@ export const createWorkflowController = (
     const target = workflowScope(repoArg)
     if ("error" in target) return target.error
     const { repo, binding } = target
-    if (binding.workspaceId === undefined) return `Open a box for ${repo} with /box.open, select it, then request the change again.`
     return requests.start({ repo, binding, workflow: "coding/request", input: { prompt: what }, actor: ctx.commandActor, then: "coding/vibe",
       source: { name: from ?? "head", explicit: from !== undefined } })
   }
@@ -1000,7 +975,7 @@ export const createWorkflowController = (
         flowId: name,
         status: "pending",
         planRequest: request,
-        ...(binding.workspaceId === undefined ? {} : { workspaceId: binding.workspaceId }),
+        workspaceId: binding.workspaceId,
         ...(Object.keys(input).length === 0 ? {} : { input }),
         // A re-plan keeps the graph it last drew, and the drawer the reader
         // has open on it, until a new one lands.
@@ -1049,8 +1024,12 @@ export const createWorkflowController = (
       })
       return
     }
-    const binding = trusted.payload.workspaceId !== undefined ? { workspaceId: trusted.payload.workspaceId }
-      : trusted.payload.runId === undefined ? {} : { workspaceId: runScopeFromCard(store, trusted, trusted.payload.runId)?.workspaceId }
+    const binding = recordedRunBinding({ workspaceId: trusted.payload.workspaceId
+      ?? (trusted.payload.runId === undefined ? undefined : runScopeFromCard(store, trusted, trusted.payload.runId)?.workspaceId) })
+    if ("error" in binding) {
+      store.dispatch({ type: "card.approval.decision.failed", actor: "system", id: card.id, message: binding.error })
+      return
+    }
     const normalizedId = runtimeApprovalIdOf({ ...trusted, payload: { ...trusted.payload, ...binding } })
     const normalized = normalizedId === undefined ? undefined : store.collections.runtimeApprovals.get(normalizedId)
     if (normalized !== undefined) {
@@ -1136,7 +1115,11 @@ export const createWorkflowController = (
       const submissionId = crypto.randomUUID()
       await store.dispatch({ type: "gateway.approval.submission.changed", actor: "user", submission: { id: normalized.id, submissionId, state: "pending" } }).isPersisted.promise
       if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
-      const binding = { workspaceId: normalized.scope.workspaceId }
+      const binding = recordedRunBinding(normalized.scope)
+      if ("error" in binding) {
+        await store.dispatch({ type: "gateway.approval.submission.changed", actor: "system", submission: { id: normalized.id, submissionId, state: "failed", error: binding.error } }).isPersisted.promise
+        return
+      }
       const answer = await gateway.submitApproval(normalized.scope.repo, normalized.row.payload, decision === "approved" ? "approve" : "deny", binding, humanAnswer)
       if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
       if (answer.status !== "ok" || answer.value.decision._tag === "Terminal") {
@@ -1150,19 +1133,20 @@ export const createWorkflowController = (
         state: applied ? decision : "failed", ...(applied ? { decidedAt: Date.now() } : { error: answer.status === "error" ? answer.message : "This run has finished. The workspace has not confirmed a decision for this approval." }) } }).isPersisted.promise
       return
     }
+    const binding = recordedRunBinding({ workspaceId: trusted.payload.workspaceId ?? runScopeFromCard(store, trusted, row.runId)?.workspaceId })
     store.dispatch({
       type: "card.updated",
-      actor: "user",
+      actor: "error" in binding ? "system" : "user",
       id: cardId,
       patch: {
         payload: {
           ...card.payload,
-          approvals: card.payload.approvals.map((entry) => sameApproval(entry, row) ? { ...entry, pending: true } : entry)
+          approvals: card.payload.approvals.map((entry) => !sameApproval(entry, row) ? entry
+            : "error" in binding ? { ...entry, decisionError: binding.error, pending: undefined } : { ...entry, pending: true })
         }
       }
     })
-    const binding = trusted.payload.workspaceId !== undefined ? { workspaceId: trusted.payload.workspaceId }
-      : { workspaceId: runScopeFromCard(store, trusted, row.runId)?.workspaceId }
+    if ("error" in binding) return
     const submitted = await gateway.submitApproval(
       trusted.payload.repo,
       row.approval as Parameters<typeof gateway.submitApproval>[1],

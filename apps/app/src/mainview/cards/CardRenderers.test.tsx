@@ -218,8 +218,7 @@ describe("CardRenderers", () => {
       payload: {
         repo: "o/r",
         live: true,
-        triggers: [{ id: "nightly", flowId: "review", cron: "0 9 * * 1-5", timezone: "UTC", enabled: true }],
-        webhooks: []
+        triggers: [{ id: "nightly", flowId: "review", cron: "0 9 * * 1-5", timezone: "UTC", enabled: true }]
       }
     }
     /* The canvas loads asynchronously; exercise the mounted card that receives the shell's binding. */

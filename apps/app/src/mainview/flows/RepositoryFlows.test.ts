@@ -23,6 +23,7 @@ import { executeAgentToolCall } from "./agentTools"
 import { visibleItems } from "./Commands"
 import { namespaceOf, parseSubmit, SURFACE_FLOWS } from "./registry"
 import { readRepositoryHome } from "../state/seams/RepositoryFlowsSeam"
+import { loadBox } from "../state/TestFixtures"
 
 setDefaultTimeout(30_000)
 
@@ -147,6 +148,7 @@ const ready = async (services: AppServices, state: "signed-in" | "signed-out" = 
     actor: "system",
     repositories: [{ id: REPO, org: "will", ownerKind: "user", name: "flows", head: null }]
   })
+  await loadBox(store, REPO)
   await settled(6)
   return { store, controller }
 }
@@ -214,7 +216,7 @@ describe("the repository's flows are slash leaves", () => {
 
   test("/review dispatches exactly what /flow.run review does: the same doors, the same wire, this repository as the target", async () => {
     const seen: Array<Seen> = []
-    const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }, seen))
+    const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }, seen))
     const walked = (): Array<Seen> => seen.filter((call) => call.path !== PROJECTION && call.path !== `/api/repos/${REPO}/home`)
     const viaLeaf = await controller.commands.run("review")
     const leafCalls = walked()
@@ -227,6 +229,7 @@ describe("the repository's flows are slash leaves", () => {
     expect(viaLeaf).toEqual(viaRun)
     // A trailing owner/repo retargets the leaf exactly as flow.run's does.
     seen.length = 0
+    await loadBox(store, "will/other", "0b0c0d0e-0000-4000-8000-000000000002")
     await controller.commands.run("review", "will/other")
     const provision = walked().find((call) => call.path === "/api/workflow/provision")
     expect(provision?.body).toMatchObject({ repo: "will/other" })

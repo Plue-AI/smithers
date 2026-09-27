@@ -8,8 +8,9 @@
  */
 import type { Repo } from "@smthrs/rpc/LocalApp"
 import { activeRepoOf, parseRepoSelection } from "./AppState"
-import type { CloudRepository } from "./AppState"
+import type { CloudRepository, CloudWorkspaceRow } from "./AppState"
 import type { AppStore } from "./AppStore"
+import { repositoryJobWorkspace } from "./RepositoryJobs"
 import { cardContainsRun, runScopeFromCard, sameRunScope, type RunScope } from "./RunReference"
 
 /** The `owner/repo` shape; exported for the grammars that take a LEADING repo token (agent.session.new). */
@@ -181,9 +182,69 @@ export const resolveOpenRepo = (store: AppStore): { readonly repo: Repo } | { re
   return active === undefined ? { error: "Open a repository first." } : { repo: active }
 }
 
-/** Exact Plue workspace selection for the gateway; UI frame IDs are unrelated. */
-export type GatewayBinding = { readonly workspaceId?: string } | { readonly error: string }
-/** Persisted provenance wins over the currently selected workspace, including legacy omission. */
+/** The box a flow call runs on, or the sentence saying which box to open or pick. UI frame IDs are unrelated. */
+export type GatewayBinding = { readonly workspaceId: string } | { readonly error: string }
+
+/** The statuses a box passes through before it runs. */
+const SETTLING: ReadonlySet<string> = new Set(["pending", "starting"])
+
+/**
+ * Which of a repository's boxes an act means when none is selected — the one
+ * rule, for every caller (flows here, code intelligence in
+ * seams/CodeIntelSeam.ts). Exactly one running box is the answer; with none
+ * running, the suspended or stopped ones (a flow call resumes exactly one,
+ * as it resumes a selected one); otherwise the reason there is none, for the
+ * caller to put in its own words.
+ */
+export type RepositoryBox =
+  | { readonly kind: "box"; readonly box: CloudWorkspaceRow }
+  | { readonly kind: "several"; readonly running: ReadonlyArray<CloudWorkspaceRow> }
+  | { readonly kind: "resumable"; readonly box: CloudWorkspaceRow; readonly resumable: ReadonlyArray<CloudWorkspaceRow> }
+  | { readonly kind: "settling"; readonly box: CloudWorkspaceRow }
+  | { readonly kind: "none" }
+
+export const repositoryBoxOf = (store: AppStore, repo: string): RepositoryBox => {
+  const rows = [...store.collections.cloudWorkspaces.values()].filter((row) => row.repoId === repo)
+  const running = rows.filter((row) => row.status === "running")
+  if (running.length === 1) return { kind: "box", box: running[0]! }
+  if (running.length > 1) return { kind: "several", running }
+  const resumable = rows.filter((row) => row.status === "suspended" || row.status === "stopped")
+  if (resumable.length > 0) return { kind: "resumable", box: resumable[0]!, resumable }
+  const settling = rows.find((row) => SETTLING.has(row.status))
+  return settling === undefined ? { kind: "none" } : { kind: "settling", box: settling }
+}
+
+/** The repository's default box as a flow binding, or the act that gets one. */
+export const defaultBoxBinding = (store: AppStore, repo: string): GatewayBinding => {
+  const found = repositoryBoxOf(store, repo)
+  switch (found.kind) {
+    case "box": return { workspaceId: found.box.id }
+    case "several": return { error: `Select a box of ${repo} first.` }
+    // Provisioning resumes it, exactly as it resumes a selected suspended box.
+    case "resumable": return found.resumable.length === 1 ? { workspaceId: found.box.id } : { error: `Select a box of ${repo} first.` }
+    case "settling": return { error: `A box of ${repo} is starting.` }
+    case "none": return { error: `Open a box of ${repo} first: /box.open ${repo}` }
+  }
+}
+
+/** The selected working copy's box when the selection is a box of this repository; undefined when it is not a box. */
+export const selectedBoxBinding = (store: AppStore, repo: string): GatewayBinding | undefined => {
+  const key = store.session().activeRepoKey
+  const selection = key == null ? null : parseRepoSelection(key)
+  if (selection === null || !("repoId" in selection) || selection.repoId !== repo || selection.copyId === undefined) return undefined
+  const copy = store.collections.workingCopies.get(selection.copyId)
+  if (copy === undefined || copy.repoId !== repo) {
+    return { error: "The selected working copy is no longer available for this repository." }
+  }
+  if (copy.kind !== "workspace") return undefined
+  const workspace = copy.workspaceId === undefined ? undefined : store.collections.cloudWorkspaces.get(copy.workspaceId)
+  if (workspace === undefined || workspace.repoId !== repo) {
+    return { error: "The selected box is no longer available for this repository." }
+  }
+  return { workspaceId: workspace.id }
+}
+
+/** Persisted provenance wins over the currently selected box. */
 export const gatewayRunContextFor = (store: AppStore, runId: string):
   { readonly repo: string; readonly workspaceId?: string } | { readonly error: string } | undefined => {
   let found: RunScope | undefined
@@ -192,33 +253,49 @@ export const gatewayRunContextFor = (store: AppStore, runId: string):
     const scope = runScopeFromCard(store, card, runId)
     if (scope === undefined) continue
     if (found !== undefined && !sameRunScope(found, scope)) {
-      return { error: `The recorded run has conflicting gateway workspaces: ${found.repo}@${found.workspaceId ?? "legacy (no workspace)"} and ${scope.repo}@${scope.workspaceId ?? "legacy (no workspace)"} on card ${card.id}. Supply sourceCard to select the recorded run.` }
+      return { error: `The recorded run has conflicting boxes: ${found.repo}@${found.workspaceId ?? "none"} and ${scope.repo}@${scope.workspaceId ?? "none"} on card ${card.id}. Supply sourceCard to select the recorded run.` }
     }
     found = scope
   }
   return found === undefined ? undefined : { repo: found.repo, ...(found.workspaceId === undefined ? {} : { workspaceId: found.workspaceId }) }
 }
 
+/** What a run recorded before every run named its box answers. */
+export const RUN_BOX_GONE = "This run's box is gone."
+
+/** A recorded run's (or card's) box, or the refusal: one recorded with no box has none to reach. */
+export const recordedRunBinding = (scope: { readonly workspaceId?: string | undefined }, gone: string = RUN_BOX_GONE): GatewayBinding =>
+  scope.workspaceId === undefined ? { error: gone } : { workspaceId: scope.workspaceId }
+
+/**
+ * The box a flow call on `repo` runs on: a recorded run's own box, else the
+ * selected box, else the repository's default box ({@link defaultBoxBinding}).
+ * There is no box-less answer.
+ */
 export const gatewayBindingFor = (store: AppStore, repo: string, runId?: string): GatewayBinding => {
   if (runId !== undefined) {
     const recorded = gatewayRunContextFor(store, runId)
     if (recorded !== undefined) {
       if ("error" in recorded) return recorded
       if (recorded.repo !== repo) return { error: "The run belongs to another repository." }
-      return recorded.workspaceId === undefined ? {} : { workspaceId: recorded.workspaceId }
+      return recordedRunBinding(recorded)
     }
   }
-  const key = store.session().activeRepoKey
-  const selection = key == null ? null : parseRepoSelection(key)
-  if (selection === null || !("repoId" in selection) || selection.repoId !== repo || selection.copyId === undefined) return {}
-  const copy = store.collections.workingCopies.get(selection.copyId)
-  if (copy === undefined || copy.repoId !== repo) {
-    return { error: "The selected working copy is no longer available for this repository." }
-  }
-  if (copy.kind !== "workspace") return {}
-  const workspace = copy.workspaceId === undefined ? undefined : store.collections.cloudWorkspaces.get(copy.workspaceId)
-  if (workspace === undefined || workspace.repoId !== repo) {
-    return { error: "The selected box is no longer available for this repository." }
-  }
-  return { workspaceId: workspace.id }
+  return selectedBoxBinding(store, repo) ?? defaultBoxBinding(store, repo)
 }
+
+/**
+ * The box this repository's reviewed jobs (and the trigger registrar) run on:
+ * the one their setups recorded, else the repository's default box.
+ */
+export const repositoryJobBinding = (store: AppStore, repo: string): GatewayBinding => {
+  const recorded = repositoryJobWorkspace(store.collections.cards.values(), repo, store.collections.identitySessions.get("identity")?.login ?? null)
+  return recorded === undefined ? defaultBoxBinding(store, repo) : { workspaceId: recorded }
+}
+
+/**
+ * The box a flow is authored on: the selected one, else the reviewed jobs'
+ * box (which carries the authoring pack and the registrar), else the default.
+ */
+export const flowAuthoringBinding = (store: AppStore, repo: string): GatewayBinding =>
+  selectedBoxBinding(store, repo) ?? repositoryJobBinding(store, repo)

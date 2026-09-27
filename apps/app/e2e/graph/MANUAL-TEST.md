@@ -85,8 +85,7 @@ gate however you reached it: the arrows walk the graph, not your history.
 
 The dispatcher card lists this repository's declared rules and, under
 "listening", the one schedule the box holds. The row reads **Every day at
-03:00 UTC**, then `runs gateway/GraphFixture`, then `enabled · never fired ·
-next <clock>` — the next 03:00 UTC read in **your** zone and on your clock
+03:00 UTC**, then `runs gateway/GraphFixture`, then `enabled · next <clock>` — the next 03:00 UTC read in **your** zone and on your clock
 (`8:00 PM` on US Pacific), because a card row reads an instant the way every
 other card in the app reads one. The panel below is the one place a schedule
 is read in the zone it declared.
@@ -99,12 +98,10 @@ is drawn at the bottom of the canvas. The count still says `11`: a schedule is
 not a plan node, so it is in no count.
 
 Click it. Its drawer is the schedule panel, not the tabs: the cron in words,
-`armed`, the policies it was registered under (`overlap skip`, `catch-up
-none`, `max 0`), and the next five fires it computed. The word is
-the flag the box recorded: a schedule it holds as off reads `disabled`, never
-`armed`. The small dot beside the cron is the scheduler's heartbeat and it is
-dark, because nothing polls this host: the schedule is armed and will stay
-armed.
+`armed`, the next fire the registration states, and its Run now and Pause
+doors. The word is the flag the registration records: a schedule held as off
+reads `disabled`, never `armed`. Nothing polls this host, so the schedule is
+armed and will stay armed.
 
 **6. Run it.** Press **Run**. A run card opens and the run stops at its gate.
 Press **Graph** in the run card's bar. The gate wears `running`; the four arms

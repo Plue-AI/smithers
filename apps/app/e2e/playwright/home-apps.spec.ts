@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./browserTest"
-import { installCloudFixture } from "./cloudFixture"
+import { installCloudFixture, runningBox } from "./cloudFixture"
 import { signedOutVisitor } from "./identity"
 
 /*
@@ -62,7 +62,7 @@ test("the home is the question, the composer and the apps; opening one gives one
   const preparation = gate(), launch = gate()
   let ready = false, complete = false
   const calls: Array<{ procedure: string; payload: { input?: { args?: string } } }> = []
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox("smithersai/smithers")] })
   await installHome(page)
   await page.route("**/api/workflow/provision", async route => {
     await preparation.promise
@@ -169,7 +169,7 @@ test("the home is the question, the composer and the apps; opening one gives one
 
 test("a refused launch stays visible on the run card and the toast, and the home stays usable", async ({ page }) => {
   const refusal = gate()
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox("smithersai/smithers")] })
   await installHome(page)
   await page.route("**/api/workflow/provision", route => route.fulfill({ json: { status: "ready" } }))
   await page.route("**/api/workflow/rpc", async route => {

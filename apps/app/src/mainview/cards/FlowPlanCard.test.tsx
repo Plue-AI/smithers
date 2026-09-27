@@ -286,7 +286,7 @@ const dispatcher = (payload: Partial<TriggerListCard["payload"]>): TriggerListCa
   status: "acted",
   createdAt: 0,
   ordinal: 0,
-  payload: { repo: "o/r", live: true, triggers: [], webhooks: [], ...payload }
+  payload: { repo: "o/r", live: true, triggers: [], ...payload }
 })
 
 const NIGHTLY: TriggerListCard["payload"]["triggers"][number] = {
@@ -295,7 +295,7 @@ const NIGHTLY: TriggerListCard["payload"]["triggers"][number] = {
   cron: "0 9 * * 1-5",
   timezone: "UTC",
   enabled: true,
-  nextFiresAt: [Date.UTC(2026, 8, 21, 9, 0)]
+  nextFireAt: Date.UTC(2026, 8, 21, 9, 0)
 }
 
 describe("the schedules that fire the plan", () => {

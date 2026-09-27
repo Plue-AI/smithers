@@ -3,14 +3,13 @@
  *
  * A trigger is a Dispatcher registration, not a plan node (D-031). It has no
  * step key, it is never `built` or `clean`, and a manual re-run does not
- * re-fire it, so it carries its own state — `disabled`, `armed` or `fired` —
- * it joins the plan by a UI-only `fires` edge, and it is excluded from every
- * count the plan card states. Nothing here touches React, the DOM or a seam.
+ * re-fire it, so it carries its own state — `disabled` or `armed` — it joins
+ * the plan by a UI-only `fires` edge, and it is excluded from every count the
+ * plan card states. Nothing here touches React, the DOM or a seam.
  *
- * A trigger is a cron schedule and nothing else (D-043): `Trigger` is
- * `{id, flowId, input, ...Schedule.fields, enabled}`, so every reading below
- * comes off the row the box answered with and no field is completed into a
- * value the store never stated.
+ * A trigger is a schedule registered on Smithers Cloud (D-043): every reading
+ * below comes off the row it answered with and no field is completed into a
+ * value the registry never stated.
  */
 import type { Card } from "../state/AppState"
 import type { PlanCardNode } from "./FlowGraph"
@@ -18,25 +17,12 @@ import type { PlanCardNode } from "./FlowGraph"
 /** One registered schedule, exactly as the dispatcher card carries it. */
 export type TriggerCardRow = Extract<Card, { kind: "trigger-list" }>["payload"]["triggers"][number]
 
-/** One claimed occurrence of a schedule, exactly as the card carries it. */
-export type TriggerFireRow = NonNullable<TriggerCardRow["fires"]>[number]
-
 /**
- * What a schedule is doing, in one word (D-031).
- *
- * `disabled` is the flag the store recorded (`enabled`): a registration the
- * box says is off does not fire, whatever its cron reads, so `armed` — which
- * says the opposite — is never the word for it. It is read first: the panel
- * still shows the claimed occurrence and the run in flight beneath the word,
- * so a schedule turned off mid-occurrence hides neither.
- *
- * `fired` is an occurrence this schedule has in flight right now: the box has
- * either claimed one and not yet reported it (`pendingAt`) or launched a run
- * that is still going (`activeRunId`). Everything else is `armed`. Having
- * fired at some point in the past is history, which the ledger holds; it is
- * not a state the node is in.
+ * What a schedule is doing, in one word (D-031): `disabled` is the flag the
+ * registry recorded (`enabled`) — a registration that is off does not fire,
+ * whatever its cron reads — and everything else is `armed`.
  */
-export type TriggerNodeState = "disabled" | "armed" | "fired"
+export type TriggerNodeState = "disabled" | "armed"
 
 /** One trigger as the canvas draws it, with the row it was read from. */
 export interface TriggerGraphNode {
@@ -66,7 +52,7 @@ export const isTriggerNodeId = (nodeId: string): boolean => nodeId.startsWith("t
 
 /** @see TriggerNodeState */
 export const triggerNodeState = (row: TriggerCardRow): TriggerNodeState =>
-  row.enabled === false ? "disabled" : row.pendingAt !== undefined || row.activeRunId !== undefined ? "fired" : "armed"
+  row.enabled === false ? "disabled" : "armed"
 
 /**
  * The schedules that fire one flow, and the edges from each of them into the
@@ -95,16 +81,12 @@ export const triggerGraph = (
   }
 }
 
-/** How many upcoming fires the panel shows, however many the box computed. */
-export const FIRE_TIME_COUNT = 5
-
 /**
  * One upcoming fire, read in the zone the schedule declared and in UTC.
  *
  * `zoned` is present only when the schedule named a zone that is not UTC:
- * printing the same reading twice says nothing, and a zone the store never
- * named is the scheduler's default, which is the store's fact and not this
- * card's to guess.
+ * printing the same reading twice says nothing, and a zone the registry never
+ * named is the scheduler's default, which is not this card's to guess.
  */
 export interface TriggerFireTime {
   readonly at: number
@@ -116,28 +98,9 @@ const reading = (at: number, timeZone: string): string =>
   new Intl.DateTimeFormat([], { timeZone, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })
     .format(new Date(at))
 
-/**
- * One instant read the way this schedule's own occurrences are read, so every
- * time on the panel — an upcoming fire, a claimed occurrence, a ledger entry —
- * is in the same two zones and never in the reader's own.
- *
- * @see TriggerFireTime
- */
-export const fireTime = (row: TriggerCardRow, at: number): TriggerFireTime => {
+/** The one next fire the registration states, read in its own zones; none when it states none. */
+export const nextFireTimes = (row: TriggerCardRow): ReadonlyArray<TriggerFireTime> => {
+  if (row.nextFireAt === undefined) return []
   const zone = row.timezone === undefined || row.timezone === "UTC" ? undefined : row.timezone
-  return { at, ...(zone === undefined ? {} : { zoned: reading(at, zone) }), utc: reading(at, "UTC") }
-}
-
-/**
- * The upcoming fires this row carries, cut to what the panel shows.
- *
- * A box row carries every occurrence its scheduler computed (`nextFiresAt`,
- * whose first entry is `nextFireAt`). A Plue registration is served one
- * instant and no more (`nextFireAt`), so that instant is its whole list.
- * Nothing is merged across the two registries: each reading comes off the
- * row's own field, and a row carrying neither has no upcoming fire to show.
- */
-export const nextFireTimes = (row: TriggerCardRow, count: number = FIRE_TIME_COUNT): ReadonlyArray<TriggerFireTime> => {
-  const upcoming = row.nextFiresAt ?? (row.nextFireAt === undefined ? [] : [row.nextFireAt])
-  return upcoming.slice(0, count).map((at) => fireTime(row, at))
+  return [{ at: row.nextFireAt, ...(zone === undefined ? {} : { zoned: reading(row.nextFireAt, zone) }), utc: reading(row.nextFireAt, "UTC") }]
 }

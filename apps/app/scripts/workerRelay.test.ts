@@ -2,7 +2,8 @@ import { expect, test } from "bun:test"
 import { relayRpc } from "./workerRelay"
 
 const request = (body: unknown) => new Request("http://relay.test/api/workflow/rpc", { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body) })
-const valid = { repo: "ada/repo", procedure: "List", payload: { _tag: "flows" } }
+const valid = { repo: "ada/repo", procedure: "List", payload: { _tag: "flows" }, workspaceId: "5b0c4f7e-2d1a-4c3b-9e8f-1a2b3c4d5e6f" }
+const { workspaceId: _box, ...boxless } = valid
 const fixture = () => {
   const seen: { authorization: string | null; body: string }[] = []
   const server = Bun.serve({ port: 0, async fetch(req) {
@@ -17,6 +18,7 @@ test.each([
   [{ ...valid, procedure: "absent" }, "procedure_not_relayed"],
   [{ ...valid, repo: "bad" }, "request_invalid"],
   [{ ...valid, workspaceId: "bad" }, "request_invalid"],
+  [boxless, "request_invalid"],
   ["{not json", "request_body_not_json"]
 ] as const)("the harness uses the Worker refusal for %j", async (body, code) => {
   const f = fixture()

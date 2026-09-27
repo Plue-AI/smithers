@@ -10,13 +10,12 @@
  * A mirror that holds no projection yet answers 404, and that is "no rules
  * declared", not an error.
  *
- * The BOX is GET /api/workflow/triggers?repo=owner/repo (apps/server
- * workflowTriggers.ts): the trigger store and webhook registry of the
- * signed-in session's own box. Its `live` flag says whether a box answered;
- * the seam asks it only for a signed-in session, and a signed-out card
- * carries no live rows and no placeholders for them.
+ * The REGISTRATIONS are the repository's schedules on Smithers Cloud
+ * (GET /api/workflow/trigger-registrations). The seam asks for them only for
+ * a signed-in session; a signed-out card carries no registered rows and no
+ * placeholders for them.
  */
-import { WORKFLOW_RPC_PATH, WORKFLOW_TRIGGERS_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { WORKFLOW_RPC_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { FACTORY_PROJECTION_PATH, FactoryProjectionSchema, ruleFlows } from "@smthrs/rpc/FactoryProjection"
 import type { FactoryProjection, FactoryRule } from "@smthrs/rpc/FactoryProjection"
 import { refusalOf } from "@smthrs/rpc/Refusal"
@@ -26,8 +25,7 @@ import { Schema, SchemaRepresentation } from "effect"
 import type { JsonSchema } from "effect"
 import type { Card } from "../AppState"
 import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures"
-import { resolveTargetRepo } from "../RepoContext"
-import { repositoryJobWorkspace } from "../RepositoryJobs"
+import { repositoryJobBinding, resolveTargetRepo, type GatewayBinding } from "../RepoContext"
 import type { TriggerRegistration } from "../WorkflowLaunch"
 import { actorSharedState } from "../ActorBindings"
 import { accountOwnerOf } from "../AccountOwner"
@@ -36,7 +34,6 @@ import type { SeamContext } from "./SeamContext"
 
 type TriggerListCard = Extract<Card, { kind: "trigger-list" }>
 export type TriggerRow = TriggerListCard["payload"]["triggers"][number]
-export type WebhookRow = NonNullable<TriggerListCard["payload"]["webhooks"]>[number]
 
 /** The signed-out card's whole text while the mirror holds no projection. */
 export const NO_RULES_SENTENCE = "No rules declared yet"
@@ -172,7 +169,7 @@ export interface TriggersSeam {
   /** Reconnect persisted Pause requests for the current account. */
   readonly resumePauses: () => void
   readonly resumePreparations: () => void
-  /** The dispatcher card (triggers.list): declared rows for every visitor, live rows when a box answered. */
+  /** The dispatcher card (triggers.list): declared rows for every visitor, registered rows for a signed-in one. */
   readonly listTriggers: (repo?: string) => Promise<string | void | { readonly value: string }>
   /** The trigger write door: register, approve, run, pause (triggers.register / .approve / .run / .pause). */
   readonly registerTrigger: (request: TriggerWrite) => Promise<string | void | { readonly value: string }>
@@ -269,93 +266,12 @@ export const readFactoryProjection = async (
   return { absent: false, projection: projection.data }
 }
 
-/** The overlap policy the box stated, or nothing: a word the trigger store never writes is not one. */
-const overlapOf = (value: unknown): TriggerRow["overlap"] =>
-  value === "skip" || value === "buffer-one" || value === "supersede" ? value : undefined
-
-/** The catch-up policy the box stated, or nothing. */
-const catchUpOf = (value: unknown): TriggerRow["catchUp"] =>
-  value === "none" || value === "one" || value === "all" ? value : undefined
-
-/**
- * The fields of a box row that only the flow builder reads: the policies, the
- * whole list of upcoming fires, the claim the trigger holds and the
- * scheduler's heartbeat.
- *
- * Its trigger panel is the only surface that shows one, so with the flag off
- * they stay on the wire beside the registration's input and its revision
- * (D-050). Nothing is repaired on the way in: a field of a shape the card
- * does not take is left out and the row states the rest.
- */
-const builderFields = (value: Record<string, unknown>): Partial<TriggerRow> => {
-  const upcoming = Array.isArray(value.nextFiresAt)
-    ? value.nextFiresAt.filter((at): at is number => typeof at === "number")
-    : undefined
-  const overlap = overlapOf(value.overlap)
-  const catchUp = catchUpOf(value.catchUp)
-  return {
-    ...(upcoming === undefined ? {} : { nextFiresAt: upcoming }),
-    ...(overlap === undefined ? {} : { overlap }),
-    ...(catchUp === undefined ? {} : { catchUp }),
-    ...(typeof value.maxCatchUp === "number" ? { maxCatchUp: value.maxCatchUp } : {}),
-    ...(typeof value.pendingAt === "number" ? { pendingAt: value.pendingAt } : {}),
-    ...(typeof value.schedulerLastTickAt === "number" ? { schedulerLastTickAt: value.schedulerLastTickAt } : {})
-  }
-}
-
-/**
- * One row of the Worker's triggers route as the card holds it.
- *
- * The route carries the box's whole TriggerSummary; the card has a field for
- * the schedule and, behind the flow builder's flag, for the fields
- * {@link builderFields} names, and none for the registration's input or its
- * revision, so those two always stay on the wire.
- */
-const triggerRow = (value: unknown): TriggerRow | undefined => {
-  if (!isRecord(value)) return undefined
-  if (typeof value.id !== "string" || typeof value.flowId !== "string" || typeof value.cron !== "string") return undefined
-  return {
-    id: value.id,
-    flowId: value.flowId,
-    cron: value.cron,
-    ...(typeof value.timezone === "string" ? { timezone: value.timezone } : {}),
-    enabled: value.enabled === true,
-    ...(typeof value.lastFiredAt === "number" ? { lastFiredAt: value.lastFiredAt } : {}),
-    ...(typeof value.nextFireAt === "number" ? { nextFireAt: value.nextFireAt } : {}),
-    ...(typeof value.activeRunId === "string" ? { activeRunId: value.activeRunId } : {}),
-    ...builderFields(value)
-  }
-}
-
-const webhookRow = (value: unknown): WebhookRow | undefined => {
-  if (!isRecord(value) || typeof value.name !== "string") return undefined
-  return { name: value.name, ...(typeof value.flowId === "string" ? { flowId: value.flowId } : {}) }
-}
-
 interface LiveList {
   readonly live: boolean
   readonly triggers: ReadonlyArray<TriggerRow>
-  readonly webhooks: ReadonlyArray<WebhookRow>
 }
 
-const NO_LIVE: LiveList = { live: false, triggers: [], webhooks: [] }
-
-/**
- * The box's rows. Only `live: true` with well-formed rows counts as an
- * answer; a route that did not answer, or answered without `live: true`,
- * is "no box answered" and the card shows no live column at all.
- */
-export const readLiveTriggers = async (ctx: SeamContext, repo: string): Promise<LiveList> => {
-  const answer = await readJson(ctx, `${ctx.baseUrl}${WORKFLOW_TRIGGERS_PATH}?repo=${encodeURIComponent(repo)}`)
-  if (answer.status !== 200 || !isRecord(answer.body) || answer.body.status !== "ok" || answer.body.live !== true) return NO_LIVE
-  const triggers = (Array.isArray(answer.body.triggers) ? answer.body.triggers : [])
-    .map((row) => triggerRow(row))
-    .filter((row): row is TriggerRow => row !== undefined)
-  const webhooks = (Array.isArray(answer.body.webhooks) ? answer.body.webhooks : [])
-    .map(webhookRow)
-    .filter((row): row is WebhookRow => row !== undefined)
-  return { live: true, triggers, webhooks }
-}
+const NO_LIVE: LiveList = { live: false, triggers: [] }
 
 /**
  * One `flow:*` registration as the Worker publishes it (E9), read into the
@@ -392,7 +308,7 @@ export const readTriggerRegistrations = async (ctx: Pick<SeamContext, "http" | "
   const triggers = (Array.isArray(answer.body.rows) ? answer.body.rows : [])
     .map(registrationRow)
     .filter((row): row is TriggerRow => row !== undefined)
-  return { live: true, triggers, webhooks: [] }
+  return { live: true, triggers }
 }
 
 /** What a relay says when the box answered something this seam cannot read. */
@@ -404,31 +320,25 @@ type Relayed =
   | { readonly ok: false; readonly message: string }
 
 /**
- * The box this repository's reviewed jobs run on, as their own setups
- * recorded it: the workspace gateway that holds the registrar. Every relayed
- * call names it, and so does the registration's own run card, because a
- * gateway binding is what decides which of the two registries answers.
+ * The box that holds the registrar: the one this repository's reviewed jobs
+ * run on, else the repository's default box (RepoContext
+ * `repositoryJobBinding`). Every relayed call names it, and so does the
+ * registration's own run card.
  */
-const jobWorkspace = (ctx: SeamContext, repo: string): string | undefined =>
-  repositoryJobWorkspace(
-    ctx.store.collections.cards.values(),
-    repo,
-    ctx.store.collections.identitySessions.get("identity")?.login ?? null
-  )
+const jobWorkspace = (ctx: SeamContext, repo: string): GatewayBinding => repositoryJobBinding(ctx.store, repo)
+
+/** Whether the registrar's box is still the one a request was prepared on. */
+const sameJobBox = (ctx: SeamContext, repo: string, workspaceId: string | undefined): boolean => {
+  const job = jobWorkspace(ctx, repo)
+  return !("error" in job) && job.workspaceId === workspaceId
+}
 
 /**
  * One call to a named box through the existing `/api/workflow/rpc` relay.
  *
- * Which box is the caller's to state, because the two hold different things.
- * The workspace gateway of the repository's reviewed jobs runs the coding
- * host, whose catalog carries `repository/setup`, `repository/trigger` and
- * the five `repository-jobs/*` (flows/repository/registry.ts). The
- * repository's own gateway, which `workspaceId: undefined` reaches, runs the
- * product host: the librarian flow and the trigger store the Worker's
- * triggers route lists (apps/server workflows.ts names no workspace either).
- * A registrar call that named no workspace would answer `flow_not_found` on
- * every repository, and a trigger read that named one would answer for
- * another store.
+ * Every call names its box: the box's coding host carries
+ * `repository/setup`, `repository/trigger` and the five `repository-jobs/*`
+ * (flows/repository/registry.ts), and there is no box-less host to reach.
  *
  * A refusal keeps the refusing party's own words: the host's module-form
  * sentence and the control plane's `flow_not_found` listing reach the human
@@ -440,14 +350,14 @@ const relayTo = async (
   repo: string,
   procedure: string,
   payload: unknown,
-  workspaceId: string | undefined
+  workspaceId: string
 ): Promise<Relayed> => {
   let response: Response
   try {
     response = await ctx.http(`${ctx.baseUrl}${WORKFLOW_RPC_PATH}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repo, procedure, payload, ...(workspaceId === undefined ? {} : { workspaceId }) })
+      body: JSON.stringify({ repo, procedure, payload, workspaceId })
     })
   } catch (error) {
     return { ok: false, message: unreachableSentence("the workspace", error) }
@@ -463,68 +373,6 @@ const relayTo = async (
   /* A box that is resuming, at capacity or over a quota answers 200 with that state and its own sentence (apps/server workflows.ts). */
   if (typeof body.message === "string" && body.message !== "") return { ok: false, message: body.message }
   return { ok: false, message: "The workspace refused the call." }
-}
-
-/** One claimed occurrence of a schedule and what became of it, as the card holds it. */
-export type FireRow = NonNullable<TriggerRow["fires"]>[number]
-
-/** One page of a trigger's fire ledger, or the refusal standing where its rows would be. */
-export type FireLedger =
-  | { readonly ok: true; readonly fires: ReadonlyArray<FireRow> }
-  | { readonly ok: false; readonly message: string }
-
-/** How many of a trigger's fires one read asks for. */
-const FIRE_PAGE = 20
-
-/** The outcome the ledger recorded, `null` for an occurrence claimed and not yet reported, or nothing for a word the ledger never writes. */
-const fireOutcomeOf = (value: unknown): FireRow["outcome"] | undefined =>
-  value === null || value === "launched" || value === "completed" || value === "skipped" ||
-    value === "buffered" || value === "superseded" || value === "failed"
-    ? value
-    : undefined
-
-/**
- * One `FireSummary` (`@smthrs/control` ControlSchema) as a ledger row.
- *
- * A fire with no occurrence, an outcome the ledger never records, or another
- * trigger's id is not this trigger's history, so it is left out rather than
- * completed into a row: a ledger that invents one entry is worse than a
- * ledger that is short.
- */
-const fireRow = (triggerId: string, value: unknown): FireRow | undefined => {
-  if (!isRecord(value) || value.triggerId !== triggerId) return undefined
-  if (typeof value.occurrenceAtMs !== "number") return undefined
-  const outcome = fireOutcomeOf(value.outcome)
-  if (outcome === undefined) return undefined
-  return {
-    occurrenceAt: value.occurrenceAtMs,
-    outcome,
-    ...(typeof value.runId === "string" ? { runId: value.runId } : {}),
-    ...(typeof value.error === "string" ? { error: value.error } : {}),
-    ...(value.waiting === "approval" ? { waiting: "approval" as const } : {})
-  }
-}
-
-/**
- * One trigger's fire ledger, newest first, through the same relay the rest of
- * this seam uses. `List` is already relayed, so the read adds no route.
- *
- * The call names no workspace, because the trigger rows this is a ledger for
- * come from the Worker's triggers route, which asks the repository's own
- * gateway; the fires of those trigger ids live in that box's store.
- *
- * A box that refused, or answered something other than a fires page, is an
- * error the caller shows. It is never an empty ledger: "this schedule has
- * never fired" and "I could not read whether it has" are different answers.
- */
-export const readTriggerFires = async (ctx: SeamContext, repo: string, triggerId: string): Promise<FireLedger> => {
-  const answered = await relayTo(ctx, repo, "List", { _tag: "fires", filters: { triggerId }, limit: FIRE_PAGE }, undefined)
-  if (!answered.ok) return { ok: false, message: answered.message }
-  if (answered.value._tag !== "fires" || !Array.isArray(answered.value.items)) return { ok: false, message: SHAPELESS }
-  return {
-    ok: true,
-    fires: answered.value.items.map((item) => fireRow(triggerId, item)).filter((row): row is FireRow => row !== undefined)
-  }
 }
 
 /** One of the Worker's own trigger routes, with its typed refusal kept whole. */
@@ -741,12 +589,8 @@ const summarize = (repo: string, declared: ReadonlyArray<FactoryRule>, live: Liv
       }`
     )
   }
-  if (live.live) {
-    const rows = [
-      ...live.triggers.map((trigger) => `${trigger.id} runs ${trigger.flowId}`),
-      ...live.webhooks.map((webhook) => `webhook ${webhook.name}${webhook.flowId === undefined ? "" : ` runs ${webhook.flowId}`}`)
-    ]
-    parts.push(rows.length === 0 ? "the box is listening with nothing registered" : `the box is listening: ${rows.join(", ")}`)
+  if (live.triggers.length > 0) {
+    parts.push(`registered: ${live.triggers.map((trigger) => `${trigger.slug ?? trigger.id} runs ${trigger.flowId}`).join(", ")}`)
   }
   return parts.length === 0 ? `${NO_RULES_SENTENCE} on ${repo}.` : `Dispatcher on ${repo}: ${parts.join(". ")}.`
 }
@@ -754,7 +598,7 @@ const summarize = (repo: string, declared: ReadonlyArray<FactoryRule>, live: Liv
 /** Revalidate the reviewed plan and record approval on its pinned workspace before the durable launcher starts the registrar. */
 export const prepareTriggerRegistration = async (
   ctx: Pick<SeamContext, "http" | "baseUrl">, repo: string, request: TriggerRegistration,
-  workspaceId: string | undefined, current: () => boolean
+  workspaceId: string, current: () => boolean
 ): Promise<{ input: Record<string, unknown> } | { code: string; message: string }> => {
   const refuse = (message: string) => ({ code: "trigger_registration_refused", message })
   const superseded = () => ({ code: "request_superseded", message: "This registration belongs to a previous session." })
@@ -820,7 +664,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     return ctx.dispatch({ type: "card.upsert", actor, card: { ...card, payload: {
       ...card.payload,
       triggers: request.phase === "completed" ? card.payload.triggers.map(row => row.slug === request.slug
-        ? { ...row, enabled: false, nextFireAt: undefined, nextFiresAt: undefined } : row) : card.payload.triggers,
+        ? { ...row, enabled: false, nextFireAt: undefined } : row) : card.payload.triggers,
       pauseRequests: [...(card.payload.pauseRequests ?? []).filter(row => row.slug !== request.slug || row.owner !== request.owner), request]
     } } }).isPersisted.promise
   }
@@ -884,35 +728,14 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     const version = pauses.versions.get(repo)
     const identity = ctx.store.collections.identitySessions.get("identity")
     const signedIn = identity?.state === "signed-in" && identity.allowlisted
-    const [declared, box, registered] = await Promise.all([
+    const [declared, registered] = await Promise.all([
       readDeclaredRules(ctx, repo),
-      signedIn ? readLiveTriggers(ctx, repo) : Promise.resolve(NO_LIVE),
       signedIn ? readTriggerRegistrations(ctx, repo) : Promise.resolve(NO_LIVE)
     ])
     if ("error" in declared) return declared.error
-    /*
-     * Each box row's own fire ledger, read once the box has said which rows
-     * there are, all of them at once. Only the trigger store keeps a ledger:
-     * a Plue registration's registry serves a slug, a cron and one next fire
-     * and no fires page, so asking for one would be asking the wrong box.
-     *
-     * A box that refused leaves the row exactly as it was. "This schedule has
-     * never fired" and "I could not read whether it has" are different
-     * answers, and only the first of them is an empty `fires`.
-     */
-    const ledgers = await Promise.all(
-      box.triggers.map(async (row): Promise<TriggerRow> => {
-        const read = await readTriggerFires(ctx, repo, row.id)
-        return read.ok ? { ...row, fires: [...read.fires] } : row
-      })
-    )
-    /* Listening means a box answered or a schedule is registered — never that the registrations route answered with nothing. */
-    const live: LiveList = {
-      live: box.live || registered.triggers.length > 0,
-      triggers: [...ledgers, ...registered.triggers],
-      webhooks: box.webhooks
-    }
     if (!current() || version !== pauses.versions.get(repo)) return
+    /* Listening means a schedule is registered — never that the registrations route answered with nothing. */
+    const live: LiveList = { live: registered.triggers.length > 0, triggers: registered.triggers }
     const cardId = `trigger-list-${repo}`
     const existing = ctx.store.collections.cards.get(cardId)
     const card: Card = {
@@ -928,8 +751,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
         ...(existing?.kind === "trigger-list" && existing.payload.pauseRequests ? { pauseRequests: existing.payload.pauseRequests } : {}),
         ...(existing?.kind === "trigger-list" && existing.payload.preparations ? { preparations: existing.payload.preparations } : {}),
         live: live.live,
-        triggers: [...live.triggers],
-        webhooks: [...live.webhooks]
+        triggers: [...live.triggers]
       }
     }
     ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card })
@@ -984,8 +806,8 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     const sameOwner = capturePauseOwner()
     const sameCloud = captureCloudOwner(ctx, false)
     const current = () => sameOwner() && owner() === request.owner && preparation(repo, request.id) !== undefined
-    const bound = () => sameCloud() && jobWorkspace(ctx, repo) === request.workspaceId
-    const workspaceChanged = "The workspace changed. Prepare this schedule again."
+    const bound = () => sameCloud() && sameJobBox(ctx, repo, request.workspaceId)
+    const workspaceChanged = "The box changed. Prepare this schedule again."
     void runtime.withToast(`trigger-prepare:${request.id}`, `Preparing ${request.draft.slug}`, `Prepared ${request.draft.slug}`, async () => {
       const fail = async (error: string) => {
         if (!current()) return TOAST_SUPERSEDED
@@ -994,10 +816,11 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
       }
       try {
         if (!current()) return TOAST_SUPERSEDED
-        if (!bound()) return await fail(workspaceChanged)
+        const box = request.workspaceId
+        if (box === undefined || !bound()) return await fail(workspaceChanged)
         let receipt = request.receipt
         if (!receipt) {
-          const listed = await relayTo(ctx, repo, "List", { _tag: "flows" }, request.workspaceId)
+          const listed = await relayTo(ctx, repo, "List", { _tag: "flows" }, box)
           if (!current()) return TOAST_SUPERSEDED
           if (!bound()) return await fail(workspaceChanged)
           if (!listed.ok) return await fail(listed.message)
@@ -1013,7 +836,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
           if (!bound()) return await fail(workspaceChanged)
           const planned = await relayTo(ctx, repo, "Plan", {
             flowId: request.draft.flow, input, idempotencyKey: `trigger:${request.id}:plan`
-          }, request.workspaceId)
+          }, box)
           if (!current()) return TOAST_SUPERSEDED
           if (!bound()) return await fail(workspaceChanged)
           if (!planned.ok) return await fail(planned.message)
@@ -1091,7 +914,9 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     const approve = quick && ctx.actor() === "user" ? { approve: "owner" as const } : {}
     const draft: Preparation["draft"] = { flow: request.flow ?? "", slug, schedule, input,
       ...(named ? { tokens: named.tokens, minutes: named.milliseconds / 60_000 } : {}) }
-    const workspaceId = jobWorkspace(ctx, repo)
+    const job = jobWorkspace(ctx, repo)
+    if ("error" in job) return job.error
+    const { workspaceId } = job
     const same = (row: Preparation) => row.owner === login && row.workspaceId === workspaceId && JSON.stringify(row.draft) === JSON.stringify(draft)
     const ack = { value: `Preparation requested for ${slug} on ${repo}.` }
     // A second press of Schedule joins the registration the first one made: its approval is re-applied, and the launch path dedups on the request.
@@ -1107,7 +932,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
       return ack
     }
     const entry: Preparation = existing ? { ...existing, ...approve, phase: existing.receipt ? "ready" : "requested", error: undefined }
-      : { id: crypto.randomUUID(), owner: login, ...(workspaceId ? { workspaceId } : {}), draft, phase: "requested", ...approve }
+      : { id: crypto.randomUUID(), owner: login, workspaceId, draft, phase: "requested", ...approve }
     const current = capturePauseOwner()
     try { await savePreparation(repo, entry, ctx.actor()) } catch { return "Could not save the preparation. Retry." }
     if (current()) pumpPreparation(repo, entry)
@@ -1137,7 +962,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     const saved = preparation(repo, requestId)
     const replaced = !saved && pauseCard(repo)?.payload.preparations?.some(row => row.draft.slug === slug)
     if (replaced) return "Prepare this schedule again; this preview was replaced."
-    if (saved && (saved.owner !== owner() || saved.workspaceId !== jobWorkspace(ctx, repo))) return "Prepare this schedule again for the current workspace."
+    if (saved && (saved.owner !== owner() || !sameJobBox(ctx, repo, saved.workspaceId))) return "Prepare this schedule again for the current workspace."
     const text = (request.input ?? "").trim()
     if (text !== "") {
       try {

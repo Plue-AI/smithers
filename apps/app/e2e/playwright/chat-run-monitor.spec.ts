@@ -1,5 +1,5 @@
 import { expect, test } from "./browserTest"
-import { installCloudFixture } from "./cloudFixture"
+import { boxRunCardId, installCloudFixture, runningBox } from "./cloudFixture"
 
 const repo = "smithersai/smithers", runId = "chat-monitor"
 const journal = [
@@ -13,7 +13,7 @@ const journal = [
 
 for (const width of [390, 900]) test(`chat monitor stays reachable during work at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 800 })
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox("smithersai/smithers")] })
   await page.route("**/api/workflow/provision", route => route.fulfill({ json: { status: "ready", repo, gatewayId: "monitor" } }))
   await page.route("**/api/workflow/rpc", route => {
     const call = route.request().postDataJSON() as { payload: { selector?: { _tag?: string }; after?: { value: number } } }
@@ -56,7 +56,7 @@ for (const width of [390, 900]) test(`chat monitor stays reachable during work a
   await page.keyboard.press("Control+k")
   await composer.fill(`/runs.open ${runId} ${repo}`)
   await composer.press("Enter")
-  await expect(page.getByTestId(`card-flow-run-${runId}`)).toBeVisible()
+  await expect(page.getByTestId(`card-${boxRunCardId(repo, runId)}`)).toBeVisible()
   await page.keyboard.press("Escape")
 
   const dock = page.getByTestId("chat-run-timeline")

@@ -457,7 +457,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * trigger store's own rows carry no door, because no Control procedure
        * addresses one.
        */
-      "../cards/FlowGraphTrigger.tsx": 4,
+      "../cards/FlowGraphTrigger.tsx": 2,
       /*
        * The node a graph has open (L5): its close, the tab strip's one
        * handler, one per dependency the node waits on, the Code tab's

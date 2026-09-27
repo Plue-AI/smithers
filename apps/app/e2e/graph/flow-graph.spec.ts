@@ -643,15 +643,15 @@ test.describe("the flow builder's plan door", () => {
    * A schedule on the canvas (D-031). It is a Dispatcher registration and not
    * a plan node: no key, no tier, no settlement, outside every count the plan
    * card states, and its detail is the panel that knows what a schedule is.
-   * The rows come from the box's own trigger store through
-   * `GET /api/workflow/triggers`, so nothing below is a fixture the browser
-   * was handed.
+   * The row comes from the repository's registrations route
+   * (`GET /api/workflow/trigger-registrations`), which the stack answers the
+   * way Smithers Cloud does.
    */
   test("draws the registered schedule beside the plan, outside its count", async ({ page }) => {
     await listFlows(page)
     await command(page, `/triggers.list ${GRAPH_REPO}`)
-    // The dispatcher card's own row for the box's schedule: the box answered,
-    // so the card is "listening" and the row is a row and not a placeholder.
+    // The dispatcher card's own row for the registered schedule: a schedule
+    // is registered, so the card is "listening" and the row is a row.
     await expect(page.getByTestId("trigger-live")).toBeVisible()
     const listed = page.locator(`[data-trigger="${GRAPH_SCHEDULE.id}"][data-source="box"]`)
     await expect(listed).toContainText(GRAPH_SCHEDULE.words)
@@ -660,9 +660,7 @@ test.describe("the flow builder's plan door", () => {
     await page.locator(`[data-flow="flow.plan"][data-flow-args="${GRAPH_FLOW}"]`).click()
     const canvas = canvasOf(page)
     const trigger = canvas.locator(`[data-node="trigger:${GRAPH_SCHEDULE.id}"]`)
-    // Armed: nothing polls this host, so no occurrence is claimed and no run
-    // is in flight. `fired` would be a claim about a scheduler that is not
-    // running.
+    // Armed: the registration is enabled.
     await expect(trigger).toHaveAttribute("data-trigger-state", "armed")
     // A fire starts the nodes that wait on nothing, which in this plan is the
     // gate alone. It is NOT the node id'd `root`: that one is the flow's own
@@ -677,17 +675,13 @@ test.describe("the flow builder's plan door", () => {
     await trigger.click()
     const panel = drawer(page).locator(`.flow-trigger[data-trigger="${GRAPH_SCHEDULE.id}"]`)
     await expect(panel).toHaveAttribute("data-trigger-state", "armed")
-    // Five upcoming fires, computed from the cron by the reader that answered
-    // the listing, all in UTC because that is the zone the schedule declares.
+    // The one next fire the registration states, in UTC because that is the
+    // zone a registration runs in.
     const fires = panel.locator(`[data-testid="trigger-fires-${GRAPH_SCHEDULE.id}"] li`)
-    await expect(fires).toHaveCount(5)
+    await expect(fires).toHaveCount(1)
     await expect(fires.first()).toContainText("03:00 UTC")
-    // The policies the registration was registered under, and no others.
-    await expect(panel.locator(`[data-testid="trigger-policy-${GRAPH_SCHEDULE.id}"] .flow-trigger-chip`))
-      .toHaveText(["overlap skip", "catch-up none", "max 0"])
-    // No scheduler has ticked on this host, so the row says so rather than
-    // implying a fire is coming.
-    await expect(panel.locator(`[data-testid="trigger-tick-${GRAPH_SCHEDULE.id}"]`)).toHaveAttribute("data-live", "false")
+    // It carries the doors its slug addresses.
+    await expect(panel.locator(`[data-testid="trigger-run-${GRAPH_SCHEDULE.slug}"]`)).toBeVisible()
     // A trigger is not a plan node, so it gets the panel and none of the
     // tabs that know what a plan node is.
     await expect(drawer(page).locator(".flow-graph-drawer-tab")).toHaveCount(0)

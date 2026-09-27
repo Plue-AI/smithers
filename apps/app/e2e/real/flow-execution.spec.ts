@@ -68,22 +68,18 @@ test(
   }
 )
 
-const bootPrivateWorkflowRepository = async (page: Page, repo: string, workspaceId?: string): Promise<void> => {
+const bootPrivateWorkflowRepository = async (page: Page, repo: string, workspaceId: string): Promise<void> => {
   await bootProductionRepository(page, repo)
   await enableProductionVerbose(page)
-  if (workspaceId !== undefined) {
-    await command(page, `/box.view ${workspaceId}`)
-    await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
-    await closeComposer(page)
-    await command(page, `/repo.select ${repo}#workspace:${workspaceId}`)
-    await closeComposer(page)
-  }
+  await command(page, `/box.view ${workspaceId}`)
+  await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
+  await closeComposer(page)
+  await command(page, `/repo.select ${repo}#workspace:${workspaceId}`)
+  await closeComposer(page)
 }
 
-const approvalCardId = (repo: string, runId: string, requestId: string, workspaceId?: string): string =>
-  workspaceId === undefined
-    ? `approval-${runId}-${requestId}`
-    : `approval@${[repo, workspaceId, runId].map(encodeURIComponent).join("@")}@${encodeURIComponent(requestId)}`
+const approvalCardId = (repo: string, runId: string, requestId: string, workspaceId: string): string =>
+  `approval@${[repo, workspaceId, runId].map(encodeURIComponent).join("@")}@${encodeURIComponent(requestId)}`
 
 type ApprovalProjectionRow = {
   readonly runId: string
@@ -108,7 +104,7 @@ const waitForCompletedRun = async (
   request: Parameters<typeof gatewayCall>[1],
   repo: string,
   runId: string,
-  workspaceId?: string
+  workspaceId: string
 ) => {
   let completed: ReturnType<typeof runSummary>
   await expect.poll(async () => {
@@ -362,6 +358,7 @@ workflowTest(
       readonly workspaceId?: unknown
     } | null
     expect(submission?.repo).toBe(repo)
+    expect(submission?.workspaceId).toBe(workflowRepo.workspaceId)
     expect(submission?.procedure).toBe("Approval.Submit")
     expect(typeof submission?.payload?.idempotencyKey).toBe("string")
 

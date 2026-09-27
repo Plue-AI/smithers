@@ -6,6 +6,7 @@ import { workflowLaunchOf, type WorkflowLaunch } from "../WorkflowLaunch"
 import type { ControllerContext } from "./context"
 import { TOAST_CANCELLED, TOAST_SUPERSEDED } from "./failures"
 import { isFlowNotFound, type GatewayWorkspaceBinding } from "./gateway"
+import { gatewayBindingFor } from "../RepoContext"
 import { planCardSnapshot } from "../../cards/PlanNodes"
 import { runFailureOf } from "../RunFailure"
 import { digest } from "@smthrs/core/Digest"
@@ -14,6 +15,8 @@ import { codingEvidenceOf } from "../../cards/CodingPlan"
 import { engineProjectionPending } from "../../cards/EngineTrace"
 
 type RunCard = Extract<Card, { kind: "run-trace" }>
+/** A request that names its box: the only kind a new request card records. */
+type BoxLaunch = WorkflowLaunch & { readonly workspaceId: string }
 type Refusal = { readonly message: string; readonly code?: string; readonly retryAfterSeconds?: number }
 const terminal = new Set(["completed", "failed", "cancelled"])
 /** Polls a completed request waits for its journal before judging whether it validated. */
@@ -92,6 +95,8 @@ export const createWorkflowLaunchController = (
     const doneTitle = registration ? `${registration.slug} registered`
       : request.triggerDispatch ? `${request.triggerDispatch.slug} ${request.input.operation === "resume" ? "resumed" : "dispatched"}`
       : analysis ? `${request.repo} is in review` : `${request.workflow} completed`
+    // A request saved before every request named its box has none to reach; Retry binds one.
+    const box = request.workspaceId
     const work = ctx.withToast(toastKey, title, doneTitle, async () => {
       let stage: NonNullable<WorkflowLaunch["error"]>["stage"] = "preparation"
       const fail = async (failure: Refusal) => {
@@ -120,8 +125,9 @@ export const createWorkflowLaunchController = (
           if (card.kind !== "run-trace") return TOAST_SUPERSEDED
           const validated = codingVibeRequestOf(card)
           if (validated !== undefined) {
-            const fresh: WorkflowLaunch = { version: 1, id: `${request.id}.vibe`, owner: request.owner, repo: request.repo,
-              ...(request.workspaceId === undefined ? {} : { workspaceId: request.workspaceId }), workflow: "coding/vibe",
+            if (box === undefined) return "This request's box is gone."
+            const fresh: BoxLaunch = { version: 1, id: `${request.id}.vibe`, owner: request.owner, repo: request.repo,
+              workspaceId: box, workflow: "coding/vibe",
               input: { requestExecutionId: validated.requestExecutionId }, preparationStartedAt: Date.now() }
             // The plan card's own Vibe button may already have asked for the same landing.
             const adopted = [...store.collections.cards.values()].map(workflowLaunchOf)
@@ -129,7 +135,8 @@ export const createWorkflowLaunchController = (
             const next = adopted ?? fresh
             const nextId = next.id
             const cardId = `flow-request-${nextId}`
-            if (read(cardId) === undefined) await save(requestCard(cardId, next))
+            // An adopted request has this one's key, so it names the same box.
+            if (read(cardId) === undefined) await save(requestCard(cardId, { ...next, workspaceId: box }))
             if (!current()) return TOAST_SUPERSEDED
             await publish({ ...request, next: nextId })
             send(cardId, next)
@@ -148,10 +155,14 @@ export const createWorkflowLaunchController = (
       }
       try {
         if (request.runId === undefined) {
-          const binding = { workspaceId: request.workspaceId }
+          if (box === undefined) {
+            const now = gatewayBindingFor(store, request.repo)
+            return await fail({ code: "box_gone", message: "error" in now ? now.error : "This request's box is gone." })
+          }
+          const binding = { workspaceId: box }
           for (;;) {
             if (!current()) return TOAST_SUPERSEDED
-            if (preparationExpired()) return await fail({ code: "workspace_preparation_timeout", message: "Workspace gateway did not become ready. Retry the request." })
+            if (preparationExpired()) return await fail({ code: "workspace_preparation_timeout", message: "The box did not become ready. Retry the request." })
             const retryAt = workflowLaunchOf(read(id))?.retryAt
             if (retryAt !== undefined) await pause(retryAt - Date.now(), controller.signal)
             if (!current()) return TOAST_SUPERSEDED
@@ -198,7 +209,7 @@ export const createWorkflowLaunchController = (
             }
             if (result.code === "workspace_starting") {
               stage = "preparation"
-              if (preparationExpired()) return await fail({ code: "workspace_preparation_timeout", message: "Workspace gateway did not become ready. Retry the request." })
+              if (preparationExpired()) return await fail({ code: "workspace_preparation_timeout", message: "The box did not become ready. Retry the request." })
               await publish({ ...request, retryAt: Date.now() + (result.retryAfterSeconds ?? ctx.workflowPollMs / 1000) * 1000 })
               continue
             }
@@ -273,15 +284,18 @@ export const createWorkflowLaunchController = (
       if (request.error) void active.work.then(() => retry(id))
       return true
     }
-    const next = { ...request, error: undefined, retryAt: undefined, preparationStartedAt: Date.now() }
-    const saving = save({ ...card, status: "active", payload: { ...card.payload, phase: "launching", error: undefined, input: { ...next.input, _workflowLaunch: next } } })
+    // A request saved with no box is bound to the box a new request would name; with none, it fails saying which to open or pick.
+    const rebound = request.workspaceId === undefined ? gatewayBindingFor(store, request.repo) : { workspaceId: request.workspaceId }
+    const bound = "error" in rebound ? {} : { workspaceId: rebound.workspaceId }
+    const next = { ...request, ...bound, error: undefined, retryAt: undefined, preparationStartedAt: Date.now() }
+    const saving = save({ ...card, status: "active", payload: { ...card.payload, ...bound, phase: "launching", error: undefined, input: { ...next.input, _workflowLaunch: next } } })
     persisting.set(id, saving)
     void saving.then(() => send(id, next), () => {}).finally(() => persisting.delete(id))
     return true
   }
-  const requestCard = (id: string, request: WorkflowLaunch): RunCard => ({ id, kind: "run-trace", title: `${request.triggerRegistration ? `Register ${request.triggerRegistration.slug}` : request.triggerDispatch ? `${request.input.operation === "resume" ? "Resume" : "Run"} ${request.triggerDispatch.slug}` : request.workflow} · ${request.repo}`,
+  const requestCard = (id: string, request: BoxLaunch): RunCard => ({ id, kind: "run-trace", title: `${request.triggerRegistration ? `Register ${request.triggerRegistration.slug}` : request.triggerDispatch ? `${request.input.operation === "resume" ? "Resume" : "Run"} ${request.triggerDispatch.slug}` : request.workflow} · ${request.repo}`,
     status: "active", createdAt: Date.now(), ordinal: nextOrdinal(), payload: { repo: request.repo,
-      ...(request.workspaceId === undefined ? {} : { workspaceId: request.workspaceId }), gatewayBindingVersion: 1,
+      workspaceId: request.workspaceId, gatewayBindingVersion: 1,
       workflow: request.workflow, runId: `pending-${request.id}`, phase: "launching", steps: [], result: null, lastSeq: 0, liveTail: true,
       input: { ...request.input, _workflowLaunch: request } } })
   const start = async (args: { repo: string; binding: GatewayWorkspaceBinding; workflow: string; input: Record<string, unknown>; actor: Actor; then?: "coding/vibe"; triggerDispatch?: WorkflowLaunch["triggerDispatch"]; triggerRegistration?: WorkflowLaunch["triggerRegistration"]; source?: WorkflowLaunch["source"]; rerunOf?: string }): Promise<string | { value: string }> => {
@@ -307,7 +321,7 @@ export const createWorkflowLaunchController = (
       else send(prior.id, held)
       return { value: `run-requested workflow=${args.workflow} request=${held.id} repo=${args.repo}` }
     }
-    const request: WorkflowLaunch = { version: 1, id: crypto.randomUUID(), owner: login, repo: args.repo, ...args.binding, workflow: args.workflow,
+    const request: BoxLaunch = { version: 1, id: crypto.randomUUID(), owner: login, repo: args.repo, workspaceId: args.binding.workspaceId, workflow: args.workflow,
       input, preparationStartedAt: Date.now(), ...(args.triggerRegistration === undefined ? {} : { triggerRegistration: args.triggerRegistration }), ...(args.triggerDispatch === undefined ? {} : { triggerDispatch: args.triggerDispatch }), ...(args.then === undefined ? {} : { then: args.then }), ...(args.source === undefined ? {} : { source: args.source }), ...(args.rerunOf === undefined ? {} : { rerunOf: args.rerunOf }) }
     const id = `flow-request-${request.id}`
     const saving = store.dispatch({ type: "card.upsert", actor: args.actor, card: requestCard(id, request) }).isPersisted.promise

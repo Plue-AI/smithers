@@ -76,6 +76,8 @@ import { createGatewaySeam } from "../src/mainview/state/controller/gateway"
 const CREDENTIAL = "proof-bearer-credential"
 const REPO = "codeplanesmithers/smithers-demo"
 const PLANNED = "proof/planned"
+/** The box every call names: the relay refuses a call that names none. */
+const BOX = "5b0c4f7e-2d1a-4c3b-9e8f-1a2b3c4d5e6f"
 
 /*
  * A workspace flow with a plan hook, the shape the native host registers
@@ -217,6 +219,7 @@ const program = Effect.gen(function*() {
   // The app's own seam, unmodified, over the relay.
   const seam = createGatewaySeam({
     baseUrl: relay.url,
+    bindingFor: () => ({ workspaceId: BOX }),
     fetch: (url, init) => fetch(url, init),
     errorMessageOf: async (response, fallback) => `${fallback} (HTTP ${response.status})`
   })

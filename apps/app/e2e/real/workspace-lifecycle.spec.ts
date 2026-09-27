@@ -48,7 +48,7 @@ configuredGatewayTest(
   async ({ page, request, workflowRepo }, testInfo) => {
     const id = workflowRepo.workspaceId
     expect(id, "the real provisioner must return an exact workspace id").toMatch(/^[a-f0-9-]{36}$/i)
-    const workspaceId = id!
+    const workspaceId = id
     await bootProductionRepository(page, workflowRepo.repo)
 
     const current = await realApi(page, request, "GET", workspacePath(workflowRepo.repo, workspaceId))
@@ -122,7 +122,7 @@ workflowTest(
   async ({ page, request, workflowRepo }, testInfo) => {
     const id = workflowRepo.workspaceId
     expect(id, "the real provisioner must return an exact workspace id").toMatch(/^[a-f0-9-]{36}$/i)
-    const workspaceId = id!
+    const workspaceId = id
     await bootProductionRepository(page, workflowRepo.repo)
     const path = workspacePath(workflowRepo.repo, workspaceId)
     const beforeResponse = await realApi(page, request, "GET", path)
@@ -194,7 +194,7 @@ configuredGatewayTest(
     coverage: ["action:box.view", "action:box.terminal", "host:production", "path:success", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:real-pty", "dimension:websocket", "evidence:rendered-shell-output-and-session-cleanup"]
   }),
   async ({ page, request, workflowRepo }, testInfo) => {
-    const id = workflowRepo.workspaceId!
+    const id = workflowRepo.workspaceId
     await bootProductionRepository(page, workflowRepo.repo)
     await command(page, `/box.view ${id}`)
     await expect(page.getByTestId(`card-workspace-${id}`)).toBeVisible()
@@ -245,7 +245,7 @@ workflowTest(
     coverage: ["action:box.view", "action:repo.select", "action:flow.list", "host:production", "path:error", "door:slash", "dimension:missing-model", "dimension:bounded-refusal", "evidence:real-provision-response-and-visible-error"]
   }),
   async ({ page, request, workflowRepo }, testInfo) => {
-    const id = workflowRepo.workspaceId!
+    const id = workflowRepo.workspaceId
     await bootProductionRepository(page, workflowRepo.repo)
     await command(page, `/box.view ${id}`)
     await expect(page.getByTestId(`card-workspace-${id}`)).toBeVisible()

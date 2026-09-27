@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test"
 import { showcase } from "../showcase"
+import { boxRunCardId, runningBox } from "../../playwright/cloudFixture"
 
 const REPO = "smithersai/smithers"
 const ENVELOPE = { capabilities: [], flows: [], budget: {} }
@@ -40,7 +41,7 @@ export default showcase({
       : id === PARKED ? (resumed ? "running" : "parked")
       : decided.has(id === "run-land-68" ? "req-land" : "req-deps") ? (decided.get(id === "run-land-68" ? "req-land" : "req-deps") === "approve" ? "running" : "cancelled")
       : "waiting-approval"
-    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox(REPO)] })
     await backend.json("/api/workflow/provision", { status: "ready", repo: REPO, gatewayId: "gw-1" })
     await backend.route(url => url.pathname === "/api/workflow/rpc", route => {
       const call = route.request().postDataJSON() as { procedure: string; payload: { selector?: { _tag?: string }; target?: { requestId?: string }; decision?: string } }
@@ -100,7 +101,7 @@ export default showcase({
     // The run parked on provider quota resumes; Stop all ends every live run.
     await app.show(attention)
     await app.click(attention.getByTestId(`runs-open-${PARKED}`))
-    const parked = page.getByTestId(`card-flow-run-${PARKED}`)
+    const parked = page.getByTestId(`card-${boxRunCardId(REPO, PARKED)}`)
     await app.show(parked)
     await app.click(parked.getByTestId(`flow-run-resume-${PARKED}`))
     await expect(parked).toContainText("Running", { timeout: 10_000 })

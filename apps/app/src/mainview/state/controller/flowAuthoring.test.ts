@@ -18,7 +18,7 @@ import type { AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import { scopedControllers } from "../ControllerTestScope"
 import { runtimeRunKey } from "../RuntimeProjection"
-import { json, memoryStorage, settle, silentAgent, waitFor } from "../TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent, waitFor } from "../TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -161,6 +161,7 @@ const signedIn = async () => {
     type: "repositories.loaded", actor: "system",
     repositories: [{ id: REPO, org: REPO.split("/")[0] ?? "", ownerKind: "user", name: REPO.split("/")[1] ?? "", head: null }]
   })
+  await loadBox(store, REPO)
   await settle(2)
   return store
 }

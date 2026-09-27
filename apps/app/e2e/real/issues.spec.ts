@@ -519,11 +519,11 @@ authenticatedTest(
         readonly workspaceId?: unknown
       }
       const acceptedRunId = launchBody.payload?.runId
+      // Every run names its box; a Run request without one is a defect this spec reports.
+      expect(typeof runRequest.workspaceId, "the Run request must name its box").toBe("string")
+      const workspaceId = runRequest.workspaceId as string
       if (launchBody.ok === true && typeof acceptedRunId === "string" && acceptedRunId !== "") {
-        fixture.trackWorkflowRun({
-          runId: acceptedRunId,
-          ...(typeof runRequest.workspaceId === "string" ? { workspaceId: runRequest.workspaceId } : {})
-        })
+        fixture.trackWorkflowRun({ runId: acceptedRunId, workspaceId })
       }
       expect(launchResponse.status()).toBe(200)
       expect(launchBody.ok).toBe(true)
@@ -548,7 +548,7 @@ authenticatedTest(
         repo: fixture.repo,
         procedure: "List",
         payload: { _tag: "flows" },
-        ...(typeof runRequest.workspaceId === "string" ? { workspaceId: runRequest.workspaceId } : {})
+        workspaceId
       })
       expect(registry.status()).toBe(200)
       const registryBody = await registry.json() as {

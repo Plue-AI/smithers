@@ -1,6 +1,7 @@
 import { expect } from "@playwright/test"
 import { preparedCodingJournal } from "../../../src/mainview/cards/fixtures/CodingJournal"
 import { showcase } from "../showcase"
+import { boxRunCardId, FIXTURE_BOX, runningBox } from "../../playwright/cloudFixture"
 
 const REPO = "smithersai/smithers"
 const REVIEW = "run-review-70"
@@ -49,7 +50,7 @@ export default showcase({
       return { ...base, runId, flowId: "review-pr", status, createdAt: now - 240_000, updatedAt: now, turns: 3, calls: 7, callsFailed: 0,
         verdict: status, steeringPending: cancelled.has(REVIEW) ? 0 : steers.filter(steer => steer.body !== undefined).length }
     }
-    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox(REPO)] })
     await backend.json("/api/workflow/provision", { status: "ready", repo: REPO, gatewayId: "gw-1" })
     await backend.route(url => url.pathname === "/api/workflow/rpc", async route => {
       const call = route.request().postDataJSON() as { procedure: string; payload: { runId?: string; message?: { kind: string }; selector?: { _tag?: string; runId?: string }; after?: { value: number } } }
@@ -92,7 +93,7 @@ export default showcase({
     await app.open("/")
     await app.click(page.getByRole("button", { name: "Dismiss", exact: true }))
     await app.slash(`/runs.list ${REPO}`)
-    const inbox = page.getByTestId(`card-run-list-${REPO}`)
+    const inbox = page.getByTestId(`card-run-list-${REPO}-${FIXTURE_BOX}`)
     const loadingList = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Loading runs" })
     try {
       await expect.poll(() => listReads).toBe(1)
@@ -162,7 +163,7 @@ export default showcase({
     await refusal.getByRole("button", { name: "Retry", exact: true }).focus()
     await page.keyboard.press("Enter")
     await expect(refusal).toHaveCount(0)
-    const coding = page.getByTestId(`card-flow-run-${CODING}`)
+    const coding = page.getByTestId(`card-${boxRunCardId(REPO, CODING)}`)
     const trace = coding.getByTestId(`run-trace-${CODING}`)
     await expect(trace.locator("[data-frame-line]")).toHaveCount(2)
     await app.show(coding)
@@ -219,7 +220,7 @@ export default showcase({
     // A live run takes a steer, a new seat and a thinking level, then stops from its toast.
     await app.show(inbox)
     await app.click(inbox.getByTestId(`runs-open-${REVIEW}`))
-    const review = page.getByTestId(`card-flow-run-${REVIEW}`)
+    const review = page.getByTestId(`card-${boxRunCardId(REPO, REVIEW)}`)
     await expect(review).toContainText("Running")
     await app.show(review)
     await app.type(review.getByTestId(`flow-run-steer-input-${REVIEW}`), "smaller diff")

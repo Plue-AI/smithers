@@ -3,7 +3,7 @@ import { Plan } from "../../../../../../flows/coding/schema"
 import { decodeChangeReceipt,receiptMatchesPlan,validateTutorialPlan } from "../../cards/tutorial2-agent_change-contract"
 import { flag,line,text } from "@smthrs/ui/flow-form"
 import type { Card } from "../AppState"
-import { resolveTargetRepo } from "../RepoContext"
+import { gatewayBindingFor, resolveTargetRepo } from "../RepoContext"
 import type { ControllerContext } from "./context"
 import type { FormsController } from "./forms"
 import { formRenderedText } from "./forms"
@@ -69,10 +69,13 @@ export const createTutorialChangeController = (ctx: ControllerContext, flows: Wo
       const { error: _stale, ...payload } = card.payload
       await ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: { ...card, status: "acted", payload } }).isPersisted.promise
       try {
+        // No box, no run: the plan keeps its Start door and says which box to open or pick.
+        const binding = gatewayBindingFor(ctx.store, card.payload.repo)
+        if ("error" in binding) throw new Error(binding.error)
         await post("preflight", { repo: card.payload.repo, plan })
-        const provisioned = await flows.provisionWorkspace(card.payload.repo)
+        const provisioned = await flows.provisionWorkspace(card.payload.repo, binding)
         if (provisioned !== true) throw new Error(provisioned)
-        const launched = await flows.launchWorkflow({ repo: card.payload.repo, workflow: "tutorial-change", title: plan.changes[0]!.title,
+        const launched = await flows.launchWorkflow({ repo: card.payload.repo, workflow: "tutorial-change", title: plan.changes[0]!.title, binding,
           kind: "change", input: { ...card.payload.input, plan } })
         if ("message" in launched) throw new Error(launched.message)
         const runCard = [...ctx.store.collections.cards.values()].find(candidate =>

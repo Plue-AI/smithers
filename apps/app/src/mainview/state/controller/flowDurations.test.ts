@@ -50,7 +50,7 @@ describe("reading a flow's measured durations", () => {
 
   test("a box that refuses the selector leaves no rows, and says nothing", async () => {
     const { store, read } = await scope(async () => ({ status: "error", message: "Unknown selector" }))
-    await read("o/r", "review")
+    await read("o/r", "review", { workspaceId: "ws-1" })
     expect([...store.collections.flowDurations.values()]).toEqual([])
     expect([...store.collections.toasts.values()]).toEqual([])
   })
@@ -65,8 +65,8 @@ describe("reading a flow's measured durations", () => {
       await held
       return { status: "ok", value: [row("acme/Stale", 1_000)] }
     })
-    const slow = read("o/r", "review")
-    await read("o/r", "review")
+    const slow = read("o/r", "review", { workspaceId: "ws-1" })
+    await read("o/r", "review", { workspaceId: "ws-1" })
     release!()
     await slow
     expect(rowsOf(store, "review")).toEqual(["acme/Fresh"])
@@ -77,7 +77,7 @@ describe("reading a flow's measured durations", () => {
       status: "ok",
       value: [{ ...row(`acme/${flowId}`, 1_000), flowId }]
     }))
-    await Promise.all([read("o/r", "review"), read("o/r", "ship")])
+    await Promise.all([read("o/r", "review", { workspaceId: "ws-1" }), read("o/r", "ship", { workspaceId: "ws-1" })])
     expect(rowsOf(store, "review")).toEqual(["acme/review"])
     expect(rowsOf(store, "ship")).toEqual(["acme/ship"])
   })
@@ -101,7 +101,7 @@ test("the same flow read on separate workspaces retains both replies regardless 
 test("a reply from a retired account cannot restore its measurements", async () => {
   const held = Promise.withResolvers<void>()
   const { store, read, retire } = await scope(async () => { await held.promise; return { status: "ok", value: [row("acme/Build", 1000)] } })
-  const pending = read("o/r", "review")
+  const pending = read("o/r", "review", { workspaceId: "ws-1" })
   retire()
   held.resolve()
   await pending

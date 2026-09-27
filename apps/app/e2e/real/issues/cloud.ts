@@ -31,7 +31,8 @@ export type ImportedIssueFixture = ProductFixtures & {
 
 export type TrackedWorkflowRun = {
   readonly runId: string
-  readonly workspaceId?: string
+  /** The box the run was launched on: every relayed call names it. */
+  readonly workspaceId: string
 }
 
 export type IssueWire = Record<string, unknown> & {
@@ -92,7 +93,7 @@ const workflowRunStatus = async (
     repo,
     procedure: "Projection.Snapshot",
     payload: { selector: { _tag: "run-summary", runId: run.runId } },
-    ...(run.workspaceId === undefined ? {} : { workspaceId: run.workspaceId })
+    workspaceId: run.workspaceId
   })
   expect(response.status()).toBe(200)
   const body = await response.json() as {
@@ -121,7 +122,7 @@ const drainWorkflowRun = async (
       idempotencyKey: `cancel:${run.runId}`,
       reason: "owned issue E2E cleanup"
     },
-    ...(run.workspaceId === undefined ? {} : { workspaceId: run.workspaceId })
+    workspaceId: run.workspaceId
   })
   expect(cancelled.status()).toBe(200)
   const receipt = await cancelled.json() as { readonly ok?: unknown }

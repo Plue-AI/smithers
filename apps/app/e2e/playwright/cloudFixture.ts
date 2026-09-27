@@ -36,6 +36,23 @@ interface CloudWorkspace {
   readonly sort_timestamp: string
 }
 
+/** The one box a flow spec's repository holds: every flow call names a box. */
+export const FIXTURE_BOX = "0b0c0d0e-0000-4000-8000-0000000000f1"
+
+/** A running box of `fullName`, as the per-user switcher lists it. */
+export const runningBox = (fullName: string, workspaceId: string = FIXTURE_BOX): CloudWorkspace => {
+  const [owner = "", name = ""] = fullName.split("/")
+  return {
+    workspace_id: workspaceId, repository_id: 1, repository_owner: owner, repository_name: name, workspace_title: "Box",
+    state: "running", last_accessed_at: null, last_activity_at: "2026-09-26T00:00:00Z", created_at: "2026-09-26T00:00:00Z",
+    sort_timestamp: "2026-09-26T00:00:00Z"
+  }
+}
+
+/** The card id a run on `workspaceId` gets (RunReference `runCardIdFor`): repository, box and run, each URI-encoded. */
+export const boxRunCardId = (fullName: string, runId: string, workspaceId: string = FIXTURE_BOX): string =>
+  `flow-run@${[fullName, workspaceId, runId].map(encodeURIComponent).join("@")}`
+
 interface CloudFixtureOptions {
   readonly capabilities?: ReadonlyArray<RuntimeCapability>
   readonly localRepos?: ReadonlyArray<Repo>

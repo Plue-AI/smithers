@@ -3,6 +3,7 @@ import { FLOW_AUTHORING_ENTRY, flowAuthoringUnavailable } from "@smthrs/rpc/Flow
 import type { Card } from "../AppState"
 import { authoredSources, type AuthoredSource } from "../FlowAuthoringReceipts"
 import { runtimeRunKey } from "../RuntimeProjection"
+import { recordedRunBinding } from "../RepoContext"
 import { engineProjectionPending } from "../../cards/EngineTrace"
 import { flowArgs } from "../../flows/FlowArgs"
 import type { ControllerContext } from "./context"
@@ -123,7 +124,8 @@ export const createFlowAuthoringController = (
       try {
         let card = read(id)!
         if (card.payload.runId === "") {
-          const binding = { workspaceId: card.payload.workspaceId }
+          const binding = recordedRunBinding(card.payload, "This request's box is gone.")
+          if ("error" in binding) throw Error(binding.error)
           const ready = await provision(card.payload.repo, binding)
           if (!current(card)) return TOAST_SUPERSEDED
           if (ready !== true) throw Error(ready)
@@ -163,7 +165,7 @@ export const createFlowAuthoringController = (
 
   const request = async (description: string, repo: string, binding: GatewayWorkspaceBinding, actor: ControllerContext["commandActor"]) => {
     const owner = store.collections.identitySessions.get("identity")?.login ?? ""
-    const id = `flow-author-${digest(canonical([owner, repo, binding.workspaceId ?? null, description])).slice(0, 24)}`
+    const id = `flow-author-${digest(canonical([owner, repo, binding.workspaceId, description])).slice(0, 24)}`
     const existing = read(id)
     if (existing && pending.has(id)) return { value: `flow-requested repo=${repo}` }
     const completed = existing && store.committedRuntimeRun(runtimeRunKey(existing.payload))?.summary?.status === "completed"

@@ -11,6 +11,7 @@ interface RecordedCall {
   readonly repo: string
   readonly procedure: string
   readonly payload: unknown
+  readonly workspaceId?: string
 }
 
 /** A relay double: records the envelope, answers one scripted payload (or refusal) per procedure. */
@@ -18,6 +19,7 @@ const relay = (answers: Readonly<Record<string, unknown>> = {}) => {
   const calls: Array<RecordedCall> = []
   const seam = createGatewaySeam({
     baseUrl: "https://app.test",
+    bindingFor: () => ({ workspaceId: "box-1" }),
     fetch: async (url, init) => {
       expect(url).toBe("https://app.test/api/workflow/rpc")
       const body = JSON.parse(String(init?.body ?? "{}")) as RecordedCall
@@ -45,7 +47,7 @@ const keysOf = (calls: ReadonlyArray<RecordedCall>): ReadonlyArray<string> =>
   calls.map((call) => String((call.payload as { idempotencyKey: unknown }).idempotencyKey))
 
 test("HTTP workspace_starting keeps its typed code and Retry-After for a durable launch retry", async () => {
-  const seam = createGatewaySeam({ baseUrl: "", fetch: async () => new Response(JSON.stringify({ code: "workspace_starting", message: "Waking up" }),
+  const seam = createGatewaySeam({ baseUrl: "", bindingFor: () => ({ workspaceId: "box-1" }), fetch: async () => new Response(JSON.stringify({ code: "workspace_starting", message: "Waking up" }),
     { status: 503, headers: { "Retry-After": "10" } }), errorMessageOf: async () => "Waking up" })
   expect(await seam.launch("o/r", "review", {})).toEqual({ status: "error", code: "workspace_starting", message: "Waking up", retryAfterSeconds: 10 })
 })
@@ -53,20 +55,20 @@ test("HTTP workspace_starting keeps its typed code and Retry-After for a durable
 test("a recovered launch sends the persisted key to Plan and the same plan identity to approval and Run", async () => {
   const { seam, calls } = relay({ Plan: { ok: true, payload: { planId: "p", digest: "d", envelope: {} } }, Run: { ok: true, payload: { runId: "r" } } })
   const request = { idempotencyKey: "saved-request", stillCurrent: () => true }
-  await seam.launch("o/r", "review", { args: "inspect" }, {}, request)
-  await seam.launch("o/r", "review", { args: "inspect" }, {}, request)
+  await seam.launch("o/r", "review", { args: "inspect" }, { workspaceId: "box-1" }, request)
+  await seam.launch("o/r", "review", { args: "inspect" }, { workspaceId: "box-1" }, request)
   expect(keysOf(calls)).toEqual(["plan:saved-request", "approve:p", "run:p", "plan:saved-request", "approve:p", "run:p"])
 })
 
 test("a superseded Plan response cannot authorize approval or Run", async () => {
   let current = true
   const calls: string[] = []
-  const seam = createGatewaySeam({ baseUrl: "", fetch: async (_url, init) => {
+  const seam = createGatewaySeam({ baseUrl: "", bindingFor: () => ({ workspaceId: "box-1" }), fetch: async (_url, init) => {
     calls.push(JSON.parse(String(init?.body)).procedure)
     current = false
     return Response.json({ ok: true, payload: { planId: "p", digest: "d", envelope: {} } })
   }, errorMessageOf: async () => "Unavailable" })
-  expect(await seam.launch("o/r", "review", {}, {}, { idempotencyKey: "old", stillCurrent: () => current })).toMatchObject({ status: "error", code: "request_superseded" })
+  expect(await seam.launch("o/r", "review", {}, { workspaceId: "box-1" }, { idempotencyKey: "old", stillCurrent: () => current })).toMatchObject({ status: "error", code: "request_superseded" })
   expect(calls).toEqual(["Plan"])
 })
 
@@ -326,6 +328,24 @@ describe("owning workspace binding", () => {
     expect(ids).toEqual(["run-1", "run-1"])
     expect(requests).toBe(0)
   })
+
+  test("a call with no box refuses before transport, and every sent body names its box", async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    let box: string | undefined
+    const seam = createGatewaySeam({
+      baseUrl: "https://app.test",
+      bindingFor: () => box === undefined ? { error: "Open a box of o/r first: /box.open o/r" } : { workspaceId: box },
+      fetch: async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); return Response.json({ ok: true, payload: { items: [] } }) },
+      errorMessageOf: async (_response, fallback) => fallback
+    })
+    expect(await seam.listFlows("o/r")).toEqual({ status: "error", message: "Open a box of o/r first: /box.open o/r" })
+    expect(await seam.launch("o/r", "review", {})).toEqual({ status: "error", message: "Open a box of o/r first: /box.open o/r" })
+    expect(await seam.plan("o/r", "review", {})).toEqual({ status: "error", message: "Open a box of o/r first: /box.open o/r" })
+    expect(bodies).toEqual([])
+    box = "box-9"
+    expect((await seam.listFlows("o/r")).status).toBe("ok")
+    expect(bodies).toEqual([{ repo: "o/r", procedure: "List", payload: { _tag: "flows" }, workspaceId: "box-9" }])
+  })
 })
 
 test("runEvents forwards the exact cursor and preserves the issued revision", async () => {
@@ -345,6 +365,7 @@ test("an approval snapshot waits for resume with the original workspace binding"
   const requests: Array<Record<string, unknown>> = []
   const seam = createGatewaySeam({
     baseUrl: "https://app.test",
+    bindingFor: () => ({ workspaceId: "box-1" }),
     fetch: async (_url, init) => {
       requests.push(JSON.parse(String(init?.body)))
       return Response.json(requests.length === 1
@@ -363,6 +384,7 @@ test("a consequential gateway call does not retry a provisioning response", asyn
   let calls = 0
   const seam = createGatewaySeam({
     baseUrl: "https://app.test",
+    bindingFor: () => ({ workspaceId: "box-1" }),
     fetch: async () => { calls++; return Response.json({ status: "provisioning", message: "resuming" }) },
     errorMessageOf: async (_response, fallback) => fallback
   })
@@ -375,6 +397,7 @@ test("a resuming snapshot stops when its session changes", async () => {
   let calls = 0
   const seam = createGatewaySeam({
     baseUrl: "https://app.test",
+    bindingFor: () => ({ workspaceId: "box-1" }),
     observationGuard: () => () => owned,
     fetch: async () => {
       calls++
@@ -438,7 +461,7 @@ describe("planning a flow", () => {
     expect(planned.value.digest).toBe("d".repeat(64))
     expect(planned.value.flowId).toBe("review")
     expect(planned.value.nodes.map((node) => [node.id, [...node.dependsOn]])).toEqual([["a", []], ["b", ["a"]]])
-    expect(calls).toEqual([{ repo: "o/r", procedure: "Plan", payload: { flowId: "review", input: { pr: 1 } } }])
+    expect(calls).toEqual([{ repo: "o/r", procedure: "Plan", payload: { flowId: "review", input: { pr: 1 } }, workspaceId: "box-1" }])
   })
 
   test("carries the labelled edges when the workspace reports them", async () => {
@@ -501,7 +524,8 @@ describe("a flow's measured durations", () => {
     expect(calls).toEqual([{
       repo: "o/r",
       procedure: "Projection.Snapshot",
-      payload: { selector: { _tag: "flow-durations", flowId: "review" } }
+      payload: { selector: { _tag: "flow-durations", flowId: "review" } },
+      workspaceId: "box-1"
     }])
   })
 

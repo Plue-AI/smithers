@@ -21,7 +21,7 @@ test("requests waiting on admission when the account ends save nothing and ackno
     prepared.push(repo)
     return new Promise(() => {})
   })
-  const args = { repo: "owner/private", binding: {}, workflow: "review", input: { args: "secret" }, actor: "user" as const }
+  const args = { repo: "owner/private", binding: { workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" }, workflow: "review", input: { args: "secret" }, actor: "user" as const }
   try {
     const first = launch.start(args)
     const second = launch.start(args)
@@ -44,13 +44,13 @@ test("a failed post-launch save keeps the job pending and retries without relaun
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, unavailableAgent, { workflowPollMs: 1, toastDebounceMs: 1, toastAutoDismissMs: 10000 })
   let launches = 0, pumps = 0
-  ctx.gateway = { ...ctx.gateway, launch: async () => { launches++; failSave = true; return { status: "ok", value: { runId: "remote-run" } } } } as typeof ctx.gateway
+  ctx.gateway = { ...ctx.gateway, launch: async () => { launches++; failSave = true; return { status: "ok", value: { runId: "remote-run", workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" } } } } as typeof ctx.gateway
   const failures = createFailureController(ctx)
   ctx.withToast = failures.withToast
   ctx.resolveToast = failures.resolveToast
   const launch = createWorkflowLaunchController(ctx, () => 1, async () => { pumps++ }, async () => true)
   try {
-    await launch.start({ repo: "owner/repo", binding: {}, workflow: "review", input: {}, actor: "user" })
+    await launch.start({ repo: "owner/repo", binding: { workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" }, workflow: "review", input: {}, actor: "user" })
     for (let i = 0; i < 100 && pumps === 0; i++) await new Promise(resolve => setTimeout(resolve, 10))
     expect(rejected).toBe(1)
     expect(launches).toBe(1)
@@ -59,7 +59,7 @@ test("a failed post-launch save keeps the job pending and retries without relaun
     expect([...store.collections.toasts.values()].map(toast => toast.status)).toEqual(["running"])
     expect([...store.collections.cards.values()].some(card => card.kind === "run-trace" && card.payload.runId === "remote-run")).toBe(true)
     await store.dispatch({ type: "gateway.run.observed", actor: "system", observation: {
-      scope: { repo: "owner/repo", runId: "remote-run" }, summary: { runId: "remote-run", flowId: "review", status: "completed",
+      scope: { repo: "owner/repo", runId: "remote-run", workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" }, summary: { runId: "remote-run", flowId: "review", status: "completed",
         createdAt: 1, updatedAt: 2, turns: 0, calls: 0, callsFailed: 0, editsAttempted: 0, editsSucceeded: 0,
         inputTokens: 0, outputTokens: 0, verdict: "done", diagnosis: "done" }
     } }).isPersisted.promise

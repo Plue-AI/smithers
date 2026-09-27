@@ -32,7 +32,8 @@ import { actorSharedState } from "../ActorBindings"
 import { LSP_HOVER_CAP_CHARS, LSP_LANGUAGE_SERVER_MISSING, LSP_REQUEST_TIMEOUT_MS, lspLanguageFor } from "@smthrs/rpc/LocalLsp"
 import type { LspDiagnostic, LspLocation } from "@smthrs/rpc/LocalLsp"
 import { canonicalStoredJsonValue } from "../EventValue"
-import { CardSchema, parseRepoSelection } from "../AppState"
+import { CardSchema } from "../AppState"
+import { repositoryBoxOf, selectedBoxBinding } from "../RepoContext"
 import type { Actor, Card, CloudWorkspaceRow } from "../AppState"
 import type { CloudLspClient, CloudLspDocument, CloudLspEvent, LspAnswer, LspRefusal } from "../CloudLspClient"
 import { resolveFileTarget } from "./FilesSeam"
@@ -90,8 +91,6 @@ const locationRow = (location: LspLocation): string => `${location.path}:${locat
 const HOVER_CUT = `(cut at ${LSP_HOVER_CAP_CHARS / 1024} KiB)`
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`
-
-const UNSETTLED: ReadonlySet<string> = new Set(["pending", "starting"])
 
 /**
  * The cloud relay's refusal, in the workspace's terms: plue's 409
@@ -256,33 +255,30 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   }
 
   /*
-   * The workspace a cloud repository's act means: the active working copy
-   * when it is a running workspace of that repository, else the one running
-   * workspace of it — never a guess among several. Without a running one,
-   * the refusal names the act that gets one.
+   * The box a cloud repository's act means: the selected box (RepoContext's
+   * rule) when it is running, else — only with no box selected — the one
+   * running box of it. Without a running one, the refusal names the act that
+   * gets one.
    */
   const workspaceFor = (repo: string): { readonly workspace: CloudWorkspaceRow } | { readonly refusal: string } => {
-    const rows = [...ctx.store.collections.cloudWorkspaces.values()].filter((row) => row.repoId === repo)
-    const running = rows.filter((row) => row.status === "running")
-    const key = ctx.store.session().activeRepoKey ?? null
-    const selection = key === null ? null : parseRepoSelection(key)
-    const copyId = selection === null ? undefined : "repoId" in selection ? selection.copyId : selection.localCopyId
-    const copy = copyId === undefined ? undefined : ctx.store.collections.workingCopies.get(copyId)
-    const active = copy?.kind === "workspace" ? running.find((row) => row.id === copy.workspaceId) : undefined
-    if (active !== undefined) return { workspace: active }
-    if (running.length === 1) return { workspace: running[0]! }
-    if (running.length > 1) {
-      return { refusal: `Several boxes of ${repo} are running (${running.map((row) => `"${row.name}" ${row.id}`).join(", ")}) — select one first.` }
+    const selected = selectedBoxBinding(ctx.store, repo)
+    if (selected !== undefined) {
+      if ("error" in selected) return { refusal: selected.error }
+      const workspace = ctx.store.collections.cloudWorkspaces.get(selected.workspaceId)!
+      return workspace.status === "running" ? { workspace } : { refusal: `Resume the selected box first: /box.resume ${workspace.id}` }
     }
-    const resumable = rows.find((row) => row.status === "suspended" || row.status === "stopped")
-    if (resumable !== undefined) {
-      return { refusal: `Hover and definitions need a running box of ${repo}: "${resumable.name}" (${resumable.id}) is ${resumable.status} — /box.resume ${resumable.id} first.` }
+    const found = repositoryBoxOf(ctx.store, repo)
+    switch (found.kind) {
+      case "box": return { workspace: found.box }
+      case "several":
+        return { refusal: `Several boxes of ${repo} are running (${found.running.map((row) => `"${row.name}" ${row.id}`).join(", ")}) — select one first.` }
+      case "resumable":
+        return { refusal: `Hover and definitions need a running box of ${repo}: "${found.box.name}" (${found.box.id}) is ${found.box.status} — /box.resume ${found.box.id} first.` }
+      case "settling":
+        return { refusal: `Hover and definitions need a running box of ${repo}: "${found.box.name}" (${found.box.id}) is ${found.box.status} — wait for it to settle (the card tracks it).` }
+      case "none":
+        return { refusal: `Hover and definitions need a running box of ${repo} — /box.open ${repo} first.` }
     }
-    const settling = rows.find((row) => UNSETTLED.has(row.status))
-    if (settling !== undefined) {
-      return { refusal: `Hover and definitions need a running box of ${repo}: "${settling.name}" (${settling.id}) is ${settling.status} — wait for it to settle (the card tracks it).` }
-    }
-    return { refusal: `Hover and definitions need a running box of ${repo} — /box.open ${repo} first.` }
   }
 
   /** The cloud half of `prepare`: the tunnel, the sign-in, the workspace, the language it relays, and the card's whole text. */

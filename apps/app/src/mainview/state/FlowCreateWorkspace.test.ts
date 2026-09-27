@@ -146,7 +146,7 @@ test("a cold workspace keeps the flow-authoring door polling: no rpc, no transcr
     expect(double.calls.filter(call => call.path === "/api/workflow/rpc")).toEqual([])
     expect([...store.collections.messages.values()]).toEqual([])
     /* The progress the walk never looked at: a running notice naming the repository. */
-    expect([...store.collections.toasts.values()].map(toast => toast.title)).toContain(`Preparing your ${REPO} workspace…`)
+    expect([...store.collections.toasts.values()].map(toast => toast.title)).toContain(`Preparing your ${REPO} box…`)
     await pending
     /* The same line, once the workspace is up, reaches the plan the next script saw. */
     await waitFor(() => double.calls.some(call => call.path === "/api/workflow/rpc"), 10_000)

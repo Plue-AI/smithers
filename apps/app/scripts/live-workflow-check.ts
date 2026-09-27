@@ -125,14 +125,33 @@ const post = (path: string, body: unknown) =>
     [path, body] as const
   )
 
-if (!targetAvailable) {
+/*
+ * Every flow call names a box. The target's box is the one the app would
+ * pick (RepoContext `defaultBoxBinding`): exactly one running box of the
+ * repository, or WORKFLOW_BOX when the account holds several.
+ */
+const boxes = targetAvailable ? await page.evaluate(async (repo) => {
+  const [owner = "", name = ""] = repo.split("/")
+  const response = await fetch(`/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/workspaces?limit=100`)
+  const body = await response.json().catch(() => null) as unknown
+  const record = (body ?? {}) as { workspaces?: unknown; items?: unknown }
+  const rows = Array.isArray(body) ? body : Array.isArray(record.workspaces) ? record.workspaces : Array.isArray(record.items) ? record.items : []
+  return rows.flatMap((row) => typeof row === "object" && row !== null && typeof (row as { id?: unknown }).id === "string"
+    ? [{ id: (row as { id: string }).id, status: String((row as { status?: unknown }).status) }] : [])
+}, target) : []
+const running = boxes.filter((row) => row.status === "running")
+const box = process.env.WORKFLOW_BOX ?? (running.length === 1 ? running[0]!.id : undefined)
+if (targetAvailable) note(`box: ${box ?? `none — ${running.length} running of ${boxes.length}; open one with /box.open ${target} or set WORKFLOW_BOX`}`)
+
+if (!targetAvailable || box === undefined) {
   // A missing watched set is a deployment/authentication failure. Never turn
   // it into a misleading 400 by POSTing { repo: "" }, and never let an
-  // override bypass the user's durable watched-repository authority.
-  note("no workflow resource calls were attempted because no authorized target was available")
+  // override bypass the user's durable watched-repository authority. A
+  // target with no box has nothing to run on: no call names no box.
+  note("no workflow resource calls were attempted because no authorized target with a box was available")
 } else {
 /* ---- 2. provision-or-resume, live, through the wave-11b token door ---- */
-const first = await post("/api/workflow/provision", { repo: target })
+const first = await post("/api/workflow/provision", { repo: target, workspaceId: box })
 let firstBody: { status?: string; gatewayId?: string; message?: string } = {}
 try {
   firstBody = JSON.parse(first.text)
@@ -164,7 +183,7 @@ check(
 
 if (ready) {
   // §5: provision-or-resume is idempotent — a warm resume is the SAME gateway.
-  const second = await post("/api/workflow/provision", { repo: target })
+  const second = await post("/api/workflow/provision", { repo: target, workspaceId: box })
   const secondBody = JSON.parse(second.text) as { status?: string; gatewayId?: string }
   check(
     "provision-or-resume is idempotent (same gateway_id on re-call)",
@@ -173,7 +192,7 @@ if (ready) {
   )
 
   /* ---- 4. List flows through the relay: is create-flow really there ---- */
-  const list = await post("/api/workflow/rpc", { repo: target, procedure: "List", payload: { _tag: "flows" } })
+  const list = await post("/api/workflow/rpc", { repo: target, procedure: "List", payload: { _tag: "flows" }, workspaceId: box })
   note(`List flows → HTTP ${list.status} ${list.text.slice(0, 400)}`)
   const listBody = JSON.parse(list.text) as { ok?: boolean; payload?: { items?: Array<{ flowId?: string }> } }
   const ids = (listBody.payload?.items ?? []).map((entry) => entry.flowId).filter(Boolean)

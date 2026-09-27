@@ -1,4 +1,4 @@
-import { resolveTargetRepo } from "../RepoContext"
+import { gatewayBindingFor, resolveTargetRepo } from "../RepoContext"
 import type { ControllerContext } from "./context"
 import { isFlowNotFound } from "./gateway"
 import type { WorkflowController } from "./workflows"
@@ -69,15 +69,19 @@ export const createOnboardingController = (ctx: ControllerContext, deps: Onboard
     const target = resolveTargetRepo(store, explicit)
     if ("error" in target) return target.error
     const { repo } = target
-    const provisioned = await deps.workflows.provisionWorkspace(repo)
+    // No box, no run: the refusal names the box to open or pick, and the lesson stays where it was.
+    const binding = gatewayBindingFor(store, repo)
+    if ("error" in binding) return binding.error
+    const provisioned = await deps.workflows.provisionWorkspace(repo, binding)
     if (provisioned !== true) return provisioned
     const missing = `${repo} has no ${PROTOTYPE_FLOW_ID} flow on its workspace yet, so there is nothing to run the prototype with.`
-    const flows = await ctx.gateway.listFlows(repo)
+    const flows = await ctx.gateway.listFlows(repo, binding)
     if (flows.status === "ok" && !flows.value.some((flow) => flow.flowId === PROTOTYPE_FLOW_ID)) return missing
     const launched = await deps.workflows.launchWorkflow({
       repo,
       workflow: PROTOTYPE_FLOW_ID,
       input: { goal: what },
+      binding,
       title: `${PROTOTYPE_RUN_KIND} · ${what.length > 80 ? `${what.slice(0, 79)}…` : what}`,
       kind: PROTOTYPE_RUN_KIND
     })

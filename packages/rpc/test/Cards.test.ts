@@ -1115,24 +1115,8 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         cron: "0 * * * *",
         timezone: "UTC",
         enabled: true,
-        lastFiredAt: 1_757_000_000_000,
-        nextFireAt: 1_757_003_600_000,
-        activeRunId: "run-1",
-        nextFiresAt: [1_757_003_600_000, 1_757_007_200_000],
-        overlap: "buffer-one",
-        catchUp: "one",
-        maxCatchUp: 3,
-        pendingAt: 1_757_003_600_000,
-        schedulerLastTickAt: 1_757_000_500_000,
-        fires: [{
-          occurrenceAt: 1_757_000_000_000,
-          outcome: "launched",
-          runId: "run-1",
-          error: "",
-          waiting: "approval"
-        }]
-      }],
-      webhooks: [{ name: "github", flowId: "ci" }]
+        nextFireAt: 1_757_003_600_000
+      }]
     }
   },
   "run-list": {
@@ -2993,86 +2977,34 @@ describe("removed presentation compatibility", () => {
   })
 })
 
-/*
- * The dispatcher's rows carry the rest of the box's TriggerSummary (L6 step
- * 2): both policies and their bound, every upcoming fire rather than the
- * first alone, the claimed occurrence, the scheduler's heartbeat, and the
- * fire ledger of the trigger a panel is showing. Every one is optional,
- * because a card persisted before the pass-through holds none of them, and a
- * Plue registration serves none of them at all.
- */
-describe("the dispatcher card's trigger rows", () => {
-  const dispatcher = (triggers: ReadonlyArray<unknown>): unknown =>
-    card("trigger-list", { repo: "smithersai/smithers", live: true, triggers })
-
-  const parsed = (triggers: ReadonlyArray<unknown>): ReadonlyArray<unknown> => {
-    const read = CardSchema.parse(dispatcher(triggers))
-    if (read.kind !== "trigger-list") throw new Error("expected the dispatcher card")
-    return read.payload.triggers
-  }
-
-  const OLD_ROW = {
+test("a stored trigger card from the retired trigger store still decodes, without the fields nothing writes", () => {
+  const row = {
     id: "trg-1",
     slug: "nightly",
     flowId: "ci",
     cron: "0 * * * *",
-    timezone: "UTC",
     enabled: true,
-    lastFiredAt: 1_757_000_000_000,
-    nextFireAt: 1_757_003_600_000,
-    activeRunId: "run-1"
+    nextFireAt: 1_757_003_600_000
   }
-
-  test("a row persisted before the pass-through parses and gains nothing", () => {
-    expect(parsed([OLD_ROW])).toEqual([OLD_ROW])
-    expect(parsed([{ id: "trg-1", flowId: "ci", cron: "0 * * * *", enabled: true }])).toEqual([
-      { id: "trg-1", flowId: "ci", cron: "0 * * * *", enabled: true }
-    ])
-  })
-
-  test("the policies, every upcoming fire, the claim and the scheduler's heartbeat round-trip", () => {
-    const row = {
-      ...OLD_ROW,
-      nextFiresAt: [1_757_003_600_000, 1_757_007_200_000, 1_757_010_800_000, 1_757_014_400_000, 1_757_018_000_000],
-      overlap: "buffer-one",
+  const stored = {
+    repo: "smithersai/smithers",
+    live: true,
+    triggers: [{
+      ...row,
+      lastFiredAt: 1_757_000_000_000,
+      activeRunId: "run-1",
+      nextFiresAt: [1_757_003_600_000],
+      overlap: "skip",
       catchUp: "one",
       maxCatchUp: 3,
       pendingAt: 1_757_003_600_000,
-      schedulerLastTickAt: 1_757_000_500_000
-    }
-    expect(parsed([row])).toEqual([row])
-  })
-
-  test("a policy word the trigger store never writes is refused rather than read as one of its own", () => {
-    expect(CardSchema.safeParse(dispatcher([{ ...OLD_ROW, overlap: "queue" }])).success).toBe(false)
-    expect(CardSchema.safeParse(dispatcher([{ ...OLD_ROW, catchUp: "some" }])).success).toBe(false)
-  })
-
-  test("the shown trigger's fire ledger round-trips, including an occurrence with no outcome yet", () => {
-    const row = {
-      ...OLD_ROW,
-      fires: [
-        { occurrenceAt: 1_757_000_000_000, outcome: null },
-        { occurrenceAt: 1_756_996_400_000, outcome: "launched", runId: "run-1", waiting: "approval" },
-        { occurrenceAt: 1_756_992_800_000, outcome: "failed", error: "the flow refused the input" },
-        { occurrenceAt: 1_756_989_200_000, outcome: "skipped" },
-        { occurrenceAt: 1_756_985_600_000, outcome: "buffered" },
-        { occurrenceAt: 1_756_982_000_000, outcome: "superseded" },
-        { occurrenceAt: 1_756_978_400_000, outcome: "completed", runId: "run-0" }
-      ]
-    }
-    expect(parsed([row])).toEqual([row])
-  })
-
-  test("an outcome the ledger never records is refused, and so is a wait it never parks on", () => {
-    expect(CardSchema.safeParse(dispatcher([{ ...OLD_ROW, fires: [{ occurrenceAt: 1, outcome: "fired" }] }])).success)
-      .toBe(false)
-    expect(
-      CardSchema.safeParse(dispatcher([{ ...OLD_ROW, fires: [{ occurrenceAt: 1, outcome: null, waiting: "review" }] }]))
-        .success
-    ).toBe(false)
-    expect(CardSchema.safeParse(dispatcher([{ ...OLD_ROW, fires: [{ outcome: null }] }])).success).toBe(false)
-  })
+      schedulerLastTickAt: 1_757_000_500_000,
+      fires: [{ occurrenceAt: 1_757_000_000_000, outcome: "launched", runId: "run-1" }]
+    }],
+    webhooks: [{ name: "github", flowId: "ci" }]
+  }
+  const decoded = CardSchema.parse(card("trigger-list", stored)) as { payload: unknown }
+  expect(decoded.payload).toEqual({ repo: "smithersai/smithers", live: true, triggers: [row] })
 })
 
 test("a saved local repository receipt drops its retired path", () => {

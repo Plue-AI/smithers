@@ -124,7 +124,7 @@ describe("criticalPathEta", () => {
       ...(node.action === undefined ? {} : { action: node.action })
     }))
     const triggers = triggerGraph(
-      [{ id: "nightly", flowId: "acme/flow", cron: "0 9 * * 1-5", timezone: "UTC", enabled: true, nextFiresAt: [] }],
+      [{ id: "nightly", flowId: "acme/flow", cron: "0 9 * * 1-5", timezone: "UTC", enabled: true }],
       "acme/flow",
       planned
     )

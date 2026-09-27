@@ -16,7 +16,8 @@ import type { ControlEvent, RunSummaryRow } from "./controller/gateway"
 import type { Card } from "./AppState"
 import { createAppStore, type AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { json, memoryStorage, settle, silentAgent } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX } from "./TestFixtures"
+import { digest } from "@smthrs/core/Digest"
 
 const createAppController = scopedControllers()
 
@@ -37,7 +38,8 @@ const RECORDED: Recorded = JSON.parse(
   readFileSync(new URL("../cards/fixtures/GraphRunJournal.json", import.meta.url), "utf8")
 )
 const FLOW = RECORDED.flow
-const CARD = `flow-plan-${REPO}-${FLOW}--vs-${RUN}-workspace-default`
+const BOX_KEY = digest(TEST_BOX).slice(0, 16)
+const CARD = `flow-plan-${REPO}-${FLOW}--vs-${RUN}-workspace-${BOX_KEY}`
 const EDITED = ["root.flow.then.map.all.cached", "root.flow.then.map", "root"]
 
 /** The recorded plan's nodes, as the card carries them. */
@@ -111,6 +113,7 @@ const RUN_CARD: Extract<Card, { kind: "run-trace" }> = {
   createdAt: 1,
   payload: {
     repo: REPO,
+    workspaceId: TEST_BOX,
     runId: RUN,
     workflow: FLOW,
     phase: "completed",
@@ -156,10 +159,11 @@ const ready = async (rows: ReadonlyArray<ControlEvent>, served: Served = {}) => 
     type: "repositories.loaded", actor: "system",
     repositories: [{ id: REPO, org: "smithersai", ownerKind: "org", name: "smithers", head: null }]
   }).isPersisted.promise
+  await loadBox(store, REPO)
   await store.dispatch({ type: "card.upsert", actor: "system", card: RUN_CARD }).isPersisted.promise
   await store.dispatch({
     type: "gateway.run.observed", actor: "system",
-    observation: { scope: { repo: REPO, runId: RUN }, summary: SUMMARY, journal: { mode: "full", events: [...rows] } }
+    observation: { scope: { repo: REPO, runId: RUN, workspaceId: TEST_BOX }, summary: SUMMARY, journal: { mode: "full", events: [...rows] } }
   }).isPersisted.promise
   const controller = createAppController(store, silentAgent, {
     fetchImpl: relay(served),
@@ -211,7 +215,7 @@ describe("a plan compared against a run this client launched", () => {
     await controller.planFlow(FLOW, REPO)
     await settle(12)
     expect(preview(store)?.rekey?.rerun).toBe(3)
-    const plain = store.collections.cards.get(`flow-plan-${REPO}-${FLOW}--workspace-default`)
+    const plain = store.collections.cards.get(`flow-plan-${REPO}-${FLOW}--workspace-${BOX_KEY}`)
     expect(plain?.kind === "flow-plan" && plain.payload.rekey).toBeUndefined()
   })
 
@@ -243,7 +247,7 @@ describe("a plan compared against a run this client launched", () => {
     const { store, controller } = await ready(RECORDED.rows)
     await controller.planFlow(FLOW, REPO, undefined, undefined, "run-elsewhere")
     await settle(12)
-    const card = store.collections.cards.get(`flow-plan-${REPO}-${FLOW}--vs-run-elsewhere-workspace-default`)
+    const card = store.collections.cards.get(`flow-plan-${REPO}-${FLOW}--vs-run-elsewhere-workspace-${BOX_KEY}`)
     expect(card?.kind === "flow-plan" && card.payload.status).toBe("done")
     expect(card?.kind === "flow-plan" && card.payload.rekey).toBeUndefined()
     expect(card?.kind === "flow-plan" && card.payload.against).toBe("run-elsewhere")
@@ -283,7 +287,7 @@ test("a re-key estimate ignores measurements from a different workspace", async 
   await settle(15)
   expect(preview(store)?.status).toBe("done")
   expect(preview(store)?.rekey?.etaMs).toBeUndefined()
-  await store.dispatch({ type: "flow-durations.loaded", actor: "system", repo: REPO, flowId: FLOW,
+  await store.dispatch({ type: "flow-durations.loaded", actor: "system", repo: REPO, flowId: FLOW, workspaceId: TEST_BOX,
     rows: [{ actionTag, samples: 4, p50Ms: 1000, p90Ms: 2000 }] }).isPersisted.promise
   await controller.planFlow(FLOW, REPO, undefined, undefined, RUN)
   await settle(15)

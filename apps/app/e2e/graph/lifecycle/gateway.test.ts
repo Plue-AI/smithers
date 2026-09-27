@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { relayFetch } from "../RelayFetch"
+import { GRAPH_BOX } from "../workspace"
 import * as SourceRevision from "../../../../../packages/smithers/src/internal/SourceRevision.ts"
 
 const APP_DIR = fileURLToPath(new URL("../../../", import.meta.url))
@@ -62,9 +63,13 @@ test("the gateway answers a malformed relay call and removes its SQLite director
     const refused = await request(`${address.relayUrl}/api/workflow/rpc`, { method: "POST", body: "{not json" })
     expect(refused.status).toBe(400)
     expect(await refused.json()).toMatchObject({ status: "error", code: "request_body_not_json" })
-    const inherited = await request(`${address.relayUrl}/api/workflow/rpc`, { method: "POST", body: JSON.stringify({ repo: address.repo, procedure: "constructor" }) })
+    const inherited = await request(`${address.relayUrl}/api/workflow/rpc`, { method: "POST", body: JSON.stringify({ repo: address.repo, procedure: "constructor", workspaceId: GRAPH_BOX }) })
     expect(inherited.status).toBe(400)
     expect(await inherited.json()).toMatchObject({ code: "procedure_not_relayed" })
+    // A call that names no box is refused before it reaches the gateway.
+    const boxless = await request(`${address.relayUrl}/api/workflow/rpc`, { method: "POST", body: JSON.stringify({ repo: address.repo, procedure: "List", payload: { _tag: "flows" } }) })
+    expect(boxless.status).toBe(400)
+    expect(await boxless.json()).toMatchObject({ code: "request_invalid" })
     const alive = await request(`${address.relayUrl}/api/workflow/provision`, { method: "POST", body: "{}" })
     expect(alive.status).toBe(200)
     // The Bun origin must not retain a Node relay socket that can expire
@@ -72,21 +77,20 @@ test("the gateway answers a malformed relay call and removes its SQLite director
     expect(alive.headers.get("connection")).toBe("close")
     expect(await alive.json()).toEqual({ status: "ready", repo: address.repo })
 
-    // The box's schedules, as the Worker's own route shapes them. `live` is
-    // the box having answered, and the row is the one the stack registered in
-    // its trigger store, with the occurrences its cron computes.
+    // The repository's one box, and its one registered schedule, the way
+    // Smithers Cloud lists them.
+    const boxes = await request(`${address.relayUrl}/api/user/workspaces`)
+    expect(boxes.status).toBe(200)
+    expect((await boxes.json() as { workspaces: ReadonlyArray<{ workspace_id: string; state: string }> }).workspaces)
+      .toEqual([expect.objectContaining({ workspace_id: GRAPH_BOX, state: "running" })])
     const listed = await request(
-      `${address.relayUrl}/api/workflow/triggers?repo=${encodeURIComponent(address.repo)}`
+      `${address.relayUrl}/api/workflow/trigger-registrations?repo=${encodeURIComponent(address.repo)}`
     )
     expect(listed.status).toBe(200)
-    const dispatcher = await listed.json() as {
-      live: boolean
-      triggers: ReadonlyArray<{ id: string; flowId: string; cron: string; nextFiresAt?: ReadonlyArray<number> }>
-    }
-    expect(dispatcher.live).toBe(true)
-    expect(dispatcher.triggers.map((row) => row.id)).toEqual(["graph-fixture-nightly"])
-    expect(dispatcher.triggers[0]?.flowId).toBe("gateway/GraphFixture")
-    expect(dispatcher.triggers[0]?.nextFiresAt).toHaveLength(5)
+    const registered = await listed.json() as { rows: ReadonlyArray<{ registrationId: string; flowId: string; schedule: string }> }
+    expect(registered.rows.map((row) => row.registrationId)).toEqual(["graph-fixture-nightly"])
+    expect(registered.rows[0]?.flowId).toBe("gateway/GraphFixture")
+    expect(registered.rows[0]?.schedule).toBe("0 3 * * *")
 
     // The contents route, answered from the checkout this stack runs out of.
     // The fixture flow is a real file, and a node record names the line its

@@ -25,7 +25,7 @@ import { FLOW_AUTHORING_ENTRY } from "@smthrs/rpc/FlowAuthoring"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { json, memoryStorage, settle, silentAgent } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -49,6 +49,8 @@ const relay = (options: { readonly registered?: boolean } = {}) => {
         return json(200, { status: "ready", repo: body?.repo, gatewayId: "gw-1" })
       }
       if (absolute.pathname === "/api/workflow/rpc") {
+        /* The relay refuses a body that names no box, as the Worker does. */
+        if (typeof body?.workspaceId !== "string") return json(400, { status: "error", code: "request_invalid", message: "Body must name a box: workspaceId." })
         const procedure = String(body?.procedure)
         const payload = (body?.payload ?? {}) as { flowId?: unknown; input?: unknown }
         const flowId = String(payload.flowId ?? "")
@@ -98,6 +100,7 @@ const signedInStore = async () => {
   store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{
     id: REPO, org: REPO.split("/")[0] ?? "", ownerKind: "user", name: REPO.split("/")[1] ?? "", head: null
   }] })
+  await loadBox(store, REPO)
   await settle(2)
   return store
 }
@@ -159,6 +162,7 @@ test("a flow-authoring form honors its named repository instead of the loaded de
   const double = relay()
   const controller = createAppController(store, silentAgent, double.services)
   const target = "codeplanesmithers/other-repository"
+  await loadBox(store, target, "0b0c0d0e-0000-4000-8000-000000000002")
   try {
     const outcome = await controller.commands.submit({ name: "flow.create", actor: "user",
       payload: { description: "summarise my issues", repo: target } })

@@ -18,7 +18,8 @@ import { createAppStore } from "../AppStore"
 import { scopedControllers } from "../ControllerTestScope"
 import { payloadFor } from "../../flows/SlashPayload"
 import { flowArgs } from "../../flows/FlowArgs"
-import { json, memoryStorage, settle, silentAgent, waitFor } from "../TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX, waitFor } from "../TestFixtures"
+import { digest } from "@smthrs/core/Digest"
 import { triggerNodeId } from "../../cards/FlowGraphTriggerNode"
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
@@ -32,7 +33,7 @@ const REPO = "codeplanesmithers/smithers-demo"
 const REVISION = "b".repeat(40)
 const FLOW = "gateway/GraphFixture"
 const RUN = "run-1"
-const PLAN_CARD = `flow-plan-${REPO}-${FLOW}--workspace-default`
+const PLAN_CARD = `flow-plan-${REPO}-${FLOW}--workspace-${digest(TEST_BOX).slice(0, 16)}`
 
 const said = (outcome: { status: string; value?: string; error?: string }): string =>
   outcome.status === "failed" ? (outcome.error ?? "") : (outcome.value ?? "")
@@ -55,7 +56,7 @@ const planNode = (id: string, action: string, dependsOn: ReadonlyArray<string> =
 
 const NODES = [planNode("gate", "graph/Gate"), planNode("steady", "graph/Steady", ["gate"], "1".repeat(64))]
 
-/** The box's own schedule listing, which is where a trigger node on a plan comes from. */
+/** The repository's schedule listing, which is where a trigger node on a plan comes from. */
 const DISPATCHER: Card = {
   id: `trigger-list-${REPO}`,
   kind: "trigger-list",
@@ -66,8 +67,7 @@ const DISPATCHER: Card = {
   payload: {
     repo: REPO,
     live: true,
-    triggers: [{ id: "nightly", flowId: FLOW, cron: "0 9 * * 1-5", timezone: "UTC", enabled: true }],
-    webhooks: []
+    triggers: [{ id: "nightly", flowId: FLOW, cron: "0 9 * * 1-5", timezone: "UTC", enabled: true }]
   }
 }
 
@@ -212,6 +212,7 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>) => {
     actor: "system",
     repositories: [{ id: REPO, org: REPO.split("/")[0] ?? "", ownerKind: "user", name: REPO.split("/")[1] ?? "", head: null }]
   })
+  await loadBox(store, REPO)
   await settle(2)
 }
 

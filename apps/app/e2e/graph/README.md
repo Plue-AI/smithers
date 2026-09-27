@@ -61,12 +61,13 @@ upstream is what carries `/api/workflow/*`; the cloud upstream is what puts
 `cloud` in the origin's bootstrap capabilities, and `flow.list`, `flow.run` and
 `flow.plan` all declare it, so an origin without one lists no flows at all.
 
-The relay answers three families, all of which the local origin forwards to it:
+The relay answers these families, all of which the local origin forwards to it:
 
 | Route | Answered with |
 | --- | --- |
-| `/api/workflow/rpc` | the gateway, through the Worker's own procedure allowlist |
-| `/api/workflow/triggers` | `List { _tag: "triggers" }`, shaped by the Worker's own reader |
+| `/api/workflow/rpc` | the gateway, through the Worker's own procedure allowlist; every call names the stack's one box |
+| `/api/user/workspaces` | that one running box (`GRAPH_BOX`), so the app has a box to name |
+| `/api/workflow/trigger-registrations` | the one fixture schedule, the way Smithers Cloud lists a registration |
 | `/api/repos/{o}/{r}/contents[/path]` | the checkout this command runs out of |
 
 The contents route is what makes a node's Code tab openable: the fixture flow

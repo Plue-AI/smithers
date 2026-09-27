@@ -115,13 +115,18 @@ export const GRAPH_MERGE = "root.flow.then.map"
 export const GRAPH_FLOW_SOURCE = "packages/smithers/test/BridgedEngineRun.ts"
 
 /**
- * The schedule the fixture host's trigger store holds
- * (`BridgedEngineRun.fixtureSchedule`).
+ * The schedule the stack's registrations route lists for the repository, the
+ * way Smithers Cloud lists a `flow:<slug>` registration.
  *
- * Nothing polls it, so it is armed and stays armed, and the five upcoming
- * fires a reader sees are computed from the cron rather than stored.
+ * Nothing polls it, so it is armed and stays armed.
  */
-export const GRAPH_SCHEDULE = { id: "graph-fixture-nightly", words: "Every day at 03:00 UTC" } as const
+export const GRAPH_SCHEDULE = { id: "graph-fixture-nightly", slug: "graph-fixture-nightly", cron: "0 3 * * *", words: "Every day at 03:00 UTC" } as const
+
+/**
+ * The one box the stack lists for the repository. Every flow call names a
+ * box, so the app reads this row before it lists, plans or runs anything.
+ */
+export const GRAPH_BOX = "6f1d8e2a-4b3c-4d5e-8f60-7a8b9c0d1e2f"
 
 /** The fan-out's steady arm: one step that always succeeds. */
 export const GRAPH_STEADY = "root.flow.then.map.all.steady"

@@ -2,11 +2,11 @@ import { expect, test } from "bun:test"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { json, memoryStorage, settle, silentAgent, waitFor } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX, waitFor } from "./TestFixtures"
 
 const controllerFor = scopedControllers()
 const repo = "codeplanesmithers/canary-sandbox"
-const id = `workflow-list-${repo}`
+const id = `workflow-list@${encodeURIComponent(repo)}@${encodeURIComponent(TEST_BOX)}`
 const toast = `toast-flow.catalog.${id}`
 const ready = () => json(200, { status: "ready", repo, gatewayId: "gateway" })
 const catalog = (flowId = "checks/fast") => json(200, { ok: true, payload: { _tag: "flows", items: [{ flowId, description: "Check" }] } })
@@ -27,6 +27,7 @@ async function fixture(options: {
       if (!path.startsWith("/api/workflow/")) return json(404, {})
       const body = JSON.parse(String(init?.body))
       calls.push({ path, body })
+      expect(body.workspaceId).toBe(TEST_BOX)
       if (path.endsWith("/provision")) {
         return options.provision?.() ?? ready()
       }
@@ -36,6 +37,7 @@ async function fixture(options: {
   const controller = controllerFor(store, silentAgent, services)
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "codeplanesmithers", ownerKind: "user", name: "canary-sandbox", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await loadBox(store, repo)
   await settle(2)
   return { store, storage, controller, calls }
 }
@@ -126,8 +128,8 @@ test("a later ready workspace clears earlier preparation refusals without hiding
     await acknowledged(controller.commands.run("flow.list"))
     await waitFor(() => store.collections.toasts.get(toast)?.status === "failed", 10_000)
     expect(store.collections.toasts.get(toast)?.detail).toStartWith("workspace_starting — ")
-    const preparationKey = `flow.provision.${repo}.legacy`
-    store.dispatch({ type: "toast.shown", actor: "system", key: preparationKey, title: `Preparing your ${repo} workspace…` })
+    const preparationKey = `flow.provision.${repo}.${TEST_BOX}`
+    store.dispatch({ type: "toast.shown", actor: "system", key: preparationKey, title: `Preparing your ${repo} box…` })
     store.dispatch({ type: "toast.resolved", actor: "system", key: preparationKey, status: "failed", detail: waiting })
     expect([...store.collections.toasts.values()].filter(entry => entry.status === "failed")).toHaveLength(2)
     prepared = true

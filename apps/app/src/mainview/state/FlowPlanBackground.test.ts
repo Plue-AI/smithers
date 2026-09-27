@@ -10,14 +10,15 @@
 import { describe, expect, test } from "bun:test"
 import { createAppStore, type AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { json, memoryStorage, settle, silentAgent } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX } from "./TestFixtures"
+import { digest } from "@smthrs/core/Digest"
 import type { Card } from "./AppState"
 
 const createAppController = scopedControllers()
 
 const REPO = "smithersai/smithers"
 const FLOW = "review"
-const CARD = `flow-plan-${REPO}-${FLOW}--workspace-default`
+const CARD = `flow-plan-${REPO}-${FLOW}--workspace-${digest(TEST_BOX).slice(0, 16)}`
 const TOAST = `toast-flow.plan:${CARD}`
 
 const planCard = (payload: {
@@ -95,6 +96,7 @@ const readyController = async (relay: ReturnType<typeof scriptedRelay>, storage 
     type: "repositories.loaded", actor: "system",
     repositories: [{ id: REPO, org: "smithersai", ownerKind: "org", name: "smithers", head: null }]
   }).isPersisted.promise
+  await loadBox(store, REPO)
   const controller = createAppController(store, silentAgent, {
     fetchImpl: relay.fetchImpl,
     pageLifetime,
@@ -341,6 +343,8 @@ describe("plan workspace and account ownership", () => {
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
       await settle(10)
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      // Sign-out forgets the account's boxes; the new session loads its own.
+      await loadBox(store, REPO)
       await controller.planFlow(FLOW, REPO)
       await settle(10)
       expect(calls).toBe(2)
@@ -376,11 +380,11 @@ test("an account change during provisioning sends no Plan and resolves no succes
     await settle(15)
     expect(plans).toBe(0)
     expect(held(store)).toBeUndefined()
-    expect([...store.collections.toasts.values()].some(toast => toast.status === "ok" && /Planned|Workspace ready/.test(toast.title))).toBe(false)
+    expect([...store.collections.toasts.values()].some(toast => toast.status === "ok" && /Planned|Box ready/.test(toast.title))).toBe(false)
   } finally { provisioning.resolve() }
 })
 
-test("a default-gateway plan cannot replace an older card bound to another workspace", async () => {
+test("a default-box plan cannot replace an older card bound to another box", async () => {
   const relay = scriptedRelay(() => ({ ok: true, payload: planCard({}) }))
   const { store, controller } = await readyController(relay)
   const legacyId = `flow-plan-${REPO}-${FLOW}-`
@@ -394,7 +398,7 @@ test("a default-gateway plan cannot replace an older card bound to another works
     await settle(15)
     const earlier = store.collections.cards.get(legacyId)
     expect(earlier?.kind === "flow-plan" && earlier.payload.planId).toBe("earlier")
-    expect(held(store)?.payload.workspaceId).toBeUndefined()
+    expect(held(store)?.payload.workspaceId).toBe(TEST_BOX)
     expect(held(store)?.payload.planId).toBe("plan-1")
   } finally { relay.release() }
 })
@@ -502,7 +506,7 @@ test("retrying a refused comparison retains its original card and Plan key", asy
   const { store, controller } = await readyController(relay)
   await store.dispatch({ type: "card.upsert", actor: "system", card: {
     id: "original-preview", kind: "flow-plan", title: "Plan", status: "active", createdAt: 1, ordinal: 1,
-    payload: { repo: REPO, flowId: FLOW, status: "done", planId: "old-plan", digest: "a".repeat(64), nodes: [] }
+    payload: { repo: REPO, flowId: FLOW, status: "done", workspaceId: TEST_BOX, planId: "old-plan", digest: "a".repeat(64), nodes: [] }
   } }).isPersisted.promise
   relay.release()
   await controller.planFlow(FLOW, REPO, {}, undefined, "old-plan")
@@ -582,6 +586,18 @@ test("a legacy pending plan without admission remains visibly retryable after re
   expect(relay.plans).toHaveLength(0)
   await controller.planFlow(FLOW, REPO)
   expect(held(store)?.payload.planRequest).toBeDefined()
+  relay.release()
+})
+
+test("an admitted pending plan saved with no box settles failed on reload and asks nothing", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "card.upsert", actor: "system", card: { id: CARD, kind: "flow-plan", title: "Earlier plan", status: "active", createdAt: 1, ordinal: 1,
+    payload: { repo: REPO, flowId: FLOW, status: "pending", planRequest: { id: "saved", owner: "will" } } } }).isPersisted.promise
+  const relay = scriptedRelay(() => ({ ok: true, payload: planCard({}) }))
+  await readyController(relay, memoryStorage(), store)
+  for (let tick = 0; tick < 100 && held(store)?.payload.status !== "failed"; tick++) await settle(2)
+  expect(held(store)?.payload).toMatchObject({ status: "failed", error: "This plan's box is gone." })
+  expect(relay.plans).toHaveLength(0)
   relay.release()
 })
 

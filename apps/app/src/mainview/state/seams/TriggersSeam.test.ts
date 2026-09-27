@@ -12,9 +12,8 @@ import { Schema } from "effect"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import { readFile } from "node:fs/promises"
 import { flowArgs } from "../../flows/FlowArgs"
-import { LIMIT_SHAPE, limitsRefusal, NO_RULES_SENTENCE, otherLimitSentence, overBoundFlowSentence, readTriggerFires, registerUnavailableSentence, unboundedFlowSentence } from "./TriggersSeam"
+import { LIMIT_SHAPE, limitsRefusal, NO_RULES_SENTENCE, otherLimitSentence, overBoundFlowSentence, registerUnavailableSentence, unboundedFlowSentence } from "./TriggersSeam"
 import type { TriggerWrite } from "./TriggersSeam"
-import type { SeamContext } from "./SeamContext"
 
 const createAppController = scopedControllers()
 const controllerStores = new WeakMap<AppController, AppStore>()
@@ -26,9 +25,9 @@ setDefaultTimeout(30_000)
  * The triggers seam through the real command path: controller.commands.run
  * drives triggers.list exactly as the Dispatcher chrome button, the Flows
  * pane door and the slash do. The declared rows come from the public mirror's
- * contents route for `.smithers/factory.json`; the live rows come from the
- * Worker's triggers route only for a signed-in session. The card states only
- * what each source answered.
+ * contents route for `.smithers/factory.json`; the registered rows come from
+ * Smithers Cloud's registrations route only for a signed-in session. The card
+ * states only what each source answered.
  */
 
 const memoryStorage = (): StorageApi => {
@@ -123,7 +122,6 @@ const ready = async (
 
 const REPO = "/api/repos/will/flows"
 const PROJECTION = `${REPO}/contents/.smithers/factory.json`
-const LIVE = "/api/workflow/triggers"
 
 /** The day-one table (design §7) as the mirror serves the committed projection: a base64 contents document. */
 const projectionDocument = (projection: unknown): Response =>
@@ -164,7 +162,7 @@ const triggerCard = (store: AppStore) => {
 }
 
 describe("triggers seam: the declaration, signed out", () => {
-  test("the declared rows come from the projection on the public mirror, and the Worker's triggers route is never asked", async () => {
+  test("the declared rows come from the projection on the public mirror, and no registration is asked for", async () => {
     const seen: Array<string> = []
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }, seen))
     const outcome = await controller.commands.run("triggers.list")
@@ -176,12 +174,11 @@ describe("triggers seam: the declaration, signed out", () => {
       repo: "will/flows",
       declared: DAY_ONE.on,
       live: false,
-      triggers: [],
-      webhooks: []
+      triggers: []
     })
     // The projection is read once for the card (and once more by the repository-flows seam, which reads the same file for the slash leaves).
     expect(new Set(seen)).toEqual(new Set([PROJECTION]))
-    expect(seen.some((path) => path.startsWith(LIVE))).toBe(false)
+    expect(seen.some((path) => path.startsWith(REGISTRATIONS))).toBe(false)
   })
 
   test("a mirror with no projection committed yet is 'No rules declared yet': an empty table, no live rows, no reason", async () => {
@@ -191,7 +188,7 @@ describe("triggers seam: the declaration, signed out", () => {
     if (outcome.status === "executed") expect(outcome.value).toBe(`${NO_RULES_SENTENCE} on will/flows.`)
     await settled()
     const card = triggerCard(store)
-    expect(card.payload).toEqual({ repo: "will/flows", declared: [], live: false, triggers: [], webhooks: [] })
+    expect(card.payload).toEqual({ repo: "will/flows", declared: [], live: false, triggers: [] })
     expect(JSON.stringify(card.payload)).not.toContain("reason")
   })
 
@@ -222,187 +219,7 @@ describe("triggers seam: the declaration, signed out", () => {
   })
 })
 
-describe("triggers seam: the box, signed in", () => {
-  test("a box that answered adds live rows beside the declared ones", async () => {
-    const seen: Array<string> = []
-    const { store, controller } = await ready(
-      backend({
-        [PROJECTION]: projectionDocument(DAY_ONE),
-        [LIVE]: json(200, {
-          status: "ok",
-          repo: "will/flows",
-          live: true,
-          triggers: [
-            { id: "nightly", flowId: "review", cron: "0 9 * * 1-5", timezone: "UTC", enabled: true, lastFiredAt: 1_700_000_000_000, nextFireAt: 1_700_086_400_000, activeRunId: "run-8f21" },
-            { id: "sweep", flowId: "issue", cron: "*/15 * * * *", enabled: false },
-            { id: "broken" }
-          ],
-          webhooks: [{ name: "github-push", flowId: "review" }, { flowId: "nameless" }]
-        })
-      }, seen),
-      { signedIn: true }
-    )
-    const outcome = await controller.commands.run("triggers.list")
-    expect(outcome.status).toBe("executed")
-    if (outcome.status === "executed") {
-      expect(outcome.value).toBe(
-        "Dispatcher on will/flows: 4 rules declared in .smithers/FACTORY.ts: issue.opened runs issue; issue.labeled:smithers runs implement; change.landed runs wiki, history.fold, improve.mine; schedule:0 9 * * 1-5 runs review. the box is listening: nightly runs review, sweep runs issue, webhook github-push runs review."
-      )
-    }
-    await settled()
-    const card = triggerCard(store)
-    expect(card.payload.declared).toEqual(DAY_ONE.on)
-    expect(card.payload.live).toBe(true)
-    expect(card.payload.triggers).toEqual([
-      { id: "nightly", flowId: "review", cron: "0 9 * * 1-5", timezone: "UTC", enabled: true, lastFiredAt: 1_700_000_000_000, nextFireAt: 1_700_086_400_000, activeRunId: "run-8f21" },
-      { id: "sweep", flowId: "issue", cron: "*/15 * * * *", enabled: false }
-    ])
-    expect(card.payload.webhooks).toEqual([{ name: "github-push", flowId: "review" }])
-    /* Two live sources now: the box's own store and the repository's Smithers Cloud registrations, plus one ledger read per box row. */
-    expect(seen.filter((path) => path !== PROJECTION).sort()).toEqual(
-      [`${LIVE}?repo=will%2Fflows`, `/api/workflow/trigger-registrations?repo=will%2Fflows`, RPC, RPC].sort()
-    )
-    expect(seen).toContain(PROJECTION)
-  })
-
-  test("the box's policies, its whole list of upcoming fires, the claim it holds and the scheduler's heartbeat reach the card", async () => {
-    const { store, controller } = await ready(
-      backend({
-        [PROJECTION]: projectionDocument(DAY_ONE),
-        [LIVE]: json(200, {
-          status: "ok",
-          repo: "will/flows",
-          live: true,
-          triggers: [{
-            id: "nightly",
-            flowId: "review",
-            cron: "0 9 * * 1-5",
-            timezone: "America/New_York",
-            enabled: true,
-            nextFireAt: 1_700_086_400_000,
-            nextFiresAt: [1_700_086_400_000, 1_700_172_800_000, 1_700_259_200_000, 1_700_345_600_000, 1_700_432_000_000],
-            overlap: "buffer-one",
-            catchUp: "one",
-            maxCatchUp: 3,
-            pendingAt: 1_700_086_400_000,
-            schedulerLastTickAt: 1_700_000_500_000,
-            /* The route carries these two; the card has no field for either, so the seam drops them rather than smuggling them onto a row. */
-            input: { label: "nightly" },
-            revision: 7
-          }],
-          webhooks: []
-        })
-      }),
-      { signedIn: true }
-    )
-    expect((await controller.commands.run("triggers.list")).status).toBe("executed")
-    await settled()
-    expect(triggerCard(store).payload.triggers).toEqual([{
-      id: "nightly",
-      flowId: "review",
-      cron: "0 9 * * 1-5",
-      timezone: "America/New_York",
-      enabled: true,
-      nextFireAt: 1_700_086_400_000,
-      nextFiresAt: [1_700_086_400_000, 1_700_172_800_000, 1_700_259_200_000, 1_700_345_600_000, 1_700_432_000_000],
-      overlap: "buffer-one",
-      catchUp: "one",
-      maxCatchUp: 3,
-      pendingAt: 1_700_086_400_000,
-      schedulerLastTickAt: 1_700_000_500_000
-    }])
-  })
-
-  /*
-   * The policies, the whole list of upcoming fires, the claim and the
-   * scheduler's heartbeat are the trigger panel's own fields.
-   */
-  const BOX_WITH_POLICIES = {
-    status: "ok",
-    repo: "will/flows",
-    live: true,
-    triggers: [{
-      id: "nightly",
-      flowId: "review",
-      cron: "0 9 * * 1-5",
-      timezone: "America/New_York",
-      enabled: true,
-      lastFiredAt: 1_700_000_000_000,
-      nextFireAt: 1_700_086_400_000,
-      activeRunId: "run-8f21",
-      nextFiresAt: [1_700_086_400_000, 1_700_172_800_000],
-      overlap: "buffer-one",
-      catchUp: "one",
-      maxCatchUp: 3,
-      pendingAt: 1_700_086_400_000,
-      schedulerLastTickAt: 1_700_000_500_000
-    }],
-    webhooks: []
-  }
-
-  test("a box answer carries every field the trigger panel reads", async () => {
-    const { store, controller } = await ready(
-      backend({ [PROJECTION]: projectionDocument(DAY_ONE), [LIVE]: json(200, BOX_WITH_POLICIES), [RPC]: json(200, { ok: true, payload: { _tag: "fires", items: [] } }) }),
-      { signedIn: true }
-    )
-    expect((await controller.commands.run("triggers.list")).status).toBe("executed")
-    await settled()
-    expect(triggerCard(store).payload.triggers).toEqual([{
-      id: "nightly",
-      flowId: "review",
-      cron: "0 9 * * 1-5",
-      timezone: "America/New_York",
-      enabled: true,
-      lastFiredAt: 1_700_000_000_000,
-      nextFireAt: 1_700_086_400_000,
-      activeRunId: "run-8f21",
-      nextFiresAt: [1_700_086_400_000, 1_700_172_800_000],
-      overlap: "buffer-one",
-      catchUp: "one",
-      maxCatchUp: 3,
-      pendingAt: 1_700_086_400_000,
-      schedulerLastTickAt: 1_700_000_500_000,
-      fires: []
-    }])
-  })
-
-  test("a policy word the trigger store never writes never reaches a row, and the row still stands", async () => {
-    const { store, controller } = await ready(
-      backend({
-        [PROJECTION]: projectionDocument(DAY_ONE),
-        [LIVE]: json(200, {
-          status: "ok",
-          repo: "will/flows",
-          live: true,
-          triggers: [{ id: "odd", flowId: "review", cron: "* * * * *", enabled: true, overlap: "queue", catchUp: 3, maxCatchUp: "many", nextFiresAt: [1, "soon", 2] }],
-          webhooks: []
-        })
-      }),
-      { signedIn: true }
-    )
-    expect((await controller.commands.run("triggers.list")).status).toBe("executed")
-    await settled()
-    expect(triggerCard(store).payload.triggers).toEqual([{ id: "odd", flowId: "review", cron: "* * * * *", enabled: true, nextFiresAt: [1, 2] }])
-  })
-
-  test("signed in with no box answering, the card is the declaration alone with live false", async () => {
-    const { store, controller } = await ready(
-      backend({
-        [PROJECTION]: projectionDocument(DAY_ONE),
-        [LIVE]: json(200, { status: "ok", repo: "will/flows", live: false, triggers: [], webhooks: [] })
-      }),
-      { signedIn: true }
-    )
-    expect((await controller.commands.run("triggers.list")).status).toBe("executed")
-    await settled()
-    expect(triggerCard(store).payload).toEqual({ repo: "will/flows", declared: DAY_ONE.on, live: false, triggers: [], webhooks: [] })
-    /* A route that stopped answering does not fail the card: the declaration still renders, with no live column. */
-    const down = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE), [LIVE]: json(502, { message: "gateway down" }) }), { signedIn: true })
-    expect((await down.controller.commands.run("triggers.list")).status).toBe("executed")
-    await settled()
-    expect(triggerCard(down.store).payload.live).toBe(false)
-  })
-
+describe("triggers seam: signed in", () => {
   /* Was: the door refused every registration with a sentence. THE FORM LAW replaces that with the form. */
   test("the register door runs signed in and asks for what it is missing", async () => {
     const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }), { signedIn: true })
@@ -1362,16 +1179,23 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     expect(calls.map((call) => call.workspaceId)).toEqual([JOB_WORKSPACE, JOB_WORKSPACE])
   })
 
-  /* A reviewed job on another repository is not this repository's box, so the call reaches the product host. */
-  test("a repository with no reviewed job set up has no recorded workspace to name, and its own gateway holds no registrar", async () => {
+  /* A reviewed job on another repository is not this repository's box: the repository's default box stands in, and without one nothing is asked. */
+  test("a repository with no reviewed job set up names its default box, and refuses before any call when it has none", async () => {
     const calls: Array<RelayCall> = []
     const { store, controller } = await ready(
       backend({ [PROJECTION]: projectionDocument(DAY_ONE), [RPC]: relayRoute(calls, workspaceAnswers()) }),
       { signedIn: true }
     )
     await jobSetUp(store, "will/other")
+    expect(await registrationResult(controller, REQUEST)).toBe("Open a box of will/flows first: /box.open will/flows")
+    expect(calls).toEqual([])
+    const box = "2c1b3b5e-0000-4000-8000-000000000001"
+    await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{
+      id: box, repoId: "will/flows", name: "Default", targetBookmark: "main", status: "running",
+      provisioningStage: null, suspendedAt: null, createdAt: null
+    }] }).isPersisted.promise
     expect(await registrationResult(controller, REQUEST)).toBe(registerUnavailableSentence("will/flows"))
-    expect(calls.map((call) => call.workspaceId)).toEqual([undefined])
+    expect(calls.map((call) => call.workspaceId)).toEqual([box])
   })
 
   test("correcting the input prepares a new plan instead of pinning the first one to the name forever", async () => {
@@ -1908,21 +1732,26 @@ describe("triggers seam: listing and pausing a schedule", () => {
     }]
   }
 
-  test("the dispatcher lists the registered schedule beside the box's own rows", async () => {
+  test("the dispatcher lists the registered schedule beside the declared rules, and asks no box", async () => {
+    const seen: Array<string> = []
     const { store, controller } = await ready(
       backend({
         [PROJECTION]: projectionDocument(DAY_ONE),
-        [LIVE]: json(200, { status: "ok", repo: "will/flows", live: true, triggers: [{ id: "sweep", flowId: "issue", cron: "*/15 * * * *", enabled: false }], webhooks: [] }),
         [REGISTRATIONS]: json(200, ROWS)
-      }),
+      }, seen),
       { signedIn: true }
     )
-    expect((await controller.commands.run("triggers.list")).status).toBe("executed")
+    const outcome = await controller.commands.run("triggers.list")
+    expect(outcome.status).toBe("executed")
+    if (outcome.status === "executed") {
+      expect(outcome.value).toEndWith(". registered: nightly runs nightly-lint.")
+      expect(outcome.value).not.toContain("listening")
+    }
     await settled()
     const card = triggerCard(store)
     expect(card.payload.live).toBe(true)
+    expect(seen.some((path) => path.startsWith(RPC))).toBe(false)
     expect(card.payload.triggers).toEqual([
-      { id: "sweep", flowId: "issue", cron: "*/15 * * * *", enabled: false },
       {
         id: "registration-nightly", slug: "nightly", flowId: "nightly-lint", cron: "0 9 * * 1-5", timezone: "UTC",
         enabled: true, nextFireAt: Date.parse("2026-09-18T09:00:00Z")
@@ -1930,7 +1759,7 @@ describe("triggers seam: listing and pausing a schedule", () => {
     ])
   })
 
-  test("a repository with no registrations and no box is not listening", async () => {
+  test("a repository with no registrations is not listening", async () => {
     /* Smithers Cloud answers 200 [] for every repository, which is the shape every signed-in user meets on day one. */
     const { store, controller } = await ready(
       backend({ [PROJECTION]: projectionDocument(DAY_ONE), [REGISTRATIONS]: json(200, { status: "ok", repo: "will/flows", rows: [] }) }),
@@ -1940,7 +1769,7 @@ describe("triggers seam: listing and pausing a schedule", () => {
     expect(outcome.status).toBe("executed")
     if (outcome.status === "executed") expect(outcome.value).not.toContain("listening")
     await settled()
-    expect(triggerCard(store).payload).toEqual({ repo: "will/flows", declared: DAY_ONE.on, live: false, triggers: [], webhooks: [] })
+    expect(triggerCard(store).payload).toEqual({ repo: "will/flows", declared: DAY_ONE.on, live: false, triggers: [] })
   })
 
   test("a registrations route that did not answer leaves the declaration and the box alone", async () => {
@@ -1950,7 +1779,7 @@ describe("triggers seam: listing and pausing a schedule", () => {
     )
     expect((await controller.commands.run("triggers.list")).status).toBe("executed")
     await settled()
-    expect(triggerCard(store).payload).toEqual({ repo: "will/flows", declared: DAY_ONE.on, live: false, triggers: [], webhooks: [] })
+    expect(triggerCard(store).payload).toEqual({ repo: "will/flows", declared: DAY_ONE.on, live: false, triggers: [] })
   })
 
   test("pause stops the schedule through the Worker and re-reads the listing; a refusal stays the refusing party's", async () => {
@@ -2568,173 +2397,5 @@ describe("triggers seam: running a registered schedule now", () => {
     const form = await controller.commands.run(command)
     expect(form.status).toBe("form")
     if (form.status === "form") expect(form.fields).toEqual(["slug"])
-  })
-})
-
-/*
- * A trigger's fire ledger, through the same `/api/workflow/rpc` relay every
- * other call in this seam uses. `List` is already relayed, so the read adds
- * no seam and no route.
- *
- * The call names no workspace on purpose. The rows it is a ledger for come
- * from the Worker's triggers route, which asks the repository's own gateway
- * (apps/server workflows.ts `handleWorkflowTriggers` passes no workspaceId),
- * so the fires of those trigger ids live in that box's store. A call that
- * named the reviewed jobs' workspace would read a different store and answer
- * for a different ledger.
- */
-describe("triggers seam: a trigger's fire ledger", () => {
-  const LEDGER = {
-    _tag: "fires",
-    items: [
-      { triggerId: "nightly", occurrenceAtMs: 1_700_000_000_000, outcome: null },
-      { triggerId: "nightly", occurrenceAtMs: 1_699_996_400_000, outcome: "launched", runId: "run-9", waiting: "approval" },
-      { triggerId: "nightly", occurrenceAtMs: 1_699_992_800_000, outcome: "failed", error: "the flow refused the input" }
-    ]
-  }
-
-  /** A seam context over one stubbed relay, on a repository whose reviewed jobs already name a workspace. */
-  const ledger = async (calls: Array<RelayCall>, answer: (payload: Record<string, unknown>) => unknown) => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    await signedIn(store)
-    await jobSetUp(store)
-    const ctx: SeamContext = {
-      store,
-      dispatch: store.dispatch,
-      baseUrl: "",
-      actor: () => "user",
-      nextOrdinal: store.nextOrdinal,
-      http: async (input, init) => {
-        const url = new URL(input, "https://app.test")
-        if (url.pathname !== RPC) return json(404, { status: "error", message: `no stub for ${url.pathname}` })
-        const frame = JSON.parse(String(init?.body ?? "{}")) as { procedure: string; payload: Record<string, unknown>; workspaceId?: string }
-        calls.push({ procedure: frame.procedure, payload: frame.payload, ...(frame.workspaceId === undefined ? {} : { workspaceId: frame.workspaceId }) })
-        return json(200, answer(frame.payload))
-      }
-    }
-    return ctx
-  }
-
-  test("a relayed page becomes the trigger's ledger, read from the box its rows came from", async () => {
-    const calls: Array<RelayCall> = []
-    const ctx = await ledger(calls, () => okFrame(LEDGER))
-    expect(await readTriggerFires(ctx, "will/flows", "nightly")).toEqual({
-      ok: true,
-      fires: [
-        { occurrenceAt: 1_700_000_000_000, outcome: null },
-        { occurrenceAt: 1_699_996_400_000, outcome: "launched", runId: "run-9", waiting: "approval" },
-        { occurrenceAt: 1_699_992_800_000, outcome: "failed", error: "the flow refused the input" }
-      ]
-    })
-    expect(calls).toEqual([{ procedure: "List", payload: { _tag: "fires", filters: { triggerId: "nightly" }, limit: 20 } }])
-  })
-
-  test("a relay failure is the refusing party's own sentence and no rows", async () => {
-    const calls: Array<RelayCall> = []
-    const ctx = await ledger(calls, () => refusedFrame("this host serves no trigger store"))
-    expect(await readTriggerFires(ctx, "will/flows", "nightly")).toEqual({ ok: false, message: "this host serves no trigger store" })
-  })
-
-  test("a page of another tag, or a shapeless answer, is a visible error rather than an empty ledger", async () => {
-    const shapeless = await ledger([], () => okFrame({ _tag: "triggers", items: [] }))
-    const wrongTag = await readTriggerFires(shapeless, "will/flows", "nightly")
-    expect(wrongTag.ok).toBe(false)
-    if (!wrongTag.ok) expect(wrongTag.message).toBe("The workspace answered in a shape I didn't understand.")
-    const nonsense = await ledger([], () => okFrame({ _tag: "fires", items: "none" }))
-    expect((await readTriggerFires(nonsense, "will/flows", "nightly")).ok).toBe(false)
-  })
-
-  test("the seam invents no row: a fire with no occurrence, an outcome the ledger never records, and another trigger's fire are all left out", async () => {
-    const ctx = await ledger([], () => okFrame({
-      _tag: "fires",
-      items: [
-        { triggerId: "nightly", occurrenceAtMs: 1_700_000_000_000, outcome: "completed", runId: "run-9" },
-        { triggerId: "nightly", outcome: "completed" },
-        { triggerId: "nightly", occurrenceAtMs: 1, outcome: "fired" },
-        { triggerId: "nightly", occurrenceAtMs: 2 },
-        { triggerId: "sweep", occurrenceAtMs: 3, outcome: "completed" },
-        "not a fire"
-      ]
-    }))
-    expect(await readTriggerFires(ctx, "will/flows", "nightly")).toEqual({
-      ok: true,
-      fires: [{ occurrenceAt: 1_700_000_000_000, outcome: "completed", runId: "run-9" }]
-    })
-  })
-
-  /*
-   * The ledger reaches the card through the one act that builds it, the list.
-   * There is no second act and no effect: whoever presses Dispatcher, or
-   * types the slash, gets the box's rows with their history already on them.
-   */
-  const TWO_BOX_ROWS = json(200, {
-    status: "ok",
-    repo: "will/flows",
-    live: true,
-    triggers: [
-      { id: "nightly", flowId: "review", cron: "0 9 * * 1-5", timezone: "UTC", enabled: true },
-      { id: "sweep", flowId: "issue", cron: "*/15 * * * *", enabled: false }
-    ],
-    webhooks: []
-  })
-
-  const ONE_PLUE_ROW = json(200, {
-    status: "ok",
-    repo: "will/flows",
-    rows: [{ registrationId: "reg-1", slug: "nightly", flowId: "review", schedule: "0 9 * * 1-5", enabled: true, nextFireAt: "2026-09-21T16:00:00.000Z" }]
-  })
-
-  /** The relay as the list path meets it: every call recorded, each answered for the trigger it named. */
-  const firesRoute = (calls: Array<RelayCall>, answer: (triggerId: string) => unknown): Route =>
-  async (request) => {
-    const frame = await request.json() as { procedure: string; payload: { filters?: { triggerId?: string } } & Record<string, unknown>; workspaceId?: string }
-    calls.push({ procedure: frame.procedure, payload: frame.payload, ...(frame.workspaceId === undefined ? {} : { workspaceId: frame.workspaceId }) })
-    return json(200, answer(frame.payload.filters?.triggerId ?? ""))
-  }
-
-  const listedRows = async (rpc: Route, seen: Array<string> = []) => {
-    const { store, controller } = await ready(
-      backend({ [PROJECTION]: projectionDocument(DAY_ONE), [LIVE]: TWO_BOX_ROWS, [REGISTRATIONS]: ONE_PLUE_ROW, [RPC]: rpc }, seen),
-      { signedIn: true }
-    )
-    expect((await controller.commands.run("triggers.list")).status).toBe("executed")
-    await settled()
-    return triggerCard(store).payload.triggers
-  }
-
-  test("the list puts each box row's own ledger on that row, and asks the repository's own gateway for it", async () => {
-    const calls: Array<RelayCall> = []
-    const rows = await listedRows(
-      firesRoute(calls, (triggerId) => okFrame({ _tag: "fires", items: [{ triggerId, occurrenceAtMs: 1_700_000_000_000, outcome: "completed", runId: `run-${triggerId}` }] }))
-    )
-    expect(rows[0]?.fires).toEqual([{ occurrenceAt: 1_700_000_000_000, outcome: "completed", runId: "run-nightly" }])
-    expect(rows[1]?.fires).toEqual([{ occurrenceAt: 1_700_000_000_000, outcome: "completed", runId: "run-sweep" }])
-    /* One `List` per box row, none naming a workspace, and none for the Plue registration: its registry serves no fires page. */
-    expect(calls).toEqual([
-      { procedure: "List", payload: { _tag: "fires", filters: { triggerId: "nightly" }, limit: 20 } },
-      { procedure: "List", payload: { _tag: "fires", filters: { triggerId: "sweep" }, limit: 20 } }
-    ])
-  })
-
-  test("a Plue registration is never asked for a ledger, and carries none", async () => {
-    const calls: Array<RelayCall> = []
-    const rows = await listedRows(firesRoute(calls, () => okFrame({ _tag: "fires", items: [] })))
-    const plue = rows.find((row) => row.slug === "nightly")
-    expect(plue?.id).toBe("reg-1")
-    expect(plue?.fires).toBeUndefined()
-    expect(calls.map((call) => call.payload.filters)).toEqual([{ triggerId: "nightly" }, { triggerId: "sweep" }])
-  })
-
-  test("a box that refused the ledger leaves the row without one, because unread history is not an empty history", async () => {
-    const rows = await listedRows(firesRoute([], () => refusedFrame("this host serves no trigger store")))
-    expect(rows[0]?.id).toBe("nightly")
-    expect(rows[0]?.fires).toBeUndefined()
-    expect(rows[1]?.fires).toBeUndefined()
-    expect(JSON.stringify(rows)).not.toContain("fires")
-  })
-
-  test("a box that read a ledger with nothing in it says so: an empty ledger is an answer", async () => {
-    const rows = await listedRows(firesRoute([], () => okFrame({ _tag: "fires", items: [] })))
-    expect(rows[0]?.fires).toEqual([])
   })
 })

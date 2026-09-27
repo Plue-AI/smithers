@@ -411,3 +411,15 @@ test("a workspace handoff for one file leaves the other file's subscription live
   expect(current.payload.intel?.state).toBe("ready")
   expect(previous.payload.intel?.state).toBe("unavailable")
 })
+
+test("a selected box that is not running refuses; only with no box selected does the running box answer", async () => {
+  const { store, seam, calls } = await setup()
+  const running = store.collections.cloudWorkspaces.get("ws-lsp")!
+  await store.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...running, id: "ws-idle", name: "Idle", status: "suspended" } }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: "owner/repo#workspace:ws-idle" }).isPersisted.promise
+  expect(await seam.hover("index.ts", 1, 1, "owner/repo")).toBe("Resume the selected box first: /box.resume ws-idle")
+  expect(calls.hover).toBe(0)
+  await store.dispatch({ type: "repo.selected", actor: "user", id: "owner/repo" }).isPersisted.promise
+  expect(typeof await seam.hover("index.ts", 1, 1, "owner/repo")).not.toBe("string")
+  expect(calls.hover).toBe(1)
+})

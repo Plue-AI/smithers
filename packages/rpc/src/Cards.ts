@@ -1258,12 +1258,12 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
   /*
    * The dispatchers waiting on a repository (triggers.list). Two sources,
    * never mixed: `declared` is the `on` table of `.smithers/factory.json`
-   * read from the public mirror, so every visitor gets it; `triggers` and
-   * `webhooks` are the box's own registrations (the trigger store behind
-   * List { _tag: "triggers" } and the Channels registry), present only when a
-   * signed-in session's box answered, which `live` states. Rows are never
-   * invented: no projection means no declared rows, no answering box means
-   * live is false and the live lists are empty.
+   * read from the public mirror, so every visitor gets it; `triggers` are the
+   * repository's schedules registered on Smithers Cloud, present only for a
+   * signed-in session, which `live` states. Rows are never invented: no
+   * projection means no declared rows, no registration means live is false
+   * and `triggers` is empty. Fields older cards carried beyond these are
+   * dropped on decode.
    */
   z.object({
     ...cardBaseShape,
@@ -1299,60 +1299,21 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       })).optional(),
       /** Optional for cards persisted before the declaration joined the listing. */
       declared: z.array(FactoryRuleSchema).optional(),
-      /** True only when a box answered the live listing on this show. Optional for older cards. */
+      /** True only when Smithers Cloud listed registrations on this show. Optional for older cards. */
       live: z.boolean().optional(),
       triggers: z.array(
         z.object({
           id: z.string(),
-          /** A generic registration's own name, which is what a manual fire addresses; the trigger store's rows carry none. */
+          /** The registration's own name, which is what a manual fire addresses; optional for older cards. */
           slug: z.string().optional(),
           flowId: z.string(),
           cron: z.string(),
           timezone: z.string().optional(),
           enabled: z.boolean(),
-          lastFiredAt: z.number().optional(),
-          nextFireAt: z.number().optional(),
-          activeRunId: z.string().optional(),
-          /*
-           * The rest of the box's TriggerSummary. Each one is optional for
-           * two reasons: a card persisted before the route passed it through
-           * holds none of them, and a Plue registration serves none of them
-           * ever. What the row does not state, the body does not show.
-           */
-          /** Every upcoming fire the box computed on the read, in time order; `nextFireAt` is the first of them. */
-          nextFiresAt: z.array(z.number()).optional(),
-          /** How a fire that meets a run still in flight is decided. */
-          overlap: z.enum(["skip", "buffer-one", "supersede"]).optional(),
-          /** What a schedule owes for the fires it missed. */
-          catchUp: z.enum(["none", "one", "all"]).optional(),
-          /** The bound on how many missed fires one catch-up may owe. */
-          maxCatchUp: z.number().optional(),
-          /** The occurrence the trigger has claimed and not yet launched. */
-          pendingAt: z.number().optional(),
-          /** The scheduler's last poll on the box; absent means no scheduler has ticked, so an enabled trigger is not going to fire. */
-          schedulerLastTickAt: z.number().optional(),
-          /*
-           * This trigger's fire ledger, newest first, as the box answered
-           * `List { _tag: "fires" }` for it. It rides on the row it belongs
-           * to, so no second field has to say which trigger it is about, and
-           * it is present only for the trigger a panel asked for: a row with
-           * no ledger read is a row with no `fires`, never an empty one.
-           */
-          fires: z.array(
-            z.object({
-              occurrenceAt: z.number(),
-              /** Null while the occurrence is claimed and not yet reported, which is the window between the claim and its result. */
-              outcome: z.enum(["launched", "completed", "skipped", "buffered", "superseded", "failed"]).nullable(),
-              runId: z.string().optional(),
-              error: z.string().optional(),
-              /** What a launched run is parked on, when the ledger can see it. */
-              waiting: z.literal("approval").optional()
-            })
-          ).optional()
+          /** The next fire Smithers Cloud computed for this registration. */
+          nextFireAt: z.number().optional()
         })
-      ),
-      /** Optional for cards persisted before webhooks joined the listing. */
-      webhooks: z.array(z.object({ name: z.string(), flowId: z.string().optional() })).optional()
+      )
     })
   }),
 

@@ -29,8 +29,8 @@ import { actorSharedState } from "../ActorBindings"
 import type { ApprovalsInboxRequest, Card, RunOpenRequest } from "../AppState"
 import { pendingWorkflowLaunch, workflowInputOf } from "../WorkflowLaunch"
 import { sameApproval } from "../ApprovalReference"
-import { gatewayBindingFor,gatewayRunContextFor } from "../RepoContext"
-import { approvalCardIdFor,cardContainsRun,runCardIdFor,runCardInScope,runScopeFromCard,sameRunScope,type RunScope } from "../RunReference"
+import { gatewayBindingFor,gatewayRunContextFor,recordedRunBinding,type GatewayBinding } from "../RepoContext"
+import { approvalCardIdFor,cardContainsRun,runCardIdFor,runCardInScope,runScopeFromCard,sameRunScope,type BoxRunScope,type RunScope } from "../RunReference"
 import { reconcileRunApprovals } from "./approval-reconciliation"
 import type { ControllerContext } from "./context"
 import { TOAST_SUPERSEDED } from "./failures"
@@ -150,7 +150,11 @@ export const createRunsController = (
   }
 
   /** Capture the address once, before any await. An explicit source must actually contain this run. */
-  const resolveRun = (runId: string, sourceCard?: string, preferred?: string, allowChild = false): RunScope | { readonly error: string } => {
+  const resolveRun = (runId: string, sourceCard?: string, preferred?: string, allowChild = false): BoxRunScope | { readonly error: string } => {
+    const boxed = (scope: RunScope): BoxRunScope | { readonly error: string } => {
+      const binding = recordedRunBinding(scope)
+      return "error" in binding ? binding : { repo: scope.repo, runId: scope.runId, workspaceId: binding.workspaceId }
+    }
     if (sourceCard !== undefined) {
       const source = store.collections.cards.get(sourceCard)
       if (source === undefined || !cardContainsRun(source, runId, allowChild)) {
@@ -160,18 +164,18 @@ export const createRunsController = (
       if (scope === undefined || (preferred !== undefined && preferred !== scope.repo)) {
         return { error: "The source card belongs to another repository or has no recorded gateway." }
       }
-      return scope
+      return boxed(scope)
     }
     const recorded = gatewayRunContextFor(store, runId)
     if (recorded !== undefined) {
       if ("error" in recorded) return recorded
       if (preferred !== undefined && preferred !== recorded.repo) return { error: "The run belongs to another repository." }
-      return { ...recorded, runId }
+      return boxed({ ...recorded, runId })
     }
     const target = workflows.workflowTargetRepo(preferred)
     if ("error" in target) return target
     const binding = gatewayBindingFor(store, target.repo)
-    return "error" in binding ? binding : { repo: target.repo, runId, ...binding }
+    return "error" in binding ? binding : { repo: target.repo, runId, workspaceId: binding.workspaceId }
   }
 
   type RunListCard = Extract<Card, { kind: "run-list" }>
@@ -182,13 +186,13 @@ export const createRunsController = (
   }))
   const sameList = (left: Pick<ListRequest, "repo" | "workspaceId" | "status" | "flow" | "lineage">, right: typeof left) =>
     left.repo === right.repo && left.workspaceId === right.workspaceId && left.status === right.status && left.flow === right.flow && left.lineage === right.lineage
-  const listBinding = (card: RunListCard): { workspaceId?: string } | { error: string } => {
-    if (card.payload.workspaceId !== undefined || card.payload.gatewayBindingVersion === 1) return { workspaceId: card.payload.workspaceId }
+  const listBinding = (card: RunListCard): GatewayBinding => {
+    if (card.payload.workspaceId !== undefined || card.payload.gatewayBindingVersion === 1) return recordedRunBinding(card.payload, "This list's box is gone.")
     const scopes = card.payload.runs.map(run => runScopeFromCard(store, card, run.runId))
     if (scopes.some(scope => scope === undefined || scope.workspaceId !== scopes[0]?.workspaceId)) {
-      return { error: "The historical run list records several gateways. Open a run from its own recorded card before listing that workspace." }
+      return { error: "The historical run list records several boxes. Open a run from its own recorded card before listing that box." }
     }
-    return { workspaceId: scopes[0]?.workspaceId }
+    return recordedRunBinding({ workspaceId: scopes[0]?.workspaceId }, "This list's box is gone.")
   }
   const listCard = (id: string, request: ListRequest): RunListCard | undefined => {
     const card = store.collections.cards.get(id)
@@ -204,7 +208,8 @@ export const createRunsController = (
       try {
         if (!current()) return TOAST_SUPERSEDED
         const { repo } = request
-        const binding = request.workspaceId === undefined ? {} : { workspaceId: request.workspaceId }
+        const binding = recordedRunBinding(request, "This list's box is gone.")
+        if ("error" in binding) throw new Error(binding.error)
         const provisioned = await workflows.provisionWorkspace(repo, binding)
         if (!current()) return TOAST_SUPERSEDED
         if (provisioned !== true) throw new Error(provisioned)
@@ -294,7 +299,7 @@ export const createRunsController = (
     const epoch = ctx.accountEpoch
     const current = () => !ctx.disposed && ctx.accountEpoch === epoch && ctx.accountOwner() === owner
     const changed = "The account or run list changed. Refresh to retry."
-    const cardId = source?.kind === "run-list" ? source.id : `run-list-${repo}${binding.workspaceId === undefined ? "" : `-${binding.workspaceId}`}`
+    const cardId = source?.kind === "run-list" ? source.id : `run-list-${repo}-${binding.workspaceId}`
     for (let saving = listReads.persisting.get(cardId); saving !== undefined; saving = listReads.persisting.get(cardId)) {
       try { await saving } catch { /* The original command reports its failed save. */ }
       if (!current()) return changed
@@ -306,7 +311,7 @@ export const createRunsController = (
       const retained = listBinding(existing)
       if ("error" in retained || retained.workspaceId !== binding.workspaceId) return changed
     }
-    const filters = { repo, ...(binding.workspaceId === undefined ? {} : { workspaceId: binding.workspaceId }),
+    const filters = { repo, workspaceId: binding.workspaceId,
       ...(args.status === undefined ? {} : { status: args.status }), ...(args.flow === undefined ? {} : { flow: args.flow }),
       ...(args.lineage === undefined ? {} : { lineage: args.lineage }) }
     const previous = existing?.payload.listRequest
@@ -374,8 +379,9 @@ export const createRunsController = (
     const work = ctx.withToast(`runs.open.${encodeURIComponent(key)}`, "Opening run…", "Run opened", async () => {
       try {
         if (!current()) return TOAST_SUPERSEDED
-        const target: RunScope = { repo: request.repo, runId: request.runId, ...(request.workspaceId === undefined ? {} : { workspaceId: request.workspaceId }) }
-        const binding = { workspaceId: request.workspaceId }
+        const binding = recordedRunBinding(request)
+        if ("error" in binding) throw new OpenReadRefusal(binding.error)
+        const target: BoxRunScope = { repo: request.repo, runId: request.runId, workspaceId: binding.workspaceId }
         const provisioned = await workflows.provisionWorkspace(request.repo, binding)
         if (!current()) return TOAST_SUPERSEDED
         if (provisioned !== true) throw new OpenReadRefusal(provisioned)
@@ -429,8 +435,9 @@ export const createRunsController = (
     const retry = requestId === undefined ? undefined : openRequest(requestId)
     if (requestId !== undefined && (retry === undefined || retry.owner !== owner || retry.runId !== runId ||
       (repoArg !== undefined && retry.repo !== repoArg) || sourceCard !== undefined)) return "The saved run request is unavailable. Open the run again."
-    const target = retry === undefined ? resolveRun(runId, sourceCard, repoArg, true)
-      : { repo: retry.repo, runId: retry.runId, ...(retry.workspaceId === undefined ? {} : { workspaceId: retry.workspaceId }) }
+    const retryBinding = retry === undefined ? undefined : recordedRunBinding(retry)
+    const target = retry === undefined || retryBinding === undefined ? resolveRun(runId, sourceCard, repoArg, true)
+      : "error" in retryBinding ? retryBinding : { repo: retry.repo, runId: retry.runId, workspaceId: retryBinding.workspaceId }
     if ("error" in target) return target.error
     const source = runCardFor(target, sourceCard)
     const cardId = retry?.cardId ?? source?.id ?? runCardIdFor(store, target)
@@ -603,8 +610,9 @@ export const createRunsController = (
     const work = ctx.withToast(key, `Loading ${title.toLowerCase()}…`, `${title} loaded`, async () => {
       try {
         if (!current()) return TOAST_SUPERSEDED
-        const binding = { workspaceId: request.workspaceId }
-        const target: RunScope = { repo: request.repo, runId: request.runId, ...(request.workspaceId === undefined ? {} : { workspaceId: request.workspaceId }) }
+        const binding = recordedRunBinding(request)
+        if ("error" in binding) throw new Error(binding.error)
+        const target: BoxRunScope = { repo: request.repo, runId: request.runId, workspaceId: binding.workspaceId }
         const result = request.facet === "transcript"
           ? { facet: "transcript" as const, answer: await gateway.transcript(request.repo, request.runId, binding) }
           : { facet: "events" as const, answer: await gateway.runEvents(request.repo, request.runId, binding) }
@@ -901,7 +909,9 @@ export const createRunsController = (
     let stopped = 0
     let firstRefusal: string | undefined
     for (const card of live.filter((scope, index) => live.findIndex((other) => sameRunScope(other, scope)) === index)) {
-      const cancelled = await gateway.cancel(card.repo, card.runId, "the human stopped every run", { workspaceId: card.workspaceId })
+      const binding = recordedRunBinding(card)
+      const cancelled = "error" in binding ? { status: "error" as const, message: binding.error }
+        : await gateway.cancel(card.repo, card.runId, "the human stopped every run", binding)
       if (cancelled.status === "ok") {
         stopped += 1
       } else if (firstRefusal === undefined) {
@@ -981,7 +991,7 @@ export const createRunsController = (
     const epoch = ctx.accountEpoch
     const running = approvalReads.inFlight.get(key)
     if (running !== undefined && running.id === request.id && running.owner === request.owner && running.epoch === epoch) return running.work
-    const binding = request.workspaceId === undefined ? {} : { workspaceId: request.workspaceId }
+    const binding = recordedRunBinding(request, "This list's box is gone.")
     // The fence at every boundary: the controller is open, the account is
     // the one that asked, and this request is still the one on record.
     const ownsAccount = (): boolean => !ctx.disposed && ctx.accountEpoch === epoch && ctx.accountOwner() === request.owner
@@ -998,6 +1008,7 @@ export const createRunsController = (
     const work = ctx.withToast(toastKey, title, "Approvals loaded", async () => {
       try {
         if (!current()) return TOAST_SUPERSEDED
+        if ("error" in binding) return await settle(binding.error) ? binding.error : TOAST_SUPERSEDED
         const provisioned = await workflows.provisionWorkspace(request.repo, binding)
         if (!current()) return TOAST_SUPERSEDED
         if (provisioned !== true) return await settle(provisioned) ? provisioned : TOAST_SUPERSEDED
@@ -1064,8 +1075,7 @@ export const createRunsController = (
     if (recorded !== undefined && recorded.error === undefined && recorded.owner === owner && running?.id === recorded.id && running.owner === owner && running.epoch === epoch) {
       return acknowledgment
     }
-    const workspace = binding.workspaceId === undefined ? {} : { workspaceId: binding.workspaceId }
-    const request = { id: crypto.randomUUID(), repo, ...workspace, owner }
+    const request = { id: crypto.randomUUID(), repo, workspaceId: binding.workspaceId, owner }
     const saving = store.dispatch({ type: "approvals.inbox.requested", actor: ctx.commandActor, request }).isPersisted.promise
     approvalReads.persisting.set(key, saving)
     try {

@@ -17,7 +17,7 @@ import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
 import { instructionStageOf, smithersInstructions } from "./Instructions"
 import { offersImpossibleCapability, renderedRunTurnText } from "./RunClaims"
-import { memoryStorage, scriptedToolAgent, settle } from "./TestFixtures"
+import { loadBox, memoryStorage, scriptedToolAgent, settle } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -47,6 +47,7 @@ const signIn = async (
       head: null
     }))
   })
+  for (const [index, fullName] of loaded.entries()) await loadBox(store, fullName, `0b0c0d0e-0000-4000-8000-00000000000${index + 1}`)
   await settle(2)
 }
 

@@ -8,7 +8,7 @@ import type { AppServices } from "./AppController"
 import type { Card } from "./AppState"
 import { createAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
-import { json, memoryStorage, settled, silentAgent } from "./TestFixtures"
+import { json, memoryStorage, settled, silentAgent, TEST_BOX } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -333,7 +333,7 @@ describe("billing record", () => {
 })
 
 describe("approval round trip", () => {
-  const approvalCard = (store: AppStore): Card => {
+  const approvalCard = (store: AppStore, workspaceId: string | null = TEST_BOX): Card => {
     const card: Card = {
       id: "approval-1",
       kind: "approval",
@@ -346,6 +346,7 @@ describe("approval round trip", () => {
         runId: "run_01",
         requestId: "approve",
         repo: "codeplanesmithers/smithers-demo",
+        ...(workspaceId === null ? {} : { workspaceId }),
         approval: {
           target: { _tag: "Node", runId: "run_01", requestId: "approve", digest: "d", envelope: {} },
           scope: "run",
@@ -382,13 +383,30 @@ describe("approval round trip", () => {
         scope: "run",
         idempotencyKey: "approve:approve",
         decision: "approve"
-      }
+      },
+      workspaceId: TEST_BOX
     })
     const card = cardOf(store, "approval-1", "approval")
     expect(card.status).toBe("acted")
     expect(card.payload.decision).toBe("approved")
     expect(card.payload.pending).toBe(false)
     expect(card.payload.decidedAt).toBeDefined()
+  })
+
+  test("an approval recorded with no box refuses visibly, calls nothing, and never freezes", async () => {
+    const store = await webStore()
+    let calls = 0
+    const controller = createAppController(store, silentAgent, {
+      fetchImpl: async () => { calls += 1; return json(200, { ok: true, payload: { decision: { _tag: "Accepted", receiptId: "r" } } }) }
+    })
+    approvalCard(store, null)
+    controller.decideApproval("approval-1", "approved")
+    await settled()
+    const card = cardOf(store, "approval-1", "approval")
+    expect(card.status).toBe("error")
+    expect(card.payload.error).toBe("This run's box is gone.")
+    expect(card.payload.decision).toBeUndefined()
+    expect(calls).toBe(0)
   })
 
   test("the deny path round-trips and freezes denied from the gateway's answer", async () => {

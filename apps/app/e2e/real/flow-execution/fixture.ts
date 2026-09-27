@@ -19,7 +19,8 @@ import { gatewayCall, runSummary, waitForTerminalRun, type RunSummary, type RunT
 export type OwnedWorkflowRepository = RunTracker & {
   readonly repo: string
   readonly repositoryId: number
-  readonly workspaceId?: string
+  /** The box every flow call on this repository names. */
+  readonly workspaceId: string
   readonly gatewayId?: string
   readonly runs: Set<string>
 }
@@ -53,7 +54,7 @@ const provisionRepository = async (
   repo: string,
   workspaceId: string,
   testInfo: TestInfo
-): Promise<{ readonly workspaceId?: string; readonly gatewayId?: string }> => {
+): Promise<{ readonly workspaceId: string; readonly gatewayId?: string }> => {
   const deadline = Date.now() + 180_000
   let last: Record<string, unknown> | undefined
   do {
@@ -62,7 +63,7 @@ const provisionRepository = async (
     expect(response.status(), `provision ${repo}: ${JSON.stringify(last)}`).toBe(200)
     if (last.status === "ready") {
       const result = {
-        ...(typeof last.workspaceId === "string" ? { workspaceId: last.workspaceId } : {}),
+        workspaceId: typeof last.workspaceId === "string" ? last.workspaceId : workspaceId,
         ...(typeof last.gatewayId === "string" ? { gatewayId: last.gatewayId } : {})
       }
       await attachProductionJson(testInfo, "workflow-fixture-provision", { repo, ...last })

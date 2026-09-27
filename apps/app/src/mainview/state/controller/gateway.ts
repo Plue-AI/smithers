@@ -91,9 +91,9 @@ export interface FlowSummary {
 
 export type { ApprovalRow, ControlEvent, FlowDurationRow, NodeOutputRow, RunSummaryRow, TranscriptRow }
 
-/** The owning Plue workspace; omission addresses the legacy repo gateway. */
+/** The box a flow call runs on. Every call names one. */
 export interface GatewayWorkspaceBinding {
-  readonly workspaceId?: string
+  readonly workspaceId: string
 }
 
 /** How the seam reaches the relay. */
@@ -101,7 +101,8 @@ export interface GatewayTransport {
   readonly baseUrl: string
   /** Capture ownership at request admission; a late answer cannot cross an account boundary. */
   readonly observationGuard?: () => () => boolean
-  readonly bindingFor?: (repo: string, runId?: string) => GatewayWorkspaceBinding | { readonly error: string }
+  /** The box a call that names none runs on, or the refusal saying which box to open or pick. */
+  readonly bindingFor: (repo: string, runId?: string) => GatewayWorkspaceBinding | { readonly error: string }
   readonly fetch: (url: string, init?: RequestInit) => Promise<Response>
   readonly errorMessageOf: (response: Response, fallback: string) => Promise<string>
 }
@@ -197,7 +198,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
     if (!stillOwned()) return { status: "error", message: "This workspace request no longer belongs to the current session." }
     const candidate = asRecord(payload)
     const runId = candidate.runId ?? asRecord(candidate.selector).runId ?? asRecord(candidate.target).runId
-    const target = binding ?? transport.bindingFor?.(repo, typeof runId === "string" ? runId : undefined) ?? {}
+    const target = binding ?? transport.bindingFor(repo, typeof runId === "string" ? runId : undefined)
     if ("error" in target) return { status: "error", message: target.error }
     let body: { ok?: unknown; payload?: unknown; error?: unknown; message?: unknown; status?: unknown } | undefined
     const resumeDeadline = Date.now() + 180_000
@@ -207,7 +208,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
         const response = await transport.fetch(`${baseUrl}${WORKFLOW_RPC_PATH}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ repo, procedure, payload, ...target })
+          body: JSON.stringify({ repo, procedure, payload, workspaceId: target.workspaceId })
         })
         if (!response.ok) {
           const failure = await cloudFailure(response.clone(), "The workspace didn't answer.")
@@ -284,7 +285,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
       requestedBinding?: GatewayWorkspaceBinding,
       idempotencyKey?: string
     ): Promise<GatewayResult<PlannedFlow>> => {
-      const binding = requestedBinding ?? transport.bindingFor?.(repo) ?? {}
+      const binding = requestedBinding ?? transport.bindingFor(repo)
       if ("error" in binding) return { status: "error", message: binding.error }
       const planned = await call(repo, "Plan", { flowId, input, ...(idempotencyKey === undefined ? {} : { idempotencyKey }) }, binding)
       if (planned.status !== "ok") return planned
@@ -309,7 +310,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
       request?: string | { readonly idempotencyKey: string; readonly stillCurrent: () => boolean; readonly planKey?: string; readonly runKey?: string }
     ): Promise<GatewayResult<{
       readonly runId: string
-      readonly workspaceId?: string
+      readonly workspaceId: string
       /** The plan the run was approved on, so the run card can draw it before any event arrives. */
       readonly planId?: string
       readonly digest?: string
@@ -317,7 +318,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
       /** The labelled edges and declaration sites that answer carried; a plan that reported none has none. */
       readonly graph?: PlannedFlow["graph"]
     }>> => {
-      const binding = requestedBinding ?? transport.bindingFor?.(repo) ?? {}
+      const binding = requestedBinding ?? transport.bindingFor(repo)
       if ("error" in binding) return { status: "error", message: binding.error }
       const owned = transport.observationGuard?.() ?? (() => true)
       const current = () => owned() && (typeof request === "string" ? true : request?.stillCurrent() ?? true)
@@ -363,7 +364,7 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
             runId,
             planId,
             digest,
-            ...binding,
+            workspaceId: binding.workspaceId,
             ...(Option.isNone(decoded)
               ? {}
               : {

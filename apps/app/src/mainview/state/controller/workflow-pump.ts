@@ -13,6 +13,7 @@ import type { RuntimeRun, RuntimeRunObservation } from "../RuntimeProjection"
 import { canonicalEventValue } from "../EventValue"
 import { pendingWorkflowLaunch } from "../WorkflowLaunch"
 import type { FlowDurationsReader } from "./flowDurations"
+import { recordedRunBinding, RUN_BOX_GONE } from "../RepoContext"
 
 export interface WorkflowPumpController {
   /** `observeOnce` reads a settled run's summary and journal one more time. */
@@ -192,7 +193,7 @@ export const createWorkflowPumpController = (
   }
 
   /** The approval cards a run is waiting on, bound to the existing round trip. */
-  const upsertRunApprovals = async (runId: string, repo: string, workspaceId: string | undefined, rows: ReadonlyArray<ApprovalRow>): Promise<number> => {
+  const upsertRunApprovals = async (runId: string, repo: string, workspaceId: string, rows: ReadonlyArray<ApprovalRow>): Promise<number> => {
     await reconcileRunApprovals(store, { repo, runId, workspaceId }, rows)
     if (ctx.disposed) return 0
     let found = 0
@@ -216,7 +217,7 @@ export const createWorkflowPumpController = (
           // back with it unchanged, so no client reconstructs authority.
           approval: approval.payload as Record<string, unknown>,
           ...(questionOf(approval) === undefined ? {} : { question: questionOf(approval)! }),
-          repo, gatewayBindingVersion: 1, ...(workspaceId === undefined ? {} : { workspaceId })
+          repo, gatewayBindingVersion: 1, workspaceId
         }
       }
       store.dispatch({ type: "card.upsert", actor: "system", card })
@@ -308,6 +309,11 @@ export const createWorkflowPumpController = (
           return
         }
         const { repo, runId, workspaceId } = card.payload
+        if (workspaceId === undefined) {
+          // A settled verdict stays; only the evidence it can no longer reach is said.
+          patchRunCard(cardId, alreadyTerminal ? { observationError: RUN_BOX_GONE } : { phase: "stopped", observationError: RUN_BOX_GONE })
+          return
+        }
         const binding = { workspaceId }
         // A resume or an explicit inspection may supply a new full prefix.
         // Recover its position from the tail, without scanning old history.
@@ -365,7 +371,7 @@ export const createWorkflowPumpController = (
           if (approvals.status === "ok") {
             let found: number
             try {
-              found = await upsertRunApprovals(runId, repo, card.payload.workspaceId, approvals.value)
+              found = await upsertRunApprovals(runId, repo, workspaceId, approvals.value)
             } catch (error) {
               if (applyFailed(error)) return
               await pokeableWait(cardId, RUN_POLL_MS)
@@ -438,7 +444,7 @@ export const createWorkflowPumpController = (
             continue
           }
           const complete: RuntimeRunObservation = {
-            scope: { repo, runId, ...(workspaceId === undefined ? {} : { workspaceId }) }, summary: row, summaryCursor: summary.cursor,
+            scope: { repo, runId, workspaceId }, summary: row, summaryCursor: summary.cursor,
             ...(journalComplete === undefined ? {} : { journalComplete }),
             ...(transcriptObservation === undefined ? {} : { transcript: transcriptObservation, transcriptCursor }),
             ...(journalObservation === undefined ? {} : { journal: { mode: "full", events: journalObservation.mode === "full" ? journalObservation.events : [...(committed?.events ?? []), ...journalObservation.events] } })
@@ -567,7 +573,12 @@ export const createWorkflowPumpController = (
     if (pump !== undefined) pump.stopped = true
     ctx.runPumps.delete(cardId)
     ctx.pumpPokes.get(cardId)?.()
-    void gateway.cancel(card.payload.repo, card.payload.runId, reason, { workspaceId: card.payload.workspaceId }).then(async (cancelled) => {
+    const binding = recordedRunBinding(card.payload)
+    if ("error" in binding) {
+      patchRunCard(cardId, { phase: "stopped", observationError: binding.error })
+      return binding.error
+    }
+    void gateway.cancel(card.payload.repo, card.payload.runId, reason, binding).then(async (cancelled) => {
       if (ctx.disposed) return
       if (cancelled.status !== "ok") {
         patchRunCard(cardId, { phase: "stopped", observationError: cancelled.message })
@@ -610,7 +621,8 @@ export const createWorkflowPumpController = (
         if (scope !== undefined && !scopes.some((prior) => sameRunScope(prior, scope))) scopes.push(scope)
       }
     }
-    for (const scope of scopes) void gateway.approvals(scope.repo, scope.runId, { workspaceId: scope.workspaceId }).then(async result => {
+    // A run recorded with no box has none to ask; its card refuses a decision with that sentence.
+    for (const scope of scopes) if (scope.workspaceId !== undefined) void gateway.approvals(scope.repo, scope.runId, { workspaceId: scope.workspaceId }).then(async result => {
       if (result.status === "ok" && !ctx.disposed) await reconcileRunApprovals(store, scope, result.value)
       else if (result.status !== "ok") ctx.failures.report("approval.reconcile", result.message, scope.runId)
     }).catch(error => ctx.failures.report("approval.reconcile", error, scope.runId))

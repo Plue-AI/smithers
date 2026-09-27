@@ -25,13 +25,16 @@ import { gatewayRunContextFor } from "./RepoContext"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppController, AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { json, memoryStorage, settle, silentAgent, waitFor } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
 const webStore = () => createAppStore({ kind: "localStorage", storage: memoryStorage() })
 
 const REPO = "codeplanesmithers/smithers-demo"
+
+/** The card id a run on the test box gets: runCardIdFor qualifies every box-bound run. */
+const boxRunCard = (runId: string): string => `flow-run@${[REPO, TEST_BOX, runId].map(encodeURIComponent).join("@")}`
 
 const said = (outcome: { status: string; value?: string; error?: string }): string =>
   outcome.status === "failed" ? (outcome.error ?? "") : (outcome.value ?? "")
@@ -265,11 +268,12 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>, loaded: Array
       head: null
     }))
   })
+  for (const [index, fullName] of loaded.entries()) await loadBox(store, fullName, index === 0 ? TEST_BOX : `0b0c0d0e-0000-4000-8000-00000000000${index + 1}`)
   await settle(2)
 }
 
 const runListCard = (store: Awaited<ReturnType<typeof webStore>>): Extract<Card, { kind: "run-list" }> | undefined => {
-  const card = store.collections.cards.get(`run-list-${REPO}`)
+  const card = store.collections.cards.get(`run-list-${REPO}-${TEST_BOX}`)
   return card?.kind === "run-list" ? card : undefined
 }
 
@@ -294,7 +298,7 @@ const listInventory = async (controller: AppController, store: Awaited<ReturnTyp
 const inboxCard = (
   store: Awaited<ReturnType<typeof webStore>>
 ): Extract<Card, { kind: "approvals-inbox" }> | undefined => {
-  const card = store.collections.cards.get(`approvals-inbox-${REPO}`)
+  const card = store.collections.cards.get(`approvals-inbox-${REPO}-${TEST_BOX}`)
   return card?.kind === "approvals-inbox" ? card : undefined
 }
 
@@ -331,7 +335,7 @@ test("attention combines explicit blockers and pending gates, and refresh remove
   expect(double.state.submitted).toEqual([])
   approvals.splice(0)
   runs.splice(0, 2)
-  await listInventory(controller, store, "runs.attention", `sourceCard=run-list-${REPO} ${REPO}`)
+  await listInventory(controller, store, "runs.attention", `sourceCard=run-list-${REPO}-${TEST_BOX} ${REPO}`)
   expect(runListCard(store)?.payload.runs).toEqual([])
   expect(runListCard(store)?.payload.approvals).toEqual([])
 })
@@ -354,7 +358,7 @@ test("attention retains pending approvals when the run inventory cannot be read"
   await listInventory(controller, store, "runs.attention")
   expect(runListCard(store)?.payload.approvals?.[0]?.requestId).toBe("gate")
   expect(runListCard(store)?.payload.observationError).toContain("Run inventory unavailable")
-  await controller.commands.run("approvals.open", `sourceCard=run-list-${REPO} uncarded`)
+  await controller.commands.run("approvals.open", `sourceCard=run-list-${REPO}-${TEST_BOX} uncarded`)
   expect([...store.collections.cards.values()].some(card => card.kind === "approval" && card.payload.runId === "uncarded")).toBe(true)
 })
 
@@ -503,7 +507,7 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
 
     const opened = await openMonitor(controller, store, "run-9")
     expect(said(opened)).toBe("Run requested: run-9.")
-    const card = store.collections.cards.get("flow-run-run-9")
+    const card = store.collections.cards.get(boxRunCard("run-9"))
     expect(card?.kind === "run-trace" && card.payload.workflow).toBe("deploy")
     expect(card?.kind === "run-trace" && card.payload.repo).toBe(REPO)
   })
@@ -521,10 +525,10 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
     await signIn(store)
     await openMonitor(controller, store, "run-done")
     await waitFor(() => {
-      const card = store.collections.cards.get("flow-run-run-done")
+      const card = store.collections.cards.get(boxRunCard("run-done"))
       return card?.kind === "run-trace" && (card.payload.events?.length ?? 0) === 2
     })
-    const card = store.collections.cards.get("flow-run-run-done")
+    const card = store.collections.cards.get(boxRunCard("run-done"))
     expect(card?.kind === "run-trace" && card.payload.phase).toBe("failed")
     await settle()
     expect(double.calls.filter((call) => JSON.stringify(call.body).includes("\"run-events\"")).length).toBe(1)
@@ -596,7 +600,7 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
     await controller.commands.run("runs.tools", "run-4 bash, edit")
     expect(double.state.steered[2]?.message).toMatchObject({ kind: "Tools", toolNames: ["bash", "edit"] })
 
-    const card = store.collections.cards.get("flow-run-run-4")
+    const card = store.collections.cards.get(boxRunCard("run-4"))
     expect(card?.kind === "run-trace" && card.payload.steeringPending).toBe(true)
   })
 })
@@ -604,7 +608,7 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
 describe("source-bound durable reruns", () => {
   const source = (id: string, input?: Record<string, unknown>): Extract<Card, { kind: "run-trace" }> => ({
     id, kind: "run-trace", title: id, status: "acted", createdAt: 1, ordinal: 1,
-    payload: { repo: REPO, runId: "original", workflow: "review-pr", phase: "completed", steps: [], result: null,
+    payload: { repo: REPO, workspaceId: TEST_BOX, runId: "original", workflow: "review-pr", phase: "completed", steps: [], result: null,
       lastSeq: 0, gatewayBindingVersion: 1, ...(input === undefined ? {} : { input }) }
   })
   const ready = async (services?: AppServices, storage = memoryStorage()) => {
@@ -634,7 +638,7 @@ describe("source-bound durable reruns", () => {
     await waitFor(() => double.state.launched.length === 1)
     expect(double.state.launched[0]?.input).toEqual(input)
     await waitFor(() => requests(store)[0]?.runId === "run-1")
-    expect(workflowInputOf(runCardInScope(store, { repo: REPO, runId: "run-1" })!)).toEqual(input)
+    expect(workflowInputOf(runCardInScope(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-1" })!)).toEqual(input)
   })
 
   test("a refused rerun launch remains retryable with the same saved input", async () => {
@@ -806,7 +810,7 @@ describe("runs.rerun — the same flow, the same input, or the honest refusal", 
     await controller.commands.run("flow.run", 'review-pr {"args":"summarize my open issues"}')
     await waitFor(() => double.state.launched.length === 1)
     const firstRunId = "run-1"
-    await waitFor(() => runCardInScope(store, { repo: REPO, runId: firstRunId }) !== undefined)
+    await waitFor(() => runCardInScope(store, { repo: REPO, workspaceId: TEST_BOX, runId: firstRunId }) !== undefined)
 
     const reran = await controller.commands.run("runs.rerun", firstRunId)
     expect(said(reran)).toContain("run-requested")
@@ -852,8 +856,8 @@ describe("the run card's facets — transcript, follow, and the verbose events t
 
     const shown = await controller.commands.run("runs.logs", "run-6")
     expect(said(shown)).toBe("Transcript requested.")
-    await waitForFacet(store, "flow-run-run-6")
-    let card = store.collections.cards.get("flow-run-run-6")
+    await waitForFacet(store, boxRunCard("run-6"))
+    let card = store.collections.cards.get(boxRunCard("run-6"))
     expect(card?.kind === "run-trace" && card.payload.facet).toBe("transcript")
     expect(card?.kind === "run-trace" && card.payload.follow).toBe(false)
     expect(card?.kind === "run-trace" && card.payload.transcriptRows?.map((row) => row.text))
@@ -861,22 +865,22 @@ describe("the run card's facets — transcript, follow, and the verbose events t
 
     const followed = await controller.commands.run("runs.logs", "run-6 --follow")
     expect(said(followed)).toBe("Transcript requested.")
-    await waitForFacet(store, "flow-run-run-6")
-    card = store.collections.cards.get("flow-run-run-6")
+    await waitForFacet(store, boxRunCard("run-6"))
+    card = store.collections.cards.get(boxRunCard("run-6"))
     expect(card?.kind === "run-trace" && card.payload.follow).toBe(true)
     // The pump merges the transcript on its own cycle while follow holds.
     await waitFor(() => {
-      const current = store.collections.cards.get("flow-run-run-6")
+      const current = store.collections.cards.get(boxRunCard("run-6"))
       return current?.kind === "run-trace" && (current.payload.transcriptRows?.length ?? 0) === 2
     })
     // Following again unfollows.
     await controller.commands.run("runs.logs", "run-6 --follow")
-    await waitForFacet(store, "flow-run-run-6")
-    card = store.collections.cards.get("flow-run-run-6")
+    await waitForFacet(store, boxRunCard("run-6"))
+    card = store.collections.cards.get(boxRunCard("run-6"))
     expect(card?.kind === "run-trace" && card.payload.follow).toBe(false)
     // And the Steps tab is the way back.
     await controller.commands.run("runs.steps", "run-6")
-    card = store.collections.cards.get("flow-run-run-6")
+    card = store.collections.cards.get(boxRunCard("run-6"))
     expect(card?.kind === "run-trace" && card.payload.facet).toBe("steps")
   })
 
@@ -896,8 +900,8 @@ describe("the run card's facets — transcript, follow, and the verbose events t
     await controller.commands.run("debug.verbose")
     const shown = await controller.commands.run("runs.events", "run-7")
     expect(said(shown)).toBe("Events requested.")
-    await waitForFacet(store, "flow-run-run-7")
-    const card = store.collections.cards.get("flow-run-run-7")
+    await waitForFacet(store, boxRunCard("run-7"))
+    const card = store.collections.cards.get(boxRunCard("run-7"))
     expect(card?.kind === "run-trace" && card.payload.facet).toBe("events")
     expect(card?.kind === "run-trace" && card.payload.events).toHaveLength(1)
   })
@@ -930,20 +934,20 @@ describe("the run trace's reader gestures and the pump's tail (spec 06 §5, §6)
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
     await openMonitor(controller, store, "run-8")
-    let card = store.collections.cards.get("flow-run-run-8")
+    let card = store.collections.cards.get(boxRunCard("run-8"))
     expect(card?.kind).toBe("run-trace")
     expect(card?.kind === "run-trace" && card.payload.kind).toBeUndefined()
     expect(card?.kind === "run-trace" && card.payload.liveTail).toBe(true)
     // The trace is the card's body, so the journal arrives without a further act.
     await waitFor(() => {
-      const current = store.collections.cards.get("flow-run-run-8")
+      const current = store.collections.cards.get(boxRunCard("run-8"))
       return current?.kind === "run-trace" && (current.payload.events?.length ?? 0) === 1
     })
 
     // The workspace journals a call; the pump's next cycle carries it onto the card.
     journal.push({ kind: "control.agent.cell-call-started", payload: { flowName: "files.read", input: { path: "README.md" }, at: 250 }, sequence: 2, occurredAt: 250 })
     await waitFor(() => {
-      const current = store.collections.cards.get("flow-run-run-8")
+      const current = store.collections.cards.get(boxRunCard("run-8"))
       return current?.kind === "run-trace" && (current.payload.events?.length ?? 0) === 2
     })
     expect(double.calls.filter((call) => JSON.stringify(call.body).includes("\"run-events\"")).length).toBeGreaterThanOrEqual(2)
@@ -952,45 +956,45 @@ describe("the run trace's reader gestures and the pump's tail (spec 06 §5, §6)
     const reads = double.calls.length
     const filtered = await controller.commands.run("runs.trace.filter", "run-8 failed")
     expect(said(filtered)).toBe("trace-filter run=run-8 filter=failed")
-    card = store.collections.cards.get("flow-run-run-8")
+    card = store.collections.cards.get(boxRunCard("run-8"))
     expect(card?.kind === "run-trace" && card.payload.filter).toBe("failed")
     expect(double.calls.length).toBe(reads)
 
     // A selection names a node the journal in hand folds to, leaves live tail, and may scrub to a seq.
     const selected = await controller.commands.run("runs.trace.select", "run-8 call-1 2")
     expect(said(selected)).toBe("trace-select run=run-8 node=call-1 seq=2")
-    card = store.collections.cards.get("flow-run-run-8")
+    card = store.collections.cards.get(boxRunCard("run-8"))
     expect(card?.kind === "run-trace" && card.payload).toMatchObject({ selection: "call-1", liveTail: false, cursorSeq: 2, filter: "failed" })
     const invented = await controller.commands.run("runs.trace.select", "run-8 call-9")
     expect(said(invented)).toBe("Run run-8 has no trace node call-9.")
-    card = store.collections.cards.get("flow-run-run-8")
+    card = store.collections.cards.get(boxRunCard("run-8"))
     expect(card?.kind === "run-trace" && card.payload.selection).toBe("call-1")
     // A sequence before this call, or beyond the journal, cannot quietly select current data.
     expect(said(await controller.commands.run("runs.trace.select", "run-8 call-1 1"))).toContain("no trace node call-1")
     expect(said(await controller.commands.run("runs.trace.select", "run-8 call-1 3"))).toContain("no recorded journal sequence 3")
     await controller.commands.runForAgent("runs.trace.view", "run-8 timeline")
-    card = store.collections.cards.get("flow-run-run-8")
+    card = store.collections.cards.get(boxRunCard("run-8"))
     expect(card?.kind === "run-trace" && card.payload.traceView).toBe("timeline")
     // The background pump may append a system update after this command.
     // Assert the persisted gesture itself, not the last unrelated update.
     expect([...store.collections.transitions.values()].some((record) => {
       if (record.type !== "card.updated" || record.actor !== "smithers") return false
       const payload = JSON.parse(record.payload)
-      return payload.id === "flow-run-run-8" && payload.patch?.payload?.traceView === "timeline"
+      return payload.id === boxRunCard("run-8") && payload.patch?.payload?.traceView === "timeline"
     })).toBe(true)
 
     // A re-open keeps the reader's view (§5): filter, selection, cursor and live tail survive.
     await openMonitor(controller, store, "run-8")
-    card = store.collections.cards.get("flow-run-run-8")
+    card = store.collections.cards.get(boxRunCard("run-8"))
     expect(card?.kind === "run-trace" && card.payload).toMatchObject({ selection: "call-1", liveTail: false, cursorSeq: 2, filter: "failed", traceView: "timeline" })
     await controller.commands.runForAgent("runs.trace.live", "run-8")
-    card = store.collections.cards.get("flow-run-run-8")
+    card = store.collections.cards.get(boxRunCard("run-8"))
     expect(card?.kind === "run-trace" && card.payload).toMatchObject({ liveTail: true, filter: "failed", traceView: "timeline" })
     expect(card?.kind === "run-trace" && card.payload.cursorSeq).toBeUndefined()
     expect(card?.kind === "run-trace" && card.payload.selection).toBeUndefined()
     // Omitting seq now pins the record in hand; a later settlement must not change that inspected value.
     await controller.commands.runForAgent("runs.trace.select", "run-8 call-1")
-    card = store.collections.cards.get("flow-run-run-8")
+    card = store.collections.cards.get(boxRunCard("run-8"))
     expect(card?.kind === "run-trace" && card.payload.cursorSeq).toBe(2)
   })
 
@@ -1020,7 +1024,7 @@ describe("the run trace's reader gestures and the pump's tail (spec 06 §5, §6)
           const changed = transition.type === "card.upsert"
             ? (transition as { card: { id: string } }).card.id
             : transition.type === "card.updated" ? (transition as { id: string }).id : undefined
-          if (!holding || changed !== "flow-run-run-7") return transaction
+          if (!holding || changed !== boxRunCard("run-7")) return transaction
           return new Proxy(transaction, { get: (owner, name, self) => name === "isPersisted"
             ? { ...owner.isPersisted, promise: gate.then(() => owner.isPersisted.promise) }
             : Reflect.get(owner, name, self) })
@@ -1030,7 +1034,7 @@ describe("the run trace's reader gestures and the pump's tail (spec 06 §5, §6)
     await signIn(store)
     await openMonitor(controller, store, "run-7")
     await waitFor(() => {
-      const current = store.collections.cards.get("flow-run-run-7")
+      const current = store.collections.cards.get(boxRunCard("run-7"))
       return current?.kind === "run-trace" && (current.payload.events?.length ?? 0) === 1
     })
     await controller.commands.run("runs.trace.select", "run-7 frame-1 1")
@@ -1052,7 +1056,7 @@ describe("the run trace's reader gestures and the pump's tail (spec 06 §5, §6)
     release()
     for (const gesture of answered) expect(said(await gesture.promise)).not.toContain("runs.open")
     holding = false
-    const card = store.collections.cards.get("flow-run-run-7")
+    const card = store.collections.cards.get(boxRunCard("run-7"))
     expect(card?.kind === "run-trace" && card.payload).toMatchObject({ liveTail: true, traceView: "timeline", filter: "failed" })
     expect(card?.kind === "run-trace" && card.payload.cursorSeq).toBeUndefined()
   })
@@ -1128,7 +1132,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     await listInbox(controller, store)
 
     // The exact dispatch the card's Approve button makes (approval.approve with the row id).
-    const decided = await controller.commands.run("approval.approve", `approvals-inbox-${REPO}:req-1`)
+    const decided = await controller.commands.run("approval.approve", `approvals-inbox-${REPO}-${TEST_BOX}:req-1`)
     await settle(4)
     expect(decided.status).not.toBe("failed")
     expect(double.state.submitted).toHaveLength(1)
@@ -1267,7 +1271,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
     await listInbox(controller, store)
-    await controller.commands.run("approval.deny", `approvals-inbox-${REPO}:req-1`)
+    await controller.commands.run("approval.deny", `approvals-inbox-${REPO}-${TEST_BOX}:req-1`)
     await settle(4)
     const card = inboxCard(store)
     expect(card?.payload.approvals[0]?.decision).toBeUndefined()
@@ -1282,12 +1286,12 @@ describe("the approvals inbox — list, open, and the row decision", () => {
 
     const opened = await controller.commands.run("approvals.open", "run-a")
     expect(said(opened)).toContain("1 approval opened for run run-a")
-    const card = store.collections.cards.get("approval-run-a-req-1")
+    const card = store.collections.cards.get(approvalCardIdFor(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-a" }, "req-1"))
     expect(card?.kind === "approval" && card.payload.runId).toBe("run-a")
     expect(card?.kind === "approval" && card.payload.repo).toBe(REPO)
 
     // And those cards decide through the ordinary per-card path.
-    await controller.commands.run("approval.approve", "approval-run-a-req-1")
+    await controller.commands.run("approval.approve", approvalCardIdFor(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-a" }, "req-1"))
     await settle(4)
     expect(double.state.submitted).toHaveLength(1)
   })
@@ -1318,7 +1322,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     } }
     return { double, services, hold, started }
   }
-  const inboxToastId = `toast-approvals.list.approvals-inbox-${REPO}`
+  const inboxToastId = `toast-approvals.list.approvals-inbox-${REPO}-${TEST_BOX}`
   const inboxToasts = (store: Awaited<ReturnType<typeof webStore>>) => [...store.collections.toasts.values()].filter((toast) => toast.key.startsWith("approvals.list."))
   const mutations = (double: ReturnType<typeof relay>) => double.calls.filter((call) => {
     const procedure = (call.body as { procedure?: string } | undefined)?.procedure
@@ -1712,15 +1716,15 @@ describe("typed coding launch and plan inspection", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
     await openMonitor(controller, store, `run-1 ${REPO}`)
-    const original = store.collections.cards.get("flow-run-run-1") as Extract<Card, { kind: "run-trace" }>
+    const original = store.collections.cards.get(boxRunCard("run-1")) as Extract<Card, { kind: "run-trace" }>
     await store.dispatch({ type: "card.upsert", actor: "system", card: { ...original,
       payload: { ...original.payload, input: { prompt: CODING_PLAN.prompt }, events: preparedCodingJournal(), lastSeq: 5 } } })
-    expect((await controller.commands.runForAgent("runs.coding.select", "sourceCard=flow-run-run-1 run-1 memory")).status).toBe("executed")
+    expect((await controller.commands.runForAgent("runs.coding.select", `sourceCard=${original.id} run-1 memory`)).status).toBe("executed")
     const selected = store.collections.cards.get(original.id) as typeof original
     expect(selected.payload.codingChangeId).toBe("memory")
     expect([...store.collections.transitions.values()].filter(row => row.type === "card.upsert").sort((a, b) => a.revision - b.revision).at(-1)?.actor).toBe("smithers")
     await store.dispatch({ type: "card.upsert", actor: "user", card: { ...selected, payload: { ...selected.payload, cursorSeq: 3, liveTail: false } } })
-    expect(said(await controller.commands.run("runs.coding.select", "sourceCard=flow-run-run-1 run-1 memory"))).toContain("no recorded planned Change")
+    expect(said(await controller.commands.run("runs.coding.select", `sourceCard=${original.id} run-1 memory`))).toContain("no recorded planned Change")
   })
 
   test("flow.run preserves structured input, selection is actor-tagged and persisted, and reopening retains the plan", async () => {
@@ -1731,14 +1735,14 @@ describe("typed coding launch and plan inspection", () => {
     await signIn(store)
     const launched = await controller.commands.run("flow.run", `coding ${REPO} ${JSON.stringify({ plan: CODING_PLAN })}`)
     expect(launched.status).toBe("executed")
-    await waitFor(() => runCardInScope(store, { repo: REPO, runId: "run-1" }) !== undefined)
+    await waitFor(() => runCardInScope(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-1" }) !== undefined)
     expect(double.state.launched[0]).toEqual({ workflow: "coding", input: { plan: CODING_PLAN }, repo: REPO })
     expect((await controller.commands.runForAgent("runs.coding.select", "run-1 memory")).status).toBe("executed")
-    let card = runCardInScope(store, { repo: REPO, runId: "run-1" }) as Extract<Card, { kind: "run-trace" }>
+    let card = runCardInScope(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-1" }) as Extract<Card, { kind: "run-trace" }>
     expect(card.payload.codingChangeId).toBe("memory")
     expect([...store.collections.transitions.values()].filter((row) => row.type === "card.upsert").sort((a, b) => a.revision - b.revision).at(-1)?.actor).toBe("smithers")
     await openMonitor(controller, store, `run-1 ${REPO}`)
-    card = runCardInScope(store, { repo: REPO, runId: "run-1" }) as typeof card
+    card = runCardInScope(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-1" }) as typeof card
     expect(workflowInputOf(card)).toEqual({ plan: CODING_PLAN })
     expect(card.payload.codingChangeId).toBe("memory")
     expect(said(await controller.commands.run("runs.coding.select", "run-1 fabricated"))).toContain("no recorded planned Change")
@@ -1746,7 +1750,7 @@ describe("typed coding launch and plan inspection", () => {
     controller.dispose()
     await store.dispose?.()
     const reloaded = await createAppStore({ kind: "localStorage", storage })
-    const restored = runCardInScope(reloaded, { repo: REPO, runId: "run-1" }) as typeof card
+    const restored = runCardInScope(reloaded, { repo: REPO, workspaceId: TEST_BOX, runId: "run-1" }) as typeof card
     expect(restored.payload.codingChangeId).toBe("memory")
     expect(workflowInputOf(restored)).toEqual({ plan: CODING_PLAN })
     const second = createAppController(reloaded, silentAgent, double.services)
@@ -1909,7 +1913,7 @@ describe("workspace-bound run cards", () => {
       ] }
     } }).isPersisted.promise
     const beforeMixedRefresh = double.calls.length
-    expect(said(await listInventory(controller, store, "runs.list", `completed sourceCard=run-list-${REPO} ${REPO}`))).toContain("several gateways")
+    expect(said(await listInventory(controller, store, "runs.list", `completed sourceCard=run-list-${REPO} ${REPO}`))).toContain("several boxes")
     expect(double.calls.length).toBe(beforeMixedRefresh)
     await store.dispatch({ type: "card.upsert", actor: "system", card: historicalList }).isPersisted.promise
     await listInventory(controller, store, "runs.list", `completed sourceCard=run-list-${REPO} ${REPO}`)
@@ -1917,29 +1921,36 @@ describe("workspace-bound run cards", () => {
     for (const call of double.calls.slice(before).filter((call) => call.path.startsWith("/api/workflow/"))) expect(call.body).toMatchObject({ workspaceId })
   })
 
-  test("legacy list rows stay unbound and conflicting recorded workspace identities refuse", async () => {
+  test("a run recorded with no box refuses every act without a call, and conflicting recorded boxes refuse", async () => {
     const store = await webStore()
     const double = relay({ runs: [{ runId: "legacy", flowId: "review-pr", status: "completed" }] })
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
-    await listInventory(controller, store, "runs.list", REPO)
-    await selectWorkspace(store)
-    await openMonitor(controller, store, "legacy")
-    await waitFor(() => runCardInScope(store, { repo: REPO, runId: "legacy" })?.payload.phase === "completed")
-    // The settled run still reads its journal once.
-    await waitFor(() => double.calls.some((call) => JSON.stringify(call.body).includes("\"run-events\"")))
+    // A run card persisted before every run named its box.
+    const legacy: Extract<Card, { kind: "run-trace" }> = {
+      id: "flow-run-legacy", kind: "run-trace", title: "Old", status: "active", createdAt: 1, ordinal: 1,
+      payload: { repo: REPO, runId: "legacy", workflow: "review-pr", phase: "completed", steps: [], result: null, lastSeq: 0 }
+    }
+    await store.dispatch({ type: "card.upsert", actor: "system", card: legacy }).isPersisted.promise
     await settle()
     expect(gatewayRunContextFor(store, "legacy")).toEqual({ repo: REPO })
-    for (const call of double.calls.filter((call) => call.path.startsWith("/api/workflow/"))) expect(call.body).not.toHaveProperty("workspaceId")
-    const listed = store.collections.cards.get(`run-list-${REPO}`)!
-    if (listed.kind !== "run-list") throw new Error("missing list")
+    const callsBefore = double.calls.length
+    for (const [flow, args] of [["runs.resume", "legacy"], ["runs.signal", "legacy go"], ["runs.steer", "legacy hello"], ["approvals.open", "legacy"]] as const) {
+      const outcome = await controller.commands.run(flow, args)
+      expect(outcome.status).toBe("failed")
+      expect(said(outcome)).toBe("This run's box is gone.")
+    }
+    expect(said(await openMonitor(controller, store, "legacy"))).toBe("This run's box is gone.")
+    expect(double.calls.filter((call) => call.path.startsWith("/api/workflow/")).length).toBe(callsBefore)
+    // Chat stays usable beside the refusal.
+    await store.dispatch({ type: "composer.changed", actor: "user", draft: "still here" }).isPersisted.promise
+    expect(store.session()).toMatchObject({ draft: "still here", phase: "idle" })
     store.dispatch({ type: "card.upsert", actor: "system", card: {
-      ...listed, id: "conflicting-list", payload: { ...listed.payload, workspaceId }
+      ...legacy, id: "conflicting-trace", payload: { ...legacy.payload, workspaceId }
     } })
     expect(gatewayRunContextFor(store, "legacy")).toMatchObject({ error: expect.stringContaining("conflicting") })
-    const callsBefore = double.calls.length
     await controller.commands.run("runs.resume", "legacy")
-    expect(double.calls.length).toBe(callsBefore)
+    expect(double.calls.filter((call) => call.path.startsWith("/api/workflow/")).length).toBe(callsBefore)
   })
 
   for (const command of ["flow.run", "runs.open"] as const) {
@@ -2038,7 +2049,7 @@ describe("workspace-bound run cards", () => {
       await waitFor(() => snapshots() >= beforeRetry + 2)
       expect(other.calls.length).toBe(otherReads)
       expect((await controller.commands.run("approvals.open", source)).status).toBe("executed")
-      const approvalId = approvalCardIdFor(store, card.payload, "same-gate")
+      const approvalId = approvalCardIdFor(store, card === cardA ? scopeA : scopeB, "same-gate")
       expect((await controller.commands.run("approval.approve", approvalId)).status).toBe("executed")
       await waitFor(() => double.state.submitted.length === 2, 10_000) // Plan plus this gate.
       expect(double.state.resumed).toHaveLength(1)
@@ -2111,7 +2122,7 @@ describe("workspace-bound run cards", () => {
     }
   }, 120_000)
 
-  test("historical raw card addresses survive while new explicit legacy cards never inherit a workspace", async () => {
+  test("historical raw card addresses survive while a list on another box never inherits the old card's box", async () => {
     const store = await webStore()
     const double = relay({ runs: [{ runId: "run-1", flowId: "review-pr", status: "completed" }, { runId: "child-1", flowId: "review-pr", status: "completed" }] })
     const controller = createAppController(store, silentAgent, double.services)
@@ -2130,19 +2141,19 @@ describe("workspace-bound run cards", () => {
         ] }
     }
     await store.dispatch({ type: "card.upsert", actor: "system", card: old }).isPersisted.promise
-    await listInventory(controller, store, "runs.list", REPO) // A newly recorded, explicitly legacy list.
-    const listId = `run-list-${REPO}`
+    await listInventory(controller, store, "runs.list", REPO) // A newly recorded list on the repository's default box.
+    const listId = `run-list-${REPO}-${TEST_BOX}`
     expect(store.collections.cards.get(listId)).toMatchObject({ payload: { gatewayBindingVersion: 1 } })
     expect(gatewayRunContextFor(store, "run-1")).toMatchObject({ error: expect.stringContaining("conflicting") })
     let before = double.calls.length
     expect((await openMonitor(controller, store, `sourceCard=${listId} run-1`)).status).toBe("executed")
-    const legacy = runCardInScope(store, { repo: REPO, runId: "run-1" })!
-    expect(legacy.id).not.toBe(old.id)
+    const listed = runCardInScope(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-1" })!
+    expect(listed.id).not.toBe(old.id)
     expect(store.collections.cards.get(old.id)).toMatchObject({ payload: { workspaceId } })
-    await waitFor(() => legacy.id !== undefined && runCardInScope(store, { repo: REPO, runId: "run-1" })?.payload.phase === "completed", 10_000)
+    await waitFor(() => listed.id !== undefined && runCardInScope(store, { repo: REPO, workspaceId: TEST_BOX, runId: "run-1" })?.payload.phase === "completed", 10_000)
     await waitFor(() => double.calls.slice(before).some((call) => JSON.stringify(call.body).includes("\"run-events\"")))
     await settle()
-    for (const call of double.calls.slice(before).filter((call) => call.path.startsWith("/api/workflow/"))) expect(call.body).not.toHaveProperty("workspaceId")
+    for (const call of double.calls.slice(before).filter((call) => call.path.startsWith("/api/workflow/"))) expect(call.body).toMatchObject({ workspaceId: TEST_BOX })
     const beforeNative = double.calls.length
     expect(said(await openMonitor(controller, store, `sourceCard=${old.id} native-1`))).toContain("does not record")
     expect(double.calls.length).toBe(beforeNative)
@@ -2453,7 +2464,7 @@ describe("trace gestures retain their source view", () => {
 describe("durable run facet requests", () => {
   const card = (id: string): Extract<Card, { kind: "run-trace" }> => ({
     id, kind: "run-trace", title: id, status: "acted", createdAt: 1, ordinal: 1,
-    payload: { repo: REPO, runId: "run-facet", workflow: "review", phase: "completed", steps: [], result: null,
+    payload: { repo: REPO, workspaceId: TEST_BOX, runId: "run-facet", workflow: "review", phase: "completed", steps: [], result: null,
       lastSeq: 0, facet: "steps", follow: false }
   })
   const current = (store: Awaited<ReturnType<typeof webStore>>, id = "b") => {
@@ -2812,7 +2823,7 @@ describe("durable run-list reads", () => {
     await fixture.store.dispatch({ type: "repo.selected", actor: "user", id: "another/repo" }).isPersisted.promise
     await fixture.store.dispatch({ type: "card.upsert", actor: "system", card: {
       id: "alternate-list", kind: "run-list", title: "Runs", status: "active", createdAt: 1, ordinal: 1,
-      payload: { repo: REPO, gatewayBindingVersion: 1, runs: [] }
+      payload: { repo: REPO, workspaceId: TEST_BOX, gatewayBindingVersion: 1, runs: [] }
     } }).isPersisted.promise
     await listInventory(fixture.controller, fixture.store, "runs.list", "parked sourceCard=alternate-list")
     expect(fixture.store.collections.cards.get("alternate-list")).toMatchObject({ payload: { repo: REPO, runs: [{ runId: "parked" }] } })
@@ -2951,7 +2962,7 @@ describe("durable run opens", () => {
     const fixture = await ready(Promise.resolve())
     await fixture.store.dispatch({ type: "card.upsert", actor: "system", card: {
       id: "flow-run-opened", kind: "run-trace", title: "Run", status: "acted", createdAt: 1, ordinal: 1,
-      payload: { repo: REPO, runId: "opened", workflow: "review-pr", phase: "completed", steps: [], result: null, lastSeq: 0,
+      payload: { repo: REPO, workspaceId: TEST_BOX, runId: "opened", workflow: "review-pr", phase: "completed", steps: [], result: null, lastSeq: 0,
         facet: "transcript", follow: false, transcriptAtRevision: 3, transcriptRows: [{ sequence: 1, kind: "assistant", text: "Saved transcript" }] }
     } }).isPersisted.promise
     await fixture.controller.commands.run("runs.open", "opened")
@@ -3078,7 +3089,7 @@ describe("durable run opens", () => {
       const request = fixture.store.session().runOpenRequests![0]!
       await fixture.store.dispatch({ type: "card.upsert", actor: "system", card: {
         id: request.cardId, kind: "run-list", title: "Replacement", createdAt: 1, ordinal: 1, status: "active",
-        payload: { repo: REPO, runs: [] }
+        payload: { repo: REPO, workspaceId: TEST_BOX, runs: [] }
       } }).isPersisted.promise
       saved.resolve()
       await waitFor(() => fixture.store.session().runOpenRequests?.[0]?.error !== undefined)
@@ -3137,10 +3148,10 @@ describe("durable run opens", () => {
     expect((await fixture.controller.commands.run(retry.flow, retry.args)).status).toBe("executed")
     await waitFor(() => fixture.store.session().runOpenRequests?.[0]?.error !== undefined)
     expect(fixture.store.session().runOpenRequests![0]).toMatchObject({ cardId: request.cardId, repo: REPO })
-    expect(fixture.store.session().runOpenRequests![0]!.workspaceId).toBeUndefined()
+    expect(fixture.store.session().runOpenRequests![0]!.workspaceId).toBe(TEST_BOX)
     const calls = fixture.double.calls.slice(before).filter(call => call.path.startsWith("/api/workflow/"))
     expect(calls.length).toBeGreaterThan(0)
-    for (const call of calls) expect(call.body).not.toHaveProperty("workspaceId")
+    for (const call of calls) expect(call.body).toMatchObject({ workspaceId: TEST_BOX })
     expect((await fixture.controller.commands.run("runs.open", flowArgs("runs.open", { runId: "opened", requestId: request.id }))).status).toBe("failed")
   })
 

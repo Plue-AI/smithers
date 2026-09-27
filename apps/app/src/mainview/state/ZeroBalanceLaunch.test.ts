@@ -1,20 +1,19 @@
 /*
  * Launch Checklist D-4 — the zero-balance UX. AppState.ts:290-296's ruling
  * says chat is complimentary (a $0 balance never pauses it — Backends.test.ts
- * already pins that) and the pause discipline applies only to
- * non-complimentary (paid) work: managed workflow launches. Explicit cloud
- * workspace runs use their own provider; the gateway enforces their access
- * and capacity. These tests pin the other
- * half — `flow.create`/`flow.run` at a definitive $0 balance render a clear,
- * embedded transcript message and never reach the workspace/gateway seam at
- * all (no hang, no stack trace, deterministic).
+ * already pins that). Every flow run is on a box, which uses its own provider;
+ * the gateway enforces its access and capacity, so `flow.run` is never paused
+ * by the balance. These tests pin the other half — `flow.create` at a
+ * definitive $0 balance renders a clear, embedded transcript message and never
+ * reaches the workspace/gateway seam at all (no hang, no stack trace,
+ * deterministic).
  */
 import { describe, expect, test } from "bun:test"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { memoryStorage, silentAgent, waitFor } from "./TestFixtures"
+import { loadBox, memoryStorage, silentAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -76,17 +75,6 @@ const transcriptTexts = (store: Awaited<ReturnType<typeof webStore>>): ReadonlyA
     .map((message) => message.text)
 
 describe("zero-balance workflow launch (Launch Checklist D-4)", () => {
-  test("flow.run at $0 fails deterministically with the exhausted-balance message, no seam call", async () => {
-    const store = await webStore()
-    const controller = createAppController(store, silentAgent, noWorkflowSeam())
-    await signInAtZeroBalance(store)
-
-    const outcome = await controller.commands.run("flow.run", "review-pr")
-
-    expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe(EXHAUSTED_TEXT)
-  })
-
   test("flow.create at $0 fails deterministically with the exhausted-balance message, no seam call", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, noWorkflowSeam())
@@ -103,7 +91,7 @@ describe("zero-balance workflow launch (Launch Checklist D-4)", () => {
     const controller = createAppController(store, silentAgent, noWorkflowSeam())
     await signInAtZeroBalance(store)
 
-    await controller.commands.run("flow.run", "review-pr")
+    await controller.commands.run("flow.create", "summarize my open issues")
 
     await waitFor(() => store.collections.cards.get("billing-credit-exhausted") !== undefined)
     const card = store.collections.cards.get("billing-credit-exhausted")
@@ -164,6 +152,7 @@ describe("zero-balance workflow launch (Launch Checklist D-4)", () => {
       lifetimeChargedUsd: "0",
       chargeCount: 0
     })
+    await loadBox(store, REPO)
     await settle(2)
 
     const outcome = await controller.commands.run("flow.run", "review-pr")
@@ -206,6 +195,7 @@ describe("zero-balance workflow launch (Launch Checklist D-4)", () => {
     const billing = store.collections.billingAccounts.get("billing")
     expect(billing?.state).toBe("unknown")
     expect(billing?.allowedToStartWork).toBe(true)
+    await loadBox(store, REPO)
 
     const outcome = await controller.commands.run("flow.run", "review-pr")
 
@@ -214,12 +204,12 @@ describe("zero-balance workflow launch (Launch Checklist D-4)", () => {
     expect(transcriptTexts(store)).not.toContain(EXHAUSTED_TEXT)
   })
 
-  test("a button-driven flow.run at $0 does not double-surface the refusal as a toast", async () => {
+  test("a button-driven flow.create at $0 does not double-surface the refusal as a toast", async () => {
     const store = await webStore()
     const controller = createAppController(store, silentAgent, noWorkflowSeam())
     await signInAtZeroBalance(store)
 
-    controller.runCommand("flow.run", "review-pr")
+    controller.runCommand("flow.create", "summarize my open issues")
     await settle()
 
     await waitFor(() => store.collections.cards.get("billing-credit-exhausted") !== undefined)
@@ -229,7 +219,7 @@ describe("zero-balance workflow launch (Launch Checklist D-4)", () => {
 })
 
 
-test("a selected cloud workspace uses its own provider at zero managed balance", async () => {
+test("a selected box uses its own provider at zero balance; a repository with no box is asked to open one", async () => {
   const store = await webStore()
   const calls: string[] = []
   const controller = createAppController(store, silentAgent, {
@@ -251,8 +241,10 @@ test("a selected cloud workspace uses its own provider at zero managed balance",
   await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "run-trace" && card.status === "error"))
   expect(calls.some(url => url.includes("workflow/provision"))).toBe(true)
   expect(transcriptTexts(store)).not.toContain(EXHAUSTED_TEXT)
-  // Selecting a cloud copy must not exempt another repository's managed run.
+  // Another repository has no box, so its run is refused before any call, and never for the balance.
+  calls.length = 0
   const other = await controller.commands.run("flow.run", "review-pr someone/else")
   expect(other.status).toBe("failed")
-  if (other.status === "failed") expect(other.error).toBe(EXHAUSTED_TEXT)
+  if (other.status === "failed") expect(other.error).toBe("Open a box of someone/else first: /box.open someone/else")
+  expect(calls.some(url => url.includes("workflow/"))).toBe(false)
 })

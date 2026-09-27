@@ -36,7 +36,7 @@ const triggerCard = (payload: Partial<Payload>): TriggerListCard => ({
   status: "active",
   createdAt: 0,
   ordinal: 0,
-  payload: { repo: REPO, triggers: [], webhooks: [], ...payload }
+  payload: { repo: REPO, triggers: [], ...payload }
 })
 
 /** The day-one table of design §7, as the projection carries it. */
@@ -142,22 +142,20 @@ describe("the dispatcher card", () => {
     expect(host.querySelector("[data-testid='trigger-live']")).toBeNull()
     expect(host.querySelector("[data-source='box']")).toBeNull()
     expect(host.querySelector("[data-trigger]")).toBeNull()
-    expect(host.querySelector("[data-webhook]")).toBeNull()
-    expect(host.textContent).not.toMatch(/listening|heartbeat|enabled|disabled|fired|next |running/)
+    expect(host.textContent).not.toMatch(/listening|enabled|disabled|next /)
     /* Live rows persisted on an older card still stay out of a card whose box did not answer this time. */
     const stale = render(
       triggerCard({
         declared: DECLARED,
         live: false,
-        triggers: [{ id: "nightly", flowId: "review", cron: "0 9 * * 1-5", enabled: true }],
-        webhooks: [{ name: "github" }]
+        triggers: [{ id: "nightly", flowId: "review", cron: "0 9 * * 1-5", enabled: true }]
       })
     )
     expect(stale.querySelector("[data-source='box']")).toBeNull()
-    expect(stale.textContent).not.toMatch(/enabled|fired|Webhook/)
+    expect(stale.textContent).not.toMatch(/enabled/)
   })
 
-  test("a box that answered adds the live columns: listening, state, last fired, next fire, the run in flight, and the webhooks", () => {
+  test("registered schedules add the live columns: listening, state, next fire", () => {
     const host = render(
       triggerCard({
         declared: DECLARED.slice(0, 1),
@@ -169,13 +167,10 @@ describe("the dispatcher card", () => {
             cron: "0 9 * * 1-5",
             timezone: "UTC",
             enabled: true,
-            lastFiredAt: Date.now() - 60_000,
-            nextFireAt: Date.now() + 3_600_000,
-            activeRunId: "run-8f21"
+            nextFireAt: Date.now() + 3_600_000
           },
           { id: "sweep", flowId: "issue", cron: "*/15 * * * *", enabled: false }
-        ],
-        webhooks: [{ name: "github-push", flowId: "review" }, { name: "linear" }]
+        ]
       })
     )
     expect(host.querySelector("[data-testid='trigger-live']")?.textContent).toBe("listening")
@@ -183,21 +178,15 @@ describe("the dispatcher card", () => {
     expect([...host.querySelectorAll("[data-source]")].map((row) => row.getAttribute("data-source"))).toEqual([
       "declared",
       "box",
-      "box",
-      "box",
       "box"
     ])
     const nightly = host.querySelector("[data-trigger='nightly']")
     expect(nightly?.textContent).toContain("Every weekday at 09:00 UTC")
     expect(nightly?.textContent).toContain("runs review")
     expect(host.querySelector("[data-testid='trigger-state-nightly']")?.textContent).toMatch(
-      /^enabled · last fired .+ · next .+ · running run-8f21$/
+      /^enabled · next .+$/
     )
-    expect(host.querySelector("[data-testid='trigger-state-sweep']")?.textContent).toBe("disabled · never fired")
-    const webhooks = [...host.querySelectorAll("[data-webhook]")]
-    expect(webhooks.map((row) => row.getAttribute("data-webhook"))).toEqual(["github-push", "linear"])
-    expect(webhooks[0]?.textContent).toBe("Webhook github-pushruns review")
-    expect(webhooks[1]?.textContent).toBe("Webhook linear")
+    expect(host.querySelector("[data-testid='trigger-state-sweep']")?.textContent).toBe("disabled")
   })
 
   test("with nothing declared and no box answering, the card is exactly one sentence", () => {

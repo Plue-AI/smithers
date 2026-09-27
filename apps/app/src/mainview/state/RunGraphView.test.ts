@@ -14,7 +14,7 @@ import type { Card } from "@smthrs/rpc/Cards"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { json, memoryStorage, settle, silentAgent, waitFor } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 const webStore = () => createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -141,6 +141,7 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>) => {
     actor: "system",
     repositories: [{ id: REPO, org: REPO.split("/")[0] ?? "", ownerKind: "user", name: REPO.split("/")[1] ?? "", head: null }]
   })
+  await loadBox(store, REPO)
   await settle(2)
 }
 

@@ -1,6 +1,7 @@
 import { expect } from "@playwright/test"
 import review from "../../../src/mainview/cards/fixtures/register-repository-review.json"
 import { showcase } from "../showcase"
+import { runningBox } from "../../playwright/cloudFixture"
 
 const REPO = "acme/widgets"
 const RUN = "run-register-1"
@@ -72,7 +73,7 @@ export default showcase({
   viewport: { width: 1440, height: 900 },
   run: async ({ page, app, backend }) => {
     let started = 0
-    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+    await backend.cloud({ capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox(REPO)] })
     await backend.json("/api/workflow/provision", { status: "ready", repo: REPO, gatewayId: "gw-1" })
     await backend.route(url => url.pathname.startsWith("/api/github/import"), route =>
       route.fulfill({ json: { importJobId: "job-1", status: "ready", repository: { owner: "acme", name: "widgets" } } }))

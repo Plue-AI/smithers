@@ -157,3 +157,17 @@ export const repositoryHttpFixture = (): import("./seams/SeamContext").SeamConte
     throw new Error(`Unexpected repository fixture request: ${input}`)
   }
 }
+
+/** The box {@link loadBox} loads unless a test names another: every flow call names a box. */
+export const TEST_BOX = "0b0c0d0e-0000-4000-8000-000000000001"
+
+/** One box of `repo` in the store — running unless a test asks otherwise — so a flow test has a box to name. */
+export const loadBox = (
+  store: Pick<AppStore, "dispatch">,
+  repo: string,
+  id: string = TEST_BOX,
+  status: "running" | "suspended" | "stopped" | "pending" | "starting" | "failed" = "running"
+): Promise<unknown> =>
+  store.dispatch({ type: "workspace.updated", actor: "system", workspace: {
+    id, repoId: repo, name: "Box", targetBookmark: "main", status, provisioningStage: null, suspendedAt: null, createdAt: null
+  } }).isPersisted.promise

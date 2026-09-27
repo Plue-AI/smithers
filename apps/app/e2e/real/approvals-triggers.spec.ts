@@ -102,7 +102,7 @@ authenticatedTest("production dispatcher and approvals are read from the authent
   const triggers = page.locator('.smithers-card[data-kind="trigger-list"]').last()
   await expect(triggers).toBeVisible()
   await expect(triggers.getByTestId("trigger-register")).toBeVisible()
-  await expect.poll(() => reads.some(({ path }) => path === "/api/workflow/triggers")).toBe(true)
+  await expect.poll(() => reads.some(({ path }) => path === "/api/workflow/trigger-registrations")).toBe(true)
 
   await command(page, `/approvals.list ${PRODUCTION_REPO}`)
   await closeComposer(page)
@@ -110,6 +110,8 @@ authenticatedTest("production dispatcher and approvals are read from the authent
   await expect(approvals).toBeVisible({ timeout: 180_000 })
   await expect(approvals).toContainText(new RegExp(`No approvals are pending on ${PRODUCTION_REPO.replace("/", "\\/")}`))
   await expect.poll(() => approvalsRequest).toBeDefined()
+  // Every relayed call names its box.
+  expect(typeof approvalsRequest!.workspaceId, "the approvals read must name its box").toBe("string")
 
   const approvalApi = await realApi(page, request, "POST", "/api/workflow/rpc", approvalsRequest!)
   expect(approvalApi.status()).toBe(200)

@@ -2,6 +2,7 @@ import type { Card } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
 import type { ControllerContext } from "./context"
 import type { GatewayWorkspaceBinding } from "./gateway"
+import { recordedRunBinding } from "../RepoContext"
 import { TOAST_SUPERSEDED } from "./failures"
 import type { LaunchRefusal } from "./workflows"
 
@@ -32,7 +33,7 @@ export function createWorkflowCatalogController(ctx: ControllerContext, options:
       return !ctx.disposed && ctx.accountEpoch === epoch && ctx.accountOwner() === request.owner &&
         latest?.kind === "workflow-list" && latest.payload.catalogRequest?.id === request.id
     }
-    const binding = card.payload.workspaceId === undefined ? {} : { workspaceId: card.payload.workspaceId }
+    const binding = recordedRunBinding(card.payload, "This card's box is gone.")
     const key = `flow.catalog.${card.id}`
     const title = "Loading flows…"
     const work = ctx.withToast(key, title, "Flows loaded", async () => {
@@ -46,6 +47,7 @@ export function createWorkflowCatalogController(ctx: ControllerContext, options:
       }
       try {
         if (!current()) return TOAST_SUPERSEDED
+        if ("error" in binding) return fail(binding.error)
         await store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, loading: true, status: "active", body: undefined } }).isPersisted.promise
         if (!current()) return TOAST_SUPERSEDED
         const provisioned = await options.provision(card.payload.repo, binding)
@@ -80,8 +82,7 @@ export function createWorkflowCatalogController(ctx: ControllerContext, options:
     if (typeof scope === "string") return scope
     const login = owner(), epoch = ctx.accountEpoch
     if (!login) return "Sign in with GitHub first."
-    const id = scope.binding.workspaceId === undefined ? `workflow-list-${scope.repo}`
-      : `workflow-list@${encodeURIComponent(scope.repo)}@${encodeURIComponent(scope.binding.workspaceId)}`
+    const id = `workflow-list@${encodeURIComponent(scope.repo)}@${encodeURIComponent(scope.binding.workspaceId)}`
     const current = () => !ctx.disposed && ctx.accountEpoch === epoch && ctx.accountOwner() === login
     for (let pending = shared.saving.get(id); pending; pending = shared.saving.get(id)) await pending.catch(() => {})
     if (!current()) return "The account changed. Open Flows again."

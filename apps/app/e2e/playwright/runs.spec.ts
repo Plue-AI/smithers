@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { earlyCodingJournal } from "../../src/mainview/cards/fixtures/CodingJournal"
 import { CODING_PLAN } from "../../src/mainview/cards/fixtures/CodingPlan"
-import { installCloudFixture } from "./cloudFixture.ts"
+import { FIXTURE_BOX, installCloudFixture, runningBox } from "./cloudFixture.ts"
 import { prepareHealthPage,sendHealthCommand } from "./healthFixture"
 
 /*
@@ -63,7 +63,7 @@ const serve = async (page: Page, journal: ReadonlyArray<Record<string, unknown>>
   /** The engine's own accounting: a steer the gateway took is pending until the next turn. */
   let steeringPending = 0
   let cancelled = false
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox("smithersai/smithers")] })
   await page.route("**/api/workflow/provision", (route) =>
     route.fulfill(json({ status: "ready", repo: REPO, gatewayId: "gw-1" })))
   await page.route("**/api/workflow/rpc", async (route) => {
@@ -247,7 +247,7 @@ test("T1: launch a fixture flow, steer it, stop it, and see it in the run inbox"
 
   // The run inbox: /runs.list renders the workspace's runs, this one among them.
   await send(page, `/runs.list ${REPO}`)
-  const runListCardId = `run-list-${REPO}`
+  const runListCardId = `run-list-${REPO}-${FIXTURE_BOX}`
   const inbox = page.getByTestId(`card-${runListCardId}`)
   await expect(inbox).toBeVisible()
   await expect(inbox).toContainText(RUN_ID)

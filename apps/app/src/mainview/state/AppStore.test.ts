@@ -8,7 +8,7 @@ import { createAppStore } from "./AppStore"
 import { createControllerContext } from "./controller/context"
 import { createTurnController } from "./controller/turns"
 import { createWorkflowController } from "./controller/workflows"
-import { memoryStorage } from "./TestFixtures"
+import { memoryStorage, TEST_BOX } from "./TestFixtures"
 
 /** Each test gets its own storage so cases never observe another case's writes. */
 describe("createAppStore with the localStorage fallback backend", () => {
@@ -367,7 +367,7 @@ describe("runtime-owned pending approvals", () => {
     id: "trusted-approval", kind: "approval", title: "Read the build logs?", status: "active",
     createdAt: 1, ordinal: 1,
     payload: { capability: "Read the build logs", detail: "Read-only inspection", runId: "run-1",
-      requestId: "read-logs", repo: "owner/repo", approval: envelope("read-logs") }
+      requestId: "read-logs", repo: "owner/repo", workspaceId: TEST_BOX, approval: envelope("read-logs") }
   }
 
   test("refuses model target and label replacement and forwards the original approval", async () => {
@@ -459,7 +459,7 @@ describe("runtime-owned pending approvals", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const inbox: Extract<Card, { kind: "approvals-inbox" }> = {
       id: "inbox", kind: "approvals-inbox", title: "Pending approvals", status: "active", createdAt: 1, ordinal: 1,
-      payload: { repo: "owner/repo", approvals: [{ runId: "run-1", requestId: "read-logs",
+      payload: { repo: "owner/repo", workspaceId: TEST_BOX, approvals: [{ runId: "run-1", requestId: "read-logs",
         title: gate.title, approval: envelope("read-logs"), requestedAt: 1 }] }
     }
     const malicious = { ...inbox, title: "Harmless actions", payload: { ...inbox.payload,

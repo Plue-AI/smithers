@@ -12,6 +12,7 @@ import type { AppStore } from "../AppStore"
 import { createAppStore } from "../AppStore"
 import { scopedControllers } from "../ControllerTestScope"
 import { PROTOTYPE_FLOW_ID,PROTOTYPE_RUN_KIND } from "./onboarding"
+import { loadBox, TEST_BOX } from "../TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -48,7 +49,7 @@ const settled = async (ticks = 4): Promise<void> => {
 /** A route stub: the response for one path, given the request's init (the relay stubs read the body). */
 type Route = (init?: RequestInit) => Response
 
-const fixture = async (routes: Record<string, Route>, selected = true) => {
+const fixture = async (routes: Record<string, Route>, selected = true, box = true) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<string> = []
   const turns: Array<string> = []
@@ -80,6 +81,7 @@ const fixture = async (routes: Record<string, Route>, selected = true) => {
     repositories: [{ id: REPO, org: "smithersai", ownerKind: "user", name: "smithers", head: null, catalog: true, summary: SUMMARY }]
   })
   if (selected) store.dispatch({ type: "repo.selected", actor: "user", id: REPO })
+  if (box) await loadBox(store, REPO)
   return { store, controller, requests, turns }
 }
 
@@ -205,7 +207,7 @@ describe("feature.prototype", () => {
     expect(relay.procedures.map((call) => call.procedure).slice(0, 4)).toEqual(["List", "Plan", "Approval.Submit", "Run"])
     expect(relay.procedures[1]?.payload).toMatchObject({ flowId: "prototype", input: { goal: "a dark mode toggle" } })
     const [card] = runCards(store)
-    expect(card?.id).toBe("flow-run-run-1")
+    expect(card?.id).toBe(`flow-run@${encodeURIComponent(REPO)}@${TEST_BOX}@run-1`)
     expect(card?.payload).toMatchObject({
       repo: REPO,
       runId: "run-1",
@@ -315,6 +317,27 @@ describe("feature.prototype", () => {
     if (outcome.status === "failed") expect(outcome.error).toBe(`${REPO} has no prototype flow on its workspace yet, so there is nothing to run the prototype with.`)
     expect(relay.procedures.map((call) => call.procedure)).toEqual(["List", "Plan"])
     expect(runCards(store)).toEqual([])
+  })
+
+  /* The lesson never strands: with no box it answers with the box to open, calls nothing, and chat still answers. */
+  test("a repository with no box is refused visibly before any call, and chat stays usable", async () => {
+    const relay = relayStubs({ flows: ["prototype"] })
+    const { store, controller, requests, turns } = await fixture(relay.routes, true, false)
+    identity(store, "signed-in")
+    await settled()
+    const outcome = await controller.commands.run("feature.prototype", "a dark mode toggle")
+    expect(outcome.status).toBe("failed")
+    if (outcome.status === "failed") expect(outcome.error).toBe(`Open a box of ${REPO} first: /box.open ${REPO}`)
+    expect(relay.procedures).toEqual([])
+    expect(requests.some((path) => path.startsWith("/api/workflow/"))).toBe(false)
+    expect(runCards(store)).toEqual([])
+    controller.send("what now?")
+    await settled()
+    expect(turns).toHaveLength(1)
+    // Opening the box is the retry: the same request now launches.
+    await loadBox(store, REPO)
+    expect((await controller.commands.run("feature.prototype", "a dark mode toggle")).status).toBe("executed")
+    expect(relay.procedures.map((call) => call.procedure)).toContain("Run")
   })
 
   test("any other launch refusal is surfaced as the workspace said it", async () => {

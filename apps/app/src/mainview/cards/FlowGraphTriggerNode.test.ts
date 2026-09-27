@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { flowGraphModel, layoutFlowGraph, type PlanCardNode } from "./FlowGraph"
 import {
-  FIRE_TIME_COUNT,
   nextFireTimes,
   triggerGraph,
   triggerNodeId,
@@ -29,27 +28,15 @@ const row = (over: Partial<TriggerCardRow> = {}): TriggerCardRow => ({
   ...over
 })
 
-describe("a trigger is disabled, armed or fired, never built or clean (D-031)", () => {
-  test("a schedule with nothing in flight is armed", () => {
+describe("a trigger is disabled or armed, never built or clean (D-031)", () => {
+  test("a schedule that is enabled is armed", () => {
     expect(triggerNodeState(row())).toBe("armed")
-    expect(triggerNodeState(row({ lastFiredAt: 1_700_000_000_000 }))).toBe("armed")
   })
 
-  test("a claimed occurrence and a run in flight are both fired", () => {
-    expect(triggerNodeState(row({ pendingAt: 1_700_000_000_000 }))).toBe("fired")
-    expect(triggerNodeState(row({ activeRunId: "run-1" }))).toBe("fired")
-  })
-
-  /* The flag the box recorded, not the cron: a registration that is off is
-   * not waiting to fire, so it never reads `armed`. */
-  test("a schedule the box recorded as off is disabled", () => {
+  /* The flag the registry recorded, not the cron: a registration that is off
+   * is not waiting to fire, so it never reads `armed`. */
+  test("a schedule recorded as off is disabled", () => {
     expect(triggerNodeState(row({ enabled: false }))).toBe("disabled")
-    expect(triggerNodeState(row({ enabled: false, lastFiredAt: 1_700_000_000_000 }))).toBe("disabled")
-  })
-
-  test("a disabled schedule stays disabled with an occurrence claimed or a run in flight", () => {
-    expect(triggerNodeState(row({ enabled: false, pendingAt: 1_700_000_000_000 }))).toBe("disabled")
-    expect(triggerNodeState(row({ enabled: false, activeRunId: "run-1" }))).toBe("disabled")
   })
 
   test("the state rides onto the node the canvas draws", () => {
@@ -107,38 +94,25 @@ describe("the trigger is excluded from every count", () => {
   })
 })
 
-describe("the next fire times", () => {
-  const fires = [
-    Date.UTC(2026, 8, 21, 16, 0),
-    Date.UTC(2026, 8, 22, 16, 0),
-    Date.UTC(2026, 8, 23, 16, 0),
-    Date.UTC(2026, 8, 24, 16, 0),
-    Date.UTC(2026, 8, 25, 16, 0),
-    Date.UTC(2026, 8, 28, 16, 0)
-  ]
-
-  test("five is the count the panel shows, however many the box computed", () => {
-    expect(FIRE_TIME_COUNT).toBe(5)
-    expect(nextFireTimes(row({ nextFiresAt: fires }))).toHaveLength(5)
-  })
+describe("the next fire time", () => {
+  const next = Date.UTC(2026, 8, 21, 16, 0)
 
   test("a zone that is not UTC puts the schedule's own reading beside the UTC one", () => {
-    const [first] = nextFireTimes(row({ nextFiresAt: fires, timezone: "America/New_York" }))
-    expect(first!.at).toBe(fires[0])
+    const [first] = nextFireTimes(row({ nextFireAt: next, timezone: "America/New_York" }))
+    expect(first!.at).toBe(next)
     expect(first!.zoned).toContain("12:00")
     expect(first!.utc).toContain("16:00")
   })
 
-  test("a UTC schedule, and one whose zone the store never named, read once", () => {
+  test("a UTC schedule, and one whose zone the registry never named, read once", () => {
     for (const zone of [undefined, "UTC"]) {
-      const [first] = nextFireTimes(row({ nextFiresAt: fires, ...(zone === undefined ? {} : { timezone: zone }) }))
+      const [first] = nextFireTimes(row({ nextFireAt: next, ...(zone === undefined ? {} : { timezone: zone }) }))
       expect(first!.utc).toContain("16:00")
       expect(first!.zoned).toBeUndefined()
     }
   })
 
-  test("a row the box answered without occurrences has no times, never an invented one", () => {
+  test("a row with no next fire has no times, never an invented one", () => {
     expect(nextFireTimes(row())).toEqual([])
-    expect(nextFireTimes(row({ nextFiresAt: [] }))).toEqual([])
   })
 })
