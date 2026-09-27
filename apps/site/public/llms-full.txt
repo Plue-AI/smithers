@@ -1231,7 +1231,7 @@ Each live schedule has **Run now** and **Pause**. A scheduled run needs a token 
 
 ![The Dispatcher lists a repository's rules and the flows they start, with a Register a rule button.](/images/app/dispatcher.png)
 
-Dispatcher.
+The Dispatcher card.
 
 **TUI**
 
@@ -1722,15 +1722,15 @@ The wiki holds what people and agents know about the project. Every edit is a re
 
 **Available now.**
 
-1. Select **Wiki** in the sidebar and choose a note. Its source and confidence are shown above it.
+1. Select **Wiki** in the sidebar and choose a page.
 2. Edit it in place, or select **New note**. Keep each fact with its source.
-3. Select **Back to the conversation** to close the pane.
+3. Close the pane to return to the conversation.
 
-**Factory** in the pane lists the repository's wiki and environment files.
+With no pages yet, **Create Wiki** generates them.
 
-![The Wiki pane open beside the conversation, showing a note.](/images/app/wiki.png)
+![The Wiki card for a repository with no pages yet, with a Create Wiki button.](/images/app/wiki.png)
 
-The Wiki pane.
+The Wiki card before any pages exist.
 
 :::note[Capture needed]
 An edit to a note saved as a new revision. Needs a signed-in account on a repository with the Wiki service on.
@@ -1822,11 +1822,11 @@ It opens the desktop app when installed, otherwise prints the `https://smithers.
 
 **GUI**
 
-**Available now.** Enter `/files.read README.md` or `/files.read CONTRIBUTING.md`. Select **Maximize card** for room.
+**Available now.** Enter `/files.read README.md` or `/files.read CONTRIBUTING.md`. Select **Maximize card** for more room.
 
-![The contribution guide open in a maximized file card.](/images/app/file.png)
+![CONTRIBUTING.md open in a file card.](/images/app/file.png)
 
-A file card, maximized.
+A file card.
 
 **TUI**
 
@@ -2066,9 +2066,9 @@ You can browse a public repository signed out. Sign in with GitHub to chat about
 
 **Available now.** Select **Sign in with GitHub**, review the permissions, and return to Smithers.
 
-![The Account action adds a GitHub sign-in prompt to the conversation.](/images/app/account.png)
+![Signed out, Account answers in the conversation with a Sign in with GitHub button.](/images/app/account.png)
 
-Signing in from the conversation.
+Account, signed out.
 
 **TUI**
 

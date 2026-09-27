@@ -2,9 +2,9 @@
   {
     "file": "account.png",
     "source": "https://smithers.sh/smithersai/smithers",
-    "capturedAt": "2026-09-08T04:19:19.862Z",
-    "width": 1440,
-    "height": 1000,
+    "capturedAt": "2026-09-27T02:47:47.260Z",
+    "width": 852,
+    "height": 92,
     "data": "Live public app, signed out"
   },
   {
@@ -34,31 +34,31 @@
   {
     "file": "dispatcher.png",
     "source": "https://smithers.sh/smithersai/smithers",
-    "capturedAt": "2026-09-08T04:19:15.171Z",
-    "width": 1440,
-    "height": 1000,
-    "data": "Live public app, signed out"
-  },
-  {
-    "file": "explore.png",
-    "source": "https://smithers.sh/smithersai/smithers",
-    "capturedAt": "2026-09-08T04:18:46.588Z",
-    "width": 1440,
-    "height": 1000,
+    "capturedAt": "2026-09-27T02:47:39.969Z",
+    "width": 852,
+    "height": 625,
     "data": "Live public app, signed out"
   },
   {
     "file": "file.png",
     "source": "https://smithers.sh/smithersai/smithers",
-    "capturedAt": "2026-09-08T04:35:22.738Z",
-    "width": 1440,
-    "height": 1000,
+    "capturedAt": "2026-09-27T02:47:32.550Z",
+    "width": 852,
+    "height": 664,
     "data": "Live public app, signed out"
   },
   {
     "file": "home.png",
     "source": "Local app from main 71c84dd849 (Playwright spec reproduces it)",
     "capturedAt": "2026-09-26T20:30:00.000Z",
+    "width": 2880,
+    "height": 1800,
+    "data": "Example repository"
+  },
+  {
+    "file": "register.png",
+    "source": "Design mockup (docs/mvp/mockups/register.html); replace with the app capture when registration lands",
+    "capturedAt": "2026-09-26T19:05:00.000Z",
     "width": 2880,
     "height": 1800,
     "data": "Example repository"
@@ -74,33 +74,25 @@
   {
     "file": "search.png",
     "source": "https://smithers.sh/smithersai/smithers",
-    "capturedAt": "2026-09-08T04:37:01.434Z",
-    "width": 1440,
-    "height": 1000,
+    "capturedAt": "2026-09-27T02:48:07.705Z",
+    "width": 852,
+    "height": 600,
     "data": "Live public app, signed out"
   },
   {
     "file": "slash.png",
     "source": "https://smithers.sh/smithersai/smithers",
-    "capturedAt": "2026-09-08T04:19:24.636Z",
-    "width": 1440,
-    "height": 1000,
+    "capturedAt": "2026-09-27T02:48:10.386Z",
+    "width": 852,
+    "height": 191,
     "data": "Live public app, signed out"
   },
   {
     "file": "wiki.png",
     "source": "https://smithers.sh/smithersai/smithers",
-    "capturedAt": "2026-09-08T04:19:11.271Z",
-    "width": 1440,
-    "height": 1000,
+    "capturedAt": "2026-09-27T02:47:35.707Z",
+    "width": 852,
+    "height": 115,
     "data": "Live public app, signed out"
-  },
-  {
-    "file": "register.png",
-    "source": "Design mockup (docs/mvp/mockups/register.html); replace with the app capture when registration lands",
-    "capturedAt": "2026-09-26T19:05:00.000Z",
-    "width": 2880,
-    "height": 1800,
-    "data": "Illustrative example repository acme/widgets"
   }
 ]

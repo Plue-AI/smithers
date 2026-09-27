@@ -45,9 +45,11 @@ node scripts/capture-ui-docs.mjs
 
 This uses Chromium from the UI package and a fresh signed-out context for each
 screen. It visits the public Smithers repository, opens read-only views, and
-saves PNGs to `public/images/app/`. It does not log in or submit writes. Pass
-screen names, such as `file factory`, to refresh a subset. Captures fail when
-their expected controls disappear; update the guide and capture together.
+saves PNGs to `public/images/app/`: the whole page for `home` (the app home:
+the question, the composer, and the four app tiles), and only the opened card
+or palette for the others. It does not log in or submit writes. Pass screen
+names, such as `file wiki`, to refresh a subset. Captures fail when their
+expected controls disappear; update the guide and capture together.
 
 The four `*-example.png` images render the actual local app using the existing
 browser-test server fixtures for runs, changes, and boxes. They do not show a
