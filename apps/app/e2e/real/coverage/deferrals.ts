@@ -25,7 +25,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "flow.plan.tab", "flow.repo.choose", "input.mode", "palette.actions", "palette.recent",
     "runs.coding.select", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
     "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
-    "tab.close.cancel", "tab.menu", "toast.dismiss", "wiki.pane", "wiki.select", "workspace.rename.edit"
+    "tab.close.cancel", "tab.menu", "toast.dismiss", "wiki.pane", "wiki.select", "wiki.view", "workspace.rename.edit"
   ],
   /** Developer tooling, not a user journey. */
   diagnostics: [
@@ -46,8 +46,6 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "files.read", "findings.not-useful", "findings.please-fix", "flow.plan", "flow.run.retry", "flows",
     "github.app.choose", "github.app.open", "github.mirror-sync", "github.mirror.retry-ref",
     "github.reconcile", "history.bootstrap", "issues",
-    /* Registration (D-19): the showcase drives the report against stubs; the real analysis run is owed. */
-    "repository.register",
     /* The app home's doors (PRODUCT.md D-18): the browser spec covers the launch; the real workspace run is owed. */
     "prs.triage", "wiki.ask",
     /* The wiki spaces (#1922): the browser spec drives them against stubbed routes; the real backend run is owed. */

@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "./browserTest"
 import * as Y from "yjs"
 import { installCloudFixture } from "./cloudFixture"
-import { fillComposer } from "./composer"
 
 /*
  * The wiki spaces (#1922) in the Wiki pane, against a fake Smithers Cloud
@@ -20,8 +19,12 @@ const author = { id: 1, login: "will" }
 const at = "2026-09-26T00:00:00Z"
 type Space = "public" | "private"
 
+/** A slash command from the app home: Control+K opens the composer (D-18), the line runs, Escape closes it. */
 const slash = async (page: Page, line: string) => {
-  await fillComposer(page, line)
+  const input = page.getByTestId("composer-input")
+  if (!await input.isVisible()) await page.keyboard.press("Control+k")
+  await expect(input).toBeVisible()
+  await input.fill(line)
   await page.getByTestId("composer-send").click()
   await expect(page.getByTestId("composer-input")).toHaveValue("")
   await page.getByTestId("composer-input").press("Escape")
@@ -29,22 +32,27 @@ const slash = async (page: Page, line: string) => {
 
 const wikiFixture = async (page: Page) => {
   const bodies: Record<Space, Record<string, string>> = {
-    public: { home: "# Home\n\nSee [[Guides/Start|start]] and ![[assets/logo.png]].", start: "# Start\n\nBack to [[Home]]." },
-    private: { home: "# Home\n\nPrivate notes." }
+    public: { home: "# Home\n\nSee [[Guides/Start#Install|start]].\n\n![[assets/logo.png]]\n\nLater: [[Nowhere]].", start: `# Start\n\nBack to [[Home]].\n${"\nA paragraph.\n".repeat(40)}\n## Install\n\nRun the installer.` },
+    private: { home: "# Home\n\nPrivate notes. Read [[Plans/Roadmap|the roadmap]].\n\n![[assets/diagram.png]]", roadmap: "# Roadmap\n\nBack to [[Home]]." }
   }
   const pages: Record<Space, Array<Record<string, unknown>>> = {
     public: [
       { id: 1, slug: "home", title: "Home", path: "Home.md", revision: 3, visibility: "public", content_digest: "a".repeat(64), author, created_at: at, updated_at: at,
-        metadata: { frontmatter: null, aliases: [], tags: ["guide"], headings: ["Home"], links: [{ target: "Guides/Start", alias: "start", embed: false, page_id: 2 }, { target: "assets/logo.png", embed: true, page_id: 3 }] },
+        metadata: { frontmatter: null, aliases: [], tags: ["guide"], headings: ["Home"], links: [{ target: "Guides/Start", heading: "Install", alias: "start", embed: false, page_id: 2 }, { target: "assets/logo.png", embed: true, page_id: 3 }, { target: "Nowhere", embed: false }] },
         backlinks: [{ page_id: 2, path: "Guides/Start.md", embed: false }] },
       { id: 2, slug: "start", title: "Start", path: "Guides/Start.md", revision: 1, visibility: "public", content_digest: "b".repeat(64), author, created_at: at, updated_at: at,
-        metadata: { frontmatter: null, aliases: [], tags: ["guide"], headings: ["Start"], links: [{ target: "Home", embed: false, page_id: 1 }] }, backlinks: [{ page_id: 1, path: "Home.md", embed: false }] },
+        metadata: { frontmatter: null, aliases: [], tags: ["guide"], headings: ["Start", "Install"], links: [{ target: "Home", embed: false, page_id: 1 }] }, backlinks: [{ page_id: 1, path: "Home.md", embed: false }] },
       { id: 3, slug: "logo", title: "logo.png", path: "assets/logo.png", revision: 1, visibility: "public", content_digest: "c".repeat(64), author, created_at: at, updated_at: at,
         attachment: { digest: "c".repeat(64), media_type: "image/png", size: 68 }, metadata: { frontmatter: null, aliases: [], tags: [], headings: [], links: [] }, backlinks: [{ page_id: 1, path: "Home.md", embed: true }] }
     ],
     private: [
       { id: 9, slug: "home", title: "Home", path: "Home.md", revision: 1, visibility: "private", content_digest: "d".repeat(64), author, created_at: at, updated_at: at,
-        metadata: { frontmatter: null, aliases: [], tags: ["secret"], headings: ["Home"], links: [] }, backlinks: [] }
+        metadata: { frontmatter: null, aliases: [], tags: ["secret"], headings: ["Home"], links: [{ target: "Plans/Roadmap", alias: "the roadmap", embed: false, page_id: 10 }, { target: "assets/diagram.png", embed: true, page_id: 11 }] },
+        backlinks: [{ page_id: 10, path: "Plans/Roadmap.md", embed: false }] },
+      { id: 10, slug: "roadmap", title: "Roadmap", path: "Plans/Roadmap.md", revision: 1, visibility: "private", content_digest: "e".repeat(64), author, created_at: at, updated_at: at,
+        metadata: { frontmatter: null, aliases: [], tags: ["secret"], headings: ["Roadmap"], links: [{ target: "Home", embed: false, page_id: 9 }] }, backlinks: [{ page_id: 9, path: "Home.md", embed: false }] },
+      { id: 11, slug: "diagram", title: "diagram.png", path: "assets/diagram.png", revision: 1, visibility: "private", content_digest: "f".repeat(64), author, created_at: at, updated_at: at,
+        attachment: { digest: "f".repeat(64), media_type: "image/png", size: 68 }, metadata: { frontmatter: null, aliases: [], tags: [], headings: [], links: [] }, backlinks: [{ page_id: 9, path: "Home.md", embed: true }] }
     ]
   }
   const docs = new Map<string, Y.Doc>()
@@ -55,9 +63,18 @@ const wikiFixture = async (page: Page) => {
     return doc
   }
   const requests: Array<{ method: string; url: string }> = []
-  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64")
+  // A 480x180 checker: an embed the capture can see.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAeAAAAC0CAIAAADD3miXAAAFHklEQVR42u3UwQkAIBADwavL2mzYx7Ug1uAvBwOpYFhSfe647dXjxpkzZ86/K9CC5syZs4MWNGfOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZs4MGLWjOnDk7aEFz5syZs4MWNGfOnB00aEFz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZM2cHLWjOnDk7aNCC5syZs4MWNGfOnB00aEFz5szZQQuaM2fOnB20oDlz5uygQQuaM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDk7aNCC5syZs4MWNGfOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZs4MGLWjOnDk7aEFz5szZQYMWNGfOnB20oDlz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZM2cHLWjOnDk7aNCC5syZs4MWNGfOnB00aEFz5szZQQuaM2fOnB20oDlz5uygQXPmzJmzgxY0Z86cHTRoQXPmzNlBC5ozZ84OGrSgOXPmHHPQ4hAHZ86cM+egBc2ZM2cHLWjOnDlzdtCC5syZs4MGLWjOnDk7aEFz5szZQYMWNGfOnB20oDlz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZM2cHLWjOnDk7aNCC5syZs4MWNGfOnB00aEFz5szZQQuaM2fODhq0oDlz5uygBc2ZM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDk7aNCC5syZs4MWNGfOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDlzdtCC5syZs4MGLWjOnDk7aEFz5szZQYMWNGfOnB20oDlz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZs4MGLWjOnDk7aEFz5syZs4MWNGfOnB00aEFz5szZQQuaM2fODhq0oDlz5uygBc2ZM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDk7aNCC5syZs4MWNGfOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlzdtCgBc2ZM+ecgxaHODhz5pw5By1ozpw5O2hBc+bMmbODFjRnzpwdNGhBc+bM2UELmjNnzg4atKA5c+bsoAXNmTNnzg5a0Jw5c3bQoAXNmTNnBy1ozpw5O2jQgubMmbODFjRnzpw5O2hBc+bM2UGDFjRnzpwdtKA5c+bsoEELmjNnzg5a0Jw5c3bQoAXNmTNnBy1ozpw5c3bQgubMmbODBi1ozpw5O2hBc+bM2UGDFjRnzpwdtKA5c+bM2UELmjNnzg4atKA5c+bsoAXNmTNnBw1a0Jw5c3bQgubMmbODBi1ozpw5O2hBc+bMmbODFjRnzpwdNGhBc+bM2UELmjNnzg4atKA5c+bsoAXNmTNnzg5a0Jw5c3bQoAXNmTNnBy1ozpw5O2jQgubMmbODFjRnzpwdNGhBc+bM2UELmjNnzpwdtKA5c+bsoEELmjNnzg5a0Jw5c3bQoAXNmTNnBy1ozpw5c3bQgubMmbODBi1ozpw5O2hBc+bM2UGDFjRnzpwdtKA5c+bM2UELmjNnzg4atKA5c+bsoAXNmTNnBw1a0Jw5c3bQgubMmbODBi1ozpw5x+wB0G2dYOK+sO0AAAAASUVORK5CYII=", "base64")
   let renameHold: (() => Promise<void>) | undefined
   await installCloudFixture(page)
+  // The app home (D-18): the repository's homepage blocks, so the chat behind the pane is the grid.
+  await page.route((url) => url.pathname === `/api/repos/${repo}/home`, (route) => route.fulfill({ json: { kind: "blocks", blocks: [
+    { type: "prompt", title: "What should we work on?", placeholder: "Ask Smithers…" },
+    { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+    { type: "app", flow: "prs.triage", title: "Review a PR", picture: "review" },
+    { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
+    { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
+  ] } }))
   const wikiRoute = async (route: Parameters<Parameters<Page["route"]>[1]>[0]) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -75,7 +92,7 @@ const wikiFixture = async (page: Page) => {
       { page_id: 1, revision: 2, path: "Old/Home.md", title: "Home", content_digest: "e".repeat(64), deleted: false, author: { id: 2, login: "ada" }, updated_at: "2026-09-26T02:00:00Z" },
       { page_id: 1, revision: 1, path: "Old/Home.md", title: "Home", content_digest: "f".repeat(64), deleted: false, author, updated_at: "2026-09-26T01:00:00Z" }
     ]))
-    if (/\/history\/3\/1\/content$/.test(path)) return route.fulfill({ status: 200, contentType: "image/png", body: png })
+    if (/\/history\/(3|11)\/1\/content$/.test(path)) return route.fulfill({ status: 200, contentType: "image/png", body: png })
     if (/\/history\/\d+\/\d+\/content$/.test(path)) return route.fulfill({ status: 200, contentType: "text/markdown", body: "# Old" })
     const slugMatch = /\/wiki\/([^/]+)(?:\/(document|updates|stream))?$/.exec(path)
     if (request.method() === "PATCH" && slugMatch !== null) {
@@ -108,7 +125,8 @@ const wikiFixture = async (page: Page) => {
       const doc = docOf(space, slugMatch[1]!)
       return route.fulfill(json({ page: { ...row, body: doc.getText("markdown").toString() }, state: Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64"), state_vector: Buffer.from(Y.encodeStateVector(doc)).toString("base64") }))
     }
-    if (slugMatch !== null && slugMatch[2] === "stream") return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": connected\n\n" })
+    // A live revision stream stays open; a stream that ended would say "Reconnecting". The request rests until the page closes.
+    if (slugMatch !== null && slugMatch[2] === "stream") return new Promise<void>(() => {})
     if (slugMatch !== null && slugMatch[2] === "updates") {
       const input = request.postDataJSON() as { update_id: string; update: string; page_id: number }
       const row = pages[space].find((candidate) => candidate.id === input.page_id)!
@@ -132,6 +150,9 @@ test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, rename conflict, new page", async ({ page }) => {
   const fixture = await wikiFixture(page)
   await page.goto("/")
+  // The app home (D-18) is up before the chord: the grid, no chat controls strip.
+  await expect(page.getByTestId("app-tile")).toHaveCount(4)
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toHaveCount(0)
   // The wiki belongs to the selected repository (the fixture loads one; the selection names it).
   await slash(page, `/repo.select ${repo}`)
   await slash(page, "/wiki.pane")
@@ -149,15 +170,47 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   const rail = pane.getByTestId("wiki-rail")
   await expect(rail).toContainText("Guides/Start.md")
   expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/home/document?visibility=public`)).toBe(true)
+  // The page reads rendered: the wikilink with its alias, the embedded image from its scoped route, the unresolved target marked, no raw markup, no chat card behind it.
+  const view = pane.getByTestId("wiki-page")
+  await expect(view.getByRole("link", { name: "start", exact: true })).toHaveAttribute("href", "#note/Guides%2FStart.md?h=Install")
+  await expect(view.getByTestId("wiki-embed").locator("img")).toHaveAttribute("src", `/api/repos/${repo}/wiki/history/3/1/content?visibility=public`)
+  await expect(view.locator('a[href^="#unresolved/"]')).toHaveText("Nowhere")
+  await expect(view).not.toContainText("[[")
+  await expect(pane.locator(".world-document-notice")).toHaveCount(0)
+  await expect(page.locator('[data-testid^="card-wiki-open-"]')).toHaveCount(0)
   if (process.env.SMITHERS_WIKI_CAPTURE) {
     await page.evaluate(() => document.fonts.ready)
     await page.screenshot({ path: `${process.env.SMITHERS_WIKI_CAPTURE}-public.png` })
   }
-  // A backlink row opens that page.
-  await rail.getByRole("button", { name: /Start/ }).first().click()
+  // A wikilink opens its page and carries the heading; the page's own backlinks follow.
+  await view.getByRole("link", { name: "start", exact: true }).click()
   await expect(pane.getByTestId("wiki-page-path")).toHaveText("Guides/Start.md")
   await expect(rail).toContainText("Home.md")
-  // Editing: the existing collaborative save carries the space.
+  await expect(view.locator(".sui-md-heading", { hasText: "Install" })).toBeInViewport()
+  // The private space: the same path is another page, with its own tree and tags.
+  await pane.getByTestId("wiki-space-private").click()
+  await expect(pane.getByTestId("wiki-space-private")).toHaveAttribute("aria-pressed", "true")
+  await expect(tree).toHaveAttribute("data-space", "private")
+  await expect(tree.getByRole("button", { name: "#secret" })).toBeVisible()
+  await expect(tree.locator('[data-slot="file-tree-dir-toggle"]')).toHaveText(["Plans", "assets"])
+  await tree.getByRole("button", { name: "Home", exact: true }).click()
+  await expect(pane.getByTestId("wiki-page-revision")).toHaveText("r1")
+  await expect(pane.getByTestId("wiki-page")).toContainText("Private notes.")
+  expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/home/document?visibility=private`)).toBe(true)
+  await expect(pane.getByTestId("wiki-page").getByRole("link", { name: "the roadmap", exact: true })).toBeVisible()
+  await expect(pane.getByTestId("wiki-page").getByTestId("wiki-embed").locator("img")).toBeVisible()
+  await expect(rail).toContainText("Plans/Roadmap.md")
+  if (process.env.SMITHERS_WIKI_CAPTURE) {
+    await page.evaluate(() => document.fonts.ready)
+    await page.screenshot({ path: `${process.env.SMITHERS_WIKI_CAPTURE}-private.png` })
+  }
+  // Back to the public space: the tree is public again, and Start is where the edit goes.
+  await pane.getByTestId("wiki-space-public").click()
+  await expect(tree).toHaveAttribute("data-space", "public")
+  await tree.getByRole("button", { name: "Start", exact: true }).click()
+  await expect(pane.getByTestId("wiki-page-path")).toHaveText("Guides/Start.md")
+  // Editing: Edit shows the editor; the existing collaborative save carries the space.
+  await pane.getByTestId("wiki-page-edit").click()
   const editor = pane.locator('.ProseMirror[contenteditable="true"]')
   await expect(editor).toBeVisible()
   await editor.click()
@@ -166,6 +219,8 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await page.keyboard.type("Edited here.")
   await expect.poll(() => fixture.docOf("public", "start").getText("markdown").toString()).toContain("Edited here.")
   expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/start/updates?visibility=public`)).toBe(true)
+  await pane.getByTestId("wiki-page-edit").click()
+  await expect(pane.getByTestId("wiki-page")).toContainText("Edited here.")
   // The tag narrows the tree; the search does too.
   await tree.getByRole("button", { name: "#guide" }).click()
   await expect(tree.locator('[data-slot="file-tree-file"]')).toHaveCount(2)
@@ -198,20 +253,9 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
     await page.waitForTimeout(1500)
   }
   await expect(page.locator(".toast-stack .toast")).toHaveCount(0, { timeout: 20_000 })
-  // The private space: the same path is another page, with its own tree and tags.
+  // The private space again for the new page.
   await pane.getByTestId("wiki-space-private").click()
-  await expect(pane.getByTestId("wiki-space-private")).toHaveAttribute("aria-pressed", "true")
   await expect(tree).toHaveAttribute("data-space", "private")
-  await expect(tree.getByRole("button", { name: "#secret" })).toBeVisible()
-  await expect(tree.locator('[data-slot="file-tree-dir-toggle"]')).toHaveCount(0)
-  await tree.getByRole("button", { name: "Home", exact: true }).click()
-  await expect(pane.getByTestId("wiki-page-revision")).toHaveText("r1")
-  await expect(pane.locator(".ProseMirror")).toContainText("Private notes.")
-  expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/home/document?visibility=private`)).toBe(true)
-  if (process.env.SMITHERS_WIKI_CAPTURE) {
-    await page.evaluate(() => document.fonts.ready)
-    await page.screenshot({ path: `${process.env.SMITHERS_WIKI_CAPTURE}-private.png` })
-  }
   // New page: one input, Create; acknowledged at once, the toast follows the write, the page opens in this space.
   await pane.getByRole("button", { name: "New page" }).first().click()
   const create = page.locator('form.flow-form[data-flow-name="wiki.cloud.new"]')
@@ -228,6 +272,9 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
 test("the Wiki card lists the space with its chip and offers a page's History", async ({ page }) => {
   await wikiFixture(page)
   await page.goto("/")
+  // The app home (D-18) is up before the chord: the grid, no chat controls strip.
+  await expect(page.getByTestId("app-tile")).toHaveCount(4)
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toHaveCount(0)
   await slash(page, `/repo.select ${repo}`)
   await slash(page, `/wiki.cloud ${repo} --space private`)
   const card = page.getByTestId(`card-wiki-index-${repo}`)
