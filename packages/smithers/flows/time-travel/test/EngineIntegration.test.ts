@@ -204,11 +204,14 @@ const drive = <A, E>(
     // which is the only state a rewind accepts.
     const running = yield* Ledger.execute({}, { executionId: "ledger-1" }).pipe(Effect.forkChild)
     const runs = yield* RunStore.RunStore
-    for (let attempts = 0; attempts < 1_000; attempts++) {
-      const row = yield* runs.get("ledger-1").pipe(Effect.option)
-      if (Option.isSome(row) && row.value.status === "suspended") break
-      yield* Effect.yieldNow
-    }
+    // Parking is database I/O, which no count of scheduler turns waits for
+    // on a server database.
+    yield* TestDatabase.until(
+      runs.get("ledger-1").pipe(
+        Effect.option,
+        Effect.map((row) => Option.isSome(row) && row.value.status === "suspended")
+      )
+    )
     expect((yield* runs.get("ledger-1")).status).toBe("suspended")
     // A rewind requires a quiescent executor. Stop this caller's automatic
     // resume loop while retaining the registered flow for the later replay.
@@ -406,13 +409,14 @@ describe("time travel over an engine-written journal", () => {
           Effect.forkChild
         )
         const runs = yield* RunStore.RunStore
-        for (let attempts = 0; attempts < 1_000; attempts++) {
-          const row = yield* runs.get("spawn-parent").pipe(Effect.option)
-          if (Option.isSome(row) && row.value.status === "suspended") {
-            break
-          }
-          yield* Effect.yieldNow
-        }
+        yield* TestDatabase.until(
+          runs.get("spawn-parent").pipe(
+            Effect.option,
+            Effect.map((row) =>
+              Option.isSome(row) && row.value.status === "suspended"
+            )
+          )
+        )
         yield* Fiber.interrupt(running)
         expect((yield* runs.get("spawn-child")).status).toBe("running")
         expect((yield* runs.get("spawn-parent")).status).toBe("suspended")
@@ -718,15 +722,12 @@ describe("time travel over an engine-written journal", () => {
         const state = yield* DurableEngineState.DurableEngineState
         const address = { flowName: timer._tag, executionId: "clock-run", clockName: "rewind-sleep" }
         // Timer delivery wakes the driver; completion is persisted afterwards.
-        let clock = yield* state.clock(address)
-        for (
-          let attempt = 0;
-          attempt < 2_000 && Option.isSome(clock) && clock.value.completedAtMs === null;
-          attempt++
-        ) {
-          yield* Effect.yieldNow
-          clock = yield* state.clock(address)
-        }
+        yield* TestDatabase.until(
+          state.clock(address).pipe(
+            Effect.map((clock) => Option.isNone(clock) || clock.value.completedAtMs !== null)
+          )
+        )
+        const clock = yield* state.clock(address)
         expect(clock).toMatchObject({ _tag: "Some", value: { completedAtMs: 1000 } })
         const timeTravel = yield* TimeTravel
         const runs = yield* RunStore.RunStore
@@ -742,8 +743,10 @@ describe("time travel over an engine-written journal", () => {
         expect(yield* state.deferred({ ...address, deferredName: "DurableClock/rewind-sleep" })).toMatchObject({
           _tag: "None"
         })
+        // The run parks on its timer again. A follower's elapsed poll re-drives
+        // a timer park (only event parks are joined), so the status can leave
+        // "suspended" between two reads; the wait itself is the assertion.
         yield* TestDatabase.until(runs.get("clock-run").pipe(Effect.map((row) => row.status === "suspended")))
-        expect((yield* runs.get("clock-run")).status).toBe("suspended")
       }).pipe(Effect.provide(engineLayer({ notifications: [], jjCalls: [] }, [])))
     ))
 
@@ -774,15 +777,12 @@ describe("time travel over an engine-written journal", () => {
         const state = yield* DurableEngineState.DurableEngineState
         const address = { flowName: timer._tag, executionId: "fired-clock-run", clockName: "rewind-sleep" }
         // Timer delivery wakes the driver; completion is persisted afterwards.
-        let clock = yield* state.clock(address)
-        for (
-          let attempt = 0;
-          attempt < 2_000 && Option.isSome(clock) && clock.value.completedAtMs === null;
-          attempt++
-        ) {
-          yield* Effect.yieldNow
-          clock = yield* state.clock(address)
-        }
+        yield* TestDatabase.until(
+          state.clock(address).pipe(
+            Effect.map((clock) => Option.isNone(clock) || clock.value.completedAtMs !== null)
+          )
+        )
+        const clock = yield* state.clock(address)
         expect(clock).toMatchObject({ _tag: "Some", value: { completedAtMs: 1000 } })
         const timeTravel = yield* TimeTravel
         const runs = yield* RunStore.RunStore
@@ -793,11 +793,10 @@ describe("time travel over an engine-written journal", () => {
         // The rewind keeps the fired clock row and drops the completion the
         // replayed sleep waits on, so the clock has to fire again.
         yield* execute
-        let deferred = yield* state.deferred({ ...address, deferredName: "DurableClock/rewind-sleep" })
-        for (let attempt = 0; attempt < 2_000 && Option.isNone(deferred); attempt++) {
-          yield* Effect.yieldNow
-          deferred = yield* state.deferred({ ...address, deferredName: "DurableClock/rewind-sleep" })
-        }
+        yield* TestDatabase.until(
+          state.deferred({ ...address, deferredName: "DurableClock/rewind-sleep" }).pipe(Effect.map(Option.isSome))
+        )
+        const deferred = yield* state.deferred({ ...address, deferredName: "DurableClock/rewind-sleep" })
         expect(deferred).toMatchObject({ _tag: "Some" })
         yield* TestDatabase.until(runs.get("fired-clock-run").pipe(Effect.map((row) => row.status === "suspended")))
         expect((yield* runs.get("fired-clock-run")).status).toBe("suspended")
