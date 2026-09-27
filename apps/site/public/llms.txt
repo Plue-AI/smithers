@@ -9,6 +9,7 @@
 - [Welcome to Smithers](https://smithers.sh/docs/): Smithers maintains your codebase. It turns issues into reviewed, tested changes and keeps the project wiki current. Flows beside your code define how.
 - [Quickstart](https://smithers.sh/docs/quickstart/): Connect a repository, set up a job, and inspect its real result in the Smithers app.
 - [Pricing](https://smithers.sh/docs/pricing/): Free and Pro plans. Smithers runs the models; model usage draws on your account credit.
+- [Self-host Smithers](https://smithers.sh/docs/self-hosting/): Run the Smithers app and backend on your own machine: one container, an external PostgreSQL 18, and one data volume.
 - [CLI and libraries](https://smithers.sh/docs/developers/): Use Smithers from your terminal, define flows beside your code, and build on the TypeScript libraries.
 - [Installation](https://smithers.sh/docs/installation/): Install the Smithers CLI and libraries from the source checkout and verify the install.
 - [CLI quickstart](https://smithers.sh/docs/cli-quickstart/): Install the CLI, scaffold a flow, choose its model, and run it in your project.

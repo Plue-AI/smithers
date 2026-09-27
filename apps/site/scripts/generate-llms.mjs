@@ -74,7 +74,7 @@ const groupLabel = {
   examples: "Examples"
 }
 const byGroup = (g) => pages.filter((p) => p.group === g).sort((a, b) => a.order - b.order || a.title.localeCompare(b.title))
-const startOrder = ["index.mdx", "quickstart.mdx", "pricing.mdx", "developers.mdx", "installation.mdx", "cli-quickstart.mdx"]
+const startOrder = ["index.mdx", "quickstart.mdx", "pricing.mdx", "self-hosting.mdx", "developers.mdx", "installation.mdx", "cli-quickstart.mdx"]
 const root = pages.filter((p) => p.group === "").sort((a, b) => startOrder.indexOf(a.rel) - startOrder.indexOf(b.rel))
 const link = (p) => `- [${p.title}](${origin}${p.route})${p.description ? `: ${p.description}` : ""}`
 

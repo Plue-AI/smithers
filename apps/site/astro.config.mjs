@@ -153,6 +153,7 @@ export default defineConfig({
             { slug: "docs/quickstart" },
             { slug: "docs/app" },
             { slug: "docs/pricing" },
+            { slug: "docs/self-hosting" },
             { label: "Open Smithers ↗", link: "https://smithers.sh/smithersai/smithers" }
           ]
         },

@@ -129,6 +129,48 @@ See [CLI and libraries](/docs/developers/) for setup and supported platforms.
 
 ---
 
+# Self-host Smithers
+https://smithers.sh/docs/self-hosting/
+
+Smithers runs as one unprivileged container, next to a PostgreSQL 18 database you provide, with one persistent volume. One machine, one owner, local disk.
+
+**Partly available.** The image is not published yet ([#1667](https://github.com/smithersai/smithers/issues/1667)). Build it from a source checkout:
+
+```sh
+docker build -f distribution/Dockerfile -t smithers .
+```
+
+## Start it
+
+```sh
+umask 077
+cat >smithers.env <<EOF
+DATABASE_URL=postgres://smithers:replace-me@postgres:5432/smithers?sslmode=require
+SMITHERS_AUTH_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+EOF
+docker run --name smithers --restart unless-stopped -p 4000:4000 \
+  --network smithers \
+  --env-file ./smithers.env \
+  -v smithers-data:/var/lib/smithers \
+  smithers
+```
+
+`--network` must reach PostgreSQL. The app listens on port 4000 (set `PORT` to change it). The bootstrap token is needed only until the first owner account exists; then remove it from `smithers.env`.
+
+## Give it model keys
+
+Put provider keys in a JSON file on the data volume and point `SMITHERS_PLATFORM_MODEL_KEYS_FILE` at it. Providers: `anthropic`, `openai`, `cerebras`, `openrouter`, and `vercel` (the AI Gateway key). Every call is metered against the owner's credit; grant it with `smithers-backend credits grant`.
+
+## Back up and upgrade
+
+Stop the container, then run the image's `backup.sh`, `restore.sh`, or `upgrade.sh` entrypoint against the same volume. Upgrade always starts from a verified backup.
+
+## More
+
+[The distribution guide](https://github.com/smithersai/smithers/blob/main/distribution/README.md) has every variable and command: Railway, the macOS app with its own PostgreSQL, microVM isolation, subscription connections, backup, restore, and upgrade.
+
+---
+
 # CLI and libraries
 https://smithers.sh/docs/developers/
 
