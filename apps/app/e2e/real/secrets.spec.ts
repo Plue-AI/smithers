@@ -23,14 +23,16 @@ authenticatedTest("repository secret metadata survives reload and follows actual
   const secretName = "ACCEPTANCE_TOKEN"
   const secretPath = `${environmentPath}/secrets/${secretName}`
   const value = fixtureInputText(`owned-secret-${randomUUID()}`)
-  const binding = { name: secretName, hosts: [fixtureInputText("api.example.test")], match_headers: ["authorization"] }
+  const host = fixtureInputText("api.example.test")
+  const binding = { name: secretName, hosts: [host], match_headers: ["authorization"] }
   let submitted = false, failure: unknown
   const cleanup: unknown[] = []
   try {
     submitted = true
     const created = await realApi(page, request, "POST", "/api/user/repos", { name, private: true, auto_init: false })
     expect(created.status()).toBe(201)
-    expect(await created.json()).toMatchObject({ full_name: repo, private: true })
+    const repository = await created.json() as { full_name: string; private: boolean }
+    expect(repository).toMatchObject({ full_name: repo, private: true })
     const written = await realApi(page, request, "PUT", secretPath, { value, hosts: binding.hosts, match_headers: binding.match_headers })
     expect(written.status()).toBe(201)
     const metadata = await written.json()
@@ -61,7 +63,7 @@ authenticatedTest("repository secret metadata survives reload and follows actual
       expect(JSON.stringify(body).includes(value)).toBe(false)
       for (const secret of body.secrets) expect(secret).not.toHaveProperty("value")
     }
-    const card = page.getByTestId(`card-secrets-${repo}`)
+    const card = page.locator('.smithers-card[data-kind="secrets"]')
     const row = card.getByTestId(`secret-${secretName}`)
     await list()
     await expect(card).toBeVisible()
