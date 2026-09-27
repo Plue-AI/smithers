@@ -16,7 +16,7 @@ Smithers maintains your codebase. It turns issues into reviewed, tested changes 
 ## Open Smithers
 
 Open [the Smithers repository](https://smithers.sh/smithersai/smithers) in your browser.
-Explore its files, ask for a task in chat, and inspect runs and changes in the conversation.
+Explore its files, ask for work in chat, and inspect runs and changes in the conversation.
 Sign in with GitHub when you are ready to contribute. See
 [Pricing](https://smithers.sh/docs/pricing/) for Free and Pro plans and deployment
 availability. Follow the [app quickstart](https://smithers.sh/docs/quickstart/).
