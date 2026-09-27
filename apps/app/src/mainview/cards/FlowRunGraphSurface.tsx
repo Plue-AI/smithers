@@ -19,11 +19,11 @@ import { payloadFor } from "../flows/SlashPayload"
 import { Background, Handle, Position, ReactFlow, type NodeProps } from "@xyflow/react"
 import { WorkflowCanvas, WorkflowNode, WorkflowNodeContent } from "@smthrs/ui"
 import dagre from "dagre"
-import { memo, useMemo, type CSSProperties } from "react"
+import { memo, useMemo, useRef, type CSSProperties } from "react"
 import { useObservedClock } from "@smthrs/ui/clock"
 import { NODE_HEIGHT, NODE_WIDTH } from "./FlowGraph"
 import { displayByNode, progressOf, type DurationDisplay } from "./flowGraph/Durations"
-import { focusedNodeId, graphNodeLabel, nodeButton } from "./flowGraph/NodeAria"
+import { focusedNodeId, focusWalkedNode, graphNodeLabel, nodeButton, type GraphCamera } from "./flowGraph/NodeAria"
 import { durationWords, type JournalRecord } from "./RunTrace"
 import type { FlowDurationsRow } from "../state/AppState"
 import { FlowGraphDrawer, fileFor, graphKeyAct, runDrawerNode, type GraphDrill } from "./FlowGraphDrawer"
@@ -307,6 +307,7 @@ export const FlowRunGraphSurface = ({
     })),
     [laidOut, drill, selected]
   )
+  const camera = useRef<GraphCamera | undefined>(undefined)
   if (laidOut.nodes.length === 0) return null
   const open = nodes.find((candidate) => candidate.id === selected)
   const onKeyDown = drill === undefined ? undefined : (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -323,9 +324,7 @@ export const FlowRunGraphSurface = ({
     drill.onRunCommand(act.flow, act.args)
     const parsed = payloadFor(act.flow, act.args)
     if ("payload" in parsed && typeof parsed.payload.nodeId === "string") {
-      const wrapper = [...event.currentTarget.querySelectorAll<HTMLElement>(".react-flow__node")]
-        .find(element => element.dataset.id === parsed.payload.nodeId)
-      wrapper?.focus({ preventScroll: true })
+      focusWalkedNode(event.currentTarget, parsed.payload.nodeId, camera.current)
     }
   }
   return (
@@ -355,6 +354,7 @@ export const FlowRunGraphSurface = ({
         nodesDraggable={false}
         nodesConnectable={false}
         nodesFocusable
+        onInit={(instance) => { camera.current = instance }}
         deleteKeyCode={null}
         proOptions={{ hideAttribution: true }}
         {...(drill === undefined ? {} : {

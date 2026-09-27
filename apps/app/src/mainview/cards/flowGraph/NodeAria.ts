@@ -53,3 +53,31 @@ export const focusedNodeId = (target: EventTarget | null): string | undefined =>
   const found = target.closest("[data-node], .react-flow__node[data-id]")
   return found?.getAttribute("data-node") ?? found?.getAttribute("data-id") ?? undefined
 }
+
+/** The part of React Flow's instance that moves the camera. */
+export interface GraphCamera {
+  readonly getZoom: () => number
+  readonly fitView: (options: { readonly nodes: Array<{ readonly id: string }>; readonly minZoom: number; readonly maxZoom: number }) => Promise<boolean>
+}
+
+/**
+ * Focus the node an arrow key walked to and show all of it.
+ *
+ * React Flow's own focus pan skips a node that is only partly on screen
+ * (`getNodesInside(..., partially: true)`), so a walked-to node at the canvas
+ * edge stayed clipped. A node not wholly inside the canvas is centred at the
+ * current zoom.
+ */
+export const focusWalkedNode = (canvas: HTMLElement, nodeId: string, camera: GraphCamera | undefined): void => {
+  const wrapper = [...canvas.querySelectorAll<HTMLElement>(".react-flow__node")]
+    .find((element) => element.dataset.id === nodeId)
+  if (wrapper === undefined) return
+  wrapper.focus({ preventScroll: true })
+  const frame = canvas.getBoundingClientRect()
+  const drawn = wrapper.getBoundingClientRect()
+  const framed = drawn.top >= frame.top && drawn.bottom <= frame.bottom &&
+    drawn.left >= frame.left && drawn.right <= frame.right
+  if (framed || camera === undefined) return
+  const zoom = camera.getZoom()
+  void camera.fitView({ nodes: [{ id: nodeId }], minZoom: zoom, maxZoom: zoom })
+}

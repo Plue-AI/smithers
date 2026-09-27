@@ -21,10 +21,10 @@ import { graphSelectArgs } from "../flows/FlowArgs"
 import { payloadFor } from "../flows/SlashPayload"
 import { Background, Handle, Position, ReactFlow, type NodeProps } from "@xyflow/react"
 import { WorkflowCanvas, WorkflowNode, WorkflowNodeContent } from "@smthrs/ui"
-import { memo, useMemo } from "react"
+import { memo, useMemo, useRef } from "react"
 import { flowGraphModel, layoutFlowGraph, sitesByNode, type PlanCardGraph, type PlanCardNode } from "./FlowGraph"
 import { displayByNode, type DurationDisplay } from "./flowGraph/Durations"
-import { focusedNodeId, nodeButton } from "./flowGraph/NodeAria"
+import { focusedNodeId, focusWalkedNode, nodeButton, type GraphCamera } from "./flowGraph/NodeAria"
 import type { FlowDurationsRow } from "../state/AppState"
 import {
   FlowGraphDrawer,
@@ -132,6 +132,7 @@ export const FlowGraphSurface = ({
     })),
     [laidOut, drill, selected]
   )
+  const camera = useRef<GraphCamera | undefined>(undefined)
   if (laidOut.nodes.length === 0) return null
   const node = nodes.find((candidate) => candidate.id === selected)
   const site = node === undefined ? undefined : sitesByNode(graph).get(node.id)
@@ -150,9 +151,7 @@ export const FlowGraphSurface = ({
     drill.onRunCommand(act.flow, act.args)
     const parsed = payloadFor(act.flow, act.args)
     if ("payload" in parsed && typeof parsed.payload.nodeId === "string") {
-      const wrapper = [...event.currentTarget.querySelectorAll<HTMLElement>(".react-flow__node")]
-        .find(element => element.dataset.id === parsed.payload.nodeId)
-      wrapper?.focus({ preventScroll: true })
+      focusWalkedNode(event.currentTarget, parsed.payload.nodeId, camera.current)
     }
   }
   return (
@@ -173,6 +172,7 @@ export const FlowGraphSurface = ({
           nodesDraggable={false}
           nodesConnectable={false}
           nodesFocusable
+          onInit={(instance) => { camera.current = instance }}
           deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
           {...(drill === undefined ? {} : {

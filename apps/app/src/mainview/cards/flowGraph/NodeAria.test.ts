@@ -9,7 +9,7 @@
  */
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, describe, expect, test } from "bun:test"
-import { focusedNodeId, graphNodeLabel, nodeButton } from "./NodeAria"
+import { focusedNodeId, focusWalkedNode, graphNodeLabel, nodeButton } from "./NodeAria"
 
 GlobalRegistrator.register()
 afterAll(async () => { await GlobalRegistrator.unregister() })
@@ -71,5 +71,34 @@ describe("the node's own words", () => {
   test("a node is a button, and aria-expanded says which one is open", () => {
     expect(nodeButton(true)).toEqual({ role: "button", "aria-expanded": true })
     expect(nodeButton(false)).toEqual({ role: "button", "aria-expanded": false })
+  })
+})
+
+describe("focusWalkedNode", () => {
+  const rect = (left: number, top: number, width: number, height: number) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect
+  const walk = (drawn: DOMRect) => {
+    const canvas = element('<div><div class="react-flow__node" data-id="gate" tabindex="0"></div></div>') as HTMLElement
+    document.body.append(canvas)
+    canvas.getBoundingClientRect = () => rect(0, 0, 400, 300)
+    const node = canvas.querySelector<HTMLElement>(".react-flow__node")!
+    node.getBoundingClientRect = () => drawn
+    const fits: Array<unknown> = []
+    focusWalkedNode(canvas, "gate", { getZoom: () => 1, fitView: async (options) => { fits.push(options); return true } })
+    const focused = document.activeElement === node
+    canvas.remove()
+    return { fits, focused }
+  }
+
+  test("a node wholly on the canvas is focused and the camera stays", () => {
+    expect(walk(rect(10, 10, 100, 40))).toEqual({ fits: [], focused: true })
+  })
+
+  // React Flow's own focus pan counts a partly drawn node as visible.
+  test("a node partly off the canvas is centred at the current zoom", () => {
+    expect(walk(rect(350, 10, 100, 40))).toEqual({
+      fits: [{ nodes: [{ id: "gate" }], minZoom: 1, maxZoom: 1 }],
+      focused: true
+    })
   })
 })
