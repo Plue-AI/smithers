@@ -32,7 +32,7 @@ type FFIClient interface {
 	DeleteBookmark(storePath, name string) error
 	ListChanges(storePath string, page, perPage uint32) (repohostffi.Paginated[repohost.Change], error)
 	GetChange(storePath, changeID string) (repohost.Change, error)
-	BackoutChange(storePath, changeID, revision, targetBookmark string) (repohost.Change, error)
+	BackoutChange(storePath, changeID, revision, targetBookmark, base string) (repohost.Change, error)
 	SplitChange(storePath, changeID string, paths []string, description string) (repohost.SplitChangeResult, error)
 	GetDiff(storePath, changeID string) (repohost.ChangeDiff, error)
 	GetRevisionDiff(storePath, fromCommitID, toCommitID, path string) (repohost.ChangeDiff, error)

@@ -1648,6 +1648,7 @@ func (s *Server) backoutChange(w http.ResponseWriter, r *http.Request) error {
 		chi.URLParam(r, "change_id"),
 		req.Revision,
 		req.TargetBookmark,
+		req.Base,
 	)
 	if err != nil {
 		return err

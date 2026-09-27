@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -77,25 +78,55 @@ func TestChangesetRecoversLostResponseWithoutLandingTwice(t *testing.T) {
 	require.Len(t, rh.landCalls, 3)
 }
 
-type interleavedChangesetUpdate struct{ *fakeChangesetRepoHost }
+// refusedRevert refuses the first revert landing (a definite 409) and
+// loses the response of the second after it lands.
+type refusedRevert struct {
+	*fakeChangesetRepoHost
+	reverts int
+}
 
-func (rh *interleavedChangesetUpdate) LandChanges(ctx context.Context, owner, repo string, req repohost.LandRequest) (repohost.LandResult, error) {
-	if repo == "web" && !req.LookupOnly {
-		rh.bookmarks["acme/api/main"] = repohost.Bookmark{Name: "main", TargetChangeID: "concurrent", TargetCommitID: "concurrent-commit"}
-		return repohost.LandResult{}, &repohost.StatusError{StatusCode: 409, Message: "second member conflicts"}
+func (rh *refusedRevert) LandChanges(ctx context.Context, owner, repo string, req repohost.LandRequest) (repohost.LandResult, error) {
+	if strings.Contains(req.OperationKey, "/revert/") && !req.LookupOnly {
+		rh.reverts++
+		switch rh.reverts {
+		case 1:
+			return repohost.LandResult{}, &repohost.StatusError{StatusCode: 409, Message: "landing produced merge conflicts"}
+		case 2:
+			if _, err := rh.fakeChangesetRepoHost.LandChanges(ctx, owner, repo, req); err != nil {
+				return repohost.LandResult{}, err
+			}
+			return repohost.LandResult{}, errors.New("connection lost after storage commit")
+		}
 	}
 	return rh.fakeChangesetRepoHost.LandChanges(ctx, owner, repo, req)
 }
-func TestChangesetRollbackPreservesConcurrentBookmarkUpdate(t *testing.T) {
+
+func TestChangesetRollbackRetriesARefusedRevertOnce(t *testing.T) {
 	q, rh, svc := seedChangesetFixture(t)
 	actor := &db.User{ID: 1}
 	created, err := svc.CreateChangeset(t.Context(), actor, "acme", reviewChangesetInput())
 	require.NoError(t, err)
-	svc = NewChangesetService(q, &interleavedChangesetUpdate{rh}, nil, nil)
+	rh.landFail["acme/web"] = &repohost.StatusError{StatusCode: 409, Message: "second member conflicts"}
+	host := &refusedRevert{fakeChangesetRepoHost: rh}
+	svc = NewChangesetService(q, host, nil, nil)
+
 	_, err = svc.LandChangeset(t.Context(), actor, "acme", created.ID)
 	require.ErrorContains(t, err, "rollback incomplete")
-	require.Equal(t, "concurrent-commit", rh.bookmarks["acme/api/main"].TargetCommitID)
-	require.Equal(t, "failed", q.changesets[created.ID].State)
+	_, err = svc.LandChangeset(t.Context(), actor, "acme", created.ID)
+	require.ErrorContains(t, err, "rollback incomplete")
+	require.Equal(t, 1, strings.Count(q.changesets[created.ID].FailureReason, "rollback incomplete"))
+
+	// The third call recovers the lost revert's receipt instead of landing
+	// it again, finishes the rollback, and starts a new attempt.
+	_, err = svc.LandChangeset(t.Context(), actor, "acme", created.ID)
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, 409, apiErr.Status)
+	require.NotContains(t, err.Error(), "rollback incomplete")
+	require.Equal(t, 2, strings.Count(strings.Join(rh.bookmarkOps, " "), "backout acme/api/aaaa/"), "a refused revert is backed out again; a lost one is not")
+	for _, member := range q.csMembers[created.ID] {
+		require.Empty(t, member.LandedCommitID)
+	}
 }
 
 type changesetFinalizeFailure struct {

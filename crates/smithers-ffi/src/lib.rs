@@ -531,11 +531,15 @@ impl RepoHandle {
     /// a new, unbookmarked jj change. This is the repository-side primitive
     /// behind the product revert flow; the API service creates the review or
     /// cross-repository changeset that will land the returned change.
+    /// Apply the inverse of `revision` on top of `target_bookmark`: the diff
+    /// from its parents, or from `base` when given (a landing's previous
+    /// head, so the whole range a landing brought in is reverted).
     fn backout_change(
         &self,
         change_id: &str,
         revision: &str,
         target_bookmark: &str,
+        base: &str,
     ) -> Result<Change, JjError> {
         let expected_change_id = change_id.trim();
         if expected_change_id.is_empty() {
@@ -589,12 +593,22 @@ impl RepoHandle {
             .map_err(|err| {
                 JjError::Internal(format!("failed to load revert destination: {err}"))
             })?;
-        let reverted_parent_tree = reverted
-            .parent_tree(self.repo.as_ref())
-            .block_on()
-            .map_err(|err| {
-                JjError::Internal(format!("failed to load reverted revision parents: {err}"))
-            })?;
+        let base = base.trim();
+        let reverted_parent_tree = if base.is_empty() {
+            reverted
+                .parent_tree(self.repo.as_ref())
+                .block_on()
+                .map_err(|err| {
+                    JjError::Internal(format!("failed to load reverted revision parents: {err}"))
+                })?
+        } else {
+            let base_id = resolve_change_or_commit_id(&self.repo, base)?;
+            self.repo
+                .store()
+                .get_commit(&base_id)
+                .map_err(|err| JjError::Internal(format!("failed to load revert base: {err}")))?
+                .tree()
+        };
         let new_tree = MergedTree::merge(Merge::from_vec(vec![
             (
                 destination.tree(),
@@ -3649,7 +3663,9 @@ pub extern "C" fn smithers_get_change(
 }
 
 /// Create an unbookmarked change that reverses `revision` on top of the
-/// current `target_bookmark` and return the generated change as JSON.
+/// current `target_bookmark` and return the generated change as JSON. A
+/// non-empty `base` reverses the diff from `base` to `revision` instead of
+/// the diff from `revision`'s parents.
 ///
 /// # Safety
 /// - All pointers may be NULL; NULL or invalid UTF-8 returns an error JSON
@@ -3665,14 +3681,16 @@ pub extern "C" fn smithers_backout_change(
     change_id: *const c_char,
     revision: *const c_char,
     target_bookmark: *const c_char,
+    base: *const c_char,
 ) -> *mut c_char {
     execute(|| {
         let handle = open_repo(store_path)?;
         let change_id = parse_c_string(change_id, "change_id")?;
         let revision = parse_c_string(revision, "revision")?;
         let target_bookmark = parse_c_string(target_bookmark, "target_bookmark")?;
+        let base = parse_c_string(base, "base")?;
         handle
-            .backout_change(&change_id, &revision, &target_bookmark)
+            .backout_change(&change_id, &revision, &target_bookmark, &base)
             .map_err(FfiError::from)
     })
 }
@@ -5025,6 +5043,7 @@ mod tests {
         let original_change_c = c_string(&original_change);
         let original_commit_c = c_string(&original_commit);
         let main_c = c_string("main");
+        let no_base_c = c_string("");
         let landed = unsafe {
             take_json(smithers_land_change(
                 repo_path_c.as_ptr(),
@@ -5040,6 +5059,7 @@ mod tests {
                 original_change_c.as_ptr(),
                 original_commit_c.as_ptr(),
                 main_c.as_ptr(),
+                no_base_c.as_ptr(),
             ))
         };
         let reverting_change = reverting["change_id"].as_str().expect("change id");

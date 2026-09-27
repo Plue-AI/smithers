@@ -38,7 +38,7 @@ type mockFFI struct {
 	deleteBookmarkFn         func(storePath, name string) error
 	listChangesFn            func(storePath string, page, perPage uint32) (repohostffi.Paginated[repohost.Change], error)
 	getChangeFn              func(storePath, changeID string) (repohost.Change, error)
-	backoutChangeFn          func(storePath, changeID, revision, targetBookmark string) (repohost.Change, error)
+	backoutChangeFn          func(storePath, changeID, revision, targetBookmark, base string) (repohost.Change, error)
 	splitChangeFn            func(storePath, changeID string, paths []string, description string) (repohost.SplitChangeResult, error)
 	getDiffFn                func(storePath, changeID string) (repohost.ChangeDiff, error)
 	getRevisionDiffFn        func(storePath, fromCommitID, toCommitID, path string) (repohost.ChangeDiff, error)
@@ -233,9 +233,9 @@ func (m *mockFFI) GetChange(storePath, changeID string) (repohost.Change, error)
 	}, nil
 }
 
-func (m *mockFFI) BackoutChange(storePath, changeID, revision, targetBookmark string) (repohost.Change, error) {
+func (m *mockFFI) BackoutChange(storePath, changeID, revision, targetBookmark, base string) (repohost.Change, error) {
 	if m.backoutChangeFn != nil {
-		return m.backoutChangeFn(storePath, changeID, revision, targetBookmark)
+		return m.backoutChangeFn(storePath, changeID, revision, targetBookmark, base)
 	}
 	return repohost.Change{}, nil
 }

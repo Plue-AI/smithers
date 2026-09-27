@@ -569,15 +569,15 @@ func TestGetChangeNotFound(t *testing.T) {
 }
 
 func TestBackoutChangeValidatesAndForwardsExactRevision(t *testing.T) {
-	var gotChangeID, gotRevision, gotTarget string
+	var gotChangeID, gotRevision, gotTarget, gotBase string
 	mock := &mockFFI{
-		backoutChangeFn: func(_ string, changeID, revision, targetBookmark string) (repohost.Change, error) {
-			gotChangeID, gotRevision, gotTarget = changeID, revision, targetBookmark
+		backoutChangeFn: func(_ string, changeID, revision, targetBookmark, base string) (repohost.Change, error) {
+			gotChangeID, gotRevision, gotTarget, gotBase = changeID, revision, targetBookmark, base
 			return repohost.Change{ChangeID: "reverting-change", CommitID: "reverting-commit"}, nil
 		},
 	}
 	handler := newTestServerWithMock(t, mock).Handler()
-	body := strings.NewReader(`{"revision":"landed-commit","target_bookmark":"main"}`)
+	body := strings.NewReader(`{"revision":"landed-commit","target_bookmark":"main","base":"previous-head"}`)
 	req := httptest.NewRequest(http.MethodPost, "/repos/alice%3Ademo/changes/original-change/backout", body)
 	req.Header.Set("Authorization", validAuth())
 	req.Header.Set("Content-Type", "application/json")
@@ -587,8 +587,8 @@ func TestBackoutChangeValidatesAndForwardsExactRevision(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d; body=%s", w.Code, w.Body.String())
 	}
-	if gotChangeID != "original-change" || gotRevision != "landed-commit" || gotTarget != "main" {
-		t.Fatalf("unexpected backout args: %q %q %q", gotChangeID, gotRevision, gotTarget)
+	if gotChangeID != "original-change" || gotRevision != "landed-commit" || gotTarget != "main" || gotBase != "previous-head" {
+		t.Fatalf("unexpected backout args: %q %q %q %q", gotChangeID, gotRevision, gotTarget, gotBase)
 	}
 	var got repohost.Change
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {

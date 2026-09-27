@@ -640,7 +640,7 @@ char *smithers_wiki_document(const char *request_json) {
 	return echo4("{\"state\":\"%s\",\"state_vector\":\"sv\",\"markdown\":\"md\"}", request_json, NULL, NULL, NULL);
 }
 
-char *smithers_backout_change(const char *store_path, const char *change_id, const char *revision, const char *target_bookmark) {
+char *smithers_backout_change(const char *store_path, const char *change_id, const char *revision, const char *target_bookmark, const char *base) {
 	char *special = special_response(store_path);
 	if (special != NULL) return special;
 	return echo4("{\"change_id\":\"%s\",\"commit_id\":\"%s\",\"description\":\"%s|%s\"}", change_id, revision, target_bookmark, store_path);

@@ -358,6 +358,15 @@ func (f *fakeChangesetRepoHost) ComposeSuperproject(_ context.Context, owner, re
 	return repohost.SuperprojectCommit{ChangeID: changeID, CommitID: commitID, Description: req.Description, Members: req.Members}, nil
 }
 
+// BackoutChange records a reverting change parented on the target's head.
+func (f *fakeChangesetRepoHost) BackoutChange(_ context.Context, owner, repo, changeID string, req repohost.BackoutChangeRequest) (repohost.Change, error) {
+	f.composeSeq++
+	change := repohost.Change{ChangeID: fmt.Sprintf("backout%025d", f.composeSeq), CommitID: fmt.Sprintf("f%039d", f.composeSeq), ParentCommitID: f.bookmarks[f.key(owner, repo, req.TargetBookmark)].TargetCommitID}
+	f.changes[f.key(owner, repo, change.ChangeID)] = change
+	f.bookmarkOps = append(f.bookmarkOps, "backout "+f.key(owner, repo, changeID, req.Revision))
+	return change, nil
+}
+
 func (f *fakeChangesetRepoHost) GetSuperproject(_ context.Context, owner, repo, revision string) (repohost.SuperprojectCommit, error) {
 	c, ok := f.changes[f.key(owner, repo, revision)]
 	if !ok {
@@ -442,14 +451,15 @@ func TestChangesetService_LandRollsBackWhenSecondMemberFails(t *testing.T) {
 	require.True(t, errors.As(err, &apiErr))
 	assert.Equal(t, 409, apiErr.Status)
 
-	// api landed first, then web failed, so api's bookmark is restored to its
-	// previous head and the superproject bookmark never moved.
-	assert.Equal(t, strings.Repeat("1", 40), rh.bookmarks["acme/api/main"].TargetCommitID)
+	// api landed first, then web failed: api's main moved forward to a revert
+	// of the member, and the superproject bookmark never moved.
+	revert := rh.bookmarks["acme/api/main"]
+	assert.True(t, strings.HasPrefix(revert.TargetChangeID, "backout"), "api main was rewound instead of reverted: %+v", revert)
 	assert.Equal(t, strings.Repeat("2", 40), rh.bookmarks["acme/web/main"].TargetCommitID)
 	_, superLanded := rh.bookmarks["acme/superproject/main"]
 	assert.False(t, superLanded)
-	assert.Equal(t, []string{"create acme/api/main/" + strings.Repeat("1", 40)}, rh.bookmarkOps)
-	assert.Equal(t, []string{"acme/api/aaaa/main", "acme/web/bbbb/main"}, rh.landCalls)
+	assert.Equal(t, []string{"backout acme/api/aaaa/" + strings.Repeat("a", 40)}, rh.bookmarkOps)
+	assert.Equal(t, []string{"acme/api/aaaa/main", "acme/web/bbbb/main", "acme/api/" + revert.TargetChangeID + "/main"}, rh.landCalls)
 
 	cs := q.changesets[created.ID]
 	assert.Equal(t, "failed", cs.State)
@@ -459,11 +469,14 @@ func TestChangesetService_LandRollsBackWhenSecondMemberFails(t *testing.T) {
 		assert.Empty(t, m.LandedCommitID, "rollback clears landed markers")
 	}
 
-	// A failed changeset can be retried once the member is fixed.
+	// A retry reapplies api by backing out the revert, then lands it.
 	delete(rh.landFail, "acme/web")
 	landed, err := svc.LandChangeset(context.Background(), actor, "acme", created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "landed", landed.State)
+	assert.Equal(t, "backout acme/api/"+revert.TargetChangeID+"/"+revert.TargetCommitID, rh.bookmarkOps[1])
+	assert.Equal(t, rh.bookmarks["acme/api/main"].TargetCommitID, landed.Members[0].LandedCommitID)
+	assert.NotEqual(t, revert.TargetCommitID, landed.Members[0].LandedCommitID)
 }
 
 func TestChangesetService_PreflightRefusesConflictedMemberWithoutMovingAnything(t *testing.T) {

@@ -30,7 +30,7 @@ func clientCovAssertArgumentOrder(t *testing.T, client *Client) {
 	require.NoError(t, err)
 	assert.Equal(t, repohost.WikiDocumentResult{State: `{"doc":"x"}`, StateVector: "sv", Markdown: "md"}, doc)
 
-	backout, err := client.BackoutChange("store-ok", "chg", "rev", "main")
+	backout, err := client.BackoutChange("store-ok", "chg", "rev", "main", "")
 	require.NoError(t, err)
 	assert.Equal(t, "chg", backout.ChangeID)
 	assert.Equal(t, "rev", backout.CommitID)
@@ -109,7 +109,7 @@ func clientCovAssertArgumentOrder(t *testing.T, client *Client) {
 	for _, call := range []func() error{
 		func() error { _, err := client.ProjectWikiRevision("s\x00", "{}"); return err },
 		func() error { _, err := client.WikiDocument("\x00"); return err },
-		func() error { _, err := client.BackoutChange("s", "c\x00", "r", "m"); return err },
+		func() error { _, err := client.BackoutChange("s", "c\x00", "r", "m", ""); return err },
 		func() error { _, err := client.SplitChange("s", "c", []string{"a"}, "d\x00"); return err },
 		func() error { _, err := client.GetRevisionDiff("s", "a", "b\x00", ""); return err },
 		func() error { _, err := client.ListDirectory("s", "c", "p\x00", "", 1); return err },

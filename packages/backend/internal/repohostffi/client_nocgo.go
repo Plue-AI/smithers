@@ -130,7 +130,7 @@ func (c *Client) GetChange(storePath, changeID string) (repohost.Change, error) 
 	return repohost.Change{}, ffiUnavailable()
 }
 
-func (c *Client) BackoutChange(storePath, changeID, revision, targetBookmark string) (repohost.Change, error) {
+func (c *Client) BackoutChange(storePath, changeID, revision, targetBookmark, base string) (repohost.Change, error) {
 	return repohost.Change{}, ffiUnavailable()
 }
 

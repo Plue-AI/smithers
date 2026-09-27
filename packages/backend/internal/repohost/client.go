@@ -169,6 +169,9 @@ type Change struct {
 type BackoutChangeRequest struct {
 	Revision       string `json:"revision"`
 	TargetBookmark string `json:"target_bookmark"`
+	// Base, when set, reverts the diff from Base to Revision (everything a
+	// landing from Base brought in) instead of Revision's own diff.
+	Base string `json:"base,omitempty"`
 }
 
 // SplitChangeRequest moves the listed paths' diff into a new change while the

@@ -75,6 +75,7 @@ type ChangesetRepoHostClient interface {
 	DeleteBookmark(ctx context.Context, owner, repo, name string) error
 	ComposeSuperproject(ctx context.Context, owner, repo string, req repohost.ComposeSuperprojectRequest) (repohost.SuperprojectCommit, error)
 	GetSuperproject(ctx context.Context, owner, repo, revision string) (repohost.SuperprojectCommit, error)
+	BackoutChange(ctx context.Context, owner, repo, changeID string, req repohost.BackoutChangeRequest) (repohost.Change, error)
 }
 
 // SuperprojectCreator creates the organization superproject repository on

@@ -32,10 +32,32 @@ type changesetLandingMember struct {
 	Commit   string `json:"commit"`
 	Previous string `json:"previous"`
 	Landed   string `json:"landed,omitempty"`
+	// Change is Commit's change ID. When an earlier attempt's revert is in
+	// the target's history, Apply (ApplyChange) reapplies the member on top
+	// of it and is what this attempt lands.
+	Change      string `json:"change,omitempty"`
+	Apply       string `json:"apply,omitempty"`
+	ApplyChange string `json:"apply_change,omitempty"`
+	// Revert (RevertChange) backs out a landed member and is landed on top
+	// of the target; Reverted is the last landed revert, which the next
+	// attempt reapplies.
+	Revert         string `json:"revert,omitempty"`
+	RevertChange   string `json:"revert_change,omitempty"`
+	Reverted       string `json:"reverted,omitempty"`
+	RevertedChange string `json:"reverted_change,omitempty"`
+}
+
+// landed returns the commit and change this attempt lands for the member.
+func (m changesetLandingMember) landing() (commit, change string) {
+	if m.Apply != "" {
+		return m.Apply, m.ApplyChange
+	}
+	return m.Commit, m.Change
 }
 
 // LandChangeset resumes an interrupted attempt under the organization lock.
-// Compensation is conditional: another writer's bookmark is never overwritten.
+// Target bookmarks only move forward: a partial landing is compensated by
+// landing reverts on top, and a retry reapplies the reverted members.
 func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, orgName string, id int64) (ChangesetResponse, error) {
 	if actor == nil {
 		return ChangesetResponse{}, pkgerrors.Unauthorized("authentication required")
@@ -79,7 +101,7 @@ func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, or
 		}
 	}
 	if cs.State != changesetStateLanding || plan.Attempt == "" || plan.Phase == "rolled_back" {
-		plan, err = s.prepareChangesetLanding(ctx, org, cs, members, super)
+		plan, err = s.prepareChangesetLanding(ctx, org, cs, members, super, plan)
 		if err != nil {
 			_, _ = s.queries.MarkChangesetFailed(ctx, db.MarkChangesetFailedParams{ID: cs.ID, FailureReason: err.Error()})
 			return ChangesetResponse{}, err
@@ -192,8 +214,14 @@ func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, or
 	return s.buildResponse(finalizeCtx, org, super, updated, finalMembers)
 }
 
-func (s *ChangesetService) prepareChangesetLanding(ctx context.Context, org db.Organization, cs db.Changeset, members []db.ChangesetMember, super db.Repository) (changesetLandingPlan, error) {
+func (s *ChangesetService) prepareChangesetLanding(ctx context.Context, org db.Organization, cs db.Changeset, members []db.ChangesetMember, super db.Repository, prior changesetLandingPlan) (changesetLandingPlan, error) {
 	plan := changesetLandingPlan{Attempt: uuid.NewString(), Phase: "members"}
+	reverted := map[int64]changesetLandingMember{}
+	for _, member := range prior.Members {
+		if member.Reverted != "" {
+			reverted[member.ID] = member
+		}
+	}
 	for _, member := range members {
 		repo, err := s.queries.GetRepoByID(ctx, member.RepositoryID)
 		if err != nil {
@@ -213,7 +241,22 @@ func (s *ChangesetService) prepareChangesetLanding(ctx context.Context, org db.O
 		if err != nil {
 			return plan, pkgerrors.Internal("failed to read member bookmark").WithCause(err)
 		}
-		plan.Members = append(plan.Members, changesetLandingMember{ID: member.ID, Repo: repo.Name, Target: member.TargetBookmark, Commit: member.CommitID, Previous: bookmark.TargetCommitID})
+		entry := changesetLandingMember{ID: member.ID, Repo: repo.Name, Target: member.TargetBookmark, Commit: member.CommitID, Change: change.ChangeID, Previous: bookmark.TargetCommitID}
+		// The member and its revert are already in the target's history, so
+		// landing the member again would change nothing: reapply it instead.
+		if prev, ok := reverted[member.ID]; ok {
+			reapply, err := s.repoHost.BackoutChange(ctx, org.Name, repo.Name, prev.RevertedChange, repohost.BackoutChangeRequest{Revision: prev.Reverted, TargetBookmark: member.TargetBookmark})
+			if err != nil {
+				return plan, mapChangesetRepoHostError(err, "member change", "failed to reapply reverted member")
+			}
+			if reapply.HasConflict {
+				return plan, pkgerrors.Conflict("member no longer applies cleanly to " + member.TargetBookmark)
+			}
+			entry.Apply, entry.ApplyChange = reapply.CommitID, reapply.ChangeID
+			entry.Previous = reapply.ParentCommitID
+			entry.Reverted, entry.RevertedChange = prev.Reverted, prev.RevertedChange
+		}
+		plan.Members = append(plan.Members, entry)
 	}
 	if err := s.checkLandingPolicy(ctx, super, org.Name, cs.ChangeID, cs.CommitID, cs.TargetBookmark); err != nil {
 		return plan, err
@@ -229,7 +272,8 @@ func (s *ChangesetService) prepareChangesetLanding(ctx context.Context, org db.O
 func (s *ChangesetService) landChangesetMember(ctx context.Context, owner string, member changesetLandingMember, key string) (repohost.LandResult, error) {
 	landCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
 	defer cancel()
-	return s.repoHost.LandChanges(landCtx, owner, member.Repo, repohost.LandRequest{ChangeIDs: []string{member.Commit}, TargetBookmark: member.Target, ExpectedCommitID: &member.Previous, OperationKey: key})
+	commit, _ := member.landing()
+	return s.repoHost.LandChanges(landCtx, owner, member.Repo, repohost.LandRequest{ChangeIDs: []string{commit}, TargetBookmark: member.Target, ExpectedCommitID: &member.Previous, OperationKey: key})
 }
 
 func (s *ChangesetService) saveChangesetPlan(ctx context.Context, id int64, state string, plan *changesetLandingPlan) error {
@@ -266,30 +310,39 @@ func (s *ChangesetService) failChangesetLanding(ctx context.Context, org db.Orga
 	return mapChangesetRepoHostError(cause, "changeset member", "failed to land changeset")
 }
 
+// rollbackChangeset compensates each landed member by landing a revert of
+// everything its landing brought in (Previous..Landed) on top of its target:
+// the default bookmark only moves forward, and another writer's commits stay
+// in history. Each revert is recorded before it lands and lands under a
+// receipt key, so a resumed rollback lands it once.
 func (s *ChangesetService) rollbackChangeset(ctx context.Context, org db.Organization, id int64, plan *changesetLandingPlan) error {
-	rbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
-	defer cancel()
+	rbCtx := context.WithoutCancel(ctx)
 	var problems []string
 	for i := len(plan.Members) - 1; i >= 0; i-- {
 		member := &plan.Members[i]
 		if member.Landed == "" {
 			continue
 		}
-		current, _, err := s.findBookmark(rbCtx, org.Name, member.Repo, member.Target)
-		if err == nil && current.TargetCommitID != member.Previous {
-			_, err = s.repoHost.CreateBookmark(rbCtx, org.Name, member.Repo, repohost.CreateBookmarkRequest{Name: member.Target, TargetChangeID: member.Previous, ExpectedCommitID: &member.Landed, Delete: member.Previous == ""})
-		}
-		if err != nil {
+		if err := s.revertChangesetMember(rbCtx, org.Name, id, plan, member); err != nil {
 			problems = append(problems, member.Repo+": "+summarizeRepoHostError(err))
 			continue
 		}
-		member.Landed = ""
-		if err = s.queries.RecordChangesetMemberLanded(rbCtx, db.RecordChangesetMemberLandedParams{ID: member.ID, LandedCommitID: ""}); err != nil {
+		// Clear the member's marker before the plan forgets the landing, so
+		// a failure here is retried by the next rollback.
+		if err := s.queries.RecordChangesetMemberLanded(rbCtx, db.RecordChangesetMemberLandedParams{ID: member.ID, LandedCommitID: ""}); err != nil {
 			problems = append(problems, member.Repo+": failed to clear marker")
+			continue
+		}
+		member.Landed, member.Revert, member.RevertChange = "", "", ""
+		if err := s.saveChangesetPlan(rbCtx, id, changesetStateLanding, plan); err != nil {
+			return err
 		}
 	}
+	if cut := strings.Index(plan.Failure, rollbackIncomplete); cut >= 0 {
+		plan.Failure = plan.Failure[:cut]
+	}
 	if len(problems) > 0 {
-		plan.Failure += "; rollback incomplete: " + strings.Join(problems, "; ")
+		plan.Failure += rollbackIncomplete + strings.Join(problems, "; ")
 		if err := s.saveChangesetPlan(rbCtx, id, changesetStateFailed, plan); err != nil {
 			return err
 		}
@@ -299,12 +352,62 @@ func (s *ChangesetService) rollbackChangeset(ctx context.Context, org db.Organiz
 	return s.saveChangesetPlan(rbCtx, id, changesetStateFailed, plan)
 }
 
+const rollbackIncomplete = "; rollback incomplete: "
+
+// revertChangesetMember lands the member's revert. A landed revert is marked
+// by Reverted == Revert until the caller clears the landing.
+func (s *ChangesetService) revertChangesetMember(ctx context.Context, owner string, id int64, plan *changesetLandingPlan, member *changesetLandingMember) error {
+	// A landing that left the target where it was brought nothing in.
+	if member.Landed == member.Previous || (member.Revert != "" && member.Reverted == member.Revert) {
+		return nil
+	}
+	if member.Revert == "" {
+		stepCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		landed, err := s.repoHost.GetChange(stepCtx, owner, member.Repo, member.Landed)
+		if err != nil {
+			return err
+		}
+		base := member.Previous
+		if base == "" {
+			base = strings.Repeat("0", 40) // the landing created the bookmark
+		}
+		revert, err := s.repoHost.BackoutChange(stepCtx, owner, member.Repo, landed.ChangeID, repohost.BackoutChangeRequest{Revision: member.Landed, Base: base, TargetBookmark: member.Target})
+		if err != nil {
+			return err
+		}
+		if revert.HasConflict {
+			return errors.New("the revert has conflicts")
+		}
+		member.Revert, member.RevertChange = revert.CommitID, revert.ChangeID
+		if err = s.saveChangesetPlan(ctx, id, changesetStateLanding, plan); err != nil {
+			return err
+		}
+	}
+	// No expected head: the revert fast-forwards, or merges over a commit
+	// another writer landed meanwhile.
+	landCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	key := fmt.Sprintf("%s/revert/%d/%s", plan.Attempt, member.ID, member.Revert)
+	if _, err := s.repoHost.LandChanges(landCtx, owner, member.Repo, repohost.LandRequest{ChangeIDs: []string{member.Revert}, TargetBookmark: member.Target, OperationKey: key}); err != nil {
+		if definiteLandingFailure(err) {
+			// The next rollback backs out again onto the target's new head.
+			member.Revert, member.RevertChange = "", ""
+			_ = s.saveChangesetPlan(ctx, id, changesetStateLanding, plan)
+		}
+		return err
+	}
+	member.Reverted, member.RevertedChange = member.Revert, member.RevertChange
+	return s.saveChangesetPlan(ctx, id, changesetStateLanding, plan)
+}
+
 func (s *ChangesetService) recoverChangesetReceipts(ctx context.Context, owner string, plan *changesetLandingPlan) error {
 	recoverOne := func(member *changesetLandingMember, key string) error {
 		if member.Landed != "" {
 			return nil
 		}
-		result, err := s.repoHost.LandChanges(ctx, owner, member.Repo, repohost.LandRequest{ChangeIDs: []string{member.Commit}, TargetBookmark: member.Target, ExpectedCommitID: &member.Previous, OperationKey: key, LookupOnly: true})
+		commit, _ := member.landing()
+		result, err := s.repoHost.LandChanges(ctx, owner, member.Repo, repohost.LandRequest{ChangeIDs: []string{commit}, TargetBookmark: member.Target, ExpectedCommitID: &member.Previous, OperationKey: key, LookupOnly: true})
 		var status *repohost.StatusError
 		if errors.As(err, &status) && status.StatusCode == 404 {
 			return nil

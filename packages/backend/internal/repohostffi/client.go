@@ -27,7 +27,7 @@ typedef char* (*smithers_delete_wiki_page_fn)(const char*, const char*, const ch
 typedef char* (*smithers_delete_doc_fn)(const char*, const char*, const char*, const char*);
 typedef char* (*smithers_list_changes_fn)(const char*, uint32_t, uint32_t);
 typedef char* (*smithers_get_change_fn)(const char*, const char*);
-typedef char* (*smithers_backout_change_fn)(const char*, const char*, const char*, const char*);
+typedef char* (*smithers_backout_change_fn)(const char*, const char*, const char*, const char*, const char*);
 typedef char* (*smithers_split_change_fn)(const char*, const char*, const char*, const char*);
 typedef char* (*smithers_get_diff_fn)(const char*, const char*);
 typedef char* (*smithers_get_revision_diff_fn)(const char*, const char*, const char*, const char*);
@@ -295,9 +295,9 @@ static char *smithers_call_get_change(const char *store_path, const char *change
 	return fn == NULL ? NULL : fn(store_path, change_id);
 }
 
-static char *smithers_call_backout_change(const char *store_path, const char *change_id, const char *revision, const char *target_bookmark) {
+static char *smithers_call_backout_change(const char *store_path, const char *change_id, const char *revision, const char *target_bookmark, const char *base) {
 	smithers_backout_change_fn fn = (smithers_backout_change_fn)smithers_syms[SYM_backout_change];
-	return fn == NULL ? NULL : fn(store_path, change_id, revision, target_bookmark);
+	return fn == NULL ? NULL : fn(store_path, change_id, revision, target_bookmark, base);
 }
 
 static char *smithers_call_split_change(const char *store_path, const char *change_id, const char *paths_json, const char *description) {
@@ -785,19 +785,21 @@ func (c *Client) GetChange(storePath, changeID string) (repohost.Change, error) 
 	return decode[repohost.Change](c, C.smithers_call_get_change(storePathC, changeIDC))
 }
 
-func (c *Client) BackoutChange(storePath, changeID, revision, targetBookmark string) (repohost.Change, error) {
-	if err := rejectNUL(storePath, changeID, revision, targetBookmark); err != nil {
+func (c *Client) BackoutChange(storePath, changeID, revision, targetBookmark, base string) (repohost.Change, error) {
+	if err := rejectNUL(storePath, changeID, revision, targetBookmark, base); err != nil {
 		return repohost.Change{}, err
 	}
 	storePathC := cString(storePath)
 	changeIDC := cString(changeID)
 	revisionC := cString(revision)
 	targetBookmarkC := cString(targetBookmark)
+	baseC := cString(base)
 	defer freeCString(storePathC)
 	defer freeCString(changeIDC)
 	defer freeCString(revisionC)
 	defer freeCString(targetBookmarkC)
-	return decode[repohost.Change](c, C.smithers_call_backout_change(storePathC, changeIDC, revisionC, targetBookmarkC))
+	defer freeCString(baseC)
+	return decode[repohost.Change](c, C.smithers_call_backout_change(storePathC, changeIDC, revisionC, targetBookmarkC, baseC))
 }
 
 func (c *Client) SplitChange(storePath, changeID string, paths []string, description string) (repohost.SplitChangeResult, error) {
