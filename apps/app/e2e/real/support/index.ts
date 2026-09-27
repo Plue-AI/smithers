@@ -1,4 +1,7 @@
-import { test as base, expect, type APIRequestContext, type APIResponse, type Page } from "@playwright/test"
+import { expect, type APIRequestContext, type APIResponse, type Page } from "@playwright/test"
+// Share the isolated persistent WebKit context; it supplies real OPFS and
+// contains no API or product doubles. Chromium keeps its standard context.
+import { test as base } from "../../playwright/browserTest"
 import { cp, mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve, sep } from "node:path"

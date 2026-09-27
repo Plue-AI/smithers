@@ -23,7 +23,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "chat", "chat.dictate", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle",
     "chat.queue", "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload", "cloud.prompt", "experimental.set", "flow.plan.select",
     "flow.plan.tab", "flow.repo.choose", "input.mode", "palette.actions", "palette.recent",
-    "runs.coding.select", "runs.graph.follow", "runs.graph.select", "runs.graph.tab", "setup.view",
+    "runs.coding.select", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
     "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
     "tab.close.cancel", "tab.menu", "toast.dismiss", "wiki.select", "workspace.rename.edit"
   ],
@@ -38,9 +38,9 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop",
     "agent.session.view", "app.download", "approvals.open", "billing.plans", "billing.portal",
     "billing.upgrade", "branches.list", "change.checks", "change.pins", "change.request", "change.resolve",
-    "change.revert", "change.split", "change.split-ready", "chores.setup", "ci.setup", "code.definition",
+    "change.revert", "change.split", "change.split-ready", "code.definition",
     "code.diagnostics", "code.hover", "commits.list", "commits.read", "connect", "desktop", "egress.session",
-    "env.remove-token", "env.set", "env.view", "feature.prototype", "feature.setup", "files.list", "files.open-diff",
+    "env.remove-token", "env.set", "env.view", "feature.prototype", "files.list", "files.open-diff",
     /* Threads, tasks and integrations (smithers-ui-DESIGN.md): the chat backend and the task metadata are still landing. */
     "integrations.list", "issues.comment.react", "issues.comment.retry", "issues.fix", "issues.verify",
     "files.read", "findings.not-useful", "findings.please-fix", "flow.plan", "flow.run.retry", "flows",
@@ -48,9 +48,9 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "github.reconcile", "history.bootstrap", "issues",
     /* The app home's doors (PRODUCT.md D-18): the browser spec covers the launch; the real workspace run is owed. */
     "prs.triage", "wiki.ask",
-    "issues.setup", "notifications.read-update", "notifications.tag", "plugins", "plugins.install",
+    "notifications.read-update", "notifications.tag", "plugins", "plugins.install",
     "plugins.list", "plugins.remove", "prs", "repo.choose", "repo.overview", "repo.tree", "repo.update",
-    "repos.import.retry", "review.ack", "review.done", "review.reopen", "review.setup", "review.since-mine",
+    "repos.import.retry", "review.ack", "review.done", "review.reopen", "review.since-mine",
     "review.unrequest", "runs.seat", "runs.signal", "search.boxes", "search.changes", "search.files",
     "search.history", "search.issues", "search.open", "search.runs", "search.secrets", "secrets.connect.codex", "secrets.move",
     "search.targets", "search.wiki", "setup.ask", "setup.discard", "setup.discard.confirm", "setup.guide",
