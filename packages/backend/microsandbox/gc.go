@@ -167,11 +167,8 @@ func contains(values []string, value string) bool {
 func (e *environments) removeLayer(ctx context.Context, name string) error {
 	removeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	if _, err := e.runtime.cli.run(removeCtx, nil, "snapshot", "remove", "-q", name); err != nil {
-		var cliErr *cliError
-		if !errors.As(err, &cliErr) || !cliErr.notFound() {
-			return fmt.Errorf("remove layer %s: %w", name, err)
-		}
+	if err := e.runtime.cli.removeSnapshot(removeCtx, name); err != nil {
+		return fmt.Errorf("remove layer: %w", err)
 	}
 	e.mu.Lock()
 	delete(e.verified, name)

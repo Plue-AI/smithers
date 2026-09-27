@@ -269,3 +269,28 @@ func containsArg(args []string, flag string) bool {
 	}
 	return false
 }
+
+// snapshotExists reports whether Microsandbox indexes a snapshot of that name.
+func (c *cli) snapshotExists(ctx context.Context, name string) (bool, error) {
+	records, err := c.listSnapshots(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, record := range records {
+		if record.Name != nil && *record.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// removeSnapshot deletes a snapshot; one already gone is not an error.
+func (c *cli) removeSnapshot(ctx context.Context, name string) error {
+	if _, err := c.run(ctx, nil, "snapshot", "remove", "-q", name); err != nil {
+		if exists, listErr := c.snapshotExists(ctx, name); listErr == nil && !exists {
+			return nil
+		}
+		return fmt.Errorf("remove snapshot %s: %w", name, err)
+	}
+	return nil
+}

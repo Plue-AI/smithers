@@ -183,9 +183,13 @@ func (r *Runtime) PreviewTarget(ctx context.Context, workspaceID string, port ui
 	if existing := ws.previews[port]; existing != nil {
 		return workspaceapi.PreviewTarget{URL: "http://" + existing.listener.Addr().String()}, nil
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	// The same port number on host loopback, as the process adapter serves
+	// it: the product preview proxy requires the upstream to carry the
+	// requested port. Two workspaces previewing one port contend exactly as
+	// two trusted processes would.
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
 	if err != nil {
-		return workspaceapi.PreviewTarget{}, err
+		return workspaceapi.PreviewTarget{}, fmt.Errorf("host loopback port %d for the preview is busy: %w", port, err)
 	}
 	preview := &previewListener{listener: listener}
 	ws.previews[port] = preview

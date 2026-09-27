@@ -163,3 +163,35 @@ func screenshotApp(t *testing.T, runtime *Runtime, id, evidence string) {
 	t.Logf("screenshot %dx%d, %d bytes → %s", width, height, len(png), evidence)
 	require.NoError(t, runtime.StopService(ctx, id, "app"))
 }
+
+// Garbage collection keeps referenced layers and the newest per family, and
+// evicts least recently used layers until the owner's budget is met. The
+// evidence is the host's free space, not an index row.
+func TestRealMicroVMLayerGarbageCollection(t *testing.T) {
+	binary, root := os.Getenv("SMITHERS_MICROSANDBOX_BIN"), os.Getenv("SMITHERS_MICROVM_LAYER_ROOT")
+	if binary == "" || root == "" || os.Getenv("SMITHERS_MICROVM_GC_TEST") != "1" {
+		t.Skip("SMITHERS_MICROVM_GC_TEST=1 with a layer root runs layer eviction")
+	}
+	runtime, err := New(context.Background(), Config{Binary: binary, Root: root,
+		Environments: &EnvironmentConfig{KeepPerFamily: 1, LayerBudgetBytes: 12 << 30, MinFreeBytes: 10 << 30}})
+	require.NoError(t, err)
+	defer runtime.Close()
+	before, err := runtime.environments.records()
+	require.NoError(t, err)
+	report, err := runtime.CollectLayers(context.Background())
+	require.NoError(t, err)
+	after, err := runtime.environments.records()
+	require.NoError(t, err)
+	t.Logf("layers %d → %d; removed %v", len(before), len(after), report.Removed)
+	t.Logf("owner layer bytes (allocated, clone-inclusive) %.1f GiB → %.1f GiB; host free %.1f GiB → %.1f GiB",
+		float64(report.LayerBytesBefore)/(1<<30), float64(report.LayerBytesAfter)/(1<<30),
+		float64(report.FreeBytesBefore)/(1<<30), float64(report.FreeBytesAfter)/(1<<30))
+	require.LessOrEqual(t, report.LayerBytesAfter, int64(12<<30))
+	names, err := runtime.cli.listSnapshots(context.Background())
+	require.NoError(t, err)
+	for _, removed := range report.Removed {
+		for _, snapshot := range names {
+			require.NotEqual(t, removed, *snapshot.Name, "removed layer still indexed")
+		}
+	}
+}

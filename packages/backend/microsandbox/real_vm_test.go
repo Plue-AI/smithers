@@ -2,10 +2,13 @@ package microsandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -274,4 +277,33 @@ func TestRealMicroVMTerminalAndManagedHost(t *testing.T) {
 	require.NoError(t, runtime.StopService(ctx, "microvm-terminal", "flow-host"))
 	_, err = runtime.InspectManagedHost(ctx, "microvm-terminal", spec)
 	require.ErrorIs(t, err, workspaceapi.ErrManagedHostNotRunning)
+}
+
+// A workspace whose microVM disappears fails its operations; nothing runs on
+// the host in its place.
+func TestRealMicroVMLostMachineRefusesWithoutHostFallback(t *testing.T) {
+	runtime := realRuntime(t, t.TempDir())
+	ctx := operation("lost")
+	_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: "microvm-lost"})
+	require.NoError(t, err)
+	machine := runtime.machineName("microvm-lost")
+	require.NoError(t, runtime.removeMachine(context.Background(), machine))
+
+	sentinel := filepath.Join(t.TempDir(), "ran-on-host")
+	_, err = runtime.ExecuteCommand(ctx, "microvm-lost", workspaceapi.Command{Args: []string{"/bin/sh", "-c", "touch " + sentinel}})
+	require.ErrorIs(t, err, ErrUnavailable)
+	_, statErr := os.Stat(sentinel)
+	require.True(t, errors.Is(statErr, fs.ErrNotExist), "the command ran on the host")
+	_, err = runtime.ReadFile(ctx, "microvm-lost", "anything")
+	require.Error(t, err)
+
+	// A restart marks the workspace as needing recovery instead of inventing one.
+	require.NoError(t, runtime.Close())
+	restarted, err := New(context.Background(), Config{Binary: runtime.config.Binary, Root: runtime.root})
+	require.NoError(t, err)
+	observed, err := restarted.InspectWorkspace(ctx, "microvm-lost")
+	require.NoError(t, err)
+	require.Equal(t, workspaceapi.WorkspaceRecoveryRequired, observed.State)
+	require.NoError(t, restarted.DeleteWorkspace(ctx, "microvm-lost"))
+	require.NoError(t, restarted.Close())
 }

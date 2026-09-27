@@ -143,3 +143,34 @@ func backendPort() (uint16, error) {
 	}
 	return uint16(port), nil
 }
+
+// runMicroVM serves `smithers-backend microvm doctor`: read-only checks of
+// Microsandbox, this installation's machines and layers, and the disk floor.
+func runMicroVM(ctx context.Context, args []string) error {
+	if len(args) != 1 || args[0] != "doctor" {
+		return errors.New("usage: smithers-backend microvm doctor")
+	}
+	dataRoot := strings.TrimSpace(os.Getenv("SMITHERS_DATA_ROOT"))
+	if dataRoot == "" {
+		return errors.New("SMITHERS_DATA_ROOT is required")
+	}
+	config := microsandbox.Config{Binary: strings.TrimSpace(os.Getenv("SMITHERS_MICROSANDBOX_BIN")), Root: filepath.Join(dataRoot, "microvm"),
+		Environments: &microsandbox.EnvironmentConfig{}}
+	if raw := strings.TrimSpace(os.Getenv("SMITHERS_MICROVM_MIN_FREE_GIB")); raw != "" {
+		if value, err := strconv.ParseInt(raw, 10, 64); err == nil && value > 0 {
+			config.Environments.MinFreeBytes = value << 30
+		}
+	}
+	failed := false
+	for _, line := range microsandbox.Doctor(ctx, config) {
+		status := "ok  "
+		if !line.OK {
+			status, failed = "FAIL", true
+		}
+		fmt.Printf("%s %-9s %s\n", status, line.Name, line.Detail)
+	}
+	if failed {
+		return errors.New("microVM isolation is not ready")
+	}
+	return nil
+}

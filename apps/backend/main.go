@@ -50,6 +50,10 @@ func run(ctx context.Context, args []string) (runErr error) {
 	if len(args) > 0 && args[0] == "credits" {
 		return runCredits(ctx, args[1:])
 	}
+	// `microvm doctor` inspects microVM isolation read-only; server-free.
+	if len(args) > 0 && args[0] == "microvm" {
+		return runMicroVM(ctx, args[1:])
+	}
 	platformKeys, err := platformModelKeys()
 	if err != nil {
 		return err

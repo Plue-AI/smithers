@@ -572,8 +572,11 @@ func (r *Runtime) removeMachine(ctx context.Context, name string) error {
 	removeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	_, err := r.cli.run(removeCtx, nil, "remove", "--force", "-q", name)
-	var cliErr *cliError
-	if errors.As(err, &cliErr) && cliErr.notFound() {
+	if err == nil {
+		return nil
+	}
+	// `msb remove -q` reports a missing machine with a bare exit 1.
+	if _, found, statusErr := r.cli.sandboxStatus(ctx, name); statusErr == nil && !found {
 		return nil
 	}
 	return err

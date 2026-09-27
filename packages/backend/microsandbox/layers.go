@@ -1032,7 +1032,11 @@ cd %s/prepare/src
 		s.WriteString("pnpm fetch --reporter=append-only\npnpm install --offline --frozen-lockfile --ignore-scripts --reporter=append-only\necho \"inventory pnpm-store $(du -sh $pnpm_config_store_dir | cut -f1)\" >&3\n")
 	}
 	for _, tool := range d.Tools {
-		fmt.Fprintf(&s, "(cd %s && HOME=%s node %s)\n", shellQuote(tool.Package), toolHome, shellQuote(tool.Entry))
+		// Tool downloads through the domain allowlist fail now and then with
+		// ConnectionRefused where curl to the same URL succeeds; a new attempt
+		// passes. Three attempts, then the build fails with the tool's words.
+		fmt.Fprintf(&s, "for attempt in 1 2 3; do (cd %s && HOME=%s node %s) && break; [ $attempt = 3 ] && exit 1; sleep 5; done\n",
+			shellQuote(tool.Package), toolHome, shellQuote(tool.Entry))
 	}
 	if len(d.Tools) > 0 {
 		fmt.Fprintf(&s, "echo \"inventory tool-home $(du -sh %s | cut -f1)\" >&3\n", toolHome)

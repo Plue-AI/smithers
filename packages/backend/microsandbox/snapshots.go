@@ -102,11 +102,8 @@ func (r *Runtime) DeleteColdSnapshot(ctx context.Context, snapshotID string) err
 		}
 		return err
 	}
-	if _, err := r.cli.run(ctx, nil, "snapshot", "remove", "-q", record.Name); err != nil {
-		var cliErr *cliError
-		if !errors.As(err, &cliErr) || !cliErr.notFound() {
-			return fmt.Errorf("remove workspace snapshot: %w", err)
-		}
+	if err := r.cli.removeSnapshot(ctx, record.Name); err != nil {
+		return fmt.Errorf("remove workspace snapshot: %w", err)
 	}
 	return os.Remove(r.snapshotPath(record.ID))
 }
