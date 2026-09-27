@@ -26,6 +26,19 @@ of it.
 - Added `packages/targets/docs/` and `scripts/docs.mjs`, which generates the
   catalog inventory from the `Target.make` declarations in `src/`, plus the
   `docsPages` target that writes and drift-checks it.
+- Added `CiToolchain.Postgres({ release: "18" })` and the `postgres` toolchain
+  field, so a generated job puts the PostgreSQL server binaries on `PATH`: PGDG
+  on Linux, Homebrew on macOS, and the image's own server on Windows when it is
+  at least `postgresFloor` (17).
+- Added `GithubCiGen`'s `cacheWriteEnvironment`, the GitHub deployment
+  environment every cache-publishing job names. It is required with
+  `cacheWriteTokenSecret`, so a workflow that declared only the secret now
+  fails to generate until it names the environment.
+- Added `protectedPaths` to `Github.Policy`: paths, beyond the built-in trust
+  roots, that a change started from an outsider's issue never touches. The
+  decoded `GithubPolicy` now always carries `protectedPaths` (default `[]`),
+  so a hand-built `GithubPolicy` value must add the field; policies made with
+  `Github.Policy(...)` and `FACTORY.ts` declarations need no change.
 
 ### Fixed
 

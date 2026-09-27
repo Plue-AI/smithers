@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- A `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` that names a missing or unusable
+  helper is refused with the variable's name and the same install hint as a
+  missing helper, instead of a bare `ENOENT`.
 - `AtomicFileSystem.stat` now reports `birthtime` on Linux. CPython carries the
   creation time on `os.stat_result` only on macOS and the BSDs, so the helper
   answered `Option.none` on Linux while `@effect/platform-node` answered the
