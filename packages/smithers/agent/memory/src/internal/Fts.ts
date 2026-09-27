@@ -8,8 +8,10 @@
 import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import type * as SqlError from "effect/unstable/sql/SqlError"
+import type { Fragment } from "effect/unstable/sql/Statement"
 import type { DatabaseService } from "../Database.ts"
 import type { Kind } from "../Namespace.ts"
+import { literalFtsQuery } from "./FtsQuery.ts"
 
 /**
  * A record projected into a namespace-kind FTS table.
@@ -38,6 +40,15 @@ export interface FtsMatch {
 }
 
 const ftsTable = (kind: Kind): string => `memory_fts_${kind}`
+
+// FTS5's unicode61 tokenizer splits on every non-letter, non-digit character.
+// PostgreSQL's `simple` parser under the C locale instead reads every
+// non-ASCII character as a letter, so U+FFFD or an em dash would glue words
+// together. Both the indexed text and each query term are therefore reduced to
+// Unicode alphanumeric runs first, with the database-independent built-in
+// `pg_c_utf8` collation classifying the characters.
+const postgresWords = (sql: DatabaseService["sql"], text: Fragment): Fragment =>
+  sql`regexp_replace((${text}) COLLATE "pg_c_utf8", '[^[:alnum:]]+', ' ', 'g')`
 /**
  * Returns whether a namespace kind has opted into FTS5.
  *
@@ -82,7 +93,9 @@ export const enableFts = (
       yield* sql`CREATE TABLE IF NOT EXISTS ${table} (
         record_id TEXT NOT NULL, record_kind TEXT NOT NULL, namespace_id TEXT NOT NULL,
         record_key TEXT NOT NULL, text TEXT NOT NULL,
-        search TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', record_key || ' ' || text)) STORED
+        search TSVECTOR GENERATED ALWAYS AS (
+          to_tsvector('simple', ${postgresWords(sql, sql`record_key || ' ' || text`)})
+        ) STORED
       )`
       yield* sql`CREATE INDEX IF NOT EXISTS ${sql(`${ftsTable(kind)}_search`)} ON ${table} USING GIN (search)`
     } else {
@@ -199,7 +212,7 @@ export const searchFts = (
   database: DatabaseService,
   kind: Kind,
   namespaceId: string,
-  query: string,
+  terms: ReadonlyArray<string>,
   limit: number,
   offset = 0
 ): Effect.Effect<ReadonlyArray<FtsMatch>, SqlError.SqlError> => {
@@ -207,15 +220,19 @@ export const searchFts = (
   const tableName = ftsTable(kind)
   const table = sql.literal(tableName)
   if (Dialect.isPostgres(sql)) {
-    return sql<FtsMatch>`SELECT record_id, record_kind,
-      -ts_rank(search, websearch_to_tsquery('simple', ${query})) AS rank
-      FROM ${table} WHERE search @@ websearch_to_tsquery('simple', ${query}) AND namespace_id = ${namespaceId}
+    // Each term is a phrase of its words, and the terms are ANDed, as FTS5
+    // reads the quoted terms of `literalFtsQuery`.
+    const query = terms
+      .map((term) => sql`phraseto_tsquery('simple', ${postgresWords(sql, sql`${term}`)})`)
+      .reduce((all, term) => sql`${all} && ${term}`)
+    return sql<FtsMatch>`SELECT record_id, record_kind, -ts_rank(search, ${query}) AS rank
+      FROM ${table} WHERE search @@ (${query}) AND namespace_id = ${namespaceId}
       ORDER BY rank, record_id LIMIT ${limit} OFFSET ${offset}`
   }
   const bm25 = sql.literal(`bm25(${tableName})`)
   return sql<FtsMatch>`SELECT record_id, record_kind, ${bm25} AS rank
     FROM ${table}
-    WHERE ${table} MATCH ${query} AND namespace_id = ${namespaceId}
+    WHERE ${table} MATCH ${literalFtsQuery(terms.join(" "))} AND namespace_id = ${namespaceId}
     ORDER BY rank
     LIMIT ${limit} OFFSET ${offset}`
 }

@@ -13,7 +13,7 @@ import * as Namespace from "../Namespace.ts"
 import { compareText } from "./Canonical.ts"
 import { retainedTags, searchableText } from "./FactProjection.ts"
 import * as Fts from "./Fts.ts"
-import { literalFtsQuery } from "./FtsQuery.ts"
+import { ftsTerms } from "./FtsQuery.ts"
 import { resolveNamespace } from "./ResolveNamespace.ts"
 import {
   collectUntil,
@@ -160,8 +160,8 @@ export const make = (
           )
         )
       }
-      const query = literalFtsQuery(input.query)
-      if (query.length === 0) {
+      const terms = ftsTerms(input.query)
+      if (terms.length === 0) {
         return []
       }
       if (limit === 0 || input.records?.length === 0) {
@@ -186,7 +186,7 @@ export const make = (
         limit,
         pageSize,
         (size) =>
-          Fts.searchFts(database, namespace.kind, namespace.id, query, size, offset).pipe(
+          Fts.searchFts(database, namespace.kind, namespace.id, terms, size, offset).pipe(
             Effect.tap((matches) =>
               Effect.sync(() => {
                 offset += matches.length
