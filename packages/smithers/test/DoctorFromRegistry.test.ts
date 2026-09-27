@@ -10,7 +10,8 @@
  */
 import type * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Registry from "@smthrs/registry/Registry"
-import { Effect } from "effect"
+import * as RegistryError from "@smthrs/registry/RegistryError"
+import { Cause, Effect, Exit, Layer } from "effect"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -54,10 +55,10 @@ const runWith = (
   warnings: ReadonlyArray<Descriptor.DiscoveryWarning>
 ): Promise<Doctor.Report> =>
   Effect.runPromise(
-    DoctorCmd.fromRegistry(globals).pipe(
-      Effect.provide(
-        Registry.layerNoop({ list: () => Effect.succeed(descriptors), warnings: () => Effect.succeed(warnings) })
-      ),
+    DoctorCmd.fromRegistry(
+      globals,
+      () => Registry.layerNoop({ list: () => Effect.succeed(descriptors), warnings: () => Effect.succeed(warnings) })
+    ).pipe(
       Effect.provideService(Project.ProjectRoot, root),
       Effect.provideService(Project.LegacyState, [])
     )
@@ -117,6 +118,34 @@ describe("local diagnostics off the registry snapshot", () => {
     } finally {
       vi.unstubAllEnvs()
     }
+  })
+
+  const withRegistry = (registry: Layer.Layer<Registry.Registry>, root: string) =>
+    DoctorCmd.fromRegistry({ environment: {} }, () => registry).pipe(
+      Effect.provideService(Project.ProjectRoot, root),
+      Effect.provideService(Project.LegacyState, [])
+    )
+
+  it("reports a registry discovery cannot build as a failed check and keeps the rest of the report", async () => {
+    const root = project()
+    const failure = RegistryError.discoveryError({
+      code: "read_failed",
+      method: "scan",
+      description: "smithers-jj-export is missing"
+    })
+    const report = await Effect.runPromise(
+      withRegistry(Layer.effect(Registry.Registry)(Effect.die(failure)), root)
+    )
+    expect(check(report, "registry")).toEqual({ name: "registry", level: "fail", detail: failure.message })
+    expect(check(report, "node")).toBeDefined()
+  })
+
+  it("still crashes on a defect that is not a discovery failure", async () => {
+    const defect = new Error("unrelated defect")
+    const exit = await Effect.runPromiseExit(
+      withRegistry(Layer.effect(Registry.Registry)(Effect.die(defect)), project())
+    )
+    expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toBe(defect)
   })
 
   it("opens no execution database", async () => {

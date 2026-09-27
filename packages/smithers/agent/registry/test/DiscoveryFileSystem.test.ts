@@ -86,6 +86,30 @@ describe("Discovery host failures", () => {
     expect(error.message).toContain("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY")
   })
 
+  it("includes an unusable configured helper in its typed read failure", async () => {
+    const description = "smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/absent: ENOENT"
+    const error = await Effect.runPromise(
+      Effect.gen(function*() {
+        const path = yield* Path.Path
+        return yield* Effect.flip(
+          Discovery.make(
+            FileSystem.makeNoop({
+              exists: () =>
+                Effect.fail(PlatformError.systemError({
+                  _tag: "PermissionDenied",
+                  module: "AtomicFileSystem",
+                  method: "exists",
+                  description
+                }))
+            }),
+            path
+          ).scan({ source: "virtual", root, naming: "path" })
+        )
+      }).pipe(Effect.provide(NodePath.layerPosix))
+    )
+    expect(error.message).toContain(description)
+  })
+
   it("fails with invalid_root when the source root is not a directory", async () => {
     const error = await scanError(tree({ [root]: { kind: "file", contents: "" } }))
 

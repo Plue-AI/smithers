@@ -13,6 +13,7 @@ import * as Suggest from "../src/Suggest.ts"
 const ports = vi.hoisted(() => ({
   invoke: vi.fn(),
   local: vi.fn(),
+  project: vi.fn(),
   query: vi.fn(),
   host: vi.fn(),
   doctorFromRegistry: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("../src/cli/ControlBridge.ts", async (load) => ({
   ...await load<typeof import("../src/cli/ControlBridge.ts")>(),
   invoke: ports.invoke,
   local: ports.local,
+  project: ports.project,
   query: ports.query,
   host: ports.host
 }))
@@ -68,6 +70,7 @@ beforeEach(() => {
   // The runners execute the typed operation they were handed, so a test sees
   // exactly what the handler passed to the command module.
   ports.local.mockReset().mockImplementation((operation: Effect.Effect<unknown>) => Effect.runPromise(operation))
+  ports.project.mockReset().mockImplementation((operation: Effect.Effect<unknown>) => Effect.runPromise(operation))
   ports.query.mockReset().mockImplementation((operation: Effect.Effect<unknown>) => Effect.runPromise(operation))
   ports.doctorFromRegistry.mockReset().mockReturnValue(Effect.succeed(healthy))
   ports.doctorFromControl.mockReset().mockReturnValue(Effect.succeed(healthy))
@@ -135,6 +138,7 @@ describe("unified root command dispatch", () => {
     }
     expect(ports.invoke).not.toHaveBeenCalled()
     expect(ports.local).not.toHaveBeenCalled()
+    expect(ports.project).not.toHaveBeenCalled()
     expect(ports.query).not.toHaveBeenCalled()
     expect(ports.host).not.toHaveBeenCalled()
     expect(ports.initialize).not.toHaveBeenCalled()
@@ -170,7 +174,7 @@ describe("unified root command dispatch", () => {
 
   it("routes local doctor through the project runner with explicit connection options", async () => {
     const result = await invoke(["doctor", "--root", "/fixture", "--quiet", "--json"])
-    expect(ports.local).toHaveBeenCalledExactlyOnceWith(
+    expect(ports.project).toHaveBeenCalledExactlyOnceWith(
       expect.anything(),
       { root: "/fixture", quiet: true },
       result.config
@@ -192,7 +196,7 @@ describe("unified root command dispatch", () => {
       { remote: "https://fixture.invalid", credential: "k", quiet: false },
       result.config
     )
-    expect(ports.local).not.toHaveBeenCalled()
+    expect(ports.project).not.toHaveBeenCalled()
     expect(ports.doctorFromControl).toHaveBeenCalledExactlyOnceWith({ credential: "k", environment: {} })
     expect(JSON.parse(result.stdout)).toMatchObject(healthy)
   })
@@ -391,7 +395,7 @@ describe("unified root command dispatch", () => {
   })
 
   it("redacts bridge failure credentials in structured command errors", async () => {
-    ports.local.mockRejectedValue(new Error("Authorization: Bearer private-fixture"))
+    ports.project.mockRejectedValue(new Error("Authorization: Bearer private-fixture"))
     const result = await invoke(["doctor", "--json"])
     expect(result.codes).toContain(1)
     expect(result.stdout).toContain("[REDACTED_TOKEN]")

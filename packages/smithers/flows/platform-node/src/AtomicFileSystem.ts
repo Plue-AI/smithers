@@ -9,7 +9,12 @@ import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import { Effect, FileSystem, Layer, PlatformError, Semaphore, Stream } from "effect"
 import { realpath, stat } from "node:fs/promises"
 import { availableParallelism } from "node:os"
-import { packageRoot, resolveDefaultExecutable, stagePackaged } from "./internal/AtomicFileSystemExecutable.ts"
+import {
+  packageRoot,
+  resolveConfiguredExecutable,
+  resolveDefaultExecutable,
+  stagePackaged
+} from "./internal/AtomicFileSystemExecutable.ts"
 import * as Protocol from "./internal/AtomicFileSystemProtocol.ts"
 import * as Transport from "./internal/AtomicFileSystemTransport.ts"
 
@@ -266,10 +271,12 @@ const executeFramed = (options: Options, resolved: Settings | { readonly invalid
       }
       let executable: string
       try {
-        const configured = options.executable ?? process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
-        executable = configured === undefined
+        const configured = process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
+        executable = options.executable !== undefined
+          ? Transport.usableExecutable(options.executable, request.boundaryRoot)
+          : configured === undefined
           ? resolveDefaultExecutable(packageRoot, request.boundaryRoot, defaultExecutable)
-          : Transport.usableExecutable(configured, request.boundaryRoot)
+          : resolveConfiguredExecutable(configured, request.boundaryRoot)
       } catch (cause) {
         return Effect.fail(Protocol.failure(request, cause))
       }

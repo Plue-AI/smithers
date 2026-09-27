@@ -157,7 +157,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
           // Local diagnostics read the discovery snapshot without opening
           // execution databases; a remote host answers with its own catalog.
           const report = c.options.remote === undefined
-            ? await Bridge.local(DoctorCmd.fromRegistry(globals), c.options, config)
+            ? await Bridge.project(DoctorCmd.fromRegistry(globals), c.options, config)
             : await Bridge.query(DoctorCmd.fromControl(globals), c.options, config)
           // The complete report stays available to scripts on a nonzero exit.
           if (Doctor.failed(report)) config.exit?.(1)

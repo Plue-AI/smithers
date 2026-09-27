@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const native = vi.hoisted(() => ({ spawn: vi.fn(), resolve: vi.fn(), usable: vi.fn() }))
 vi.mock("node:child_process", () => ({ spawn: native.spawn }))
-vi.mock("../src/internal/AtomicFileSystemExecutable.ts", () => ({
+// The real configured-helper resolver runs over the mocked `usableExecutable`.
+vi.mock("../src/internal/AtomicFileSystemExecutable.ts", async (load) => ({
+  ...await load<typeof import("../src/internal/AtomicFileSystemExecutable.ts")>(),
   packageRoot: "/package",
   resolveDefaultExecutable: native.resolve
 }))
@@ -67,6 +69,17 @@ describe("Windows native job connection", () => {
     }
     job.stop()
     expect(processChild.stdin.destroyed).toBe(true)
+  })
+
+  it("names the variable and the install hint when the configured helper is unusable", () => {
+    vi.stubEnv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "/config/helper")
+    native.usable.mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory")
+    })
+    expect(() => resolveJobExecutable()).toThrow(
+      /^smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=\/config\/helper: ENOENT.*cargo build --locked/
+    )
+    expect(native.spawn).not.toHaveBeenCalled()
   })
 
   it("validates an explicitly configured native helper", async () => {

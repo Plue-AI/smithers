@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   installedPackageRoot,
   outsideWorkspace,
+  resolveConfiguredExecutable,
   resolveDefaultExecutable,
   resolvePackageRoot,
   stagePackaged
@@ -152,6 +153,20 @@ describe("default atomic helper resolution", () => {
     expect(() => stagePackaged(packageRoot)).not.toThrow()
   })
 
+  it("names the variable and the install hint when the configured helper is unusable", async () => {
+    const { root } = await fixture()
+    const absent = join(root, "absent")
+    expect(() => resolveConfiguredExecutable(absent, undefined)).toThrow(
+      new RegExp(
+        `^smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${absent}: .*ENOENT.*` +
+          "cargo build --locked --release -p smithers-ffi --bin smithers-jj-export"
+      )
+    )
+    const binary = join(root, "bin", helperName)
+    await helper(binary)
+    expect(resolveConfiguredExecutable(binary, undefined)).toBe(binary)
+  })
+
   it("rejects a packaged helper that is a directory", async () => {
     const { packageRoot, root } = await fixture()
     const binary = join(packageRoot, "bin", `${process.platform}-${process.arch}`, helperName)
@@ -190,7 +205,7 @@ describe("default atomic helper resolution", () => {
   it("names the build and configuration fix when no helper exists", async () => {
     const { packageRoot, root } = await fixture()
     expect(() => resolveDefaultExecutable(packageRoot, join(root, "workspace"), join(root, "absent")))
-      .toThrow(/cargo \+1\.98\.0 build --locked.*SMITHERS_WORKSPACE_JJ_EXPORT_BINARY/)
+      .toThrow(/cargo build --locked.*SMITHERS_WORKSPACE_JJ_EXPORT_BINARY/)
   })
 
   it("rejects a fallback helper inside the confined project", async () => {

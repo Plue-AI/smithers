@@ -28,7 +28,7 @@ The checks, in order:
 
 | Check | Reports |
 | --- | --- |
-| `registry` | How many flows discovery found under `flows/`, or why it found none. |
+| `registry` | How many flows discovery found under `flows/`, or why it found none. A `fail` when discovery cannot run, such as a missing `smithers-jj-export` helper; the detail names the build command and `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`. |
 | `registry <path>` | One `warn` per discovery warning, with its code and message. |
 | `state` | The `.flows/` state directory, or that it is not created yet. |
 | `database <path>` | For `control.db` and `engine.db`: how many migrations are applied, that the file is not created yet, or that Smithers 1.0 did not create it. |

@@ -114,7 +114,7 @@ export const discoveryError = (options: {
     ? options.cause.reason
     : undefined
   const detail = typeof reason === "object" && reason !== null && "description" in reason &&
-      typeof reason.description === "string" && reason.description.includes("smithers-jj-export is missing")
+      typeof reason.description === "string" && /smithers-jj-export is (?:missing|unusable)/.test(reason.description)
     ? reason.description
     : undefined
   return new DiscoveryError({

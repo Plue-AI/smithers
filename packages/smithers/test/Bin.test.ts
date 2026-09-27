@@ -1910,6 +1910,31 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
     }
   })
 
+  it("reports a missing smithers-jj-export as a failed registry check", () => {
+    const cwd = stageEmptyProject()
+    const home = mkdtempSync(join(tmpdir(), "smithers-doctor-home-"))
+    try {
+      const environment = { ...withoutSeats(), SMITHERS_HOME: home }
+      expect(smithers(cwd, ["init", "hello", "--json"], environment).status).toBe(0)
+      const missing = join(home, "no-such-smithers-jj-export")
+      const result = smithers(cwd, ["doctor", "--json"], {
+        ...environment,
+        SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: missing
+      })
+      expect(result.status).toBe(1)
+      const report = JSON.parse(result.stdout) as { checks: Array<{ name: string; level: string; detail: string }> }
+      const registry = report.checks.find((check) => check.name === "registry")!
+      expect(registry.level).toBe("fail")
+      expect(registry.detail).toContain(`SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${missing}`)
+      expect(registry.detail).toContain("cargo build --locked --release -p smithers-ffi --bin smithers-jj-export")
+      // The rest of the report still runs.
+      expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "node" })]))
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   it("writes a seat the host can resolve, chosen from the environment doctor reads", () => {
     const cwd = stageEmptyProject()
     try {

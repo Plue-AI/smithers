@@ -170,7 +170,12 @@ const discoveredOnDisk = (directory: string): { readonly flows: number; readonly
 }
 
 /** Every flow real discovery found, with a recursive filesystem fallback. */
-const registry = (root: string, discoveredFlows: ReadonlyArray<DiscoveredFlow> | undefined): Check => {
+const registry = (
+  root: string,
+  discoveredFlows: ReadonlyArray<DiscoveredFlow> | undefined,
+  discoveryFailure: string | undefined
+): Check => {
+  if (discoveryFailure !== undefined) return { name: "registry", level: "fail", detail: discoveryFailure }
   const directory = Project.flowsDirectory(root)
   if (discoveredFlows !== undefined) {
     return discoveredFlows.length === 0
@@ -241,6 +246,8 @@ export interface Options {
    * result replaces the filesystem fallback.
    */
   readonly discoveredFlows?: ReadonlyArray<DiscoveredFlow> | undefined
+  /** Why discovery produced no registry; replaces every other registry fact. */
+  readonly discoveryFailure?: string | undefined
   /** Diagnostics returned by the same registry snapshot as discoveredFlows. */
   readonly discoveryWarnings?: ReadonlyArray<DiscoveryWarning> | undefined
   readonly environment?: Environment.Source | undefined
@@ -264,7 +271,7 @@ export interface Options {
 export const inspect = (options: Options): Report => {
   const environment = options.environment ?? process.env
   const nodeVersion = options.nodeVersion ?? process.versions.node
-  const checks: Array<Check> = [registry(options.root, options.discoveredFlows)]
+  const checks: Array<Check> = [registry(options.root, options.discoveredFlows, options.discoveryFailure)]
 
   for (const warning of options.discoveryWarnings ?? []) {
     checks.push({

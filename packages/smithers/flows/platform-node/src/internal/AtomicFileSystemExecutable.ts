@@ -51,6 +51,10 @@ export const packageRoot = installedPackageRoot(
 )
 
 const staged = new Map<string, string>()
+const installHint = "install @smthrs/platform-node with its native helper, " +
+  "run cargo build --locked --release -p smithers-ffi --bin smithers-jj-export in a source checkout, " +
+  "or set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to its absolute path"
+
 const helperName = process.platform === "win32" ? "smithers-jj-export.exe" : "smithers-jj-export"
 let embeddedHelper: string | undefined
 
@@ -153,9 +157,23 @@ export const resolveDefaultExecutable = (
       return outsideWorkspace(executable, boundaryRoot)
     }
   }
-  throw new Error(
-    `smithers-jj-export is missing; install @smthrs/platform-node with its native helper, ` +
-      `run cargo build --locked --release -p smithers-ffi --bin smithers-jj-export in a source checkout, ` +
-      `or set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to its absolute path (searched ${candidates.join(", ")})`
-  )
+  throw new Error(`smithers-jj-export is missing; ${installHint} (searched ${candidates.join(", ")})`)
+}
+
+/**
+ * The helper `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` names, refused with the same
+ * install hint as a missing one.
+ * @private
+ * @since 1.0.0
+ */
+export const resolveConfiguredExecutable = (configured: string, boundaryRoot: string | undefined): string => {
+  try {
+    return usableExecutable(configured, boundaryRoot)
+  } catch (cause) {
+    // `usableExecutable` and the node:fs calls it makes throw only Error objects.
+    const reason = (cause as Error).message
+    throw new Error(
+      `smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${configured}: ${reason}; ${installHint}`
+    )
+  }
 }

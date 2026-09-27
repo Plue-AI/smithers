@@ -263,14 +263,13 @@ export const query = async <A, E>(
   )
 
 /**
- * Runs a typed verb on the project alone, without opening the control host:
- * the 0.x migration, garbage collection, the registry check, and local
- * diagnostics. The project references and the flow registry are the host's.
+ * Runs a typed verb on the project alone, without opening the control host or
+ * building the flow registry. The project references are the host's.
  * @category constructors
  * @since 1.0.0
  */
-export const local = async <A, E>(
-  operation: Effect.Effect<A, E, Registry.Registry | Ui.Ui>,
+export const project = async <A, E>(
+  operation: Effect.Effect<A, E, Ui.Ui>,
   options: ConnectionOptions,
   runtime: Runtime = {}
 ): Promise<A> => {
@@ -281,7 +280,6 @@ export const local = async <A, E>(
       operation.pipe(
         Effect.provide([
           Project.layer(root, config.migrationRoot ?? Project.legacyRoot(undefined, root)),
-          NodeControl.layerRegistry(root),
           NodeServices.layer
         ])
       ),
@@ -291,6 +289,24 @@ export const local = async <A, E>(
     runtime
   )
 }
+
+/**
+ * Runs a typed verb on the project alone, without opening the control host:
+ * the 0.x migration, garbage collection, and the registry check. The project
+ * references and the flow registry are the host's.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const local = <A, E>(
+  operation: Effect.Effect<A, E, Registry.Registry | Ui.Ui>,
+  options: ConnectionOptions,
+  runtime: Runtime = {}
+): Promise<A> =>
+  project(
+    operation.pipe(Effect.provide(NodeControl.layerRegistry(configuration(options, runtime).root ?? process.cwd()))),
+    options,
+    runtime
+  )
 
 /**
  * A scoped stream closes its transports when the consumer stops following.

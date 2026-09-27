@@ -5,8 +5,7 @@
 import { spawn } from "node:child_process"
 import type { Socket } from "node:net"
 import { parse } from "node:path"
-import { packageRoot, resolveDefaultExecutable } from "./AtomicFileSystemExecutable.ts"
-import { usableExecutable } from "./AtomicFileSystemTransport.ts"
+import { packageRoot, resolveConfiguredExecutable, resolveDefaultExecutable } from "./AtomicFileSystemExecutable.ts"
 
 const deferred = <A>() => {
   let resolve!: (value: A) => void
@@ -28,7 +27,7 @@ export const resolveJobExecutable = (): string => {
   const configured = process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
   return configured === undefined
     ? resolveDefaultExecutable(packageRoot, undefined)
-    : usableExecutable(configured, undefined)
+    : resolveConfiguredExecutable(configured, undefined)
 }
 
 /**
