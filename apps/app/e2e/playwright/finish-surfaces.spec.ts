@@ -84,7 +84,8 @@ test("the issue list narrows to conversations, and a conversation reads its mess
 
   await slash(page, `/issues.list all ${repo}`)
   const list = page.getByTestId(`card-issues-${repo}`)
-  await expect(list.locator('[data-issue="7"][data-kind="conversation"]')).toBeVisible()
+  await expect(list.locator('[data-issue="7"]')).toBeVisible()
+  await expect(list.locator('[data-issue="7"]')).toHaveAttribute("data-kind", "conversation")
   await expect(list.locator('[data-issue="8"]')).toContainText("Land the fence")
   await expect(list.locator('[data-issue="8"]')).toHaveAttribute("data-state", "fixed")
   await expect(list.getByRole("alert")).toHaveCount(0)
@@ -135,7 +136,6 @@ test("a run's Steps view leads with its recorded triggers: the schedule that fir
   const runId = "run-nightly"
   const stamp = (sequence: number, kind: string, occurredAt: number, payload: Record<string, unknown> = {}) => ({ sequence, kind, occurredAt, payload })
   const journal = [
-    stamp(1, "control.run.accepted", 1_759_000_000_000, {}),
     stamp(2, "control.agent.turn-opened", 1_759_000_001_000, { seat: "openai:gpt-6-sol" }),
     stamp(3, "control.agent.cell-produced", 1_759_000_001_500, { text: 'await ctx.call("bash", { command: "bun test src/wiki" })' }),
     stamp(4, "control.agent.cell-call-started", 1_759_000_002_000, { flowName: "bash", callId: "c1", input: { command: "bun test src/wiki" } }),
