@@ -1,3 +1,4 @@
+import { shownInTranscript } from "./state/ApprovalDeciders"
 import { nativeShell } from "@smthrs/rpc/AppBootstrap"
 import {
 Button,
@@ -142,7 +143,9 @@ function AppContent() {
   const messages = messageRows.filter((message) => inConversation(message, conversationTabId) &&
     (message.action?.flow !== "auth.sign-in" || savedSignInPrompts.some(receipt => receipt.id === message.id)))
   const conversationRows = cardRows.filter((card) => inConversation(card, conversationTabId))
-  const conversationCards = conversationRows
+  // Admin chrome follows the same capability-filtered registry as every act.
+  const isAdmin = controller.commands.find("admin.devtools") !== undefined
+  const conversationCards = conversationRows.filter((card) => shownInTranscript(card, isAdmin))
   /*
    * A stable array: CardView is memoized, and re-sorting the same rows into a
    * fresh array on every render would re-render every card body regardless.
@@ -379,9 +382,6 @@ function AppContent() {
     connectors: connectorRows,
     repos: repoRows
   })
-  // Admin chrome follows the same capability-filtered registry as every act.
-  const isAdmin = controller.commands.find("admin.devtools") !== undefined
-
   /*
    * §2a″ (wave 12 §4): auth is a conversation STATE, and a state shows only
    * itself. Signed out, the auth message is the whole transcript. Wave 14 §1
@@ -581,6 +581,7 @@ function AppContent() {
                     maximized={session.maximizedCardId === entry.card.id}
                     debugVerbose={session.verbose === true}
                     signedOut={identity?.state === "signed-out"}
+                    admin={isAdmin}
                     worldDocuments={worldDocuments}
                     workflowCatalogs={workflowCatalogs}
                     triggerCatalogs={triggerCatalogs}

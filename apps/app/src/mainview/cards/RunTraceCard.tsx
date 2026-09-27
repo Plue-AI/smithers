@@ -172,9 +172,12 @@ export const RunTraceBody = ({
   onRunCommand: sendRunCommand,
   workflowCatalogs,
   flowDurations,
-  fileCards
+  fileCards,
+  admin = false
 }: {
   readonly card: RunTraceCard
+  /** A Smithers admin decides admin-decided waits; nobody else is offered them. */
+  readonly admin?: boolean
   readonly workflowCatalogs?: ReadonlyArray<Extract<Card, { kind: "workflow-list" }>>
   readonly onRunCommand: RunCommand
   /** Every measured row the session holds, for the graph's own predictions. */
@@ -252,7 +255,7 @@ export const RunTraceBody = ({
         ) :
         null}
       {planOnly ? null : (
-        <RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} />
+        <RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />
       )}
       {!planOnly && result !== null ? repositoryRun ? (
         <details className="run-progress-fold">

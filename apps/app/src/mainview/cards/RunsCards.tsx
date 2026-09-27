@@ -1,3 +1,4 @@
+import { canDecide } from "../state/ApprovalDeciders"
 import { flowAction } from "../flows/FlowAction"
 /*
  * Lane runs — the run inbox and the approvals inbox cards.
@@ -30,13 +31,18 @@ const waitingWords = (waiting: string): string =>
 const LIVE_STATUSES: ReadonlySet<string> = new Set(["accepted", "running", "parked", "waiting-approval"])
 
 export const RunListCardBody = ({
+  admin = false,
   card,
   onRunCommand
 }: {
+  readonly admin?: boolean
   readonly card: Extract<Card, { kind: "run-list" }>
   readonly onRunCommand: RunCommand
 }) => {
-  const { repo, runs, approvals = [], observationError } = card.payload
+  const { repo, runs, observationError } = card.payload
+  // An approval nobody here can decide is not offered (state/ApprovalDeciders.ts).
+  const approvals = (card.payload.approvals ?? []).filter((approval) =>
+    canDecide(runs.find((run) => run.runId === approval.runId)?.flowId, admin))
   const attention = card.payload.status === "attention"
   const pending = card.payload.listRequest?.state === "pending"
   /*
@@ -159,15 +165,19 @@ const RunRef = ({ runId, onRunCommand }: { readonly runId: string; readonly onRu
 )
 
 export const ApprovalsInboxCardBody = ({
+  admin = false,
   card,
   onDecideApproval,
   onRunCommand
 }: {
+  readonly admin?: boolean
   readonly card: Extract<Card, { kind: "approvals-inbox" }>
   readonly onDecideApproval: (id: string, decision: "approved" | "denied", answer?: unknown, question?: string) => void
   readonly onRunCommand?: RunCommand
 }) => {
-  const { repo, approvals } = card.payload
+  const { repo } = card.payload
+  // An approval nobody here can decide is not offered (state/ApprovalDeciders.ts).
+  const approvals = card.payload.approvals.filter((approval) => canDecide(approval.question?.name, admin))
   const grants = approvals.filter(approval => approval.decision === undefined && approval.question === undefined).length
   const questions = approvals.filter(approval => approval.decision === undefined && approval.question !== undefined).length
   if (approvals.length === 0) {
@@ -253,11 +263,11 @@ export const ApprovalsInboxCardBody = ({
 /* Lane runs: the inboxes are listings; they settle the moment they render. */
 export const runsCardFamily: CardFamily<"run-list" | "approvals-inbox"> = {
   "run-list": {
-    render: (card, actions) => <RunListCardBody card={card} onRunCommand={actions.onRunCommand} />,
+    render: (card, actions) => <RunListCardBody card={card} onRunCommand={actions.onRunCommand} admin={actions.admin === true} />,
     pill: settledPill
   },
   "approvals-inbox": {
-    render: (card, actions) => <ApprovalsInboxCardBody card={card} onDecideApproval={actions.onDecideApproval} onRunCommand={actions.onRunCommand} />,
+    render: (card, actions) => <ApprovalsInboxCardBody card={card} onDecideApproval={actions.onDecideApproval} onRunCommand={actions.onRunCommand} admin={actions.admin === true} />,
     pill: settledPill
   }
 }

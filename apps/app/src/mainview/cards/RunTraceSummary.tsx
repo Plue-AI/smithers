@@ -1,3 +1,4 @@
+import { canDecide } from "../state/ApprovalDeciders"
 import type { Card } from "../state/AppState"
 import type { RunCommand } from "./CardFamily"
 import { flowAction } from "../flows/FlowAction"
@@ -17,7 +18,8 @@ const words = RUN_PHASE_WORDS
 const terminal = new Set(["completed", "failed", "cancelled", "no-capacity"])
 
 /** The live verdict and action never follow the inspection cursor. */
-export const RunTraceSummary = ({ card, model, facts, onRunCommand: send }: {
+export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin = false }: {
+  readonly admin?: boolean
   readonly card: Extract<Card, { kind: "run-trace" }>
   readonly model: TraceModel
   readonly facts: ReadonlyArray<string>
@@ -52,7 +54,7 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send }: {
         title={NEEDS_HELP_LABELS[needsHelp]}
       />
     )}
-    {action === "approval" ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "approvals.open", runId)}>Review approval</button>
+    {action === "approval" && canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "approvals.open", runId)}>Review approval</button>
       : action === "resume" ? <button type="button" className="run-trace-filter" data-testid={`flow-run-resume-${runId}`} {...flowAction(onRunCommand, "runs.resume", runId)}>Resume</button> : null}
     {shown.length === 0 ? null : <span className="run-outcome-facts">{shown.join(" · ")}</span>}
   </header>

@@ -5,6 +5,7 @@ import { workflowLaunchOf } from "./state/WorkflowLaunch"
 import { flowArgs } from "./flows/FlowArgs"
 import { runSourceCommand } from "@smthrs/ui/run-command"
 import { runStatus } from "./state/Subagents"
+import { adminDecided } from "./state/ApprovalDeciders"
 
 /** A toast carries a card identity; controls always read that card's latest state. */
 export const workerToastActions = (card: Card | undefined, cards: ReadonlyArray<Card> = []): ReadonlyArray<ToastAction> => {
@@ -44,7 +45,8 @@ export const workerToastActions = (card: Card | undefined, cards: ReadonlyArray<
   add("steer", "Steer", "runs.steer", flowArgs("runs.steer", { runId, body: "" }))
   if (status === "running" || status === "parked") add("model", "Model", "runs.seat", flowArgs("runs.seat", { runId, seat: "" }))
   add("thinking", "Thinking", "runs.thinking", flowArgs("runs.thinking", { runId, thinking: "" }))
-  add("approval", "Review approval", "approvals.open", runId)
+  // An admin-decided wait is reached from the admin's approvals inbox, never from a run's toast.
+  if (!adminDecided(card.payload.workflow)) add("approval", "Review approval", "approvals.open", runId)
   if (status === "parked") add("resume", "Resume", "runs.resume", runId)
   add("retry", "Run again", "runs.rerun", runId)
   if (phase === "stopped" || phase === "quiet" || phase === "reconnecting" || card.payload.observationError) {

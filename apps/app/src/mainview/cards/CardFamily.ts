@@ -93,6 +93,8 @@ export interface CardActions {
    * on silence).
    */
   readonly signedOut?: boolean
+  /** A Smithers admin, who alone decides admin-decided waits (state/ApprovalDeciders.ts). */
+  readonly admin?: boolean
   /** Which frame the body is mounted in. Absent in static previews, which read as embedded. */
   readonly presentation?: "embedded" | "maximized"
 }

@@ -39,8 +39,10 @@ export const WorkflowRunCardBody = ({
   workflowCatalogs,
   flowDurations,
   fileCards,
-  childCards
+  childCards,
+  admin = false
 }: {
+  readonly admin?: boolean
   readonly card: Extract<Card, { kind: "run-trace" }>
   readonly onStopRun: (cardId: string) => void
   readonly onRetryRun: (cardId: string) => void
@@ -86,6 +88,7 @@ export const WorkflowRunCardBody = ({
         null}
       {/* The run as a trace (spec 06): the card's body for every run kind. Its rows dispatch runs.trace.*. */}
       <RunTraceBody
+        admin={admin}
         card={card}
         onRunCommand={onRunCommand}
         workflowCatalogs={workflowCatalogs}
