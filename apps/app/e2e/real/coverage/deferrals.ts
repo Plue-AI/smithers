@@ -51,7 +51,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     /* The wiki spaces (#1922): the browser spec drives them against stubbed routes; the real backend run is owed. */
     "wiki.attach", "wiki.cloud.delete", "wiki.cloud.new", "wiki.cloud.rename", "wiki.history", "wiki.space",
     "notifications.read-update", "notifications.tag", "plugins", "plugins.install",
-    "plugins.list", "plugins.remove", "prs", "repo.choose", "repo.overview", "repo.tree", "repo.update",
+    "plugins.list", "plugins.remove", "prs", "repo.choose", "repo.tree", "repo.update",
     "repos.import.retry", "review.ack", "review.done", "review.reopen", "review.since-mine",
     "review.unrequest", "runs.seat", "runs.signal", "search.boxes", "search.changes", "search.files",
     "search.history", "search.issues", "search.open", "search.runs", "search.secrets", "secrets.connect.codex", "secrets.move",
