@@ -22,7 +22,11 @@ test("a late boot recovers after the startup watchdog without losing React's mou
     await expect(page.locator("body")).not.toContainText("Smithers is starting your session.")
     // Only settle the wordmark: the boot skeleton intentionally pulses forever.
     await entrance.evaluate(async node => {
-      await document.fonts.ready
+      // Document-wide readiness can wait for the deliberately held boot bundle
+      // in WebKit. Load only the font whose geometry this test measures.
+      const mark = node.querySelector("pre")!
+      const style = getComputedStyle(mark)
+      await document.fonts.load(`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`, mark.textContent ?? "")
       await Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished))
     })
     const corner = await entrance.boundingBox()
