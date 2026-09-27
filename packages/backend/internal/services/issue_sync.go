@@ -491,6 +491,10 @@ func (s *IssueService) CompleteIssueSync(ctx context.Context, actor *db.User, ow
 		return err
 	}
 	defer tx.Rollback(ctx)
+	auditResolution := func(issueID int64, resolution, evidence string, previous []byte) error {
+		_, err := tx.Exec(ctx, `INSERT INTO issue_events(issue_id,actor_id,event_type,payload) VALUES($1,$2,'sync.resolved',jsonb_build_object('delivery_id',$3::bigint,'resolution',$4::text,'evidence',$5::text,'message_id',$6::text,'previous',$7::jsonb))`, issueID, actor.ID, id, resolution, evidence, in.MessageID, previous)
+		return err
+	}
 	// Owner resolution is an explicit, single-delivery compare-and-set. Keep its
 	// evidence in the existing issue event log, including the uncertain receipt.
 	resolving := in.Resolution != ""
@@ -508,7 +512,7 @@ func (s *IssueService) CompleteIssueSync(ctx context.Context, actor *db.User, ow
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO issue_events(issue_id,actor_id,event_type,payload) VALUES($1,$2,'sync.resolved',jsonb_build_object('delivery_id',$3::bigint,'resolution',$4::text,'evidence',$5::text,'message_id',$6::text,'previous',$7::jsonb))`, issueID, actor.ID, id, in.Resolution, in.Error, in.MessageID, previous)
+		err = auditResolution(issueID, in.Resolution, in.Error, previous)
 		if err != nil {
 			return err
 		}
@@ -532,7 +536,8 @@ func (s *IssueService) CompleteIssueSync(ctx context.Context, actor *db.User, ow
 	}
 	var issueID, commentID int64
 	var event, root, provider string
-	err = tx.QueryRow(ctx, `SELECT d.issue_id,(e.payload->'comment'->>'id')::bigint,e.event_type,t.thread_id,t.provider FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE d.id=$1 AND t.owner_id=$2 AND i.repository_id=$3 AND d.state IN ('dispatching','outcome_unknown') AND (($4<>'' AND d.claim_token=$4) OR ($4='' AND $5='sent' AND d.state='outcome_unknown')) FOR UPDATE OF d,t`, id, actor.ID, r.ID, in.Token, in.State).Scan(&issueID, &commentID, &event, &root, &provider)
+	var previous []byte
+	err = tx.QueryRow(ctx, `SELECT d.issue_id,(e.payload->'comment'->>'id')::bigint,e.event_type,t.thread_id,t.provider,to_jsonb(d)-'claim_token' FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE d.id=$1 AND t.owner_id=$2 AND i.repository_id=$3 AND d.state IN ('dispatching','outcome_unknown') AND (($4<>'' AND d.claim_token=$4) OR ($4='' AND $5='sent' AND d.state='outcome_unknown' AND (($6 AND d.claim_token=$7) OR (NOT $6 AND t.provider='slack' AND e.event_type='comment.created')))) FOR UPDATE OF d,t`, id, actor.ID, r.ID, in.Token, in.State, resolving, in.ExpectedToken).Scan(&issueID, &commentID, &event, &root, &provider, &previous)
 	if err != nil {
 		return api.Conflict("delivery claim changed")
 	}
@@ -545,6 +550,11 @@ func (s *IssueService) CompleteIssueSync(ctx context.Context, actor *db.User, ow
 		}
 		if provider == "telegram" && !regexp.MustCompile(`^[1-9][0-9]*(,[1-9][0-9]*)*$`).MatchString(in.MessageID) {
 			return api.BadRequest("invalid Telegram message ids")
+		}
+		if in.Token == "" && !resolving {
+			if err = auditResolution(issueID, "sent", "Slack reconciliation found the outgoing comment", previous); err != nil {
+				return err
+			}
 		}
 		if event == "comment.edited" {
 			_, err = tx.Exec(ctx, `UPDATE issue_external_messages SET message_id=$3 WHERE issue_id=$1 AND comment_id=$2`, issueID, commentID, in.MessageID)
