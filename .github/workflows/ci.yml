@@ -6,6 +6,8 @@ on:
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
 jobs:
   "cache-publish":
     name: "Publish reviewed workspace results to the cache"

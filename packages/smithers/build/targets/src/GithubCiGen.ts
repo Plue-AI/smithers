@@ -1480,6 +1480,11 @@ export const render = (attrs: Attrs): string => {
     // a branch's in-progress run always finishes.
     "  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
     `  cancel-in-progress: ${attrs.cancelInProgress ? "${{ github.event_name == 'pull_request' }}" : "false"}`,
+    // Least privilege: no generated job writes through the default token, so
+    // every job reads the repository and nothing else. Secrets reach a job
+    // only through its declared step environment.
+    "permissions:",
+    "  contents: read",
     "jobs:"
   ]
   const cacheEnv = cacheEnvironment(attrs)

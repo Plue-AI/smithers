@@ -61,6 +61,17 @@ describe("CI concurrency", () => {
   })
 })
 
+describe("CI token permissions", () => {
+  it("grants every job read-only repository contents and nothing more", () => {
+    const workflow = render(goldenAttrs)
+    // Without a permissions block every job gets the repository's default
+    // token, which may write; no generated job writes through it.
+    expect(workflow).toContain("\npermissions:\n  contents: read\njobs:\n")
+    expect(workflow.match(/^\s*permissions:/gm)).toEqual(["permissions:"])
+    expect(workflow).not.toMatch(/:\s*write\b|id-token/)
+  })
+})
+
 describe("independent gate steps", () => {
   it("runs every gate after a red one, but never after failed setup", () => {
     const workflow = parseWorkflow(render(goldenAttrs))
@@ -218,6 +229,8 @@ on:
 concurrency:
   group: ci-\${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: \${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
 jobs:
   "test":
     name: "workspace graph"
