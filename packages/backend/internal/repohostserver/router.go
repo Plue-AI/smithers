@@ -1545,6 +1545,9 @@ func (s *Server) setDefaultBookmark(w http.ResponseWriter, r *http.Request) erro
 		}
 		return internalError("failed to inspect repository", err)
 	}
+	if err := s.refuseCaseVariantBookmark(r.Context(), chi.URLParam(r, "id"), req.Name); err != nil {
+		return err
+	}
 	if err := setGitDefaultBookmark(r.Context(), gitDir, req.Name); err != nil {
 		return internalError("failed to set default bookmark", err)
 	}

@@ -2,6 +2,7 @@ package repohostserver
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 // Git stores loose refs as files, so on a case-insensitive filesystem
@@ -71,4 +74,93 @@ func TestCreateBookmarkRefusesCaseVariant(t *testing.T) {
 		f.srv.Handler().ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusConflict, rec.Code, "%s: %s", name, rec.Body.String())
 	}
+}
+
+// serveCaseRef posts a JSON repo-host API request for alice/demo.
+func serveCaseRef(t *testing.T, f *laneHTTPFixture, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, "/repos/alice%3Ademo"+path, bytes.NewBufferString(body))
+	req.Header.Set("Authorization", validAuth())
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+// A bookmark jj created but has not exported yet still counts: the bookmark
+// API, a landing target and the default bookmark refuse its case variants.
+func TestBookmarkWritesRefuseCaseVariantOfJJBookmark(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	mock := f.srv.ffi.(*mockFFI)
+	mock.createBookmarkFn = func(_, name, _ string) (repohost.Bookmark, error) {
+		f.repo.jj("bookmark", "create", name, "-r", "main")
+		return repohost.Bookmark{Name: name}, nil
+	}
+	mock.exportGitRefsFn = func(string) error { f.repo.jj("git", "export"); return nil }
+	landed := 0
+	mock.landChangesFn = func(string, repohost.LandRequest) (repohost.LandResult, error) {
+		landed++
+		return repohost.LandResult{}, nil
+	}
+
+	rec := serveCaseRef(t, f, http.MethodPost, "/bookmarks", `{"name":"foo","target_change_id":"abc"}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	_, exported := f.repo.refs()["refs/heads/foo"]
+	require.False(t, exported, "the fixture must leave foo unexported")
+	rec = serveCaseRef(t, f, http.MethodPost, "/bookmarks", `{"name":"Foo","target_change_id":"abc"}`)
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "differ only in case")
+
+	for _, target := range []string{"Main", "FOO"} {
+		rec = serveCaseRef(t, f, http.MethodPost, "/land", fmt.Sprintf(`{"change_ids":["abc"],"target_bookmark":%q}`, target))
+		assert.Equal(t, http.StatusConflict, rec.Code, "land %s: %s", target, rec.Body.String())
+		rec = serveCaseRef(t, f, http.MethodPut, "/default-bookmark", fmt.Sprintf(`{"name":%q}`, target))
+		assert.Equal(t, http.StatusConflict, rec.Code, "default %s: %s", target, rec.Body.String())
+	}
+	assert.Zero(t, landed, "a refused landing reached jj")
+	rec = serveCaseRef(t, f, http.MethodPost, "/land", `{"change_ids":["abc"],"target_bookmark":"main"}`)
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	rec = serveCaseRef(t, f, http.MethodPut, "/default-bookmark", `{"name":"main"}`)
+	assert.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+}
+
+// The stack service's own push of mythical and its notes, which share no
+// spelling with another ref, still creates and updates both.
+func TestControlPlaneMythicalPushStillWrites(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	tip := f.commit("stack", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "stack.txt"), []byte("1\n"), 0o644))
+	})
+	next := f.commit("stack 2", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "stack.txt"), []byte("2\n"), 0o644))
+	})
+	push := func(old, packBase, newOID string) *httptest.ResponseRecorder {
+		body := f.pushBody(packBase, newOID, "refs/heads/mythical")
+		copy(body[4:44], old)
+		second := fmt.Sprintf("%s %s refs/notes/mythical\n", old, newOID)
+		command := fmt.Sprintf("%04x%s", len(second)+4, second)
+		var end int
+		_, err := fmt.Sscanf(string(body[:4]), "%04x", &end)
+		require.NoError(t, err)
+		body = append(append(append([]byte{}, body[:end]...), command...), body[end:]...)
+		return postReceivePack(t, f, body, "X-Smithers-Control-Plane", "mythical")
+	}
+	rec := push(laneZeroOID, f.base, tip)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	rec = push(tip, tip, next)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	refs := f.repo.refs()
+	assert.Equal(t, next, refs["refs/heads/mythical"])
+	assert.Equal(t, next, refs["refs/notes/mythical"])
+}
+
+func TestInvisibleCharacterRefRefused(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	tip := f.commit("work", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "work.txt"), []byte("w\n"), 0o644))
+	})
+	create := f.pushBody(f.base, tip, "refs/heads/ma\u200cin")
+	copy(create[4:44], laneZeroOID)
+	rec := postReceivePack(t, f, create)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 }

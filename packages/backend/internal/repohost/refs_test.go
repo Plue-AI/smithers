@@ -217,3 +217,15 @@ func TestCaseVariantRefs(t *testing.T) {
 		t.Errorf("exact existing ref refused: %q", got)
 	}
 }
+
+func TestRefKeyMatchesCanonicalCaseless(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"refs/heads/café", "refs/heads/CAFÉ"},
+		{"refs/heads/ma‌in", "refs/heads/main"},
+		{"refs/headſ/x", "refs/heads/x"},
+	} {
+		if !SameRef(pair[0], pair[1]) {
+			t.Errorf("SameRef(%q, %q) = false", pair[0], pair[1])
+		}
+	}
+}

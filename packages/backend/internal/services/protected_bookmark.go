@@ -71,13 +71,13 @@ func RequireAgentRunOffDefaultBookmark(kind middleware.CredentialKind, defaultBo
 // for refs outside refs/heads/ (tags, notes, ...), which are not subject to
 // bookmark protection.
 func BookmarkNameFromRef(ref string) (string, bool) {
-	const heads = "refs/heads/"
-	ref = strings.TrimSpace(ref)
 	// Without case, like every ref comparison (repohost.RefKey).
-	if len(ref) <= len(heads) || !repohost.SameRef(ref[:len(heads)], heads) {
+	first, rest, _ := strings.Cut(strings.TrimSpace(ref), "/")
+	second, name, _ := strings.Cut(rest, "/")
+	if name == "" || !repohost.SameRef(first+"/"+second, "refs/heads") {
 		return "", false
 	}
-	return ref[len(heads):], true
+	return name, true
 }
 
 type UpsertProtectedBookmarkInput struct {

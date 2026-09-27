@@ -205,10 +205,11 @@ var maxRefListingBytes int64 = 64 * 1024 * 1024
 // errRefListingTooLarge reports a ref listing past maxRefListingBytes.
 var errRefListingTooLarge = errors.New("git ref listing exceeds maximum size")
 
-func listGitRefs(ctx context.Context, gitDir string) (map[string]string, error) {
+func listGitRefs(ctx context.Context, gitDir string, patterns ...string) (map[string]string, error) {
 	cmdCtx, cancelCmd := context.WithCancel(ctx)
 	defer cancelCmd()
-	cmd := exec.CommandContext(cmdCtx, "git", "--git-dir", gitDir, "for-each-ref", "--format=%(refname)%00%(objectname)")
+	args := append([]string{"--git-dir", gitDir, "for-each-ref", "--format=%(refname)%00%(objectname)"}, patterns...)
+	cmd := exec.CommandContext(cmdCtx, "git", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("list git refs: %w", err)
@@ -354,13 +355,18 @@ func setGitDefaultBookmark(ctx context.Context, gitDir, bookmark string) error {
 // On a case-insensitive filesystem that write would land in the other ref's
 // file, past every guard that named the ref it asked for.
 func refuseCaseVariantRefs(existing map[string]string, refs ...string) error {
+	for _, ref := range refs {
+		if strings.IndexFunc(ref, repohost.IsIgnorableRune) >= 0 {
+			return badRequest(fmt.Sprintf("ref %q contains an invisible character", ref))
+		}
+	}
 	names := make([]string, 0, len(existing))
 	for name := range existing {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	if variant := repohost.CaseVariantRefs(refs, names); variant != "" {
-		return conflict(fmt.Sprintf("%s differs only in case from %s", strings.Join(refs, ", "), variant))
+		return conflict(fmt.Sprintf("refs that differ only in case are refused: %s and existing %s", strings.Join(refs, ", "), variant))
 	}
 	return nil
 }
@@ -374,7 +380,9 @@ func commandRefNames(commands []repohost.ReceivePackCommand) []string {
 }
 
 // refuseCaseVariantBookmark applies refuseCaseVariantRefs to a bookmark the
-// bookmark API or a landing would create.
+// bookmark API, a landing or the default-bookmark choice would name. jj
+// bookmarks reach git only on export, so it exports first; the caller holds
+// the repository lock.
 func (s *Server) refuseCaseVariantBookmark(ctx context.Context, repoID, bookmark string) error {
 	owner, repo, err := parseRepoID(repoID)
 	if err != nil {
@@ -384,7 +392,8 @@ func (s *Server) refuseCaseVariantBookmark(ctx context.Context, repoID, bookmark
 	if _, err := os.Stat(gitDir); errors.Is(err, os.ErrNotExist) {
 		return nil // no repository: the write itself reports it
 	}
-	refs, err := listGitRefs(ctx, gitDir)
+	s.warmGitRefs(s.config.RepoPath(owner, repo))
+	refs, err := listGitRefs(ctx, gitDir, "refs/heads/")
 	if err != nil {
 		return internalError("failed to list refs", err)
 	}

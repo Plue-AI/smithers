@@ -4,18 +4,47 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
 
-// RefKey is the name every ref and bookmark guard compares: trimmed,
-// Unicode-normalized and case-folded. Git stores loose refs as files, and on
-// a case-insensitive filesystem (macOS, Windows) refs/heads/Mythical is the
-// file refs/heads/mythical, so names with one key are one ref.
+// RefKey is the name every ref and bookmark guard compares: trimmed, without
+// ignorable characters, and matched caselessly (NFC(fold(NFD(name)))). Git
+// stores loose refs as files, and on a case-insensitive filesystem (macOS,
+// Windows) refs/heads/Mythical is the file refs/heads/mythical, so names
+// with one key are one ref.
 func RefKey(name string) string {
-	return cases.Fold().String(norm.NFC.String(strings.TrimSpace(name)))
+	name = strings.TrimSpace(name)
+	if isASCII(name) {
+		return strings.ToLower(name)
+	}
+	name = strings.Map(func(r rune) rune {
+		if IsIgnorableRune(r) {
+			return -1
+		}
+		return r
+	}, name)
+	return norm.NFC.String(cases.Fold().String(norm.NFD.String(name)))
+}
+
+// IsIgnorableRune reports a character a filesystem may ignore in a name
+// (default-ignorable code points such as U+200C, and other format
+// characters). Repo-host refuses them in the refs it writes.
+func IsIgnorableRune(r rune) bool {
+	return unicode.In(r, unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector, unicode.Cf)
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
 }
 
 // SameRef reports whether two ref or bookmark names are one ref.
@@ -26,9 +55,17 @@ func SameRef(a, b string) bool { return RefKey(a) == RefKey(b) }
 // before it), or "" when there is none. Repo-host refuses such a ref on
 // every platform, so no write reaches another ref's file.
 func CaseVariantRefs(refs, existing []string) string {
+	// Only refs in a namespace (refs/<kind>) a written ref shares can
+	// collide with it; the rest are never folded.
+	namespaces := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		namespaces[refNamespaceKey(ref)] = true
+	}
 	known := refDirectory{}
 	for _, name := range existing {
-		known.add(name)
+		if namespaces[refNamespaceKey(name)] {
+			known.add(name)
+		}
 	}
 	for _, ref := range refs {
 		if variant := known.caseVariant(ref); variant != "" {
@@ -37,6 +74,14 @@ func CaseVariantRefs(refs, existing []string) string {
 		known.add(ref)
 	}
 	return ""
+}
+
+// refNamespaceKey is the key of a ref's first two segments.
+func refNamespaceKey(ref string) string {
+	ref = strings.TrimSpace(ref)
+	first, rest, _ := strings.Cut(ref, "/")
+	second, _, _ := strings.Cut(rest, "/")
+	return RefKey(first + "/" + second)
 }
 
 // refDirectory maps the key of every ref and ref directory to a stored
