@@ -15933,6 +15933,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/markdown-editor/replaceMarkdown.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/ui/src/adapters/pierre-diff-view.tsx"
       },
       {
