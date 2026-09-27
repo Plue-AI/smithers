@@ -196,7 +196,7 @@
 - [A run is stuck](https://smithers.sh/docs/troubleshooting/stuck-run/): Distinguish a missing executor, a dead owner, and a durable wait before trying to resume a run.
 - [Exit code 3: waiting-approval](https://smithers.sh/docs/troubleshooting/waiting-approval/): Find the pending request, approve its exact payload, and resume the existing run.
 - [Fix provider readiness](https://smithers.sh/docs/troubleshooting/doctor-provider/): Resolve missing credentials and model-seat mismatches before starting an agent flow.
-- [unsupported_database](https://smithers.sh/docs/troubleshooting/unsupported-database/): The CLI refuses database backends other than local SQLite in 1.0.0-rc.0.
+- [unsupported_database](https://smithers.sh/docs/troubleshooting/unsupported-database/): The CLI refuses a database backend other than SQLite or PostgreSQL.
 
 ## Migration
 

@@ -1,32 +1,30 @@
 ---
 title: "unsupported_database"
-description: "The CLI refuses database backends other than local SQLite in 1.0.0-rc.0."
+description: "The CLI refuses a database backend other than SQLite or PostgreSQL."
 ---
+
+import versions from "../../../../data/versions.json"
 
 ## unsupported_database
 
 ```text
-unsupported_database: 1.0.0-rc.0 supports local SQLite only. PostgreSQL and PGlite are not available. Unset SMITHERS_BACKEND or set it to sqlite. See https://smithers.sh/migration/1.0#databases
+unsupported_database: choose sqlite or postgres. PostgreSQL requires SMITHERS_POSTGRES_URL or DATABASE_URL. See https://smithers.sh/migration/1.0#databases.
 ```
 
-**Cause.** `SMITHERS_BACKEND` or `--backend` names `pglite` or `postgres`. Storage in 1.0.0-rc.0 is local SQLite only, and the command exits 1 rather than silently running your flows against a database you did not ask for.
+**Cause.** `SMITHERS_BACKEND` or `--backend` names a backend other than `sqlite` or `postgres`, such as `pglite`. The command exits 1 rather than run your flows against a database you did not ask for.
 
-**Fix.** Unset `SMITHERS_BACKEND`, or set it to `sqlite`. If you passed `--backend pglite` or `--backend postgres`, drop the flag or pass `--backend sqlite`:
+**Fix.** Unset `SMITHERS_BACKEND`, or set it to `sqlite` or `postgres`. PostgreSQL also needs `SMITHERS_POSTGRES_URL` or `DATABASE_URL`:
 
 ```bash
 unset SMITHERS_BACKEND
 export SMITHERS_BACKEND=sqlite
 ```
 
-A different one-line stderr notice fires when a 0.x deployment's connection strings are still exported (`SMITHERS_TEST_PG_URL` or any `SMITHERS_POSTGRES_*` name):
+A one-line stderr notice, not a refusal, fires for a 0.x setting that is still exported (`SMITHERS_TEST_PG_URL`, or a `SMITHERS_POSTGRES_*` name other than `SMITHERS_POSTGRES_URL` and `SMITHERS_POSTGRES_SCHEMA`):
 
-```text
-ignored: SMITHERS_POSTGRES_URL has no effect in 1.0.0-rc.0 (SQLite only)
-```
+<pre><code>ignored: SMITHERS_POSTGRES_POOL_MAX has no effect in {versions.cli} (use SMITHERS_POSTGRES_URL to select PostgreSQL)</code></pre>
 
-That line is a notice, not a refusal: it changes no exit code and no result. It exists because a silently ignored connection string is how a project ends up running against SQLite while believing it runs against PostgreSQL.
-
-**Verify.** The command proceeds past backend selection and works against the project's SQLite state under `.flows/`.
+**Verify.** The command proceeds past backend selection.
 
 ## Still stuck?
 

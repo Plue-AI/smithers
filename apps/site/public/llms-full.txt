@@ -45896,9 +45896,10 @@ https://smithers.sh/docs/reference/errors/
 | Code | Meaning |
 | --- | --- |
 | `0` | The command did what it was asked. |
-| `1` | The command failed, or the run it reports settled `failed`. |
-| `2` | The invocation was wrong. Retype the command; the message names the flag or argument. |
-| `3` | The run is parked at `waiting-approval`. Answer it with `smthrs approve` and resume. |
+| `1` | The command failed, the parser rejected a missing argument or unknown flag, or the run it reports settled `failed`. |
+| `2` | A `UsageError`: an argument parsed but its value was wrong, such as malformed `--data` JSON. The message names it. |
+| `3` | The run is parked at `waiting-approval`. Answer it with `smthrs approvals approve` and resume. |
+| `5` | `smthrs eval run` was inconclusive, or could not run. |
 | `130` | The run was cancelled or interrupted. |
 | `143` | The run was terminated. |
 
@@ -45912,9 +45913,9 @@ Each code below is stable and safe to branch on, grouped by the package that rai
 
 | Code | Where raised | Cause | Fix |
 | --- | --- | --- | --- |
-| `unsupported_database` | CLI startup, when `SMITHERS_BACKEND` or `--backend` has any value but `sqlite` | 1.0.0-rc.0 supports local SQLite only; PostgreSQL and PGlite are not available | Unset `SMITHERS_BACKEND` or set it to `sqlite`; exits 1. See [Unsupported database](/docs/troubleshooting/unsupported-database/) |
+| `unsupported_database` | CLI startup, when `SMITHERS_BACKEND` or `--backend` has any value but `sqlite` or `postgres` | That backend does not ship | Unset `SMITHERS_BACKEND` or set it to `sqlite` or `postgres` (PostgreSQL needs `SMITHERS_POSTGRES_URL` or `DATABASE_URL`); exits 1. See [Unsupported database](/docs/troubleshooting/unsupported-database/) |
 
-Exported 0.x connection strings (`SMITHERS_TEST_PG_URL`, every `SMITHERS_POSTGRES_*` name) are a separate case: each gets one notice line, `ignored: <name> has no effect in 1.0.0-rc.0 (SQLite only)`, and moves no exit code.
+Exported 0.x settings (`SMITHERS_TEST_PG_URL`, and every `SMITHERS_POSTGRES_*` name except `SMITHERS_POSTGRES_URL` and `SMITHERS_POSTGRES_SCHEMA`) are a separate case: each gets one notice line, <code>ignored: &lt;name&gt; has no effect in 1.0.0-rc.1 (use SMITHERS_POSTGRES_URL to select PostgreSQL)</code>, and moves no exit code.
 
 ### `@smthrs/database`
 
@@ -45923,7 +45924,7 @@ Raised as defects by `NodeDatabase.layer` before a connection is created; match 
 | Code | Where raised | Cause | Fix |
 | --- | --- | --- | --- |
 | `unsupported_runtime` | `NodeDatabase.layer` | The durable engine was opened under Bun (`process.versions.bun` is set) | Run the durable engine on Node.js 26.4.0 or later |
-| `unsupported_database_file` | `NodeDatabase.layer` | The file has at least one table and no `flows_migrations` table | The file is a 0.x `smithers.db`, which 1.0.0-rc.0 does not load; open a 1.0 database |
+| `unsupported_database_file` | `NodeDatabase.layer` | The file has at least one table and no `flows_migrations` table | The file is a 0.x `smithers.db`, which 1.0 does not load; open a 1.0 database |
 | `database_locked` | `NodeDatabase.layer` | A peer held the file for the whole open ladder, so it was never inspected | Stop the process holding the file and open it again |
 
 ### `@smthrs/flow`
@@ -46005,7 +46006,7 @@ An exhausted or expired action retry policy propagates the final declared failur
 
 | Code | Where raised | Cause | Fix |
 | --- | --- | --- | --- |
-| `plan_not_found` | `run`, `approve`, `deny` (`PlanNotFound`) | The named plan does not exist | Create the plan with `smthrs plan`; the carried `planId` names the plan to create or replace |
+| `plan_not_found` | `run`, `approve`, `deny` (`PlanNotFound`) | The named plan does not exist | Create the plan with `smthrs flow plan`; the carried `planId` names the plan to create or replace |
 | `plan_denied` | `run` (`PlanDenied`) | The plan was denied | Plan again; a denied plan cannot run, and the carried `planId` names the plan to replace |
 
 ### CLI rendering (`RenderingError`)
@@ -46262,11 +46263,11 @@ Three RPC groups share the gateway. The sources pin the procedure names, the err
 | Approvals | `Approve`, `Deny` | A `Receipt` |
 | Steering | `Steer` (a durable message to the run), `Signal` (a durable delivery to a named wait) | A `Receipt` |
 
-There is no `Pause` procedure: the frozen 1.0.0-rc.0 contract removed it. `ControlRpcs` declares no memory procedure either; the [`smthrs memory`](/docs/reference/cli/memory/) verb is documented separately.
+There is no `Pause` procedure. `ControlRpcs` declares no memory procedure either; the [`smthrs memory`](/docs/reference/cli/memory/) verb is documented separately.
 
-`GatewayRpcs` on `/projections` serves seven read models folded from the control event stream: `workspace-runs`, `run-summary`, `run-events`, `transcript`, `run-tree`, `approvals`, and `node-output`. Over WebSocket, `Projection.Subscribe` streams tagged frames (`SnapshotStartFrame`, `RowFrame`, `SnapshotEndFrame`, `DeltaFrame`, `HeartbeatFrame`) so a client can tell a snapshot from a change. A projection never claims a run and never writes.
+`GatewayRpcs` on `/projections` serves seven read models folded from the control event stream: `workspace-runs`, `run-summary`, `run-events`, `transcript`, `run-tree`, `approvals`, and `node-output`. Over WebSocket, `Projection.Subscribe` streams tagged frames (`SnapshotStartFrame`, `RowFrame`, `SnapshotEndFrame`, `DeltaFrame`, `HeartbeatFrame`) so a client can tell a snapshot from a change. A projection never claims a run and never writes. The group's one mutation, `Approval.Submit`, is the transport form of Control's approve, deny, and answer commands for an approval card; it adds no failure of its own.
 
-`SyncRpcs` on `/sync` is read-only journal replication: `Sync.Read` pages entries for a scope and cursor set, and `Sync.Subscribe` streams `Entries` frames under a credit bound. `BranchRpcs`, the client-to-server submission group, has no production mount at 1.0.0-rc.0, so the gateway serves `SyncRpcs` alone.
+`SyncRpcs` on `/sync` is read-only journal replication: `Sync.Snapshot` returns a public projection through a sequence, `Sync.Read` pages entries for a scope and cursor set, and `Sync.Subscribe` streams `Entries` frames under a credit bound. `BranchRpcs`, the client-to-server submission group, has no production mount, so the gateway serves `SyncRpcs` alone.
 
 ## Health
 
@@ -49621,7 +49622,7 @@ https://smithers.sh/docs/troubleshooting/
 
 Find your symptom verbatim below. Each entry names the cause, the fix, and the command or output that verifies the fix held.
 
-  - [unsupported_database](/docs/troubleshooting/unsupported-database/): The CLI refuses SMITHERS_BACKEND or --backend values other than sqlite.
+  - [unsupported_database](/docs/troubleshooting/unsupported-database/): The CLI refuses SMITHERS_BACKEND or --backend values other than sqlite or postgres.
   - [Exit code 3: waiting-approval](/docs/troubleshooting/waiting-approval/): A run parked on an approval exits 3 by design; approve the payload and resume.
   - [A run is stuck](/docs/troubleshooting/stuck-run/): Diagnose a run with no live owner, or a park nobody understands.
   - [doctor reports a provider problem](/docs/troubleshooting/doctor-provider/): Fix the provider keys the smthrs doctor providers check warns about.
@@ -49772,27 +49773,23 @@ https://smithers.sh/docs/troubleshooting/unsupported-database/
 ## unsupported_database
 
 ```text
-unsupported_database: 1.0.0-rc.0 supports local SQLite only. PostgreSQL and PGlite are not available. Unset SMITHERS_BACKEND or set it to sqlite. See https://smithers.sh/migration/1.0#databases
+unsupported_database: choose sqlite or postgres. PostgreSQL requires SMITHERS_POSTGRES_URL or DATABASE_URL. See https://smithers.sh/migration/1.0#databases.
 ```
 
-**Cause.** `SMITHERS_BACKEND` or `--backend` names `pglite` or `postgres`. Storage in 1.0.0-rc.0 is local SQLite only, and the command exits 1 rather than silently running your flows against a database you did not ask for.
+**Cause.** `SMITHERS_BACKEND` or `--backend` names a backend other than `sqlite` or `postgres`, such as `pglite`. The command exits 1 rather than run your flows against a database you did not ask for.
 
-**Fix.** Unset `SMITHERS_BACKEND`, or set it to `sqlite`. If you passed `--backend pglite` or `--backend postgres`, drop the flag or pass `--backend sqlite`:
+**Fix.** Unset `SMITHERS_BACKEND`, or set it to `sqlite` or `postgres`. PostgreSQL also needs `SMITHERS_POSTGRES_URL` or `DATABASE_URL`:
 
 ```bash
 unset SMITHERS_BACKEND
 export SMITHERS_BACKEND=sqlite
 ```
 
-A different one-line stderr notice fires when a 0.x deployment's connection strings are still exported (`SMITHERS_TEST_PG_URL` or any `SMITHERS_POSTGRES_*` name):
+A one-line stderr notice, not a refusal, fires for a 0.x setting that is still exported (`SMITHERS_TEST_PG_URL`, or a `SMITHERS_POSTGRES_*` name other than `SMITHERS_POSTGRES_URL` and `SMITHERS_POSTGRES_SCHEMA`):
 
-```text
-ignored: SMITHERS_POSTGRES_URL has no effect in 1.0.0-rc.0 (SQLite only)
-```
+<pre><code>ignored: SMITHERS_POSTGRES_POOL_MAX has no effect in 1.0.0-rc.1 (use SMITHERS_POSTGRES_URL to select PostgreSQL)</code></pre>
 
-That line is a notice, not a refusal: it changes no exit code and no result. It exists because a silently ignored connection string is how a project ends up running against SQLite while believing it runs against PostgreSQL.
-
-**Verify.** The command proceeds past backend selection and works against the project's SQLite state under `.flows/`.
+**Verify.** The command proceeds past backend selection.
 
 ## Still stuck?
 

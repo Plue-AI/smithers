@@ -3,6 +3,8 @@ title: "Exit codes and error codes"
 description: "The process exit codes of the smthrs CLI and every stable structured refusal code the named packages raise."
 ---
 
+import versions from "../../../../data/versions.json"
+
 ## Exit codes
 
 `smthrs` uses one status vocabulary, so a script can branch on it.
@@ -10,9 +12,10 @@ description: "The process exit codes of the smthrs CLI and every stable structur
 | Code | Meaning |
 | --- | --- |
 | `0` | The command did what it was asked. |
-| `1` | The command failed, or the run it reports settled `failed`. |
-| `2` | The invocation was wrong. Retype the command; the message names the flag or argument. |
-| `3` | The run is parked at `waiting-approval`. Answer it with `smthrs approve` and resume. |
+| `1` | The command failed, the parser rejected a missing argument or unknown flag, or the run it reports settled `failed`. |
+| `2` | A `UsageError`: an argument parsed but its value was wrong, such as malformed `--data` JSON. The message names it. |
+| `3` | The run is parked at `waiting-approval`. Answer it with `smthrs approvals approve` and resume. |
+| `5` | `smthrs eval run` was inconclusive, or could not run. |
 | `130` | The run was cancelled or interrupted. |
 | `143` | The run was terminated. |
 
@@ -26,9 +29,9 @@ Each code below is stable and safe to branch on, grouped by the package that rai
 
 | Code | Where raised | Cause | Fix |
 | --- | --- | --- | --- |
-| `unsupported_database` | CLI startup, when `SMITHERS_BACKEND` or `--backend` has any value but `sqlite` | 1.0.0-rc.0 supports local SQLite only; PostgreSQL and PGlite are not available | Unset `SMITHERS_BACKEND` or set it to `sqlite`; exits 1. See [Unsupported database](/docs/troubleshooting/unsupported-database/) |
+| `unsupported_database` | CLI startup, when `SMITHERS_BACKEND` or `--backend` has any value but `sqlite` or `postgres` | That backend does not ship | Unset `SMITHERS_BACKEND` or set it to `sqlite` or `postgres` (PostgreSQL needs `SMITHERS_POSTGRES_URL` or `DATABASE_URL`); exits 1. See [Unsupported database](/docs/troubleshooting/unsupported-database/) |
 
-Exported 0.x connection strings (`SMITHERS_TEST_PG_URL`, every `SMITHERS_POSTGRES_*` name) are a separate case: each gets one notice line, `ignored: <name> has no effect in 1.0.0-rc.0 (SQLite only)`, and moves no exit code.
+Exported 0.x settings (`SMITHERS_TEST_PG_URL`, and every `SMITHERS_POSTGRES_*` name except `SMITHERS_POSTGRES_URL` and `SMITHERS_POSTGRES_SCHEMA`) are a separate case: each gets one notice line, <code>ignored: &lt;name&gt; has no effect in {versions.cli} (use SMITHERS_POSTGRES_URL to select PostgreSQL)</code>, and moves no exit code.
 
 ### `@smthrs/database`
 
@@ -37,7 +40,7 @@ Raised as defects by `NodeDatabase.layer` before a connection is created; match 
 | Code | Where raised | Cause | Fix |
 | --- | --- | --- | --- |
 | `unsupported_runtime` | `NodeDatabase.layer` | The durable engine was opened under Bun (`process.versions.bun` is set) | Run the durable engine on Node.js 26.4.0 or later |
-| `unsupported_database_file` | `NodeDatabase.layer` | The file has at least one table and no `flows_migrations` table | The file is a 0.x `smithers.db`, which 1.0.0-rc.0 does not load; open a 1.0 database |
+| `unsupported_database_file` | `NodeDatabase.layer` | The file has at least one table and no `flows_migrations` table | The file is a 0.x `smithers.db`, which 1.0 does not load; open a 1.0 database |
 | `database_locked` | `NodeDatabase.layer` | A peer held the file for the whole open ladder, so it was never inspected | Stop the process holding the file and open it again |
 
 ### `@smthrs/flow`
@@ -119,7 +122,7 @@ An exhausted or expired action retry policy propagates the final declared failur
 
 | Code | Where raised | Cause | Fix |
 | --- | --- | --- | --- |
-| `plan_not_found` | `run`, `approve`, `deny` (`PlanNotFound`) | The named plan does not exist | Create the plan with `smthrs plan`; the carried `planId` names the plan to create or replace |
+| `plan_not_found` | `run`, `approve`, `deny` (`PlanNotFound`) | The named plan does not exist | Create the plan with `smthrs flow plan`; the carried `planId` names the plan to create or replace |
 | `plan_denied` | `run` (`PlanDenied`) | The plan was denied | Plan again; a denied plan cannot run, and the carried `planId` names the plan to replace |
 
 ### CLI rendering (`RenderingError`)

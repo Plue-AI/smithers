@@ -69,11 +69,11 @@ Three RPC groups share the gateway. The sources pin the procedure names, the err
 | Approvals | `Approve`, `Deny` | A `Receipt` |
 | Steering | `Steer` (a durable message to the run), `Signal` (a durable delivery to a named wait) | A `Receipt` |
 
-There is no `Pause` procedure: the frozen 1.0.0-rc.0 contract removed it. `ControlRpcs` declares no memory procedure either; the [`smthrs memory`](/docs/reference/cli/memory/) verb is documented separately.
+There is no `Pause` procedure. `ControlRpcs` declares no memory procedure either; the [`smthrs memory`](/docs/reference/cli/memory/) verb is documented separately.
 
-`GatewayRpcs` on `/projections` serves seven read models folded from the control event stream: `workspace-runs`, `run-summary`, `run-events`, `transcript`, `run-tree`, `approvals`, and `node-output`. Over WebSocket, `Projection.Subscribe` streams tagged frames (`SnapshotStartFrame`, `RowFrame`, `SnapshotEndFrame`, `DeltaFrame`, `HeartbeatFrame`) so a client can tell a snapshot from a change. A projection never claims a run and never writes.
+`GatewayRpcs` on `/projections` serves seven read models folded from the control event stream: `workspace-runs`, `run-summary`, `run-events`, `transcript`, `run-tree`, `approvals`, and `node-output`. Over WebSocket, `Projection.Subscribe` streams tagged frames (`SnapshotStartFrame`, `RowFrame`, `SnapshotEndFrame`, `DeltaFrame`, `HeartbeatFrame`) so a client can tell a snapshot from a change. A projection never claims a run and never writes. The group's one mutation, `Approval.Submit`, is the transport form of Control's approve, deny, and answer commands for an approval card; it adds no failure of its own.
 
-`SyncRpcs` on `/sync` is read-only journal replication: `Sync.Read` pages entries for a scope and cursor set, and `Sync.Subscribe` streams `Entries` frames under a credit bound. `BranchRpcs`, the client-to-server submission group, has no production mount at 1.0.0-rc.0, so the gateway serves `SyncRpcs` alone.
+`SyncRpcs` on `/sync` is read-only journal replication: `Sync.Snapshot` returns a public projection through a sequence, `Sync.Read` pages entries for a scope and cursor set, and `Sync.Subscribe` streams `Entries` frames under a credit bound. `BranchRpcs`, the client-to-server submission group, has no production mount, so the gateway serves `SyncRpcs` alone.
 
 ## Health
 
