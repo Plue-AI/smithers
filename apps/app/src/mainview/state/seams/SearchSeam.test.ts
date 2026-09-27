@@ -498,7 +498,10 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
     test.each(["account", "provider", "sign-out-return", "cloud", "dispose", "refresh"] as Array<"account" | "provider" | "sign-out-return" | "cloud" | "dispose" | "refresh">)(`${actor} ${mode} search keeps its owner through %s`, async change => {
       const { createSearchSeam } = await import("./SearchSeam")
       const { SIGN_OUT_REFUSAL } = await import("./CloudSignIn")
-      const { store, controller } = await ready(backend({}), "signed-in")
+      // These explicit-repository searches need no ambient repository whose
+      // homepage would independently refresh on account changes.
+      const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+      const controller = createAppController(store, unavailableAgent, backend({}))
       const gate = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
       let disposed = false, reads = 0
       const privateHistory: MythicalStack = { repository: "search/private", state: "active", generation: 1, mainBehind: false, items: [], lanes: [],
