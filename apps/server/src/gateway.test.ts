@@ -1244,10 +1244,9 @@ describe("the GatewaySessionRegistry Durable Object", () => {
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(2)
   })
 
-  test("answers its own routes: a missing record is null, an unnamed resolve is 400, anything else 404", async () => {
+  test("answers its own routes: an unnamed resolve is 400, anything else (records included) 404", async () => {
     const registry = new GatewaySessionRegistry({ storage: memoryStorage() })
-    const missing = await registry.fetch(new Request(`https://gateway-sessions.internal/record?repo=o%2Fr&workspace_id=${WS}`))
-    expect(await missing.json()).toEqual({ record: null })
+    expect((await registry.fetch(new Request(`https://gateway-sessions.internal/record?repo=o%2Fr&workspace_id=${WS}`))).status).toBe(404)
     const unnamed = await registry.fetch(
       new Request("https://gateway-sessions.internal/resolve", { method: "POST", body: JSON.stringify({ repo: "o/r" }) })
     )
@@ -1255,12 +1254,9 @@ describe("the GatewaySessionRegistry Durable Object", () => {
     expect((await registry.fetch(new Request("https://gateway-sessions.internal/other"))).status).toBe(404)
   })
 
-  test("refuses a record read or a resolution that names no box", async () => {
+  test("refuses a resolution that names no box", async () => {
     const { calls, fetch } = relay()
     const registry = registryOver(memoryStorage(), fetch)
-    for (const query of ["", "&workspace_id=", "&workspace_id=not-a-box", "&workspace_id=00000000-0000-0000-0000-000000000000"]) {
-      expect((await registry.fetch(new Request(`https://gateway-sessions.internal/record?repo=o%2Fr${query}`))).status).toBe(400)
-    }
     for (const workspaceId of [undefined, "", "not-a-box", WS.toUpperCase()]) {
       const refused = await registry.fetch(new Request("https://gateway-sessions.internal/resolve", {
         method: "POST", body: JSON.stringify({ login: "will", repo: "o/r", force: false, ...(workspaceId === undefined ? {} : { workspaceId }) })
@@ -1270,7 +1266,7 @@ describe("the GatewaySessionRegistry Durable Object", () => {
     expect(calls).toHaveLength(0)
   })
 
-  test("a storage failure answers 500 with its message; through the seam a failed read is cold and a failed write is stated", async () => {
+  test("through the seam a failed storage read is cold and a failed write is stated", async () => {
     const sealed: NativeStorage = {
       get: async () => {
         throw new Error("storage is sealed")
@@ -1279,11 +1275,6 @@ describe("the GatewaySessionRegistry Durable Object", () => {
         throw new Error("storage is sealed")
       }
     }
-    const response = await new GatewaySessionRegistry({ storage: sealed }).fetch(
-      new Request(`https://gateway-sessions.internal/record?repo=o%2Fr&workspace_id=${WS}`)
-    )
-    expect(response.status).toBe(500)
-    expect(await response.text()).toBe("storage is sealed")
     const { calls, fetch } = relay()
     const outcome = await run(
       ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch, { namespace: namespaceOf(registryOver(sealed, fetch)) })))
@@ -1609,7 +1600,7 @@ describe("the relay address", () => {
     expect(errors.lines.some((line) => line.includes("gateway resolution"))).toBe(false)
   })
 
-  test("the registry answers an off-origin row as no record and has no write route", async () => {
+  test("the registry has no record route to read or write", async () => {
     const storage = memoryStorage()
     const now = Date.now()
     await storage.put(gatewayStorageKey("o/r", WS), {
@@ -1617,11 +1608,6 @@ describe("the relay address", () => {
       vmId: null, expiresAt: now + 3_600_000, renewAfter: now + 1_800_000, provisionedAt: now
     })
     const registry = registryOver(storage, relay().fetch)
-    const errors = captureErrors()
-    try {
-      const read = await registry.fetch(new Request(`https://gateway-sessions.internal/record?repo=o%2Fr&workspace_id=${WS}`))
-      expect(await read.json()).toEqual({ record: null })
-    } finally { errors.restore() }
     const write = await registry.fetch(new Request("https://gateway-sessions.internal/record", {
       method: "PUT", body: JSON.stringify({ repo: "o/r", record: { baseUrl: "https://attacker.test" } })
     }))

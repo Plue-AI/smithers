@@ -346,16 +346,8 @@ const resolveRecord = (
  */
 export const gatewaySessionRequest = (request: Request): Effect.Effect<Response, never, GatewayRegistryServices> =>
   Effect.gen(function* () {
-    const storage = yield* DurableStorage
     const url = new URL(request.url)
     if (url.pathname === "/repository-setup" && request.method === "POST") return yield* repositorySetupStorageRequest(request)
-    if (url.pathname === "/record" && request.method === "GET") {
-      const workspaceId = url.searchParams.get("workspace_id")
-      if (!isGatewayWorkspaceId(workspaceId)) return new Response("bad request", { status: 400 })
-      const key = gatewayStorageKey(url.searchParams.get("repo") ?? "", workspaceId)
-      const record = yield* decodeStored(key, yield* storage.get<unknown>(key))
-      return answer({ record: record ?? null })
-    }
     if (url.pathname === "/resolve" && request.method === "POST") {
       const body = (yield* readJsonOrUndefined(request)) as
         | { login?: unknown; repo?: unknown; workspaceId?: unknown; force?: unknown; requiredCapability?: unknown }
@@ -431,7 +423,6 @@ export const isRelayRepoName = (value: string): boolean =>
  * answer through the login's Durable Object; there is no other store.
  */
 export interface GatewaySessionsShape {
-  readonly read: (login: string, repo: string, workspaceId: string) => Effect.Effect<GatewayRecord | undefined>
   readonly resolve: (login: string, repo: string, workspaceId: string, force: GatewayRefresh, requiredCapability?: GatewayCapability) => Effect.Effect<ProvisionOutcome>
 }
 
@@ -474,22 +465,6 @@ const isProvisionOutcome = (value: unknown): value is ProvisionOutcome =>
   typeof value === "object" && value !== null && typeof (value as { status?: unknown }).status === "string"
 
 const durableGatewaySessions = (namespace: NativeNamespace): GatewaySessionsShape => ({
-  read: (login, repo, workspaceId) =>
-    Effect.gen(function* () {
-      const response = yield* namespaceCall(
-        "gateway.ts:read",
-        namespace,
-        login,
-        new Request(
-          `https://gateway-sessions.internal/record?repo=${encodeURIComponent(repo)}&workspace_id=${encodeURIComponent(workspaceId)}`
-        )
-      )
-      // The registry answers only records its decoder admitted.
-      const body = (yield* readJsonOrUndefined(response)) as { record?: GatewayRecord | null } | undefined
-      const record = body?.record
-      if (record === undefined || record === null || record.workspaceId !== workspaceId) return undefined
-      return record
-    }).pipe(Effect.catch(() => Effect.succeed(undefined))),
   resolve: (login, repo, workspaceId, force, requiredCapability) =>
     Effect.gen(function* () {
       const answered = yield* Effect.result(namespaceCall(
