@@ -353,6 +353,9 @@ func (s *WorkspaceService) CleanupStalePendingWorkspaces(ctx context.Context) er
 }
 
 func (s *WorkspaceService) ensureExistingWorkspaceRunning(ctx context.Context, workspace db.Workspace) (db.Workspace, error) {
+	if err := refuseRebuildRequired(workspace); err != nil {
+		return workspace, err
+	}
 	if s.runtime != nil {
 		return s.ensureRuntimeWorkspaceRunning(ctx, workspace, workspace.UserID)
 	}
@@ -433,6 +436,9 @@ func (s *WorkspaceService) ensureWorkspaceRunning(ctx context.Context, workspace
 }
 
 func (s *WorkspaceService) ensureWorkspaceRunningOwned(ctx context.Context, workspace db.Workspace, input CreateWorkspaceSessionInput) (db.Workspace, error) {
+	if err := refuseRebuildRequired(workspace); err != nil {
+		return workspace, err
+	}
 	durable := s.durableProvisioning()
 	provisioning := workspace.Status == "starting" || workspace.Status == "pending"
 	if s.runtime != nil {

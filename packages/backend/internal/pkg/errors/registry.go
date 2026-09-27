@@ -162,6 +162,7 @@ const (
 	CodeCodingHostUpgradeRequired     Code = "coding_host_upgrade_required"
 	CodeWorkspaceSSHUserInvalid       Code = "workspace_ssh_user_invalid"
 	CodeWorkspaceVMMissing            Code = "workspace_vm_missing"
+	CodeWorkspaceRebuildRequired      Code = "workspace_rebuild_required"
 	CodeRepositoryWorkspacePending    Code = "repository_workspace_pending"
 )
 
@@ -454,6 +455,7 @@ var registry = map[Code]Entry{
 	CodeCodingHostUpgradeRequired:     {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The existing live host lacks the requested capability. Existing runs and streams are preserved; initial setup may select a dedicated compatible workspace, while established bindings remain explicit."},
 	CodeWorkspaceSSHUserInvalid:       {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The requested workspace SSH user is not offered; ask for the workspace user or root."},
 	CodeWorkspaceVMMissing:            {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The recorded workspace VM no longer exists. An unbound setup may select another compatible workspace within quota; established bindings remain explicit."},
+	CodeWorkspaceRebuildRequired:      {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The workspace or snapshot was built while its repository stored a Claude or ChatGPT subscription token, which may remain on its disk. It is not reused; delete it and create a new workspace."},
 	CodeRepositoryWorkspacePending:    {Status: http.StatusConflict, Fault: FaultWait, RetryAfter: 2, Doc: "The repository workspace or gateway is still starting. Poll the same request; an unverified primary is not an authoritative workspace selection."},
 	// The guest refused the coding request as malformed.
 	CodeCodingInvalidRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The guest refused the coding request as malformed."},

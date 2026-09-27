@@ -280,6 +280,12 @@ const BY_CODE: Partial<Record<PlueFailureCode, Partial<RefusalCopyRow>>> = {
       "fault=infra: this BOX booted an image older than the desktop tools, because Smithers has not rebuilt and re-registered that image yet. Not the user's fault and not their request's, and nothing is full, so do NOT say Smithers ran out of infra and do NOT tell them to ask for more of it. Retrying fails identically on this box forever — tell them to open a new box, which boots the current image and has the tools.",
     doors: ["new-box", "report"]
   },
+  workspace_rebuild_required: {
+    lead: "This box was built with a subscription token. Delete it and open a new one.",
+    agent:
+      "fault=user: this BOX (or the snapshot it came from) was built while the repository stored a Claude or ChatGPT subscription token, which may still be on its disk, so Smithers will not reuse it. Retrying fails identically. Tell them to delete this box and open a new one; if the repository still holds the token, they must remove it first.",
+    doors: ["new-box"]
+  },
   /*
    * The same rollout lag one step earlier: no image is registered for the kind
    * at all, so no box of it can boot here. There is no box to open and nothing

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:a3a569e832fee2907c96d91fbb4c9a4bd003e3532aeb71d96eec643a0f8c43b5",
+  "digest": "sha256:2ada69ed7494fa56c501eec2a80a065d941409787ee631d4ef012f5a494d886f",
   "faults": [
     "user",
     "wait",
@@ -862,6 +862,13 @@
       "status": 403,
       "retry_after": 0,
       "doc": "The worker's registration conflicts with a live one under the same id."
+    },
+    {
+      "code": "workspace_rebuild_required",
+      "fault": "user",
+      "status": 409,
+      "retry_after": 0,
+      "doc": "The workspace or snapshot was built while its repository stored a Claude or ChatGPT subscription token, which may remain on its disk. It is not reused; delete it and create a new workspace."
     },
     {
       "code": "workspace_session_kind_mismatch",

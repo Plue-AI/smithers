@@ -58,6 +58,10 @@ func browserFlowJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+// browserFlowRebuildRequired refuses a workspace built while its repository
+// stored a subscription token (#2206).
+const browserFlowRebuildRequired = "This workspace was built with a Claude or ChatGPT subscription token. Delete it and create a new workspace."
+
 func browserFlowRefusal(w http.ResponseWriter, status int, message string) {
 	browserFlowJSON(w, status, map[string]any{"ok": false, "error": map[string]string{"message": message}})
 }
@@ -90,6 +94,10 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		workspace, err := api.queries.GetWorkspaceForUserRepo(r.Context(), db.GetWorkspaceForUserRepoParams{
 			ID: workspaceID, RepositoryID: view.Repository.ID, UserID: user.ID,
 		})
+		if err == nil && workspace.RebuildRequiredAt.Valid {
+			browserFlowRefusal(w, http.StatusConflict, browserFlowRebuildRequired)
+			return request, flowruntime.Target{}, false
+		}
 		if err != nil || workspace.Status != "running" {
 			browserFlowRefusal(w, http.StatusNotFound, "Workspace unavailable.")
 			return request, flowruntime.Target{}, false
@@ -98,6 +106,10 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		workspace, err := api.queries.GetActiveWorkspaceForUserRepo(r.Context(), db.GetActiveWorkspaceForUserRepoParams{
 			RepositoryID: view.Repository.ID, UserID: user.ID,
 		})
+		if err == nil && workspace.RebuildRequiredAt.Valid {
+			browserFlowRefusal(w, http.StatusConflict, browserFlowRebuildRequired)
+			return request, flowruntime.Target{}, false
+		}
 		if err != nil || workspace.Status != "running" {
 			browserFlowRefusal(w, http.StatusNotFound, "Workspace unavailable.")
 			return request, flowruntime.Target{}, false

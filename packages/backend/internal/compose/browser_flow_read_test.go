@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -72,4 +73,22 @@ func TestBrowserFlowUnknownProcedureCannotCreateWorkspace(t *testing.T) {
 	require.Equal(t, 400, writer.Code)
 	require.Zero(t, deps.creates)
 	require.Empty(t, deps.lookups)
+}
+
+// #2206: a running workspace built with a subscription token is not entered.
+func TestBrowserFlowRefusesRebuildRequiredWorkspace(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	for _, body := range []string{
+		`{"repo":"owner/repo","procedure":"List","payload":{}}`,
+		`{"repo":"owner/repo","workspaceId":"` + id + `","procedure":"List","payload":{}}`,
+	} {
+		deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: id, Status: "running", RebuildRequiredAt: pgtype.Timestamptz{Valid: true}}}
+		api := browserFlowAPI{repos: deps, workspaces: deps, queries: deps}
+		request := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(body))
+		request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
+		writer := httptest.NewRecorder()
+		_, _, ok := api.prepare(writer, request, false)
+		require.False(t, ok, body)
+		require.Equal(t, 409, writer.Code, body)
+	}
 }

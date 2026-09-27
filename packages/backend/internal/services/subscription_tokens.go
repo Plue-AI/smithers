@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -214,6 +215,25 @@ func markRepositoryRebuildRequiredCount(ctx context.Context, q rebuildRequiredMa
 		return 0, 0, pkgerrors.Internal("mark workspace snapshots for rebuild").WithCause(err)
 	}
 	return workspaces, snapshots, nil
+}
+
+// refuseRebuildRequired keeps a workspace built while its repository stored
+// a subscription token from being reused: resumed, entered, forked or
+// snapshotted. Deleting it and creating a new workspace is the rebuild.
+func refuseRebuildRequired(workspace db.Workspace) error {
+	if !workspace.RebuildRequiredAt.Valid {
+		return nil
+	}
+	return pkgerrors.New(pkgerrors.CodeWorkspaceRebuildRequired, "this workspace was built with a Claude or ChatGPT subscription token; delete it and create a new workspace")
+}
+
+// refuseRebuildRequiredSnapshot keeps a snapshot of such a workspace from
+// being restored.
+func refuseRebuildRequiredSnapshot(snapshot db.WorkspaceSnapshot) error {
+	if !snapshot.RebuildRequiredAt.Valid {
+		return nil
+	}
+	return pkgerrors.New(pkgerrors.CodeWorkspaceRebuildRequired, "this snapshot was taken while its repository stored a Claude or ChatGPT subscription token; delete it and create a new workspace")
 }
 
 // agentEnvironmentLoadError keeps a refusal as it is and wraps any other load

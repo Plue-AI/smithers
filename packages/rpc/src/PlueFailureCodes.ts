@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:a3a569e832fee2907c96d91fbb4c9a4bd003e3532aeb71d96eec643a0f8c43b5"
+export const PLUE_FAILURE_DIGEST = "sha256:2ada69ed7494fa56c501eec2a80a065d941409787ee631d4ef012f5a494d886f"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -189,6 +189,7 @@ export const PLUE_FAILURE_CODES = [
   "worker_identity_invalid",
   "worker_identity_stale",
   "worker_registration_conflict",
+  "workspace_rebuild_required",
   "workspace_session_kind_mismatch",
   "workspace_session_pending",
   "workspace_source_invalid_ack",
@@ -471,6 +472,8 @@ export const PLUE_FAILURES = {
   "worker_identity_stale": { fault: "user", status: 403, retryAfter: 0 },
   /** The worker's registration conflicts with a live one under the same id. */
   "worker_registration_conflict": { fault: "user", status: 403, retryAfter: 0 },
+  /** The workspace or snapshot was built while its repository stored a Claude or ChatGPT subscription token, which may remain on its disk. It is not reused; delete it and create a new workspace. */
+  "workspace_rebuild_required": { fault: "user", status: 409, retryAfter: 0 },
   /** A session of one kind was opened on the other kind's stream route. */
   "workspace_session_kind_mismatch": { fault: "user", status: 409, retryAfter: 0 },
   /** The session row exists but its box is still provisioning; the same open succeeds once it is running. */

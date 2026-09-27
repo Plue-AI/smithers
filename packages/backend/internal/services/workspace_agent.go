@@ -224,7 +224,7 @@ func (s *WorkspaceService) agentForkSource(ctx context.Context, workspace db.Wor
 				// vm/desktop source yields a container-booted child that no
 				// agent run can use. Skip it and provision fresh instead.
 				if candidate.ID != workspace.ID && strings.TrimSpace(candidate.VmID) != "" &&
-					workspaceKindForksCleanly(candidate.Kind) {
+					workspaceKindForksCleanly(candidate.Kind) && !candidate.RebuildRequiredAt.Valid {
 					return candidate, true, true
 				}
 			}

@@ -188,6 +188,9 @@ func validateRuntimeWorkspace(expectedID string, observed workspaceapi.Workspace
 }
 
 func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Context, row db.Workspace, requesterID int64) (db.Workspace, error) {
+	if err := refuseRebuildRequired(row); err != nil {
+		return row, err
+	}
 	if !s.hasWorkspaceRuntime() {
 		return row, pkgerrors.Internal("workspace runtime unavailable")
 	}
