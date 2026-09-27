@@ -363,6 +363,8 @@ func TestAgentLGTMDoesNotCountAsHumanApprovalAndIsCommitBound(t *testing.T) {
 	authorID := mustCreateUser(t, pool, "agent-lgtm-author")
 	humanID := mustCreateUser(t, pool, "agent-lgtm-human")
 	agentID := mustCreateUser(t, pool, "agent-lgtm-agent")
+	_, err := pool.Exec(context.Background(), `UPDATE users SET user_type = 'bot' WHERE id = $1`, agentID)
+	require.NoError(t, err)
 	repoID := mustCreateRepo(t, pool, authorID, "agent-lgtm-repo")
 	lr, err := q.CreateLandingRequest(context.Background(), CreateLandingRequestParams{
 		RepositoryID: repoID, Title: "agent review", AuthorID: authorID,
@@ -399,12 +401,22 @@ func TestAgentLGTMDoesNotCountAsHumanApprovalAndIsCommitBound(t *testing.T) {
 	currentAgentCount, err := q.CountCurrentAgentLandingReviewCommits(context.Background(), CountCurrentAgentLandingReviewCommitsParams{
 		LandingRequestID: lr.ID,
 		CommitIds:        []string{"commit-current", "commit-other"},
+		ReviewerLogins:   []string{"agent-lgtm-agent"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), currentAgentCount)
+	// Only a named reviewer agent's LGTM counts.
+	unnamedCount, err := q.CountCurrentAgentLandingReviewCommits(context.Background(), CountCurrentAgentLandingReviewCommitsParams{
+		LandingRequestID: lr.ID,
+		CommitIds:        []string{"commit-current"},
+		ReviewerLogins:   []string{"another-agent"},
+	})
+	require.NoError(t, err)
+	assert.Zero(t, unnamedCount)
 	staleAgentCount, err := q.CountCurrentAgentLandingReviewCommits(context.Background(), CountCurrentAgentLandingReviewCommitsParams{
 		LandingRequestID: lr.ID,
 		CommitIds:        []string{"commit-new"},
+		ReviewerLogins:   []string{"agent-lgtm-agent"},
 	})
 	require.NoError(t, err)
 	assert.Zero(t, staleAgentCount)

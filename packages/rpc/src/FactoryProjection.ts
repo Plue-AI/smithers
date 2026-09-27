@@ -96,7 +96,8 @@ export const FactoryGithubSchema = z.object({
   mirror: z.enum(["push", "pull", "none"]),
   issues: z.enum(["read", "two-way", "none"]),
   changes: z.enum(["land", "send-upstream", "none"]),
-  protectedPaths: z.array(z.string()).optional()
+  protectedPaths: z.array(z.string()).optional(),
+  reviewerAgents: z.array(z.string()).optional()
 })
 
 /**

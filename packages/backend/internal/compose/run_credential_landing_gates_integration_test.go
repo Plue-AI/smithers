@@ -25,10 +25,12 @@ import (
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
-// gateTestRepoHost serves each change at one commit.
+// gateTestRepoHost serves each change at one commit, and main's factory
+// projection when one is set.
 type gateTestRepoHost struct {
 	services.LandingRepoHostClient
 	commits map[string]string
+	factory string
 }
 
 func (h gateTestRepoHost) GetChange(_ context.Context, _, _, changeID string) (repohost.Change, error) {
@@ -39,7 +41,10 @@ func (h gateTestRepoHost) GetChangeFiles(context.Context, string, string, string
 	return nil, nil
 }
 
-func (h gateTestRepoHost) GetFileAtChange(context.Context, string, string, string, string) (repohost.FileContent, error) {
+func (h gateTestRepoHost) GetFileAtChange(_ context.Context, _, _, changeID, path string) (repohost.FileContent, error) {
+	if h.factory != "" && changeID == "9999999999999999999999999999999999999999" && path == ".smithers/factory.json" {
+		return repohost.FileContent{Content: h.factory}, nil
+	}
 	return repohost.FileContent{}, &repohost.StatusError{StatusCode: http.StatusNotFound}
 }
 
@@ -48,7 +53,7 @@ func (h gateTestRepoHost) ListDirectory(context.Context, string, string, string,
 }
 
 func (h gateTestRepoHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
-	return []repohost.Bookmark{{Name: "main", TargetChangeID: "mainchangezzzzzz"}}, "", nil
+	return []repohost.Bookmark{{Name: "main", TargetChangeID: "mainchangezzzzzz", TargetCommitID: "9999999999999999999999999999999999999999"}}, "", nil
 }
 
 // landingGateFixture is a repository with two people and one commit per
@@ -65,6 +70,13 @@ type landingGateFixture struct {
 }
 
 func newLandingGateFixture(t *testing.T, commits map[string]string) *landingGateFixture {
+	t.Helper()
+	return newLandingGateFixtureWithFactory(t, commits, "")
+}
+
+// newLandingGateFixtureWithFactory serves factory as main's
+// .smithers/factory.json.
+func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, factory string) *landingGateFixture {
 	t.Helper()
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
@@ -89,7 +101,7 @@ func newLandingGateFixture(t *testing.T, commits map[string]string) *landingGate
 		&routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{},
 		&routes.DeployKeyHandler{Service: services.NewDeployKeyService(q)},
 		&routes.LabelHandler{}, &routes.OrgHandler{},
-		&routes.LandingHandler{Service: services.NewLandingService(q, gateTestRepoHost{commits: commits})},
+		&routes.LandingHandler{Service: services.NewLandingService(q, gateTestRepoHost{commits: commits, factory: factory})},
 		nil, nil, nil,
 		&routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		nil,

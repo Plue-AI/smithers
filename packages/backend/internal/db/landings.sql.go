@@ -255,22 +255,30 @@ func (q *Queries) CountApprovedLandingRequestReviews(ctx context.Context, landin
 }
 
 const countCurrentAgentLandingReviewCommits = `-- name: CountCurrentAgentLandingReviewCommits :one
-SELECT COUNT(DISTINCT commit_id)
-FROM landing_request_reviews
-WHERE landing_request_id = $1
-  AND reviewer_kind = 'agent'
-  AND verdict = 'lgtm'
-  AND state = 'submitted'
-  AND commit_id = ANY($2::text[])
+SELECT COUNT(DISTINCT lrr.commit_id)
+FROM landing_request_reviews AS lrr
+JOIN users AS u ON u.id = lrr.reviewer_id
+WHERE lrr.landing_request_id = $1
+  AND lrr.reviewer_kind = 'agent'
+  AND lrr.verdict = 'lgtm'
+  AND lrr.state = 'submitted'
+  AND lrr.commit_id = ANY($2::text[])
+  AND u.user_type IN ('bot', 'service')
+  AND u.lower_username = ANY($3::text[])
 `
 
 type CountCurrentAgentLandingReviewCommitsParams struct {
 	LandingRequestID int64    `json:"landing_request_id"`
 	CommitIds        []string `json:"commit_ids"`
+	ReviewerLogins   []string `json:"reviewer_logins"`
 }
 
+// Only an LGTM from a reviewer agent the repository names (reviewerAgents on
+// its default bookmark's factory projection) counts, and a reviewer agent is
+// an agent account: a run credential reviews as its person's account, which
+// names no particular agent.
 func (q *Queries) CountCurrentAgentLandingReviewCommits(ctx context.Context, arg CountCurrentAgentLandingReviewCommitsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countCurrentAgentLandingReviewCommits, arg.LandingRequestID, arg.CommitIds)
+	row := q.db.QueryRow(ctx, countCurrentAgentLandingReviewCommits, arg.LandingRequestID, arg.CommitIds, arg.ReviewerLogins)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

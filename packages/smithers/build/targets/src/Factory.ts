@@ -210,7 +210,8 @@ export const GithubPolicy = Schema.TaggedStruct("GithubPolicy", {
   mirror: Mirror,
   issues: Issues,
   changes: Changes,
-  protectedPaths: Schema.Array(Schema.String)
+  protectedPaths: Schema.Array(Schema.String),
+  reviewerAgents: Schema.Array(Schema.String)
 })
 
 /**
@@ -230,7 +231,9 @@ export type GithubPolicy = typeof GithubPolicy.Type
  * local actions, scripts and workspace packages main's workflows run with
  * elevated trust) that a change started from an
  * outsider's issue never touches: a name without `/` matches at any depth, a
- * path with `/` matches from the repository root down.
+ * path with `/` matches from the repository root down. `reviewerAgents` names
+ * the agent accounts whose LGTM counts toward `require_agent_lgtm`; no other
+ * agent's does.
  *
  * @category models
  * @since 1.0.0
@@ -240,6 +243,7 @@ export interface GithubPolicyOptions {
   readonly issues?: GithubPolicy["issues"] | undefined
   readonly changes?: GithubPolicy["changes"] | undefined
   readonly protectedPaths?: ReadonlyArray<string> | undefined
+  readonly reviewerAgents?: ReadonlyArray<string> | undefined
 }
 
 /**
@@ -260,14 +264,24 @@ export interface GithubPolicyOptions {
  * @since 1.0.0
  */
 export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
-  const plain = Home.plainOptions("Github.Policy", options, new Set(["mirror", "issues", "changes", "protectedPaths"]))
+  const plain = Home.plainOptions(
+    "Github.Policy",
+    options,
+    new Set(["mirror", "issues", "changes", "protectedPaths", "reviewerAgents"])
+  )
   const policy = Home.decode("Github.Policy", GithubPolicy, {
     _tag: "GithubPolicy",
     mirror: plain["mirror"] ?? "pull",
     issues: plain["issues"] ?? "read",
     changes: plain["changes"] ?? "send-upstream",
-    protectedPaths: plain["protectedPaths"] ?? []
+    protectedPaths: plain["protectedPaths"] ?? [],
+    reviewerAgents: plain["reviewerAgents"] ?? []
   })
+  for (const login of policy.reviewerAgents) {
+    if (login.trim() !== login || login === "") {
+      throw new TypeError(`Github.Policy: reviewerAgents entry ${JSON.stringify(login)} is not a login`)
+    }
+  }
   for (const entry of policy.protectedPaths) {
     if (entry.trim() !== entry || entry === "" || entry.startsWith("/") || entry.split("/").includes("..")) {
       throw new TypeError(
@@ -461,7 +475,8 @@ export const GithubProjection = Schema.Struct({
   mirror: Mirror,
   issues: Issues,
   changes: Changes,
-  protectedPaths: Schema.optionalKey(Schema.Array(Schema.String))
+  protectedPaths: Schema.optionalKey(Schema.Array(Schema.String)),
+  reviewerAgents: Schema.optionalKey(Schema.Array(Schema.String))
 })
 
 /**
@@ -509,6 +524,9 @@ export const renderProjection = (declaration: Declaration, catalog: ReadonlyArra
           changes: declaration.github.changes,
           ...(declaration.github.protectedPaths.length > 0 ?
             { protectedPaths: declaration.github.protectedPaths }
+            : {}),
+          ...(declaration.github.reviewerAgents.length > 0 ?
+            { reviewerAgents: declaration.github.reviewerAgents }
             : {})
         }
       }),

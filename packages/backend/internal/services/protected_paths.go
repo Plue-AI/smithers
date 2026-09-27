@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -37,25 +36,16 @@ const factoryProjectionPath = ".smithers/factory.json"
 // unreadable one is an error, never an empty list.
 func protectedPaths(projection []byte) ([]string, error) {
 	entries := append([]string(nil), protectedPathRoots...)
-	if len(projection) == 0 {
-		return entries, nil
+	policy, err := parseFactoryGitHubPolicy(projection)
+	if err != nil {
+		return nil, err
 	}
-	var factory struct {
-		Github *struct {
-			ProtectedPaths []string `json:"protectedPaths"`
-		} `json:"github"`
-	}
-	if err := json.Unmarshal(projection, &factory); err != nil {
-		return nil, errors.New(factoryProjectionPath + " is not valid JSON")
-	}
-	if factory.Github != nil {
-		for _, entry := range factory.Github.ProtectedPaths {
-			entry = strings.Trim(strings.TrimSpace(entry), "/")
-			if entry == "" || strings.Contains("/"+entry+"/", "/../") {
-				return nil, errors.New(factoryProjectionPath + " declares an invalid protected path")
-			}
-			entries = append(entries, entry)
+	for _, entry := range policy.ProtectedPaths {
+		entry = strings.Trim(strings.TrimSpace(entry), "/")
+		if entry == "" || strings.Contains("/"+entry+"/", "/../") {
+			return nil, errors.New(factoryProjectionPath + " declares an invalid protected path")
 		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
 }

@@ -66,7 +66,8 @@ describe("Smithers.Github.Policy", () => {
       mirror: "pull",
       issues: "read",
       changes: "send-upstream",
-      protectedPaths: []
+      protectedPaths: [],
+      reviewerAgents: []
     })
     const ours = Factory.Policy({ mirror: "push", issues: "two-way", changes: "land" })
     expect(ours).toEqual({
@@ -74,7 +75,8 @@ describe("Smithers.Github.Policy", () => {
       mirror: "push",
       issues: "two-way",
       changes: "land",
-      protectedPaths: []
+      protectedPaths: [],
+      reviewerAgents: []
     })
     expect(Object.isFrozen(ours)).toBe(true)
   })
@@ -216,6 +218,20 @@ describe("Smithers.Factory", () => {
     expect(Factory.parseProjection(JSON.stringify({ ...expected, github: { mirror: "push-on-land" } }))).toMatch(
       /shape/
     )
+  })
+
+  it("projects named reviewer agents", () => {
+    const named = Factory.Policy({ reviewerAgents: ["review-bot"] })
+    const projected = Factory.parseProjection(
+      Factory.renderProjection(Factory.Factory({ summary: "S.", on, github: named }), [])
+    )
+    expect(typeof projected === "string" ? projected : projected.github).toEqual({
+      mirror: "pull",
+      issues: "read",
+      changes: "send-upstream",
+      reviewerAgents: ["review-bot"]
+    })
+    expect(() => Factory.Policy({ reviewerAgents: [" bot"] })).toThrow(/reviewerAgents/)
   })
 
   it("projects declared protected paths", () => {

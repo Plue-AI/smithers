@@ -178,9 +178,11 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 		rec = serve(bearer, http.MethodPost, "/repository-jobs/job/approvals", `{}`)
 		assert.Equal(t, http.StatusForbidden, rec.Code, "%s approved a repository job plan: %s", name, rec.Body.String())
 	}
-	agentLGTMs, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: landing.ID, CommitIds: []string{commitID}})
+	// A run reviews as its person's account, which names no reviewer agent
+	// (D-22): even naming that login, its LGTM does not count.
+	agentLGTMs, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: landing.ID, CommitIds: []string{commitID}, ReviewerLogins: []string{"review-owner"}})
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), agentLGTMs)
+	assert.Zero(t, agentLGTMs)
 
 	// The person's own token approves as a person.
 	rec = serve(person, http.MethodPost, reviews, `{"type":"request_changes","body":"fix it","commit_id":"`+commitID+`"}`)

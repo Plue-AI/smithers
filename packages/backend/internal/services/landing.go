@@ -1285,9 +1285,14 @@ func (s *LandingService) landingBlockers(ctx context.Context, repository db.Repo
 		if !ok {
 			return nil, pkgerrors.Internal("agent review policy evaluator unavailable")
 		}
+		reviewers, err := s.reviewerAgentLogins(ctx, repository, owner)
+		if err != nil {
+			return nil, err
+		}
 		approvedCommits, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{
 			LandingRequestID: landingRow.ID,
 			CommitIds:        commitIDs,
+			ReviewerLogins:   reviewers,
 		})
 		if err != nil {
 			return nil, pkgerrors.Internal("failed to count current agent reviews").WithCause(err)
@@ -1655,7 +1660,7 @@ func (s *LandingService) ownershipLandingBlockers(ctx context.Context, repositor
 			continue
 		}
 		if landing.AgentAuthored && item.AgentPolicy == ownership.PolicyAutoLand {
-			ok, err := s.hasCurrentAgentApproval(ctx, repository.ID, landing.ID, touched)
+			ok, err := s.hasCurrentAgentApproval(ctx, repository, owner, landing.ID, touched)
 			if err != nil {
 				return nil, pkgerrors.Internal("failed to evaluate agent approval").WithCause(err)
 			}
@@ -1677,7 +1682,7 @@ func anyPrincipalApproval(approvals []ownershipApproval, owners []ownership.Prin
 	return false
 }
 
-func (s *LandingService) hasCurrentAgentApproval(ctx context.Context, _, landingID int64, touched []OwnershipTouchedFile) (bool, error) {
+func (s *LandingService) hasCurrentAgentApproval(ctx context.Context, repository db.Repository, owner string, landingID int64, touched []OwnershipTouchedFile) (bool, error) {
 	q, ok := s.queries.(landingAgentReviewQuerier)
 	if !ok {
 		return false, pkgerrors.Internal("agent review store unavailable")
@@ -1686,14 +1691,34 @@ func (s *LandingService) hasCurrentAgentApproval(ctx context.Context, _, landing
 	if len(commitIDs) == 0 {
 		return false, nil
 	}
+	reviewers, err := s.reviewerAgentLogins(ctx, repository, owner)
+	if err != nil {
+		return false, err
+	}
 	count, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{
 		LandingRequestID: landingID,
 		CommitIds:        commitIDs,
+		ReviewerLogins:   reviewers,
 	})
 	if err != nil {
 		return false, err
 	}
 	return count == int64(len(commitIDs)), nil
+}
+
+// reviewerAgentLogins are the reviewer agents the repository's default
+// bookmark names (reviewerAgents), lowercased: the only agents whose LGTM
+// counts. An unreadable policy fails closed.
+func (s *LandingService) reviewerAgentLogins(ctx context.Context, repository db.Repository, owner string) ([]string, error) {
+	host, ok := s.repoHost.(repositoryPolicyHost)
+	if !ok {
+		return nil, pkgerrors.Internal("repository policy reader unavailable")
+	}
+	logins, err := repositoryReviewerAgents(ctx, host, owner, repository)
+	if err != nil {
+		return nil, pkgerrors.UnprocessableEntity(err.Error())
+	}
+	return logins, nil
 }
 
 func landingTouchedCommitIDs(touched []OwnershipTouchedFile) []string {
@@ -1984,6 +2009,10 @@ func (s *LandingService) populateLandingReadiness(
 		if !ok {
 			return pkgerrors.Internal("agent review policy evaluator unavailable")
 		}
+		reviewers, err := s.reviewerAgentLogins(ctx, repository, owner)
+		if err != nil {
+			return err
+		}
 		for _, changeID := range changeIDs {
 			change, err := s.repoHost.GetChange(ctx, strings.TrimSpace(owner), repository.Name, changeID)
 			if err != nil {
@@ -1997,6 +2026,7 @@ func (s *LandingService) populateLandingReadiness(
 			approvedCommits, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{
 				LandingRequestID: landingRequestID,
 				CommitIds:        []string{commitID},
+				ReviewerLogins:   reviewers,
 			})
 			if err != nil {
 				return pkgerrors.Internal("failed to count current agent reviews for landing readiness").WithCause(err)

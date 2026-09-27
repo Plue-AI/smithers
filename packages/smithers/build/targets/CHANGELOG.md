@@ -8,6 +8,9 @@ of it.
 
 ### Added
 
+- Added `reviewerAgents` to `Smithers.Github.Policy` and its projection.
+  Only the named agent accounts' LGTMs count toward a protected bookmark's
+  required agent LGTM.
 - Added `Target.guard`, so a rule that refuses something its schema cannot
   express keeps its `id`, `attrs` schema, and `kinds` instead of erasing them
   behind a hand-written `Target.AnyTarget` wrapper. Every catalog rule now

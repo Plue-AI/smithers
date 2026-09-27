@@ -728,8 +728,15 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 			return fmt.Errorf("missing required human approval")
 		}
 	}
+	var reviewers []string
+	if requireAgentLGTM || lr.AgentAuthored {
+		reviewers, err = repositoryReviewerAgents(ctx, rh, owner, repository)
+		if err != nil {
+			return err
+		}
+	}
 	if requireAgentLGTM {
-		count, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: lr.ID, CommitIds: currentCommitIDs})
+		count, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: lr.ID, CommitIds: currentCommitIDs, ReviewerLogins: reviewers})
 		if err != nil {
 			return err
 		}
@@ -765,7 +772,7 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 	}
 	agentLGTMCurrent := false
 	if lr.AgentAuthored && len(currentCommitIDs) > 0 {
-		count, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: lr.ID, CommitIds: currentCommitIDs})
+		count, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: lr.ID, CommitIds: currentCommitIDs, ReviewerLogins: reviewers})
 		if err != nil {
 			return err
 		}

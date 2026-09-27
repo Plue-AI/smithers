@@ -336,13 +336,20 @@ WHERE landing_request_id = $1
   AND state = 'submitted';
 
 -- name: CountCurrentAgentLandingReviewCommits :one
-SELECT COUNT(DISTINCT commit_id)
-FROM landing_request_reviews
-WHERE landing_request_id = sqlc.arg(landing_request_id)
-  AND reviewer_kind = 'agent'
-  AND verdict = 'lgtm'
-  AND state = 'submitted'
-  AND commit_id = ANY(sqlc.arg(commit_ids)::text[]);
+-- Only an LGTM from a reviewer agent the repository names (reviewerAgents on
+-- its default bookmark's factory projection) counts, and a reviewer agent is
+-- an agent account: a run credential reviews as its person's account, which
+-- names no particular agent.
+SELECT COUNT(DISTINCT lrr.commit_id)
+FROM landing_request_reviews AS lrr
+JOIN users AS u ON u.id = lrr.reviewer_id
+WHERE lrr.landing_request_id = sqlc.arg(landing_request_id)
+  AND lrr.reviewer_kind = 'agent'
+  AND lrr.verdict = 'lgtm'
+  AND lrr.state = 'submitted'
+  AND lrr.commit_id = ANY(sqlc.arg(commit_ids)::text[])
+  AND u.user_type IN ('bot', 'service')
+  AND u.lower_username = ANY(sqlc.arg(reviewer_logins)::text[]);
 
 -- name: CountCurrentApprovedLandingRequestReviews :one
 SELECT COUNT(DISTINCT lrr.reviewer_id)

@@ -629,6 +629,7 @@ type mockLandingRepoHostClient struct {
 	getRevisionDiffFn    func(ctx context.Context, owner, repo, changeID, fromCommitID, toCommitID, path string) (repohost.ChangeDiff, error)
 	getFileAtChangeFn    func(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
 	listDirectoryFn      func(ctx context.Context, owner, repo, changeID, prefix, after string, limit int) ([]repohost.TreeEntry, error)
+	listBookmarksFn      func(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error)
 	lastLandOwner        string
 	lastLandRepo         string
 	lastLandRequest      repohost.LandRequest
@@ -687,6 +688,14 @@ func (m *mockLandingRepoHostClient) GetChangeFiles(ctx context.Context, owner, r
 		return m.getChangeFilesFn(ctx, owner, repo, changeID)
 	}
 	return nil, nil
+}
+
+// ListBookmarks serves main at change "main" unless a test says otherwise.
+func (m *mockLandingRepoHostClient) ListBookmarks(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error) {
+	if m.listBookmarksFn != nil {
+		return m.listBookmarksFn(ctx, owner, repo, cursor, limit)
+	}
+	return []repohost.Bookmark{{Name: "main", TargetChangeID: "main", TargetCommitID: "main"}}, "", nil
 }
 
 func (m *mockLandingRepoHostClient) GetFileAtChange(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error) {
