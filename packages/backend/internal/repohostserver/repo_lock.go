@@ -82,6 +82,12 @@ func (s *Server) recordDefaultBookmarkBorn(gitDir string) {
 // jj keeps one pin per commit there, each written once, so a leftover lock
 // blocks nothing, and the walk stays proportional to the refs people use.
 func (s *Server) recoverStaleGitLocks(gitDir string) {
+	s.removeGitLocks(gitDir, staleGitLockAge)
+}
+
+// removeGitLocks removes the ref lock files recoverStaleGitLocks covers that
+// are at least minAge old.
+func (s *Server) removeGitLocks(gitDir string, minAge time.Duration) {
 	candidates := []string{filepath.Join(gitDir, "packed-refs.lock"), filepath.Join(gitDir, "HEAD.lock")}
 	jjRefs := filepath.Join(gitDir, filepath.FromSlash(strings.TrimSuffix(repohost.JJRefPrefix, "/")))
 	_ = filepath.WalkDir(filepath.Join(gitDir, "refs"), func(path string, entry fs.DirEntry, err error) error {
@@ -96,7 +102,7 @@ func (s *Server) recoverStaleGitLocks(gitDir string) {
 	})
 	for _, path := range candidates {
 		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < staleGitLockAge {
+		if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < minAge {
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

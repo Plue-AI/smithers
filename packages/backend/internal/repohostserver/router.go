@@ -169,6 +169,9 @@ func NewWithFFI(cfg Config, ffi FFIClient) (*Server, error) {
 		httpClient: pushHookClient(),
 	}
 	server.pushOutbox = newPushHookOutbox(server)
+	if err := server.reapOrphanedMaintenance(); err != nil {
+		return nil, err
+	}
 	return server, nil
 }
 

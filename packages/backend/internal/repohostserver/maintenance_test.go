@@ -257,3 +257,140 @@ func TestCancelledMaintenanceLeavesNoProcess(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return syscall.Kill(pid, 0) != nil }, 5*time.Second, 10*time.Millisecond, "maintenance child outlived its lock")
 }
+
+// A repo-host that crashed mid-maintenance leaves its git running, in its own
+// process group and holding no repository lock. The next repo-host terminates
+// that group, and removes the git locks it held however fresh, before it
+// exists to accept a write.
+func TestStartupTerminatesOrphanedMaintenanceBeforeWrites(t *testing.T) {
+	requireNativeLaneTools(t)
+	storage := t.TempDir()
+	cfg := Config{StoragePath: storage, AuthToken: testAuthToken}
+	gitDir := jjInit(t, cfg.RepoPath("alice", "demo"))
+	lock := filepath.Join(gitDir, "packed-refs.lock")
+	childPid := filepath.Join(t.TempDir(), "child.pid")
+	maintenanceCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		// gc holding packed-refs.lock, and a child that ignores SIGTERM.
+		return exec.CommandContext(ctx, "sh", "-c", `echo $$ >&3; : > `+lock+`; sh -c 'trap "" TERM; sleep 60' & echo $! > `+childPid+`; wait`)
+	}
+	maintenanceWaitDelay = 200 * time.Millisecond
+	t.Cleanup(func() { maintenanceCommandContext, maintenanceWaitDelay = exec.CommandContext, 10*time.Second })
+
+	// The crashed repo-host's maintenance, still running: nothing cancels it.
+	orphan := make(chan error, 1)
+	go func() { orphan <- runMaintenanceGit(context.Background(), gitDir, gcArgs) }()
+	require.Eventually(t, func() bool {
+		raw, err := os.ReadFile(childPid)
+		return err == nil && strings.TrimSpace(string(raw)) != ""
+	}, 5*time.Second, 10*time.Millisecond)
+	raw, err := os.ReadFile(childPid)
+	require.NoError(t, err)
+	child, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	require.FileExists(t, lock)
+
+	srv, err := NewWithFFI(cfg, &mockFFI{})
+	require.NoError(t, err)
+	pidFile, err := os.Open(filepath.Join(gitDir, maintenancePidFile))
+	require.NoError(t, err)
+	defer pidFile.Close()
+	require.NoError(t, syscall.Flock(int(pidFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB), "orphaned maintenance outlived startup")
+	require.Error(t, <-orphan)
+	require.NoFileExists(t, lock)
+
+	unlock := srv.lockRepo(cfg.RepoPath("alice", "demo"))
+	gitOut(t, gitDir, "pack-refs", "--all")
+	unlock()
+}
+
+// A pidfile whose lock nobody holds is one maintenance released: startup
+// leaves the process it names alone, whatever now has that pid.
+func TestStartupLeavesReleasedMaintenancePidfilesAlone(t *testing.T) {
+	storage := t.TempDir()
+	cfg := Config{StoragePath: storage, AuthToken: testAuthToken}
+	gitDir := repoGitDir(cfg.RepoPath("alice", "demo"))
+	require.NoError(t, os.MkdirAll(gitDir, 0o755))
+	bystander := exec.Command("sleep", "60")
+	bystander.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	require.NoError(t, bystander.Start())
+	t.Cleanup(func() { _ = bystander.Process.Kill(); _ = bystander.Wait() })
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, maintenancePidFile), []byte(strconv.Itoa(bystander.Process.Pid)+"\n"), 0o644))
+
+	_, err := NewWithFFI(cfg, &mockFFI{})
+	require.NoError(t, err)
+	require.NoError(t, syscall.Kill(bystander.Process.Pid, 0))
+}
+
+// startNamed starts sleep under the command name name, in its own group. The
+// channel closes when it exits.
+func startNamed(t *testing.T, name string) (*exec.Cmd, <-chan struct{}) {
+	t.Helper()
+	sleep, err := exec.LookPath("sleep")
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), name)
+	require.NoError(t, os.Symlink(sleep, path))
+	cmd := exec.Command(path, "60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	require.NoError(t, cmd.Start())
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-exited })
+	require.Eventually(t, func() bool {
+		got, err := processName(cmd.Process.Pid)
+		return err == nil && filepath.Base(got) == name
+	}, 5*time.Second, 10*time.Millisecond)
+	return cmd, exited
+}
+
+// A gc git's gc.pid names as running on this host, from a repo-host that
+// predates maintenance pidfiles or git's own detached gc, is terminated at
+// startup; a gc.pid whose pid another program reused is left alone.
+func TestStartupTerminatesLiveGitGCFromGCPid(t *testing.T) {
+	host, err := os.Hostname()
+	require.NoError(t, err)
+	maintenanceWaitDelay = 200 * time.Millisecond
+	t.Cleanup(func() { maintenanceWaitDelay = 10 * time.Second })
+	storage := t.TempDir()
+	cfg := Config{StoragePath: storage, AuthToken: testAuthToken}
+	gc, gcExited := startNamed(t, "git")
+	other, _ := startNamed(t, "postgres")
+	gcDir := repoGitDir(cfg.RepoPath("alice", "gc"))
+	reusedDir := repoGitDir(cfg.RepoPath("alice", "reused"))
+	for dir, pid := range map[string]int{gcDir: gc.Process.Pid, reusedDir: other.Process.Pid} {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "gc.pid"), []byte(fmt.Sprintf("%d %s", pid, host)), 0o644))
+	}
+
+	_, err = NewWithFFI(cfg, &mockFFI{})
+	require.NoError(t, err)
+	select {
+	case <-gcExited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the gc outlived startup")
+	}
+	require.NoFileExists(t, filepath.Join(gcDir, "gc.pid"))
+	require.NoError(t, syscall.Kill(other.Process.Pid, 0))
+	require.FileExists(t, filepath.Join(reusedDir, "gc.pid"))
+}
+
+// A maintenance group that outlives SIGKILL fails startup: its git locks stay.
+func TestStartupFailsWhileOrphanedMaintenanceSurvives(t *testing.T) {
+	maintenanceWaitDelay = 100 * time.Millisecond
+	t.Cleanup(func() { maintenanceWaitDelay = 10 * time.Second })
+	cfg := Config{StoragePath: t.TempDir(), AuthToken: testAuthToken}
+	gitDir := repoGitDir(cfg.RepoPath("alice", "demo"))
+	require.NoError(t, os.MkdirAll(gitDir, 0o755))
+	lock := filepath.Join(gitDir, "packed-refs.lock")
+	require.NoError(t, os.WriteFile(lock, nil, 0o644))
+	// This process holds the pidfile lock, as a process SIGKILL cannot reach
+	// would; the file names no group.
+	held, err := os.Create(filepath.Join(gitDir, maintenancePidFile))
+	require.NoError(t, err)
+	defer held.Close()
+	require.NoError(t, syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
+
+	_, err = NewWithFFI(cfg, &mockFFI{})
+	require.ErrorContains(t, err, "still running")
+	require.FileExists(t, lock)
+}
