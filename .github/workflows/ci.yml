@@ -125,7 +125,7 @@ jobs:
   "test":
     name: "workspace graph (coverage gates enforced)"
     runs-on: "ubuntu-latest"
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
       - name: "Validate GitHub Actions workflows"

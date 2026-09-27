@@ -334,7 +334,9 @@ const ci = Smithers.GithubCiGen({
       id: "test",
       name: "workspace graph (coverage gates enforced)",
       runsOn: ubuntu,
-      timeoutMinutes: 120,
+      // Uncached, the graph plus the gates after it ran 95-115 min and passed 120 in run 36319330660
+      // once twelve packages also ran on PostgreSQL; remote-cache hits are #2254.
+      timeoutMinutes: 180,
       toolchain: Smithers.CiToolchain.Needs({
         cargoBinaries: nativeFilesystem,
         runtimes: [node, bun],
