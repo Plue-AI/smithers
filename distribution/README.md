@@ -22,6 +22,10 @@ On Railway, attach PostgreSQL 18 and a volume mounted at `/var/lib/smithers`, se
 
 The image contains the web build, `apps/backend`, the canonical coding and model TypeScript hosts with exact SHA-256 manifests, embedded product migrations, the Rust 1.98 glibc FFI library and canonical jj WebAssembly artifact (both built with the pinned toolchain), the `jj` 0.44 CLI built from revision `47589ada70c12b3e829b5c98ab32503abad49eac`, checksum-pinned Git 2.50.1, Node 26, and PostgreSQL 18 client tools. Startup verifies the host artifacts and never downloads an executable. The backend listens on port 4000 and owns the process adapter; PostgreSQL is external.
 
+## Slack and Telegram
+
+The backend can run the [durable chat connector host](../packages/backend/chatconnector/README.md). Set its configuration and owner credential file paths, plus the configured provider credentials, in the backend environment. Its SQLite action receipts and polling cursors live in the persistent data volume and are included in the existing backup.
+
 ## Platform model keys
 
 Agent runs, workspaces and Flow hosts can use provider keys the installation pays for, as well as repository keys and connected accounts. After the first start, put the keys in a JSON file of provider name to key in the data volume. The providers are `anthropic`, `openai`, `cerebras`, `openrouter` and `vercel` (the AI Gateway key for recommendations, in place of `AI_GATEWAY_API_KEY`):

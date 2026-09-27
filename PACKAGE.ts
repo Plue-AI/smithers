@@ -3,6 +3,8 @@ import { ReviewDocsAgainstCode, ReviewJsdocAgainstCode } from "@smthrs/repo-targ
 import { Smithers } from "@smthrs/targets"
 import project from "./apps/site/src/data/project.json" with { type: "json" }
 import { Package as modelHostPackage } from "./packages/smithers/agent/model-host/PACKAGE.ts"
+import { Package as integrationsPackage } from "./packages/smithers/agent/integrations/PACKAGE.ts"
+import { Package as flowsPackage } from "./packages/smithers/flows/PACKAGE.ts"
 
 export const cacheToken = Smithers.Secret("SMITHERS_CACHE_READ_TOKEN")
 export const cacheWriteToken = Smithers.Secret("SMITHERS_CACHE_WRITE_TOKEN")
@@ -266,6 +268,8 @@ const backendGo = Smithers.Shell.Test({
     Smithers.file("//scripts/test_check_go_boundaries.py"),
     nativeFfi,
     modelHostPackage.lib,
+    integrationsPackage.lib,
+    flowsPackage.lib,
     Smithers.glob("//apps/model-host/src/**/*.ts"),
     Smithers.file("//apps/model-host/build.mjs"),
     Smithers.file("//apps/model-host/package.json"),

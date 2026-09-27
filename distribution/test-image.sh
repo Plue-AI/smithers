@@ -191,16 +191,18 @@ docker exec "$app" sh -eu -c '
   test -x /opt/smithers/bin/smithers-backend
   test -x /opt/smithers/bin/smithers-coding-host
   test -x /opt/smithers/bin/smithers-model-host
+  test -x /opt/smithers/bin/smithers-chat-connector
   test -x /opt/smithers/bin/smithers-jj-export
   test -x /opt/smithers/bin/jj
   test -x /opt/smithers/git/bin/git
   test -r /opt/smithers/bin/flow-hosts.json
   test -r /opt/smithers/lib/libsmithers_ffi.so
   cd /opt/smithers/bin
-  sha256sum -c smithers-coding-host.sha256 smithers-model-host.sha256 >/dev/null
+  sha256sum -c smithers-coding-host.sha256 smithers-model-host.sha256 smithers-chat-connector.sha256 >/dev/null
   ./jj --version | grep -Fx "jj 0.44.0-47589ada70c12b3e829b5c98ab32503abad49eac"
   /opt/smithers/git/bin/git --version | grep -Fx "git version 2.50.1"
   PATH=/opt/smithers/bin:$PATH ./smithers-model-host --help >/dev/null
+  PATH=/opt/smithers/bin:$PATH ./smithers-chat-connector --help >/dev/null
 '
 docker exec "$app" sh -eu -c '
   work=$(mktemp -d)

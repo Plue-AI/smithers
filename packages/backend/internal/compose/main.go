@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/smithersai/smithers/packages/backend/admission"
+	"github.com/smithersai/smithers/packages/backend/chatconnector"
 	"github.com/smithersai/smithers/packages/backend/commerce"
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
@@ -1504,6 +1505,18 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		r = withLocalReadiness(r, pool, options.Repository)
 	}
 	r = mountBlobTransferHandler(r, transferStore, cfg)
+	connectorHost, err := chatconnector.FromEnvironment(os.Getenv, os.Getenv("SMITHERS_DATA_ROOT"), cfg.Server.Addr)
+	if err != nil {
+		return err
+	}
+	var connectorWorker *criticalWorker
+	if connectorHost != nil {
+		if cfg.Auth.Mode != "selfhost" || !options.topology.workers() || !options.topology.servesHTTP() {
+			return errors.New("environment chat connectors require the combined self-host backend")
+		}
+		connectorWorker = newCriticalWorker()
+	}
+	r = withCriticalWorkerReadiness(r, connectorWorker)
 	r = withCriticalWorkerReadiness(r, flowWorker)
 	r = withCriticalWorkerReadiness(r, chatWorker)
 	r = withCriticalWorkerReadiness(r, chatCallbackWorker)
@@ -1546,6 +1559,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// Start landing worker in a background goroutine.
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()
+	var connectorFailure <-chan error
+	if connectorWorker != nil {
+		connectorWorker.Start(workerCtx, "chat connectors", connectorHost.Run)
+		connectorFailure = connectorWorker.Failed()
+	}
 	var flowWorkerFailure <-chan error
 	if flowWorker != nil {
 		if err := flow.recover(ctx); err != nil {
@@ -1696,6 +1714,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		case <-sigCh:
 		case <-ctx.Done():
 		case <-abortShutdown:
+		case fatalWorkerErr = <-connectorFailure:
 		case fatalWorkerErr = <-flowWorkerFailure:
 		case fatalWorkerErr = <-chatWorkerFailure:
 		case fatalWorkerErr = <-chatCallbackFailure:
@@ -1738,7 +1757,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			}
 			stopFlow()
 		}
-		for name, worker := range map[string]*criticalWorker{"chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
+		for name, worker := range map[string]*criticalWorker{"chat connectors": connectorWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
 			if worker == nil {
 				continue
 			}
