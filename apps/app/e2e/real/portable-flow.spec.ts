@@ -82,7 +82,7 @@ authenticatedTest("an owned repository runs a declared Flow on its box and expos
 
 authenticatedTest("a flow list with no box of the repository asks for one instead of answering empty", scenario("flows.product-no-box", {
   capabilities: ["identity", "cloud"],
-  coverage: ["action:flow.list", "host:local", "host:production", "path:error", "door:slash", "dimension:no-box", "evidence:transcript-refusal-and-no-relay-call"]
+  coverage: ["action:flow.list", "host:local", "host:production", "path:error", "door:slash", "dimension:no-box", "evidence:failure-toast-and-no-relay-call"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, async (repo) => {
     const relayed: Array<string> = []
@@ -94,7 +94,7 @@ authenticatedTest("a flow list with no box of the repository asks for one instea
     await awaitBoot(page, "navigate", startedAt)
     await finishFirstVisit(page)
     await runSlash(page, `/flow.list ${repo.fullName}`)
-    await expect(page.getByTestId("transcript").getByText(`Open a box of ${repo.fullName} first`, { exact: false }).last()).toBeVisible()
+    await expect(page.locator('[data-toast-status="failed"]').filter({ hasText: `Open a box of ${repo.fullName} first` })).toBeVisible()
     expect(relayed).toEqual([])
   })
 })
