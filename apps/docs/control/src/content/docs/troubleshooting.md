@@ -125,7 +125,8 @@ Two rotations raced, and this one read the older version. The failure carries
 
 The executor refused or could not start the run. The plane settles the run row
 as `failed` and journals `control.run.failed` with the cause, so the run does
-not survive as an unlaunched row no verb can end.
+not survive as an unlaunched row no verb can end. The admission receipt remains;
+inspect that run before an explicit retry with a new idempotency key.
 
 ### `PersistenceError` (`persistence_failed`)
 

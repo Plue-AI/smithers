@@ -78,7 +78,7 @@ provide it.
 
 ## Start the run the plane minted
 
-`launch` receives the stored plan and the run row the plane has created, and
+`launch` receives the stored plan and the run row the plane has committed, and
 it must start _that_ run: `run.runId` is the execution id, so the events the
 engine journals and the row the plane projects name one run.
 
@@ -90,7 +90,6 @@ import type { FlowRuntime } from "@smthrs/flow"
 import { Executable, Registry } from "@smthrs/registry"
 import { RunStore } from "@smthrs/run-store"
 import type * as Crypto from "effect/Crypto"
-import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
@@ -98,9 +97,6 @@ import type * as Path from "effect/Path"
 
 /** How a discovered descriptor is loaded, and what it may delegate to. */
 const bridge: Executable.Options = { delegates: [] }
-
-/** Every run this executor started, and the latch that releases each one. */
-const driving: Array<{ readonly runId: string; readonly start: Deferred.Deferred<void> }> = []
 
 const executorLayer = Layer.effect(ControlExecutor.ControlExecutor)(
   Effect.gen(function*() {
@@ -118,17 +114,12 @@ const executorLayer = Layer.effect(ControlExecutor.ControlExecutor)(
       launch: ({ plan, run }) =>
         Effect.gen(function*() {
           const executable = yield* Executable.fromRegistry(plan.card.flowId, bridge)
-          const start = yield* Deferred.make<void>()
           Effect.runForkWith(services)(
-            Deferred.await(start).pipe(
-              Effect.andThen(executable.flow.execute(
-                { input: plan.decodedInput },
-                { executionId: run.runId, discard: true }
-              )),
-              Effect.andThen(mirror(plane, run.runId))
-            )
+            executable.flow.execute(
+              { input: plan.decodedInput },
+              { executionId: run.runId, discard: true }
+            ).pipe(Effect.andThen(mirror(plane, run.runId)))
           )
-          driving.push({ runId: run.runId, start })
           return "accepted" as const
         }).pipe(Effect.provide(services), Effect.orDie)
     })
@@ -136,10 +127,10 @@ const executorLayer = Layer.effect(ControlExecutor.ControlExecutor)(
 )
 ```
 
-It forks rather than running inline, and the fork waits on a latch. `run`
-writes `running` on the row _after_ the executor answers `accepted`, so an
-executor that let the run park first would have that write land on top of the
-park. Releasing the latch after the receipt is in hand orders the two writes.
+It forks so launch acceptance does not wait for execution to finish. Admission
+is already committed before `launch` runs. After the executor answers
+`accepted`, the plane marks a still-accepted run as running; an outcome the
+executor has already recorded, including a parked or completed run, is preserved.
 
 ## Mirror the engine's status back
 

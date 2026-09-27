@@ -7,6 +7,7 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { DatabaseError, DurableWriter } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import { JournalEvent, Migrations, SqlJournal } from "@smthrs/journal"
 import * as Journal from "@smthrs/journal/Journal"
 import { NotificationQueue } from "@smthrs/notifications"
@@ -1131,4 +1132,41 @@ describe("SqlControlRuntime", () => {
     expect(source).not.toMatch(/(?:from|import\s*)\s*["']node:/)
     expect(source).not.toContain(["@effect", "platform-node"].join("/"))
   })
+})
+
+
+it("commits the run and its idempotency receipt before handing it to the executor", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "control-admission-"))
+  const schema = directory.split("/").at(-1)!.replaceAll("-", "_")
+  const postgres = process.env.SMITHERS_TEST_PG_URL ? new URL(process.env.SMITHERS_TEST_PG_URL) : undefined
+  postgres?.searchParams.set("schema", schema)
+  const filename = postgres?.toString() ?? join(directory, "control.db")
+  let launches = 0
+  try {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      const peer = Context.get(yield* Layer.build(NodeDatabase.layer({ filename })), SqlClient.SqlClient)
+      if (postgres) yield* Effect.addFinalizer(() => peer`DROP SCHEMA ${peer(schema)} CASCADE`.pipe(Effect.orDie))
+      const executor = ControlExecutor.makeNoop({
+        launch: ({ run }) => Effect.gen(function*() {
+          launches++
+          // A separate connection cannot read the writer's uncommitted row.
+          const rows = yield* peer`SELECT run_id FROM flows_runs WHERE run_id = ${run.runId}`
+          expect(rows).toEqual([{ run_id: run.runId }])
+          const receipts = yield* peer`SELECT receipt_json FROM control_mutations`
+          expect(receipts.some(row => JSON.parse(String(row.receipt_json)).runId === run.runId)).toBe(true)
+          return "accepted" as const
+        })
+      })
+      const services = yield* Layer.build(durable({ database: fileBundle(filename), executor }))
+      const control = Context.get(services, Control)
+      const card = yield* control.plan({ flowId: "system/test", input: {} })
+      yield* control.approve({ ...card.approval, idempotencyKey: "approve:visible" })
+      const input = { _tag: "Plan" as const, planId: card.planId, digest: card.digest,
+        envelope: card.envelope, idempotencyKey: "run:visible" }
+      const receipt = yield* control.run(input)
+      expect(receipt._tag).toBe("Accepted")
+      expect((yield* control.run(input))._tag).toBe("AlreadyApplied")
+      expect(launches).toBe(1)
+    })))
+  } finally { rmSync(directory, { recursive: true, force: true }) }
 })

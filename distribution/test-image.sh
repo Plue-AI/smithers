@@ -34,6 +34,16 @@ cleanup() {
     if container_exists "$postgres"; then
       docker exec "$postgres" psql -U "$database_user" -d "$database_name" -x -c \
         'SELECT id, workflow_run_id, status, last_error FROM workflow_tasks ORDER BY id' >&2 || true
+      # Native hosts select PostgreSQL in the packaged deployment. Read its
+      # terminal evidence as well as the SQLite fallback below.
+      docker exec -i "$postgres" psql -U "$database_user" -d "$database_name" -At >&2 <<'SQL' || true
+SELECT format('SELECT json_build_object(''schema'', %L, ''run'', run_id, ''state'', state_json)::text FROM %I.flows_runs WHERE status = ''failed''', table_schema, table_schema)
+FROM information_schema.tables WHERE table_name = 'flows_runs' AND table_schema LIKE 'flows_%' ORDER BY table_schema
+\gexec
+SELECT format('SELECT json_build_object(''schema'', %L, ''run'', run_id, ''cause'', payload_json::jsonb->>''cause'')::text FROM %I.flows_journal_events WHERE event_type = ''control.run.failed'' ORDER BY seq', table_schema, table_schema)
+FROM information_schema.tables WHERE table_name = 'flows_journal_events' AND table_schema LIKE 'flows_%' ORDER BY table_schema
+\gexec
+SQL
     fi
     if container_exists "$app"; then
       docker exec -i "$app" /opt/smithers/bin/node --input-type=module >&2 <<'NODE' || true

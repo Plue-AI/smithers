@@ -34,7 +34,7 @@ import {
   type RunNotFound,
   Unavailable
 } from "./ControlError.ts"
-import type { CancelRecord } from "./ControlExecutor.ts"
+import type { CancelRecord, Launch } from "./ControlExecutor.ts"
 import { ControlExecutor } from "./ControlExecutor.ts"
 import * as ControlFacts from "./ControlFacts.ts"
 import { ControlRuntime, type RunPage } from "./ControlRuntime.ts"
@@ -395,15 +395,10 @@ export const layer: Layer.Layer<
      *
      * `ControlExecutor.launch` fails when nothing in this composition will
      * ever drive the run: no seat resolved, the flow declares none, the body
-     * would not load, the provider could not be constructed. The run row is
-     * already durable by then — `ControlRuntime.launch` writes it before the
-     * executor is consulted — and the failure rolls the mutation's transaction
-     * back, so the run survived with no journal entry, `status` reported it
-     * unlaunched forever, and `smithers cancel` was the only verb that could
-     * end it.
-     *
-     * It runs OUTSIDE the mutation, for that rollback's reason: a settlement
-     * written inside the failing transaction is discarded with it.
+     * would not load, the provider could not be constructed. The run row
+     * and its idempotency receipt are already durable by then. Keep that
+     * admission and record the failure; replaying its key must never launch
+     * another run. An explicit retry uses a new key.
      *
      * A settlement that cannot be written is logged rather than raised. The
      * caller is already receiving the refusal it has to act on, and replacing
@@ -1318,7 +1313,8 @@ export const layer: Layer.Layer<
           // `control.run.resumed`, which `AgentSession` reads as an approval
           // DELEGATION rather than as the claim a resume is.
           if (input._tag === "Resume") return yield* runMutation(input)
-          return yield* mutate<
+          let admitted: Launch | undefined
+          const receipt = yield* mutate<
             | RunNotFound
             | PlanNotFound
             | PlanDenied
@@ -1349,35 +1345,7 @@ export const layer: Layer.Layer<
                   ...ControlFacts.runFact(launched.run, "created")
                 } as ControlEvent["payload"]
               )
-              const plan = yield* runtime.getPlan(input.planId)
-              const acceptance = Option.isSome(executor)
-                ? yield* executor.value.launch({ plan, run: launched.run })
-                : "pending"
-              if (acceptance === "accepted") {
-                const fence = yield* runtime.claimFence(launched.run.runId)
-                const running = yield* runtime.writeStatus(launched.run.runId, fence, "running")
-                yield* emit(
-                  launched.run.runId,
-                  "control.run.running",
-                  {
-                    runId: launched.run.runId,
-                    status: running.status,
-                    ...ControlFacts.runFact(running)
-                  } as ControlEvent["payload"]
-                )
-              } else {
-                const fence = yield* runtime.claimFence(launched.run.runId)
-                const pending = yield* runtime.releasePending(launched.run.runId, fence)
-                yield* emit(
-                  launched.run.runId,
-                  "control.run.pending",
-                  {
-                    runId: launched.run.runId,
-                    status: pending.status,
-                    ...ControlFacts.runFact(pending)
-                  } as ControlEvent["payload"]
-                )
-              }
+              admitted = { plan: yield* runtime.getPlan(input.planId), run: launched.run }
               return {
                 _tag: "Accepted",
                 receiptId: input.idempotencyKey,
@@ -1386,11 +1354,32 @@ export const layer: Layer.Layer<
             }),
             true,
             true
-          ).pipe(
-            Effect.tapError((error) =>
-              error instanceof LaunchFailed ? settleUnlaunched(error.runId, error.message) : Effect.void
-            )
           )
+          // The executor may immediately read through another connection or
+          // fork a driver. Its run, approval and dedupe receipt must all be
+          // committed before any execution crosses that boundary.
+          if (receipt._tag === "Accepted" && admitted !== undefined) {
+            const launch = admitted
+            const acceptance = Option.isSome(executor)
+              ? yield* executor.value.launch(launch).pipe(Effect.tapError((error) =>
+                settleUnlaunched(error.runId, error.message)
+              ))
+              : "pending"
+            yield* transact("run.acceptance", Effect.gen(function*() {
+              // A fast executor may already have completed or parked. Never
+              // regress its durable outcome with the launch acknowledgment.
+              const current = yield* runtime.getRun(launch.run.runId)
+              if (current.status !== "accepted") return
+              const fence = yield* runtime.claimFence(current.runId)
+              const run = acceptance === "accepted"
+                ? yield* runtime.writeStatus(current.runId, fence, "running")
+                : yield* runtime.releasePending(current.runId, fence)
+              yield* emit(run.runId, acceptance === "accepted" ? "control.run.running" : "control.run.pending", {
+                runId: run.runId, status: run.status, ...ControlFacts.runFact(run)
+              } as ControlEvent["payload"])
+            }))
+          }
+          return receipt
         })
       ),
       approve: Effect.fn("Control.approve")((input) => decide("approved", input)),

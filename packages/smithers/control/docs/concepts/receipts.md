@@ -11,8 +11,8 @@ what happened to it?".
 
 | Receipt          | Meaning                                                                                 |
 | ---------------- | --------------------------------------------------------------------------------------- |
-| `Accepted`       | This call did the work. Carries `receiptId`, and `runId` when a run exists.             |
-| `AlreadyApplied` | An earlier call under this idempotency key did the work. Carries the same `runId`.      |
+| `Accepted`       | This call admitted the mutation. Carries `receiptId`, and `runId` when a run exists.             |
+| `AlreadyApplied` | An earlier call under this key admitted the mutation. Carries the same `runId`.      |
 | `Parked`         | The plan is waiting for an approval. Carries `planId` and `status: "waiting-approval"`. |
 | `Conflict`       | The key names a different intent than the one it was first used for. Carries a message. |
 | `Terminal`       | The run had already settled. Carries `runId` and the status it settled with.            |
@@ -80,6 +80,18 @@ before the idempotency lookup:
 
 Cancellation needs no receipt to be idempotent. The run's own terminality is a
 stronger guarantee, and it is what the second ask reads.
+
+## Run admission precedes execution
+
+The run row, approval facts, and idempotency receipt commit before the plane
+calls the executor. `Accepted` proves admission; the run's current status proves
+whether execution started or finished. Another connection can read the committed
+run as soon as the executor receives it.
+
+If the executor refuses the launch, the plane records the run as failed and
+retains its admission receipt. Repeating the same key returns `AlreadyApplied`
+for that run. An explicit retry uses a new key. A failed admission commit never
+reaches the executor.
 
 ## A parked receipt is not recorded
 
