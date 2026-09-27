@@ -213,7 +213,7 @@ repository_job_events,product,product baseline; transitional copy also present
 repository_job_dispatches,product,product baseline; transitional copy also present
 repository_job_trials,product,product baseline; transitional copy also present
 repository_job_comments,product,product baseline; transitional copy also present
-workspace_capability_bindings,product,product baseline; transitional copy also present
+workspace_capability_bindings,product,product baseline; transitional copy also present; dropped by product migration 0050
 repository_job_approvals,product,product baseline
 repository_ci_check_receipts,product,product baseline
 self_host_owners,product,product migration 0004

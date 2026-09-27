@@ -106,34 +106,6 @@ func TestWorkspaceGateway_RefusesMissingRuntimeWithoutDeletingWorkspace(t *testi
 	assert.Equal(t, "starting", q.executionInfo[0].Status, "existing row supports retry after runtime correction")
 }
 
-func TestWorkspaceGateway_PrimaryProbeReturnsTypedPendingWithoutIdentity(t *testing.T) {
-	s, _, vm, w := boundGatewayFixture(t)
-	s.provisionResponseBudget = 20 * time.Millisecond
-	release, finished := make(chan struct{}), make(chan struct{})
-	vm.execAwaitFn = func(ctx context.Context, _ string, _ sandbox.ExecRequest) (sandbox.ExecResult, error) {
-		defer close(finished)
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		one := int32(1)
-		return sandbox.ExecResult{StatusCode: &one}, nil
-	}
-	t.Cleanup(func() {
-		close(release)
-		select {
-		case <-finished:
-		case <-time.After(time.Second):
-			t.Error("detached preflight did not finish")
-		}
-	})
-	compatible, err := s.ProbeWorkspaceCapability(context.Background(), *w, repositoryJobsCapability)
-	require.False(t, compatible)
-	api := assertAPIErrorStatus(t, err, http.StatusConflict)
-	require.Equal(t, pkgerrors.CodeRepositoryWorkspacePending, api.Code)
-	require.Nil(t, api.Details, "pending observation does not confer a workspace selection")
-}
-
 func TestWorkspaceGateway_MissingVMPendingOnlyWhenProvisioning(t *testing.T) {
 	for _, status := range []string{"pending", "starting", "running"} {
 		t.Run(status, func(t *testing.T) {
@@ -319,72 +291,6 @@ func TestWorkspaceGateway_ProviderBootstrapPreservesHealthyHost(t *testing.T) {
 	require.Equal(t, first.GatewayID, second.GatewayID)
 	require.Len(t, vm.systemdSpecs, serviceCount, "a running service and its outstanding runs remain alive")
 	require.Empty(t, vm.deletedVMIDs)
-}
-
-func TestWorkspaceGateway_RequiredCapabilityPreservesOlderLiveHost(t *testing.T) {
-	s, q, vm, w := boundGatewayFixture(t)
-	input := RepoGatewayConnectionInput{RepositoryID: w.RepositoryID, UserID: w.UserID, WorkspaceID: w.ID}
-	first, err := s.GetRepoGatewayConnectionInfo(context.Background(), input)
-	require.NoError(t, err)
-	q.active = &runtimeports.RepoGateway{ID: first.GatewayID, RepositoryID: w.RepositoryID, UserID: w.UserID,
-		WorkspaceID: pgtype.UUID{Bytes: uuid.MustParse(w.ID), Valid: true}, VmID: w.VmID,
-		AuthTokenCiphertext: "enc:" + first.Token, Status: "running"}
-	vm.execAwaitReqs, vm.systemdSpecs = nil, nil
-	input.RequiredCapability = repositoryJobsCapability
-	_, err = s.GetRepoGatewayConnectionInfo(context.Background(), input)
-	apiError := assertAPIErrorStatus(t, err, http.StatusConflict)
-	require.Equal(t, pkgerrors.CodeCodingHostUpgradeRequired, apiError.Code)
-	require.Equal(t, w.ID, apiError.Details.(map[string]string)["workspace_id"])
-	require.Empty(t, vm.execAwaitReqs, "no read-then-restart race may stop an older host")
-	require.Empty(t, vm.systemdSpecs)
-	require.Empty(t, vm.deletedVMIDs)
-	compatible, err := s.ProbeWorkspaceCapability(context.Background(), *w, repositoryJobsCapability)
-	require.NoError(t, err)
-	require.False(t, compatible, "a healthy older host is an unsuitable primary, not permission to restart it")
-	require.Empty(t, vm.execAwaitReqs)
-	require.Empty(t, vm.systemdSpecs)
-	input.RequiredCapability = ""
-	_, err = s.GetRepoGatewayConnectionInfo(context.Background(), input)
-	require.NoError(t, err, "existing ordinary operations keep their old host")
-	capabilities := make(chan []string, 4)
-	for range 2 {
-		capabilities <- []string{"coding-plan/v1", repositoryJobsCapability}
-	}
-	for range 2 {
-		capabilities <- []string{"coding-plan/v1", repositoryJobsCapability, "repository-source/v1"}
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		hash := sha256.Sum256([]byte(defaultWorkspaceClonePath))
-		_ = json.NewEncoder(response).Encode(map[string]any{"gatewayId": first.GatewayID, "workspaceHash": hex.EncodeToString(hash[:])[:16], "protocolVersion": "1", "version": "1.0.0", "capabilities": <-capabilities})
-	}))
-	defer server.Close()
-	s.healthProbeBaseURL, s.healthProbeClient = server.URL, server.Client()
-	input.RequiredCapability = repositoryJobsCapability
-	_, err = s.GetRepoGatewayConnectionInfo(context.Background(), input)
-	require.Equal(t, pkgerrors.CodeCodingHostUpgradeRequired, assertAPIErrorStatus(t, err, http.StatusConflict).Code, "baseline repository-jobs alone cannot capture fork sources")
-	ready, err := s.GetRepoGatewayConnectionInfo(context.Background(), input)
-	require.NoError(t, err)
-	require.Equal(t, first.GatewayID, ready.GatewayID)
-	require.Empty(t, vm.systemdSpecs)
-}
-
-func TestWorkspaceGateway_PrimaryCapabilityStartsHostWithoutAllocating(t *testing.T) {
-	s, q, vm, w := boundGatewayFixture(t)
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		hash := sha256.Sum256([]byte(defaultWorkspaceClonePath))
-		_ = json.NewEncoder(response).Encode(map[string]any{"gatewayId": q.nextGatewayID, "workspaceHash": hex.EncodeToString(hash[:])[:16], "protocolVersion": "1", "version": "1.0.0", "capabilities": []string{"coding-plan/v1", repositoryJobsCapability, "repository-source/v1"}})
-	}))
-	defer server.Close()
-	s.healthProbeBaseURL, s.healthProbeClient = server.URL, server.Client()
-	compatible, err := s.ProbeWorkspaceCapability(context.Background(), *w, repositoryJobsCapability)
-	require.NoError(t, err)
-	require.True(t, compatible)
-	require.Len(t, vm.systemdSpecs, 1, "fresh imported workspace starts its already staged host")
-	require.Empty(t, vm.deletedVMIDs)
-	stale := *w
-	stale.VmID = "previous-vm"
-	_, err = s.ProbeWorkspaceCapability(context.Background(), stale, repositoryJobsCapability)
-	require.ErrorContains(t, err, "workspace changed during capability check")
 }
 
 // Store failures while recording a new host fail before anything runs in the

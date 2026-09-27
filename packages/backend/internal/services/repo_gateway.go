@@ -208,7 +208,6 @@ type RepoGatewayConnectionInput struct {
 	RepoName            string
 	RepoDefaultBookmark string
 	WorkspaceID         string
-	RequiredCapability  string
 }
 
 // RepoGatewayConnectionInfo is returned to the API caller. Token is plaintext
@@ -363,14 +362,7 @@ func (s *RepoGatewayService) GetRepoGatewayConnectionInfo(ctx context.Context, i
 		// "workflows not available on this deployment" state.
 		return RepoGatewayConnectionInfo{}, pkgerrors.Conflict("gateway provisioning is not configured on this deployment")
 	}
-	info, err := s.getWorkspaceGateway(ctx, input)
-	// A named capability is checked against the host's own advertised list:
-	// one workspace host serves repository jobs and a dispatched agent turn
-	// from the same process.
-	if err == nil && input.RequiredCapability != "" {
-		err = s.requireWorkspaceGatewayCapability(ctx, info, input.RequiredCapability)
-	}
-	return info, err
+	return s.getWorkspaceGateway(ctx, input)
 }
 
 // resolveExistingGateway reuses an existing gateway row — resuming its VM and

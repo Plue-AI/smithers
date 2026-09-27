@@ -132,12 +132,11 @@ type createWorkspaceSessionRequest struct {
 }
 
 type createWorkspaceRequest struct {
-	Name               string                        `json:"name"`
-	SnapshotID         string                        `json:"snapshot_id"`
-	SourceBookmark     string                        `json:"source_bookmark,omitempty"`
-	Kind               string                        `json:"kind,omitempty"`
-	Environment        services.WorkspaceEnvironment `json:"environment,omitempty"`
-	RequiredCapability string                        `json:"required_capability,omitempty"`
+	Name           string                        `json:"name"`
+	SnapshotID     string                        `json:"snapshot_id"`
+	SourceBookmark string                        `json:"source_bookmark,omitempty"`
+	Kind           string                        `json:"kind,omitempty"`
+	Environment    services.WorkspaceEnvironment `json:"environment,omitempty"`
 }
 
 type forkWorkspaceRequest struct {
@@ -381,16 +380,15 @@ func (h *WorkspaceHandler) CreateWorkspace(w http.ResponseWriter, r *http.Reques
 	}
 
 	input := services.CreateWorkspaceInput{
-		RepositoryID:       repoCtx.Repository.ID,
-		UserID:             user.ID,
-		RepoOwner:          repoCtx.Owner,
-		RepoName:           repoCtx.Repository.Name,
-		Name:               req.Name,
-		SnapshotID:         req.SnapshotID,
-		SourceBookmark:     req.SourceBookmark,
-		Kind:               req.Kind,
-		Environment:        req.Environment,
-		RequiredCapability: req.RequiredCapability,
+		RepositoryID:   repoCtx.Repository.ID,
+		UserID:         user.ID,
+		RepoOwner:      repoCtx.Owner,
+		RepoName:       repoCtx.Repository.Name,
+		Name:           req.Name,
+		SnapshotID:     req.SnapshotID,
+		SourceBookmark: req.SourceBookmark,
+		Kind:           req.Kind,
+		Environment:    req.Environment,
 	}
 	status := http.StatusCreated
 	var workspace services.WorkspaceResponse

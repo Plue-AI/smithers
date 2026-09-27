@@ -33,38 +33,8 @@ func WithRepoGatewayWorkspaces(workspaces *WorkspaceService) RepoGatewayServiceO
 	return func(s *RepoGatewayService) { s.workspaces = workspaces }
 }
 
-// ProbeWorkspaceCapability reuses the workspace-bound host lifecycle. It never
-// provisions another workspace, replaces a healthy host, or returns credentials
-// to the selector. A new host still starting remains an unverified candidate.
-func (s *RepoGatewayService) ProbeWorkspaceCapability(ctx context.Context, workspace db.Workspace, capability string) (bool, error) {
-	current, err := s.loadGatewayWorkspace(ctx, workspace.ID, workspace.RepositoryID, workspace.UserID)
-	if err != nil {
-		return false, err
-	}
-	if current.VmID != workspace.VmID || current.ProvisioningGeneration != workspace.ProvisioningGeneration || targetWorkspaceBookmark(current.TargetBookmark) != targetWorkspaceBookmark(workspace.TargetBookmark) {
-		return false, pkgerrors.Conflict("workspace changed during capability check; retry setup")
-	}
-	info, err := s.GetRepoGatewayConnectionInfo(ctx, RepoGatewayConnectionInput{RepositoryID: workspace.RepositoryID, UserID: workspace.UserID, WorkspaceID: workspace.ID})
-	if err != nil {
-		return false, err
-	}
-	if info.Status != "running" {
-		if info.Status == "starting" || info.Status == "pending" || info.Status == "suspended" {
-			return false, repositoryWorkspacePending("Repository workspace is still starting")
-		}
-		return false, codingHostUnavailable("workspace returned no live capability identity")
-	}
-	if info.WorkspaceID != workspace.ID || info.VMID != workspace.VmID {
-		return false, pkgerrors.Conflict("workspace changed during capability check; retry setup")
-	}
-	if err := s.requireWorkspaceGatewayCapability(ctx, info, capability); err != nil {
-		var apiErr *pkgerrors.APIError
-		if errors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeCodingHostUpgradeRequired {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
+func repositoryWorkspacePending(message string) *pkgerrors.APIError {
+	return pkgerrors.New(pkgerrors.CodeRepositoryWorkspacePending, message)
 }
 
 func gatewayWorkspaceID(g runtimeports.RepoGateway) string {
@@ -599,44 +569,5 @@ func (s *RepoGatewayService) probeWorkspaceGatewayHealth(ctx context.Context, ga
 			}
 		}
 		return fmt.Errorf("%w: configured host is missing coding-plan/v1; stage the validated coding host artifact", errCodingHostCapability)
-	})
-}
-
-// The older coding host can remain healthy while lacking repository setup.
-// Inspect only; a List-then-restart check cannot fence a concurrent Run on that
-// older protocol, and would interrupt its existing streams and durable work.
-func (s *RepoGatewayService) requireWorkspaceGatewayCapability(ctx context.Context, info RepoGatewayConnectionInfo, capability string) error {
-	if s.healthProbeBaseURL == "" {
-		return pkgerrors.New(pkgerrors.CodeCodingGatewayNotConfigured, "workspace capability probe is not configured")
-	}
-	return s.probeGatewayHealthChecked(ctx, info.GatewayID, func(body io.Reader) error {
-		var health struct {
-			GatewayID       string   `json:"gatewayId"`
-			WorkspaceHash   string   `json:"workspaceHash"`
-			ProtocolVersion string   `json:"protocolVersion"`
-			Capabilities    []string `json:"capabilities"`
-		}
-		hash := sha256.Sum256([]byte(defaultWorkspaceClonePath))
-		if json.NewDecoder(body).Decode(&health) != nil || health.GatewayID != info.GatewayID || health.WorkspaceHash != hex.EncodeToString(hash[:])[:16] || health.ProtocolVersion != "1" {
-			return codingHostUnavailable("workspace capability identity could not be verified")
-		}
-		required := []string{capability}
-		if capability == repositoryJobsCapability {
-			required = append(required, "repository-source/v1")
-		}
-		available := make(map[string]bool, len(health.Capabilities))
-		for _, value := range health.Capabilities {
-			available[value] = true
-		}
-		complete := true
-		for _, value := range required {
-			complete = complete && available[value]
-		}
-		if complete {
-			return nil
-		}
-		err := pkgerrors.New(pkgerrors.CodeCodingHostUpgradeRequired, "This workspace's host does not support repository setup. Its existing work is preserved.")
-		err.Details = map[string]string{"workspace_id": info.WorkspaceID, "gateway_id": info.GatewayID, "required_capability": capability}
-		return err
 	})
 }

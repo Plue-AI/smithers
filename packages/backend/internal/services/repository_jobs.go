@@ -328,9 +328,6 @@ func (s *RepositoryJobService) Register(ctx context.Context, gatewayID, bearer, 
 			return empty, err
 		}
 		queries := db.New(tx)
-		if err = queries.LockWorkspaceCapability(ctx, db.LockWorkspaceCapabilityParams{RepositoryID: repo.ID, UserID: target.UserID}); err != nil {
-			return empty, err
-		}
 		workspace, workspaceErr := queries.GetWorkspaceForUserRepo(ctx, db.GetWorkspaceForUserRepoParams{ID: target.WorkspaceID, RepositoryID: repo.ID, UserID: target.UserID})
 		if workspaceErr != nil || workspace.DeletedAt.Valid || workspace.Status == "failed" {
 			return empty, pkgerrors.Conflict("the registration workspace is unavailable")

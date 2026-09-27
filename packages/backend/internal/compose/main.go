@@ -729,7 +729,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	workspaceService := services.NewWorkspaceService(runtimeStores.Workspaces,
 		services.WithWorkspaceRuntime(options.Workspace),
-		services.WithWorkspaceCapabilityTransactions(pool),
+		services.WithWorkspaceTransactions(pool),
 		services.WithWorkspaceSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections),
 		services.WithWorkspaceBillingPolicy(billingPolicy),
 		services.WithWorkspaceSandboxClient(sandboxClient),
@@ -815,7 +815,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			services.WithRepoGatewayHealthProbe(cfg.Sandbox.GatewayHealthProbeBaseURL, nil),
 			services.WithPreviewRelayToken(cfg.Sandbox.PreviewRelayToken),
 		)
-		services.WithWorkspaceCapabilityProbe(repoGatewayService.ProbeWorkspaceCapability)(workspaceService)
 	}
 	gitHubImportService := services.NewGitHubImportService(
 		pool,

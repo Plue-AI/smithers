@@ -83,6 +83,7 @@ var migrationRegistry = []migrationSpec{
 	{47, "migrations/0047_retire_librarian_flow_hosts.sql"},
 	{48, "migrations/0048_push_event_pusher_credential.sql"},
 	{49, "migrations/0049_box_host_private_execution.sql"},
+	{50, "migrations/0050_drop_workspace_capability_bindings.sql"},
 }
 
 type migration struct {

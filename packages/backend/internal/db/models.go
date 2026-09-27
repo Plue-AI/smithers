@@ -2467,14 +2467,6 @@ type Workspace struct {
 	RebuildRequiredAt       pgtype.Timestamptz `json:"rebuild_required_at"`
 }
 
-type WorkspaceCapabilityBinding struct {
-	RepositoryID       int64     `json:"repository_id"`
-	UserID             int64     `json:"user_id"`
-	RequiredCapability string    `json:"required_capability"`
-	WorkspaceID        string    `json:"workspace_id"`
-	CreatedAt          time.Time `json:"created_at"`
-}
-
 type WorkspaceSession struct {
 	ID                string          `json:"id"`
 	WorkspaceID       string          `json:"workspace_id"`

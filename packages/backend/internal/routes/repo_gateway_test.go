@@ -96,19 +96,6 @@ func TestRepoGatewayHandler_Success(t *testing.T) {
 	assert.Equal(t, "running", payload["status"])
 }
 
-func TestRepoGatewayHandler_ForwardsRequiredCapability(t *testing.T) {
-	h := &RepoGatewayHandler{Service: &mockRepoGatewayRouteService{getConnectionInfoFn: func(_ context.Context, input services.RepoGatewayConnectionInput) (services.RepoGatewayConnectionInfo, error) {
-		require.Equal(t, "workspace", input.WorkspaceID)
-		require.Equal(t, "repository-jobs/v1", input.RequiredCapability)
-		return services.RepoGatewayConnectionInfo{GatewayID: "gateway", WorkspaceID: input.WorkspaceID}, nil
-	}}}
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/gateway", strings.NewReader(`{"workspace_id":"workspace","required_capability":"repository-jobs/v1"}`))
-	req = withAuth(withWorkspaceRepoCtx(req, "alice", "demo"), 1, "alice")
-	rec := httptest.NewRecorder()
-	h.PostRepoGateway(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-
 func TestRepoGatewayHandler_ServiceErrorMapped(t *testing.T) {
 	t.Parallel()
 

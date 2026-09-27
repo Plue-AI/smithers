@@ -92,8 +92,7 @@ func (h *RepoGatewayHandler) PostRepoGateway(w http.ResponseWriter, r *http.Requ
 	}
 
 	var input struct {
-		WorkspaceID        string `json:"workspace_id"`
-		RequiredCapability string `json:"required_capability,omitempty"`
+		WorkspaceID string `json:"workspace_id"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	decoder.DisallowUnknownFields()
@@ -108,7 +107,6 @@ func (h *RepoGatewayHandler) PostRepoGateway(w http.ResponseWriter, r *http.Requ
 	info, svcErr := h.Service.GetRepoGatewayConnectionInfo(r.Context(), services.RepoGatewayConnectionInput{
 		RepositoryID:        repoCtx.Repository.ID,
 		WorkspaceID:         input.WorkspaceID,
-		RequiredCapability:  input.RequiredCapability,
 		UserID:              user.ID,
 		RepoOwner:           repoCtx.Owner,
 		RepoName:            repoCtx.Repository.Name,

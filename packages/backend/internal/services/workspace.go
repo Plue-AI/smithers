@@ -422,16 +422,15 @@ type WorkspaceSnapshotResponse struct {
 
 // CreateWorkspaceInput is the input for creating or resuming a first-class workspace.
 type CreateWorkspaceInput struct {
-	RepositoryID       int64
-	UserID             int64
-	RepoOwner          string
-	RepoName           string
-	Name               string
-	SnapshotID         string
-	SourceBookmark     string
-	Kind               string
-	Environment        WorkspaceEnvironment
-	RequiredCapability string
+	RepositoryID   int64
+	UserID         int64
+	RepoOwner      string
+	RepoName       string
+	Name           string
+	SnapshotID     string
+	SourceBookmark string
+	Kind           string
+	Environment    WorkspaceEnvironment
 }
 
 // CreateWorkspaceSessionInput is the input for creating a new workspace session.
@@ -544,14 +543,15 @@ type WorkspaceQuerier interface {
 // sandbox transport during migration.
 type WorkspaceService struct {
 	// subscriptionTokens mirrors feature_flags.subscription_connections.
-	subscriptionTokens           bool
-	provisionTasks               *workspaceProvisionTasks
-	launchSessionCleanup         func(string, func())
-	billing                      BillingPolicy
-	sourceReader                 WorkspaceSourceReader
-	q                            WorkspaceQuerier
-	capabilityTransactions       RepositoryJobTransactions
-	capabilityProbe              WorkspaceCapabilityProbe
+	subscriptionTokens   bool
+	provisionTasks       *workspaceProvisionTasks
+	launchSessionCleanup func(string, func())
+	billing              BillingPolicy
+	sourceReader         WorkspaceSourceReader
+	q                    WorkspaceQuerier
+	// transactions holds each workspace's provisioning lock (a transaction-
+	// scoped advisory lock).
+	transactions                 RepositoryJobTransactions
 	sandbox                      SandboxVMClient
 	runtime                      workspaceapi.WorkspaceRuntime
 	runtimeIdentity              WorkspaceRuntimeIdentityResolver
@@ -1189,9 +1189,6 @@ func normalizeWorkspaceKind(kind string) string {
 }
 
 func validateWorkspaceCreateMetadata(input CreateWorkspaceInput) error {
-	if input.RequiredCapability != "" && (input.RequiredCapability != repositoryJobsCapability || input.Kind != "vm" || strings.TrimSpace(input.SnapshotID) != "" || len(input.Name) > 200) {
-		return pkgerrors.BadRequest("repository-jobs/v1 requires a VM without a supplied snapshot")
-	}
 	kind := strings.TrimSpace(input.Kind)
 	if kind != "" && kind != "container" && kind != "vm" && kind != "desktop" {
 		return pkgerrors.BadRequest("kind must be container, vm, or desktop")

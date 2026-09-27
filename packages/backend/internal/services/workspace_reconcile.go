@@ -83,10 +83,16 @@ func (s *WorkspaceService) WaitForProvisioning(ctx context.Context) error {
 	}
 }
 
+// WithWorkspaceTransactions lets the service hold a workspace's provisioning
+// lock across processes. Without it provisioning is serialized per process.
+func WithWorkspaceTransactions(transactions RepositoryJobTransactions) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.transactions = transactions }
+}
+
 // Ownership is a database connection's advisory transaction lock, so an API
 // crash releases it immediately. Row age is never evidence of failure.
 func (s *WorkspaceService) withWorkspaceProvisionLock(ctx context.Context, workspace db.Workspace, fn func(db.Workspace) (db.Workspace, error)) (db.Workspace, error) {
-	if s.capabilityTransactions == nil || s.provisionTasks == nil {
+	if s.transactions == nil || s.provisionTasks == nil {
 		return fn(workspace)
 	}
 	// Keep ownership connections below the pool's query budget.
@@ -96,7 +102,7 @@ func (s *WorkspaceService) withWorkspaceProvisionLock(ctx context.Context, works
 	case <-ctx.Done():
 		return workspace, ctx.Err()
 	}
-	tx, err := s.capabilityTransactions.Begin(ctx)
+	tx, err := s.transactions.Begin(ctx)
 	if err != nil {
 		return workspace, workspaceProvisionInProgress(err)
 	}

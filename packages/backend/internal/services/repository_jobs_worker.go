@@ -238,7 +238,7 @@ func (s *RepositoryJobService) connectionInput(ctx context.Context, reg db.Repos
 		return RepoGatewayConnectionInput{}, pkgerrors.NotFound("repository owner is unavailable")
 	}
 	return RepoGatewayConnectionInput{RepositoryID: repo.ID, WorkspaceID: reg.WorkspaceID, UserID: reg.UserID,
-		RepoOwner: owner, RepoName: repo.Name, RepoDefaultBookmark: repo.DefaultBookmark, RequiredCapability: repositoryJobsCapability}, nil
+		RepoOwner: owner, RepoName: repo.Name, RepoDefaultBookmark: repo.DefaultBookmark}, nil
 }
 
 func (s *RepositoryJobService) dispatch(ctx context.Context, claim db.RepositoryJobDispatch) error {

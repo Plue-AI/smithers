@@ -246,8 +246,8 @@ func TestWorkspaceProvisionLockPostgresOwnership(t *testing.T) {
 	pool := getAgentTestPool(t)
 	ws := sampleDBWorkspace("7f0c1c1e-5d1c-4a55-9d3e-6c2b1f0a0528")
 	q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return ws, nil }}
-	owner := newWorkspaceServiceForTests(q, WithWorkspaceCapabilityTransactions(pool))
-	other := newWorkspaceServiceForTests(q, WithWorkspaceCapabilityTransactions(pool))
+	owner := newWorkspaceServiceForTests(q, WithWorkspaceTransactions(pool))
+	other := newWorkspaceServiceForTests(q, WithWorkspaceTransactions(pool))
 	ctx := context.Background()
 	_, err := owner.withWorkspaceProvisionLock(ctx, ws, func(current db.Workspace) (db.Workspace, error) {
 		_, contended := other.withWorkspaceProvisionLock(ctx, ws, func(db.Workspace) (db.Workspace, error) {

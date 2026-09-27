@@ -199,15 +199,17 @@ func (s *RepositorySetupService) ResolveFlowHostTarget(ctx context.Context, targ
 			return refuse("runtime_workspace_unavailable", true)
 		}
 		owner, name, _ := strings.Cut(record.Input.Repo, "/")
-		workspace, createErr := s.workspaces.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repoID, UserID: userID, RepoOwner: owner, RepoName: name, Kind: "vm", RequiredCapability: repositoryJobsCapability})
+		workspace, createErr := s.workspaces.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repoID, UserID: userID, RepoOwner: owner, RepoName: name, Kind: "vm"})
 		if createErr != nil {
 			return flowhost.Authority{}, createErr
 		}
 		if workspace.Status != "running" {
 			return refuse("runtime_workspace_not_ready", true)
 		}
-		// WorkspaceService's capability binding deduplicates provisioning. Keep the
-		// first selected identity immutable if two recovered deliveries race.
+		// Setup runs on the repository's own box: every box runs the catalog's
+		// pinned coding host, so any box serves it. The primary box's
+		// find-or-create deduplicates provisioning; keep the first selected
+		// identity immutable if two recovered deliveries race.
 		err = s.pool.QueryRow(ctx, `UPDATE repository_setup_requests SET workspace_id=COALESCE(workspace_id,$2::uuid),updated_at=clock_timestamp() WHERE id=$1 RETURNING workspace_id::text`, record.ID, workspace.ID).Scan(&workspaceID)
 		if err != nil {
 			return refuse("runtime_binding_unavailable", true)

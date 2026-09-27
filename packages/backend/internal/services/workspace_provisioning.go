@@ -613,12 +613,7 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 	var workspace db.Workspace
 
 	if strings.TrimSpace(input.SnapshotID) == "" {
-		if input.RequiredCapability != "" {
-			if bookmark != defaultBookmark {
-				return WorkspaceResponse{}, pkgerrors.BadRequest("repository jobs use the repository default bookmark")
-			}
-			workspace, err = s.findOrCreateCapabilityWorkspace(ctx, input, bookmark, environment)
-		} else if bookmark == defaultBookmark {
+		if bookmark == defaultBookmark {
 			workspace, err = s.findOrCreatePrimaryWorkspace(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
 		} else {
 			workspace, err = s.findOrCreateDerivedWorkspaceForBookmark(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
@@ -717,12 +712,7 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 	var workspace db.Workspace
 
 	if strings.TrimSpace(input.SnapshotID) == "" {
-		if input.RequiredCapability != "" {
-			if bookmark != defaultBookmark {
-				return WorkspaceResponse{}, pkgerrors.BadRequest("repository jobs use the repository default bookmark")
-			}
-			workspace, err = s.findOrCreateCapabilityWorkspace(ctx, input, bookmark, environment)
-		} else if bookmark == defaultBookmark {
+		if bookmark == defaultBookmark {
 			workspace, err = s.findOrCreatePrimaryWorkspace(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
 		} else {
 			workspace, err = s.findOrCreateDerivedWorkspaceForBookmark(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
