@@ -65,11 +65,11 @@
   },
   {
     "file": "home.png",
-    "source": "Design mockup of the app home; replace with the app capture when it ships",
-    "capturedAt": "2026-09-26T18:40:00.000Z",
+    "source": "Local app from main 94bef9ed49 (Playwright spec reproduces it)",
+    "capturedAt": "2026-09-26T20:00:00.000Z",
     "width": 2880,
     "height": 1800,
-    "data": "Illustrative example repository acme/widgets"
+    "data": "Example repository"
   },
   {
     "file": "run-example.png",
