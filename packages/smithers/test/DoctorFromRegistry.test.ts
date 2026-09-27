@@ -108,7 +108,7 @@ describe("local diagnostics off the registry snapshot", () => {
   it("inspects the hidden --backend flag, and the process environment when the invocation carries none", async () => {
     // `doctor` reports an unsupported backend as a check instead of refusing,
     // so the flag has to reach the environment `Doctor.inspect` reads.
-    const flagged = await runWith({ environment: {}, backend: "postgres" }, project(), [], [])
+    const flagged = await runWith({ environment: {}, backend: "mysql" }, project(), [], [])
     expect(check(flagged, "backend")).toMatchObject({ level: "fail" })
     vi.stubEnv("SMITHERS_BACKEND", "pglite")
     try {

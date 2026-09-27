@@ -1948,14 +1948,15 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
       // document for a pipeline to choke on.
       expect(launched.stdout).toBe("")
 
-      // Control rows and their journal now share one transaction. A refused
-      // admission rolls back completely, leaving no ownerless run to reclaim.
+      // Admission commits before the executor is consulted (df753aff66), so
+      // a refused launch keeps its run and receipt and settles the run as
+      // failed: an ended row, not an ownerless one waiting to be reclaimed.
       const listed = smithers(cwd, ["ps", "--json"], environment)
       expect(listed.status).toBe(0)
       const runs = (JSON.parse(listed.stdout) as {
         readonly items: ReadonlyArray<{ readonly runId: string; readonly status: string }>
       }).items
-      expect(runs).toEqual([])
+      expect(runs).toEqual([expect.objectContaining({ flowId: "hello", status: "failed" })])
       // No engine row was ever created: the executor refused before the engine
       // was handed anything, so there is nothing for a later sweep to reclaim.
       expect(engineRunIds(cwd)).toEqual([])
@@ -1981,9 +1982,11 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
       expect(smithers(cwd, ["init", "hello", "--json"], environment).status).toBe(0)
       expect(smithers(cwd, ["up", "hello", "--json"], environment).status).toBe(1)
       const initial = JSON.parse(smithers(cwd, ["ps", "--json"], environment).stdout) as {
-        items: ReadonlyArray<unknown>
+        readonly items: ReadonlyArray<{ readonly runId: string; readonly status: string }>
       }
-      expect(initial.items).toEqual([])
+      // The refused launch keeps its admission as a failed run (df753aff66).
+      expect(initial.items).toEqual([expect.objectContaining({ status: "failed" })])
+      const refused = initial.items[0]!.runId
 
       // A second `smithers` over the same `.flows` composes its own executor,
       // exactly as every local verb does, and sweeps for stale rows as it
@@ -1995,7 +1998,10 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
       const runs = (JSON.parse(smithers(cwd, ["ps", "--json"], environment).stdout) as {
         readonly items: ReadonlyArray<{ readonly runId: string; readonly status: string }>
       }).items
-      expect(runs).toEqual([])
+      // The boot left the first failed run failed, and the second launch was
+      // refused as its own run under a new key.
+      expect(runs.map((run) => run.status)).toEqual(["failed", "failed"])
+      expect(runs.filter((run) => run.runId === refused)).toEqual([expect.objectContaining({ status: "failed" })])
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }
