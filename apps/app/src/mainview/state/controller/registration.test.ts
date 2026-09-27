@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test"
 import ready from "../../cards/fixtures/register-repository-ready.json"
 import review from "../../cards/fixtures/register-repository-review.json"
-import { createAppStore } from "../AppStore"
+import { createAppStore, type AppStore } from "../AppStore"
 import type { Card } from "../AppState"
+import { createActorBindings } from "../ActorBindings"
 import { memoryStorage, settle, unavailableAgent, waitFor } from "../TestFixtures"
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
@@ -10,10 +11,14 @@ import { createRegistrationController, registrationId } from "./registration"
 
 type Phase = "starting" | "running" | "done" | "failed"
 
-const fixture = async () => {
+const fixture = async (options: {
+  wrapStore?: (store: AppStore) => AppStore
+  importRepository?: (repo: string) => Promise<unknown>
+  startRegistration?: (cloudRepo: string, link: string) => Promise<{ value: string } | string>
+} = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
-  const ctx = createControllerContext(store, unavailableAgent, { toastDebounceMs: 1, workflowPollMs: 5, fetchImpl: async () => new Response(null, { status: 500 }) })
+  const ctx = createControllerContext(options.wrapStore?.(store) ?? store, unavailableAgent, { toastDebounceMs: 1, workflowPollMs: 5, fetchImpl: async () => new Response(null, { status: 500 }) })
   Object.assign(ctx, createFailureController(ctx))
   const imports: Array<string> = []
   const launches: Array<{ cloudRepo: string; link: string }> = []
@@ -24,11 +29,12 @@ const fixture = async () => {
       id: `repo-import-${repo}`, kind: "repo-import", title: `Import · ${repo}`, status: "active", createdAt: Date.now(), ordinal: store.nextOrdinal(),
       payload: { repo, jobId: "job-1", phase, detail: null, error: error ?? null, repository: { owner: repo.split("/")[0]!, name: repo.split("/")[1]! } }
     } }).isPersisted.promise
-  const registration = createRegistrationController(ctx, {
+  const actors = createActorBindings(ctx.onDispose)
+  const registration = actors.pair(ctx, context => createRegistrationController(context, {
     guard: () => undefined,
-    importRepository: async (repo) => { imports.push(repo); await importCard(repo, "running") },
-    startRegistration: (cloudRepo, link) => { launches.push({ cloudRepo, link }); return pending.promise }
-  })
+    importRepository: async (repo) => { imports.push(repo); await importCard(repo, "running"); await options.importRepository?.(repo) },
+    startRegistration: (cloudRepo, link) => { launches.push({ cloudRepo, link }); return options.startRegistration?.(cloudRepo, link) ?? pending.promise }
+  }))
   const card = (repo: string) => {
     const row = store.collections.cards.get(registrationId(repo))
     return row?.kind === "registration" ? row : undefined
@@ -39,7 +45,7 @@ const fixture = async () => {
       payload: { repo, runId: "run-1", workflow: "register-repository", phase, steps: [], result: null, lastSeq: events.length,
         events: events as never, input: { link: repo } }
     } as Card }).isPersisted.promise
-  return { store, ctx, registration, imports, launches, pending, importCard, card, runCard,
+  return { store, ctx, registration, agentRegistration: actors.select(registration), imports, launches, pending, importCard, card, runCard,
     dispose: async () => { pending.resolve("disposed"); await ctx.dispose(); await store.dispose?.() } }
 }
 
@@ -122,4 +128,217 @@ test("a registered repository replays its recorded run: no import, no launch", a
     // Ready frees the slot for the next repository.
     expect(await t.registration.registerRepository("acme/other")).toEqual({ value: "registration-requested repo=acme/other" })
   } finally { await t.dispose() }
+})
+
+const switchAccount = async (t: Awaited<ReturnType<typeof fixture>>, login: string) => {
+  await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+}
+
+test("a new account can register the same repository while the previous launch is unresolved", async () => {
+  const old = Promise.withResolvers<{ value: string } | string>()
+  let calls = 0
+  const t = await fixture({ startRegistration: async () => ++calls === 1 ? old.promise : { value: "run-requested" } })
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done")
+    await waitFor(() => t.launches.length === 1)
+    await switchAccount(t, "bob")
+    await t.registration.registerRepository("acme/widgets")
+    await settle()
+    expect(t.imports).toEqual(["acme/widgets", "acme/widgets"])
+    await t.importCard("acme/widgets", "done")
+    await waitFor(() => t.card("acme/widgets")?.payload.phase === "launched")
+    expect(t.launches).toHaveLength(2)
+    old.resolve({ value: "old-run" })
+    await settle()
+    expect(t.card("acme/widgets")?.payload).toMatchObject({ accountOwner: "bob", phase: "launched", error: null })
+  } finally { old.resolve("disposed"); await t.dispose() }
+})
+
+for (const stage of ["import", "launch"] as const) test(`a late ${stage} rejection cannot fail the next account's registration`, async () => {
+  const old = Promise.withResolvers<never>()
+  let calls = 0
+  const t = await fixture(stage === "import"
+    ? { importRepository: async () => { if (++calls === 1) await old.promise } }
+    : { startRegistration: async () => { if (++calls === 1) return old.promise; return { value: "run-requested" } } })
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    if (stage === "launch") await t.importCard("acme/widgets", "done")
+    await waitFor(() => calls === 1)
+    await switchAccount(t, "bob")
+    await t.registration.registerRepository("acme/widgets")
+    old.reject(new Error("old account failure"))
+    await settle()
+    expect(t.card("acme/widgets")?.payload).toMatchObject({ accountOwner: "bob", phase: "importing", error: null })
+    expect(t.ctx.failures.recent()).toEqual([])
+  } finally { old.reject(new Error("disposed")); await t.dispose() }
+})
+
+const receiptGate = () => ({ held: Promise.withResolvers<void>(), entered: Promise.withResolvers<void>() })
+const holdRegistration = (store: AppStore, phase: "importing" | "failed", gates: Array<ReturnType<typeof receiptGate>>): AppStore => ({
+  ...store,
+  dispatch: transition => {
+    const transaction = store.dispatch(transition)
+    const gate = transition.type === "card.upsert" && transition.card.kind === "registration" && transition.card.payload.phase === phase ? gates.shift() : undefined
+    if (gate === undefined) return transaction
+    gate.entered.resolve()
+    return new Proxy(transaction, { get: (target, key, receiver) => key === "isPersisted"
+      ? { ...target.isPersisted, promise: target.isPersisted.promise.then(() => gate.held.promise) } : Reflect.get(target, key, receiver) })
+  }
+})
+
+for (const returningOwner of [false, true]) test(`a retired admission cannot launch before the new account's receipt (${returningOwner ? "sign back in" : "different account"})`, async () => {
+  const first = receiptGate(), second = receiptGate()
+  const t = await fixture({ wrapStore: store => holdRegistration(store, "importing", [first, second]) })
+  try {
+    const retired = t.registration.registerRepository("acme/widgets")
+    await first.entered.promise
+    if (returningOwner) {
+      await t.store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
+      await switchAccount(t, "owner")
+    } else await switchAccount(t, "bob")
+    const current = t.registration.registerRepository("acme/widgets")
+    await second.entered.promise
+    first.held.resolve()
+    await retired
+    expect(t.imports).toEqual([])
+    second.held.resolve()
+    await current
+    expect(t.imports).toEqual(["acme/widgets"])
+  } finally { first.held.resolve(); second.held.resolve(); await t.dispose() }
+})
+
+for (const viaAgent of [false, true]) test(`a ${viaAgent ? "Smithers" : "human"} retry starts while the failure saves without losing its ownership`, async () => {
+  const failure = receiptGate()
+  let launches = 0
+  const t = await fixture({ wrapStore: store => holdRegistration(store, "failed", [failure]),
+    startRegistration: async () => ++launches === 1 ? "launch refused" : { value: "run-requested" } })
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done")
+    await failure.entered.promise
+    expect(t.card("acme/widgets")?.payload.phase).toBe("failed")
+    await (viaAgent ? t.agentRegistration : t.registration).registerRepository("acme/widgets")
+    expect(t.imports).toHaveLength(2)
+    failure.held.resolve()
+    await settle()
+    t.registration.resumeRegistrations()
+    await settle()
+    expect(t.imports).toHaveLength(2)
+    await t.importCard("acme/widgets", "done")
+    await waitFor(() => t.card("acme/widgets")?.payload.phase === "launched")
+    expect(t.launches).toHaveLength(2)
+  } finally { failure.held.resolve(); await t.dispose() }
+})
+
+test("closing the controller during admission starts no import", async () => {
+  const admission = receiptGate()
+  const t = await fixture({ wrapStore: store => holdRegistration(store, "importing", [admission]) })
+  try {
+    const request = t.registration.registerRepository("acme/widgets")
+    await admission.entered.promise
+    await t.ctx.dispose()
+    admission.held.resolve()
+    expect(await request).toBeUndefined()
+    expect(t.imports).toEqual([])
+    expect(t.ctx.failures.recent()).toEqual([])
+  } finally { admission.held.resolve(); await t.dispose() }
+})
+
+for (const stage of ["import", "launch"] as const) test(`a late ${stage} rejection after disposal cannot write or publish a failure`, async () => {
+  const held = Promise.withResolvers<never>()
+  const t = await fixture(stage === "import" ? { importRepository: () => held.promise } : { startRegistration: () => held.promise })
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    if (stage === "launch") {
+      await t.importCard("acme/widgets", "done")
+      await waitFor(() => t.launches.length === 1)
+    }
+    await t.store.settled?.()
+    const before = t.card("acme/widgets")
+    await t.ctx.dispose()
+    held.reject(new Error("late failure"))
+    await settle()
+    expect(t.card("acme/widgets")).toEqual(before)
+    expect(t.ctx.failures.recent()).toEqual([])
+  } finally { held.reject(new Error("disposed")); await t.dispose() }
+})
+
+test("human and Smithers resumption share the same pending registration", async () => {
+  const t = await fixture()
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    t.agentRegistration.resumeRegistrations()
+    t.registration.resumeRegistrations()
+    await settle()
+    expect(t.imports).toEqual(["acme/widgets"])
+    await t.importCard("acme/widgets", "done")
+    await waitFor(() => t.launches.length === 1)
+    t.agentRegistration.resumeRegistrations()
+    await settle()
+    expect(t.launches).toHaveLength(1)
+  } finally { await t.dispose() }
+})
+
+for (const outcome of ["success", "failure"] as const) test(`an identity outage retains the admitted registration's ${outcome}`, async () => {
+  const t = await fixture()
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done")
+    await waitFor(() => t.launches.length === 1)
+    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null,
+      allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    t.pending.resolve(outcome === "success" ? { value: "run-requested" } : "launch refused")
+    await settle()
+    expect(t.card("acme/widgets")?.payload).toMatchObject({ accountOwner: "owner", phase: outcome === "success" ? "launched" : "failed" })
+    await switchAccount(t, "owner")
+    t.registration.resumeRegistrations()
+    await settle()
+    expect(t.imports).toHaveLength(1)
+    expect(t.launches).toHaveLength(1)
+    await t.store.settled?.()
+    expect((await t.store.verifyState()).valid).toBe(true)
+  } finally { await t.dispose() }
+})
+
+
+test("resuming through either actor waits for the initial registration receipt", async () => {
+  const admission = receiptGate()
+  const t = await fixture({ wrapStore: store => holdRegistration(store, "importing", [admission]) })
+  try {
+    const request = t.registration.registerRepository("acme/widgets")
+    await admission.entered.promise
+    t.agentRegistration.resumeRegistrations()
+    t.registration.resumeRegistrations()
+    await settle()
+    expect(t.imports).toEqual([])
+    admission.held.resolve()
+    await request
+    expect(t.imports).toEqual(["acme/widgets"])
+  } finally { admission.held.resolve(); await t.dispose() }
+})
+
+test("a replay receipt from the previous account cannot navigate over the new registration", async () => {
+  const replay = receiptGate()
+  const t = await fixture({ wrapStore: store => ({ ...store, dispatch: transition => {
+    const transaction = store.dispatch(transition)
+    if (transition.type !== "card.upsert" || transition.card.kind !== "registration" || transition.card.payload.replay !== 1) return transaction
+    replay.entered.resolve()
+    return new Proxy(transaction, { get: (target, key, receiver) => key === "isPersisted"
+      ? { ...target.isPersisted, promise: target.isPersisted.promise.then(() => replay.held.promise) } : Reflect.get(target, key, receiver) })
+  } }) })
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done")
+    t.pending.resolve({ value: "run-requested" })
+    await waitFor(() => t.card("acme/widgets")?.payload.phase === "launched")
+    await t.runCard("acme/widgets", ready, "completed")
+    const oldReplay = t.registration.registerRepository("acme/widgets")
+    await replay.entered.promise
+    await switchAccount(t, "bob")
+    await t.registration.registerRepository("acme/widgets")
+    replay.held.resolve()
+    expect(await oldReplay).toBeUndefined()
+    expect(t.card("acme/widgets")?.payload).toMatchObject({ accountOwner: "bob", phase: "importing", replay: 0 })
+  } finally { replay.held.resolve(); await t.dispose() }
 })

@@ -10,6 +10,7 @@
 import type { Card } from "../AppState"
 import { canonicalRepo, registrationRun, statusOf, unfinished } from "../../cards/Registration"
 import type { ControllerContext } from "./context"
+import { actorSharedState } from "../ActorBindings"
 
 type Answer = Promise<string | void | { readonly value: string }>
 type RegistrationCard = Extract<Card, { kind: "registration" }>
@@ -38,19 +39,20 @@ const IMPORT_BUDGET_MS = 30 * 60_000
 
 export const createRegistrationController = (ctx: ControllerContext, deps: RegistrationDependencies): RegistrationController => {
   const { store } = ctx
-  const inFlight = new Map<string, Promise<unknown>>()
-  /** The account whose registration is being admitted right now; claimed before any await. */
-  const admitting = new Set<string>()
+  const { inFlight, admitting } = actorSharedState(ctx, "registration", () => ({
+    inFlight: new Map<string, { readonly epoch: number }>(),
+    /** The account generation admitting a registration, claimed before any await. */
+    admitting: new Set<string>()
+  }))
+  ctx.onDispose(() => { inFlight.clear(); admitting.clear() })
   const cards = () => [...store.collections.cards.values()]
   const runs = () => [...store.collections.runtimeRuns.values()]
   const read = (id: string): RegistrationCard | undefined => {
     const card = store.collections.cards.get(id)
     return card?.kind === "registration" ? card : undefined
   }
-  const login = () => {
-    const identity = store.collections.identitySessions.get("identity")
-    return identity?.state === "signed-in" ? identity.login : null
-  }
+  const login = () => ctx.accountOwner() ?? null
+  const admissionSlot = () => JSON.stringify([ctx.accountEpoch, login()])
   const save = (card: RegistrationCard) =>
     store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
   const patch = async (id: string, payload: Partial<RegistrationCard["payload"]>): Promise<void> => {
@@ -59,7 +61,7 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
   }
   const show = (card: RegistrationCard) => store.dispatch({ type: "card.navigated", actor: ctx.commandActor, card })
   const status = (card: RegistrationCard) => statusOf(card, registrationRun(cards(), card.payload.repo, runs()))
-  const busy = (card: RegistrationCard) => card.payload.phase !== "failed" && (inFlight.has(card.id) || unfinished(status(card)))
+  const busy = (card: RegistrationCard) => card.payload.phase !== "failed" && (inFlight.get(card.id)?.epoch === ctx.accountEpoch || unfinished(status(card)))
 
   /** Waits on the import card until the job is done or failed. */
   const imported = async (repo: string, current: () => boolean): Promise<{ cloudRepo: string } | string> => {
@@ -79,10 +81,17 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
   }
 
   const send = (id: string) => {
+    if (ctx.disposed) return
     const card = read(id)
-    if (card === undefined || inFlight.has(id)) return
+    if (card === undefined || card.payload.accountOwner !== login()) return
     const repo = card.payload.repo, epoch = ctx.accountEpoch, owner = card.payload.accountOwner
-    const current = () => !ctx.disposed && ctx.accountEpoch === epoch && login() === owner && read(id) !== undefined
+    if (inFlight.get(id)?.epoch === epoch) return
+    // A repository ID survives account changes and retries; this flight does not.
+    const flight = { epoch }
+    inFlight.set(id, flight)
+    const current = () => !ctx.disposed && ctx.accountEpoch === epoch && inFlight.get(id) === flight &&
+      login() === owner && read(id)?.payload.accountOwner === owner
+    const release = () => { if (inFlight.get(id) === flight) inFlight.delete(id) }
     const work = (async () => {
       let cloudRepo = read(id)?.payload.cloudRepo ?? null
       if (cloudRepo === null) {
@@ -99,14 +108,19 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
       if (typeof started === "string") return patch(id, { phase: "failed", error: started })
       return patch(id, { phase: "launched", error: null })
     })().catch((error: unknown) => {
+      if (!current()) return
       ctx.failures.report("toast.work", error, id)
       return patch(id, { phase: "failed", error: "The registration could not continue. Try again." })
     })
-    inFlight.set(id, work)
-    void work.finally(() => inFlight.delete(id))
+    void work.then(release, (error: unknown) => {
+      if (current()) ctx.failures.report("toast.work", error, id)
+      release()
+    })
   }
 
   const registerRepository: RegistrationController["registerRepository"] = async (link) => {
+    if (ctx.disposed) return
+    const epoch = ctx.accountEpoch
     const guarded = deps.guard()
     if (guarded !== undefined) return guarded
     const repo = canonicalRepo(link)
@@ -122,6 +136,7 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
     if (existing !== undefined && state === "Ready") {
       const replayed = { ...existing, payload: { ...existing.payload, replay: existing.payload.replay + 1 } }
       await save(replayed)
+      if (ctx.disposed || ctx.accountEpoch !== epoch || login() !== owner || read(id)?.payload.accountOwner !== owner) return
       show(replayed)
       return { value: `registration-replayed repo=${repo} status=Ready` }
     }
@@ -132,10 +147,12 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
       return `Finish registering ${other.payload.repo} first.`
     }
     // Claimed before the first await, so two quick starts cannot both pass the check above.
-    const slot = owner ?? ""
+    const slot = admissionSlot()
     if (admitting.has(slot)) return "A registration is already starting."
     admitting.add(slot)
     try {
+      // A retry can arrive while the failed attempt is still saving its outcome.
+      inFlight.delete(id)
       await save({
         id,
         kind: "registration",
@@ -145,6 +162,7 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
         ordinal: existing?.ordinal ?? store.nextOrdinal(),
         payload: { link: link.trim(), repo, phase: "importing", startedAt: Date.now(), error: null, cloudRepo: null, replay: 0, accountOwner: owner }
       })
+      if (ctx.disposed || ctx.accountEpoch !== epoch || login() !== owner || read(id)?.payload.accountOwner !== owner) return
       send(id)
     } finally {
       admitting.delete(slot)
@@ -153,6 +171,7 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
   }
 
   const resumeRegistrations = () => {
+    if (ctx.disposed || admitting.has(admissionSlot())) return
     for (const card of cards()) {
       if (card.kind !== "registration" || card.payload.accountOwner !== login()) continue
       if (card.payload.phase === "importing" || card.payload.phase === "launching") send(card.id)
