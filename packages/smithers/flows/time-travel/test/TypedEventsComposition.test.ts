@@ -13,7 +13,7 @@ describe("history authority in a minimal composition", () => {
       yield* DatabaseMigrations.run([JournalMigrations.set, RunMigrations.set])
       const sql = yield* SqlClient.SqlClient
       const store = yield* SqlTimeTravelStore.make
-      expect(yield* sql`SELECT name FROM sqlite_master WHERE name = 'flows_run_parents'`).toEqual([])
+      expect(yield* sql`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE name = 'flows_run_parents'`).toEqual([])
       yield* sql`INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
         VALUES ('parent', 'suspended', 0, ${JSON.stringify({ version: 1, flowName: "Demo", payload: {} })})`
       const fork = yield* store.createFork("parent", { lineageId: "parent/root", seq: 0 })

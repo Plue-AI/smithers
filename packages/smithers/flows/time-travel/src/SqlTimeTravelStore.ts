@@ -15,16 +15,13 @@
  *
  * The derived reads — state and attempts at a frame — are folds over journal
  * records rather than columns, because the run row holds only the *latest*
- * state. The store is SQLite-dialect only: the schema's CHECK constraints use
- * `typeof()` and `json_valid`, and the reads use `json_extract` with `$` paths,
- * none of which Postgres or MySQL parse. Any SQLite-speaking `SqlClient`
- * (wa-sqlite, libsql, node or
- * bun SQLite) runs it; a genuinely generic dialect would have to abstract the
- * JSON functions and the constraint syntax, which is a redesign, not an edit.
+ * state. SQLite and PostgreSQL share the migration identities and operations;
+ * dialect fragments handle JSON extraction, constraints, and recursive syntax.
  *
  * @since 0.1.0
  */
-import { DurableWriter } from "@smthrs/database/DurableWriter"
+import * as Dialect from "@smthrs/database/Dialect"
+import { affectedRows, DurableWriter } from "@smthrs/database/DurableWriter"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import { EventTypes } from "@smthrs/engine-store/EventTypes"
 import { RunState } from "@smthrs/engine-store/RunState"
@@ -195,9 +192,10 @@ export const make: Effect.Effect<
     const writer = yield* DurableWriter
 
     for (const table of ["flows_journal_events", "flows_runs"]) {
-      const found = yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${table}`.pipe(
-        Effect.mapError((cause) => error("unknown", `could not check time-travel prerequisite ${table}`, cause))
-      )
+      const found = yield* Dialect.tables(sql).pipe(Effect.map((rows) => rows.filter((row) => row.name === table)))
+        .pipe(
+          Effect.mapError((cause) => error("unknown", `could not check time-travel prerequisite ${table}`, cause))
+        )
       if (found.length === 0) {
         return yield* Effect.fail(error(
           "unknown",
@@ -233,7 +231,42 @@ export const make: Effect.Effect<
      * policies to this superset of the edges it visits.
      */
     const edgesUnder = (runId: string) =>
-      sql<EdgeRow>`
+      (Dialect.isPostgres(sql) ?
+        sql<EdgeRow>`
+      WITH RECURSIVE all_edges AS NOT MATERIALIZED (
+      SELECT parent_run_id, parent_seq, child_run_id, kind, attached
+      FROM flows_time_travel_edges
+      UNION ALL
+      SELECT flows_journal_events.run_id AS parent_run_id,
+             seq AS parent_seq,
+             ${Dialect.jsonText(sql, sql`payload_json`, "$.effect.output.childRunId")} AS child_run_id,
+             'child' AS kind,
+             CASE WHEN ${
+          Dialect.jsonText(sql, sql`payload_json`, "$.effect.output.attached")
+        } = 'true' THEN 1 ELSE 0 END AS attached
+      FROM flows_journal_events ${Dialect.indexHint(sql, "flows_journal_events_child_spawn_idx")}
+      WHERE event_type = ${sql.literal(`'${EffectBoundary.eventType}'`)}
+        AND ${Dialect.jsonText(sql, sql`payload_json`, "$.effect.kind")} = ${sql.literal(`'${spawnEffectKind}'`)}
+        AND ${Dialect.jsonText(sql, sql`payload_json`, "$.effect.status")} = 'succeeded'
+        AND ${Dialect.jsonText(sql, sql`payload_json`, "$.effect.output.childRunId")} IS NOT NULL
+      UNION ALL
+      SELECT flows_journal_events.run_id AS parent_run_id,
+             seq AS parent_seq,
+             ${Dialect.jsonText(sql, sql`payload_json`, "$.nextExecutionId")} AS child_run_id,
+             'continuation' AS kind,
+             0 AS attached
+      FROM flows_journal_events ${Dialect.indexHint(sql, "flows_journal_events_handoff_idx")}
+      WHERE event_type = ${sql.literal(`'${handoffEventType}'`)}
+        AND ${Dialect.jsonText(sql, sql`payload_json`, "$.decision")} = 'handed-off'
+        AND ${Dialect.jsonText(sql, sql`payload_json`, "$.nextExecutionId")} IS NOT NULL
+      ), reachable (run_id) AS (
+        SELECT ${runId}
+        UNION
+        SELECT all_edges.child_run_id FROM reachable CROSS JOIN all_edges WHERE all_edges.parent_run_id = reachable.run_id
+      )
+      SELECT all_edges.* FROM reachable CROSS JOIN all_edges WHERE all_edges.parent_run_id = reachable.run_id
+    ` :
+        sql<EdgeRow>`
       WITH RECURSIVE reachable (run_id) AS (
         SELECT ${runId}
         UNION
@@ -282,7 +315,7 @@ export const make: Effect.Effect<
         AND event_type = ${sql.literal(`'${handoffEventType}'`)}
         AND json_extract(payload_json, '$.decision') = 'handed-off'
         AND json_extract(payload_json, '$.nextExecutionId') IS NOT NULL
-    `.pipe(Effect.flatMap(decodeEdges), Effect.mapError(mapError))
+    `).pipe(Effect.flatMap(decodeEdges), Effect.mapError(mapError))
 
     /**
      * Reads one event type's lineage-filtered prefix.
@@ -302,8 +335,8 @@ export const make: Effect.Effect<
           AND seq <= ${frame.seq}
           AND event_type = ${eventType}
           AND (
-            json_extract(meta_json, '$.lineageId') IS NULL
-            OR json_extract(meta_json, '$.lineageId') = ${frame.lineageId}
+            ${Dialect.jsonText(sql, sql`meta_json`, "$.lineageId")} IS NULL
+            OR ${Dialect.jsonText(sql, sql`meta_json`, "$.lineageId")} = ${frame.lineageId}
           )
         ORDER BY seq ASC
       `.pipe(Effect.mapError(mapError))
@@ -345,7 +378,9 @@ export const make: Effect.Effect<
      * or keep the whole set instead of issuing one statement per row.
      */
     const attemptRefsSelect = (refs: ReadonlyArray<TimeTravelStore.AttemptRef>) =>
-      sql`SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(${attemptRefsJson(refs)})`
+      Dialect.isPostgres(sql)
+        ? sql`SELECT value ->> 0, (value ->> 1)::numeric FROM jsonb_array_elements(${attemptRefsJson(refs)}::jsonb)`
+        : sql`SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(${attemptRefsJson(refs)})`
 
     const attemptsAtFrame = (
       runId: string,
@@ -396,9 +431,15 @@ export const make: Effect.Effect<
               WHERE event.run_id = ${runId}
                 AND event.seq > ${afterSeq}
                 AND event.event_type = ${EventTypes.deferredCompleted}
-                AND json_extract(event.payload_json, '$.flowName') = flows_deferred_completions.flow_name
-                AND json_extract(event.payload_json, '$.executionId') = flows_deferred_completions.execution_id
-                AND json_extract(event.payload_json, '$.deferredName') = flows_deferred_completions.deferred_name
+                AND ${
+          Dialect.jsonText(sql, sql`event.payload_json`, "$.flowName")
+        } = flows_deferred_completions.flow_name
+                AND ${
+          Dialect.jsonText(sql, sql`event.payload_json`, "$.executionId")
+        } = flows_deferred_completions.execution_id
+                AND ${
+          Dialect.jsonText(sql, sql`event.payload_json`, "$.deferredName")
+        } = flows_deferred_completions.deferred_name
             )
         `
         yield* sql`
@@ -409,9 +450,11 @@ export const make: Effect.Effect<
               WHERE event.run_id = ${runId}
                 AND event.seq > ${afterSeq}
                 AND event.event_type = ${EventTypes.clockScheduled}
-                AND json_extract(event.payload_json, '$.flowName') = flows_clock_deadlines.flow_name
-                AND json_extract(event.payload_json, '$.executionId') = flows_clock_deadlines.execution_id
-                AND json_extract(event.payload_json, '$.clockName') = flows_clock_deadlines.clock_name
+                AND ${Dialect.jsonText(sql, sql`event.payload_json`, "$.flowName")} = flows_clock_deadlines.flow_name
+                AND ${
+          Dialect.jsonText(sql, sql`event.payload_json`, "$.executionId")
+        } = flows_clock_deadlines.execution_id
+                AND ${Dialect.jsonText(sql, sql`event.payload_json`, "$.clockName")} = flows_clock_deadlines.clock_name
             )
         `
       }).pipe(Effect.mapError(mapError))
@@ -452,9 +495,9 @@ export const make: Effect.Effect<
      * nothing else, so the walk that follows must not name a table that only
      * the engine ladder creates.
      */
-    const hasRunParents = sql<{ readonly name: string }>`
-      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'flows_run_parents'
-    `.pipe(Effect.map((rows) => rows.length > 0))
+    const hasRunParents = Dialect.tables(sql).pipe(
+      Effect.map((rows) => rows.filter((row) => row.name === "flows_run_parents"))
+    ).pipe(Effect.map((rows) => rows.length > 0))
 
     /**
      * Refuses the fork while the parent or ANY ancestor of it is live.
@@ -734,7 +777,7 @@ export const make: Effect.Effect<
                   }
                   const nowMs = yield* Clock.currentTimeMillis
                   const parentGeneration = yield* currentGeneration(runId)
-                  yield* sql`
+                  const parentResult = yield* sql`
             INSERT INTO flows_time_travel_archive
               (run_id, generation, seq, event_id, source_id, source_seq, emitted_at_ms,
                event_type, payload_json, meta_json, archived_at_ms)
@@ -742,13 +785,12 @@ export const make: Effect.Effect<
                    event_type, payload_json, meta_json, ${nowMs}
             FROM flows_journal_events
             WHERE run_id = ${runId} AND seq > ${frame.seq}
-          `
-                  const parentChanges = yield* sql<{ readonly count: number }>`SELECT changes() AS count`
-                  let archived = Number(parentChanges[0]!.count)
+          `.raw
+                  let archived = yield* affectedRows(parentResult)
                   yield* sql`
                   INSERT INTO flows_journal_generations (run_id, generation, after_seq)
                   VALUES (${runId}, 1, ${frame.seq})
-                  ON CONFLICT (run_id) DO UPDATE SET generation = generation + 1, after_seq = excluded.after_seq
+                  ON CONFLICT (run_id) DO UPDATE SET generation = flows_journal_generations.generation + 1, after_seq = excluded.after_seq
                 `
                   yield* sql`DELETE FROM flows_time_travel_snapshots WHERE run_id = ${runId} AND seq > ${frame.seq}`
                   yield* deleteProjectedWaits(runId, frame.seq)
@@ -781,20 +823,19 @@ export const make: Effect.Effect<
                     // so none of its attempt rows may survive it.
                     yield* sql`DELETE FROM flows_attempts WHERE run_id = ${childRunId}`
                     const childGeneration = yield* currentGeneration(childRunId)
-                    yield* sql`
+                    const childResult = yield* sql`
               INSERT INTO flows_time_travel_archive
                 (run_id, generation, seq, event_id, source_id, source_seq, emitted_at_ms,
                  event_type, payload_json, meta_json, archived_at_ms)
               SELECT run_id, ${childGeneration}, seq, event_id, source_id, source_seq, emitted_at_ms,
                      event_type, payload_json, meta_json, ${nowMs}
               FROM flows_journal_events WHERE run_id = ${childRunId}
-            `
-                    const childChanges = yield* sql<{ readonly count: number }>`SELECT changes() AS count`
-                    archived += Number(childChanges[0]!.count)
+            `.raw
+                    archived += yield* affectedRows(childResult)
                     yield* sql`
                     INSERT INTO flows_journal_generations (run_id, generation, after_seq)
                     VALUES (${childRunId}, 1, -1)
-                    ON CONFLICT (run_id) DO UPDATE SET generation = generation + 1, after_seq = -1
+                    ON CONFLICT (run_id) DO UPDATE SET generation = flows_journal_generations.generation + 1, after_seq = -1
                   `
                     yield* sql`DELETE FROM flows_time_travel_snapshots WHERE run_id = ${childRunId}`
                     yield* deleteProjectedWaits(childRunId, -1)
@@ -919,8 +960,8 @@ export const make: Effect.Effect<
               WHERE run_id = ${parentRunId}
                 AND seq = ${frame.seq}
                 AND (
-                  json_extract(meta_json, '$.lineageId') IS NULL
-                  OR json_extract(meta_json, '$.lineageId') = ${frame.lineageId}
+                  ${Dialect.jsonText(sql, sql`meta_json`, "$.lineageId")} IS NULL
+                  OR ${Dialect.jsonText(sql, sql`meta_json`, "$.lineageId")} = ${frame.lineageId}
                 )
             `
                 if (Number(atFrame[0]!.count) === 0) {

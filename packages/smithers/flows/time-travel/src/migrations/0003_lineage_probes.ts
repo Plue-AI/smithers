@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { step } from "../internal/MigrationStep.ts"
@@ -22,13 +23,13 @@ export const lineageProbes = Effect.gen(function*() {
     sql`CREATE INDEX IF NOT EXISTS flows_journal_events_child_spawn_idx
     ON flows_journal_events (run_id, seq)
     WHERE event_type = 'flows.time-travel.effect-boundary'
-      AND json_extract(payload_json, '$.effect.kind') = 'flows/engine-store/child-spawn'`
+      AND ${Dialect.jsonText(sql, sql`payload_json`, "$.effect.kind")} = 'flows/engine-store/child-spawn'`
   )
   yield* step(
     "flows_journal_events_handoff_idx on flows_journal_events",
     sql`CREATE INDEX IF NOT EXISTS flows_journal_events_handoff_idx
     ON flows_journal_events (run_id, seq)
     WHERE event_type = 'flows.engine.run-decision'
-      AND json_extract(payload_json, '$.decision') = 'handed-off'`
+      AND ${Dialect.jsonText(sql, sql`payload_json`, "$.decision")} = 'handed-off'`
   )
 })

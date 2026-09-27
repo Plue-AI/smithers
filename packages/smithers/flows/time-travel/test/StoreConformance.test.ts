@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Dialect from "@smthrs/database/Dialect"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as EngineMigrations from "@smthrs/engine-store/Migrations"
 import type { OwnerId } from "@smthrs/run-store/Ownership"
@@ -289,7 +290,7 @@ describe("TimeTravelStore conformance", () => {
                     ${JSON.stringify({ parentRunId: parent })}, '{}')
           `)
           const archived = yield* sql<{ readonly generation: number; readonly seq: number; readonly parent: string }>`
-            SELECT generation, seq, json_extract(payload_json, '$.parentRunId') AS parent
+            SELECT generation, seq, ${Dialect.jsonText(sql, sql`payload_json`, "$.parentRunId")} AS parent
             FROM flows_time_travel_archive WHERE run_id = 'run' ORDER BY generation, seq
           `
           return { counts, archived }

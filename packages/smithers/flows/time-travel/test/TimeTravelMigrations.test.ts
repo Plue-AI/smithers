@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Dialect from "@smthrs/database/Dialect"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
@@ -27,9 +28,9 @@ describe("time-travel migrations", () => {
       yield* EngineMigrations.run
       yield* Migrations.set.migrations["0001_initial"]!
       const sql = yield* SqlClient.SqlClient
-      const snapshots = yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_time_travel_snapshots)`
-      const archive = yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_time_travel_archive)`
-      const indexes = yield* sql`SELECT name FROM sqlite_master WHERE name IN
+      const snapshots = yield* Dialect.columns(sql, "flows_time_travel_snapshots")
+      const archive = yield* Dialect.columns(sql, "flows_time_travel_archive")
+      const indexes = yield* sql`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE name IN
         ('flows_journal_events_child_spawn_idx', 'flows_journal_events_handoff_idx')`
       expect(snapshots.map((column) => column.name)).not.toContain("plan_digest")
       expect(archive.map((column) => column.name)).not.toContain("generation")
@@ -47,7 +48,9 @@ describe("time-travel migrations", () => {
       // A completed rung is not a schema repair hook on each store build.
       yield* sql`DROP INDEX flows_journal_events_child_spawn_idx`
       yield* SqlTimeTravelStore.make
-      const indexes = yield* sql`SELECT name FROM sqlite_master WHERE name = 'flows_journal_events_child_spawn_idx'`
+      const indexes = yield* sql`SELECT name FROM ${
+        TestDatabase.catalog(sql)
+      } WHERE name = 'flows_journal_events_child_spawn_idx'`
       expect(indexes).toEqual([])
     }).pipe(Effect.provide(TestDatabase.layer)))
 
@@ -71,7 +74,7 @@ describe("time-travel migrations", () => {
               if (door === "ladder") yield* Migrations.run
               else yield* SqlTimeTravelStore.make
               return yield* sql<{ readonly name: string; readonly sql: string }>`
-              SELECT name, sql FROM sqlite_master WHERE type = 'index'
+              SELECT name, sql FROM ${TestDatabase.catalog(sql)} WHERE type = 'index'
               AND name IN ('flows_journal_events_child_spawn_idx', 'flows_journal_events_handoff_idx')
               ORDER BY name`
             })
@@ -163,7 +166,7 @@ describe("time-travel migrations", () => {
             )
           `
             yield* SqlTimeTravelStore.migrate
-            return yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_time_travel_snapshots)`
+            return yield* Dialect.columns(sql, "flows_time_travel_snapshots")
           })
         )
 
@@ -212,7 +215,7 @@ describe("time-travel migrations", () => {
             yield* SqlTimeTravelStore.migrate
             return {
               generations: yield* sql`SELECT run_id, generation FROM flows_journal_generations`,
-              columns: yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_time_travel_archive)`,
+              columns: yield* Dialect.columns(sql, "flows_time_travel_archive"),
               rows: yield* sql<{ readonly generation: number; readonly event_id: string }>`
               SELECT generation, event_id FROM flows_time_travel_archive
             `

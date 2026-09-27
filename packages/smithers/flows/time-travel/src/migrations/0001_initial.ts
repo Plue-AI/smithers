@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { step } from "../internal/MigrationStep.ts"
@@ -18,13 +19,16 @@ export const initial = Effect.gen(function*() {
   yield* step(
     "flows_time_travel_audits",
     sql`CREATE TABLE IF NOT EXISTS flows_time_travel_audits (
+    ${Dialect.rowId(sql)}
     id TEXT PRIMARY KEY CHECK (length(id) > 0),
     run_id TEXT NOT NULL CHECK (length(run_id) > 0),
     lineage_id TEXT NOT NULL CHECK (length(lineage_id) > 0),
-    seq INTEGER NOT NULL CHECK (typeof(seq) = 'integer' AND seq >= 0 AND seq <= 9007199254740991),
+    seq ${Dialect.integer(sql)} NOT NULL CHECK (${
+      Dialect.isInteger(sql, sql`seq`)
+    } AND seq >= 0 AND seq <= 9007199254740991),
     status TEXT NOT NULL CHECK (status IN ('in_progress', 'completed', 'failed')),
-    rate_limit_json TEXT CHECK (rate_limit_json IS NULL OR json_valid(rate_limit_json)),
-    detail_json TEXT CHECK (detail_json IS NULL OR json_valid(detail_json))
+    rate_limit_json TEXT CHECK (rate_limit_json IS NULL OR ${Dialect.jsonValid(sql, sql`rate_limit_json`)}),
+    detail_json TEXT CHECK (detail_json IS NULL OR ${Dialect.jsonValid(sql, sql`detail_json`)})
   )`
   )
   yield* step(
@@ -38,7 +42,7 @@ export const initial = Effect.gen(function*() {
     id TEXT PRIMARY KEY CHECK (length(id) > 0),
     audit_id TEXT NOT NULL CHECK (length(audit_id) > 0),
     effect_id TEXT NOT NULL CHECK (length(effect_id) > 0),
-    receipt_json TEXT NOT NULL CHECK (json_valid(receipt_json))
+    receipt_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`receipt_json`)})
   )`
   )
   yield* step(
@@ -46,7 +50,9 @@ export const initial = Effect.gen(function*() {
     sql`CREATE TABLE IF NOT EXISTS flows_time_travel_snapshots (
     run_id TEXT NOT NULL CHECK (length(run_id) > 0),
     lineage_id TEXT NOT NULL CHECK (length(lineage_id) > 0),
-    seq INTEGER NOT NULL CHECK (typeof(seq) = 'integer' AND seq >= 0 AND seq <= 9007199254740991),
+    seq ${Dialect.integer(sql)} NOT NULL CHECK (${
+      Dialect.isInteger(sql, sql`seq`)
+    } AND seq >= 0 AND seq <= 9007199254740991),
     change_id TEXT NOT NULL CHECK (length(change_id) > 0),
     PRIMARY KEY (run_id, lineage_id, seq)
   )`
@@ -57,18 +63,19 @@ export const initial = Effect.gen(function*() {
   yield* step(
     "flows_journal_events_lineage_idx on flows_journal_events",
     sql`CREATE INDEX IF NOT EXISTS flows_journal_events_lineage_idx
-    ON flows_journal_events (run_id, json_extract(meta_json, '$.lineageId'), seq)`
+    ON flows_journal_events (run_id, ${Dialect.jsonText(sql, sql`meta_json`, "$.lineageId")}, seq)`
   )
   yield* step(
     "flows_time_travel_edges",
     sql`CREATE TABLE IF NOT EXISTS flows_time_travel_edges (
+    ${Dialect.rowId(sql)}
     parent_run_id TEXT NOT NULL CHECK (length(parent_run_id) > 0),
-    parent_seq INTEGER NOT NULL CHECK (
-      typeof(parent_seq) = 'integer' AND parent_seq >= 0 AND parent_seq <= 9007199254740991
+    parent_seq ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`parent_seq`)} AND parent_seq >= 0 AND parent_seq <= 9007199254740991
     ),
     child_run_id TEXT NOT NULL UNIQUE CHECK (length(child_run_id) > 0),
     kind TEXT NOT NULL CHECK (kind IN ('child', 'fork', 'continuation')),
-    attached INTEGER NOT NULL CHECK (attached IN (0, 1)),
+    attached ${Dialect.integer(sql)} NOT NULL CHECK (attached IN (0, 1)),
     CHECK (parent_run_id <> child_run_id)
   )`
   )
@@ -87,15 +94,17 @@ export const initial = Effect.gen(function*() {
     sql`CREATE TABLE IF NOT EXISTS flows_time_travel_fork_intents (
     child_run_id TEXT PRIMARY KEY CHECK (length(child_run_id) > 0),
     parent_run_id TEXT NOT NULL CHECK (length(parent_run_id) > 0),
-    parent_seq INTEGER NOT NULL CHECK (
-      typeof(parent_seq) = 'integer' AND parent_seq >= 0 AND parent_seq <= 9007199254740991
+    parent_seq ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`parent_seq`)} AND parent_seq >= 0 AND parent_seq <= 9007199254740991
     ),
-    reserved_at_ms INTEGER NOT NULL CHECK (
-      typeof(reserved_at_ms) = 'integer' AND reserved_at_ms >= 0 AND reserved_at_ms <= 9007199254740991
+    reserved_at_ms ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`reserved_at_ms`)} AND reserved_at_ms >= 0 AND reserved_at_ms <= 9007199254740991
     ),
-    reclaimed_at_ms INTEGER CHECK (
+    reclaimed_at_ms ${Dialect.integer(sql)} CHECK (
       reclaimed_at_ms IS NULL
-      OR (typeof(reclaimed_at_ms) = 'integer' AND reclaimed_at_ms >= 0 AND reclaimed_at_ms <= 9007199254740991)
+      OR (${
+      Dialect.isInteger(sql, sql`reclaimed_at_ms`)
+    } AND reclaimed_at_ms >= 0 AND reclaimed_at_ms <= 9007199254740991)
     )
   )`
   )
@@ -108,20 +117,22 @@ export const initial = Effect.gen(function*() {
     "flows_time_travel_archive",
     sql`CREATE TABLE IF NOT EXISTS flows_time_travel_archive (
     run_id TEXT NOT NULL CHECK (length(run_id) > 0),
-    seq INTEGER NOT NULL CHECK (typeof(seq) = 'integer' AND seq >= 0 AND seq <= 9007199254740991),
+    seq ${Dialect.integer(sql)} NOT NULL CHECK (${
+      Dialect.isInteger(sql, sql`seq`)
+    } AND seq >= 0 AND seq <= 9007199254740991),
     event_id TEXT NOT NULL CHECK (length(event_id) > 0),
     source_id TEXT NOT NULL CHECK (length(source_id) > 0),
-    source_seq INTEGER NOT NULL CHECK (
-      typeof(source_seq) = 'integer' AND source_seq >= 0 AND source_seq <= 9007199254740991
+    source_seq ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`source_seq`)} AND source_seq >= 0 AND source_seq <= 9007199254740991
     ),
-    emitted_at_ms INTEGER NOT NULL CHECK (
-      typeof(emitted_at_ms) = 'integer' AND emitted_at_ms >= 0 AND emitted_at_ms <= 9007199254740991
+    emitted_at_ms ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`emitted_at_ms`)} AND emitted_at_ms >= 0 AND emitted_at_ms <= 9007199254740991
     ),
     event_type TEXT NOT NULL CHECK (length(event_type) > 0),
-    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
-    meta_json TEXT NOT NULL CHECK (json_valid(meta_json)),
-    archived_at_ms INTEGER NOT NULL CHECK (
-      typeof(archived_at_ms) = 'integer' AND archived_at_ms >= 0 AND archived_at_ms <= 9007199254740991
+    payload_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`payload_json`)}),
+    meta_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`meta_json`)}),
+    archived_at_ms ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`archived_at_ms`)} AND archived_at_ms >= 0 AND archived_at_ms <= 9007199254740991
     ),
     PRIMARY KEY (run_id, seq)
   )`

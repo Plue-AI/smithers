@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as JournalGeneration from "@smthrs/journal/JournalGeneration"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -21,23 +22,25 @@ export const archiveGeneration = Effect.gen(function*() {
   // journal generation observed inside the archive transaction.
   const createArchive = sql`CREATE TABLE IF NOT EXISTS flows_time_travel_archive (
     run_id TEXT NOT NULL CHECK (length(run_id) > 0),
-    generation INTEGER NOT NULL CHECK (
-      typeof(generation) = 'integer' AND generation >= 0 AND generation <= 9007199254740991
+    generation ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`generation`)} AND generation >= 0 AND generation <= 9007199254740991
     ),
-    seq INTEGER NOT NULL CHECK (typeof(seq) = 'integer' AND seq >= 0 AND seq <= 9007199254740991),
+    seq ${Dialect.integer(sql)} NOT NULL CHECK (${
+    Dialect.isInteger(sql, sql`seq`)
+  } AND seq >= 0 AND seq <= 9007199254740991),
     event_id TEXT NOT NULL CHECK (length(event_id) > 0),
     source_id TEXT NOT NULL CHECK (length(source_id) > 0),
-    source_seq INTEGER NOT NULL CHECK (
-      typeof(source_seq) = 'integer' AND source_seq >= 0 AND source_seq <= 9007199254740991
+    source_seq ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`source_seq`)} AND source_seq >= 0 AND source_seq <= 9007199254740991
     ),
-    emitted_at_ms INTEGER NOT NULL CHECK (
-      typeof(emitted_at_ms) = 'integer' AND emitted_at_ms >= 0 AND emitted_at_ms <= 9007199254740991
+    emitted_at_ms ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`emitted_at_ms`)} AND emitted_at_ms >= 0 AND emitted_at_ms <= 9007199254740991
     ),
     event_type TEXT NOT NULL CHECK (length(event_type) > 0),
-    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
-    meta_json TEXT NOT NULL CHECK (json_valid(meta_json)),
-    archived_at_ms INTEGER NOT NULL CHECK (
-      typeof(archived_at_ms) = 'integer' AND archived_at_ms >= 0 AND archived_at_ms <= 9007199254740991
+    payload_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`payload_json`)}),
+    meta_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`meta_json`)}),
+    archived_at_ms ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`archived_at_ms`)} AND archived_at_ms >= 0 AND archived_at_ms <= 9007199254740991
     ),
     PRIMARY KEY (run_id, generation, seq)
   )`
@@ -46,7 +49,7 @@ export const archiveGeneration = Effect.gen(function*() {
   yield* step(
     "the flows_time_travel_archive generation rebuild",
     sql.withTransaction(Effect.gen(function*() {
-      const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_time_travel_archive)`
+      const columns = yield* Dialect.columns(sql, "flows_time_travel_archive")
       if (columns.some((column) => column.name === "generation")) return
       // Legacy rows have no recoverable generation. Reserve zero for them.
       // Older databases may also predate durable journal generations.

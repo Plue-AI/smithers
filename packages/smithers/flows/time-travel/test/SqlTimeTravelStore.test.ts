@@ -323,7 +323,7 @@ it.effect("archives attached children with their own generations and rolls back 
     const frame = { lineageId: "main", seq: 0 } as const
     const append = (iteration: number) =>
       Effect.gen(function*() {
-        yield* sql`INSERT INTO flows_time_travel_edges VALUES ('parent', 1, 'child', 'child', 1)`
+        yield* sql`INSERT INTO flows_time_travel_edges(parent_run_id,parent_seq,child_run_id,kind,attached) VALUES ('parent', 1, 'child', 'child', 1)`
         for (const runId of ["parent", "child"]) {
           yield* sql`INSERT INTO flows_journal_events
           (run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json)

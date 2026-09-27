@@ -27,8 +27,19 @@ describe("SqlTimeTravelStore prerequisites", () => {
           expect((failure as TimeTravelError).message).toContain(missing)
         }
         const sql = yield* SqlClient.SqlClient
-        const tables = yield* sql`SELECT name FROM sqlite_master WHERE name LIKE 'flows_time_travel_%'`
+        const tables = yield* sql`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE name LIKE 'flows_time_travel_%'`
         expect(tables).toEqual([])
       }).pipe(Effect.provide(TestDatabase.layer)))
   }
 })
+
+it.effect("reports a failed catalog read as a typed prerequisite error", () =>
+  Effect.gen(function*() {
+    const sql = yield* SqlClient.SqlClient
+    const unavailable = new Proxy(sql, { apply: () => sql`SELECT * FROM missing_catalog` })
+    const failure = yield* Effect.flip(
+      SqlTimeTravelStore.make.pipe(Effect.provideService(SqlClient.SqlClient, unavailable))
+    )
+    expect(failure).toBeInstanceOf(TimeTravelError)
+    expect(failure.message).toContain("could not check time-travel prerequisite")
+  }).pipe(Effect.provide(TestDatabase.layer)))

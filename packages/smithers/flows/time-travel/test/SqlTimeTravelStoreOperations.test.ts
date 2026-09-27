@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Dialect from "@smthrs/database/Dialect"
 import * as DatabaseModule from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
@@ -203,7 +204,11 @@ describe("SqlTimeTravelStore.descendants", () => {
         yield* store.archiveAndTruncate("parent", { lineageId: "main", seq: 0 }, [], owner)
         expect(queries).toHaveLength(2)
         for (const [query, parameters] of queries) {
-          const plan = yield* sql.unsafe<{ readonly detail: string }>(`EXPLAIN QUERY PLAN ${query}`, parameters)
+          const plan = yield* TestDatabase.explain(sql, sql.unsafe(query, parameters))
+          if (Dialect.isPostgres(sql)) {
+            expect(plan.map((row) => row.detail).join("\n")).toMatch(/Index.*flows_/)
+            continue
+          }
           const journalReads = plan.map((row) => row.detail).filter((detail) => detail.includes("flows_journal_events"))
           expect(journalReads).toHaveLength(4)
           expect(journalReads.filter((detail) => detail.includes("flows_journal_events_child_spawn_idx"))).toHaveLength(
@@ -495,7 +500,7 @@ describe("SqlTimeTravelStore audits", () => {
     Effect.gen(function*() {
       const failure = yield* run((store, sql) =>
         Effect.gen(function*() {
-          yield* sql`PRAGMA ignore_check_constraints = ON`
+          yield* TestDatabase.checks(sql, false)
           yield* sql`
           INSERT INTO flows_time_travel_audits
             (id, run_id, lineage_id, seq, status, rate_limit_json, detail_json)
@@ -516,12 +521,12 @@ describe("SqlTimeTravelStore audits", () => {
     Effect.gen(function*() {
       const outcomes = yield* run((_store, sql) => {
         const invalidStatements = [
-          `INSERT INTO flows_time_travel_audits VALUES ('', 'run', 'main', 0, 'in_progress', NULL, NULL)`,
-          `INSERT INTO flows_time_travel_audits VALUES ('audit-negative', 'run', 'main', -1, 'in_progress', NULL, NULL)`,
-          `INSERT INTO flows_time_travel_audits VALUES ('audit-fractional', 'run', 'main', 0.5, 'in_progress', NULL, NULL)`,
-          `INSERT INTO flows_time_travel_audits VALUES ('audit-unsafe', 'run', 'main', 9007199254740992, 'in_progress', NULL, NULL)`,
-          `INSERT INTO flows_time_travel_audits VALUES ('audit-status', 'run', 'main', 0, 'unknown', NULL, NULL)`,
-          `INSERT INTO flows_time_travel_audits VALUES ('audit-json', 'run', 'main', 0, 'in_progress', '{', NULL)`,
+          `INSERT INTO flows_time_travel_audits(id,run_id,lineage_id,seq,status,rate_limit_json,detail_json) VALUES ('', 'run', 'main', 0, 'in_progress', NULL, NULL)`,
+          `INSERT INTO flows_time_travel_audits(id,run_id,lineage_id,seq,status,rate_limit_json,detail_json) VALUES ('audit-negative', 'run', 'main', -1, 'in_progress', NULL, NULL)`,
+          `INSERT INTO flows_time_travel_audits(id,run_id,lineage_id,seq,status,rate_limit_json,detail_json) VALUES ('audit-fractional', 'run', 'main', 0.5, 'in_progress', NULL, NULL)`,
+          `INSERT INTO flows_time_travel_audits(id,run_id,lineage_id,seq,status,rate_limit_json,detail_json) VALUES ('audit-unsafe', 'run', 'main', 9007199254740992, 'in_progress', NULL, NULL)`,
+          `INSERT INTO flows_time_travel_audits(id,run_id,lineage_id,seq,status,rate_limit_json,detail_json) VALUES ('audit-status', 'run', 'main', 0, 'unknown', NULL, NULL)`,
+          `INSERT INTO flows_time_travel_audits(id,run_id,lineage_id,seq,status,rate_limit_json,detail_json) VALUES ('audit-json', 'run', 'main', 0, 'in_progress', '{', NULL)`,
           `INSERT INTO flows_time_travel_receipts VALUES ('', 'audit', 'effect', '{}')`,
           `INSERT INTO flows_time_travel_receipts VALUES ('receipt-audit', '', 'effect', '{}')`,
           `INSERT INTO flows_time_travel_receipts VALUES ('receipt-effect', 'audit', '', '{}')`,
@@ -530,12 +535,12 @@ describe("SqlTimeTravelStore audits", () => {
           `INSERT INTO flows_time_travel_snapshots VALUES ('run', '', 0, 'change')`,
           `INSERT INTO flows_time_travel_snapshots VALUES ('run', 'main', -1, 'change')`,
           `INSERT INTO flows_time_travel_snapshots VALUES ('run', 'main', 0, '')`,
-          `INSERT INTO flows_time_travel_edges VALUES ('', 0, 'child', 'child', 1)`,
-          `INSERT INTO flows_time_travel_edges VALUES ('parent', -1, 'child', 'child', 1)`,
-          `INSERT INTO flows_time_travel_edges VALUES ('parent', 0, '', 'child', 1)`,
-          `INSERT INTO flows_time_travel_edges VALUES ('parent', 0, 'child-kind', 'unknown', 1)`,
-          `INSERT INTO flows_time_travel_edges VALUES ('parent', 0, 'child-attached', 'child', 2)`,
-          `INSERT INTO flows_time_travel_edges VALUES ('same', 0, 'same', 'child', 1)`,
+          `INSERT INTO flows_time_travel_edges(parent_run_id,parent_seq,child_run_id,kind,attached) VALUES ('', 0, 'child', 'child', 1)`,
+          `INSERT INTO flows_time_travel_edges(parent_run_id,parent_seq,child_run_id,kind,attached) VALUES ('parent', -1, 'child', 'child', 1)`,
+          `INSERT INTO flows_time_travel_edges(parent_run_id,parent_seq,child_run_id,kind,attached) VALUES ('parent', 0, '', 'child', 1)`,
+          `INSERT INTO flows_time_travel_edges(parent_run_id,parent_seq,child_run_id,kind,attached) VALUES ('parent', 0, 'child-kind', 'unknown', 1)`,
+          `INSERT INTO flows_time_travel_edges(parent_run_id,parent_seq,child_run_id,kind,attached) VALUES ('parent', 0, 'child-attached', 'child', 2)`,
+          `INSERT INTO flows_time_travel_edges(parent_run_id,parent_seq,child_run_id,kind,attached) VALUES ('same', 0, 'same', 'child', 1)`,
           `INSERT INTO flows_time_travel_archive VALUES ('', 0, 0, 'event', 'source', 0, 0, 'type', '{}', '{}', 0)`,
           `INSERT INTO flows_time_travel_archive VALUES ('run', -1, 0, 'event-gen', 'source', 0, 0, 'type', '{}', '{}', 0)`,
           `INSERT INTO flows_time_travel_archive VALUES ('run', 0, -1, 'event', 'source', 0, 0, 'type', '{}', '{}', 0)`,
@@ -652,7 +657,7 @@ describe("SqlTimeTravelStore persistence fault matrix", () => {
             if ("prepare" in scenario) {
               yield* scenario.prepare(sql)
             }
-            yield* sql.unsafe(`DROP TABLE ${scenario.table}`)
+            yield* sql.unsafe(`DROP TABLE ${scenario.table}${Dialect.isPostgres(sql) ? " CASCADE" : ""}`)
             return yield* Effect.flip(scenario.invoke(store))
           })
         )
@@ -1356,7 +1361,7 @@ describe("SqlTimeTravelStore.createFork", () => {
       Effect.gen(function*() {
         const failure = yield* run((store, sql) =>
           Effect.gen(function*() {
-            yield* sql`PRAGMA ignore_check_constraints = ON`
+            yield* TestDatabase.checks(sql, false)
             yield* insertRun(sql, "parent", { stateJson })
             return yield* Effect.flip(store.createFork("parent", { lineageId: "main", seq: 0 }))
           })
@@ -1432,7 +1437,7 @@ describe("SqlTimeTravelStore attempt statements", () => {
         ])
         const inserts = statements.filter((text) => text.startsWith("INSERT INTO flows_attempts"))
         expect(inserts).toHaveLength(1)
-        expect(inserts[0]).toContain("json_each")
+        expect(inserts[0]).toMatch(/json_each|jsonb_array_elements/)
       })
     ))
 
@@ -1453,7 +1458,7 @@ describe("SqlTimeTravelStore attempt statements", () => {
           .toHaveLength(0)
         const deletes = statements.filter((text) => text.startsWith("DELETE FROM flows_attempts"))
         expect(deletes).toHaveLength(1)
-        expect(deletes[0]).toContain("json_each")
+        expect(deletes[0]).toMatch(/json_each|jsonb_array_elements/)
       })
     ))
 })

@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { step } from "../internal/MigrationStep.ts"
@@ -17,7 +18,7 @@ import { step } from "../internal/MigrationStep.ts"
 export const operationId = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
   // Idempotent like 0004, so a schema adopted from unrecorded rungs converges.
-  const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_time_travel_snapshots)`
+  const columns = yield* Dialect.columns(sql, "flows_time_travel_snapshots")
   if (columns.some((column) => column.name === "operation_id")) return
   yield* step(
     "the flows_time_travel_snapshots operation_id column",

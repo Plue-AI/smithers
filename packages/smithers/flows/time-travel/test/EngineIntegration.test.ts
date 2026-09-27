@@ -247,6 +247,19 @@ const seqOf = (
   nth = 1
 ): number => committed.filter((entry) => entry.eventType === eventType)[nth - 1]!.seq
 
+const rewindWhenIdle = <A, E extends { readonly code: string }, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function*() {
+    let result: A | undefined
+    yield* TestDatabase.until(effect.pipe(
+      Effect.map((value) => {
+        result = value
+        return true
+      }),
+      Effect.catch((error) => error.code === "busy" ? Effect.succeed(false) : Effect.fail(error))
+    ))
+    return result as A
+  })
+
 describe("time travel over an engine-written journal", () => {
   it("exports the engine record names consumed by time travel", () => {
     expect(EngineStoreExports).toHaveProperty("EventTypes", {
@@ -655,13 +668,16 @@ describe("time travel over an engine-written journal", () => {
           exit: Exit.succeed("approved")
         })
         const runs = yield* RunStore.RunStore
+        yield* TestDatabase.until(runs.get("approval-run").pipe(Effect.map((row) => row.status === "suspended")))
         expect((yield* runs.get("approval-run")).status).toBe("suspended")
         const state = yield* DurableEngineState.DurableEngineState
-        const beforeRewind = advances
+        let beforeRewind = advances
         expect(beforeRewind).toBeGreaterThan(0)
         const timeTravel = yield* TimeTravel
-        yield* timeTravel.rewind({ runId: "approval-run", frame })
+        yield* rewindWhenIdle(timeTravel.rewind({ runId: "approval-run", frame }))
+        beforeRewind = advances
         yield* execute
+        yield* TestDatabase.until(runs.get("approval-run").pipe(Effect.map((row) => row.status === "suspended")))
         expect((yield* runs.get("approval-run")).status).toBe("suspended")
         expect(advances).toBe(beforeRewind)
         expect(
@@ -709,7 +725,11 @@ describe("time travel over an engine-written journal", () => {
         }
         expect(clock).toMatchObject({ _tag: "Some", value: { completedAtMs: 1000 } })
         const timeTravel = yield* TimeTravel
-        yield* timeTravel.rewind({ runId: "clock-run", frame })
+        const runs = yield* RunStore.RunStore
+        yield* TestDatabase.until(
+          runs.get("clock-run").pipe(Effect.map((row) => row.status === "suspended" && row.owner === null))
+        )
+        yield* rewindWhenIdle(timeTravel.rewind({ runId: "clock-run", frame }))
         yield* execute
         expect(yield* state.clock(address)).toMatchObject({
           _tag: "Some",
@@ -718,7 +738,8 @@ describe("time travel over an engine-written journal", () => {
         expect(yield* state.deferred({ ...address, deferredName: "DurableClock/rewind-sleep" })).toMatchObject({
           _tag: "None"
         })
-        expect((yield* (yield* RunStore.RunStore).get("clock-run")).status).toBe("suspended")
+        yield* TestDatabase.until(runs.get("clock-run").pipe(Effect.map((row) => row.status === "suspended")))
+        expect((yield* runs.get("clock-run")).status).toBe("suspended")
       }).pipe(Effect.provide(engineLayer({ notifications: [], jjCalls: [] }, [])))
     ))
 
@@ -760,7 +781,11 @@ describe("time travel over an engine-written journal", () => {
         }
         expect(clock).toMatchObject({ _tag: "Some", value: { completedAtMs: 1000 } })
         const timeTravel = yield* TimeTravel
-        yield* timeTravel.rewind({ runId: "fired-clock-run", frame })
+        const runs = yield* RunStore.RunStore
+        yield* TestDatabase.until(
+          runs.get("fired-clock-run").pipe(Effect.map((row) => row.status === "suspended" && row.owner === null))
+        )
+        yield* rewindWhenIdle(timeTravel.rewind({ runId: "fired-clock-run", frame }))
         // The rewind keeps the fired clock row and drops the completion the
         // replayed sleep waits on, so the clock has to fire again.
         yield* execute
@@ -770,7 +795,8 @@ describe("time travel over an engine-written journal", () => {
           deferred = yield* state.deferred({ ...address, deferredName: "DurableClock/rewind-sleep" })
         }
         expect(deferred).toMatchObject({ _tag: "Some" })
-        expect((yield* (yield* RunStore.RunStore).get("fired-clock-run")).status).toBe("suspended")
+        yield* TestDatabase.until(runs.get("fired-clock-run").pipe(Effect.map((row) => row.status === "suspended")))
+        expect((yield* runs.get("fired-clock-run")).status).toBe("suspended")
       }).pipe(Effect.provide(engineLayer({ notifications: [], jjCalls: [] }, [])))
     ))
 })
