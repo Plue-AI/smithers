@@ -5,6 +5,7 @@ import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { PACKAGE_EXECUTION_FORMAT, takesExclusiveTreePermit } from "../src/PackageExec.ts"
+import { repositoryPnpmVersion } from "./helpers/RepositoryPnpm.ts"
 import { serve } from "./helpers/ServeCli.ts"
 import { write } from "./helpers/WriteFile.ts"
 
@@ -1974,6 +1975,18 @@ export const Package = S.Package({ targets: { gen } })
 })
 
 describe("target body execution", () => {
+  it("pins the fixtures/target-body pnpm to the repository pin", async () => {
+    // A bump of the root packageManager must also update these two files, or
+    // the families test below makes pnpm switch versions mid-install.
+    const fixture = NodePath.join(import.meta.dirname, "fixtures/target-body")
+    const manifest = JSON.parse(await Fs.readFile(NodePath.join(fixture, "package.json"), "utf8")) as {
+      readonly packageManager: string
+    }
+    expect(manifest.packageManager).toBe(`pnpm@${repositoryPnpmVersion}`)
+    await expect(Fs.readFile(NodePath.join(fixture, "PACKAGE.ts"), "utf8")).resolves
+      .toContain(`S.PackageManager.Pnpm({ version: "${repositoryPnpmVersion}", runtime })`)
+  })
+
   it("runs the repository target families and aggregate verbs from PACKAGE.ts", async () => {
     const fixture = NodePath.join(import.meta.dirname, "fixtures/target-body")
     const root = await temporaryWorkspace()
@@ -2066,7 +2079,7 @@ describe("target body execution", () => {
               name: "target-body-fixture",
               private: true,
               type: "module",
-              packageManager: "pnpm@11.21.0",
+              packageManager: `pnpm@${repositoryPnpmVersion}`,
               engines: { node: ">=26.4.0" },
               dependencies: { "fixture-dep": "link:dep" }
             },

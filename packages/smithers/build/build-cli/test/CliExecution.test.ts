@@ -2,6 +2,7 @@ import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
+import { repositoryPnpmVersion } from "./helpers/RepositoryPnpm.ts"
 import { serve } from "./helpers/ServeCli.ts"
 import { write } from "./helpers/WriteFile.ts"
 
@@ -30,7 +31,7 @@ export const Workspace = S.Workspace("fixture", {
 
 const packageModule = `import { Smithers as S } from "@smthrs/targets"
 const runtime = S.Runtime.Node({ version: ">=26.4.0" })
-const packageManager = S.PackageManager.Pnpm({ version: "11.21.0", runtime })
+const packageManager = S.PackageManager.Pnpm({ version: "${repositoryPnpmVersion}", runtime })
 const install = S.Install({ packageManager })
 export const Package = S.Package({ targets: { run: S.Shell.Run({ shell: "echo hi" }), install } })
 `
@@ -63,7 +64,7 @@ describe("PACKAGE.ts CLI", () => {
           {
             name: "fixture",
             private: true,
-            packageManager: "pnpm@11.21.0",
+            packageManager: `pnpm@${repositoryPnpmVersion}`,
             dependencies: { "fixture-dep": "link:dep" }
           },
           undefined,

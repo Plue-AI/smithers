@@ -2,7 +2,7 @@
   "name": "target-body-fixture",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.21.0",
+  "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": ">=26.4.0"
   }

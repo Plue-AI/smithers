@@ -3,7 +3,7 @@ import { Smithers as S } from "@smthrs/targets"
 const runtime = S.Runtime.Node({ version: ">=26.4.0" })
 const bunRuntime = S.Runtime.Bun({ version: ">=1.4.0" })
 const packageManager = S.PackageManager.BunPackages({ runtime: bunRuntime })
-const installManager = S.PackageManager.Pnpm({ version: "11.21.0", runtime })
+const installManager = S.PackageManager.Pnpm({ version: "11.25.0", runtime })
 const srcs = S.Filegroup({ srcs: [S.glob("src/**/*.ts")] })
 const lockfile = S.Lockfile({ packageManager: installManager, manifests: [S.file("package.json")] })
 const install = S.Install({ packageManager: installManager, lockfile })
