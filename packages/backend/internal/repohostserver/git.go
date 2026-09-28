@@ -58,7 +58,10 @@ func (s *Server) receivePackLimit(ctx context.Context) (context.Context, time.Ti
 	deadline := time.Now().Add(limit)
 	pushCtx, cancel := context.WithDeadline(ctx, deadline)
 	exceeded := func(err error) error {
-		if err != nil && errors.Is(pushCtx.Err(), context.DeadlineExceeded) {
+		// The socket's read deadline can fire before the context's timer.
+		// Check the wall deadline too, even if git exited successfully before
+		// its stdin copier finished: an expired push must still roll back.
+		if errors.Is(pushCtx.Err(), context.DeadlineExceeded) || !time.Now().Before(deadline) {
 			return &appError{StatusCode: http.StatusRequestTimeout, Code: repohost.PushTooSlowCode,
 				Message: "push took longer than " + limit.String() + "; nothing was changed", Cause: err}
 		}
