@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { claim } from "../test/scratch.ts"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 const out = resolve(process.argv[2] ?? join(homedir(), "Desktop", "tui-custom-ui"))
 mkdirSync(out, { recursive: true })
@@ -12,9 +12,9 @@ mkdirSync(out, { recursive: true })
 claim()
 const app = resolve(import.meta.dir, "..")
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-const shoot = (tui: Tui, name: string) => {
+const shoot = async (tui: Tui, name: string) => {
   const html = join(out, `${name}.html`)
-  writeFileSync(html, tui.html())
+  writeFileSync(html, await tui.html())
   spawnSync(chrome, [
     "--headless=new",
     `--user-data-dir=${mkdtempSync(join(tmpdir(), "chrome-"))}`,
@@ -57,10 +57,10 @@ const tui = await Tui.start({
 })
 try {
   await tui.until((screen) => screen.includes("alt+r Review"), 30_000, "contributed key hint")
-  shoot(tui, "after-hints")
+  await shoot(tui, "after-hints")
   await tui.type("?")
   await tui.until((screen) => screen.includes("review") && screen.includes("Keys"), 5_000, "key popup")
-  shoot(tui, "after-key-popup")
+  await shoot(tui, "after-key-popup")
   await tui.press(key.escape)
   await tui.type("plan release")
   await tui.press(key.enter)
@@ -69,24 +69,24 @@ try {
     5_000,
     "card"
   )
-  shoot(tui, "after-card")
+  await shoot(tui, "after-card")
   await tui.press("\x1br")
   await tui.until(
     (screen) => screen.includes("review · Running.") && screen.includes("review · running"),
     5_000,
     "run card"
   )
-  shoot(tui, "after-key-run")
+  await shoot(tui, "after-key-run")
   await tui.type("finish")
   await tui.press(key.enter)
   await tui.until((screen) => screen.includes("review · Approved."), 5_000, "settled")
-  shoot(tui, "after-settled")
+  await shoot(tui, "after-settled")
   writeFileSync(mdx, readFileSync(mdx, "utf8").replace("key: alt+r", "key: ctrl+c"))
   await tui.until((screen) => screen.includes("✗ 1 extension"), 5_000, "problem")
-  shoot(tui, "after-problem")
+  await shoot(tui, "after-problem")
   await tui.click("✗ 1 extension")
   await tui.until((screen) => screen.includes("built-in Clear key"), 5_000, "problem view")
-  shoot(tui, "after-problem-view")
+  await shoot(tui, "after-problem-view")
 } finally {
   await tui.stop()
 }

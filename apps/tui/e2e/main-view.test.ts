@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process"
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 for (const [cols, rows] of [[160, 50], [100, 40], [80, 30]] as const) {
   it(`renders a bound main tree and keeps typing at ${cols}x${rows}`, async () => {
@@ -40,7 +40,7 @@ for (const [cols, rows] of [[160, 50], [100, 40], [80, 30]] as const) {
       const png = join(cwd, "main-view.png")
       const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
       if (existsSync(chrome)) {
-        writeFileSync(html, tui.html())
+        writeFileSync(html, await tui.html())
         const result = spawnSync(chrome, [
           "--headless",
           "--disable-gpu",

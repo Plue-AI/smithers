@@ -1,6 +1,6 @@
 /**
  * Targets for the terminal UI: the typecheck, lint, format check, and the
- * transcript suite.
+ * unit and terminal suites.
  *
  * The suite replays a recorded cell run through the transcript fold, so a
  * change to `AgentEvent` that the screen no longer understands fails here.
@@ -53,6 +53,16 @@ const unitTests = Smithers.NodeTest({
   cwd
 })
 
+/** The production terminal, command effects, cleanup, and packaged runtimes in tmux. */
+const e2eTests = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.testSuite(["./e2e"]),
+  timeout: "20m",
+  srcs: sources,
+  deps: [],
+  cwd
+})
+
 /**
  * Lints the app sources against the package rule set.
  *
@@ -88,5 +98,5 @@ const docsFiles = Smithers.Filegroup({ srcs: [Smithers.glob("docs/**/*.md")], cw
 const recordingSources = Smithers.Filegroup({ srcs: [...sources, Smithers.file("package.json")], cwd })
 
 export const Package = Smithers.Package({
-  targets: { check, unitTests, lint, fmt, docsFiles, recordingSources }
+  targets: { check, unitTests, e2eTests, lint, fmt, docsFiles, recordingSources }
 })

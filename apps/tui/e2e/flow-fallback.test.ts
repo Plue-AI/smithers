@@ -3,7 +3,7 @@ import { expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 it("runs the next declared model after context overflow", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-fallback-"))

@@ -3,7 +3,7 @@ import { expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 for (const [cols, rows, burst] of [[60, 20, false], [40, 12, false], [40, 12, true]] as const) {

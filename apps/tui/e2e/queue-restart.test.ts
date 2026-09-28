@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 const fixture = join(app, "test", "fixtures", "fix-add.jsonl")
@@ -88,7 +88,7 @@ describe("follow-up queue and interrupted turns across a restart", () => {
     expect(interruptions(file!)).toBe(0)
 
     // The process dies mid-turn: nothing writes its outcome.
-    const processInfo = await screen.call("session.info", { sessionId: "tui" }) as { pid: number }
+    const processInfo = { pid: screen.pid }
     process.kill(-processInfo.pid, "SIGKILL")
     await screen.waitForExit()
     await screen.stop()

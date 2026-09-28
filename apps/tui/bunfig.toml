@@ -1,6 +1,6 @@
 # Every suite here (`bun test ./test`, `bun test ./e2e`) runs inside one private
-# temporary root that is removed, zmuxd daemons included, when the run ends.
-# Before this, cases leaked `$TMPDIR/tui-*` folders and `zmuxd` daemons: about
+# temporary root that is removed, tmux daemons included, when the run ends.
+# Before this, cases leaked `$TMPDIR/tui-*` folders and `tmux` daemons: about
 # 6,600 folders and 19 GB filled the disk on 2026-09-24.
 [test]
 preload = ["./test/preload.ts"]

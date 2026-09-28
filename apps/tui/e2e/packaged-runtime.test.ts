@@ -15,7 +15,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 const cli = resolve(app, "../../packages/smithers")

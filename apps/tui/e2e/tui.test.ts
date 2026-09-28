@@ -1,5 +1,5 @@
 /**
- * The TUI in a real PTY, driven through zmux: keys in, screen out.
+ * The TUI in a real PTY, driven through tmux: keys in, screen out.
  *
  * Model turns replay `test/fixtures/fix-add.jsonl` (a recorded gpt-6-sol run)
  * through the replay seat, so no provider is called and the cells it carries
@@ -23,7 +23,7 @@ import {
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 let previousSessionDirectory: string | undefined
 beforeEach(() => {
@@ -304,10 +304,7 @@ describe("ctrl+c and ctrl+d", () => {
     await tui.press(key.ctrlC)
     await new Promise((resolve) => setTimeout(resolve, 700))
     expect(tui.exited).toBeUndefined()
-    await tui.call("session.send", {
-      sessionId: "tui",
-      dataBase64: Buffer.from(key.ctrlC + key.ctrlC).toString("base64")
-    })
+    await tui.press(key.ctrlC + key.ctrlC)
     expect((await tui.waitForExit()).code).toBe(0)
   }, 60_000)
 
@@ -564,7 +561,7 @@ describe("esc", () => {
     })
     let ids: Array<number> = []
     try {
-      const main = await tui.call("session.info", { sessionId: "tui" }) as { pid: number }
+      const main = { pid: tui.pid }
       await tui.press("\x07")
       await tui.until(() => existsSync(join(cwd, "editor-child.pid")), 5_000, "editor child")
       const [editor] = readFileSync(join(cwd, "editor.pid"), "utf8").trim().split(/\s+/).map(Number)
@@ -703,7 +700,7 @@ describe("turns", () => {
       )
       if (process.env.STRIP_EVIDENCE_DIR) {
         writeFileSync(join(process.env.STRIP_EVIDENCE_DIR, `terminal-${cols}.txt`), inspected)
-        writeFileSync(join(process.env.STRIP_EVIDENCE_DIR, `terminal-${cols}.html`), tui.html())
+        writeFileSync(join(process.env.STRIP_EVIDENCE_DIR, `terminal-${cols}.html`), await tui.html())
       }
     },
     180_000
@@ -1415,14 +1412,19 @@ describe("runtime views", () => {
     await tui.until(drawn, 20_000, "first draw")
     await tui.type("delegate fix")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Fixer · Done"), 10_000, "worker done")
+    await tui.until(
+      (screen) => screen.includes("Fixer finished") && /Done \d+s · worker/.test(screen),
+      10_000,
+      "worker done"
+    )
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
     await tui.press(key.ctrlK)
     await tui.type("tab:fix")
     await tui.until((screen) => screen.includes("Search") && /Fixer\s+done/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("c Open in chat") && screen.includes("u Undo changes") && screen.includes("Fixer"),
+      (screen) =>
+        screen.includes("esc Chat") && screen.includes("u Undo changes") && screen.includes("Subagent · Fixer"),
       5_000,
       "worker tab"
     )
@@ -1463,7 +1465,11 @@ describe("runtime views", () => {
       await tui.until(drawn, 20_000, "first draw")
       await tui.type("delegate fix")
       await tui.press(key.enter)
-      await tui.until((screen) => screen.includes("Fixer · Done"), 10_000, "worker done")
+      await tui.until(
+        (screen) => screen.includes("Fixer finished") && /Done \d+s · worker/.test(screen),
+        10_000,
+        "worker done"
+      )
       await tui.type("investigate")
       await tui.press(key.enter)
       // The only history is a worker that took milliseconds, so the new one is soon past its estimate.
@@ -1495,14 +1501,16 @@ describe("runtime views", () => {
     await tui.until(drawn, 20_000)
     await tui.type("delegate fix")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Requested the fix.") && screen.includes("Fixer · Done"))
+    await tui.until((screen) =>
+      screen.includes("Requested the fix.") && screen.includes("Fixer finished") && /Done \d+s · worker/.test(screen)
+    )
     await tui.type("/flow review title=x")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("review · running"))
     await tui.type("/tabs")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("c Open in chat") && screen.includes("u Undo changes"),
+      (screen) => screen.includes("esc Chat") && screen.includes("u Undo changes"),
       5_000,
       "worker footer"
     )
@@ -1546,7 +1554,11 @@ describe("runtime views", () => {
     await tui.until(drawn, 20_000, "first draw")
     await tui.type("delegate fix")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Fixer · Done"), 10_000, "worker done")
+    await tui.until(
+      (screen) => screen.includes("Fixer finished") && /Done \d+s · worker/.test(screen),
+      10_000,
+      "worker done"
+    )
     await tui.press(key.ctrlK)
     await tui.type("tab:fix")
     await tui.until((screen) => screen.includes("Search") && /Fixer\s+done/.test(screen), 5_000, "tab row")
@@ -1971,7 +1983,11 @@ describe("custom agents", () => {
     await tui.press(key.ctrlBracket)
     await tui.until((screen) => screen.includes("x Stop"), 5_000, "agent tab")
     await tui.type("x")
-    await tui.until((screen) => /■ review: look at/.test(screen), 20_000, "stopped from the real outcome")
+    await tui.until(
+      (screen) => screen.includes("✗ Stopped") && screen.includes("r Resume") && !screen.includes("x Stop"),
+      20_000,
+      "stopped from the real outcome"
+    )
   }, 120_000)
 
   it("/agent lists agents with their seat; choosing one puts its prompt field in the composer", async () => {

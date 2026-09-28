@@ -3,10 +3,10 @@
  *
  * `claim()` makes `tui-run-<pid>-XXXXXX` under the current temporary
  * directory and points `TMPDIR` at it, so every `mkdtemp(tmpdir())` in a case,
- * every child the case spawns, and every `zmuxd` socket land inside it. It
+ * every child the case spawns, and every `tmux` socket land inside it. It
  * points `SMITHERS_TUI_SESSION_DIR` there too, so sessions and `tui.log` never
  * reach the user's `~/.smithers/tui`.
- * Release kills any `zmuxd` whose socket is under the root, then deletes the
+ * Release kills any `tmux` whose socket is under the root, then deletes the
  * root. A test run calls it from a global `afterAll`, which Bun still runs
  * after a timed-out case; `bun test` never emits `exit`, so that hook only
  * serves plain scripts. SIGINT, SIGTERM and SIGHUP release it too.
@@ -15,7 +15,7 @@
  * sibling roots whose owning pid is gone, daemons included.
  */
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readdirSync, rmSync } from "node:fs"
+import { type Dirent, mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -30,23 +30,55 @@ const alive = (pid: number): boolean => {
   }
 }
 
-/** Every `zmuxd` serving a socket under `root`, and the processes it runs. */
+/** Every `tmux` serving a socket under `root`, and the processes it runs. */
 export const daemons = (root: string): ReadonlyArray<number> => {
   const listing = spawnSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" }).stdout ?? ""
   const rows = listing.split("\n").map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter((row) =>
     row !== null
   )
-  const owned = new Set(
-    rows
-      .filter((row) => /(^|\/)zmuxd\s/.test(row[3]!) && row[3]!.includes(`--socket ${root}/`))
-      .map((row) => Number(row[1]))
-  )
-  for (const row of rows) if (owned.has(Number(row[2]))) owned.add(Number(row[1]))
+  const sockets: Array<string> = []
+  const pending = [root]
+  while (pending.length > 0) {
+    const directory = pending.pop()!
+    let entries: Array<Dirent>
+    try {
+      entries = readdirSync(directory, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) pending.push(path)
+      else if (entry.name === "t.sock" && entry.isSocket()) sockets.push(path)
+    }
+  }
+  const owned = new Set<number>()
+  for (const socket of sockets) {
+    const result = spawnSync(process.env.TMUX_BIN ?? "tmux", [
+      "-S",
+      socket,
+      "display-message",
+      "-p",
+      "#{pid}"
+    ], {
+      encoding: "utf8",
+      timeout: 1_000
+    })
+    const pid = Number(result.stdout?.trim())
+    if (result.status === 0 && pid > 0) owned.add(pid)
+  }
+  // Process order is not guaranteed; include every descendant before killing.
+  let previous = -1
+  while (previous !== owned.size) {
+    previous = owned.size
+    for (const row of rows) if (owned.has(Number(row[2]))) owned.add(Number(row[1]))
+  }
   return [...owned]
 }
 
-const kill = (root: string) => {
-  for (const pid of daemons(root)) {
+/** Stops only tmux servers with sockets under `root` and their descendants. */
+export const stopDaemons = (root: string): void => {
+  for (const pid of [...daemons(root)].reverse()) {
     try {
       process.kill(pid, "SIGKILL")
     } catch {
@@ -67,7 +99,7 @@ export const sweep = (base: string) => {
     const owner = entry.startsWith(PREFIX) ? Number(entry.slice(PREFIX.length).split("-")[0]) : NaN
     if (!Number.isInteger(owner) || owner === process.pid || alive(owner)) continue
     const root = join(base, entry)
-    kill(root)
+    stopDaemons(root)
     rmSync(root, { recursive: true, force: true })
   }
 }
@@ -85,7 +117,7 @@ export const claim = (): () => void => {
   const release = () => {
     if (released) return
     released = true
-    kill(root)
+    stopDaemons(root)
     rmSync(root, { recursive: true, force: true })
     if (previous === undefined) delete process.env.TMPDIR
     else process.env.TMPDIR = previous

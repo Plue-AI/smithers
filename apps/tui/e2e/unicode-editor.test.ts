@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 it("completes after Japanese/emoji and inserts palette mentions before an intact suffix", async () => {

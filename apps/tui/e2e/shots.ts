@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { claim } from "../test/scratch.ts"
-import { key, Tui } from "./zmux.ts"
+import { key, Tui } from "./tmux.ts"
 
 const out = resolve(process.argv[2] ?? join(tmpdir(), "tui-shots"))
 mkdirSync(out, { recursive: true })
@@ -18,7 +18,8 @@ const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 /** Each capture is taken now and rendered once the TUIs stop, so Chrome never stalls a live session. */
 const captures: Array<{ readonly name: string; readonly html: string; readonly cols: number; readonly rows: number }> =
   []
-const shoot = (tui: Tui, name: string) => captures.push({ name, html: tui.html(), cols: tui.cols, rows: tui.rows })
+const shoot = async (tui: Tui, name: string) =>
+  captures.push({ name, html: await tui.html(), cols: tui.cols, rows: tui.rows })
 const render = () => {
   for (const capture of captures) {
     const html = join(out, `${capture.name}.html`)
@@ -53,37 +54,37 @@ for (const cols of [120, 84]) {
     await tui.type("more")
     await tui.press(key.enter)
     await sleep(1500)
-    shoot(tui, `${cols}-chat`)
+    await shoot(tui, `${cols}-chat`)
     // Tab from the empty composer focuses the newest card; arrows move between cards.
     await tui.press(key.tab)
     await sleep(300)
     await tui.press("\x1b[A") // up: the card above
     await sleep(300)
-    shoot(tui, `${cols}-chat-card`)
+    await shoot(tui, `${cols}-chat-card`)
     await tui.press(key.enter) // opens the focused card's worker
     await sleep(800)
-    shoot(tui, `${cols}-worker-crumb`)
+    await shoot(tui, `${cols}-worker-crumb`)
     await tui.press("\x19") // ctrl+y: back to the chat
     await sleep(500)
     await tui.press(key.ctrlS) // Summary: the all-subagents overview
     await sleep(500)
-    shoot(tui, `${cols}-overview`)
+    await shoot(tui, `${cols}-overview`)
     await tui.press(key.tab) // the selected branch's cards
     await sleep(300)
-    shoot(tui, `${cols}-overview-cards`)
+    await shoot(tui, `${cols}-overview-cards`)
     await tui.press(key.escape)
     await sleep(300)
     await tui.press("\x1b[1;5C") // ctrl+right: Summary
     await sleep(300)
     await tui.press("\x1b[1;5C") // first worker
     await sleep(800)
-    shoot(tui, `${cols}-worker-running`)
+    await shoot(tui, `${cols}-worker-running`)
     await tui.type("s")
     await sleep(300)
     await tui.type("also check the refresh path")
     await tui.press(key.enter)
     await sleep(500)
-    shoot(tui, `${cols}-worker-steer`)
+    await shoot(tui, `${cols}-worker-steer`)
     await tui.press(key.escape)
     await sleep(200)
     for (let step = 0; step < 2; step++) {
@@ -91,10 +92,10 @@ for (const cols of [120, 84]) {
       await sleep(300)
     }
     await sleep(500)
-    shoot(tui, `${cols}-worker-failed`)
+    await shoot(tui, `${cols}-worker-failed`)
     await tui.press("\x1b[1;5C")
     await sleep(800)
-    shoot(tui, `${cols}-worker-overflow`)
+    await shoot(tui, `${cols}-worker-overflow`)
   } finally {
     await tui.stop()
   }

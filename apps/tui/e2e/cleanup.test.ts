@@ -1,5 +1,5 @@
 /**
- * A test run leaves nothing behind: no temporary folders, no `zmuxd`.
+ * A test run leaves nothing behind: no temporary folders, no `tmux`.
  *
  * Each case runs real `bun test` children against a private `TMPDIR` and
  * checks it afterwards. The cases they run make scratch folders and never
@@ -16,7 +16,7 @@ const app = resolve(import.meta.dir, "..")
 const env = (base: string) => ({ ...process.env, TMPDIR: base })
 
 // Under `/tmp`, not this run's own root: a child root nested in it would put
-// zmuxd's socket past the 104-byte macOS limit.
+// tmux's socket past the 104-byte macOS limit.
 const bases: Array<string> = []
 const scratch = (prefix: string) => {
   const base = mkdtempSync(join("/tmp", prefix))
@@ -35,7 +35,7 @@ const run = (base: string, ...args: Array<string>) => {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe("test-run cleanup", () => {
-  it("an e2e case and a unit case leave no folder and no zmuxd", () => {
+  it("an e2e case and a unit case leave no folder and no tmux", () => {
     const base = scratch("tui-cleanup-")
     run(base, "./e2e/tui.test.ts", "-t", "names no mode by default")
     run(base, "./test/estimate.test.ts")
@@ -43,7 +43,7 @@ describe("test-run cleanup", () => {
     expect(daemons(base)).toEqual([])
   }, 180_000)
 
-  it("the next run removes what a killed run left, zmuxd included", async () => {
+  it("the next run removes what a killed run left, tmux included", async () => {
     const base = scratch("tui-cleanup-killed-")
     const child = spawn("bun", ["test", "./e2e/tui.test.ts", "-t", "names no mode by default"], {
       cwd: app,
