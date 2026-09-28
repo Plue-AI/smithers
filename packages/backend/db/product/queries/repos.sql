@@ -220,19 +220,53 @@ WHERE id = $1
 RETURNING *;
 
 -- name: TransferRepoToUser :one
+-- The GitHub sync registry names a mirror by its namespace path, so the
+-- binding moves with the repository. The CTE reads the pre-transfer owner.
+WITH rebound_mirror AS (
+    UPDATE github_synced_repos g
+    SET mirror_owner = u.username,
+        updated_at = NOW()
+    FROM repositories r
+    JOIN owner_namespaces ns
+      ON (ns.owner_type = 'user' AND ns.user_id = r.user_id)
+      OR (ns.owner_type = 'org' AND ns.org_id = r.org_id),
+         users u
+    WHERE r.id = sqlc.arg(id)
+      AND u.id = sqlc.arg(new_user_id)
+      AND LOWER(g.mirror_owner) = ns.lower_slug
+      AND LOWER(g.mirror_repo) = r.lower_name
+    RETURNING g.id
+)
 UPDATE repositories
 SET user_id = sqlc.arg(new_user_id),
     org_id = NULL,
     updated_at = NOW()
-WHERE id = sqlc.arg(id)
+WHERE repositories.id = sqlc.arg(id)
 RETURNING *;
 
 -- name: TransferRepoToOrg :one
+-- The GitHub sync registry names a mirror by its namespace path, so the
+-- binding moves with the repository. The CTE reads the pre-transfer owner.
+WITH rebound_mirror AS (
+    UPDATE github_synced_repos g
+    SET mirror_owner = o.name,
+        updated_at = NOW()
+    FROM repositories r
+    JOIN owner_namespaces ns
+      ON (ns.owner_type = 'user' AND ns.user_id = r.user_id)
+      OR (ns.owner_type = 'org' AND ns.org_id = r.org_id),
+         organizations o
+    WHERE r.id = sqlc.arg(id)
+      AND o.id = sqlc.arg(new_org_id)
+      AND LOWER(g.mirror_owner) = ns.lower_slug
+      AND LOWER(g.mirror_repo) = r.lower_name
+    RETURNING g.id
+)
 UPDATE repositories
 SET org_id = sqlc.arg(new_org_id),
     user_id = NULL,
     updated_at = NOW()
-WHERE id = sqlc.arg(id)
+WHERE repositories.id = sqlc.arg(id)
 RETURNING *;
 
 -- name: DeleteCollaboratorsByRepo :exec

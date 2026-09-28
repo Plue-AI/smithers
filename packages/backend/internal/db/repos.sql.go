@@ -1416,11 +1416,26 @@ func (q *Queries) SetRepositoryCloneDepth(ctx context.Context, arg SetRepository
 }
 
 const transferRepoToOrg = `-- name: TransferRepoToOrg :one
+WITH rebound_mirror AS (
+    UPDATE github_synced_repos g
+    SET mirror_owner = o.name,
+        updated_at = NOW()
+    FROM repositories r
+    JOIN owner_namespaces ns
+      ON (ns.owner_type = 'user' AND ns.user_id = r.user_id)
+      OR (ns.owner_type = 'org' AND ns.org_id = r.org_id),
+         organizations o
+    WHERE r.id = $2
+      AND o.id = $1
+      AND LOWER(g.mirror_owner) = ns.lower_slug
+      AND LOWER(g.mirror_repo) = r.lower_name
+    RETURNING g.id
+)
 UPDATE repositories
 SET org_id = $1,
     user_id = NULL,
     updated_at = NOW()
-WHERE id = $2
+WHERE repositories.id = $2
 RETURNING id, user_id, org_id, name, lower_name, description, is_public, default_bookmark, topics, search_vector, next_issue_number, next_landing_number, is_fork, fork_id, is_template, template_id, is_archived, archived_at, is_mirror, mirror_destination, mirror_status, last_mirror_at, last_mirror_error, last_mirror_github_head, mirror_behind_refs, mirror_failed_refs, workspace_idle_timeout_secs, workspace_persistence, workspace_dependencies, clone_depth, landing_queue_mode, landing_queue_required_checks, num_stars, num_forks, num_watches, num_issues, num_closed_issues, created_at, updated_at
 `
 
@@ -1429,6 +1444,8 @@ type TransferRepoToOrgParams struct {
 	ID       int64       `json:"id"`
 }
 
+// The GitHub sync registry names a mirror by its namespace path, so the
+// binding moves with the repository. The CTE reads the pre-transfer owner.
 func (q *Queries) TransferRepoToOrg(ctx context.Context, arg TransferRepoToOrgParams) (Repository, error) {
 	row := q.db.QueryRow(ctx, transferRepoToOrg, arg.NewOrgID, arg.ID)
 	var i Repository
@@ -1477,11 +1494,26 @@ func (q *Queries) TransferRepoToOrg(ctx context.Context, arg TransferRepoToOrgPa
 }
 
 const transferRepoToUser = `-- name: TransferRepoToUser :one
+WITH rebound_mirror AS (
+    UPDATE github_synced_repos g
+    SET mirror_owner = u.username,
+        updated_at = NOW()
+    FROM repositories r
+    JOIN owner_namespaces ns
+      ON (ns.owner_type = 'user' AND ns.user_id = r.user_id)
+      OR (ns.owner_type = 'org' AND ns.org_id = r.org_id),
+         users u
+    WHERE r.id = $2
+      AND u.id = $1
+      AND LOWER(g.mirror_owner) = ns.lower_slug
+      AND LOWER(g.mirror_repo) = r.lower_name
+    RETURNING g.id
+)
 UPDATE repositories
 SET user_id = $1,
     org_id = NULL,
     updated_at = NOW()
-WHERE id = $2
+WHERE repositories.id = $2
 RETURNING id, user_id, org_id, name, lower_name, description, is_public, default_bookmark, topics, search_vector, next_issue_number, next_landing_number, is_fork, fork_id, is_template, template_id, is_archived, archived_at, is_mirror, mirror_destination, mirror_status, last_mirror_at, last_mirror_error, last_mirror_github_head, mirror_behind_refs, mirror_failed_refs, workspace_idle_timeout_secs, workspace_persistence, workspace_dependencies, clone_depth, landing_queue_mode, landing_queue_required_checks, num_stars, num_forks, num_watches, num_issues, num_closed_issues, created_at, updated_at
 `
 
@@ -1490,6 +1522,8 @@ type TransferRepoToUserParams struct {
 	ID        int64       `json:"id"`
 }
 
+// The GitHub sync registry names a mirror by its namespace path, so the
+// binding moves with the repository. The CTE reads the pre-transfer owner.
 func (q *Queries) TransferRepoToUser(ctx context.Context, arg TransferRepoToUserParams) (Repository, error) {
 	row := q.db.QueryRow(ctx, transferRepoToUser, arg.NewUserID, arg.ID)
 	var i Repository
