@@ -4,6 +4,7 @@
 
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import { FlowEngine } from "@smthrs/engine"
+import { DurableDeferred } from "@smthrs/flow"
 import { ExecutionFact, type Journal, Redaction } from "@smthrs/journal"
 import type { RunStore } from "@smthrs/run-store"
 import { Effect, Option, Schema } from "effect"
@@ -45,9 +46,9 @@ export const observe = (
     let point: string | null = null
     if (Option.isSome(waiting) && waiting.value.token !== null) {
       try {
-        const decoded: unknown = JSON.parse(globalThis.atob(waiting.value.token))
-        if (Array.isArray(decoded) && typeof decoded[2] === "string" && decoded[2].startsWith("WaitFor/")) {
-          point = decoded[2].slice("WaitFor/".length)
+        const { deferredName } = DurableDeferred.TokenParsed.fromString(waiting.value.token)
+        if (deferredName.startsWith("WaitFor/")) {
+          point = deferredName.slice("WaitFor/".length)
         }
       } catch { /* An opaque plugin token remains an operational address only. */ }
     }

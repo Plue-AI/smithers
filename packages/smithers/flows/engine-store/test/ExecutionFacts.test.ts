@@ -1,7 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { describe, expect, it } from "@effect/vitest"
 import * as Sha256 from "@smthrs/crypto/Sha256"
-import { Flow, FlowRuntime } from "@smthrs/flow"
+import { DurableDeferred, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
 import { ExecutionFact, Journal, JournalEvent, SqlJournal } from "@smthrs/journal"
 import { RunStore } from "@smthrs/run-store"
 import { Effect, Exit, Layer, Option, Schema, Stream } from "effect"
@@ -77,6 +77,54 @@ const verified = (executionId: string) =>
     })
     return folded
   })
+
+const suspendedPointOnReopen = (token: string, point: string | null) =>
+  fixture((file) =>
+    Effect.gen(function*() {
+      const executionId = "question"
+      yield* onFile(
+        file,
+        Effect.scoped(
+          Effect.gen(function*() {
+            const driver = yield* RunDriver.make({
+              owner,
+              journalSource: "wait-point-facts",
+              engine: Effect.succeed({} as FlowRuntime.FlowRuntime["Service"])
+            })
+            yield* driver.register(TestFlow, () =>
+              FlowRuntime.annotateWaiting({ reason: "approval", token }).pipe(
+                Effect.andThen(Effect.flatMap(FlowRuntime.FlowInstance, Flow.suspend))
+              ))
+            yield* driver.execute(TestFlow, { executionId, payload: {}, discard: true })
+          }).pipe(Effect.provide(services), Effect.provide(NodeCrypto.layer))
+        )
+      )
+      yield* onFile(
+        file,
+        Effect.gen(function*() {
+          const { runs, state, journal } = yield* ports
+          expect((yield* runs.get(executionId)).status).toBe("suspended")
+          const observed = yield* Facts.observe(yield* runs.get(executionId), state)
+          expect(observed.status).toBe("suspended")
+
+          const events = yield* history(journal, executionId)
+          const suspendedFacts = events.flatMap((event) => {
+            const fact = (event.payload as { executionFact?: { observation?: ExecutionFact.Observation } })
+              .executionFact
+            return fact?.observation?.status === "suspended" ? [fact.observation] : []
+          })
+          expect(suspendedFacts.length).toBeGreaterThan(0)
+          for (const fact of suspendedFacts) expect(fact.waiting?.point).toBe(point)
+          expect(observed.waiting?.point).toBe(point)
+          expect(observed.waiting?.tokenDigest).toBe(Sha256.digestSync(token))
+          const folded = ExecutionFact.fold(events, executionId)
+          expect(folded.provenance.source).toBe("events")
+          expect(folded.view?.current.status).toBe("suspended")
+          expect(folded.view?.current.waiting?.point).toBe(point)
+        }).pipe(Effect.provide(services))
+      )
+    })
+  )
 
 describe("native facts over file SQLite", () => {
   it.effect("legacy parent observations resolve equal sequence metadata deterministically", () =>
@@ -194,6 +242,29 @@ describe("native facts over file SQLite", () => {
         )
       })
     ))
+
+  it.effect.each(["review", "révision", "审批", "🚀"])(
+    "Unicode public wait token survives history: %s",
+    (name) =>
+      suspendedPointOnReopen(
+        DurableDeferred.tokenFromExecutionId(WaitFor.deferred(name), {
+          flow: TestFlow,
+          executionId: "question"
+        }),
+        name
+      )
+  )
+
+  it.effect.each([
+    { name: "malformed opaque token", token: "not-a-durable-deferred-token" },
+    {
+      name: "valid non-WaitFor token",
+      token: DurableDeferred.tokenFromExecutionId(DurableDeferred.make("Other/review"), {
+        flow: TestFlow,
+        executionId: "question"
+      })
+    }
+  ])("keeps the point null for a $name after reopening", ({ token }) => suspendedPointOnReopen(token, null))
 
   it.effect("a rejected suspension event rolls the waiting payload back with its run status and publishes no terminal fact", () =>
     fixture((file) =>
