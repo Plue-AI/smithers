@@ -129,31 +129,34 @@ const durableTimed = <A, E>(
     body.pipe(Effect.provide(services), Effect.provide(hostCrypto), Effect.provide(TestClock.layer()))
   )
 
-/** The layer type an action implementation registers itself through. */
-type Implementation = Layer.Layer<never, never, Crypto.Crypto | Action.Implementations | FlowRuntime.FlowRuntime>
+/**
+ * A layer an incarnation registers: an action implementation, which provides
+ * its action's requirement, or a flow registration, which provides nothing.
+ */
+type Registration = Layer.Layer<never, never, any>
+
+/**
+ * A body's registration cannot state the schema services its own topology
+ * hides, which is the erasure every sibling suite makes here. It erases only
+ * inputs: a registration provides nothing, so no action requirement goes with
+ * it.
+ */
+const registration = (flow: Flow.Any) =>
+  Interpreter.layer(flow as never) as Layer.Layer<never, never, FlowRuntime.FlowRuntime | Action.Implementations>
 
 /**
  * What a wired incarnation provides an execution: the engine, the
- * implementation registry, and every registered action's requirement.
+ * implementation registry, and exactly the requirements of the listed
+ * implementations, read off their layers.
  */
-type Wired = FlowRuntime.FlowRuntime | Action.Implementations | Action.Requirement<string>
-
-const wiringFor = (
+const wiringFor = <const Implementations extends ReadonlyArray<Registration>>(
   engine: FlowRuntime.FlowRuntime["Service"],
   flows: ReadonlyArray<Flow.Any>,
-  implementations: ReadonlyArray<Implementation>
-): Layer.Layer<Wired, never, Crypto.Crypto> =>
-  [
-    ...implementations,
-    // A body's registration cannot state the schema services its own
-    // topology hides, which is the erasure every sibling suite makes here.
-    ...flows.map((flow) => Interpreter.layer(flow as never) as Implementation)
-  ].reduce<Implementation>((left, right) => Layer.merge(left, right), Layer.empty).pipe(
+  implementations: Implementations
+) =>
+  Layer.mergeAll(Layer.empty, ...implementations, ...flows.map(registration)).pipe(
     Layer.provideMerge(Action.layerImplementations),
-    Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine)),
-    // The same erasure, stated once: the registered implementations answer
-    // every `Action.Requirement` the listed flows call.
-    (wired) => wired as Layer.Layer<Wired, never, Crypto.Crypto>
+    Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
   )
 
 /**
@@ -161,10 +164,10 @@ const wiringFor = (
  * drive and the implementations their bodies call. A second incarnation over
  * the same storage is what a restarted process looks like.
  */
-const incarnation = (options: {
+const incarnation = <const Implementations extends ReadonlyArray<Registration>>(options: {
   readonly hostId: string
   readonly flows: ReadonlyArray<Flow.Any>
-  readonly implementations: ReadonlyArray<Implementation>
+  readonly implementations: Implementations
 }) =>
   Effect.gen(function*() {
     const engine = yield* EngineStore.make({
@@ -224,7 +227,7 @@ const Increment = Action.make("e2e/increment", {
 })
 
 /** Records every dispatch, so a re-drive that re-ran a step is visible. */
-const incrementing = (calls: Array<number>): Implementation =>
+const incrementing = (calls: Array<number>) =>
   Increment.toLayer(({ value }) =>
     Effect.sync(() => {
       calls.push(value)
@@ -368,7 +371,7 @@ const Stage = Action.make("e2e/stage", {
 })
 
 /** Records `label:value`, so a round that ran twice is visible as a duplicate. */
-const staging = (calls: Array<string>): Implementation =>
+const staging = (calls: Array<string>) =>
   Stage.toLayer(({ label, value }) =>
     Effect.sync(() => {
       calls.push(`${label}:${value}`)
@@ -820,7 +823,7 @@ const Mark = Action.make("e2e/mark", {
 })
 
 /** The steps around a wait, so a resumed round that re-ran one is visible. */
-const marking = (marks: Array<string>): Implementation =>
+const marking = (marks: Array<string>) =>
   Mark.toLayer(({ label }) =>
     Effect.sync(() => {
       marks.push(label)
@@ -948,7 +951,7 @@ const Fallible = Action.make("e2e/fallible", {
 })
 
 /** Records each dispatch and fails with the error the payload names. */
-const failing = (attempts: Array<string>): Implementation =>
+const failing = (attempts: Array<string>) =>
   Fallible.toLayer(({ error }) =>
     Effect.suspend(() => {
       attempts.push(error)
@@ -1157,7 +1160,7 @@ describe("journal admission is visible at the authoring boundary", () => {
           yield* Deferred.succeed(overflowSeen, overflow)
           return yield* Effect.fail(overflow)
         })
-      ) as Implementation
+      )
 
       const observed = yield* durableWith(
         Effect.gen(function*() {
@@ -1291,7 +1294,7 @@ describe("live ownership races stay fenced", () => {
                 yield* Deferred.await(release[value]!)
                 return value + 1
               })
-            ) as Implementation
+            )
           ])
           const secondWiring = wiringFor(second, [CountTo], [
             Increment.toLayer(({ value }) =>
@@ -1299,7 +1302,7 @@ describe("live ownership races stay fenced", () => {
                 calls.push(`second:${value}`)
                 return value + 1
               })
-            ) as Implementation
+            )
           ])
 
           const rootFiber = yield* Effect.forkChild(
@@ -1357,4 +1360,39 @@ describe("live ownership races stay fenced", () => {
       }),
     20_000
   )
+})
+
+/** An engine for the compile probe below; nothing reads it. */
+declare const probeEngine: FlowRuntime.FlowRuntime["Service"]
+
+/**
+ * Never called; tsc checks it (#2347). The wiring states exactly the action
+ * requirements its implementations provide, so dropping `Increment.toLayer`
+ * from a working `CountTo` composition must stop it compiling.
+ */
+const missingImplementationProbe = () => {
+  durable(
+    CountTo.execute({ value: 0, target: 1 }, { executionId: "probe" }).pipe(
+      Effect.provide(wiringFor(probeEngine, [CountTo], [incrementing([])]))
+    )
+  )
+  durable(
+    // @ts-expect-error without Increment's implementation nothing provides its requirement
+    CountTo.execute({ value: 0, target: 1 }, { executionId: "probe" }).pipe(
+      Effect.provide(wiringFor(probeEngine, [CountTo], []))
+    )
+  )
+  // Every implementation in a mixed list keeps its own requirement.
+  durable(
+    CountTo.execute({ value: 0, target: 1 }, { executionId: "probe" }).pipe(
+      Effect.provide(wiringFor(probeEngine, [CountTo], [marking([]), incrementing([])]))
+    )
+  )
+}
+
+describe("missing implementation compile probe", () => {
+  it("removing an action's implementation makes tsc reject the execution", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(missingImplementationProbe).toBeTypeOf("function")
+  })
 })

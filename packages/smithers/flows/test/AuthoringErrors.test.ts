@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -68,11 +69,11 @@ type DurableServices = Layer.Success<typeof services>
 const durable = <A, E>(body: Effect.Effect<A, E, DurableServices | Crypto.Crypto | Scope.Scope>) =>
   Effect.scoped(body.pipe(Effect.provide(services), Effect.provide(hostCrypto)))
 
-type Implementation = Layer.Layer<never, never, Action.Implementations | FlowRuntime.FlowRuntime>
+/** A flow registration provides nothing; its cast erases only schema inputs. */
+type Registration = Layer.Layer<never, never, Action.Implementations | FlowRuntime.FlowRuntime>
 
 const incarnation = (options: {
   readonly flows: ReadonlyArray<Flow.Any>
-  readonly implementations?: ReadonlyArray<Implementation> | undefined
 }) =>
   Effect.gen(function*() {
     const engine = yield* EngineStore.make({
@@ -80,10 +81,8 @@ const incarnation = (options: {
       journalSource: "authoring-errors",
       isAlive: () => Effect.succeed(false)
     })
-    const wiring = [
-      ...options.implementations ?? [],
-      ...options.flows.map((flow) => Interpreter.layer(flow as never) as Implementation)
-    ].reduce<Implementation>((left, right) => Layer.merge(left, right), Layer.empty).pipe(
+    const wiring = options.flows.map((flow) => Interpreter.layer(flow as never) as Registration)
+      .reduce<Registration>((left, right) => Layer.merge(left, right), Layer.empty).pipe(
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
     )
@@ -229,4 +228,21 @@ describe("authoring input errors", () => {
         expect(String(error)).toContain("unknown-execution")
       }
     }))
+})
+
+/** A service no harness layer provides. */
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()("test/AuthoringErrors/Unprovided") {}
+
+/** Never called; tsc checks it (#2347). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error the durable stores do not provide Unprovided
+  durable(Effect.map(Unprovided, (service) => service.value))
+  durable(Effect.succeed(1))
+}
+
+describe("unprovided service compile probe", () => {
+  it("rejects a body that needs a service the durable harness does not provide", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
 })
