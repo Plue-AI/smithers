@@ -504,6 +504,55 @@ describe("Evaluator.layerVercelGateway", () => {
     expect(error.message).toContain(message)
   })
 
+  it("stops reading a 200 body past maxResponseBytes instead of buffering it", async () => {
+    let pulled = 0
+    const chunk = new Uint8Array(64 * 1024).fill(0x20)
+    const endless = new ReadableStream<Uint8Array>({
+      pull: (controller) => {
+        pulled += chunk.byteLength
+        controller.enqueue(chunk)
+      }
+    })
+    const layer = Evaluator.layerVercelGateway({ apiKey: Redacted.make("k") }).pipe(
+      Layer.provide(httpLayer([], () => new Response(endless, { status: 200 })))
+    )
+
+    const error = failure(await evaluate(layer))
+
+    expect(error).toMatchObject({ code: "empty", status: 200 })
+    expect(error.message).toContain(`exceeds ${Evaluator.maxResponseBytes} bytes`)
+    expect(pulled).toBeLessThan(Evaluator.maxResponseBytes + 4 * chunk.byteLength)
+  })
+
+  it("fails a 200 whose body stream breaks as empty", async () => {
+    const broken = new ReadableStream<Uint8Array>({ pull: (controller) => controller.error(new Error("reset")) })
+    const layer = Evaluator.layerVercelGateway({ apiKey: Redacted.make("k") }).pipe(
+      Layer.provide(httpLayer([], () => new Response(broken, { status: 200 })))
+    )
+
+    const error = failure(await evaluate(layer))
+
+    expect(error).toMatchObject({ code: "empty", status: 200 })
+    expect(error.message).toContain("Unreadable body")
+  })
+
+  it.each([
+    ["embedded credentials", "https://user:pass@gateway.example.test/evaluate"],
+    ["a credential query parameter", "https://gateway.example.test/evaluate?api_key=x"],
+    ["a non-http scheme", "file:///etc/passwd"]
+  ])("never signs the key onto a baseUrl with %s", async (_, baseUrl) => {
+    const sent: Array<Sent> = []
+    const layer = Evaluator.layerVercelGateway({ apiKey: Redacted.make("vck_secret"), baseUrl }).pipe(
+      Layer.provide(httpLayer(sent, () => json(recorded)))
+    )
+
+    const error = failure(await evaluate(layer))
+
+    expect(error.code).toBe("unreachable")
+    expect(error.message).toContain("Invalid baseUrl")
+    expect(sent).toHaveLength(0)
+  })
+
   it("fails an answer the raw schema rejects as invalid_answer", async () => {
     const layer = Evaluator.layerVercelGateway({ apiKey: Redacted.make("k") }).pipe(
       Layer.provide(httpLayer([], () => json({ answers: { relevant: { type: "boolean", probability: "high" } } })))

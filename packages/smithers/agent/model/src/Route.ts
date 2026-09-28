@@ -218,12 +218,41 @@ const compile = <Body, Frame, Event, State>(
  * seat builds for one run shares it. Bounded: the oldest conversation is
  * forgotten first, and a forgotten one only costs its next request the
  * routing hint.
+ *
+ * A slot is keyed by the route, the endpoint, a fingerprint of the signed
+ * credential and the cache key, so two accounts in one process that share a
+ * cache key never carry each other's token. A refreshed credential starts a
+ * new slot, which costs one request the routing hint.
  */
 const affinity = new Map<string, string>()
 const affinityLimit = 1024
 
-const affinitySlot = (routeId: string, request: ModelRequest): string | undefined =>
-  request.cacheKey === undefined ? undefined : `${routeId}\u0000${request.cacheKey}`
+/** A fingerprint of what `Auth.sign` added to the public headers. */
+const credentialFingerprint = (
+  publicHeaders: Readonly<Record<string, string>>,
+  signed: Readonly<Record<string, string>>
+): string =>
+  CanonicalJson.shortHash(
+    Object.entries(signed)
+      .filter(([name, value]) => publicHeaders[name] !== value)
+      .map(([name, value]) => `${name.toLowerCase()}\u0000${value}`)
+      .sort()
+      .join("\u0000")
+  )
+
+const affinitySlot = (
+  prepared: {
+    readonly routeId: string
+    readonly url: string
+    readonly publicHeaders: Readonly<Record<string, string>>
+  },
+  request: ModelRequest,
+  signed: Readonly<Record<string, string>>
+): string | undefined =>
+  request.cacheKey === undefined
+    ? undefined
+    : [prepared.routeId, prepared.url, credentialFingerprint(prepared.publicHeaders, signed), request.cacheKey]
+      .join("\u0000")
 
 const rememberAffinity = (slot: string, value: string): void => {
   affinity.delete(slot)
@@ -241,12 +270,17 @@ const stream = <Body, Frame, Event, State>(
       Effect.fn("flows/model/Route.stream")(function*() {
         const { prepared, request: snapshot } = yield* compile(route, request)
         const affinityHeader = route.protocol.affinityHeader
-        const slot = affinityHeader === undefined ? undefined : affinitySlot(route.id, snapshot)
-        WireTrace.record({ ...prepared, affinity: slot !== undefined && affinity.has(slot) })
+        let traced = false
         const attempt = Effect.gen(function*() {
+          const signed = yield* route.auth.sign({ ...prepared.publicHeaders })
+          const slot = affinityHeader === undefined ? undefined : affinitySlot(prepared, snapshot, signed)
           const token = slot === undefined ? undefined : affinity.get(slot)
+          if (!traced) {
+            traced = true
+            WireTrace.record({ ...prepared, affinity: token !== undefined })
+          }
           const signedHeaders = {
-            ...yield* route.auth.sign({ ...prepared.publicHeaders }),
+            ...signed,
             ...(token === undefined ? {} : { [affinityHeader!]: token })
           }
           const httpRequest = HttpClientRequest.post(prepared.url, { headers: signedHeaders }).pipe(

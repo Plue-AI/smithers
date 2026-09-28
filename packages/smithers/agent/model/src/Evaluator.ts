@@ -470,6 +470,16 @@ export const protocolVersion = "0.0.1"
 export const specificationVersion = "4"
 
 /**
+ * The most bytes one gateway answer may carry. A body past it fails `empty`
+ * without being buffered or parsed, so a hostile or broken gateway cannot
+ * exhaust the host's memory.
+ *
+ * @category constants
+ * @since 1.0.0-rc.1
+ */
+export const maxResponseBytes = 1_048_576
+
+/**
  * Options for {@link layerVercelGateway}.
  *
  * `apiKey` is the Vercel AI Gateway key, either in hand or as a `Config` read
@@ -494,6 +504,34 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
 const decodeRawAnswers = Schema.decodeUnknownEffect(RawAnswers)
+
+/**
+ * The response body as text, read chunk by chunk and abandoned the moment it
+ * passes {@link maxResponseBytes}.
+ */
+const cappedText = (response: HttpClientResponse.HttpClientResponse): Effect.Effect<string, EvaluatorError> =>
+  Effect.suspend(() => {
+    const decoder = new TextDecoder()
+    let text = ""
+    let bytes = 0
+    return Stream.runForEach(response.stream, (chunk: Uint8Array) => {
+      bytes += chunk.byteLength
+      if (bytes > maxResponseBytes) {
+        return Effect.fail(
+          new EvaluatorError({ code: "empty", status: 200, message: `The body exceeds ${maxResponseBytes} bytes` })
+        )
+      }
+      text += decoder.decode(chunk, { stream: true })
+      return Effect.void
+    }).pipe(
+      Effect.mapError((error) =>
+        error instanceof EvaluatorError
+          ? error
+          : new EvaluatorError({ code: "empty", status: 200, message: `Unreadable body: ${error.reason._tag}` })
+      ),
+      Effect.map(() => text + decoder.decode())
+    )
+  })
 
 /**
  * The per-question confidence the provider reported, at the path the gateway
@@ -595,11 +633,20 @@ export function layerVercelGateway(
       const timeoutMs = options.timeoutMs ?? defaultTimeoutMs
       const attempts = Math.max(1, Math.floor(options.attempts ?? defaultAttempts))
       const zeroDataRetention = options.zeroDataRetention ?? true
-      const baseUrl = options.baseUrl ?? defaultBaseUrl
+      // The key is signed onto this URL, so it passes the same validation as
+      // every model route's: no embedded credentials, fragments or
+      // credential-looking query parameters.
+      const endpoint = Endpoint.make({ url: options.baseUrl ?? defaultBaseUrl })
 
       const evaluate = (request: Request): Effect.Effect<Response, EvaluatorError> =>
         Effect.gen(function*() {
           const started = yield* Clock.currentTimeMillis
+          if (Result.isFailure(endpoint)) {
+            return yield* Effect.fail(
+              new EvaluatorError({ code: "unreachable", message: `Invalid baseUrl: ${endpoint.failure.message}` })
+            )
+          }
+          const baseUrl = Endpoint.render(endpoint.success)
           // The questions are encoded through their schema rather than handed
           // to `JSON.stringify` as they stand: a question is a class instance
           // on the typed path and an object literal on the ad-hoc one, and the
@@ -679,11 +726,11 @@ export function layerVercelGateway(
               })
             )
           }
-          const body = yield* response.json.pipe(
-            Effect.mapError((error) =>
-              new EvaluatorError({ code: "empty", status: 200, message: `Unreadable body: ${error.reason._tag}` })
-            )
-          )
+          const text = yield* cappedText(response)
+          const body = yield* Effect.try({
+            try: (): unknown => JSON.parse(text),
+            catch: () => new EvaluatorError({ code: "empty", status: 200, message: "Unreadable body: Decode" })
+          })
           if (!isRecord(body) || !isRecord(body["answers"])) {
             return yield* Effect.fail(
               new EvaluatorError({ code: "empty", status: 200, message: "The body carried no answers" })

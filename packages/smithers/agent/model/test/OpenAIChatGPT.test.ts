@@ -183,7 +183,8 @@ describe("OpenAIChatGPT turn-state affinity", () => {
   /** Streams each request through one model and records the headers it left with. */
   const drive = async (
     requests: ReadonlyArray<ModelRequest.ModelRequest>,
-    turnStates: ReadonlyArray<string | undefined>
+    turnStates: ReadonlyArray<string | undefined>,
+    build: () => ReturnType<typeof route> = route
   ) => {
     const sent: Array<Readonly<Record<string, string>>> = []
     const executor = RequestExecutor.RequestExecutor.of({
@@ -204,7 +205,7 @@ describe("OpenAIChatGPT turn-state affinity", () => {
     })
     for (const each of requests) {
       await Effect.runPromise(Effect.scoped(
-        Route.toModel(route()).pipe(
+        Route.toModel(build()).pipe(
           Effect.flatMap((model) => model.stream(each).pipe(Stream.runDrain)),
           Effect.provideService(RequestExecutor.RequestExecutor, executor)
         )
@@ -236,6 +237,17 @@ describe("OpenAIChatGPT turn-state affinity", () => {
     expect(sent.map((headers) => headers["x-codex-turn-state"])).toEqual([undefined, undefined, undefined])
     const view = await prepared(request({ cacheKey: "sealed" }))
     expect(view.publicHeaders).not.toHaveProperty("x-codex-turn-state")
+  })
+
+  it("never carries one account's turn state onto another account's request with the same cache key", async () => {
+    const key = `shared-${Math.random()}`
+    const account = (token: string) => () =>
+      Result.getOrThrow(OpenAIChatGPT.make({ auth: Auth.bearer(Redacted.make(token)) }))
+    await drive([request({ cacheKey: key })], ["tenant-a-state"], account("tenant-a"))
+    const other = await drive([request({ cacheKey: key })], [], account("tenant-b"))
+    expect(other[0]?.["x-codex-turn-state"]).toBeUndefined()
+    const same = await drive([request({ cacheKey: key })], [], account("tenant-a"))
+    expect(same[0]?.["x-codex-turn-state"]).toBe("tenant-a-state")
   })
 
   it("forgets the oldest conversation once it remembers more than 1,024", async () => {
