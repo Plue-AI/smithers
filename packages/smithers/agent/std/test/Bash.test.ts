@@ -1034,7 +1034,7 @@ describe("Bash", () => {
     expect(spawns).toEqual([])
   })
 
-  it("makes the hermetic and unhermetic tiers explicit", () => {
+  it("keeps hermetic and unhermetic tiers irreversible", () => {
     expect(Bash.effects).toMatchObject({
       tier: "irreversible",
       mode: "expected",
@@ -1047,7 +1047,7 @@ describe("Bash", () => {
       reads: ["/work/input"],
       writes: ["/work/output"]
     })).toMatchObject({
-      tier: "compensable",
+      tier: "irreversible",
       mode: "hermetic",
       reads: ["/work/input"],
       writes: ["/work/output"]

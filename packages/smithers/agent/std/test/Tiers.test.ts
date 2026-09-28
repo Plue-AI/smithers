@@ -54,7 +54,7 @@ describe("effect tiers", () => {
     }
   })
 
-  it("narrows hermetic bash calls to the compensable tier", () => {
+  it("keeps hermetic bash calls irreversible", () => {
     const input = Schema.decodeUnknownSync(Bash.Input)({
       command: "printf ok",
       mode: "hermetic",
@@ -62,7 +62,7 @@ describe("effect tiers", () => {
       writes: []
     })
 
-    expect(Bash.effectsFor(input).tier).toBe("compensable")
+    expect(Bash.effectsFor(input).tier).toBe("irreversible")
   })
 
   it("keeps every lsp query on the static workspace read envelope", () => {

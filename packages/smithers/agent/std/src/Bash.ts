@@ -235,7 +235,7 @@ export const effects = envelope({
 export const effectsFor = (input: Input) =>
   input.mode === "hermetic"
     ? envelope({
-      tier: "compensable",
+      tier: "irreversible",
       mode: "hermetic",
       reads: input.reads,
       writes: input.writes
