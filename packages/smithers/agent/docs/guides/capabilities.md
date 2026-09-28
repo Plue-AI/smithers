@@ -82,8 +82,11 @@ wires its `ask` through the control plane this way; see
 seat resolver:
 
 ```ts
-const judgeSeat = yield* resolver.resolve("openai:gpt-6-astra")
-const judge = Evaluator.layerFromSeat(judgeSeat)
+const judge = Effect.gen(function*() {
+  const resolver = yield* SeatResolver.SeatResolver
+  const seat = yield* resolver.resolve("openai:gpt-6-astra")
+  return Evaluator.layerFromSeat(seat)
+})
 ```
 
 Codex and Claude subscriptions need no provider API key or gateway key.
