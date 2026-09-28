@@ -29,6 +29,7 @@ const decoder = new TextDecoder()
 
 type VendorSandbox = Awaited<ReturnType<Sdk["get"]>>
 type CreateInput = NonNullable<Parameters<Sdk["create"]>[0]>
+type NetworkSettings = Parameters<VendorSandbox["updateNetworkSettings"]>[0]
 
 // -----------------------------------------------------------------------------
 // The Daytona SDK as a fake: real shells behind the vendor's promise surface.
@@ -118,6 +119,8 @@ interface Faults {
   createFailure?: unknown
   /** `start` is refused. */
   startFailure?: unknown
+  /** `updateNetworkSettings` is refused. */
+  networkFailure?: unknown
   /** `delete` is refused. */
   deleteFailure?: unknown
   /** `getWorkDir` is refused. */
@@ -139,6 +142,8 @@ interface Recorded {
   >
   readonly executes: Array<ExecuteCall>
   readonly uploads: Array<{ readonly path: string; readonly content: Uint8Array }>
+  /** Each network update, with the number of guest commands executed before it. */
+  readonly networkUpdates: Array<{ readonly settings: NetworkSettings; readonly executedBefore: number }>
 }
 
 const fakeSdk = (faults: Faults = {}): {
@@ -147,7 +152,15 @@ const fakeSdk = (faults: Faults = {}): {
   readonly machines: Map<string, Machine>
   readonly seed: (name: string, dir?: string) => Machine
 } => {
-  const recorded: Recorded = { gets: [], creates: [], starts: [], deletes: [], executes: [], uploads: [] }
+  const recorded: Recorded = {
+    gets: [],
+    creates: [],
+    starts: [],
+    deletes: [],
+    executes: [],
+    uploads: [],
+    networkUpdates: []
+  }
   const machines = new Map<string, Machine>()
   let nextId = 1
   const seed = (name: string, dir?: string): Machine => {
@@ -164,6 +177,13 @@ const fakeSdk = (faults: Faults = {}): {
   const instance = (machine: Machine): VendorSandbox => ({
     id: machine.id,
     name: machine.name,
+    // The runner applies network settings as iptables rules on a running
+    // sandbox container.
+    updateNetworkSettings: async (settings) => {
+      if (!machine.running) throw new Error(`the fake was asked to update a stopped sandbox: ${machine.name}`)
+      recorded.networkUpdates.push({ settings, executedBefore: recorded.executes.length })
+      if (faults.networkFailure !== undefined) throw faults.networkFailure
+    },
     getWorkDir: () =>
       faults.workdirFailure === undefined ? Promise.resolve(machine.dir) : Promise.reject(faults.workdirFailure),
     process: {
@@ -260,12 +280,60 @@ const output = (session: Session, command: string, options: Parameters<Session["
   )
 
 describe("DaytonaSandbox", () => {
-  it("refuses every network policy at construction, before touching its dependencies", () => {
-    const deps = untouchable<never>()
-    for (const network of ["none", { allow: ["example.com"] }] as const) {
-      expect(() => DaytonaSandbox.make({ sdk: deps.value, network }))
-        .toThrow("daytona-sandbox: cannot enforce a network policy; omit `network`")
+  const policies = [
+    { network: "none", settings: { networkBlockAll: true } },
+    { network: { allow: [] }, settings: { networkBlockAll: true } },
+    {
+      network: { allow: ["registry.npmjs.org", "*.github.com"] },
+      settings: { domainAllowList: "registry.npmjs.org,*.github.com" }
     }
+  ] as const
+
+  it.effect("creates a sandbox under the vendor network settings for each policy", () =>
+    Effect.gen(function*() {
+      for (const { network, settings } of policies) {
+        const fake = fakeSdk()
+        yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk, network }), Effect.succeed)
+        expect(fake.recorded.creates).toEqual([{ name: `smthrs-${sessionSlug("run-1")}`, ...settings }])
+        expect(fake.recorded.networkUpdates).toEqual([])
+      }
+    }))
+
+  it.effect("re-applies the policy to a reattached sandbox before any guest command", () =>
+    Effect.gen(function*() {
+      for (const { network, settings } of policies) {
+        const fake = fakeSdk()
+        fake.seed(`smthrs-${sessionSlug("run-1")}`)
+        yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk, network }), Effect.succeed)
+        expect(fake.recorded.creates).toEqual([])
+        expect(fake.recorded.networkUpdates).toEqual([{ settings, executedBefore: 0 }])
+      }
+    }))
+
+  it.effect("leaves a reattached sandbox's network alone when no policy is set", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.seed(`smthrs-${sessionSlug("run-1")}`)
+      yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk }), Effect.succeed)
+      expect(fake.recorded.networkUpdates).toEqual([])
+    }))
+
+  it.effect("fails a reattach whose network update is refused, runs nothing, and deletes it", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk({ networkFailure: new Error("runner refused") })
+      const machine = fake.seed(`smthrs-${sessionSlug("run-1")}`)
+      const failure = yield* Effect.flip(
+        acquired(DaytonaSandbox.make({ sdk: fake.sdk, network: "none" }), Effect.succeed)
+      )
+      expect((failure as ProviderError).code).toBe("unavailable")
+      expect(fake.recorded.executes).toEqual([])
+      expect(fake.recorded.deletes.map(({ id }) => id)).toEqual([machine.id])
+    }))
+
+  it("refuses a malformed allowlist at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    expect(() => DaytonaSandbox.make({ sdk: deps.value, network: { allow: ["https://example.com"] } }))
+      .toThrow("daytona-sandbox: network allowlist entry is not a host name")
     expect(deps.touched).toEqual([])
   })
 

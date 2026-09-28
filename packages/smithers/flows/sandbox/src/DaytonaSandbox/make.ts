@@ -19,7 +19,7 @@ import { rootedAt } from "../internal/rootedPath.ts"
 import { stdinRedirect } from "../internal/stdinRedirect.ts"
 import { warnTeardown } from "../internal/teardownWarning.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
-import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
+import { type NetworkPolicy, validateNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { Sdk } from "./Sdk.ts"
@@ -32,8 +32,10 @@ import type { Sdk } from "./Sdk.ts"
  */
 export interface DaytonaSandboxOptions {
   /**
-   * Refused: a reattached sandbox keeps the network it was created with, unverified. Setting it makes `make` throw rather than hand out a
-   * machine with a network it did not ask for.
+   * The guest network. `"none"` and an empty allowlist send
+   * `networkBlockAll`; `{ allow }` sends `domainAllowList`. A reattached
+   * sandbox gets the same settings through `updateNetworkSettings` before any
+   * guest command. Default: Daytona's own network.
    */
   readonly network?: NetworkPolicy | undefined
   /** A configured `Daytona` client instance. */
@@ -71,6 +73,14 @@ const missingFile = (cause: unknown): boolean => field(cause, "code") === "FILE_
 
 const attempt = attemptIn("daytona-sandbox")
 
+const networkSettings = (network: NetworkPolicy | undefined) => {
+  if (network === undefined) return undefined
+  const policy = validateNetworkPolicy("daytona-sandbox", network)
+  return policy === "none" || policy.allow.length === 0
+    ? { networkBlockAll: true }
+    : { domainAllowList: policy.allow.join(",") }
+}
+
 /**
  * Builds a provider backed by Daytona sandboxes.
  *
@@ -106,7 +116,7 @@ const attempt = attemptIn("daytona-sandbox")
  * @since 0.1.0
  */
 export const make = (options: DaytonaSandboxOptions): Provider => {
-  refuseNetworkPolicy("daytona-sandbox", options.network)
+  const network = networkSettings(options.network)
   return {
     acquire: (sessionKey) =>
       Effect.gen(function*() {
@@ -126,7 +136,7 @@ export const make = (options: DaytonaSandboxOptions): Provider => {
                 return { sandbox: await options.sdk.get(name), attached: true }
               } catch (cause) {
                 if (!missingSandbox(cause)) throw cause
-                return { sandbox: await options.sdk.create({ name }), attached: false }
+                return { sandbox: await options.sdk.create({ name, ...network }), attached: false }
               }
             },
             catch: providerFailure("unavailable", `daytona-sandbox: could not acquire ${name}`)
@@ -149,6 +159,15 @@ export const make = (options: DaytonaSandboxOptions): Provider => {
             "unavailable",
             `could not start ${name}`
           )
+          // A reattached sandbox keeps the network it was created with until
+          // told otherwise; the runner applies these to the running container.
+          if (network !== undefined) {
+            yield* attempt(
+              () => held.sandbox.updateNetworkSettings(network),
+              "unavailable",
+              `could not apply the network policy to ${name}`
+            )
+          }
         }
         const discovered = options.workdir === undefined
           ? yield* attempt(() => held.sandbox.getWorkDir(), "unavailable", `could not discover ${name}'s workdir`)

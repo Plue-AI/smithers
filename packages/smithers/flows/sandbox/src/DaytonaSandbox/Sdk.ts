@@ -29,15 +29,27 @@ interface Process {
   ): Promise<ExecuteResponse>
 }
 
+/**
+ * Outbound network settings. The runner enforces them as iptables rules on
+ * the sandbox container: `networkBlockAll` denies all egress, and
+ * `domainAllowList` is a comma-separated list of domains, `*.` wildcards
+ * included, that egress is limited to.
+ */
+interface NetworkSettings {
+  readonly networkBlockAll?: boolean | undefined
+  readonly domainAllowList?: string | undefined
+}
+
 interface SandboxInstance {
   readonly id: string
   readonly name: string
   readonly fs: FileSystem
   readonly process: Process
   getWorkDir(): Promise<string | undefined>
+  updateNetworkSettings(settings: NetworkSettings): Promise<void>
 }
 
-interface CreateInput {
+interface CreateInput extends NetworkSettings {
   readonly name?: string | undefined
 }
 
@@ -48,7 +60,8 @@ interface CreateInput {
  * this structural slice avoids importing the vendor package or its Node-only
  * transitive dependencies into `@smthrs/sandbox`. The shapes mirror the
  * published `@daytonaio/sdk` 0.207.0 typings: `get`/`create`/`start`/`delete`
- * on the client, `getWorkDir` on the sandbox, `process.executeCommand`
+ * on the client, `getWorkDir` and `updateNetworkSettings` on the sandbox,
+ * `networkBlockAll`/`domainAllowList` on create, `process.executeCommand`
  * returning `{ exitCode, result }`, and `fs.downloadFile` (a `Buffer` is a
  * `Uint8Array`) / `fs.uploadFileStream` (whose `UploadSource` accepts a
  * `Uint8Array`) for file transfer.
