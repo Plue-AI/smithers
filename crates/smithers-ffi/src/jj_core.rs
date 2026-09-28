@@ -77,7 +77,7 @@ pub fn load_repo(repo_path: &Path, settings: &UserSettings) -> anyhow::Result<Ar
 pub enum ChangeIdResolution {
     /// Single matching commit found.
     Found(CommitId),
-    /// Multiple commits match the prefix.
+    /// Multiple commits match the prefix, including divergent changes.
     Ambiguous,
     /// No matching commit.
     NotFound,
@@ -91,10 +91,11 @@ pub fn resolve_change_id(repo: &Arc<ReadonlyRepo>, change_id: &str) -> ChangeIdR
 
     match repo.resolve_change_id_prefix(&prefix) {
         Ok(PrefixResolution::SingleMatch(targets)) => {
-            if let Some((_, commit_id)) = targets.visible_with_offsets().next() {
-                ChangeIdResolution::Found(commit_id.clone())
-            } else {
-                ChangeIdResolution::NotFound
+            let mut visible = targets.visible_with_offsets();
+            match (visible.next(), visible.next()) {
+                (None, _) => ChangeIdResolution::NotFound,
+                (Some((_, commit_id)), None) => ChangeIdResolution::Found(commit_id.clone()),
+                (Some(_), Some(_)) => ChangeIdResolution::Ambiguous,
             }
         }
         Ok(PrefixResolution::AmbiguousMatch) => ChangeIdResolution::Ambiguous,

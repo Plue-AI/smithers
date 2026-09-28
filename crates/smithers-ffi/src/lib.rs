@@ -6372,6 +6372,116 @@ mod tests {
     }
 
     #[test]
+    fn ffi_rejects_divergent_change_id_but_accepts_commit_id() {
+        use jj_lib::object_id::{HexPrefix, PrefixResolution};
+
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_path = repo_path(&tmp);
+        let repo_path_c = c_path(&repo_path);
+        let _ = unsafe { take_json(smithers_init_repo(repo_path_c.as_ptr())) };
+        create_commit_with_files(&repo_path, "original", &[("README.md", "original\n")]);
+
+        let settings = create_settings(&UserConfig::default());
+        let (_, repo) = load_repo_at_head(&repo_path, &settings).expect("load base operation");
+        let original_id = repo
+            .view()
+            .get_wc_commit_id(WorkspaceName::DEFAULT)
+            .expect("original working-copy commit");
+        let original = repo
+            .store()
+            .get_commit(original_id)
+            .expect("original commit");
+
+        // Both transactions start from the same operation and rewrite the same
+        // change. Loading at head reconciles the concurrent JJ operations.
+        let mut left_tx = repo.start_transaction();
+        let left = left_tx
+            .repo_mut()
+            .rewrite_commit(&original)
+            .set_description("left revision")
+            .write()
+            .block_on()
+            .expect("write left revision");
+        left_tx
+            .repo_mut()
+            .rebase_descendants()
+            .block_on()
+            .expect("finish left rewrite");
+        left_tx
+            .commit("left rewrite")
+            .block_on()
+            .expect("commit left");
+
+        let mut right_tx = repo.start_transaction();
+        let right = right_tx
+            .repo_mut()
+            .rewrite_commit(&original)
+            .set_description("right revision")
+            .write()
+            .block_on()
+            .expect("write right revision");
+        right_tx
+            .repo_mut()
+            .rebase_descendants()
+            .block_on()
+            .expect("finish right rewrite");
+        right_tx
+            .commit("right rewrite")
+            .block_on()
+            .expect("commit right");
+
+        let (_, reconciled) =
+            load_repo_at_head(&repo_path, &settings).expect("reconcile concurrent operations");
+        let change_id = original.change_id().reverse_hex();
+        assert_eq!(left.change_id().reverse_hex(), change_id);
+        assert_eq!(right.change_id().reverse_hex(), change_id);
+        assert_ne!(left.id(), right.id());
+        let prefix = HexPrefix::try_from_reverse_hex(change_id.as_bytes())
+            .expect("full change ID is a valid prefix");
+        let PrefixResolution::SingleMatch(targets) = reconciled
+            .resolve_change_id_prefix(&prefix)
+            .expect("resolve reconciled change")
+        else {
+            panic!("full change ID must resolve to its target set");
+        };
+        let visible: HashSet<_> = targets
+            .visible_with_offsets()
+            .map(|(_, commit_id)| commit_id.clone())
+            .collect();
+        assert_eq!(
+            visible,
+            HashSet::from([left.id().clone(), right.id().clone()])
+        );
+
+        for (revision, description) in [(&left, "left revision"), (&right, "right revision")] {
+            let commit_id = revision.id().hex();
+            let response = unsafe {
+                take_json(smithers_get_change(
+                    repo_path_c.as_ptr(),
+                    c_string(&commit_id).as_ptr(),
+                ))
+            };
+            assert_eq!(response["commit_id"], commit_id, "{response}");
+            assert_eq!(response["change_id"], change_id, "{response}");
+            assert_eq!(response["description"], description, "{response}");
+        }
+
+        let response = unsafe {
+            take_json(smithers_get_change(
+                repo_path_c.as_ptr(),
+                c_string(&change_id).as_ptr(),
+            ))
+        };
+        assert_eq!(response["code"], "bad_request", "{response}");
+        assert!(
+            response["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("ambiguous")),
+            "{response}"
+        );
+    }
+
+    #[test]
     fn ffi_working_tree_status_reflects_on_disk_edits() {
         let tmp = TempDir::new().expect("tempdir");
         let repo_path = repo_path(&tmp);
