@@ -423,6 +423,19 @@ mod tests {
     use std::ffi::{CStr, CString};
     use std::net::TcpListener;
 
+    fn require_curl() {
+        let status = Command::new("curl")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("source publication tests require curl on PATH");
+        assert!(
+            status.success(),
+            "source publication tests require working curl"
+        );
+    }
+
     fn fixture() -> (tempfile::TempDir, Config, Request) {
         let temp = tempfile::TempDir::new().unwrap();
         let settings = create_settings(&UserConfig::default());
@@ -529,8 +542,22 @@ mod tests {
         reply: impl Fn(usize) -> Option<(u16, serde_json::Value)> + Send + 'static,
     ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
             for index in 0..count {
-                let (mut stream, _) = listener.accept().unwrap();
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "timed out waiting for source publication HTTP request {index}"
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        Err(error) => panic!("source publication HTTP accept failed: {error}"),
+                    }
+                };
                 stream
                     .set_read_timeout(Some(std::time::Duration::from_secs(10)))
                     .unwrap();
@@ -569,6 +596,7 @@ mod tests {
 
     #[test]
     fn publication_replay_precedes_source_fence_and_only_explicit_missing_permits_push() {
+        require_curl();
         for mode in [
             "replay",
             "missing",
@@ -627,6 +655,7 @@ mod tests {
 
     #[test]
     fn native_transport_and_authoritative_ack_recover_lost_ack_after_source_rewrite() {
+        require_curl();
         let (temp, mut config, mut request) = fixture();
         let target = tempfile::TempDir::new().unwrap();
         let settings = create_settings(&UserConfig::default());
@@ -698,6 +727,7 @@ mod tests {
     #[test]
     fn owned_created_source_is_published_without_moving_the_editor_and_proof_is_required_before_ack(
     ) {
+        require_curl();
         let (temp, create_request) = crate::source_create::tests::fixture();
         let (_, mut config, _) = fixture();
         config.repository_path = temp.path().to_str().unwrap().into();
