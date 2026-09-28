@@ -391,14 +391,18 @@ async (input: Judged): Promise<boolean> => {
         : { _tag: "JevFailed", code: "unreachable", message: error instanceof Error ? error.message : String(error) }
     )
   }
-  return Effect.runPromise(Classifier.decodeAnswers(question, response.answers).pipe(
-    Effect.map((answers) => answers.notable.value),
-    Effect.mapError(() => new MonitorError({
-      _tag: "JevFailed",
-      code: "invalid_answer",
-      message: "Jev did not answer the notable question"
-    }))
-  ))
+  return Effect.runPromise(
+    Classifier.decodeAnswers(question, response.answers).pipe(
+      Effect.map((answers) => answers.notable.value),
+      Effect.mapError(() =>
+        new MonitorError({
+          _tag: "JevFailed",
+          code: "invalid_answer",
+          message: "Jev did not answer the notable question"
+        })
+      )
+    )
+  )
 }
 
 /** What Luna is told. */
