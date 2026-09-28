@@ -1860,6 +1860,37 @@ export const Package = S.Package({ targets: { review } })
     expect(logs).toContain("the codex CLI is not installed on this host, so the review did not run")
     expect(logs).toContain("0 failed, 1 skipped")
   })
+
+  /** A PATH whose `codex` answers every review with one finding at `severity`. */
+  const pathWithFinding = async (root: string, severity: "error" | "warning"): Promise<string> => {
+    const bin = await pathWithoutEngine(root)
+    const findings = JSON.stringify([{ file: "src/a.ts", line: 1, severity, message: "[general] confirmed: seeded" }])
+    const event = JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: findings } })
+    await Fs.writeFile(
+      NodePath.join(bin, "codex"),
+      `#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '${event}'\n`,
+      { mode: 0o755 }
+    )
+    return bin
+  }
+
+  it("prints every finding of a failing review", async () => {
+    const root = await reviewWorkspace()
+    const bin = await pathWithFinding(root, "error")
+    const { exitCode, logs } = await withPath(bin, () => serve(root, ["review", "//:review"]))
+    expect(exitCode).toBe(1)
+    expect(logs).toContain("1 review finding(s); failing at error")
+    expect(logs).toContain("src/a.ts:1 error: [general] confirmed: seeded")
+  })
+
+  it("prints the findings of a passing review", async () => {
+    const root = await reviewWorkspace()
+    const bin = await pathWithFinding(root, "warning")
+    const { exitCode, logs } = await withPath(bin, () => serve(root, ["review", "//:review", "--verbose"]))
+    expect(exitCode).toBe(0)
+    expect(logs).toContain("//:review  1 review finding(s)")
+    expect(logs).toContain("src/a.ts:1 warning: [general] confirmed: seeded")
+  })
 })
 
 describe("data-edge law", () => {

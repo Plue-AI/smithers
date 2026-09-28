@@ -3148,11 +3148,12 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
     const omitExclusive = (verb === "test" || options.unattended === true) && wildcard &&
       options.includeExclusive !== true
     // A wildcard omits a target declared for other hosts; a pattern that names
-    // it keeps it, and the closure check below refuses it.
+    // it keeps it, and the closure check below refuses it. A wildcard also
+    // omits a manual target, which only a label or a named pattern selects.
     const rows = index.resolve(pattern).filter((row) => {
       const metadata = Target.metadata(row.target)
       return (!omitExclusive || !Target.isExclusive(metadata.attrs)) &&
-        (!wildcard || (metadata.hosts?.includes(platform) ?? true))
+        (!wildcard || ((metadata.hosts?.includes(platform) ?? true) && !metadata.manual))
     })
     const eligible = verb === "auto"
       ? rows

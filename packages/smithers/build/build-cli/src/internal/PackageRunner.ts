@@ -259,6 +259,34 @@ const isFilesTestError = (value: unknown): value is Compose.FilesTestError =>
 /** How many rows a file-set verdict names before summarizing the rest. */
 const sampleLimit = 20
 
+/** How many model-review findings a status line names before summarizing the rest. */
+const reviewFindingLimit = 200
+
+interface ReviewFinding {
+  readonly file: string
+  readonly line: number
+  readonly severity: string
+  readonly message: string
+}
+
+/** Whether a value carries LlmLint's findings array, as its report or its FindingsError does. */
+const reviewFindingsOf = (value: unknown): ReadonlyArray<ReviewFinding> | undefined => {
+  if (typeof value !== "object" || value === null || !("findings" in value)) return undefined
+  const findings = (value as { readonly findings: unknown }).findings
+  return Array.isArray(findings) ? findings as ReadonlyArray<ReviewFinding> : undefined
+}
+
+/**
+ * Renders model-review findings one per line. A review's findings are its
+ * whole result, so a status line that dropped them would report a failed
+ * review with no reason and a passing one with its warnings hidden.
+ */
+const renderReviewFindings = (findings: ReadonlyArray<ReviewFinding>): string =>
+  findings
+    .slice(0, reviewFindingLimit)
+    .map((finding) => `\n  ${finding.file}:${finding.line} ${finding.severity}: ${finding.message}`)
+    .join("") + (findings.length > reviewFindingLimit ? `\n  (+${findings.length - reviewFindingLimit} more)` : "")
+
 const sampleRows = (title: string, rows: ReadonlyArray<string>): string =>
   rows.length === 0
     ? ""
@@ -825,6 +853,16 @@ export const executeEffect = (
      */
     const outcomeOfTargetFailure = (label: string, cause: Cause.Cause<unknown>): Outcome => {
       const value: unknown = Cause.squash(cause)
+      if (
+        typeof value === "object" && value !== null &&
+        (value as { readonly _tag?: unknown })._tag === "smithers-build/FindingsError"
+      ) {
+        const findings = reviewFindingsOf(value) ?? []
+        const failOn = (value as { readonly failOn?: unknown }).failOn
+        return fail(
+          `${findings.length} review finding(s); failing at ${String(failOn)}${renderReviewFindings(findings)}`
+        )
+      }
       if (!engineCliMissing(value)) return fail(Executor.describeFailure(value))
       const notice = `the ${value.executable} CLI is not installed on this host, so the review did not run`
       log(`smthrs: skipped ${label}: ${notice}`)
@@ -2835,6 +2873,12 @@ export const executeEffect = (
                 output
               )).pipe(Effect.ensuring(Effect.sync(output.close)))
               if (Exit.isFailure(exit)) return outcomeOfTargetFailure(node.label, exit.cause)
+              const reviewFindings = Target.metadata(node.declaration).target === "LlmLint"
+                ? reviewFindingsOf(exit.value)
+                : undefined
+              if (reviewFindings !== undefined && reviewFindings.length > 0) {
+                log(`${node.label}  ${reviewFindings.length} review finding(s)${renderReviewFindings(reviewFindings)}`)
+              }
               const produced = yield* verifyTargetOutputs(node, exit.value)
               if (produced !== undefined) return fail(produced)
               if (node.cacheable) {
