@@ -1,6 +1,6 @@
 import { NodeChildProcessSpawner, NodeFileSystem } from "@effect/platform-node"
 import { afterAll, describe, expect, it } from "@effect/vitest"
-import { Effect, Layer, Logger, Path, Stream } from "effect"
+import { Effect, Exit, Layer, Logger, Path, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import {
@@ -100,6 +100,8 @@ interface Machine {
   readonly name: string
   dir: string | undefined
   running: boolean
+  createdAt?: string | undefined
+  autoDestroyAt?: string | undefined
 }
 
 interface ExecuteCall {
@@ -144,6 +146,8 @@ interface Recorded {
   readonly uploads: Array<{ readonly path: string; readonly content: Uint8Array }>
   /** Each network update, with the number of guest commands executed before it. */
   readonly networkUpdates: Array<{ readonly settings: NetworkSettings; readonly executedBefore: number }>
+  /** Each `setTtl`, with the number of starts before it. */
+  readonly ttls: Array<{ readonly minutes: number; readonly startsBefore: number }>
 }
 
 const fakeSdk = (faults: Faults = {}): {
@@ -159,7 +163,8 @@ const fakeSdk = (faults: Faults = {}): {
     deletes: [],
     executes: [],
     uploads: [],
-    networkUpdates: []
+    networkUpdates: [],
+    ttls: []
   }
   const machines = new Map<string, Machine>()
   let nextId = 1
@@ -183,6 +188,11 @@ const fakeSdk = (faults: Faults = {}): {
       if (!machine.running) throw new Error(`the fake was asked to update a stopped sandbox: ${machine.name}`)
       recorded.networkUpdates.push({ settings, executedBefore: recorded.executes.length })
       if (faults.networkFailure !== undefined) throw faults.networkFailure
+    },
+    createdAt: machine.createdAt,
+    autoDestroyAt: machine.autoDestroyAt,
+    setTtl: async (minutes) => {
+      recorded.ttls.push({ minutes, startsBefore: recorded.starts.length })
     },
     getWorkDir: () =>
       faults.workdirFailure === undefined ? Promise.resolve(machine.dir) : Promise.reject(faults.workdirFailure),
@@ -336,6 +346,47 @@ describe("DaytonaSandbox", () => {
       .toThrow("daytona-sandbox: network allowlist entry is not a host name")
     expect(deps.touched).toEqual([])
   })
+
+  it.effect("bounds a reattached sandbox to the neutral lifetime counted from its creation", () =>
+    Effect.gen(function*() {
+      // The test clock stands at the epoch, so creation times are offsets from it.
+      const at = (minutes: number) => new Date(minutes * 60_000).toISOString()
+      const name = `smthrs-${sessionSlug("run-1")}`
+      const reattach = (machine: Partial<Machine>) => {
+        const fake = fakeSdk()
+        Object.assign(fake.seed(name), machine)
+        return Effect.map(
+          Effect.exit(acquired(DaytonaSandbox.make({ sdk: fake.sdk, limits: { timeoutSecs: 3600 } }), Effect.succeed)),
+          (exit) => ({ exit, recorded: fake.recorded })
+        )
+      }
+
+      // Created 10 minutes ago with no TTL: pulled in to 50 minutes from now, before it starts.
+      const unbounded = yield* reattach({ createdAt: at(-10) })
+      expect(Exit.isSuccess(unbounded.exit)).toBe(true)
+      expect(unbounded.recorded.ttls).toEqual([{ minutes: 50, startsBefore: 0 }])
+      expect(unbounded.recorded.creates).toEqual([])
+      // Created with a longer TTL: pulled in as well.
+      const longer = yield* reattach({ createdAt: at(-10), autoDestroyAt: at(120) })
+      expect(longer.recorded.ttls).toEqual([{ minutes: 50, startsBefore: 0 }])
+      // Already due sooner than the requested lifetime: left alone.
+      const sooner = yield* reattach({ createdAt: at(-10), autoDestroyAt: at(20) })
+      expect(Exit.isSuccess(sooner.exit)).toBe(true)
+      expect(sooner.recorded.ttls).toEqual([])
+
+      // Older than the requested lifetime, or of unknown age: refused before it starts.
+      for (
+        const [machine, message] of [
+          [{ createdAt: at(-60) }, "has outlived limits.timeoutSecs 3600"],
+          [{}, "reports no creation time"]
+        ] as const
+      ) {
+        const refused = yield* reattach(machine)
+        expect(String(Exit.isFailure(refused.exit) ? refused.exit.cause : "")).toContain(message)
+        expect(refused.recorded.starts).toEqual([])
+        expect(refused.recorded.executes).toEqual([])
+      }
+    }))
 
   it.effect("creates under the neutral lifetime as ttlMinutes", () =>
     Effect.gen(function*() {

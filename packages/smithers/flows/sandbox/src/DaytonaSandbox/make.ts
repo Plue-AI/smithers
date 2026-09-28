@@ -5,6 +5,7 @@
  */
 
 import * as CommandLine from "@smthrs/kernel/CommandLine"
+import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import { attemptIn } from "../internal/attempt.ts"
@@ -41,8 +42,10 @@ export interface DaytonaSandboxOptions {
   readonly network?: NetworkPolicy | undefined
   /**
    * The sandbox's ceilings. `timeoutSecs`, a whole number of minutes, is
-   * `ttlMinutes`: Daytona destroys the sandbox that long after creating it,
-   * and a reattached sandbox keeps the lifetime it was created with.
+   * `ttlMinutes`: Daytona destroys the sandbox that long after creating it.
+   * A reattached sandbox whose own TTL ends later, or never, has it pulled in
+   * to that deadline before it starts; one past it, or reporting no creation
+   * time, is refused.
    * `cpus` and `memoryMib` are refused: Daytona sizes only an image-built
    * sandbox, and this provider creates from the default snapshot.
    */
@@ -172,6 +175,34 @@ export const make = (options: DaytonaSandboxOptions): Provider => {
               `daytona sandbox ${name}`
             )
         )
+        if (held.attached && limits?.timeoutSecs !== undefined) {
+          // `ttlMinutes` reaches only a sandbox this acquire creates. A
+          // reattached one keeps whatever TTL it was made with, so its
+          // deadline is checked against creation plus the requested lifetime
+          // and pulled in when it runs later or never.
+          const createdAt = Date.parse(held.sandbox.createdAt ?? "")
+          if (Number.isNaN(createdAt)) {
+            return yield* Effect.fail(
+              new ProviderError({
+                code: "unavailable",
+                message: `daytona-sandbox: ${name} reports no creation time, so limits.timeoutSecs cannot be enforced`
+              })
+            )
+          }
+          const deadline = createdAt + limits.timeoutSecs * 1000
+          if (!(Date.parse(held.sandbox.autoDestroyAt ?? "") <= deadline)) {
+            const minutes = Math.floor((deadline - (yield* Clock.currentTimeMillis)) / 60_000)
+            if (minutes < 1) {
+              return yield* Effect.fail(
+                new ProviderError({
+                  code: "unavailable",
+                  message: `daytona-sandbox: ${name} has outlived limits.timeoutSecs ${limits.timeoutSecs}`
+                })
+              )
+            }
+            yield* attempt(() => held.sandbox.setTtl(minutes), "unavailable", `could not bound ${name}'s lifetime`)
+          }
+        }
         if (held.attached) {
           yield* attempt(
             () => options.sdk.start(held.sandbox, options.startTimeoutSeconds),

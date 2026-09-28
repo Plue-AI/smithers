@@ -45,8 +45,14 @@ interface SandboxInstance {
   readonly name: string
   readonly fs: FileSystem
   readonly process: Process
+  /** When the sandbox was created, as an ISO 8601 timestamp. */
+  readonly createdAt?: string | undefined
+  /** When the sandbox's TTL destroys it, as an ISO 8601 timestamp; absent without a TTL. */
+  readonly autoDestroyAt?: string | undefined
   getWorkDir(): Promise<string | undefined>
   updateNetworkSettings(settings: NetworkSettings): Promise<void>
+  /** Re-anchors the TTL to this many minutes from now; `0` disables it. */
+  setTtl(ttlMinutes: number): Promise<void>
 }
 
 interface CreateInput extends NetworkSettings {
@@ -62,7 +68,8 @@ interface CreateInput extends NetworkSettings {
  * this structural slice avoids importing the vendor package or its Node-only
  * transitive dependencies into `@smthrs/sandbox`. The shapes mirror the
  * published `@daytonaio/sdk` 0.207.0 typings: `get`/`create`/`start`/`delete`
- * on the client, `getWorkDir` and `updateNetworkSettings` on the sandbox,
+ * on the client, `createdAt`, `autoDestroyAt`, `getWorkDir`, `updateNetworkSettings`,
+ * and `setTtl` on the sandbox,
  * `networkBlockAll`/`domainAllowList`/`ttlMinutes` on create, `process.executeCommand`
  * returning `{ exitCode, result }`, and `fs.downloadFile` (a `Buffer` is a
  * `Uint8Array`) / `fs.uploadFileStream` (whose `UploadSource` accepts a
