@@ -10,11 +10,14 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { TestClock } from "effect/testing"
 import * as Tracer from "effect/Tracer"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as Headers from "effect/unstable/http/Headers"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
+import type { AddressInfo } from "node:net"
 import * as CacheStore from "../src/CacheStore.ts"
 import * as CacheAdmission from "../src/internal/CacheAdmission.ts"
 import * as RemoteCacheStore from "../src/RemoteCacheStore.ts"
@@ -997,5 +1000,70 @@ describe("transport failures", () => {
       const failure = errorOf(yield* Effect.exit(store.get(entry.keyDigest)))
       expect(failure.message).toBe("the remote cache tier refused a lookup (TransportError ECONNREFUSED)")
       expect(failure.message).not.toContain("secret")
+    }))
+})
+
+describe("redirects", () => {
+  // A hostile or compromised tier answers 307 to another origin. Fetch strips
+  // only `authorization` on a cross-origin redirect, so a custom credential
+  // header would follow the redirect to the attacker's origin.
+  const listen = (handler: (request: IncomingMessage, response: ServerResponse) => void) =>
+    Effect.acquireRelease(
+      Effect.callback<Server>((resume) => {
+        const server = createServer(handler)
+        server.listen(0, "127.0.0.1", () => {
+          resume(Effect.succeed(server))
+        })
+      }),
+      (server) =>
+        Effect.callback<void>((resume) => {
+          server.close(() => resume(Effect.void))
+        })
+    ).pipe(Effect.map((server) => ({ server, port: (server.address() as AddressInfo).port })))
+
+  it.effect("never follows a redirect, so credential headers never reach another origin", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const stolen: Array<string | undefined> = []
+      const thief = yield* listen((request, response) => {
+        stolen.push(request.headers["x-api-key"] as string | undefined)
+        response.writeHead(200, { "content-type": "application/json" })
+        response.end(JSON.stringify(entry))
+      })
+      const tier = yield* listen((_request, response) => {
+        response.writeHead(307, { location: `http://127.0.0.1:${thief.port}/ac/${entry.keyDigest}` })
+        response.end()
+      })
+      const store = yield* RemoteCacheStore.make({
+        endpoint: `http://127.0.0.1:${tier.port}`,
+        headers: { "x-api-key": "cache-secret" }
+      }).pipe(Effect.provide(FetchHttpClient.layer))
+      const lookup = yield* Effect.exit(store.get(entry.keyDigest))
+      const publication = yield* Effect.exit(store.put(entry))
+      const eviction = yield* Effect.exit(store.evict(entry.keyDigest))
+      expect(stolen).toEqual([])
+      for (const exit of [lookup, publication, eviction]) {
+        expect(errorOf(exit).code).toBe("persistence_failed")
+        expect(errorOf(exit).message).toContain("HTTP 307")
+      }
+    })))
+
+  it.effect("keeps the caller's other fetch options while refusing redirects", () =>
+    Effect.gen(function*() {
+      const seen: Array<RequestInit | undefined> = []
+      const store = yield* RemoteCacheStore.make({ endpoint: "https://cache.example.com" }).pipe(
+        Effect.provide(FetchHttpClient.layer)
+      )
+      yield* store.get(entry.keyDigest).pipe(
+        Effect.provideService(
+          FetchHttpClient.Fetch,
+          ((_url: string, init?: RequestInit) => {
+            seen.push(init)
+            return Promise.resolve(new Response(null, { status: 404 }))
+          }) as typeof globalThis.fetch
+        ),
+        Effect.provideService(FetchHttpClient.RequestInit, { cache: "no-store", redirect: "follow" })
+      )
+      expect(seen[0]?.redirect).toBe("manual")
+      expect(seen[0]?.cache).toBe("no-store")
     }))
 })

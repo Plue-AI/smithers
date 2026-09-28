@@ -46,9 +46,31 @@ const CacheRow = Schema.Struct({
 
 type CacheRow = typeof CacheRow.Type
 
+/**
+ * Whether `value` encodes past `maximum` UTF-8 bytes. The byte limit is a
+ * limit on bytes: a code-unit count admits up to three times as much text in
+ * characters outside ASCII. A lone surrogate counts as the three bytes of its
+ * replacement character.
+ */
+const exceedsUtf8Bytes = (value: string, maximum: number): boolean => {
+  if (value.length > maximum) return true
+  let bytes = 0
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index)
+    if (unit <= 0x7f) bytes++
+    else if (unit <= 0x7ff) bytes += 2
+    else if (unit >= 0xd800 && unit <= 0xdbff && (value.charCodeAt(index + 1) & 0xfc00) === 0xdc00) {
+      bytes += 4
+      index++
+    } else bytes += 3
+    if (bytes > maximum) return true
+  }
+  return false
+}
+
 const decode = (value: string, field: string): Effect.Effect<unknown, CacheStoreError> =>
   Effect.suspend(() => {
-    if (value.length > maximumJsonBytes) {
+    if (exceedsUtf8Bytes(value, maximumJsonBytes)) {
       return Effect.fail(error("decode_failed", `${field} exceeds the ${maximumJsonBytes}-byte limit`))
     }
     let parsed: unknown

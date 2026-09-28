@@ -72,3 +72,28 @@ describe("shared-tier guide error vocabulary", () => {
     expect(guide).not.toMatch(/text that is not JSON[\s\S]*?fail with `decode_failed`/)
   })
 })
+
+const shareGuide = readFileSync(new URL("../docs/guides/share-results-across-machines.md", import.meta.url), "utf8")
+const tiers = readFileSync(new URL("../docs/concepts/tiers.md", import.meta.url), "utf8")
+const admission = readFileSync(new URL("../docs/concepts/admission.md", import.meta.url), "utf8")
+
+describe("shared-tier trust boundary", () => {
+  it("requires the server to authenticate every request and authorize writes and deletes", () => {
+    // The client checks key grammar, keyDigest, and bounds only; a well-formed
+    // forged entry under the right address is replayed as the step's output.
+    expect(guide).toContain("## Authenticate and authorize every request")
+    expect(guide).toMatch(/Authenticate every `GET`, `PUT`, and `DELETE`/)
+    expect(guide).toMatch(/Authorize `PUT` and `DELETE` per caller/)
+    expect(guide).toMatch(/Scope keys per tenant or project/)
+    expect(guide.replace(/\s+/g, " ")).toContain(
+      "do not stop a well-formed entry that a writer publishes under the correct address"
+    )
+  })
+
+  it("warns that cached results reach the shared tier verbatim", () => {
+    for (const page of [shareGuide, tiers, admission]) {
+      expect(page).toMatch(/verbatim/)
+      expect(page).toMatch(/must not be cached on a shared tier/)
+    }
+  })
+})

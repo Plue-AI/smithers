@@ -62,6 +62,16 @@ A write transaction must never span a host call. A caller holding one wants
 `"deferred"`.
 :::
 
+## The shared tier sees results verbatim
+
+Cached results are never redacted (see [what the cache admits](./admission.md)),
+so a publication sends the step's `result` and `meta` verbatim to the shared
+tier, and every host and operator with read access there can read them. Steps
+whose results contain secrets must not be cached on a shared tier. In the other
+direction, a shared hit is written back locally and replayed as the step's own
+output, so whoever can write to the tier decides what other machines replay:
+[authenticate and authorize every request](../guides/implement-a-shared-tier.md#authenticate-and-authorize-every-request).
+
 ## Publication order is the caller's job
 
 A cache entry must never be observable in the shared tier while an artifact it

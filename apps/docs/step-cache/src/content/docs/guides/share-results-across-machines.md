@@ -22,6 +22,15 @@ network is involved.
 - The local store's database and migrations, as in
   [compose a durable step cache](/guides/compose-a-store/).
 
+:::caution
+Cached results are published verbatim. The cache never redacts a step's
+`result` or `meta`, so with inline publication every machine and operator with
+read access to the shared tier can read what the step returned. Steps whose
+results contain secrets must not be cached on a shared tier. The server must
+also authenticate every request and limit writes to trusted callers; see
+[implement a shared cache server](/guides/implement-a-shared-tier/#authenticate-and-authorize-every-request).
+:::
+
 ## 1. Build the shared tier
 
 `RemoteCacheStore.make` validates its options and answers a
@@ -45,6 +54,10 @@ const remote = RemoteCacheStore.make({
 | `headers`          | Sent with every request. The record is copied and frozen when the store is built, so a later mutation changes nothing.     |
 | `requestTimeout`   | One deadline for a whole operation: its request, its response body, and the decoding between them. Defaults to 60 seconds. |
 | `maxResponseBytes` | Largest cache-entry response accepted. Defaults to 4 MiB, and may not exceed it.                                           |
+
+The client never follows a redirect, so a tier that answers `3xx` fails the
+operation with `persistence_failed` instead of sending `headers` to another
+origin. Do not wrap the `HttpClient` in `HttpClient.followRedirects`.
 
 The endpoint and its credentials are a capability, never an input. They are not
 hashed into a step key and never journaled, which is why they arrive as

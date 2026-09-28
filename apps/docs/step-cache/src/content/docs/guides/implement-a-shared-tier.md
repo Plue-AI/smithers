@@ -14,6 +14,26 @@ The blob on the wire is the JSON encoding of a `CacheStore.CacheEntry`, not a
 REAPI `ActionResult` proto: the recorded result and its journal provenance are
 the thing being shared.
 
+## Authenticate and authorize every request
+
+The tier is a trust boundary. Every host that reads from it writes a hit back
+into its local store and replays it as the step's own output, so any caller
+that can `PUT` can inject results into other machines' runs, and any caller
+that can `DELETE` can wipe entries they replay from. The protocol carries no
+authentication of its own, and nothing below replaces yours:
+
+- Authenticate every `GET`, `PUT`, and `DELETE` on `/ac/{keyDigest}` before
+  touching storage, with the credential clients send in `headers`. Answer
+  `401` or `403`; the client reports either as `persistence_failed`.
+- Authorize `PUT` and `DELETE` per caller. Grant them only to trusted writers,
+  such as your CI or build hosts, and give read-only machines `GET` alone.
+- Scope keys per tenant or project, so one tenant's writer can neither read
+  nor overwrite another's entries under the same `keyDigest`.
+
+The client-side checks in [what the client already does](#what-the-client-already-does)
+reject malformed and misrouted entries. They do not stop a well-formed entry
+that a writer publishes under the correct address.
+
 ## The three requests
 
 Every path resolves beneath the configured endpoint, and a trailing slash on
@@ -79,7 +99,8 @@ an entry recorded under different provenance is the documented fallback.
 ## Refuse exactly what the client refuses
 
 The boundary checks are exported, so your service can run the same ones rather
-than reimplementing them:
+than reimplementing them. Run them after the caller is authenticated and
+authorized:
 
 ```ts
 import * as CacheStore from "@smthrs/step-cache/CacheStore"
@@ -140,7 +161,7 @@ const fenceOf = (params: URLSearchParams) => {
 
 Validate the server with these `DELETE` cases:
 
-- Neither parameter: allow an unconditional delete.
+- Neither parameter: allow an unconditional delete to an authorized writer.
 - Only `recordedRunId` or only `recordedEventSeq`: `400`, with no deletion.
 - An empty value for either parameter, or duplicate values for either (even
   identical values): `400`, with no deletion.

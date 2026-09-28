@@ -293,8 +293,8 @@ const maximumJsonBytes: number
 ```
 
 Maximum encoded bytes admitted for one `result` or `meta` tree: 4 MiB. It also
-bounds a single string inside a tree, and a stored row longer than it is
-refused before it is parsed.
+bounds a single string inside a tree, and a stored row whose UTF-8 encoding is
+longer than it is refused before it is parsed.
 
 ### maximumJsonDepth
 
@@ -608,6 +608,13 @@ redaction policy locally, preserving its defaults and custom matchers.
 Each operation closes its HTTP response scope before returning, including
 misses, errors, publications, evictions, deadlines, and caller interruption.
 Unread responses are aborted when that scope closes.
+
+Redirects are never followed. A fetch-backed client runs every request with
+`redirect: "manual"`, keeping the caller's other `FetchHttpClient.RequestInit`
+options, so a `3xx` fails the operation with `persistence_failed` and the
+credential headers never reach the redirect target. Do not wrap the client in
+`HttpClient.followRedirects`: that middleware forwards every header except
+`authorization`, `proxy-authorization`, and `cookie` to another origin.
 
 `maxResponseBytes` counts encoded UTF-8 bytes, inclusively. Declared lengths
 above the bound are rejected before reading; streamed bodies stop at the first

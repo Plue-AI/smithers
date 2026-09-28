@@ -71,6 +71,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as Headers from "effect/unstable/http/Headers"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -95,6 +96,7 @@ export interface Options {
    * deliberately construction-time — see the module doc.
    * All configured names are redacted case-insensitively in Effect HTTP
    * tracing spans, preserving the caller's existing header redaction policy.
+   * Redirects are never followed, so these headers reach only the endpoint.
    */
   readonly headers?: Readonly<Record<string, string>> | undefined
   /**
@@ -337,11 +339,20 @@ export const make = (
         Effect.timeout(requestDeadline),
         Effect.catchTag("TimeoutError", () => Effect.fail(timedOut()))
       )
+    // Redirects are never followed. A tier that answers 3xx to another origin
+    // would otherwise receive the credential headers there: fetch strips only
+    // `authorization` on a cross-origin hop, never a custom header such as
+    // `x-api-key`. A fetch-backed client keeps the caller's other options and
+    // hands back the 3xx, which every operation reports as `persistence_failed`.
     const send = (operation: string, request: HttpClientRequest.HttpClientRequest) =>
-      HttpClient.withScope(client).execute(authorize(request)).pipe(
-        Effect.updateService(Headers.CurrentRedactedNames, (names) => [...names, ...credentialNames]),
-        Effect.mapError((cause) => transportFailure(operation, cause))
-      )
+      Effect.flatMap(Effect.serviceOption(FetchHttpClient.RequestInit), (init) =>
+        HttpClient.withScope(client).execute(authorize(request)).pipe(
+          Effect.provideService(FetchHttpClient.RequestInit, { ...Option.getOrUndefined(init), redirect: "manual" }),
+          Effect.updateService(Headers.CurrentRedactedNames, (names) => [...names, ...credentialNames]),
+          Effect.mapError((cause) =>
+            transportFailure(operation, cause)
+          )
+        ))
     const readBounded = (response: HttpClientResponse.HttpClientResponse) =>
       Effect.gen(function*() {
         const declared = response.headers["content-length"]

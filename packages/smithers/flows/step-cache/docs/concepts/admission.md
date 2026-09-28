@@ -95,6 +95,10 @@ and a non-string value replaced by a placeholder string breaks schema decoding
 on resume. `result` and `meta` round-trip through canonical JSON and come back
 as the values the step produced.
 
+The same bytes are what a shared tier stores: publication sends `result` and
+`meta` verbatim to every host and operator with access to it. Steps whose
+results contain secrets must not be cached on a shared tier.
+
 ## Reusing the boundary
 
 The checks are exported, so an adapter implementing this contract elsewhere,

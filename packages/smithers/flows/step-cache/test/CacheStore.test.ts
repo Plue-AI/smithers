@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest"
+import { describe, expect, it, vi } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
@@ -751,6 +751,37 @@ describe("CacheStore", () => {
         return yield* Effect.flip(store.get(entry.keyDigest))
       }))
       expect(failure.code).toBe("decode_failed")
+    }))
+
+  it.effect("measures a durable JSON row in UTF-8 bytes, not code units, before parsing it", () =>
+    Effect.gen(function*() {
+      // Half the byte limit in three-byte characters: the string length is
+      // under the limit while its UTF-8 encoding is half again past it.
+      const row = JSON.stringify("\u20ac".repeat(CacheStoreLive.maximumJsonBytes / 2))
+      expect(row.length).toBeLessThanOrEqual(CacheStoreLive.maximumJsonBytes)
+      const parse = vi.spyOn(JSON, "parse")
+      const failure = yield* migrated(Effect.gen(function*() {
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const store = yield* CacheStore
+        yield* store.put(entry)
+        yield* sql`UPDATE flows_step_cache SET result_json = ${row}`
+        parse.mockClear()
+        return yield* Effect.flip(store.get(entry.keyDigest))
+      })).pipe(Effect.ensuring(Effect.sync(() => parse.mockRestore())))
+      expect(failure.code).toBe("decode_failed")
+      expect(failure.message).toBe(`result_json exceeds the ${CacheStoreLive.maximumJsonBytes}-byte limit`)
+      expect(parse.mock.calls.some(([text]) => text === row)).toBe(false)
+    }))
+
+  it.effect("admits a durable row of two-, three-, and four-byte characters within the byte limit", () =>
+    Effect.gen(function*() {
+      const result = { text: "\u00e9\u20ac\ud83d\ude00" }
+      const served = yield* migrated(Effect.gen(function*() {
+        const store = yield* CacheStore
+        yield* store.put({ ...entry, result })
+        return yield* store.get(entry.keyDigest)
+      }))
+      expect(Option.getOrThrow(served).result).toEqual(result)
     }))
 
   it.effect("refuses a durable JSON row beyond the nesting policy", () =>
