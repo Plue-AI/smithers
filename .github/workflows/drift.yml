@@ -1,0 +1,56 @@
+name: "Drift"
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  "drift":
+    name: "Per-commit drift"
+    runs-on: "ubuntu-latest"
+    timeout-minutes: 10
+    steps:
+      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+        with:
+          "node-version-file": ".node-version"
+          "cache": "pnpm"
+      - name: "Install certified npm"
+        run: |
+          npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = '11.16.0'
+        shell: "bash"
+      - uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
+        with:
+          "bun-version": "1.4.1"
+      - run: "pnpm install --frozen-lockfile --ignore-scripts"
+      - name: "Install system packages"
+        id: setup
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
+            if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            fi
+          fi
+        shell: "bash"
+      - name: "Formatting"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//...:fmt' --verbose"
+      - name: "Target index drift"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//:targetIndex' --verbose"
+      - name: "Documentation drift"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//scripts:docsDrift' --verbose"
+      - name: "Declaration baseline"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs build '//scripts:apiBaseline' --verbose"
+      - name: "Generated drift workflow"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//:driftCi' --verbose"

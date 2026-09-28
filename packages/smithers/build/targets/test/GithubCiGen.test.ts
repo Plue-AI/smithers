@@ -13,6 +13,7 @@ import * as Fs from "node:fs/promises"
 import { tmpdir } from "node:os"
 import * as NodePath from "node:path"
 import { describe, expect, it } from "vitest"
+import * as Yaml from "yaml"
 import * as CiToolchain from "../src/CiToolchain.ts"
 import {
   actionlintImages,
@@ -58,6 +59,33 @@ describe("CI concurrency", () => {
     )
     expect(workflow).not.toContain("github.sha)")
     expect(render({ ...goldenAttrs, cancelInProgress: false })).toContain("cancel-in-progress: false")
+  })
+
+  it("defaults to ref concurrency and renders explicit ref identically", () => {
+    expect(render({ ...goldenAttrs, concurrency: "ref" })).toBe(render(goldenAttrs))
+  })
+
+  it("isolates commit concurrency by workflow, event, ref, and sha without cancellation", () => {
+    for (const cancelInProgress of [true, false]) {
+      const source = render({ ...goldenAttrs, concurrency: "commit", cancelInProgress })
+      parseWorkflow(source)
+      const workflow = Yaml.parse(source) as { concurrency: { group: string; "cancel-in-progress": boolean } }
+      const group = workflow.concurrency.group
+      expect(group).toBeDefined()
+      for (const context of ["github.workflow", "github.event_name", "github.ref", "github.sha"]) {
+        expect(group).toContain(context)
+      }
+      expect(workflow.concurrency["cancel-in-progress"]).toBe(false)
+      expect(group).not.toContain("github.event.pull_request.number")
+      expect(group).not.toBe((Yaml.parse(render(goldenAttrs)) as { concurrency: { group: string } }).concurrency.group)
+    }
+  })
+
+  it("rejects unsupported concurrency through the schema and direct renderer", () => {
+    for (const concurrency of ["branch", "", "sha", 42]) {
+      expect(() => attrsOf({ ...goldenAttrs, concurrency })).toThrow()
+      expect(() => render({ ...goldenAttrs, concurrency } as never)).toThrow(/concurrency must be ref or commit/)
+    }
   })
 })
 

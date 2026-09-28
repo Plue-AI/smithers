@@ -292,6 +292,30 @@ const nativeFilesystem = [{
   platforms: ["linux", "darwin", "win32"]
 }] as const
 
+// Cheap drift checks retain a verdict for every commit independently of full CI.
+const driftCi = Smithers.GithubCiGen({
+  workflowName: "Drift",
+  output: ".github/workflows/drift.yml",
+  concurrency: "commit",
+  workflowDispatch: false,
+  mode: "check",
+  requiredJobs: ["drift"],
+  jobs: [{
+    id: "drift",
+    name: "Per-commit drift",
+    runsOn: ubuntu,
+    timeoutMinutes: 10,
+    toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun], apt: bubblewrap }),
+    steps: [
+      { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
+      { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
+      { name: "Documentation drift", verb: Smithers.Verb.Lint, pattern: "//scripts:docsDrift" },
+      { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
+      { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" }
+    ]
+  }]
+})
+
 const ci = Smithers.GithubCiGen({
   summary: "Regenerate and drift-check .github/workflows/ci.yml, the pipeline definition (not the run itself).",
   featured: true,
@@ -376,7 +400,8 @@ const ci = Smithers.GithubCiGen({
             ".github/workflows/review.yml",
             ".github/workflows/reliability.yml",
             ".github/workflows/native-windows.yml",
-            ".github/workflows/mirror-sync.yml"
+            ".github/workflows/mirror-sync.yml",
+            ".github/workflows/drift.yml"
           ]
         })
       }),
@@ -1065,6 +1090,7 @@ export const Package = Smithers.Package({
     commit,
     changelog,
     ci,
+    driftCi,
     factoryHarness,
     factoryProjection,
     reviewDocsAgainstCode,

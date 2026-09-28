@@ -223,6 +223,23 @@ const webBundleContract = Smithers.NodeTest({
 })
 
 /**
+ * Every public package's declarations hash to the reviewed
+ * `scripts/fixtures/public-api-baseline.json`.
+ *
+ * Emits only declarations into an isolated temporary tree. Packing and runtime
+ * bundles are unnecessary for drift, and must not race this gate's outputs.
+ *
+ * @since 1.0.0
+ * @category build
+ */
+const apiBaseline = Smithers.NodeBinary({
+  entry: Smithers.file("//scripts/check-api-baseline.mjs"),
+  args: ["--build-declarations"],
+  srcs: sources,
+  deps: []
+})
+
+/**
  * Packs every publishable workspace package into {@link packDirectory}.
  *
  * A build target rather than a test: its product is the pack tree the smoke
@@ -241,25 +258,26 @@ const releasePack = Smithers.NodeBinary({
   // packages admitted under `packages/`. `lib` is the whole distribution,
   // `dist/esm` and `dist/cjs`, which is what `assertBuilt` in the packing
   // program requires; nothing here depends on a prior `pnpm run build`.
-  deps: [Smithers.Target.subtree("//packages/...", "lib")]
+  deps: [apiBaseline, Smithers.Target.subtree("//packages/...", "lib")]
 })
 
-/**
- * Every public package's declarations hash to the reviewed
- * `scripts/fixtures/public-api-baseline.json`.
- *
- * Depends on {@link releasePack}, which removes and rebuilds every package
- * `dist`, so this reads the clean release build after it settles instead of
- * racing it, and a declaration change that skips the baseline review fails on
- * the push that made it, not at release.
- *
- * @since 1.0.0
- * @category test
- */
-const apiBaseline = Smithers.NodeTest({
-  runner: Smithers.entrypoint(Smithers.file("//scripts/check-api-baseline.mjs")),
-  srcs: sources,
-  deps: [releasePack]
+const docsDrift = Smithers.Shell.Diff({
+  shell: "pnpm run docs:check && cd apps/site && node scripts/sync-support-docs.mjs --check && node scripts/gen-cli-data.mjs --check && node scripts/sync-api-docs.mjs --check && node scripts/ingest-reference.mjs --check && node scripts/gen-examples.mjs --check && node scripts/generate-llms.mjs --check",
+  changes: [],
+  timeout: "5m"
+})
+
+const driftJob = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/ci/drift-job.test.mjs")]),
+  srcs: [
+    ...sources,
+    Smithers.file("//PACKAGE.ts"),
+    Smithers.file("//package.json"),
+    Smithers.file("//scripts/PACKAGE.ts"),
+    Smithers.file("//.github/workflows/drift.yml"),
+    Smithers.file("//.github/workflows/ci.yml")
+  ],
+  deps: []
 })
 
 /**
@@ -764,6 +782,8 @@ const securityReview = Smithers.SecurityReview({
 export const Package = Smithers.Package({
   targets: {
     apiBaseline,
+    docsDrift,
+    driftJob,
     bunCoverage,
     commit,
     conformanceCheck,

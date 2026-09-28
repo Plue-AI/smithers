@@ -295,6 +295,12 @@ export const Attrs = Schema.Struct({
   workflowDispatch: Schema.Boolean.pipe(
     Schema.withConstructorDefault(Effect.succeed(true))
   ),
+  /**
+   * Lightweight workflows can use `commit` to group by workflow, event, ref and
+   * SHA without cancelling any run. Omitted or `ref` keeps the full workflow's
+   * ref/PR grouping and honors `cancelInProgress`.
+   */
+  concurrency: Schema.optional(Schema.Literals(["ref", "commit"])),
   /** @default true */
   cancelInProgress: Schema.Boolean.pipe(
     Schema.withConstructorDefault(Effect.succeed(true))
@@ -1452,6 +1458,9 @@ export const render = (attrs: Attrs): string => {
   if (attrs.pushBranches.length === 0 && !attrs.pullRequest && !attrs.workflowDispatch) {
     throw new Error("GithubCiGen: write mode needs at least one workflow trigger")
   }
+  if (attrs.concurrency !== undefined && attrs.concurrency !== "ref" && attrs.concurrency !== "commit") {
+    throw new Error("GithubCiGen: concurrency must be ref or commit")
+  }
   validateJobs(attrs)
   const missing = missingGates(attrs)
   if (missing.length > 0) {
@@ -1479,8 +1488,12 @@ export const render = (attrs: Attrs): string => {
     // run per commit (#2071) queued faster than runners drained it and no
     // main run completed for hours (#2085). Superseded PR runs are cancelled;
     // a branch's in-progress run always finishes.
-    "  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
-    `  cancel-in-progress: ${attrs.cancelInProgress ? "${{ github.event_name == 'pull_request' }}" : "false"}`,
+    attrs.concurrency === "commit"
+      ? "  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}"
+      : "  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
+    `  cancel-in-progress: ${
+      attrs.concurrency !== "commit" && attrs.cancelInProgress ? "${{ github.event_name == 'pull_request' }}" : "false"
+    }`,
     // Least privilege: no generated job writes through the default token, so
     // every job reads the repository and nothing else. Secrets reach a job
     // only through its declared step environment.

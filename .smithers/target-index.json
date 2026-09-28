@@ -195,6 +195,31 @@
     }
   },
   {
+    "label": "//:driftCi",
+    "package": "",
+    "name": "driftCi",
+    "rule": "GithubCiGen",
+    "kinds": [
+      "build",
+      "lint"
+    ],
+    "mode": "check",
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": ".github/workflows/drift.yml"
+      }
+    ],
+    "outputs": [
+      ".github/workflows/drift.yml"
+    ],
+    "dependencies": [],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
     "label": "//:factoryHarness",
     "package": "",
     "name": "factoryHarness",
@@ -21143,6 +21168,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/Sandbox/NetworkPolicy.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/sandbox/src/Sandbox/Provider.ts"
       },
       {
@@ -22528,6 +22557,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/backend/Misc.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Process.ts"
       },
       {
         "kind": "file",
@@ -50319,9 +50352,9 @@
     "label": "//scripts:apiBaseline",
     "package": "scripts",
     "name": "apiBaseline",
-    "rule": "NodeTest",
+    "rule": "NodeBinary",
     "kinds": [
-      "test"
+      "build"
     ],
     "cacheable": false,
     "inputs": [
@@ -50346,9 +50379,7 @@
       }
     ],
     "outputs": [],
-    "dependencies": [
-      "//scripts:releasePack"
-    ],
+    "dependencies": [],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
@@ -50590,6 +50621,79 @@
         "kind": "glob",
         "pattern": "scripts/fixtures/**/*.json",
         "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:docsDrift",
+    "package": "scripts",
+    "name": "docsDrift",
+    "rule": "Shell.Diff",
+    "kinds": [
+      "run",
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:driftJob",
+    "package": "scripts",
+    "name": "driftJob",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/ci/drift-job.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "PACKAGE.ts"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/PACKAGE.ts"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/drift.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/ci.yml"
       }
     ],
     "outputs": [],
@@ -51151,7 +51255,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:apiBaseline"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
