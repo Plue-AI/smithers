@@ -99,10 +99,12 @@ export type SubmitApprovalOutput = typeof SubmitApprovalOutput.Type
  * ever reach.
  *
  * `NoMatchingWait` is the one an answer adds: the question was answered after
- * the run moved on, or somebody else answered it first.
+ * the run moved on, or somebody else answered it first. `CodeDrift` is a node
+ * decision on a run whose flow changed since it started (#1807).
  */
 const submitErrors = Schema.Union([
   ControlError.NoMatchingWait,
+  ControlError.CodeDrift,
   ControlError.PlanDigestMismatch,
   ControlError.EnvelopeMismatch,
   ControlError.AlreadyResolved,
