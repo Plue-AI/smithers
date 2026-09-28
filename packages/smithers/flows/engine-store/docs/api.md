@@ -45,9 +45,15 @@ composes, `@smthrs/crypto`, `@smthrs/flow`, `@smthrs/journal`,
 `@smthrs/kernel`, and `@smthrs/engine`, is browser-bundleable too. A release
 that broke the bundle would fail the build before it shipped.
 
-The only `DurableWriter` backing shipped here is `node:sqlite`, so a browser
-composition can import the types and the in-memory helpers but cannot execute
-durable flows. See [platform support](/docs/reference/api/#platform-support).
+The durable stores accept an injected SQL client and `DurableWriter`. Native
+Node.js and Bun compositions use SQLite or the shipped PostgreSQL adapter;
+`NodeDatabase.layer` selects PostgreSQL for a PostgreSQL URL, and
+`@smthrs/database/postgres/PostgresDatabase` supports direct injection. Browser
+bundling does not supply a durable browser driver or qualify browser execution.
+PostgreSQL storage alone does not qualify a canonical backend deployment:
+artifacts, workspaces, and native process state still need durable host storage.
+See [database configuration](https://database.smithers.sh/concepts/sqlite-only/)
+and [platform support](/docs/reference/api/#platform-support).
 
 ## EngineStore
 
@@ -231,11 +237,14 @@ the insert, so a rejected edge leaves no durable trace and, of two concurrent
 writers whose edges jointly close a cycle, exactly one fails. `transaction`
 makes several store operations atomic; nested store writes become savepoints.
 Serialized write transactions are a documented requirement of the
-`DurableWriter.write` contract, not a SQLite artifact: a Postgres-backed
-implementation must use `SERIALIZABLE`. The in-memory twin serializes every
-store operation behind one permit, snapshots its state on entry, rolls back to
-that snapshot when the effect fails or dies, and treats a nested call on the
-same fiber as a savepoint. It is not durable: a process crash loses the whole
+`DurableWriter.write` contract, not a SQLite artifact. The shipped PostgreSQL
+adapter uses READ COMMITTED transactions with a transaction-scoped advisory lock
+keyed by schema, acquired before domain reads to serialize writes across pools
+and processes; nested writes use savepoints. A bare PostgreSQL READ COMMITTED
+client without equivalent serialization is insufficient. The in-memory twin
+serializes every store operation behind one permit, snapshots its state on
+entry, rolls back to that snapshot when the effect fails or dies, and treats a
+nested call on the same fiber as a savepoint. It is not durable: a process crash loses the whole
 in-memory state, not only the uncommitted part.
 
 When engine state and the journal participate together, `StateTransaction`

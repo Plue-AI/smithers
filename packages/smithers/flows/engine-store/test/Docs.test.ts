@@ -117,6 +117,21 @@ describe("source documentation pointers", () => {
     expect(missing).toEqual([])
   })
 
+  it("documents the PostgreSQL isolation used by the shipped adapter", () => {
+    const adapter = readFileSync(
+      new URL("../../database/src/postgres/PostgresDatabase.ts", import.meta.url),
+      "utf8"
+    )
+    const api = readDoc("api.md")
+    expect(adapter).toContain("BEGIN ISOLATION LEVEL READ COMMITTED")
+    expect(adapter).toContain("pg_advisory_xact_lock")
+    expect(api).toContain("READ COMMITTED")
+    expect(api).toContain("transaction-scoped advisory lock")
+    expect(api).toContain("PostgreSQL")
+    expect(api).not.toContain("must use `SERIALIZABLE`")
+    expect(api).not.toContain("only `DurableWriter` backing shipped here is `node:sqlite`")
+  })
+
   it("names the run statuses the schema admits and the real memory transaction", () => {
     const header = read("DurableEngineState.ts")
     expect(header).not.toMatch(/one `waiting` status/)
