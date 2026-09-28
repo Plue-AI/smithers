@@ -121,7 +121,10 @@ without `ps` would retire every record it holds.
 
 **Cause.** Windows has no process groups and no `lstart`, so two guards cannot
 be answered: the identity check falls back to boot-time comparison alone, and
-there is no own-group refusal to make. The path uses `taskkill /T /F` by pid.
+there is no own-group refusal to make. The path runs
+`%SystemRoot%\System32\taskkill.exe /T /F` by pid, by absolute path with an
+inert working directory, so a `taskkill.exe` planted in the host's directory
+never runs.
 
 **Fix.** Nothing, and do not rely on it. Windows is unsupported; this path is
 best-effort so that a win32 record is not silently retired as if reaped.

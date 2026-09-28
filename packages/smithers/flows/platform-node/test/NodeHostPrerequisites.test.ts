@@ -31,9 +31,16 @@ describe("NodeHost prerequisite documentation", () => {
     const example = installation.split("## Individual services without jj")[1]?.split("## ")[0]
     expect(example).toContain("NodeHost.AtomicFileSystem.layer")
     expect(example).toContain("NodeHost.NodeChildProcessSpawner.layer")
-    expect(example).toContain("NodeHost.NodeHttpClient.layerUndici")
     expect(example).toContain("Layer.provide(platform)")
     expect(example).not.toContain("NodeHost.layer")
+  })
+
+  it("composes the egress-aware HTTP client in the copyable individual-services snippet", () => {
+    const section = installation.split("## Individual services without jj")[1]?.split("## ")[0] ?? ""
+    const code = section.split("```ts")[1]?.split("```")[0] ?? ""
+    // A copied snippet must not bypass HTTP_PROXY/HTTPS_PROXY inside an egress-controlled sandbox.
+    expect(code).toContain("NodeHost.EgressHttpClient.layer(process.env)")
+    expect(code).not.toContain("layerUndici")
   })
 
   it("marks the allow-all grant store as a test seam wherever a page composes it", () => {

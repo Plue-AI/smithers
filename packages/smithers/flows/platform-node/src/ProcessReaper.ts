@@ -58,7 +58,7 @@ import type * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { spawnSync } from "node:child_process"
 import { uptime } from "node:os"
-import { parse } from "node:path"
+import { parse, win32 } from "node:path"
 import { packageRoot, resolveDefaultExecutable } from "./internal/AtomicFileSystemExecutable.ts"
 import { usableExecutable } from "./internal/AtomicFileSystemTransport.ts"
 import * as PipedProcess from "./internal/PipedProcess.ts"
@@ -198,6 +198,21 @@ export const defaultPsExecutable = "/bin/ps"
 
 /** How long the probe may take before it counts as an answer nobody gave. */
 const psTimeoutMs = 5000
+
+/**
+ * The Windows directory the host was started with, when it names one.
+ */
+const windowsRoot = (): string => {
+  const systemRoot = process.env.SystemRoot
+  return systemRoot !== undefined && win32.isAbsolute(systemRoot) ? systemRoot : "C:\\Windows"
+}
+
+/**
+ * The system `taskkill`, by absolute path. Windows resolves a bare name from
+ * the current directory before `PATH`, so a flow that wrote `taskkill.exe`
+ * into the host's working directory would otherwise run as the host.
+ */
+const taskkillExecutable = (): string => win32.join(windowsRoot(), "System32", "taskkill.exe")
 
 /** A live-release probe has its own short bound within the shutdown deadline. */
 const cleanupProbeTimeoutMs = 2000
@@ -600,7 +615,12 @@ export const windowsSystemWith = (options?: SystemOptions): System => {
       // `taskkill /T` walks the tree DOWN from the pid it is given, so a record
       // naming this host takes the host and everything it started with it.
       if (record.pid === ownerPid) return "failed"
-      const result = spawnSync("taskkill", ["/pid", String(record.pid), "/T", "/F"], { stdio: "ignore" })
+      const result = spawnSync(taskkillExecutable(), ["/pid", String(record.pid), "/T", "/F"], {
+        // An inert cwd and only the variable Windows system binaries need.
+        cwd: parse(process.execPath).root,
+        env: { SystemRoot: windowsRoot() },
+        stdio: "ignore"
+      })
       if (result.error !== undefined) return "failed"
       // 128 is `taskkill`'s "no such process", which is the same end state a
       // successful kill produces.

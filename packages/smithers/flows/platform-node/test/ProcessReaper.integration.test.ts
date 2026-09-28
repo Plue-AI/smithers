@@ -18,7 +18,7 @@ import NativeMutable, { spawn } from "node:child_process"
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { syncBuiltinESMExports } from "node:module"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, parse, win32 } from "node:path"
 import { afterAll, vi } from "vitest"
 import * as ProcessReaper from "../src/ProcessReaper.ts"
 import { waitForExit } from "./helpers/waitForExit.ts"
@@ -166,12 +166,19 @@ const withPs = (executable: string, nativeResult = process.platform === "win32")
   }
 }
 
+/** The system taskkill the reaper must name: never a bare, searchable command. */
+const taskkill = win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe")
+
 /** Exercises the native taskkill result without signalling a real process. */
 const withTaskkill = <A>(status: number | Error, body: () => A): A => {
   const original = NativeMutable.spawnSync
   const mocked = vi.spyOn(NativeMutable, "spawnSync").mockImplementation((...args: Parameters<typeof original>) => {
-    if (args[0] !== "taskkill") throw new Error("unexpected executable")
+    // A bare "taskkill" is resolved from the cwd first on Windows, where a
+    // flow can plant taskkill.exe; the reaper must name System32's.
+    if (args[0] !== taskkill) throw new Error(`unexpected executable ${String(args[0])}`)
     expect(args[1]).toEqual(["/pid", "4321", "/T", "/F"])
+    expect(args[2]).toMatchObject({ env: { SystemRoot: win32.dirname(win32.dirname(taskkill)) } })
+    expect((args[2] as { readonly cwd?: string }).cwd).toBe(parse(process.execPath).root)
     return {
       pid: 0,
       output: [],
@@ -533,7 +540,7 @@ describe("ProcessReaper", () => {
             signal: null
           }
         }
-        expect(executable).toBe("taskkill")
+        expect(executable).toBe(taskkill)
         expect(args).toEqual(["/pid", "4321", "/T", "/F"])
         return { pid: 0, output: [], stdout: "", stderr: "", status: 0, signal: null }
       })
@@ -758,6 +765,29 @@ describe("ProcessReaper", () => {
     expect(ProcessReaper.windowsSystem.ownGroup()).toBeNull()
     expect(ProcessReaper.systemFor("win32")).toBe(ProcessReaper.windowsSystem)
     expect(ProcessReaper.systemFor("darwin")).toBe(ProcessReaper.posixSystem)
+  })
+
+  it.each([
+    ["D:\\Win", "D:\\Win\\System32\\taskkill.exe"],
+    ["planted", "C:\\Windows\\System32\\taskkill.exe"],
+    [undefined, "C:\\Windows\\System32\\taskkill.exe"]
+  ])("names System32's taskkill under SystemRoot=%s, never a searchable bare name", (systemRoot, expected) => {
+    const original = NativeMutable.spawnSync
+    const seen: Array<unknown> = []
+    const mocked = vi.spyOn(NativeMutable, "spawnSync").mockImplementation((...args: Parameters<typeof original>) => {
+      seen.push(args[0], (args[2] as { readonly env?: unknown }).env)
+      return { pid: 0, output: [], stdout: "", stderr: "", signal: null, status: 0 }
+    })
+    syncBuiltinESMExports()
+    vi.stubEnv("SystemRoot", systemRoot)
+    try {
+      expect(ProcessReaper.windowsSystem.killTree(windowsRecord)).toBe("signalled")
+      expect(seen).toEqual([expected, { SystemRoot: win32.dirname(win32.dirname(expected)) }])
+    } finally {
+      vi.unstubAllEnvs()
+      mocked.mockRestore()
+      syncBuiltinESMExports()
+    }
   })
 
   it.live("finishes the sweep when the ledger cannot record what it decided", () =>

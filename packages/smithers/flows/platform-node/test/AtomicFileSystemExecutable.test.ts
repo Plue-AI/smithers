@@ -149,6 +149,7 @@ describe("default atomic helper resolution", () => {
     vi.resetModules()
     try {
       const host = await import("../src/internal/AtomicFileSystemExecutable.ts")
+      host.stagePackaged(packageRoot)
       const selected = host.resolveDefaultExecutable(packageRoot, root, join(root, "absent"))
       expect(basename(selected)).toBe(filename)
       expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
@@ -199,6 +200,7 @@ describe("default atomic helper resolution", () => {
     const { packageRoot, root } = await fixture()
     const binary = join(packageRoot, "bin", `${process.platform}-${process.arch}`, helperName)
     await helper(binary)
+    stagePackaged(packageRoot)
     const selected = resolveDefaultExecutable(packageRoot, root, join(root, "absent"))
     expect(selected.startsWith(`${root}${sep}`)).toBe(false)
     expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
@@ -217,9 +219,43 @@ describe("default atomic helper resolution", () => {
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n")
     const binary = join(root, "target/release", helperName)
     await helper(binary)
+    stagePackaged(packageRoot)
     const selected = resolveDefaultExecutable(packageRoot, root, join(root, "absent"))
     expect(selected.startsWith(`${root}${sep}`)).toBe(false)
     expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
+  })
+
+  it("executes the checkout build staged at layer build, not bytes a flow wrote after it", async () => {
+    const { packageRoot, root } = await fixture()
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n")
+    const binary = join(root, "target/release", helperName)
+    await helper(binary)
+    stagePackaged(packageRoot)
+    await writeFile(binary, "#!/bin/sh\necho planted\n")
+    const selected = resolveDefaultExecutable(packageRoot, root, join(root, "absent"))
+    expect(selected.startsWith(`${root}${sep}`)).toBe(false)
+    expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
+  })
+
+  it.each(["target/release", "target/debug"])(
+    "refuses a %s helper that appeared inside the workspace after the host was built",
+    async (directory) => {
+      const { packageRoot, root } = await fixture()
+      await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n")
+      stagePackaged(packageRoot)
+      // A flow confined to `root` plants a build before the first atomic call.
+      await helper(join(root, directory, helperName))
+      expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
+        .toThrow(/outside the confined workspace.*not present when the host was built/)
+    }
+  )
+
+  it("refuses a packaged helper that appeared inside the workspace after the host was built", async () => {
+    const { packageRoot, root } = await fixture()
+    stagePackaged(packageRoot)
+    await helper(join(packageRoot, "bin", `${process.platform}-${process.arch}`, helperName))
+    expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
+      .toThrow(/not present when the host was built/)
   })
 
   it("names the build and configuration fix when no helper exists", async () => {

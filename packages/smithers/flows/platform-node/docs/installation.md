@@ -106,14 +106,16 @@ import * as Path from "effect/Path"
 
 const platform = Layer.mergeAll(NodeHost.AtomicFileSystem.layer, Path.layer)
 const spawner = NodeHost.NodeChildProcessSpawner.layer.pipe(Layer.provide(platform))
-const hostWithoutJj = Layer.mergeAll(platform, spawner, NodeHost.NodeHttpClient.layerUndici)
+const http = NodeHost.EgressHttpClient.layer(process.env)
+const hostWithoutJj = Layer.mergeAll(platform, spawner, http)
 ```
 
-`NodeHost.NodeHttpClient.layerUndici` is the plain Undici pool, which dials
-every origin directly. A program that may run behind an egress proxy composes
-`NodeHost.EgressHttpClient.layer(process.env)` instead: it routes through the
-proxy `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` name, and is this same plain
-pool when they name none. The complete bundles above already use it.
+`NodeHost.EgressHttpClient.layer(process.env)` is the HTTP client the complete
+bundles above use. It routes through the proxy `HTTP_PROXY`, `HTTPS_PROXY` and
+`NO_PROXY` name, and is the plain Undici pool when they name none.
+`NodeHost.NodeHttpClient.layerUndici` is that plain pool on its own: it dials
+every origin directly and ignores the proxy variables, so it bypasses an
+egress proxy allowlist. Compose it only when direct egress is intended.
 
 Provide `hostWithoutJj` to a program that needs these services, or provide only
 the individual layer it needs. The spawner requires both filesystem and path

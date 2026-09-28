@@ -4,12 +4,21 @@
  * @since 1.0.0
  */
 
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs"
 import { createRequire } from "node:module"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { usableExecutable } from "./AtomicFileSystemTransport.ts"
+import { inside, usableExecutable } from "./AtomicFileSystemTransport.ts"
 
 /* v8 ignore next -- the packed CJS consumer uses its loader's __dirname; source tests use the ESM loader */
 const moduleDirectory = typeof __dirname === "string" ? __dirname : dirname(fileURLToPath(import.meta.url))
@@ -106,12 +115,20 @@ export const outsideWorkspace = (
 /** The helper an installed package ships for this platform. */
 const packagedHelper = (root: string): string => join(root, "bin", `${process.platform}-${process.arch}`, helperName)
 
+/** Source-checkout builds, when `root` is this package inside a checkout. */
+const checkoutHelpers = (root: string): ReadonlyArray<string> => {
+  const checkout = resolve(root, "../../../..")
+  return existsSync(join(checkout, "pnpm-workspace.yaml"))
+    ? [join(checkout, "target/release", helperName), join(checkout, "target/debug", helperName)]
+    : []
+}
+
 /**
- * Stages the packaged helper now, when the host layer is built, so the bytes
- * later requests execute are the ones present before any flow ran. A flow
- * that rewrites a workspace-local install afterwards changes nothing that is
- * executed. A missing or unusable helper is left for the first request to
- * report.
+ * Stages the packaged helper and any source-checkout build now, when the host
+ * layer is built, so the bytes later requests execute are the ones present
+ * before any flow ran. A flow that rewrites a workspace-local install or
+ * build afterwards changes nothing that is executed. A missing or unusable
+ * helper is left for the first request to report.
  * @private
  * @since 1.0.0
  */
@@ -122,6 +139,32 @@ export const stagePackaged = (root: string): void => {
   } catch {
     // The request path resolves again and reports the refusal it meets.
   }
+  if (embeddedHelper !== undefined) return
+  for (const build of checkoutHelpers(root)) {
+    try {
+      if (existsSync(build)) outsideWorkspace(usableExecutable(build, undefined), undefined)
+    } catch {
+      // As above: the request path reports it.
+    }
+  }
+}
+
+/**
+ * Copies `source` to a private directory only when the workspace cannot have
+ * supplied its bytes: it lies outside the confined workspace, or it was
+ * staged when the host was built, before any flow ran. A helper that appeared
+ * inside the workspace later is exactly what a flow would plant.
+ */
+const pinned = (source: string, boundaryRoot: string | undefined): string => {
+  if (
+    boundaryRoot !== undefined && !staged.has(source) && inside(boundaryRoot, realpathSync.native(source))
+  ) {
+    throw new Error(
+      `atomic helper executable must live outside the confined workspace: ${source} ` +
+        "was not present when the host was built"
+    )
+  }
+  return outsideWorkspace(source, boundaryRoot)
 }
 
 /**
@@ -135,30 +178,18 @@ export const resolveDefaultExecutable = (
   fallback = "/usr/local/bin/smithers-jj-export"
 ): string => {
   if (embeddedHelper !== undefined) return outsideWorkspace(embeddedHelper, boundaryRoot)
-  const candidates = [packagedHelper(root)]
-  const checkout = resolve(root, "../../../..")
-  if (existsSync(join(checkout, "pnpm-workspace.yaml"))) {
-    candidates.push(join(checkout, "target/release", helperName))
-    candidates.push(join(checkout, "target/debug", helperName))
-  }
-  candidates.push(fallback)
+  const candidates = [packagedHelper(root), ...checkoutHelpers(root), fallback]
   for (const [index, candidate] of candidates.entries()) {
     if (!existsSync(candidate)) continue
     if (index === 0) {
       if (!statSync(candidate).isFile()) throw new Error(`packaged atomic helper is not a regular file: ${candidate}`)
       // npm/pnpm tarballs may store package files without executable bits.
-      return outsideWorkspace(candidate, boundaryRoot)
+      return pinned(candidate, boundaryRoot)
     }
     const executable = usableExecutable(candidate, undefined)
-    try {
-      return usableExecutable(executable, boundaryRoot)
-    } catch (cause) {
-      if (
-        index === candidates.length - 1 || !(cause instanceof Error) ||
-        !cause.message.includes("outside the confined workspace")
-      ) throw cause
-      return outsideWorkspace(executable, boundaryRoot)
-    }
+    return boundaryRoot !== undefined && inside(boundaryRoot, executable)
+      ? pinned(executable, boundaryRoot)
+      : executable
   }
   throw new Error(`smithers-jj-export is missing; ${installHint} (searched ${candidates.join(", ")})`)
 }

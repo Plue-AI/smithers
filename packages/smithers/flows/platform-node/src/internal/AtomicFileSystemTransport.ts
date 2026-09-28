@@ -29,8 +29,10 @@ const inertDirectory = parse(process.execPath).root
 /**
  * True when `target` is at or below `root`. Both are absolute and already
  * canonical. A different Windows drive produces an absolute relative result.
+ * @private
+ * @since 1.0.0
  */
-const inside = (root: string, target: string): boolean => {
+export const inside = (root: string, target: string): boolean => {
   const path = relative(root, target)
   return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path))
 }
