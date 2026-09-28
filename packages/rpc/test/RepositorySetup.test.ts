@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   archiveReplacedSetupReceipt,
+  discardSetupDraft,
   editSetup,
   initialSetup,
   reconcileSetupHistory,
@@ -10,7 +11,9 @@ import {
   setupCandidate,
   SetupDraftSchema,
   SetupHostInputSchema,
-  type SetupReceipt
+  SetupOperationResponseSchema,
+  type SetupReceipt,
+  SetupRecoveryResponseSchema
 } from "../src/RepositorySetup.ts"
 
 const caseFixture = {
@@ -307,6 +310,172 @@ describe("repository setup receipt history", () => {
       expect(reconcileSetupHistory(setup)).toBe(setup)
     }
   )
+
+  it("does not replace newer progress with a late observation of the same request", () => {
+    const setup = initialSetup("example/repo", "issues", "maintainer")
+    const pending = { ...receipt(setup, "inspect"), phase: "running" as const, updatedAt: 200 }
+    setup.previousReceipts = [pending]
+    setup.receipt = { ...pending, updatedAt: 100 }
+    expect(reconcileSetupHistory(setup)).toBe(setup)
+    setup.receipt = { ...pending, updatedAt: 300 }
+    const advanced = reconcileSetupHistory(setup)
+    expect(advanced.previousReceipts).toEqual([setup.receipt])
+    expect(setup.previousReceipts).toEqual([pending])
+  })
+})
+
+describe("repository setup candidate recovery", () => {
+  it("discards local edits back to the active registration's exact draft and revision", () => {
+    const applied = proven()
+    const active = {
+      revision: applied.revision,
+      digest: setupCandidate(applied),
+      registrationId: "active-registration",
+      sourceRevision: "candidate-commit",
+      enabled: true,
+      draft: applied.draft
+    }
+    const changed = editSetup({ ...applied, active }, { ...applied.draft, budgetMinutes: 20 })
+    expect(changed.revision).toBe(2)
+    expect(changed.evaluation).toBeUndefined()
+    expect(changed.trial).toBeUndefined()
+
+    const restored = discardSetupDraft(changed)
+    expect(restored.draft).toEqual(applied.draft)
+    expect(restored.revision).toBe(active.revision)
+    expect(setupCandidate(restored)).toBe(active.digest)
+    expect(restored.active).toEqual(active)
+    expect(restored.previousReceipts).toEqual([applied.evaluation, applied.trial])
+    expect(restored.evaluation).toBeUndefined()
+    expect(restored.trial).toBeUndefined()
+    expect(changed.draft.budgetMinutes).toBe(20)
+  })
+
+  it("cannot discard without the active registration's recorded draft", () => {
+    const setup = initialSetup("example/repo", "issues", "maintainer")
+    expect(discardSetupDraft(setup)).toBe(setup)
+    const active = {
+      revision: 1,
+      digest: setupCandidate(setup),
+      registrationId: "legacy-registration",
+      sourceRevision: "candidate-commit",
+      enabled: true
+    }
+    const legacy = { ...setup, active }
+    expect(discardSetupDraft(legacy)).toBe(legacy)
+  })
+})
+
+describe("repository setup host request boundary", () => {
+  const hostInput = (job: RepositorySetup["job"], operation: "run" | "apply" | "trial") => {
+    const setup = initialSetup("example/repo", job, "maintainer")
+    return {
+      requestId: "host-request",
+      repo: setup.repo,
+      job,
+      revision: setup.revision,
+      draft: setup.draft,
+      digest: setupCandidate(setup),
+      operation
+    }
+  }
+
+  it.each(["issues", "ci", "review", "feature", "chores"] as const)(
+    "requires manual work only for a run, while %s activation carries none",
+    (job) => {
+      const apply = hostInput(job, "apply")
+      expect(SetupHostInputSchema.safeParse(apply).success).toBe(true)
+      expect(SetupHostInputSchema.safeParse({ ...apply, operation: "trial" }).success).toBe(true)
+      expect(SetupHostInputSchema.safeParse({ ...apply, operation: "run" }).success).toBe(false)
+      expect(SetupHostInputSchema.safeParse({ ...apply, manual: { stepId: "poc", prompt: "Work" } }).success).toBe(
+        false
+      )
+    }
+  )
+
+  it.each(
+    [
+      ["issues", "issue", "pr"],
+      ["review", "pr", "issue"],
+      ["ci", "pr", "issue"]
+    ] as const
+  )("a %s manual run accepts a %s and refuses a %s", (job, acceptedKind, refusedKind) => {
+    const input = hostInput(job, "run")
+    const manual = { stepId: "poc", prompt: "Work", subject: { source: "github", kind: acceptedKind, number: 12 } }
+    // The enabled step comes from this job's own draft; no fabricated operation is needed.
+    const stepId = input.draft.steps.find((step) => step.mode !== "off")?.id
+    if (stepId === undefined) throw new Error("the fixture has no enabled step")
+    const accepted = { ...manual, stepId }
+    expect(SetupHostInputSchema.safeParse({ ...input, manual: accepted }).success).toBe(true)
+    expect(
+      SetupHostInputSchema.safeParse({
+        ...input,
+        manual: { ...accepted, subject: { ...accepted.subject, kind: refusedKind } }
+      }).success
+    ).toBe(false)
+  })
+
+  it.each(["feature", "chores"] as const)("a %s manual run needs a nonblank work description", (job) => {
+    const input = hostInput(job, "run")
+    const stepId = input.draft.steps.find((step) => step.mode !== "off")?.id
+    if (stepId === undefined) throw new Error("the fixture has no enabled step")
+    for (const prompt of ["", " \n "]) {
+      expect(SetupHostInputSchema.safeParse({ ...input, manual: { stepId, prompt } }).success).toBe(false)
+    }
+    expect(
+      SetupHostInputSchema.safeParse({
+        ...input,
+        manual: { stepId, prompt: "Repair the README", subject: undefined }
+      }).success
+    ).toBe(true)
+  })
+
+  it("requires an observed inspection or receipt in every acknowledged operation", () => {
+    const base = { requestId: "host-request", revision: 1, digest: "a".repeat(64) }
+    expect(SetupOperationResponseSchema.safeParse(base).success).toBe(false)
+    expect(SetupOperationResponseSchema.safeParse({ ...base, receipt: { requestId: "partial" } }).success).toBe(false)
+    const setup = initialSetup("example/repo", "issues", "maintainer")
+    const inspection = { sources: [], suggestedDraft: setup.draft, inspectedAt: 100 }
+    expect(SetupOperationResponseSchema.safeParse({ ...base, inspection }).success).toBe(true)
+    expect(SetupOperationResponseSchema.safeParse({ ...base, receipt: receipt(setup, "inspect") }).success).toBe(true)
+  })
+
+  it("keeps registration availability independent from stored-request recovery", () => {
+    const setup = initialSetup("example/repo", "issues", "maintainer")
+    const input = hostInput("issues", "apply")
+    const result = {
+      requestId: input.requestId,
+      revision: input.revision,
+      digest: input.digest,
+      inspection: { sources: [], suggestedDraft: setup.draft, inspectedAt: 100 }
+    }
+    const registrations = [
+      { state: "known", active: undefined, trial: undefined },
+      { state: "unavailable", error: "Registry offline" }
+    ] as const
+    const stored = [
+      { state: "none" },
+      { state: "unavailable", error: "Stored request offline" },
+      { state: "found", input, result, observationError: "Observation still pending" }
+    ] as const
+    for (const registration of registrations) {
+      for (const recovered of stored) {
+        const wire = { owner: "maintainer", repo: setup.repo, job: setup.job, registration, setup: recovered }
+        const parsed = SetupRecoveryResponseSchema.parse(wire)
+        expect(parsed.registration).toEqual(registration)
+        expect(parsed.setup).toEqual(recovered)
+      }
+    }
+    expect(
+      SetupRecoveryResponseSchema.safeParse({
+        owner: "maintainer",
+        repo: setup.repo,
+        job: setup.job,
+        registration: registrations[0],
+        setup: { state: "found", input }
+      }).success
+    ).toBe(false)
+  })
 })
 
 describe("repository setup activation evidence", () => {
@@ -511,6 +680,21 @@ describe("repository setup activation evidence", () => {
     setup.draft.steps = setup.draft.steps.map((step) => ({ ...step, mode: "off" }))
     expect(setupActivationProblems(setup)).toContain("Choose the issue label.")
     expect(setupActivationProblems(setup)).toContain("Choose a flow to enable.")
+  })
+  it("names incomplete check rules before a candidate can activate", () => {
+    const setup = proven()
+    const check = {
+      id: "ci",
+      name: "CI",
+      kind: "command" as const,
+      rule: " \n ",
+      paths: [],
+      policy: "required" as const
+    }
+    setup.draft.checks = [check]
+    expect(setupActivationProblems(setup)).toContain("Complete the check rules.")
+    setup.draft.checks = [{ ...check, rule: "pnpm test" }]
+    expect(setupActivationProblems(setup)).not.toContain("Complete the check rules.")
   })
   it("waits for repository inspection to author real cases and refuses empty-case activation", () => {
     for (const job of ["issues", "ci", "review", "feature", "chores"] as const) {

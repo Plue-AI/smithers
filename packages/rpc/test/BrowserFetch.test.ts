@@ -34,6 +34,8 @@ describe("isPublicAddress", () => {
         "169.254.0.1",
         "0.0.0.0",
         "100.64.0.1", // CGNAT
+        "198.18.0.1", // benchmark network
+        "198.19.255.255",
         "224.0.0.1", // multicast
         "::1",
         "::",
@@ -50,9 +52,38 @@ describe("isPublicAddress", () => {
 
   test("public addresses pass", () => {
     for (
-      const ip of ["8.8.8.8", "1.1.1.1", "140.82.112.3", "2606:4700::1111", "172.15.0.1", "172.32.0.1", "11.0.0.1"]
+      const ip of [
+        "8.8.8.8",
+        "1.1.1.1",
+        "140.82.112.3",
+        "2606:4700::1111",
+        "172.15.0.1",
+        "172.32.0.1",
+        "11.0.0.1",
+        "198.17.255.255",
+        "198.20.0.1"
+      ]
     ) {
       expect(isPublicAddress(ip)).toBe(true)
+    }
+  })
+
+  test("malformed IPv4 and IPv4-mapped IPv6 are never treated as public addresses", () => {
+    for (
+      const ip of [
+        "8.8.8",
+        "8.8.8.8.8",
+        "8.8.8.999",
+        "8.8.8.bad",
+        "8.8.8.-1",
+        "::ffff:7f00:1:2",
+        "::ffff:gggg:1",
+        "::ffff:7f00:gggg",
+        "::ffff:999.1.1.1",
+        "[fe80::1%en0]"
+      ]
+    ) {
+      expect(isPublicAddress(ip)).toBe(false)
     }
   })
 })
@@ -107,6 +138,25 @@ describe("browserFetch guards", () => {
     })
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) expect(outcome.message).toContain("private")
+  })
+
+  test("one private or malformed DNS answer blocks a hostname even beside a public answer", async () => {
+    for (const unsafe of ["10.0.0.1", "not-an-ip", "::ffff:7f00:1"]) {
+      let fetches = 0
+      const outcome = await browserFetch("https://example.com/", {
+        resolveHost: async () => ["140.82.112.3", unsafe],
+        fetchImpl: async () => {
+          fetches += 1
+          return okPage("must not reach the page")
+        }
+      })
+      expect(outcome).toEqual({
+        ok: false,
+        code: "private_host",
+        message: "That address resolves to a private host, which the browser tool never reads."
+      })
+      expect(fetches).toBe(0)
+    }
   })
 
   test("a private IP literal target is refused", async () => {
@@ -535,6 +585,36 @@ describe("browserFetch guards", () => {
     expect({ code: refusal.code, fault: refusal.fault }).toEqual({ code: "upstream_unreachable", fault: "dependency" })
   })
 
+  test("an untyped resolver or fetch failure stays retryable without exposing an invented cause", async () => {
+    let fetches = 0
+    const resolverFault = await browserFetch("https://example.com/", {
+      resolveHost: async () => {
+        throw "resolver died"
+      },
+      fetchImpl: async () => {
+        fetches += 1
+        return okPage("must not fetch")
+      }
+    })
+    expect(resolverFault).toEqual({
+      ok: false,
+      code: "resolver_unavailable",
+      message: "The name resolver did not answer (unknown error); try again."
+    })
+    expect(fetches).toBe(0)
+    const fetchFault = await browserFetch("https://example.com/", {
+      resolveHost: publicResolver,
+      fetchImpl: async () => {
+        throw "socket died"
+      }
+    })
+    expect(fetchFault).toEqual({
+      ok: false,
+      code: "read_failed",
+      message: "Reading example.com failed: unknown error"
+    })
+  })
+
   test("an unreachable host is an honest failure, never a throw", async () => {
     const outcome = await browserFetch("https://example.com/", {
       resolveHost: publicResolver,
@@ -741,6 +821,47 @@ describe("resolveHostOverHttps", () => {
   test("a 200 whose body is not JSON is a resolver fault, not an empty answer", async () => {
     vi.stubGlobal("fetch", async () => new Response("<html>captive portal</html>", { status: 200 }))
     await expect(resolveHostOverHttps("example.com")).rejects.toThrow("malformed")
+  })
+
+  test("passes one abort signal to both DNS families and keeps only typed address answers", async () => {
+    const signal = new AbortController().signal
+    const requests: Array<{ url: string; signal: AbortSignal | undefined }> = []
+    vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
+      requests.push({ url: input, signal: init.signal as AbortSignal | undefined })
+      return input.endsWith("type=A")
+        ? dnsJson([{ type: 1, data: "140.82.112.3" }, { type: 28, data: "2606:4700::1111" }])
+        : dnsJson([{ type: 28, data: "2606:4700::1111" }, { type: 1, data: "140.82.112.3" }])
+    })
+    await expect(resolveHostOverHttps("docs.example.com", signal)).resolves.toEqual([
+      "140.82.112.3",
+      "2606:4700::1111"
+    ])
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://cloudflare-dns.com/dns-query?name=docs.example.com&type=A",
+      "https://cloudflare-dns.com/dns-query?name=docs.example.com&type=AAAA"
+    ])
+    expect(requests[0]?.signal).toBe(signal)
+    expect(requests[1]?.signal).toBe(signal)
+  })
+
+  test("aborting the resolver cancels both A and AAAA queries", async () => {
+    const controller = new AbortController()
+    const started: Array<string> = []
+    const cancelled: Array<string> = []
+    vi.stubGlobal("fetch", (input: string, init: RequestInit) => {
+      started.push(input)
+      return new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          cancelled.push(input)
+          reject(controller.signal.reason)
+        }, { once: true })
+      })
+    })
+    const pending = resolveHostOverHttps("docs.example.com", controller.signal)
+    expect(started).toHaveLength(2)
+    controller.abort(new Error("reader cancelled"))
+    await expect(pending).rejects.toThrow("reader cancelled")
+    expect(cancelled).toEqual(started)
   })
 })
 

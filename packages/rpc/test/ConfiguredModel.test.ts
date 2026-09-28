@@ -6,9 +6,11 @@ import {
   cutModelCredential,
   DECISION_MODEL_IDS,
   decodeModelAnswers,
+  failedModelCredential,
   failedModelTest,
   hostModelCredentials,
   hostRefusedModelTest,
+  isLoopbackOrigin,
   MODEL_CALL_MAX_TOKENS_MAX,
   MODEL_CALL_NAME_MAX,
   MODEL_CALL_STATE_MAX_BYTES,
@@ -36,10 +38,12 @@ import {
   ModelCallInputSchema,
   ModelCallOutputSchema,
   modelCallProblemOf,
+  modelCallSample,
   ModelCatalogSchema,
   modelCredentialEnvName,
   ModelCredentialListingSchema,
   ModelCredentialNameSchema,
+  ModelCredentialRequestSchema,
   modelFailureFault,
   modelFailureRefusalCode,
   modelKindOf,
@@ -246,6 +250,79 @@ describe("credentials", () => {
     expect(JSON.stringify(listed)).not.toMatch(/sk-live|sk-mine/)
     const present = Object.fromEntries(listed.map((row) => [row.name, row.present]))
     expect(present).toMatchObject({ OPENAI_API_KEY: true, ANTHROPIC_API_KEY: false, MINE: true, EMPTY: false })
+  })
+})
+
+describe("credential mutation boundary", () => {
+  const identity = { requestId: "enroll-123", name: "E2E_LOOPBACK" }
+
+  test.each([
+    { ...identity, action: "enroll", origin: LOOPBACK, value: "secret" },
+    { ...identity, action: "rotate", value: "secret" },
+    { ...identity, action: "remove" }
+  ])("accepts only the fields for a $action request", (request) => {
+    expect(ModelCredentialRequestSchema.parse(request)).toEqual(request)
+  })
+
+  test.each(["", " \t ", "line\nsecret", "line\rsecret", "line\0secret", "x".repeat(8193)])(
+    "refuses an empty, multiline, NUL-bearing, or oversized credential value",
+    (value) => {
+      expect(ModelCredentialRequestSchema.safeParse({ ...identity, action: "enroll", origin: LOOPBACK, value }).success)
+        .toBe(false)
+      expect(ModelCredentialRequestSchema.safeParse({ ...identity, action: "rotate", value }).success).toBe(false)
+    }
+  )
+
+  test("accepts the maximum credential value for enroll and rotate", () => {
+    const value = "x".repeat(8192)
+    const enroll = { ...identity, action: "enroll", origin: LOOPBACK, value }
+    const rotate = { ...identity, action: "rotate", value }
+    expect(ModelCredentialRequestSchema.parse(enroll)).toEqual(enroll)
+    expect(ModelCredentialRequestSchema.parse(rotate)).toEqual(rotate)
+  })
+
+  test.each([
+    { ...identity, action: "enroll", origin: LOOPBACK },
+    { ...identity, action: "rotate", value: "secret", origin: LOOPBACK },
+    { ...identity, action: "remove", value: "secret" },
+    { ...identity, action: "remove", origin: LOOPBACK },
+    { ...identity, action: "enroll", origin: LOOPBACK, value: "secret", privateNote: "leak" }
+  ])("rejects a missing or extraneous credential mutation field", (request) => {
+    expect(ModelCredentialRequestSchema.safeParse(request).success).toBe(false)
+  })
+
+  test("failure results use the declared fault and carry no caught exception", () => {
+    expect(failedModelCredential({ code: "storage_unavailable" })).toEqual({
+      ok: false,
+      failure: { code: "storage_unavailable" },
+      fault: "infra"
+    })
+    expect(failedModelCredential({ code: "invalid", field: "value" })).toEqual({
+      ok: false,
+      failure: { code: "invalid", field: "value" },
+      fault: "user"
+    })
+    expect(failedModelCredential({ code: "host_refused", status: 503, refusal: null }, "dependency")).toEqual({
+      ok: false,
+      failure: { code: "host_refused", status: 503, refusal: null },
+      fault: "dependency"
+    })
+  })
+
+  test("classifies only local origin aliases as loopback, and malformed origins as foreign", () => {
+    for (
+      const origin of [
+        "http://127.0.0.1:4010",
+        "http://localhost:4010",
+        "http://[::1]:4010",
+        "http://host.docker.internal:4010"
+      ]
+    ) {
+      expect(isLoopbackOrigin(origin)).toBe(true)
+    }
+    for (const origin of ["https://example.com", "http://10.0.0.1", "not a URL"]) {
+      expect(isLoopbackOrigin(origin)).toBe(false)
+    }
   })
 })
 
@@ -699,6 +776,34 @@ describe("a composed call", () => {
   }
   const generation: ModelCallDraft = { kind: "generation", system: "", prompt: "Say ok", maxTokens: 32 }
 
+  test("samples generated words and the first typed decision answer without leaking a credential", () => {
+    const secret = "sk-secret-123"
+    expect(modelCallSample({ kind: "generation", text: `  Answer ${secret}\n` }, secret)).toBe("Answer")
+    expect(modelCallSample({ kind: "decision", answers: {} }, secret)).toBe("")
+    expect(modelCallSample({
+      kind: "decision",
+      answers: { ok: { type: "boolean", value: false, probability: 0.23 } }
+    }, secret)).toBe("false 0.23")
+    expect(modelCallSample({
+      kind: "decision",
+      answers: { which: { type: "choice", value: "blue", probabilities: { blue: 0.8 }, confidence: 0.8 } }
+    }, secret)).toBe("blue 0.80")
+    expect(modelCallSample({
+      kind: "decision",
+      answers: { sure: { type: "score", value: 1, label: "high", probabilities: { high: 1 }, confidence: 1 } }
+    }, secret)).toBe("high 1.00")
+    expect(modelCallSample({
+      kind: "decision",
+      answers: { which: { type: "choice", value: `${secret} ${secret}`, probabilities: {}, confidence: 0.8 } }
+    }, secret)).toBe("0.80")
+    expect(modelCallSample({
+      kind: "decision",
+      answers: {
+        sure: { type: "score", value: 1, label: `score ${secret} ${secret}`, probabilities: {}, confidence: 1 }
+      }
+    }, secret)).toBe("score 1.00")
+  })
+
   test("the default request per kind is exactly the fixed Test the hosts run", () => {
     expect(modelCallDefault("generation")).toEqual({
       kind: "generation",
@@ -749,6 +854,22 @@ describe("a composed call", () => {
       { key: "deep", kind: "json", value: "{\"a\":1}" }
     ])
     expect(modelStateFieldsOf("just text")).toEqual([{ key: "state", kind: "text", value: "just text" }])
+  })
+
+  test("malformed authored fields do not become state values, while primitive recorded state keeps its type", () => {
+    expect(modelStateOf([
+      { key: "valid", kind: "boolean", value: "false" },
+      { key: "mistypedBoolean", kind: "boolean", value: "yes" },
+      { key: "blankNumber", kind: "number", value: " " },
+      { key: "badNumber", kind: "number", value: "NaN" },
+      { key: "badJson", kind: "json", value: "{" }
+    ])).toEqual({ valid: false })
+    expect(modelStateFieldsOf(null)).toEqual([{ key: "state", kind: "json", value: "null" }])
+    expect(modelStateFieldsOf([1, "two"])).toEqual([{ key: "state", kind: "json", value: "[1,\"two\"]" }])
+    expect(modelStateFieldsOf({ missing: null, nonfinite: Number.POSITIVE_INFINITY })).toEqual([
+      { key: "missing", kind: "json", value: "null" },
+      { key: "nonfinite", kind: "json", value: "null" }
+    ])
   })
 
   test("a field key is one JSON object key, never the one that sets a prototype", () => {
@@ -904,6 +1025,31 @@ describe("a composed call", () => {
         "nonsense"
       ]
     ) expect(decodeModelAnswers(decision.questions, raw)).toEqual({ ok: false })
+  })
+
+  test("decision distributions reject invalid mass and mixed key spaces", () => {
+    const questions = { which: choice, sure: score }
+    const valid = {
+      which: { type: "choice", choice: "blue", probabilities: { blue: 0.7, red: 0.3 } },
+      sure: { type: "score", score: 0.6, probabilities: { low: 0.2, high: 0.8 } }
+    }
+    expect(decodeModelAnswers(questions, valid)).toEqual({
+      ok: true,
+      answers: {
+        which: { type: "choice", value: "blue", probabilities: { blue: 0.7, red: 0.3 }, confidence: 0.7 },
+        sure: { type: "score", value: 0.6, label: "high", probabilities: { low: 0.2, high: 0.8 }, confidence: 0.8 }
+      }
+    })
+    for (const probabilities of [{ blue: -0.1 }, { blue: 1.1 }, { blue: Number.NaN }]) {
+      expect(decodeModelAnswers(questions, { ...valid, which: { ...valid.which, probabilities } })).toEqual({
+        ok: false
+      })
+    }
+    for (
+      const probabilities of [{ low: -0.1 }, { high: 1.1 }, { low: Number.POSITIVE_INFINITY }, { low: 0.5, "1": 0.5 }]
+    ) {
+      expect(decodeModelAnswers(questions, { ...valid, sure: { ...valid.sure, probabilities } })).toEqual({ ok: false })
+    }
   })
 
   test("a temperature is drafted as the text typed, and only one in range becomes the wire's number", () => {
