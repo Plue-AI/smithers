@@ -1011,9 +1011,9 @@ Checks whether a value is a planned placeholder.
 
 The static filesystem declaration vocabulary shared by planning and execution: a workspace-relative `Pattern`, a Bazel-style `Glob`, a `TreeArtifact`, and the `Filegroup` that names a reusable collection.
 
-`canonical` rewrites every separator to `/` and normalizes to Unicode NFC, and every exact-path comparison goes through it, so the backslash spelling and the NFD spelling of one workspace path overlap. `workspaceRelative` refuses absolute paths, drive letters, `..` and `.` segments, empty segments, the C0 control range, and DEL. C1 bytes stay legal, because a POSIX file name may contain them.
+`canonical` rewrites every separator to `/` and normalizes to Unicode NFC, and every exact-path comparison goes through it, so the backslash spelling and the NFD spelling of one workspace path overlap. `workspaceRelative` refuses absolute paths, drive-letter prefixes (`C:/x` and the drive-relative `C:x`), `..` and `.` segments, empty segments, the C0 control range, and DEL. C1 bytes stay legal, because a POSIX file name may contain them.
 
-`overlaps` is conservative: `true` may over-serialize, while `false` proves that no path can belong to both declarations.
+`overlaps` is conservative: `true` may over-serialize, while `false` proves that no path can belong to both declarations. It compares the `folded` form, so two spellings that differ only in letter case overlap, because a case-insensitive filesystem (default macOS APFS, Windows NTFS) opens them as one file.
 
 ### The declaration types
 
@@ -1040,13 +1040,21 @@ const canonical: (path: string) => string
 
 The canonical spelling of a declared path or pattern: every separator is `/`, and Unicode is normalized to NFC.
 
+### FileSet.folded
+
+```ts
+const folded: (path: string) => string
+```
+
+The `canonical` spelling with letter case folded away. Static overlap compares this form.
+
 ### FileSet.workspaceRelative
 
 ```ts
 const workspaceRelative: (pattern: string) => boolean
 ```
 
-Whether a declared path stays inside the workspace and names it one way only. Refuses absolute paths (POSIX and drive-letter), upward traversal, the aliasing forms (`.` segments, empty segments), C0 controls, and DEL.
+Whether a declared path stays inside the workspace and names it one way only. Refuses absolute paths (POSIX and drive-letter), any first segment starting with a drive letter and `:` (including the drive-relative `C:foo`), upward traversal, the aliasing forms (`.` segments, empty segments), C0 controls, and DEL.
 
 ### FileSet.makeFilegroup
 
@@ -1094,7 +1102,7 @@ segment pair once, without regex backtracking.
 const overlaps: (left: Entry, right: Entry) => boolean
 ```
 
-Conservative static overlap. Exact paths compare in canonical separator and NFC form. Two globs always overlap, and so do a glob and a tree artifact. A tree artifact overlaps any path beneath it. A glob tests the path bytes it is handed, so canonicalizing a measured path before matching is the caller's decision.
+Conservative static overlap. Exact paths, wildcard strings, and tree roots compare in `folded` form: canonical separator, NFC, and case-insensitive. A glob against an exact path folds both its `include` and `exclude` patterns. Two globs always overlap, and so do a glob and a tree artifact. A tree artifact overlaps any path beneath it. A glob tests the path bytes it is handed, so canonicalizing a measured path before matching is the caller's decision.
 
 ## Effects
 

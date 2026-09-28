@@ -62,6 +62,26 @@ describe("ConflictAnnotation.annotate", () => {
       expect([...found.ordering]).toEqual([["b", ["a"]], ["reader", ["a"]]])
     }))
 
+  it.effect("serializes two writers whose paths differ only in letter case", () =>
+    Effect.gen(function*() {
+      // One file on a case-insensitive filesystem; the candidate trie must
+      // select the pair so the final overlap check can see it.
+      const found = yield* Conflicts.annotate(
+        [
+          node("a", { writes: ["src/A.ts"] }),
+          node("b", { writes: ["SRC/a.ts"] }),
+          node("reader", { reads: ["Src/a.TS"] })
+        ],
+        0,
+        false
+      )
+      expect([...found.conflicts]).toEqual([
+        ["a", [serialized("b", ["src/A.ts"])]],
+        ["b", [serialized("a", ["src/A.ts"])]]
+      ])
+      expect([...found.ordering]).toEqual([["b", ["a"]], ["reader", ["a", "b"]]])
+    }))
+
   it.effect("treats a wildcard string as a pattern on both the write/write and reader-after-writer passes", () =>
     Effect.gen(function*() {
       const found = yield* Conflicts.annotate(

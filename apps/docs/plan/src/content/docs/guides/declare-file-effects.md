@@ -73,7 +73,8 @@ appear in the result.
 `workspaceRelative` decides whether a declaration names a file one way only. It
 refuses:
 
-- Absolute paths, POSIX (`/etc/passwd`) and drive-letter (`C:/tmp`).
+- Absolute paths, POSIX (`/etc/passwd`) and drive-letter (`C:/tmp`), and the
+  drive-relative `C:tmp`.
 - Upward traversal: any `..` segment.
 - Aliasing forms: `.` segments and empty segments.
 - C0 controls (U+0000 through U+001F) and DEL (U+007F).
@@ -98,6 +99,10 @@ So the backslash spelling and the NFD spelling of one workspace path overlap.
 A glob, by contrast, tests the path bytes it is handed: canonicalizing a
 _measured_ path before matching it is the caller's decision, because a backslash
 inside a path segment is literal text on a POSIX filesystem.
+
+Overlap goes one step further and compares `folded`, the canonical form with
+letter case folded away. A case-insensitive filesystem opens `src/A.ts` and
+`src/a.ts` as one file, so two nodes writing them serialize.
 
 ## Matching and overlap
 

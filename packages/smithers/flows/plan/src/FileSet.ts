@@ -51,6 +51,20 @@ export type BoundaryMode = typeof BoundaryMode.Type
  */
 export const canonical = (path: string): string => path.replaceAll("\\", "/").normalize("NFC")
 
+/**
+ * The {@link canonical} spelling with letter case folded away.
+ *
+ * A case-insensitive filesystem (default macOS APFS, Windows NTFS) opens
+ * `src/A.ts` and `src/a.ts` as one file, so static overlap compares this form:
+ * two declarations that differ only in case must serialize. Folding goes
+ * through upper case because that mapping is context-free, so it folds each
+ * character alone and commutes with splitting a path into segments.
+ *
+ * @category accessors
+ * @since 1.0.0-rc.0
+ */
+export const folded = (path: string): string => canonical(path).toUpperCase().normalize("NFC")
+
 /** Workspace-relative glob pattern.
  * @category schemas
  * @since 0.1.0
@@ -80,7 +94,8 @@ export const workspaceRelative = (pattern: string): boolean => {
   }
   if (pattern.startsWith("/")) return false
   const segments = canonical(pattern).split("/")
-  if (segments[0]!.endsWith(":")) return false
+  // `C:foo` is drive-relative on Windows, so any drive-letter prefix escapes.
+  if (/^[A-Za-z]:/.test(segments[0]!) || segments[0]!.endsWith(":")) return false
   return segments.every((segment) => segment !== ".." && segment !== "." && segment !== "")
 }
 
@@ -345,9 +360,16 @@ export const matchesGlob = (glob: Glob, path: string): boolean =>
   !(glob.exclude ?? []).some((pattern) => matchesPattern(pattern, path))
 
 const beneath = (tree: string, path: string): boolean => {
-  const root = canonical(tree)
-  const inside = canonical(path)
+  const root = folded(tree)
+  const inside = folded(path)
   return inside === root || inside.startsWith(`${root}/`)
+}
+
+/** {@link matchesGlob} over {@link folded} spellings of the glob and the path. */
+const matchesGlobFolded = (glob: Glob, path: string): boolean => {
+  const inside = folded(path)
+  return glob.include.some((pattern) => matchesPattern(folded(pattern), inside)) &&
+    !(glob.exclude ?? []).some((pattern) => matchesPattern(folded(pattern), inside))
 }
 
 /**
@@ -365,11 +387,14 @@ const wildcard = (entry: string): boolean => entry.includes("*")
  * {@link matchesPattern}; two patterns, or a pattern against a Glob or
  * TreeArtifact, overlap conservatively.
  *
- * Exact paths compare in their {@link canonical} separator and NFC form, so
- * separator aliases and canonically equivalent Unicode spellings overlap. A
- * glob tests the path bytes it is handed; its property suite pins a backslash
- * inside a path segment as literal text, so canonicalizing a measured path
- * before matching is its caller's decision, not this module's.
+ * Exact paths, wildcard strings, and tree roots compare in their
+ * {@link folded} form, so separator aliases, canonically equivalent Unicode
+ * spellings, and spellings that differ only in letter case overlap. A Glob
+ * against an exact path matches both its `include` and `exclude` patterns in
+ * folded form. {@link matchesGlob} itself stays case-sensitive and tests the path bytes it
+ * is handed; its property suite pins a backslash inside a path segment as
+ * literal text, so canonicalizing a measured path before matching is its
+ * caller's decision, not this module's.
  *
  * @category predicates
  * @since 0.1.0
@@ -380,16 +405,16 @@ export const overlaps = (left: Entry, right: Entry): boolean => {
     const leftWild = wildcard(left)
     const rightWild = wildcard(right)
     if (leftWild && rightWild) return true
-    if (leftWild) return matchesPattern(canonical(left), canonical(right))
-    if (rightWild) return matchesPattern(canonical(right), canonical(left))
-    return canonical(left) === canonical(right)
+    if (leftWild) return matchesPattern(folded(left), folded(right))
+    if (rightWild) return matchesPattern(folded(right), folded(left))
+    return folded(left) === folded(right)
   }
   // A string holding `*` is a pattern (see {@link wildcard}); against a Glob or
   // a TreeArtifact it answers as conservatively as glob against glob.
   if (typeof left === "string" && wildcard(left) && !(typeof right === "string")) return true
   if (typeof right === "string" && wildcard(right) && !(typeof left === "string")) return true
-  if (typeof left === "string" && isGlob(right)) return matchesGlob(right, canonical(left))
-  if (isGlob(left) && typeof right === "string") return matchesGlob(left, canonical(right))
+  if (typeof left === "string" && isGlob(right)) return matchesGlobFolded(right, left)
+  if (isGlob(left) && typeof right === "string") return matchesGlobFolded(left, right)
   if (isGlob(left) && isGlob(right)) return true
   if (isTreeArtifact(left) && typeof right === "string") return beneath(left.path, right)
   if (typeof left === "string" && isTreeArtifact(right)) return beneath(right.path, left)

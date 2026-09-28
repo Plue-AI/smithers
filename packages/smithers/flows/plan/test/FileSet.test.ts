@@ -148,6 +148,27 @@ describe("FileSet", () => {
     expect(FileSet.overlaps(nfd, glob)).toBe(true)
   })
 
+  it("overlaps paths that differ only in letter case", () => {
+    // A case-insensitive filesystem (default macOS APFS, Windows NTFS) opens
+    // `src/A.ts` and `src/a.ts` as one file, so two writers must serialize.
+    expect(FileSet.overlaps("src/A.ts", "src/a.ts")).toBe(true)
+    expect(FileSet.overlaps("SRC\\a.ts", "src/A.ts")).toBe(true)
+    expect(FileSet.overlaps("src/*.TS", "src/a.ts")).toBe(true)
+    expect(FileSet.overlaps("src/a.ts", "SRC/*.ts")).toBe(true)
+    expect(FileSet.overlaps({ _tag: "TreeArtifact", path: "Dist" }, "dist/a.js")).toBe(true)
+    expect(FileSet.overlaps("DIST/a.js", { _tag: "TreeArtifact", path: "dist" })).toBe(true)
+    expect(FileSet.overlaps({ _tag: "TreeArtifact", path: "dist" }, { _tag: "TreeArtifact", path: "DIST/x" }))
+      .toBe(true)
+    expect(FileSet.overlaps("src/A.ts", { _tag: "Glob", include: ["src/*.ts"] })).toBe(true)
+    expect(FileSet.overlaps("SRC/Deep/A.TS", glob)).toBe(true)
+    // An exclusion folds too, so a case variant of an excluded path stays out.
+    expect(FileSet.overlaps("src/deep/SKIP.ts", glob)).toBe(false)
+    expect(FileSet.overlaps(glob, "Src/deep/skip.TS")).toBe(false)
+    expect(FileSet.overlaps("\u03a3.txt", "\u03c2.txt")).toBe(true)
+    expect(FileSet.overlaps("src/a.ts", "src/b.ts")).toBe(false)
+    expect(FileSet.overlaps("src/a.ts", "lib/*.ts")).toBe(false)
+  })
+
   it("uses the conservative overlap matrix", () => {
     const all: FileSet.Glob = { _tag: "Glob", include: ["**/*.ts"] }
     expect(FileSet.overlaps("a", "a")).toBe(true)
@@ -194,7 +215,21 @@ describe("FileSet.workspaceRelative", () => {
   it("refuses absolute, upward, and aliasing spellings", () => {
     // Aliasing forms matter as much as escapes: `./a.txt` and `a.txt` name
     // one file with two spellings, which defeats exact-string overlap.
-    for (const path of ["/abs", "../up", "a/../b", "./a.txt", "a//b", "a/", "C:/win"]) {
+    for (
+      const path of [
+        "/abs",
+        "../up",
+        "a/../b",
+        "./a.txt",
+        "a//b",
+        "a/",
+        "C:/win",
+        "C:foo",
+        "c:foo/bar",
+        "Z:",
+        "C:\\win"
+      ]
+    ) {
       expect(FileSet.workspaceRelative(path)).toBe(false)
     }
   })

@@ -1,6 +1,7 @@
 /**
  * Rebuildable candidate index for the compiler's existing overlap predicate.
- * Exact paths and tree prefixes share a trie. Globs and wildcard strings stay conservative: their
+ * Exact paths and tree prefixes share a trie keyed by case-folded segments, the
+ * form FileSet.overlaps compares. Globs and wildcard strings stay conservative: their
  * exclusions and pair semantics are decided by FileSet.overlaps, never here.
  * Nothing in this index becomes persisted plan or key material.
  * @since 0.1.0
@@ -46,7 +47,7 @@ export const make = (produced: ReadonlyArray<ReadonlyArray<FileSet.Entry>>) => {
       }
       const path = typeof entry === "string" ? entry : (entry as FileSet.TreeArtifact).path
       let current = root
-      for (const segment of FileSet.canonical(path).split("/")) {
+      for (const segment of FileSet.folded(path).split("/")) {
         let child = current.children.get(segment)
         if (child === undefined) {
           child = branch()
@@ -68,7 +69,7 @@ export const make = (produced: ReadonlyArray<ReadonlyArray<FileSet.Entry>>) => {
       add(found, globs)
       const path = typeof entry === "string" ? entry : (entry as FileSet.TreeArtifact).path
       let current: Branch | undefined = root
-      for (const segment of FileSet.canonical(path).split("/")) {
+      for (const segment of FileSet.folded(path).split("/")) {
         current = current.children.get(segment)
         if (current === undefined) break
         add(found, current.trees)
