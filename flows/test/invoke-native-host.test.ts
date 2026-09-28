@@ -352,6 +352,45 @@ if (process.argv[2] === "--fixture") {
     await assert.rejects(readFile(marker), { code: "ENOENT" })
   })
 
+  test("the invocation pins this repository's own flows/ resolver files", { timeout: 120_000 }, async (t) => {
+    const temporary = await mkdtemp(join(tmpdir(), "invoke-flows-layout-")),
+      root = join(temporary, "repo"),
+      stateRoot = join(temporary, "state"),
+      flows = join(root, "flows")
+    t.after(() => rm(temporary, { recursive: true, force: true }))
+    await mkdir(join(flows, "echo"), { recursive: true })
+    await mkdir(stateRoot)
+    await writeFile(join(flows, "echo", "flow.ts"), declaration)
+    // Materialize the layout this repository tracks: flows/package.json and flows/tsconfig.json.
+    const ours = fileURLToPath(new URL("..", import.meta.url))
+    const manifest = await readFile(join(ours, "package.json"), "utf8")
+    const tsconfig = await readFile(join(ours, "tsconfig.json"), "utf8")
+    await writeFile(join(flows, "package.json"), manifest)
+    await writeFile(join(flows, "tsconfig.json"), tsconfig)
+    const digest = (bytes: string) => createHash("sha256").update(bytes).digest("hex")
+    const run = (pin: string) =>
+      promisify(execFile)(process.execPath, [
+        fileURLToPath(import.meta.url),
+        "--fixture",
+        root,
+        stateRoot,
+        "first",
+        pin
+      ], { timeout: 55_000, maxBuffer: 1024 * 1024 })
+    const pinned = sourceDigest(new TextEncoder().encode(declaration), [], [
+      { path: "flows/package.json", contentDigest: digest(manifest) },
+      { path: "flows/tsconfig.json", contentDigest: digest(tsconfig) }
+    ])!
+    assert.match((await run(pinned)).stdout, /"completed":true/)
+    // The files are part of the pin: an approval of flow.ts alone does not cover them.
+    await rm(join(stateRoot, "fixture-receipt.json"), { force: true })
+    await assert.rejects(run(digest(declaration)), /Pinned invocation source changed/)
+    // An intermediate file that redirects a bare import is still refused.
+    const redirect = JSON.stringify({ compilerOptions: { paths: { effect: ["./echo/evil.ts"] } } })
+    await writeFile(join(flows, "tsconfig.json"), redirect)
+    await assert.rejects(run(pinned), /resolver configuration at flows\/tsconfig\.json/)
+  })
+
   test("canonical invocation refuses a declared tag that differs from its path", { timeout: 30_000 }, async (t) => {
     const temporary = await mkdtemp(join(tmpdir(), "invoke-tag-refusal-")),
       root = join(temporary, "repo"),

@@ -28,8 +28,10 @@ const byPath = (modules: ReadonlyArray<Measured>) =>
  * The pinned identity of `flows/<name>/flow.ts`: SHA-256 over the entry bytes,
  * then `\0<path>\0<sha256>` for each module the entry loads from beside itself
  * (POSIX path relative to the entry's directory), then
- * `\0config\0<name>\0<sha256>` for each resolver file at the repository root
- * ({@link resolverFiles}), each group sorted by path. A flow with neither pins
+ * `\0config\0<path>\0<sha256>` for each resolver file ({@link resolverFiles})
+ * in any directory from the closure up to and including the repository root
+ * (POSIX path relative to the root, so a root file is its bare name), each
+ * group sorted by path. A flow with neither pins
  * `sha256(flow.ts)`. `undefined` when a module cannot be measured.
  */
 export const sourceDigest = (
@@ -71,11 +73,12 @@ const redirectsSpecifiers = (bytes: Uint8Array): boolean => {
  * Every non-relative specifier must reach the host's pinned libraries, never
  * repository code. Bun and Node resolve one through tsconfig/jsconfig `paths`
  * and `baseUrl`, package.json `imports` and self-reference, and every
- * `node_modules` from the importing file up. Below the root none may exist
- * beside the flow or its closure; root/node_modules may hold only the pinned
- * library links; root resolver files are pinned by content and refused when
- * they `extends`, map `paths`, set `baseUrl`, declare `imports`, or name
- * themselves with `exports`.
+ * `node_modules` from the importing file up. Below the root no `node_modules`
+ * may exist on the closure's path; root/node_modules may hold only the pinned
+ * library links. Resolver files anywhere from the closure up to the root (a
+ * repository's own `flows/package.json`, say) are pinned by content and
+ * refused when they `extends`, map `paths`, set `baseUrl`, declare `imports`,
+ * or name themselves with `exports`.
  */
 const resolverConfiguration = (
   root: string,
@@ -86,16 +89,14 @@ const resolverConfiguration = (
   const refuse = (path: string) => {
     throw new Error(`Invocation refuses repository resolver configuration at ${relative(root, path) || "."}`)
   }
-  const directories = new Set<string>()
+  const directories = new Set<string>([root])
   for (const module of [{ path: "flow.ts" }, ...imports]) {
     const directory = dirname(resolve(entryDirectory, module.path))
     if (directory !== root && !directory.startsWith(root + sep)) refuse(directory)
     for (let current = directory; current !== root; current = dirname(current)) directories.add(current)
   }
   for (const directory of directories) {
-    for (const name of [...resolverFiles, "node_modules"]) {
-      if (existsSync(join(directory, name))) refuse(join(directory, name))
-    }
+    if (directory !== root && existsSync(join(directory, "node_modules"))) refuse(join(directory, "node_modules"))
   }
   const libraries = realpathSync(join(stateRoot, "libraries")) + sep
   const modules = join(root, "node_modules")
@@ -105,14 +106,16 @@ const resolverConfiguration = (
       if (!realpathSync(join(modules, entry)).startsWith(libraries)) refuse(join(modules, entry))
     }
   }
-  return resolverFiles.flatMap((name) => {
-    const path = join(root, name)
-    if (!existsSync(path)) return []
-    const bytes = readFileSync(path)
-    if (name.endsWith("config.json") && /extends|paths|baseUrl|\\u/.test(bytes.toString("utf8"))) refuse(path)
-    if (name === "package.json" && redirectsSpecifiers(bytes)) refuse(path)
-    return [{ path: name, contentDigest: sha256(bytes) }]
-  })
+  return [...directories].flatMap((directory) =>
+    resolverFiles.flatMap((name) => {
+      const path = join(directory, name)
+      if (!existsSync(path)) return []
+      const bytes = readFileSync(path)
+      if (name.endsWith("config.json") && /extends|paths|baseUrl|\\u/.test(bytes.toString("utf8"))) refuse(path)
+      if (name === "package.json" && redirectsSpecifiers(bytes)) refuse(path)
+      return [{ path: relative(root, path).split(sep).join("/"), contentDigest: sha256(bytes) }]
+    })
+  )
 }
 
 export const layer = (platform: NativeControl.Platform, options: Options) => {
@@ -140,8 +143,8 @@ export const layer = (platform: NativeControl.Platform, options: Options) => {
             throw new Error("Pinned invocation source changed")
           }
           // The pin measures the entry, its relative-import closure (which the
-          // registry re-measures before import), and the root resolver files.
-          // Resolver configuration anywhere else on the closure's path is refused.
+          // registry re-measures before import), and every resolver file on the
+          // closure's path to the root; one that redirects a bare import is refused.
           const imports = body.imports ?? []
           const configuration = resolverConfiguration(root, stateRoot, resolve(root, "flows", options.flow), imports)
           if (sourceDigest(source, imports, configuration) !== options.sourceDigest) {
