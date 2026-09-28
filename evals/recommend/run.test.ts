@@ -3,7 +3,17 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { baselinePath, canonical, fixturePath, LIVE_TOKEN_ENV, main, usage, type Fetch } from "./run.ts";
+import {
+  baselinePath,
+  canonical,
+  fixturePath,
+  LIVE_LIMIT,
+  LIVE_MAX_BYTES,
+  LIVE_TOKEN_ENV,
+  main,
+  usage,
+  type Fetch,
+} from "./run.ts";
 import { parseLog, scoreLog } from "./score.ts";
 
 const runScript = join(import.meta.dirname, "run.ts");
@@ -194,6 +204,101 @@ describe("run.ts", () => {
     expect(result.code).toBe(3);
     expect(result.stderr).toMatch(/answered 401/);
     expect(result.stderr).not.toMatch(/secret-token/);
+  });
+
+  test("--live refuses a cleartext origin before sending the bearer", async () => {
+    let calls = 0;
+    const result = await capture(["--live"], {
+      env: { SMITHERS_ORIGIN: "http://canary.example", [LIVE_TOKEN_ENV]: "secret-token" },
+      fetch: () => {
+        calls += 1;
+        return Promise.resolve(new Response(JSON.stringify({ rows: [] }), { status: 200 }));
+      },
+    });
+    expect(result.code).toBe(3);
+    expect(calls).toBe(0);
+    expect(result.stderr).toMatch(/https/);
+    expect(result.stderr).not.toMatch(/secret-token/);
+  });
+
+  test("--live allows http only on loopback and never follows a redirect", async () => {
+    const seen: Array<{ url: string; redirect: string | undefined }> = [];
+    for (const origin of ["http://localhost:8787", "http://127.0.0.1:8787", "http://[::1]:8787"]) {
+      const result = await capture(["--live", "--json"], {
+        env: { SMITHERS_ORIGIN: origin, [LIVE_TOKEN_ENV]: "secret-token" },
+        fetch: (url, init) => {
+          seen.push({ url, redirect: init.redirect });
+          return Promise.resolve(new Response(JSON.stringify({ rows: [] }), { status: 200 }));
+        },
+      });
+      expect(result.code).toBe(0);
+    }
+    expect(seen.map((entry) => entry.redirect)).toEqual(["error", "error", "error"]);
+    for (const origin of ["not a url", "file:///etc/passwd", "http://localhost.evil.example"]) {
+      const result = await capture(["--live"], {
+        env: { SMITHERS_ORIGIN: origin, [LIVE_TOKEN_ENV]: "secret-token" },
+        fetch: () => Promise.reject(new Error("must not be called")),
+      });
+      expect(result.code).toBe(3);
+    }
+  });
+
+  test("--live refuses an oversized body and more rows than it asked for", async () => {
+    const huge = await capture(["--live"], {
+      env: { [LIVE_TOKEN_ENV]: "secret-token" },
+      fetch: () => Promise.resolve(new Response(new Uint8Array(LIVE_MAX_BYTES + 1).fill(32), { status: 200 })),
+    });
+    expect(huge.code).toBe(3);
+    expect(huge.stderr).toMatch(/bytes/);
+    const row = JSON.parse(fixtureLines()[0]);
+    const many = await capture(["--live"], {
+      env: { [LIVE_TOKEN_ENV]: "secret-token" },
+      fetch: () =>
+        Promise.resolve(new Response(JSON.stringify({ rows: Array.from({ length: LIVE_LIMIT + 1 }, () => row) }), { status: 200 })),
+    });
+    expect(many.code).toBe(3);
+    expect(many.stderr).toMatch(/rows/);
+  });
+
+  test("--live never writes a control character from a hostile row to stderr", async () => {
+    const result = await capture(["--live"], {
+      env: { [LIVE_TOKEN_ENV]: "secret-token" },
+      fetch: () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ rows: [{ id: "\u001b]52;c;aGk=\u0007\u009b2J", repo: 5 }] }), { status: 200 }),
+        ),
+    });
+    expect(result.code).toBe(3);
+    expect(result.stderr).toMatch(/repo must be a string or null/);
+    expect(result.stderr).toMatch(/\\x1b\]52;c;aGk=\\x07\\x9b2J/);
+    expect(result.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
+  });
+
+  test("--live never writes a control character from a non-JSON body to stderr", async () => {
+    for (const [body, escaped] of [
+      ["\u009b", /\\x9b/],
+      ["\u001b[2J", /\\x1b/],
+    ] as const) {
+      const result = await capture(["--live"], {
+        env: { [LIVE_TOKEN_ENV]: "secret-token" },
+        fetch: () => Promise.resolve(new Response(body, { status: 200 })),
+      });
+      expect(result.code).toBe(3);
+      expect(result.stderr).toMatch(/did not answer JSON/);
+      expect(result.stderr).toMatch(escaped);
+      expect(result.stderr).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
+    }
+  });
+
+  test("--live --json escapes C1 control characters in names", async () => {
+    const row = { ...JSON.parse(fixtureLines()[0]), repo: "a\u009b2J\u007f" };
+    const result = await capture(["--live", "--json"], {
+      env: { [LIVE_TOKEN_ENV]: "secret-token" },
+      fetch: () => Promise.resolve(new Response(JSON.stringify({ rows: [row] }), { status: 200 })),
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
+    expect(Object.keys(JSON.parse(result.stdout).perRepo)).toEqual(["a\u009b2J\u007f"]);
   });
 
   test("the launch line runs under bun and exits 0 on the committed baseline", () => {

@@ -88,12 +88,16 @@ export interface RecommendScore extends BucketScore {
   readonly perRepo: Readonly<Record<string, BucketScore>>;
 }
 
-/** Thrown for a log line the contract does not allow. */
+/**
+ * Thrown for a log line the contract does not allow. The message quotes log
+ * values such as the row id, so it passes through `printable` before it can
+ * reach a terminal.
+ */
 export class RecommendLogError extends Error {
   override readonly name = "RecommendLogError";
   readonly line: number;
   constructor(line: number, message: string) {
-    super(`line ${line}: ${message}`);
+    super(`line ${line}: ${printable(message)}`);
     this.line = line;
   }
 }
@@ -213,8 +217,13 @@ export function scoreLog(rows: ReadonlyArray<RecommendLogRow>): RecommendScore {
   }
   const keys = [...byRepo.keys()].filter((key) => key !== NO_REPO).sort((left, right) => left.localeCompare(right));
   if (byRepo.has(NO_REPO)) keys.push(NO_REPO);
-  const perRepo: Record<string, BucketScore> = {};
-  for (const key of keys) perRepo[key] = scoreBucket(byRepo.get(key)!);
+  /*
+   * Object.fromEntries defines own properties, so a repository named
+   * `__proto__` keeps its bucket instead of replacing the object's prototype.
+   */
+  const perRepo: Record<string, BucketScore> = Object.fromEntries(
+    keys.map((key) => [key, scoreBucket(byRepo.get(key)!)]),
+  );
   return { k: RECOMMENDATION_LIMIT, ...scoreBucket(rows), perRepo };
 }
 
@@ -291,7 +300,22 @@ export function renderFrontDoor(rows: ReadonlyArray<RecommendLogRow>): string {
   );
 }
 
-function renderBuckets(headline: string, k: number, buckets: ReadonlyArray<[string, BucketScore]>): string {
+/**
+ * Escapes C0 and C1 control characters as `\xNN`. Repository and model names
+ * come from the log, which users and the deployment control, so a name must
+ * never reach the terminal as an ANSI or OSC escape sequence.
+ *
+ * @since 1.0.0
+ */
+export function printable(text: string): string {
+  return text.replace(
+    /[\u0000-\u001f\u007f-\u009f]/g,
+    (character) => `\\x${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  );
+}
+
+function renderBuckets(headline: string, k: number, raw: ReadonlyArray<[string, BucketScore]>): string {
+  const buckets = raw.map(([name, bucket]): [string, BucketScore] => [printable(name), bucket]);
   const label = Math.max("bucket".length, ...buckets.map(([name]) => name.length), 0);
   const columns = ["rows", "outcome", "coverage", `hit@${k}`, "top-1"];
   const width = 9;

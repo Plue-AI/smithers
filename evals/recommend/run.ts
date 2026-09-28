@@ -23,6 +23,9 @@
  *   reads (apps/server frontDoor.ts). `SMITHERS_ORIGIN` names the deployment (default
  *   `https://smithers.sh`) and `SMITHERS_ADMIN_TOKEN` is the bearer the admin
  *   routes accept. The token is read from the environment and never printed.
+ *   The origin must be `https:` (or `http:` on a loopback host), redirects
+ *   are refused, and the body is capped at `LIVE_MAX_BYTES` and `LIVE_LIMIT`
+ *   rows.
  *
  * `--update` rewrites `baseline.json` from the fixture. Do that only when the
  * scorer changed for a reason you can name. `--json` prints the score as JSON
@@ -42,6 +45,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   parseLog,
+  printable,
   RecommendLogError,
   renderFrontDoor,
   renderPerModel,
@@ -65,6 +69,8 @@ export const DEFAULT_ORIGIN = "https://smithers.sh";
 /** The admin route the live pull reads, and the row cap it asks for. */
 export const LOG_PATH = "/api/admin/recommend/log";
 export const LIVE_LIMIT = 2000;
+/** The largest response body the live pull reads before it gives up. */
+export const LIVE_MAX_BYTES = 16 * 1024 * 1024;
 
 export const usage = [
   "usage: bun evals/recommend/run.ts [--input <file.jsonl> | --live] [--update] [--json]",
@@ -88,7 +94,10 @@ export const usage = [
 ].join("\n");
 
 /** The one call the live pull makes. Narrower than `typeof fetch` so a test can hand in a plain function. */
-export type Fetch = (url: string, init: { readonly headers: Readonly<Record<string, string>> }) => Promise<Response>;
+export type Fetch = (
+  url: string,
+  init: { readonly headers: Readonly<Record<string, string>>; readonly redirect: "error" },
+) => Promise<Response>;
 
 /** What the program reads and writes. `main` takes one so a test can capture it. */
 export interface Host {
@@ -109,7 +118,11 @@ const processHost: Host = {
   fetch: (input, init) => fetch(input, init),
 };
 
-/** Canonical JSON for the baseline: sorted keys, two-space indent, trailing newline. */
+/**
+ * Canonical JSON for the baseline: sorted keys, two-space indent, trailing
+ * newline. JSON.stringify escapes only U+0000 to U+001F, so U+007F to U+009F
+ * (DEL and the C1 controls, including CSI) are escaped here as `\u00NN`.
+ */
 export function canonical(value: unknown): string {
   const sorted = (input: unknown): unknown => {
     if (Array.isArray(input)) return input.map(sorted);
@@ -122,7 +135,11 @@ export function canonical(value: unknown): string {
     }
     return input;
   };
-  return `${JSON.stringify(sorted(value), null, 2)}\n`;
+  const json = JSON.stringify(sorted(value), null, 2).replace(
+    /[\u007f-\u009f]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+  return `${json}\n`;
 }
 
 function readRows(path: string, host: Host): RecommendLogRow[] | undefined {
@@ -144,17 +161,64 @@ function readRows(path: string, host: Host): RecommendLogRow[] | undefined {
   }
 }
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * The origin the bearer may go to: `https:`, or `http:` on a loopback host
+ * for a local server. Anything else would send the admin token in cleartext.
+ */
+function liveOrigin(raw: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname))) {
+    return raw.replace(/\/+$/, "");
+  }
+  return undefined;
+}
+
+/** Reads the body up to `limit` bytes; `undefined` once it grows past the limit. */
+async function readCapped(response: Response, limit: number): Promise<string | undefined> {
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (declared > limit) return undefined;
+  if (response.body === null) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 async function pullRows(host: Host): Promise<RecommendLogRow[] | undefined> {
-  const origin = (host.env[LIVE_ORIGIN_ENV] ?? DEFAULT_ORIGIN).replace(/\/+$/, "");
   const token = host.env[LIVE_TOKEN_ENV]?.trim();
   if (token === undefined || token === "") {
     host.stderr(`${LIVE_TOKEN_ENV} is unset; the live log is admin-only\n`);
     return undefined;
   }
+  const origin = liveOrigin(host.env[LIVE_ORIGIN_ENV] ?? DEFAULT_ORIGIN);
+  if (origin === undefined) {
+    host.stderr(`${LIVE_ORIGIN_ENV} must be an https:// origin, or http:// on localhost; the bearer is never sent in cleartext\n`);
+    return undefined;
+  }
   const url = `${origin}${LOG_PATH}?limit=${LIVE_LIMIT}`;
   let response: Response;
   try {
-    response = await host.fetch(url, { headers: { authorization: `Bearer ${token}`, accept: "application/json" } });
+    response = await host.fetch(url, {
+      headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+      redirect: "error",
+    });
   } catch (error) {
     host.stderr(`GET ${url} failed: ${(error as Error).message}\n`);
     return undefined;
@@ -165,14 +229,23 @@ async function pullRows(host: Host): Promise<RecommendLogRow[] | undefined> {
   }
   let body: unknown;
   try {
-    body = await response.json();
+    const text = await readCapped(response, LIVE_MAX_BYTES);
+    if (text === undefined) {
+      host.stderr(`GET ${url} answered more than ${LIVE_MAX_BYTES} bytes\n`);
+      return undefined;
+    }
+    body = JSON.parse(text);
   } catch (error) {
-    host.stderr(`GET ${url} did not answer JSON: ${(error as Error).message}\n`);
+    host.stderr(`GET ${url} did not answer JSON: ${printable((error as Error).message)}\n`);
     return undefined;
   }
   const rows = typeof body === "object" && body !== null ? (body as { rows?: unknown }).rows : undefined;
   if (!Array.isArray(rows)) {
     host.stderr(`GET ${url} answered without a rows array\n`);
+    return undefined;
+  }
+  if (rows.length > LIVE_LIMIT) {
+    host.stderr(`GET ${url} answered ${rows.length} rows; it asked for at most ${LIVE_LIMIT}\n`);
     return undefined;
   }
   try {

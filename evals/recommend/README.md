@@ -48,6 +48,18 @@ It sends `GET <origin>/api/admin/recommend/log?limit=2000` with
 with, newest first. A refused or malformed answer is reported with its status
 and exits `3`; the token is never echoed, not even in that message.
 
+The pull guards the bearer and the operator's terminal:
+
+- `SMITHERS_ORIGIN` must be `https://`, or `http://` on `localhost`,
+  `127.0.0.1`, or `[::1]`. Any other origin exits `3` before the request.
+- Redirects are not followed, so the bearer never reaches a second host.
+- A body over 16 MiB, or more than 2000 rows, exits `3`.
+- Repository and model names, log values quoted in error messages, and the
+  parse error for a non-JSON body print with control characters escaped as
+  `\xNN`, so neither a log row nor the origin can inject
+  terminal escape sequences. `--json` output also escapes U+007F to U+009F
+  as `\u00NN`.
+
 ```bash
 SMITHERS_ORIGIN=https://canary.smithers.sh SMITHERS_ADMIN_TOKEN=... bun evals/recommend/run.ts --live
 ```

@@ -244,3 +244,24 @@ describe("rendering", () => {
     expect(table).toMatch(/overall\s+0\s+0\s+n\/a\s+n\/a\s+n\/a/);
   });
 });
+
+describe("hostile log values", () => {
+  test("a repo named __proto__ keeps its own per-repo bucket", () => {
+    const score = scoreLog([row("__proto__", ["flow.list"], "flow.list"), row("a/b", ["flow.list"], "runs.list")]);
+    expect(Object.keys(score.perRepo)).toEqual(["__proto__", "a/b"]);
+    expect(Object.getPrototypeOf(score.perRepo)).toBe(Object.prototype);
+    expect(score.perRepo["__proto__"]?.rows).toBe(1);
+    expect(renderTable(score)).toMatch(/^__proto__\s+1\s+1/m);
+    expect(JSON.parse(JSON.stringify(score)).perRepo).toHaveProperty(["__proto__", "rows"], 1);
+  });
+
+  test("control characters in repo and model names are escaped, never written raw", () => {
+    const repo = "evil\u001b]52;c;aGk=\u0007/\u009b2J";
+    const model = "m\u001b[2J\r\n";
+    const rows = [row(repo, ["flow.list"], "flow.list", { model })];
+    const rendered = renderTable(scoreLog(rows)) + renderPerModel(rows);
+    expect(rendered).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    expect(rendered).toContain("evil\\x1b]52;c;aGk=\\x07/\\x9b2J");
+    expect(rendered).toContain("m\\x1b[2J\\x0d\\x0a");
+  });
+});
