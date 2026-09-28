@@ -109,7 +109,7 @@ describe("Otlp", () => {
           yield* Metric.update(Metric.counter("base_path_metric"), 1)
         }),
         Otlp.layerFetch({
-          baseUrl: "http://collector.invalid:4318/tenant/9//",
+          baseUrl: "https://collector.invalid:4318/tenant/9//",
           headers: { authorization: "Bearer synthetic-test-token" }
         }),
         collector.fetch
@@ -152,7 +152,7 @@ describe("Otlp", () => {
     Effect.gen(function*() {
       const collector = recordingFetch()
       const directLayer = Otlp.layer({
-        baseUrl: "http://collector.invalid:4318",
+        baseUrl: "https://collector.invalid:4318",
         serviceName: "direct-http-client",
         headers: {
           authorization: "Bearer test-token",

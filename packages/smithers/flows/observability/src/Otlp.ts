@@ -18,6 +18,7 @@
  * @since 0.1.0
  */
 
+import * as Redaction from "@smthrs/journal/Redaction"
 import { Clock } from "effect/Clock"
 import * as ConfigProvider from "effect/ConfigProvider"
 import type * as Duration from "effect/Duration"
@@ -29,7 +30,7 @@ import * as Option from "effect/Option"
 import * as References from "effect/References"
 import * as Semaphore from "effect/Semaphore"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import type * as Headers from "effect/unstable/http/Headers"
+import * as Headers from "effect/unstable/http/Headers"
 import type * as HttpBody from "effect/unstable/http/HttpBody"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -167,6 +168,48 @@ const boundedClient = Layer.effect(
   })
 )
 
+const loopbackIpv4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/
+
+/** Whether a decoded endpoint's host never leaves this machine. */
+const isLoopback = (endpoint: string): boolean => {
+  const hostname = new URL(endpoint).hostname
+  return hostname === "localhost" || hostname === "[::1]" || loopbackIpv4.test(hostname)
+}
+
+/**
+ * Refuses a credential header bound for a plaintext collector off this
+ * machine. Anyone on the network path could read the token from every export
+ * request, and the exporter would never report it. Loopback `http://` stays
+ * allowed for a local collector or sidecar; non-credential headers such as a
+ * tenant id stay allowed on any endpoint.
+ */
+/**
+ * Vendor credential headers whose names `Redaction.isSensitiveKey` does not
+ * recognize. Honeycomb sends its ingest key as `x-honeycomb-team`.
+ */
+const vendorCredentialHeaders: ReadonlySet<string> = new Set(["x-honeycomb-team"])
+
+const isCredentialHeader = (name: string): boolean =>
+  Redaction.isSensitiveKey(name) || vendorCredentialHeaders.has(name.toLowerCase())
+
+const refusePlaintextCredentials = (
+  baseUrl: string,
+  headers: Headers.Input | undefined
+): Effect.Effect<void, Endpoint.InvalidExporterEndpoint> => {
+  if (!baseUrl.toLowerCase().startsWith("http:") || isLoopback(baseUrl)) return Effect.void
+  const credential = Object.keys(Headers.fromInput(headers)).some(isCredentialHeader)
+  return credential
+    ? Effect.fail(
+      new Endpoint.InvalidExporterEndpoint({
+        code: "invalid_exporter_endpoint",
+        path: "baseUrl",
+        message:
+          "OTLP collector baseUrl must use https:// when headers carry credentials, unless it is a loopback address"
+      })
+    )
+    : Effect.void
+}
+
 /**
  * Configuration for the default OTLP wiring.
  *
@@ -195,7 +238,14 @@ export interface Options {
    * request oversized.
    */
   readonly attributes?: Record<string, unknown> | undefined
-  /** Headers sent with every export request, for example vendor auth. */
+  /**
+   * Headers sent with every export request, for example vendor auth. A header
+   * whose name names a credential (`authorization`, `x-api-key`, anything
+   * `Redaction.isSensitiveKey` recognizes, plus `x-honeycomb-team`) requires
+   * an `https://` baseUrl unless the host is loopback; otherwise acquisition
+   * fails with
+   * {@link Endpoint.InvalidExporterEndpoint}.
+   */
   readonly headers?: Headers.Input | undefined
   /** Export cadence for all three signals; each signal's Effect default applies when omitted. */
   readonly exportInterval?: Duration.Input | undefined
@@ -238,7 +288,9 @@ export const layer = (
           serviceVersion: options.serviceVersion ?? defaultServiceVersion,
           ...(options.attributes === undefined ? {} : { attributes: options.attributes })
         }),
-        Endpoint.decode(options.baseUrl, "baseUrl")
+        Endpoint.decode(options.baseUrl, "baseUrl").pipe(
+          Effect.tap((baseUrl) => refusePlaintextCredentials(baseUrl, options.headers))
+        )
       ]),
       ([decoded, baseUrl]) => {
         const resource = Resource.toOpenTelemetryConfiguration(decoded)

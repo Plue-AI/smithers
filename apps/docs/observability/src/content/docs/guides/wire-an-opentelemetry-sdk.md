@@ -44,6 +44,12 @@ The endpoint option is named `endpoint` here and `baseUrl` on `Otlp`; each
 refusal names the option it arrived on, so the message points at your own
 field.
 
+`NodeOtel` takes no `headers` option. The OpenTelemetry exporters read the
+standard `OTEL_EXPORTER_OTLP_HEADERS`, `_TIMEOUT`, `_COMPRESSION`, and TLS
+certificate variables from the process environment and send them to your
+explicit `endpoint`, which always wins over `OTEL_EXPORTER_OTLP_ENDPOINT`.
+Set those variables only for this collector. `Otlp` reads none of them.
+
 Import `NodeOtel` only from code that runs on Node. See
 [the layer map](/concepts/layer-map/) for why it is absent from the root
 entry point.

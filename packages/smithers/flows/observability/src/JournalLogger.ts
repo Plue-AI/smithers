@@ -363,15 +363,21 @@ const snapshotValue = (
         return record
       }
       let projected = 0
+      let collided = false
       for (; projected < names.length && budget.members > 0; projected++) {
         budget.members--
         const key = names[projected]!
+        const boundedKey = boundedText(key, budget)
+        if (Object.hasOwn(record, boundedKey)) {
+          collided = true
+          continue
+        }
         const descriptor = Object.getOwnPropertyDescriptor(value, key)
-        record[boundedText(key, budget)] = descriptor !== undefined && "value" in descriptor
+        record[boundedKey] = descriptor !== undefined && "value" in descriptor
           ? snapshotValue(descriptor.value, budget, ancestors, depth + 1)
           : unrenderableMarker
       }
-      if (projected < names.length) record[truncatedMarker] = truncatedMarker
+      if (collided || projected < names.length) record[truncatedMarker] = truncatedMarker
       return record
     }
     if (Array.isArray(value)) {
@@ -396,6 +402,10 @@ const snapshotValue = (
       const key = names[index]!
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       const boundedKey = boundedText(key, budget)
+      // A key truncated to fit the budget can read exactly like one already
+      // copied. The first member keeps its slot; the later one is dropped and
+      // the record is marked truncated below rather than silently overwritten.
+      if (Object.hasOwn(record, boundedKey)) continue
       record[boundedKey] = descriptor !== undefined && "value" in descriptor
         ? snapshotValue(descriptor.value, budget, ancestors, depth + 1)
         : unrenderableMarker

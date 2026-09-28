@@ -67,7 +67,13 @@ interface Options {
 - `attributes`: additional resource attributes attached to every exported
   signal, decoded by `Resource.Attributes`.
 - `headers`: sent with every export request, which is where vendor
-  authentication goes.
+  authentication goes. A header whose name names a credential
+  (`authorization`, `x-api-key`, `x-honeycomb-team`, any name
+  `Redaction.isSensitiveKey` recognizes) requires an `https://` `baseUrl` unless the host is `localhost`,
+  `127.0.0.0/8`, or `[::1]`; otherwise acquisition fails with
+  `Endpoint.InvalidExporterEndpoint` on path `baseUrl`. The check reads
+  header names only: a credential under any other name is sent as given, so
+  use `https://` for every remote collector.
 - `exportInterval`: the export cadence applied to all three signals. Omitted,
   each signal keeps Effect's own default.
 - `shutdownTimeout`: upper bound on the flush performed when the layer's scope
@@ -686,6 +692,12 @@ Builds a scoped Node OTLP/HTTP layer for all three signals: a
 objects are created only when the layer is built. `OTEL_SERVICE_NAME` and
 `OTEL_RESOURCE_ATTRIBUTES` cannot add resource metadata after validation,
 whether supplied by the process environment or an Effect `ConfigProvider`.
+The OpenTelemetry exporters still read the standard transport variables
+(`OTEL_EXPORTER_OTLP_HEADERS`, `_TIMEOUT`, `_COMPRESSION`, `_CERTIFICATE`,
+`_CLIENT_CERTIFICATE`, `_CLIENT_KEY`, and their per-signal forms) from the
+process environment; the explicit `endpoint` always wins over
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Headers set there reach this `endpoint`, so do
+not set them for a different collector. `Otlp.layer` reads none of these.
 Closing the scope
 force-flushes both batch processors and collects the metric reader once, so
 release rather than the interval is the deterministic flush.

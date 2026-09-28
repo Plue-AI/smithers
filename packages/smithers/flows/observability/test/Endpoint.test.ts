@@ -154,4 +154,46 @@ describe("Endpoint", () => {
       }
     }
   })
+
+  /**
+   * A bearer token on a plaintext request crosses every network hop in the
+   * clear. The builder refuses the pairing instead of exporting it.
+   */
+  it("refuses credential headers on a non-loopback http:// collector", async () => {
+    const credentialHeaders = [
+      { authorization: "Bearer synthetic-test-token" },
+      { Authorization: "Bearer synthetic-test-token" },
+      { "x-api-key": "synthetic-test-key" },
+      { "X-Honeycomb-Team": "synthetic-test-key" },
+      [["Proxy-Authorization", "Basic c3ludGhldGlj"]] as const
+    ]
+    for (const baseUrl of ["http://collector.invalid:4318", "HTTP://10.0.0.7:4318", "http://127.evil.invalid"]) {
+      for (const headers of credentialHeaders) {
+        const failure = await failureOf(Otlp.layerFetch({ baseUrl, headers }))
+        expect(failure.code).toBe("invalid_exporter_endpoint")
+        expect(failure.path).toBe("baseUrl")
+        expect(failure.message).toContain("https://")
+        expect(failure.message).not.toContain("synthetic")
+      }
+    }
+  })
+
+  it("admits credential headers over https:// or loopback, and plain headers anywhere", async () => {
+    const admitted: ReadonlyArray<Otlp.Options> = [
+      { baseUrl: "https://collector.invalid:4318", headers: { authorization: "Bearer t" } },
+      { baseUrl: "http://localhost:4318", headers: { authorization: "Bearer t" } },
+      { baseUrl: "http://127.0.0.1:4318", headers: { authorization: "Bearer t" } },
+      { baseUrl: "http://[::1]:4318", headers: { authorization: "Bearer t" } },
+      { baseUrl: "http://collector.invalid:4318", headers: { "x-scope-orgid": "tenant-9" } },
+      { baseUrl: "http://collector.invalid:4318" }
+    ]
+    for (const options of admitted) {
+      const exit = await Effect.runPromiseExit(
+        Effect.scoped(
+          Layer.build(Otlp.layerFetch({ ...options, exportInterval: "1 hour", shutdownTimeout: "1 millis" }))
+        )
+      )
+      expect(exit._tag, options.baseUrl).toBe("Success")
+    }
+  })
 })

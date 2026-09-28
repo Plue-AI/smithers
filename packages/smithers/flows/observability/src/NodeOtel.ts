@@ -42,7 +42,10 @@ export interface Options {
  * Builds a scoped Node OTLP/HTTP layer for all three telemetry signals.
  * Exporter objects are created only when this layer is built.
  * Resource metadata is explicit: ambient OTEL resource configuration cannot
- * enlarge it after validation.
+ * enlarge it after validation. The OpenTelemetry exporters still read the
+ * standard `OTEL_EXPORTER_OTLP_*` transport variables (headers, timeout,
+ * compression, TLS files) from the process environment and send them to the
+ * explicit endpoint, which always wins over `OTEL_EXPORTER_OTLP_ENDPOINT`.
  *
  * @category layers
  * @since 0.1.0

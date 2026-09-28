@@ -717,6 +717,65 @@ describe("JournalLogger", () => {
     expect(seen).toEqual([["merged"]])
   })
 
+  it("never lets a truncated key overwrite a member already in the record", async () => {
+    const id = runId("key-collision-run")
+    // Byte arithmetic: key "a[Truncated]" (14) + "keep" (6) + key "apiKey" (8)
+    // + the filler string (its length + 2) leaves exactly 16 bytes, so the
+    // oversized third key truncates to the prefix "a" and reads "a[Truncated]".
+    const fillerLength = maximumSnapshotBytes - 14 - 6 - 8 - 2 - 16
+    const message = {
+      [`a${truncatedMarker}`]: "keep",
+      apiKey: "x".repeat(fillerLength),
+      [`a${"b".repeat(maximumSnapshotBytes)}`]: "overwrite"
+    }
+    const payload = await run(
+      Effect.gen(function*() {
+        const journal = yield* Journal.Journal
+        yield* Effect.logInfo(message)
+        const [entry] = yield* entriesEventually(journal, id, 1)
+        return Schema.decodeUnknownSync(TelemetryLog)(entry!.payload)
+      }).pipe(
+        Effect.provide(Layer.provideMerge(layerJournalForwarding({ runId: id }), TestJournal.layer()))
+      )
+    )
+
+    const [record] = payload.message as ReadonlyArray<Record<string, unknown>>
+    expect(record![`a${truncatedMarker}`]).toBe("keep")
+    expect(record![truncatedMarker]).toBe(truncatedMarker)
+  })
+
+  it("never lets a truncated error field overwrite one already in the defect", async () => {
+    const id = runId("error-key-collision-run")
+    const failure = new Error("m")
+    failure.name = "E"
+    failure.stack = "s"
+    // Byte arithmetic: message ["failed"] (8), then the standard error fields
+    // "E", "m", "s", and "[Undefined]" (22), then key "a[Truncated]" (14) +
+    // "keep" (6) + key "apiKey" (8) + the filler string (its length + 2)
+    // leaves exactly 16 bytes, so the oversized last key reads "a[Truncated]".
+    const fillerLength = maximumSnapshotBytes - 8 - 22 - 14 - 6 - 8 - 2 - 16
+    Object.assign(failure, {
+      [`a${truncatedMarker}`]: "keep",
+      apiKey: "x".repeat(fillerLength),
+      [`a${"b".repeat(maximumSnapshotBytes)}`]: "overwrite"
+    })
+    const payload = await run(
+      Effect.gen(function*() {
+        const journal = yield* Journal.Journal
+        yield* Effect.logError("failed", Cause.die(failure))
+        const [entry] = yield* entriesEventually(journal, id, 1)
+        return Schema.decodeUnknownSync(TelemetryLog)(entry!.payload)
+      }).pipe(
+        Effect.provide(Layer.provideMerge(layerJournalForwarding({ runId: id }), TestJournal.layer()))
+      )
+    )
+
+    const [died] = payload.cause.reasons as ReadonlyArray<{ defect?: unknown }>
+    const defect = died!.defect as Record<string, unknown>
+    expect(defect[`a${truncatedMarker}`]).toBe("keep")
+    expect(defect[truncatedMarker]).toBe(truncatedMarker)
+  })
+
   it("keeps annotations a record when one logged value spends the whole snapshot budget", async () => {
     const id = runId("spent-budget-run")
     const payload = await run(
