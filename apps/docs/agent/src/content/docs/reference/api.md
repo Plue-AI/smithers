@@ -1106,15 +1106,17 @@ policy: it accumulates usage and refuses nothing. A latency budget bounds when
 a call may start, not how long one may take; cutting a call off is
 `Agent.Options.modelCallMs`, a different budget. Its zero is the run's first
 budget question and is durable, so a park or restart does not grant the run the
-whole interval again.
+whole interval again. The ceiling counts active time only: time the run spends
+suspended on an approval, a question, or a budget raise is recorded durably and
+subtracted, including across a process restart.
 
 `onExceeded` decides what running out means, and defaults to `fail`:
 
-| Setting          | Behavior                                                                                               |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| `fail`           | The step fails with `BudgetExceeded { scope, used, max, next }`.                                       |
-| `warn`           | A `flows.agent.budget-warning.v1` record is written and the call proceeds.                             |
-| `skip-remaining` | The budget latches. Every later model call in the run fails typed `skipped` without asking a provider. |
+| Setting          | Behavior                                                                                                                                                                                 |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fail`           | The step fails with `BudgetExceeded { scope, used, max, next }`.                                                                                                                         |
+| `warn`           | A `flows.agent.budget-warning.v1` record is written and the call proceeds.                                                                                                               |
+| `skip-remaining` | The budget latches. Every later model call in the run fails typed `skipped` without asking a provider.                                                                                   |
 | `park`           | The run parks with waiting reason `budget` and an approval request for a raised budget. Approving it resumes the run under the raised ceiling; denying it fails the call as `fail` does. |
 
 A flow sets it in frontmatter as `budget.onExceeded`, and `smthrs flow start`
@@ -1130,6 +1132,8 @@ interface Service {
   readonly record: (stepKey: string, usage: ModelEvent.Usage) => Effect.Effect<void, AccountingUnavailable>
   readonly usage: Effect.Effect<Usage, AccountingUnavailable>
   readonly usageOf: (runId: string) => Effect.Effect<Usage, AccountingUnavailable>
+  readonly suspend: Effect.Effect<void, AccountingUnavailable>
+  readonly resume: Effect.Effect<void, AccountingUnavailable>
 }
 
 class Budget extends Context.Service<Budget, Service>()("@smthrs/agent/Budget")
@@ -1149,6 +1153,10 @@ class Budget extends Context.Service<Budget, Service>()("@smthrs/agent/Budget")
 - `usage` is what the current run has spent.
 - `usageOf` reads one named run's spend, from its live accumulator when this
   process is driving it and from its durable records when it is not.
+- `suspend` and `resume` open and close the current run's suspension span. The
+  harness engine port calls `suspend` when it parks a frame and `resume` when
+  it is built for the next drive; admission also closes an open span, so a
+  missing `resume` charges less parked time, never more.
 
 ### Budget.Verdict and Budget.Usage
 
@@ -1264,7 +1272,8 @@ const raisedBy: (envelope: Envelope, raises: ReadonlyArray<Envelope["budget"]>) 
 envelope carries `raise`'s proposal, which is the exceeded ceiling raised to
 cover what the run spent and holds, the refused call, and one more original
 allowance. A resumed run spends against `raisedBy` of its card and every
-approved raise. Parked time counts against a latency ceiling.
+approved raise. Parked time does not count against a latency ceiling, so an
+approved latency raise admits the resumed call however long the park lasted.
 
 ### Budget.current
 
@@ -1353,11 +1362,13 @@ would otherwise re-dispatch a skipped step gives up on the first refusal.
 
 ### Budget records
 
-| Constant             | Value                           | Channel                                                                                                                             |
-| -------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `usageEvent`         | `flows.agent.usage.v1`          | Durable. Read back on resume; a write failure raises `AccountingUnavailable`. Payload schema: `UsageRecord` (`{ stepKey, spent }`). |
-| `budgetStartedEvent` | `flows.agent.budget-started.v1` | Durable. The run's latency clock zero; the earliest recorded value wins. Payload schema: `BudgetStartedRecord` (`{ startedAt }`).   |
-| `budgetWarningEvent` | `flows.agent.budget-warning.v1` | Lossy. Evidence only; nothing reads it back.                                                                                        |
+| Constant               | Value                             | Channel                                                                                                                             |
+| ---------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `usageEvent`           | `flows.agent.usage.v1`            | Durable. Read back on resume; a write failure raises `AccountingUnavailable`. Payload schema: `UsageRecord` (`{ stepKey, spent }`). |
+| `budgetStartedEvent`   | `flows.agent.budget-started.v1`   | Durable. The run's latency clock zero; the earliest recorded value wins. Payload schema: `BudgetStartedRecord` (`{ startedAt }`).   |
+| `budgetSuspendedEvent` | `flows.agent.budget-suspended.v1` | Durable. Opens a suspension span; a second open span keeps the first start. Payload schema: `BudgetClockRecord` (`{ at }`).         |
+| `budgetResumedEvent`   | `flows.agent.budget-resumed.v1`   | Durable. Closes the open suspension span. Payload schema: `BudgetClockRecord` (`{ at }`).                                           |
+| `budgetWarningEvent`   | `flows.agent.budget-warning.v1`   | Lossy. Evidence only; nothing reads it back.                                                                                        |
 
 A composition with no journal at all, such as the reference memory engine,
 accounts within one process and recovers nothing across a restart.

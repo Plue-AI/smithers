@@ -69,6 +69,7 @@ import * as ModelRequest from "@smthrs/model/ModelRequest"
 import * as Route from "@smthrs/model/Route"
 import * as StepKey from "@smthrs/plan/StepKey"
 import * as Checkpoints from "@smthrs/std/Checkpoints"
+import type * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
@@ -1123,6 +1124,12 @@ export const make = (
     const observer = yield* Effect.serviceOption(WorkspaceObservation.Observer)
     const quota = yield* QuotaPolicy.current
     const budget = yield* Budget.current
+    // A port is built when the run is driven, so a suspension the run recorded
+    // ends here rather than at its next model call. Failing to record it only
+    // leaves the span open until admission closes it, so it is logged.
+    const logSuspension = (message: string) => (cause: Cause.Cause<Budget.AccountingUnavailable>) =>
+      Effect.logWarning(message, cause)
+    yield* budget.resume.pipe(Effect.catchCause(logSuspension("A budget resume could not be recorded")))
     const crypto = yield* Crypto.Crypto
     const observe = Option.match(observer, {
       onNone: (): Effect.Effect<Option.Option<EngineLike.Observation>, HarnessError.HarnessError> =>
@@ -1189,18 +1196,22 @@ export const make = (
       capture,
       resolve,
       suspend: (reason) =>
-        Effect.andThen(
-          Effect.annotateLogs(Effect.logDebug("Harness parked the engine frame"), {
-            code: reason.code,
-            reason: reason.message
-          }),
-          Effect.suspend(() => {
+        Effect.annotateLogs(Effect.logDebug("Harness parked the engine frame"), {
+          code: reason.code,
+          reason: reason.message
+        }).pipe(
+          // Parked time is not active time. Without the record the run is
+          // charged the wait, the conservative side, so it is logged.
+          Effect.andThen(
+            budget.suspend.pipe(Effect.catchCause(logSuspension("A budget suspension could not be recorded")))
+          ),
+          Effect.andThen(Effect.suspend(() => {
             if (parkedOn !== undefined) {
               instance.waiting = parkedOn
               parkedOn = undefined
             }
             return Flow.suspend(instance)
-          })
+          }))
         )
     })
   })

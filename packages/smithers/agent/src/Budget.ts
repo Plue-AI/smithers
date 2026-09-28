@@ -114,13 +114,16 @@ export interface TokenBudget {
 }
 
 /**
- * The wall-clock ceiling for one run, and what exceeding it means.
+ * The active-time ceiling for one run, and what exceeding it means.
  *
  * It bounds when a call may START, not how long one may take: a call already
  * in flight is the provider's clock, and cutting it off is
  * `Agent.Options.modelCallMs`, which exists and is a different budget.
  * Its zero is the run's first budget question and is durable, so a park or
- * process restart does not grant the run the whole interval again.
+ * process restart does not grant the run the whole interval again. Time the
+ * run spends suspended, waiting on an approval, a question, or a budget raise,
+ * is not active time: {@link Service.suspend} and {@link Service.resume}
+ * record those spans durably and the ceiling subtracts them (#2120).
  *
  * @category models
  * @since 0.1.0
@@ -402,6 +405,18 @@ export interface Service {
    * any run.
    */
   readonly usageOf: (runId: string) => Effect.Effect<Usage, AccountingUnavailable>
+  /**
+   * Records that the CURRENT run suspended now, so the time until it resumes
+   * is not charged to its latency ceiling. A run already suspended keeps its
+   * earlier start.
+   */
+  readonly suspend: Effect.Effect<void, AccountingUnavailable>
+  /**
+   * Records that the CURRENT run is executing again, closing its open
+   * suspension. Admission closes one too, because a run making a model call is
+   * executing; a missing resume therefore only charges less time, never more.
+   */
+  readonly resume: Effect.Effect<void, AccountingUnavailable>
 }
 
 /**
@@ -535,6 +550,36 @@ export const budgetStartedEvent = "flows.agent.budget-started.v1"
  */
 export const BudgetStartedRecord = Schema.Struct({
   startedAt: Schema.Finite
+})
+
+/**
+ * The journal event a run's suspension start is written to.
+ *
+ * Read back with {@link budgetResumedEvent} on recovery: a run parked in one
+ * process and answered in another must not be charged the parked wall time.
+ *
+ * @category records
+ * @since 1.0.0-rc.1
+ */
+export const budgetSuspendedEvent = "flows.agent.budget-suspended.v1"
+
+/**
+ * The journal event that closes a run's open {@link budgetSuspendedEvent}.
+ *
+ * @category records
+ * @since 1.0.0-rc.1
+ */
+export const budgetResumedEvent = "flows.agent.budget-resumed.v1"
+
+/**
+ * The payload {@link budgetSuspendedEvent} and {@link budgetResumedEvent}
+ * carry: the wall-clock instant of the transition.
+ *
+ * @category records
+ * @since 1.0.0-rc.1
+ */
+export const BudgetClockRecord = Schema.Struct({
+  at: Schema.Finite
 })
 
 /**
@@ -769,6 +814,10 @@ interface RecoveredLedger {
   readonly usage: ReadonlyMap<string, number>
   readonly startedAt: number | undefined
   readonly latched: BudgetExceeded | undefined
+  /** Closed suspension spans, summed. */
+  readonly suspendedMillis: number
+  /** The start of a suspension no resume has closed. */
+  readonly suspendedSince: number | undefined
 }
 
 /**
@@ -792,8 +841,12 @@ const recoverUsage = (
     const recovered = new Map<string, number>()
     let startedAt = Number.POSITIVE_INFINITY
     let latched: BudgetExceeded | undefined
+    let suspendedMillis = 0
+    let suspendedSince: number | undefined
     const journal = yield* Effect.serviceOption(Journal.Journal)
-    if (Option.isNone(journal)) return { usage: recovered, startedAt: undefined, latched: undefined }
+    if (Option.isNone(journal)) {
+      return { usage: recovered, startedAt: undefined, latched: undefined, suspendedMillis, suspendedSince }
+    }
     // Recovery flushes and reads committed history. Running it while holding
     // a write transaction can deadlock its lossy writer or recover a clock
     // zero that is later rolled back. Refuse before either operation.
@@ -846,6 +899,16 @@ const recoverUsage = (
             return yield* Effect.fail(undecodable(entry, "budget-latched"))
           }
           latched ??= payload
+        } else if (entry.eventType === budgetSuspendedEvent || entry.eventType === budgetResumedEvent) {
+          const { at } = yield* Schema.decodeUnknownEffect(BudgetClockRecord)(entry.payload).pipe(
+            Effect.mapError(() => undecodable(entry, entry.eventType))
+          )
+          // The same fold the live account applies, in journal order.
+          if (entry.eventType === budgetSuspendedEvent) suspendedSince ??= at
+          else if (suspendedSince !== undefined) {
+            suspendedMillis += Math.max(0, at - suspendedSince)
+            suspendedSince = undefined
+          }
         }
       }
       scanned += read.entries.length
@@ -854,7 +917,9 @@ const recoverUsage = (
         return {
           usage: recovered,
           startedAt: startedAt === Number.POSITIVE_INFINITY ? undefined : startedAt,
-          latched
+          latched,
+          suspendedMillis,
+          suspendedSince
         }
       }
       if (scanned >= entryLimit) {
@@ -882,6 +947,10 @@ const recoverUsage = (
 interface RunAccount {
   /** The latency zero, replaced once when recovery finds its earlier durable value. */
   startedAt: number
+  /** Closed suspension spans, summed; subtracted from the latency clock. */
+  suspendedMillis: number
+  /** The start of the open suspension, if the run is suspended. */
+  suspendedSince: number | undefined
   readonly state: Ref.Ref<State>
   /** Actual spend whose journal write has not yet been confirmed committed. */
   readonly pending: Map<string, AccountingUnavailable>
@@ -1008,6 +1077,8 @@ export const make = (
       const admission = yield* Semaphore.make(1)
       return {
         startedAt,
+        suspendedMillis: 0,
+        suspendedSince: undefined,
         state,
         recovery,
         admission,
@@ -1129,6 +1200,8 @@ export const make = (
                 } else {
                   run.startedAt = ledger.startedAt
                 }
+                run.suspendedMillis = ledger.suspendedMillis
+                run.suspendedSince = ledger.suspendedSince
                 yield* Effect.forEach(
                   ledger.usage,
                   ([stepKey, spent]) => account(run, runId, stepKey, spent),
@@ -1230,6 +1303,37 @@ export const make = (
         return verdictFor(failure)
       })
 
+    /**
+     * Opens or closes one run's suspension span, durably before in memory, so
+     * a recovered ledger never holds less suspension than the live one used.
+     * Redundant transitions write nothing.
+     */
+    const transition = (
+      run: RunAccount,
+      runId: string,
+      to: "suspend" | "resume",
+      at: number
+    ): Effect.Effect<void, AccountingUnavailable> =>
+      Effect.gen(function*() {
+        if ((to === "suspend") === (run.suspendedSince !== undefined)) return
+        if (runId !== looseRunId) {
+          const payload = yield* Schema.encodeEffect(BudgetClockRecord)({ at }).pipe(
+            Effect.mapError((cause) => unavailable("record", runId, "its suspension record does not encode", cause))
+          )
+          yield* emit(
+            (journal, input) => journal.emitDurableUnfenced(input),
+            to === "suspend" ? budgetSuspendedEvent : budgetResumedEvent,
+            payload
+          ).pipe(Effect.mapError((cause) => unavailable("record", runId, String(cause), cause)))
+        }
+        if (to === "suspend") {
+          run.suspendedSince = at
+        } else if (run.suspendedSince !== undefined) {
+          run.suspendedMillis += Math.max(0, at - run.suspendedSince)
+          run.suspendedSince = undefined
+        }
+      }).pipe(Effect.uninterruptible)
+
     const checkAccount = (
       run: RunAccount,
       runId: string,
@@ -1253,15 +1357,18 @@ export const make = (
         if (stepKey !== undefined && run.reservations.has(stepKey)) return { _tag: "proceed" }
         const now = yield* Clock.currentTimeMillis
         if (current.latched !== undefined) return verdictFor(current.latched)
+        // A run asking to call a model is executing, whatever it recorded.
+        yield* transition(run, runId, "resume", now)
         const latency = policy.latency
-        if (latency !== undefined && now - run.startedAt > latency.maxMillis) {
+        const active = now - run.startedAt - run.suspendedMillis
+        if (latency !== undefined && active > latency.maxMillis) {
           return yield* settle(
             run,
             runId,
             exceeded(
               "latency",
               latency.onExceeded ?? "fail",
-              now - run.startedAt,
+              active,
               latency.maxMillis,
               0
             )
@@ -1392,6 +1499,16 @@ export const make = (
             ))
           }), stepKey),
       usage: withRecovered((run) => Effect.map(Ref.get(run.state), summarize)),
+      suspend: withRecovered((run, runId) =>
+        run.admission.withPermits(1)(
+          Effect.flatMap(Clock.currentTimeMillis, (now) => transition(run, runId, "suspend", now))
+        )
+      ),
+      resume: withRecovered((run, runId) =>
+        run.admission.withPermits(1)(
+          Effect.flatMap(Clock.currentTimeMillis, (now) => transition(run, runId, "resume", now))
+        )
+      ),
       usageOf: (runId) =>
         Effect.suspend(() => {
           const live = runId === looseRunId ? loose : accounts.get(runId)
@@ -1445,7 +1562,9 @@ export const makeUnbounded = (): Service =>
     reserve: () => Effect.succeed<Verdict>({ _tag: "proceed" }),
     record: () => Effect.void,
     usage: Effect.succeed({ tokens: 0, calls: 0, largestCall: 0 }),
-    usageOf: () => Effect.succeed({ tokens: 0, calls: 0, largestCall: 0 })
+    usageOf: () => Effect.succeed({ tokens: 0, calls: 0, largestCall: 0 }),
+    suspend: Effect.void,
+    resume: Effect.void
   })
 
 /**

@@ -4,11 +4,12 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
  * exits.
  *
  * The first composition makes one real model call, records the latency clock
- * zero, and parks the run on an in-run approval. Its scope then closes. After
- * the approved interval has elapsed, a second composition opens the same
- * `control.db` and `engine.db`, approves the park, and drives the next frame.
- * The resumed run must refuse that frame from the original clock zero without
- * calling the second process's model.
+ * zero, and parks the run on an in-run approval. Its scope then closes. A
+ * second composition opens the same `control.db` and `engine.db`, approves the
+ * park, and drives the next frame. The resumed run measures from the original
+ * clock zero, minus the time it spent parked (#2120): a slow first call
+ * refuses the next frame without calling the second process's model, and a
+ * long park alone does not.
  *
  * Both compositions use the production control plane, durable engine, and
  * `AgentSession` budget provision. The only in-memory state is the scripted
@@ -43,12 +44,15 @@ import * as Agent from "../src/Agent.ts"
 import * as AgentSession from "../src/AgentSession.ts"
 import * as Budget from "../src/Budget.ts"
 import type * as FlowEngineLike from "../src/FlowEngineLike.ts"
+import { layer as scriptedCompletionJudge } from "../src/ScriptedJudge.ts"
 import * as Seat from "../src/Seat.ts"
 import * as SeatResolver from "../src/SeatResolver.ts"
 import * as Safety from "./Safety.ts"
 
 const latencyMaxMillis = 1_000
 const betweenProcessesMillis = 2_000
+/** How long the first provider call takes in the case that overruns while active. */
+let firstCallMillis = 0
 
 const prepared: Route.PreparedRequest = {
   routeId: "route-a",
@@ -136,10 +140,12 @@ const scripted = (host: string): Model.Model =>
   Model.make({
     stream: () =>
       Stream.unwrap(
-        Effect.sync(() => {
+        Effect.gen(function*() {
           const source = modelCalls.length === 0 ? askFrame : doneFrame
           const id = `cell-${modelCalls.length}`
+          const slow = modelCalls.length === 0 ? firstCallMillis : 0
           modelCalls.push(host)
+          if (slow > 0) yield* Effect.sleep(`${slow} millis`)
           return Stream.fromIterable(cellEvents(source, id))
         })
       )
@@ -185,7 +191,7 @@ const host = (root: string, owner: Ownership.OwnerId, engineHost: string) => {
     maxFrames: 4
   }).pipe(
     Layer.provide(
-      Layer.merge(Agent.layer, SeatResolver.layer({ resolve: seatFor(engineHost) })).pipe(
+      Layer.mergeAll(Agent.layer, SeatResolver.layer({ resolve: seatFor(engineHost) }), scriptedCompletionJudge).pipe(
         Layer.provide(Safety.layer)
       )
     )
@@ -218,6 +224,7 @@ const roots = new Set<string>()
 
 afterEach(async () => {
   modelCalls.length = 0
+  firstCallMillis = 0
   await Promise.all([...roots].map((root) => rm(root, { recursive: true, force: true })))
   roots.clear()
 })
@@ -331,19 +338,41 @@ const awaitTerminalEvent = (runId: string) =>
     return events[0]?.kind
   })
 
+/** Composition A calls the provider once, parks on the ask, and then exits completely. */
+const parkInFirstProcess = (root: string) =>
+  Effect.runPromise(
+    Effect.gen(function*() {
+      const runId = yield* launch
+      const approval = yield* askPayload(runId)
+      yield* awaitParkEvent(runId)
+      return { runId, approval }
+    }).pipe(Effect.provide(host(root, firstOwner, "budget-first")), Effect.scoped, Effect.orDie)
+  )
+
+/** Composition B opens only after A's scope is gone, uses the same files, and approves. */
+const approveInSecondProcess = (
+  root: string,
+  parked: { readonly runId: string; readonly approval: ControlSchema.ApprovalPayload },
+  status: string
+) =>
+  Effect.runPromise(
+    Effect.gen(function*() {
+      const control = yield* Control.Control
+      const runtime = yield* ControlRuntime.ControlRuntime
+      yield* control.approve(parked.approval)
+      const event = yield* awaitTerminalEvent(parked.runId).pipe(Effect.timeout("100 seconds"))
+      const engineRow = yield* awaitEngineStatus(root, parked.runId, status)
+      return { engineRow, event, run: yield* runtime.getRun(parked.runId) }
+    }).pipe(Effect.provide(host(root, secondOwner, "budget-second")), Effect.scoped, Effect.orDie)
+  )
+
 describe("a durable latency budget when its process exits", () => {
   it("refuses the resumed run's next model call from the original clock zero", async () => {
     const root = makeRoot()
+    // The first call alone outruns the allowance while the run is active.
+    firstCallMillis = latencyMaxMillis + 200
 
-    // Composition A calls the provider once, parks, and then exits completely.
-    const parked = await Effect.runPromise(
-      Effect.gen(function*() {
-        const runId = yield* launch
-        const approval = yield* askPayload(runId)
-        yield* awaitParkEvent(runId)
-        return { runId, approval }
-      }).pipe(Effect.provide(host(root, firstOwner, "budget-first")), Effect.scoped, Effect.orDie)
-    )
+    const parked = await parkInFirstProcess(root)
 
     expect(modelCalls).toEqual(["budget-first"])
     expect(readEngineRun(root, parked.runId)).toMatchObject({ status: "suspended", waiting_reason: "approval" })
@@ -351,20 +380,7 @@ describe("a durable latency budget when its process exits", () => {
     expect(started).toHaveLength(1)
     expect(Number.isFinite(started[0]?.startedAt)).toBe(true)
 
-    // Budget and engine clocks use real wall time. No TestClock participates.
-    await new Promise((resolve) => setTimeout(resolve, betweenProcessesMillis))
-
-    // Composition B opens only after A's scope is gone and uses the same files.
-    const settled = await Effect.runPromise(
-      Effect.gen(function*() {
-        const control = yield* Control.Control
-        const runtime = yield* ControlRuntime.ControlRuntime
-        yield* control.approve(parked.approval)
-        const event = yield* awaitTerminalEvent(parked.runId).pipe(Effect.timeout("100 seconds"))
-        const engineRow = yield* awaitEngineStatus(root, parked.runId, "failed")
-        return { engineRow, event, run: yield* runtime.getRun(parked.runId) }
-      }).pipe(Effect.provide(host(root, secondOwner, "budget-second")), Effect.scoped, Effect.orDie)
-    )
+    const settled = await approveInSecondProcess(root, parked, "failed")
 
     expect(settled.event).toBe("control.run.failed")
     expect(settled.run.status).toBe("failed")
@@ -380,5 +396,26 @@ describe("a durable latency budget when its process exits", () => {
     // Without durable zero recovery, B records a fresh zero. The replayed
     // first step costs nothing, and the new second call falls inside the fresh
     // allowance, so `doneFrame` reaches the provider and completes the run.
+  }, 180_000)
+
+  it("excludes an ordinary approval suspension across restart from the task allowance", async () => {
+    const root = makeRoot()
+    const parked = await parkInFirstProcess(root)
+
+    expect(modelCalls).toEqual(["budget-first"])
+    const started = readBudgetStarts(root, parked.runId)
+    expect(started).toHaveLength(1)
+
+    // Budget and engine clocks use real wall time. No TestClock participates.
+    // The park alone outlasts the whole allowance.
+    await new Promise((resolve) => setTimeout(resolve, betweenProcessesMillis))
+
+    const settled = await approveInSecondProcess(root, parked, "completed")
+
+    expect(settled.event).toBe("control.run.completed")
+    expect(settled.run.status).toBe("completed")
+    expect(modelCalls).toEqual(["budget-first", "budget-second"])
+    // Excluding the park did not reset the ledger's clock zero.
+    expect(readBudgetStarts(root, parked.runId)).toEqual(started)
   }, 180_000)
 })

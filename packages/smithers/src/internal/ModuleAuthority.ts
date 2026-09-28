@@ -200,7 +200,9 @@ export const make = (
               reserve: (step) => account(budget.reserve(key(step))),
               record: (step, usage, modelId) => account(budget.record(key(step), usage, modelId)),
               usage: account(budget.usage),
-              usageOf: (id) => account(budget.usageOf(id))
+              usageOf: (id) => account(budget.usageOf(id)),
+              suspend: account(budget.suspend),
+              resume: account(budget.resume)
             }
             return yield* handler(payload, executionId).pipe(
               // A `park` budget parks the owning control run, as a prompt

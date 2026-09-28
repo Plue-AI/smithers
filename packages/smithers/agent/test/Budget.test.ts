@@ -1628,6 +1628,77 @@ describe("a durable latency clock", () => {
     })
   })
 
+  it("charges active time only, and a fresh instance recovers the suspended spans", async () => {
+    const ledger = budgetLedger()
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const first = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        yield* first.check("step-a")
+        yield* TestClock.adjust("3 seconds")
+        yield* first.suspend
+        // A redundant suspend keeps the earlier start.
+        yield* TestClock.adjust("10 seconds")
+        yield* first.suspend
+        yield* TestClock.adjust("10 seconds")
+        yield* first.resume
+        yield* TestClock.adjust("1 second")
+        // 4 s active of 24 s wall.
+        const live = yield* first.check("step-b")
+        yield* first.suspend
+        yield* TestClock.adjust("30 seconds")
+        // A restart finds the second span still open; admission closes it.
+        const second = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        const resumed = yield* second.check("step-c")
+        yield* TestClock.adjust("1500 millis")
+        const overrun = yield* second.check("step-d")
+        return { live, resumed, overrun }
+      }).pipe(
+        Effect.provideService(Journal.Journal, ledger.journal),
+        Effect.provideService(FlowRuntime.FlowInstance, instanceFor("latency-suspended")),
+        Effect.provide(TestClock.layer())
+      )
+    )
+
+    expect(observed.live._tag).toBe("proceed")
+    expect(observed.resumed._tag).toBe("proceed")
+    expect(observed.overrun).toMatchObject({
+      _tag: "refuse",
+      exceeded: { scope: "latency", used: 5_500, max: 5_000 }
+    })
+    const transitions = ledger.recorded
+      .filter((entry) =>
+        entry.eventType === Budget.budgetSuspendedEvent || entry.eventType === Budget.budgetResumedEvent
+      )
+      .map((entry) => [entry.eventType === Budget.budgetSuspendedEvent ? "suspend" : "resume", entry.payload])
+    expect(transitions).toEqual([
+      ["suspend", { at: 3_000 }],
+      ["resume", { at: 23_000 }],
+      ["suspend", { at: 24_000 }],
+      ["resume", { at: 54_000 }]
+    ])
+  })
+
+  it("fails recovery closed on an undecodable suspension record", async () => {
+    const exit = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ latency: { maxMillis: 1_000 } })
+        return yield* budget.check("step-a")
+      }).pipe(
+        Effect.provide(
+          Layer.merge(
+            pagedJournal([[budgetEntry(1, Budget.budgetSuspendedEvent, { at: "soon" })]]),
+            TestClock.layer()
+          )
+        ),
+        Effect.provideService(FlowRuntime.FlowInstance, instanceFor("latency-bad-suspension")),
+        Effect.exit
+      )
+    )
+
+    expect(exit._tag).toBe("Failure")
+    expect(JSON.stringify(exit)).toContain(Budget.budgetSuspendedEvent)
+  })
+
   it("writes its durable zero at most once per run", async () => {
     const ledger = budgetLedger()
     await Effect.runPromise(
