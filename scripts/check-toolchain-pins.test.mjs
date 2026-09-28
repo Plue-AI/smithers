@@ -2,10 +2,10 @@ import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import test from "node:test"
 import { check, findings, rustFindings, satisfies } from "./check-toolchain-pins.mjs"
-import { toolchainRefusal } from "./require-toolchain.mjs"
+import { compare, floorOf, toolchainRefusal } from "./require-toolchain.mjs"
 
 const workspace = {
   runtime: { version: ">=26.4.0" },
@@ -163,6 +163,95 @@ test("a toolchain below the engines floors is refused in one line naming both", 
     toolchainRefusal(engines, { bun: undefined, node: "24.4.1" }),
     "Smithers requires Bun >=1.4.0 and Node >=26.4.0; found Node 24.4.1."
   )
+})
+
+for (const [requirement, expected] of [
+  [">=26.4.0", [26, 4, 0]],
+  ["  26.10.12 \n", [26, 10, 12]],
+  [">=1.4.0-canary.3", [1, 4, 0]],
+  ["1.4.2+build.7", [1, 4, 2]]
+]) {
+  test(`runtime floors read numeric release components from ${JSON.stringify(requirement)}`, () => {
+    assert.deepEqual(floorOf(requirement), expected)
+  })
+}
+
+for (const requirement of ["", "latest", "26", "26.4", "^26.4.0", "v26.4.0"]) {
+  test(`runtime floors refuse unreadable requirements ${JSON.stringify(requirement)}`, () => {
+    assert.throws(() => floorOf(requirement), {
+      message: `unreadable version requirement: ${JSON.stringify(requirement)}`
+    })
+  })
+}
+
+for (const [left, right, expected] of [
+  [[26, 4, 0], [26, 4, 0], 0],
+  [[26, 4, 0], [26, 4, 1], -1],
+  [[26, 4, 1], [26, 4, 0], 1],
+  [[26, 4, 99], [26, 10, 0], -1],
+  [[26, 10, 0], [26, 4, 99], 1],
+  [[25, 99, 99], [26, 0, 0], -1],
+  [[27, 0, 0], [26, 99, 99], 1]
+]) {
+  test(`runtime comparison orders ${left.join(".")} against ${right.join(".")}`, () => {
+    assert.equal(compare(left, right), expected)
+  })
+}
+
+for (const bun of [undefined, "1.3.99", "1.4.0", "2.0.0"]) {
+  for (const node of [undefined, "26.3.99", "26.4.0", "27.0.0"]) {
+    test(`runtime admission combines Bun ${bun} and Node ${node} independently`, () => {
+      const result = toolchainRefusal({ bun: ">=1.4.0", node: ">=26.4.0" }, { bun, node })
+      if (bun !== "1.3.99" && node !== "26.3.99") {
+        assert.equal(result, null)
+        return
+      }
+      const measured = []
+      if (bun !== undefined) measured.push(`Bun ${bun}`)
+      if (node !== undefined) measured.push(`Node ${node}`)
+      assert.equal(result, `Smithers requires Bun >=1.4.0 and Node >=26.4.0; found ${measured.join(", ")}.`)
+    })
+  }
+}
+
+test("Bun measures real Node on PATH and omits an absent Node from the refusal", () => {
+  const probe = spawnSync("bun", ["--eval", "console.log(JSON.stringify({path:process.execPath,version:process.versions.bun}))"], {
+    encoding: "utf8", timeout: 10_000
+  })
+  assert.equal(probe.status, 0, `${probe.error?.message ?? ""} ${probe.stderr}`)
+  const bun = JSON.parse(probe.stdout)
+  const root = mkdtempSync(join(tmpdir(), "require-toolchain-bun-"))
+  const manifest = join(root, "package.json")
+  const entry = new URL("./require-toolchain.mjs", import.meta.url).href
+  const run = (engines, path) => {
+    writeFileSync(manifest, JSON.stringify({ engines }))
+    return spawnSync(bun.path, ["--eval", `const m = await import(${JSON.stringify(entry)}); m.requireToolchain(${JSON.stringify(manifest)}); console.log("ran")`], {
+      cwd: root,
+      env: { ...process.env, PATH: path },
+      encoding: "utf8",
+      timeout: 10_000
+    })
+  }
+  try {
+    const refused = run({ bun: ">=1.0.0", node: ">=999.0.0" }, dirname(process.execPath))
+    assert.equal(refused.status, 1, refused.stderr)
+    assert.equal(refused.stdout, "")
+    assert.equal(refused.stderr, `Smithers requires Bun >=1.0.0 and Node >=999.0.0; found Bun ${bun.version}, Node ${process.versions.node}.\n`)
+    const allowed = run({ bun: ">=1.0.0", node: ">=1.0.0" }, dirname(process.execPath))
+    assert.equal(allowed.status, 0, allowed.stderr)
+    assert.equal(allowed.stdout, "ran\n")
+    assert.equal(allowed.stderr, "")
+    const absentNode = run({ bun: ">=1.0.0", node: ">=999.0.0" }, "")
+    assert.equal(absentNode.status, 0, absentNode.stderr)
+    assert.equal(absentNode.stdout, "ran\n")
+    assert.equal(absentNode.stderr, "")
+    const refusedBun = run({ bun: ">=999.0.0", node: ">=999.0.0" }, "")
+    assert.equal(refusedBun.status, 1, refusedBun.stderr)
+    assert.equal(refusedBun.stdout, "")
+    assert.equal(refusedBun.stderr, `Smithers requires Bun >=999.0.0 and Node >=999.0.0; found Bun ${bun.version}.\n`)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test("requireToolchain stops the process with that line before anything else runs", () => {
