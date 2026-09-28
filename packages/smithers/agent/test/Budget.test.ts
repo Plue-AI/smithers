@@ -263,17 +263,17 @@ describe("the accumulator", () => {
     expect(encoded).toEqual({ stepKey: "step-a", spent: 640 })
   })
 
-  it("survives the journal's own redactor, which the field name `tokens` did not", () => {
+  it("survives the journal's own redactor", () => {
     const redact = Redaction.make()
     const encoded = Schema.encodeSync(Budget.UsageRecord)({ stepKey: "step-a", spent: 640 })
 
-    // The real reason the cost field is not called `tokens`. The journal's
-    // redactor strips one trailing plural and tests the suffix, so `tokens`
-    // reads as a credential and the production `SqlJournal` persists
-    // `"[REDACTED]"` where the number was. A record written that way decodes
-    // for nobody, so recovery would fail closed on every resumed run.
+    // The cost field is `spent` because the journal's redactor once read a
+    // numeric `tokens` as a credential and persisted `"[REDACTED]"` where the
+    // number was. It now keeps a numeric `tokens` count, which the envelope's
+    // token ceiling needs, and still redacts a textual one.
     expect(redact(encoded)).toEqual(encoded)
-    expect(redact({ stepKey: "step-a", tokens: 640 })).toEqual({
+    expect(redact({ stepKey: "step-a", tokens: 640 })).toEqual({ stepKey: "step-a", tokens: 640 })
+    expect(redact({ stepKey: "step-a", tokens: "640" })).toEqual({
       stepKey: "step-a",
       tokens: Redaction.placeholder
     })

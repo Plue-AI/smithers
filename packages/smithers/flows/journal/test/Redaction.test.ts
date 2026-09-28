@@ -381,6 +381,20 @@ describe("Redaction", () => {
     })
   })
 
+  it("preserves a numeric token ceiling and still redacts a numeric bearer token", () => {
+    expect(Redaction.redact({
+      budget: { tokens: 70, milliseconds: 60000 },
+      Tokens: 5,
+      token: 123456,
+      tokens: "secret"
+    })).toEqual({
+      budget: { tokens: 70, milliseconds: 60000 },
+      Tokens: 5,
+      token: Redaction.placeholder,
+      tokens: Redaction.placeholder
+    })
+  })
+
   it("keeps every built-in textual rule global", () => {
     expect(Redaction.defaultRules.every((rule) => rule.pattern.flags.includes("g"))).toBe(true)
   })

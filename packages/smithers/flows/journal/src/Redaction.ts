@@ -237,8 +237,14 @@ const tokenCounterKeys: ReadonlySet<string> = new Set([
   "totaltoken"
 ])
 
+/**
+ * A bare plural `tokens` is a count too: `Envelope.budget.tokens` is the run's
+ * token ceiling, and redacting it erased every journaled budget. A singular
+ * `token` stays bearer material even when it is numeric.
+ */
 const isTokenCount = (key: string, value: unknown): boolean =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && tokenCounterKeys.has(canonicalKey(key))
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 &&
+  (tokenCounterKeys.has(canonicalKey(key)) || key.toLowerCase() === "tokens")
 
 /**
  * Whether a field name names a credential.
