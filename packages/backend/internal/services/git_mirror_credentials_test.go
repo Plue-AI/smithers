@@ -132,7 +132,7 @@ func TestGitMirrorCredentialsExplicitDestinationAndRetryCleanup(t *testing.T) {
 	q.sources = nil
 	q.destination = "https://github.com/upstream/renamed.git"
 	q.refs["refs/heads/main"] = db.GithubMirrorSyncRefResult{Name: "refs/heads/main", Status: "failed"}
-	s.runGitRefSync = func(context.Context, string, string, string, string) error { return nil }
+	s.runGitRefSync = func(context.Context, string, string, string, string, string) error { return nil }
 	_, err := s.RetryMirrorRef(context.Background(), 7, 19, "native", "copy", "refs/heads/main")
 	require.NoError(t, err)
 	require.Len(t, q.created, 1)

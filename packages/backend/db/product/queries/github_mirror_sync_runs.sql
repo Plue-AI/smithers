@@ -53,6 +53,18 @@ WHERE runs.repository_id = sqlc.arg(repository_id)
 ORDER BY runs.created_at DESC, runs.id DESC
 LIMIT 1;
 
+-- name: GetLatestSucceededGithubMirrorSyncRefResult :one
+-- The last revision this mirror verifiably wrote for a ref. Failed and
+-- refused results never grant a prune.
+SELECT rr.*
+FROM github_mirror_sync_ref_results rr
+JOIN github_mirror_sync_runs runs ON runs.id = rr.run_id
+WHERE runs.repository_id = sqlc.arg(repository_id)
+  AND rr.name = sqlc.arg(name)::text
+  AND rr.status = 'succeeded'
+ORDER BY runs.created_at DESC, runs.id DESC
+LIMIT 1;
+
 -- name: FinishSuccessfulGithubMirrorSyncRun :execrows
 -- A complete, verified push publishes its run receipt and repository health
 -- atomically. Per-ref retries use the ordinary finisher: they cannot certify

@@ -50,6 +50,7 @@ type GitMirrorSyncQuerier interface {
 	UpsertGithubMirrorSyncRefResult(context.Context, db.UpsertGithubMirrorSyncRefResultParams) error
 	ListGithubMirrorSyncRefResults(context.Context, int64) ([]db.GithubMirrorSyncRefResult, error)
 	GetLatestGithubMirrorSyncRefResult(context.Context, db.GetLatestGithubMirrorSyncRefResultParams) (db.GithubMirrorSyncRefResult, error)
+	GetLatestSucceededGithubMirrorSyncRefResult(context.Context, db.GetLatestSucceededGithubMirrorSyncRefResultParams) (db.GithubMirrorSyncRefResult, error)
 }
 
 type GitMirrorSyncService struct {
@@ -57,7 +58,7 @@ type GitMirrorSyncService struct {
 	resolveRemotes func(context.Context, int64, int64, string, string) (gitMirrorRemotes, error)
 
 	runGitSync     func(ctx context.Context, sourceURL, targetURL string, changes []gitMirrorRefChange) error
-	runGitRefSync  func(ctx context.Context, sourceURL, targetURL, ref, targetRevision string) error
+	runGitRefSync  func(ctx context.Context, sourceURL, targetURL, ref, fromRevision, toRevision string) error
 	listRemoteRefs func(ctx context.Context, remote string) (map[string]string, error)
 	launch         func(name string, fn func())
 	// pullPolicy reports a repository whose recorded GitHub policy is
@@ -386,12 +387,15 @@ func (s *GitMirrorSyncService) runMirrorRefRetryDetached(runID, repositoryID int
 	if change.from == "" && change.to == "" {
 		change = priorChange
 	}
-	if change.to == "" && change.from != "" && !isPrunableMirrorRef(ref, prior, change.from) {
-		// The source lacks the ref and this mirror never recorded pruning
-		// exactly this target revision: the ref is GitHub's, so keep it.
-		_ = s.storeMirrorRefResult(ctx, runID, change, gitMirrorRefFailed, "refusing to delete a GitHub ref this mirror did not write")
-		finish(gitMirrorRunFailed)
-		return
+	if change.to == "" && change.from != "" {
+		owned, err := s.mirrorWroteRevision(ctx, repositoryID, ref, change.from)
+		if err != nil || !owned {
+			// The source lacks the ref and this mirror's last verified write
+			// is not the revision GitHub holds: the ref is GitHub's, so keep it.
+			_ = s.storeMirrorRefResult(ctx, runID, change, gitMirrorRefFailed, "refusing to delete a GitHub ref this mirror did not write")
+			finish(gitMirrorRunFailed)
+			return
+		}
 	}
 	if err := s.storeMirrorRefResult(ctx, runID, change, gitMirrorRefPending, ""); err != nil {
 		finish(gitMirrorRunFailed)
@@ -405,7 +409,7 @@ func (s *GitMirrorSyncService) runMirrorRefRetryDetached(runID, repositoryID int
 		finish(gitMirrorRunSucceeded)
 		return
 	}
-	syncErr := s.runGitRefSync(ctx, sourceURL, targetURL, ref, change.to)
+	syncErr := s.runGitRefSync(ctx, sourceURL, targetURL, ref, change.from, change.to)
 	afterRefs, verifyErr := s.listRemoteRefs(ctx, targetURL)
 	if syncErr == nil && verifyErr == nil && mirrorRefReached(change, afterRefs) {
 		if err := s.storeMirrorRefResult(ctx, runID, change, gitMirrorRefSucceeded, ""); err != nil {
@@ -604,32 +608,40 @@ func mirrorRefChanges(source, target map[string]string) []gitMirrorRefChange {
 }
 
 // mirrorPruneChanges deletes a target branch only when the source lacks it and
-// this mirror's latest result for it wrote exactly the revision GitHub still
+// this mirror's last verified write for it is exactly the revision GitHub still
 // holds. Tags and refs GitHub created or moved are never pruned.
 func (s *GitMirrorSyncService) mirrorPruneChanges(ctx context.Context, repositoryID int64, source, target map[string]string) ([]gitMirrorRefChange, error) {
 	var prunes []gitMirrorRefChange
 	for name, from := range target {
-		if _, exists := source[name]; exists || !isMirroredGitRef(name) || !strings.HasPrefix(name, "refs/heads/") {
+		if _, exists := source[name]; exists || !isMirroredGitRef(name) {
 			continue
 		}
-		latest, err := s.queries.GetLatestGithubMirrorSyncRefResult(ctx, db.GetLatestGithubMirrorSyncRefResultParams{RepositoryID: repositoryID, Name: name})
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
+		owned, err := s.mirrorWroteRevision(ctx, repositoryID, name, from)
 		if err != nil {
 			return nil, err
 		}
-		if latest.Status == gitMirrorRefSucceeded && latest.ToRevision == from {
+		if owned {
 			prunes = append(prunes, gitMirrorRefChange{name: name, from: from})
 		}
 	}
 	return prunes, nil
 }
 
-// isPrunableMirrorRef lets a retry repeat a failed prune only for the branch
-// revision that prune recorded.
-func isPrunableMirrorRef(ref string, prior db.GithubMirrorSyncRefResult, targetRevision string) bool {
-	return strings.HasPrefix(ref, "refs/heads/") && prior.ToRevision == "" && prior.FromRevision == targetRevision
+// mirrorWroteRevision is the prune authority shared by full sync and retry:
+// the ref is a branch and this mirror's latest succeeded result for it wrote
+// targetRevision. Failed or refused results are observations, not ownership.
+func (s *GitMirrorSyncService) mirrorWroteRevision(ctx context.Context, repositoryID int64, ref, targetRevision string) (bool, error) {
+	if !strings.HasPrefix(ref, "refs/heads/") || targetRevision == "" {
+		return false, nil
+	}
+	written, err := s.queries.GetLatestSucceededGithubMirrorSyncRefResult(ctx, db.GetLatestSucceededGithubMirrorSyncRefResultParams{RepositoryID: repositoryID, Name: ref})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return written.ToRevision == targetRevision, nil
 }
 
 func mirrorRefReached(change gitMirrorRefChange, refs map[string]string) bool {
@@ -683,7 +695,7 @@ func defaultListRemoteRefs(ctx context.Context, remote string) (map[string]strin
 	return parseRemoteRefs(string(out))
 }
 
-func defaultRunGitRefSync(ctx context.Context, sourceURL, targetURL, ref, targetRevision string) error {
+func defaultRunGitRefSync(ctx context.Context, sourceURL, targetURL, ref, fromRevision, toRevision string) error {
 	dir, err := os.MkdirTemp("", "smithers-git-ref-sync-")
 	if err != nil {
 		return fmt.Errorf("create git ref sync directory: %w", err)
@@ -692,18 +704,26 @@ func defaultRunGitRefSync(ctx context.Context, sourceURL, targetURL, ref, target
 	if err := runMirrorGitCommand(ctx, "", "init", "--bare", dir); err != nil {
 		return err
 	}
-	if targetRevision != "" {
+	if toRevision != "" {
 		if err := runMirrorGitCommand(ctx, dir, "fetch", "--no-tags", sourceURL, "+"+ref+":"+ref); err != nil {
 			return err
 		}
 		return runMirrorGitCommand(ctx, dir, "push", targetURL, ref+":"+ref)
 	}
-	return runMirrorGitCommand(ctx, dir, "push", targetURL, ":"+ref)
+	return runMirrorGitCommand(ctx, dir, "push", mirrorDeleteLease(ref, fromRevision), targetURL, ":"+ref)
+}
+
+// mirrorDeleteLease makes git delete ref only while the target still holds
+// the revision the prune was approved for; a GitHub write after planning
+// rejects the deletion.
+func mirrorDeleteLease(ref, expected string) string {
+	return "--force-with-lease=" + ref + ":" + expected
 }
 
 // defaultRunGitMirrorPush fetches the changed source refs into a scratch
 // repository and pushes each one without force, so a target ref that diverged
-// is rejected rather than overwritten. Refs are pushed independently; the
+// is rejected rather than overwritten. Deletions carry a lease on the planned
+// target revision. Refs are pushed independently; the
 // caller verifies each against the target afterwards.
 func defaultRunGitMirrorPush(ctx context.Context, sourceURL, targetURL string, changes []gitMirrorRefChange) error {
 	dir, err := os.MkdirTemp("", "smithers-git-mirror-sync-")
@@ -715,21 +735,24 @@ func defaultRunGitMirrorPush(ctx context.Context, sourceURL, targetURL string, c
 		return err
 	}
 	fetch := []string{"fetch", "--no-tags", sourceURL}
-	push := []string{"push", targetURL}
+	leases := []string{}
+	refspecs := []string{}
 	for _, change := range changes {
 		if change.to == "" {
-			push = append(push, ":"+change.name)
+			leases = append(leases, mirrorDeleteLease(change.name, change.from))
+			refspecs = append(refspecs, ":"+change.name)
 			continue
 		}
 		fetch = append(fetch, "+"+change.name+":"+change.name)
-		push = append(push, change.to+":"+change.name)
+		refspecs = append(refspecs, change.to+":"+change.name)
 	}
 	if len(fetch) > 3 {
 		if err := runMirrorGitCommand(ctx, dir, fetch...); err != nil {
 			return err
 		}
 	}
-	return runMirrorGitCommand(ctx, dir, push...)
+	push := append(append([]string{"push"}, leases...), targetURL)
+	return runMirrorGitCommand(ctx, dir, append(push, refspecs...)...)
 }
 
 func runMirrorGitCommand(ctx context.Context, dir string, args ...string) error {

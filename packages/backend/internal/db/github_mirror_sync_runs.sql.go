@@ -148,6 +148,41 @@ func (q *Queries) GetLatestGithubMirrorSyncRefResult(ctx context.Context, arg Ge
 	return i, err
 }
 
+const getLatestSucceededGithubMirrorSyncRefResult = `-- name: GetLatestSucceededGithubMirrorSyncRefResult :one
+SELECT rr.id, rr.run_id, rr.name, rr.from_revision, rr.to_revision, rr.status, rr.error, rr.created_at, rr.updated_at
+FROM github_mirror_sync_ref_results rr
+JOIN github_mirror_sync_runs runs ON runs.id = rr.run_id
+WHERE runs.repository_id = $1
+  AND rr.name = $2::text
+  AND rr.status = 'succeeded'
+ORDER BY runs.created_at DESC, runs.id DESC
+LIMIT 1
+`
+
+type GetLatestSucceededGithubMirrorSyncRefResultParams struct {
+	RepositoryID int64  `json:"repository_id"`
+	Name         string `json:"name"`
+}
+
+// The last revision this mirror verifiably wrote for a ref. Failed and
+// refused results never grant a prune.
+func (q *Queries) GetLatestSucceededGithubMirrorSyncRefResult(ctx context.Context, arg GetLatestSucceededGithubMirrorSyncRefResultParams) (GithubMirrorSyncRefResult, error) {
+	row := q.db.QueryRow(ctx, getLatestSucceededGithubMirrorSyncRefResult, arg.RepositoryID, arg.Name)
+	var i GithubMirrorSyncRefResult
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.Name,
+		&i.FromRevision,
+		&i.ToRevision,
+		&i.Status,
+		&i.Error,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listGithubMirrorSyncRefResults = `-- name: ListGithubMirrorSyncRefResults :many
 SELECT id, run_id, name, from_revision, to_revision, status, error, created_at, updated_at
 FROM github_mirror_sync_ref_results

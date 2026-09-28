@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -156,4 +157,130 @@ func TestMirrorSyncRefusesDivergedRef(t *testing.T) {
 	assert.Equal(t, gitMirrorRefFailed, run.Refs[0].Status)
 	assert.Equal(t, sourceMain, r.refs(r.source)["refs/heads/main"])
 	assert.Equal(t, targetMain, r.refs(r.target)["refs/heads/main"])
+}
+
+func (r *realMirrorRepos) retry(svc *GitMirrorSyncService, ref string) GitMirrorSyncRunResult {
+	r.t.Helper()
+	runID, err := svc.RetryMirrorRef(context.Background(), 7, 101, "alice", "demo", ref)
+	require.NoError(r.t, err)
+	run, err := svc.GetMirrorSyncRun(context.Background(), 101, runID)
+	require.NoError(r.t, err)
+	return run
+}
+
+// mirrorFeatureThenDeleteAtSource syncs refs/heads/feature to GitHub, then
+// deletes it on Smithers, so the next sync plans a prune of the returned SHA.
+func (r *realMirrorRepos) mirrorFeatureThenDeleteAtSource(svc *GitMirrorSyncService) string {
+	r.t.Helper()
+	r.commit("main")
+	r.push(r.source, "HEAD:refs/heads/main")
+	feature := r.commit("feature")
+	r.push(r.source, "HEAD:refs/heads/feature")
+	require.Equal(r.t, gitMirrorRunSucceeded, r.sync(svc).State)
+	require.Equal(r.t, feature, r.refs(r.target)["refs/heads/feature"])
+	r.git(r.work, "push", r.source, ":refs/heads/feature")
+	return feature
+}
+
+// advanceTargetFeature adds a GitHub commit on top of the target feature.
+func (r *realMirrorRepos) advanceTargetFeature() string {
+	r.t.Helper()
+	r.git(r.work, "fetch", r.target, "refs/heads/feature")
+	r.git(r.work, "checkout", "-q", "--detach", "FETCH_HEAD")
+	moved := r.commit("github commit")
+	r.push(r.target, "HEAD:refs/heads/feature")
+	return moved
+}
+
+func TestMirrorRetryNeverPrunesAfterARefusal(t *testing.T) {
+	r := newRealMirrorRepos(t)
+	base := r.commit("main")
+	r.push(r.source, "HEAD:refs/heads/main")
+	r.push(r.target, "HEAD:refs/heads/main")
+	github := r.commit("github feature")
+	r.push(r.target, "HEAD:refs/heads/feature")
+	r.git(r.work, "reset", "--hard", base)
+	r.commit("smithers feature")
+	r.push(r.source, "HEAD:refs/heads/feature")
+	svc := r.service(newFakeGitMirrorSyncStore())
+
+	require.Equal(t, gitMirrorRunFailed, r.sync(svc).State, "a diverged update is refused")
+	r.git(r.work, "push", r.source, ":refs/heads/feature")
+	for attempt := 1; attempt <= 2; attempt++ {
+		run := r.retry(svc, "refs/heads/feature")
+		assert.Equal(t, gitMirrorRunFailed, run.State, "retry %d", attempt)
+		assert.Equal(t, github, r.refs(r.target)["refs/heads/feature"], "retry %d deleted a branch this mirror never wrote", attempt)
+	}
+}
+
+func TestMirrorRetryRefusesPruneAfterTargetMoves(t *testing.T) {
+	r := newRealMirrorRepos(t)
+	svc := r.service(newFakeGitMirrorSyncStore())
+	r.mirrorFeatureThenDeleteAtSource(svc)
+	svc.runGitSync = func(context.Context, string, string, []gitMirrorRefChange) error {
+		return errors.New("push interrupted")
+	}
+	require.Equal(t, gitMirrorRunFailed, r.sync(svc).State)
+	moved := r.advanceTargetFeature()
+	svc.runGitSync = defaultRunGitMirrorPush
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		run := r.retry(svc, "refs/heads/feature")
+		assert.Equal(t, gitMirrorRunFailed, run.State, "retry %d", attempt)
+		assert.Equal(t, moved, r.refs(r.target)["refs/heads/feature"], "retry %d", attempt)
+	}
+}
+
+func TestMirrorRetryRepeatsAnInterruptedPrune(t *testing.T) {
+	r := newRealMirrorRepos(t)
+	svc := r.service(newFakeGitMirrorSyncStore())
+	feature := r.mirrorFeatureThenDeleteAtSource(svc)
+	svc.runGitSync = func(context.Context, string, string, []gitMirrorRefChange) error {
+		return errors.New("push interrupted")
+	}
+	require.Equal(t, gitMirrorRunFailed, r.sync(svc).State)
+	require.Equal(t, feature, r.refs(r.target)["refs/heads/feature"])
+
+	run := r.retry(svc, "refs/heads/feature")
+
+	assert.Equal(t, gitMirrorRunSucceeded, run.State)
+	assert.NotContains(t, r.refs(r.target), "refs/heads/feature")
+}
+
+func TestMirrorSyncPruneLeasesThePlannedRevision(t *testing.T) {
+	r := newRealMirrorRepos(t)
+	svc := r.service(newFakeGitMirrorSyncStore())
+	r.mirrorFeatureThenDeleteAtSource(svc)
+	var moved string
+	svc.runGitSync = func(ctx context.Context, sourceURL, targetURL string, changes []gitMirrorRefChange) error {
+		moved = r.advanceTargetFeature()
+		return defaultRunGitMirrorPush(ctx, sourceURL, targetURL, changes)
+	}
+
+	run := r.sync(svc)
+
+	assert.Equal(t, gitMirrorRunFailed, run.State)
+	require.Len(t, run.Refs, 1)
+	assert.Equal(t, gitMirrorRefFailed, run.Refs[0].Status)
+	assert.Equal(t, moved, r.refs(r.target)["refs/heads/feature"], "a GitHub commit pushed after planning survives")
+}
+
+func TestMirrorRetryPruneLeasesThePlannedRevision(t *testing.T) {
+	r := newRealMirrorRepos(t)
+	svc := r.service(newFakeGitMirrorSyncStore())
+	r.mirrorFeatureThenDeleteAtSource(svc)
+	svc.runGitSync = func(context.Context, string, string, []gitMirrorRefChange) error {
+		return errors.New("push interrupted")
+	}
+	require.Equal(t, gitMirrorRunFailed, r.sync(svc).State)
+	var moved string
+	svc.runGitRefSync = func(ctx context.Context, sourceURL, targetURL, ref, fromRevision, toRevision string) error {
+		moved = r.advanceTargetFeature()
+		return defaultRunGitRefSync(ctx, sourceURL, targetURL, ref, fromRevision, toRevision)
+	}
+
+	run := r.retry(svc, "refs/heads/feature")
+
+	assert.Equal(t, gitMirrorRunFailed, run.State)
+	assert.Equal(t, moved, r.refs(r.target)["refs/heads/feature"], "a GitHub commit pushed after planning survives")
 }

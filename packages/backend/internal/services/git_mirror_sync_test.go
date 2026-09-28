@@ -24,6 +24,7 @@ type fakeGitMirrorSyncStore struct {
 
 	run          db.GithubMirrorSyncRun
 	refs         map[string]db.GithubMirrorSyncRefResult
+	succeeded    map[string]db.GithubMirrorSyncRefResult
 	createErr    error
 	getErr       error
 	listErr      error
@@ -35,7 +36,15 @@ type fakeGitMirrorSyncStore struct {
 }
 
 func newFakeGitMirrorSyncStore() *fakeGitMirrorSyncStore {
-	return &fakeGitMirrorSyncStore{refs: make(map[string]db.GithubMirrorSyncRefResult)}
+	return &fakeGitMirrorSyncStore{refs: make(map[string]db.GithubMirrorSyncRefResult), succeeded: make(map[string]db.GithubMirrorSyncRefResult)}
+}
+
+// seed records an earlier run's ref result as the real store would.
+func (f *fakeGitMirrorSyncStore) seed(result db.GithubMirrorSyncRefResult) {
+	f.refs[result.Name] = result
+	if result.Status == gitMirrorRefSucceeded {
+		f.succeeded[result.Name] = result
+	}
 }
 
 func (f *fakeGitMirrorSyncStore) CreateGithubMirrorSyncRun(_ context.Context, arg db.CreateGithubMirrorSyncRunParams) (db.GithubMirrorSyncRun, error) {
@@ -108,9 +117,15 @@ func (f *fakeGitMirrorSyncStore) UpsertGithubMirrorSyncRefResult(_ context.Conte
 	if f.upsertErr != nil {
 		return f.upsertErr
 	}
-	f.refs[arg.Name] = db.GithubMirrorSyncRefResult{
+	result := db.GithubMirrorSyncRefResult{
 		RunID: arg.RunID, Name: arg.Name, FromRevision: arg.FromRevision,
 		ToRevision: arg.ToRevision, Status: arg.Status, Error: arg.Error,
+	}
+	f.refs[arg.Name] = result
+	if arg.Status == gitMirrorRefSucceeded {
+		f.succeeded[arg.Name] = result
+	} else if f.succeeded[arg.Name].RunID == arg.RunID {
+		delete(f.succeeded, arg.Name)
 	}
 	return nil
 }
@@ -135,6 +150,16 @@ func (f *fakeGitMirrorSyncStore) GetLatestGithubMirrorSyncRefResult(_ context.Co
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	ref, ok := f.refs[arg.Name]
+	if !ok {
+		return db.GithubMirrorSyncRefResult{}, pgx.ErrNoRows
+	}
+	return ref, nil
+}
+
+func (f *fakeGitMirrorSyncStore) GetLatestSucceededGithubMirrorSyncRefResult(_ context.Context, arg db.GetLatestSucceededGithubMirrorSyncRefResultParams) (db.GithubMirrorSyncRefResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ref, ok := f.succeeded[arg.Name]
 	if !ok {
 		return db.GithubMirrorSyncRefResult{}, pgx.ErrNoRows
 	}
@@ -166,7 +191,7 @@ func TestGitMirrorSyncService_StartAndGetRunRecordsPerRefResults(t *testing.T) {
 	const obsolete = "4444444444444444444444444444444444444444"
 	const githubOnly = "5555555555555555555555555555555555555555"
 	// An earlier run of this mirror wrote obsolete; GitHub created github-only.
-	store.refs["refs/heads/obsolete"] = db.GithubMirrorSyncRefResult{RunID: 40, Name: "refs/heads/obsolete", ToRevision: obsolete, Status: gitMirrorRefSucceeded}
+	store.seed(db.GithubMirrorSyncRefResult{RunID: 40, Name: "refs/heads/obsolete", ToRevision: obsolete, Status: gitMirrorRefSucceeded})
 	remoteCalls := 0
 	svc.listRemoteRefs = func(_ context.Context, _ string) (map[string]string, error) {
 		remoteCalls++
@@ -308,7 +333,7 @@ func TestGitMirrorSyncService_RetryMirrorRefRunsOnlyFailedRef(t *testing.T) {
 		}
 	}
 	var retriedRef string
-	svc.runGitRefSync = func(_ context.Context, _, _ string, ref, targetRevision string) error {
+	svc.runGitRefSync = func(_ context.Context, _, _ string, ref, _, targetRevision string) error {
 		retriedRef = ref
 		assert.Equal(t, "new", targetRevision)
 		return nil
@@ -344,7 +369,7 @@ func TestGitMirrorSyncService_RetryMirrorRefNeverDeletesAGitHubRef(t *testing.T)
 				}
 				return map[string]string{}, nil
 			}
-			svc.runGitRefSync = func(context.Context, string, string, string, string) error {
+			svc.runGitRefSync = func(context.Context, string, string, string, string, string) error {
 				t.Fatal("a ref the source lacks and this mirror never wrote is not deleted")
 				return nil
 			}
