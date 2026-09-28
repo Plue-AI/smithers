@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -554,7 +555,7 @@ func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return internalError("failed to snapshot staged refs before receive-pack", err)
 	}
-	requestBody, err := gitRequestBody(r)
+	requestBody, err := gitRequestBody(r, s.config.maxGitRequestBytes())
 	if err != nil {
 		return err
 	}
@@ -565,15 +566,21 @@ func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Reque
 	// An import mirrors a user-controlled source, so it gets the same
 	// reserved-ref policy as any push with no workspace attribution:
 	// refs/smithers/ is written only by the control plane.
-	commands, peeked, peekErr := repohost.PeekReceivePackCommands(&idleDeadlineBody{rc: rc, r: requestBody, until: pushDeadline})
+	source := &countingReader{r: &idleDeadlineBody{rc: rc, r: requestBody, until: pushDeadline}}
+	commands, peeked, peekErr := repohost.PeekReceivePackCommands(source)
 	if peekErr != nil {
 		return pushLimited(badRequest("malformed receive-pack command list"))
 	}
 	if msg := repohost.ReservedRefViolation(commands, "", 0); msg != "" {
 		return forbidden(msg)
 	}
-	body, gitErr := runGitRPCBuffered(pushCtx, gitDir, "receive-pack", readCloserWithBody(peeked, requestBody))
+	maxInputSize := s.config.maxGitRequestBytes()
+	pack := capPack(peeked, source.n, maxInputSize)
+	body, gitErr := runGitRPCBuffered(pushCtx, gitDir, "receive-pack", readCloserWithBody(pack, requestBody))
 	gitErr = pushLimited(gitErr)
+	if errors.Is(gitErr, errPushTooLarge) {
+		gitErr = pushTooLarge(false, maxInputSize)
+	}
 	reconcileCtx, cancelReconcile := detachedPushContext(r.Context())
 	defer cancelReconcile()
 	afterRefs, err := listGitRefs(reconcileCtx, gitDir)

@@ -41,7 +41,8 @@ var maxRefAdvertisementBytes int64 = 64 * 1024 * 1024
 // as defense in depth against gzip-amplification: the API tier decompresses
 // client gzip itself, so any gzip body arriving here comes from a bearer-token
 // caller, but a compromised caller must still not be able to force unbounded
-// decompression work. Mirrors the API-tier cap in internal/routes.
+// decompression work. Mirrors the API-tier cap in internal/routes. It also caps
+// the pack of every push (capPack). Config.MaxGitRequestBytes may lower it.
 const maxDecompressedGitRequestSize int64 = 512 * 1024 * 1024
 
 type Server struct {
@@ -856,7 +857,7 @@ func (s *Server) infoRefs(w http.ResponseWriter, r *http.Request) error {
 // small one arrives as identity — feeding the compressed bytes to
 // `git upload-pack --stateless-rpc` made it exit silently with an empty 200
 // and every large clone died with "the remote end hung up unexpectedly".
-func gitRequestBody(r *http.Request) (io.ReadCloser, error) {
+func gitRequestBody(r *http.Request, maxBytes int64) (io.ReadCloser, error) {
 	if !strings.EqualFold(strings.TrimSpace(r.Header.Get("Content-Encoding")), "gzip") {
 		return r.Body, nil
 	}
@@ -864,7 +865,7 @@ func gitRequestBody(r *http.Request) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, badRequest("malformed gzip request body")
 	}
-	return limitedReadCloser{Reader: io.LimitReader(zr, maxDecompressedGitRequestSize), Closer: zr}, nil
+	return limitedReadCloser{Reader: &maxBytesReader{r: zr, n: maxBytes}, Closer: zr}, nil
 }
 
 // limitedReadCloser caps a decompressed stream while preserving the ability to
@@ -914,7 +915,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	}
 	shouldDispatchPushHooks = s.config.PushHookCallbackURL != ""
 
-	requestBody, err := gitRequestBody(r)
+	requestBody, err := gitRequestBody(r, s.config.maxGitRequestBytes())
 	if err != nil {
 		return err
 	}
@@ -934,7 +935,8 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	defer func() { _ = rc.SetReadDeadline(time.Time{}) }()
 	pushCtx, pushDeadline, cancelPush, pushLimited := s.receivePackLimit(r.Context())
 	defer cancelPush()
-	commands, peeked, peekErr := repohost.PeekReceivePackCommands(&idleDeadlineBody{rc: rc, r: requestBody, until: pushDeadline})
+	source := &countingReader{r: &idleDeadlineBody{rc: rc, r: requestBody, until: pushDeadline}}
+	commands, peeked, peekErr := repohost.PeekReceivePackCommands(source)
 	if peekErr != nil {
 		return pushLimited(badRequest("malformed receive-pack command list"))
 	}
@@ -956,7 +958,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	}
 	// #1968: a push that writes a user ref first expires stale ones, then
 	// may not leave its pusher over the ref limit, and its pack is capped.
-	maxInputSize := maxDecompressedGitRequestSize
+	maxInputSize := s.config.maxGitRequestBytes()
 	userRefs := writesUserRef(commands)
 	if userRefs {
 		named := make([]string, 0, len(commands))
@@ -976,12 +978,11 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	// buffer them here. We must hold the full response in memory until after
 	// jj ref import and push hooks so we can still return an HTTP error if the
 	// git subprocess itself fails before any bytes are written to the client.
-	pushed := &countingReader{r: peeked}
-	body, err := runReceivePackBuffered(pushCtx, gitDir, readCloserWithBody(pushed, requestBody), maxInputSize, refViewer(r))
+	pack := capPack(peeked, source.n, maxInputSize)
+	body, err := runReceivePackBuffered(pushCtx, gitDir, readCloserWithBody(pack, requestBody), maxInputSize, refViewer(r))
 	gitErr := pushLimited(err)
-	if gitErr != nil && userRefs && pushed.n > maxInputSize {
-		gitErr = &appError{StatusCode: http.StatusRequestEntityTooLarge, Code: "user_ref_push_too_large",
-			Message: fmt.Sprintf("a push to refs/smithers/users/ is capped at %d MiB", maxInputSize>>20)}
+	if errors.Is(gitErr, errPushTooLarge) {
+		gitErr = pushTooLarge(userRefs, maxInputSize)
 	}
 
 	// git has applied the ref updates. A path-restricted push is authorized
@@ -1085,7 +1086,7 @@ func (s *Server) uploadPack(w http.ResponseWriter, r *http.Request) error {
 		return notFound("repository not found")
 	}
 
-	requestBody, err := gitRequestBody(r)
+	requestBody, err := gitRequestBody(r, s.config.maxGitRequestBytes())
 	if err != nil {
 		return err
 	}

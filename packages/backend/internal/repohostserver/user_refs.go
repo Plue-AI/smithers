@@ -52,8 +52,8 @@ func (c Config) userRefPolicy() userRefPolicy {
 	if policy.limit <= 0 {
 		policy.limit = repohost.DefaultUserRefLimit
 	}
-	if policy.maxPushBytes <= 0 || policy.maxPushBytes > maxDecompressedGitRequestSize {
-		policy.maxPushBytes = min(repohost.DefaultUserRefMaxPushBytes, maxDecompressedGitRequestSize)
+	if maxBytes := c.maxGitRequestBytes(); policy.maxPushBytes <= 0 || policy.maxPushBytes > maxBytes {
+		policy.maxPushBytes = min(repohost.DefaultUserRefMaxPushBytes, maxBytes)
 	}
 	if policy.ttl <= 0 {
 		policy.ttl = repohost.DefaultUserRefTTL

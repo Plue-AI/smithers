@@ -35,6 +35,9 @@ type Config struct {
 	UserRefLimit        int
 	UserRefMaxPushBytes int64
 	UserRefTTL          time.Duration
+	// MaxGitRequestBytes caps a push's pack and a gzip request body; zero, or
+	// a value past it, takes maxDecompressedGitRequestSize.
+	MaxGitRequestBytes int64
 	// ReceivePackMaxDuration caps one push while it holds the repository's
 	// write lock; zero takes repohost.DefaultReceivePackMaxDuration.
 	ReceivePackMaxDuration time.Duration
@@ -308,4 +311,12 @@ func userRefBoundsFromEnv(cfg *Config) error {
 		cfg.UserRefTTL = ttl
 	}
 	return nil
+}
+
+// maxGitRequestBytes is MaxGitRequestBytes with its default applied.
+func (c Config) maxGitRequestBytes() int64 {
+	if c.MaxGitRequestBytes <= 0 || c.MaxGitRequestBytes > maxDecompressedGitRequestSize {
+		return maxDecompressedGitRequestSize
+	}
+	return c.MaxGitRequestBytes
 }

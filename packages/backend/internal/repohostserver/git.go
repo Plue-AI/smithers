@@ -148,7 +148,8 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	cmd.Env = gitServiceEnv(command, maxInputSize, viewer)
 
 	// exec copies the body into git's stdin and Wait owns that pipe, so a git
-	// that exits before the body ends is not a failure (#2266).
+	// that exits before the body ends is not a failure (#2266). A push past
+	// its cap fails in the body (errPushTooLarge), not in git.
 	var stdin *bodyReader
 	if body != nil {
 		stdin = &bodyReader{r: body}
@@ -193,12 +194,6 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	if stdin != nil && stdin.err != nil {
 		return fmt.Errorf("stream request body to git %s: %w", command, stdin.err)
 	}
-	if command == "receive-pack" && stdin != nil && !stdin.eof {
-		// exec ignores the broken pipe of a git that exits 0 without reading
-		// the whole body, as receive-pack does past receive.maxInputSize. An
-		// upload-pack that exits 0 has answered, however much it read.
-		return fmt.Errorf("stream request body to git %s: %w", command, errBodyUnread)
-	}
 	if waitErr != nil {
 		return fmt.Errorf("git-%s failed: %s", command, strings.TrimSpace(stderr.String()))
 	}
@@ -208,28 +203,75 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	return nil
 }
 
-// errBodyUnread reports a receive-pack that exited before reading the whole
-// body.
-var errBodyUnread = errors.New("git exited before reading the whole body")
-
-// bodyReader records how the request body ended. Wait drops a read error
+// bodyReader records how the request body failed. Wait drops a read error
 // when git exits non-zero, and the body's failure is the cause worth
-// reporting; eof tells a fully delivered body from one git stopped reading.
+// reporting.
 type bodyReader struct {
 	r   io.Reader
 	err error
-	eof bool
 }
 
 func (b *bodyReader) Read(p []byte) (int, error) {
 	n, err := b.r.Read(p)
-	switch {
-	case err == io.EOF:
-		b.eof = true
-	case err != nil:
+	if err != nil && err != io.EOF {
 		b.err = err
 	}
 	return n, err
+}
+
+// errPushTooLarge reports a git request body past its cap: a receive-pack
+// pack past maxInputSize, or a gzip body past Config.MaxGitRequestBytes.
+var errPushTooLarge = errors.New("git request body exceeds its size cap")
+
+// maxBytesReader is http.MaxBytesReader for a git request body: it passes at
+// most n bytes, then fails with errPushTooLarge instead of truncating, so an
+// over-cap push is decided by the bytes counted here and never by how far git
+// read before refusing it.
+type maxBytesReader struct {
+	r   io.Reader
+	n   int64
+	err error
+}
+
+func (m *maxBytesReader) Read(p []byte) (int, error) {
+	if m.err != nil {
+		return 0, m.err
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	// Read one byte past the cap to tell a body that ends there from one
+	// that goes on.
+	if int64(len(p))-1 > m.n {
+		p = p[:m.n+1]
+	}
+	n, err := m.r.Read(p)
+	if int64(n) <= m.n {
+		m.n -= int64(n)
+		m.err = err
+		return n, err
+	}
+	n = int(m.n)
+	m.n = 0
+	m.err = errPushTooLarge
+	return n, m.err
+}
+
+// capPack caps a peeked receive-pack body so no more than maxInputSize bytes
+// follow its commandBytes-long command section: git's receive.maxInputSize
+// counts the pack, not the commands.
+func capPack(peeked io.Reader, commandBytes, maxInputSize int64) io.Reader {
+	return &maxBytesReader{r: peeked, n: commandBytes + maxInputSize}
+}
+
+// pushTooLarge is the answer to a push past its cap (errPushTooLarge).
+func pushTooLarge(userRefs bool, maxInputSize int64) *appError {
+	if userRefs {
+		return &appError{StatusCode: http.StatusRequestEntityTooLarge, Code: "user_ref_push_too_large",
+			Message: fmt.Sprintf("a push to refs/smithers/users/ is capped at %d MiB", maxInputSize>>20)}
+	}
+	return &appError{StatusCode: http.StatusRequestEntityTooLarge, Code: "push_too_large",
+		Message: fmt.Sprintf("a push is capped at %d MiB", maxInputSize>>20)}
 }
 
 // runGitRPCBuffered runs a git smart-HTTP RPC and accumulates the entire stdout

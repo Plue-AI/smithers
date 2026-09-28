@@ -72,3 +72,24 @@ func TestStagedImportReceivePackRefusesReservedRefs(t *testing.T) {
 	routerCovRequireStatus(t, rec, http.StatusOK)
 	assert.Contains(t, stagedRefs(), "refs/heads/main")
 }
+
+// Issue #2344: a staged import's pack past the global cap is a 413.
+func TestStagedImportReceivePackPastTheGlobalCapIs413(t *testing.T) {
+	srv := newTestServerWithMock(t, provisionMock(t, true))
+	token := strings.Repeat("f6", deleteStageTokenBytes)
+	stageProvisionForTest(t, srv, stageProvisionRequest{
+		Token: token, OperationType: provisionTypeImport, Owner: "alice", Repo: "mirror", DefaultBookmark: "main",
+	}, http.StatusCreated)
+	srv.config.MaxGitRequestBytes = 16
+
+	rec := routerCovServeWithHeaders(t, srv.Handler(), http.MethodPost, "/repos/provision-stages/"+token+"/git/git-receive-pack",
+		bytes.NewReader(stagedImportPushBody(t, "refs/heads/main")), map[string]string{
+			"Authorization": "Bearer " + repohost.StagedProvisionBearer(testAuthToken, token),
+			"Content-Type":  "application/x-git-receive-pack-request",
+		})
+	routerCovRequireStatus(t, rec, http.StatusRequestEntityTooLarge)
+	assert.Equal(t, "push_too_large", rec.Header().Get("X-Smithers-Error-Code"))
+	refs, err := listGitRefs(t.Context(), filepath.Join(srv.provisionStageDir(token), provisionRepositoryDir, ".jj", "repo", "store", "git"))
+	require.NoError(t, err)
+	assert.NotContains(t, refs, "refs/heads/main")
+}

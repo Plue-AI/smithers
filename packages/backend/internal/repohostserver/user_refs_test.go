@@ -2,6 +2,7 @@ package repohostserver
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -349,4 +350,67 @@ func TestACorruptIndexOnlyRestampsRefs(t *testing.T) {
 	var listed repohost.UserRefList
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
 	require.Len(t, listed.Refs, 1)
+}
+
+// packLen is the size of the pack in a userRefPush body: what follows its
+// command section.
+func (f *laneHTTPFixture) packLen(body []byte, ref string) int64 {
+	f.t.Helper()
+	return int64(len(body) - len(f.userRefPush(laneZeroOID, laneZeroOID, ref)))
+}
+
+// Issue #2344: the cap counts pack bytes, so a pack one byte over it gets the
+// same 413 as one far over it, whatever the pipe timing, and a pack exactly
+// at the cap lands.
+func TestUserRefPushPackCapIsExact(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	noise := make([]byte, 512<<10)
+	_, err := rand.Read(noise)
+	require.NoError(t, err)
+	tip := f.commit("large", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "large.bin"), noise, 0o644))
+	})
+	ref := repohost.UserRef(42, "head")
+	body := f.userRefPush(laneZeroOID, tip, ref)
+	pack := f.packLen(body, ref)
+	// One byte over repeats: the pipe timing that once decided it varies.
+	for _, maxPushBytes := range []int64{pack - 1, pack - 1, pack - 1, pack / 2, 1} {
+		f.srv.config.UserRefMaxPushBytes = maxPushBytes
+		rec := pushAs(t, f, "42", body)
+		require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, "cap %d: %s", maxPushBytes, rec.Body.String())
+		assert.Equal(t, "user_ref_push_too_large", rec.Header().Get("X-Smithers-Error-Code"))
+		assert.NotContains(t, f.repo.refs(), ref)
+	}
+	f.srv.config.UserRefMaxPushBytes = pack
+	rec := pushAs(t, f, "42", body)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, tip, f.repo.refs()[ref])
+}
+
+// Issue #2344: a push past the global cap is a 413, identity-encoded or
+// gzipped, not a 500.
+func TestPushPastTheGlobalCapIs413(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	f.srv.config.MaxGitRequestBytes = 64 << 10
+	noise := make([]byte, 512<<10)
+	_, err := rand.Read(noise)
+	require.NoError(t, err)
+	tip := f.commit("large", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "large.bin"), noise, 0o644))
+	})
+	body := f.userRefPush(laneZeroOID, tip, "refs/heads/large")
+	var gzipped bytes.Buffer
+	zw := gzip.NewWriter(&gzipped)
+	_, err = zw.Write(body)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	for name, rec := range map[string]*httptest.ResponseRecorder{
+		"identity": postReceivePack(t, f, body),
+		"gzip":     postReceivePack(t, f, gzipped.Bytes(), "Content-Encoding", "gzip"),
+	} {
+		assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, "%s: %s", name, rec.Body.String())
+		assert.Equal(t, "push_too_large", rec.Header().Get("X-Smithers-Error-Code"), name)
+	}
+	assert.NotContains(t, f.repo.refs(), "refs/heads/large")
 }

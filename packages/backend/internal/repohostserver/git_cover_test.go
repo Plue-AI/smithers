@@ -130,17 +130,30 @@ func TestGit_Cov_StreamGitRPCSucceedsWhenGitExitsBeforeBodyEOF(t *testing.T) {
 	}
 }
 
-// A git that exits without reading the whole body (receive-pack refusing a
-// pack past receive.maxInputSize) failed the RPC even when it exits 0.
-func TestGit_Cov_StreamGitRPCReportsUnreadBody(t *testing.T) {
-	installGitStub(t, "#!/bin/sh\nexit 0\n")
+// Issue #2344: a receive-pack that exits 0 without reading the whole body has
+// answered, like upload-pack; a push past its cap fails in the body instead.
+func TestGit_Cov_StreamGitRPCReceivePackIgnoresUnreadBody(t *testing.T) {
+	installGitStub(t, "#!/bin/sh\nprintf done\nexit 0\n")
 
-	err := streamGitRPC(context.Background(), t.TempDir(), "receive-pack", strings.NewReader(strings.Repeat("x", 1<<20)), io.Discard)
-	if err == nil {
-		t.Fatal("expected unread body error")
+	var out strings.Builder
+	err := streamGitRPC(context.Background(), t.TempDir(), "receive-pack", strings.NewReader(strings.Repeat("x", 1<<20)), &out)
+	if err != nil {
+		t.Fatalf("streamGitRPC returned error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "stream request body to git receive-pack") {
-		t.Fatalf("unexpected error: %v", err)
+	if out.String() != "done" {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+// Issue #2344: a body past its cap fails the RPC with errPushTooLarge whatever
+// git makes of the truncated body.
+func TestGit_Cov_StreamGitRPCReportsPushTooLarge(t *testing.T) {
+	installGitStub(t, "#!/bin/sh\ncat >/dev/null\nexit 0\n")
+
+	body := capPack(strings.NewReader(strings.Repeat("x", 1<<20)), 0, 1<<20-1)
+	err := streamGitRPC(context.Background(), t.TempDir(), "receive-pack", body, io.Discard)
+	if !errors.Is(err, errPushTooLarge) {
+		t.Fatalf("err = %v, want errPushTooLarge", err)
 	}
 }
 
@@ -162,8 +175,7 @@ func TestGit_Cov_StreamGitRPCUploadPackIgnoresUnreadBody(t *testing.T) {
 
 // Issue #2266: a fast-exiting git never turns a successful RPC into an error.
 // Like upload-pack, the stub reads its whole request, then exits without
-// waiting for the body's EOF. A git that reads none of it is an unread body
-// (TestGit_Cov_StreamGitRPCReportsUnreadBody), not a successful RPC.
+// waiting for the body's EOF.
 func TestGit_Cov_StreamGitRPCFastExitStress(t *testing.T) {
 	installGitStub(t, "#!/bin/sh\nhead -c 4 >/dev/null\nprintf buffered\nexit 0\n")
 	dir := t.TempDir()
