@@ -67,3 +67,11 @@ export class ReceiptMismatch extends Data.TaggedError("ReceiptMismatch")<{ reado
  * @since 1.0.0-rc.1
  */
 export type ProducerError = ProducerUnreachable | ProviderStartRefused | CommitRefused | ReceiptMismatch
+
+/**
+ * A sealed model stream outgrew the bytes one response may hold.
+ *
+ * @category errors
+ * @since 1.0.0-rc.1
+ */
+export class StreamTooLarge extends Data.TaggedError("StreamTooLarge")<{ readonly limitBytes: number }> {}

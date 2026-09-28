@@ -32,7 +32,9 @@ not required by the single-owner container.
   cancellation through the request signal, and keeps provider failures and
   credentials out of responses.
 - A deployment injects `ModelTurnResolver`. The public executable supplies the
-  environment-backed single-owner resolver. Plue supplies its owner-scoped
+  environment-backed single-owner resolver, which serves a request model only
+  on the configured credential and origin and refuses provider redirects. The
+  stream endpoint caps a buffered response at 16 MiB. Plue supplies its owner-scoped
   credential resolver to the same handler and model runtime.
 - `LocalModel` plans a binding against the host's credentials, reports the
   catalog, refuses redirects, and maps provider failures to the contract.

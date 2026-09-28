@@ -408,3 +408,64 @@ test("answers an aborted turn as cancelled and a dying provider as a defect", as
   expect(await (await dying(post(JSON.stringify(grant)))).json()).toEqual({ status: "error", code: "turn_failed" })
   expect(await failureCount("Defect")).toBe(before + 1)
 })
+
+test("cancels a chunked body with no content-length once it passes the byte limit", async () => {
+  const resolve = vi.fn(options.resolve)
+  let pulled = 0
+  const chunk = new Uint8Array(256 * 1024).fill(0x20)
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulled += chunk.byteLength
+      controller.enqueue(chunk)
+    }
+  })
+  const request = new Request(`http://host.test${MODEL_HOST_STREAM_PATH}`, {
+    method: "POST",
+    headers: { authorization: "Bearer host-token" },
+    body,
+    duplex: "half"
+  } as RequestInit)
+  expect(request.headers.get("content-length")).toBeNull()
+  const response = await createModelTurnHandler({ ...options, resolve })(request)
+  expect(response.status).toBe(400)
+  expect(pulled).toBeLessThanOrEqual(2 * 1024 * 1024 + 2 * chunk.byteLength)
+  expect(resolve).not.toHaveBeenCalled()
+})
+
+test("rejects a present but empty body before resolving a model", async () => {
+  const resolve = vi.fn(options.resolve)
+  const request = new Request(`http://host.test${MODEL_HOST_STREAM_PATH}`, {
+    method: "POST",
+    headers: { authorization: "Bearer host-token" },
+    body: new ReadableStream<Uint8Array>({ start: (controller) => controller.close() }),
+    duplex: "half"
+  } as RequestInit)
+  expect(request.body).not.toBeNull()
+  const response = await createModelTurnHandler({ ...options, resolve })(request)
+  expect(response.status).toBe(400)
+  expect(resolve).not.toHaveBeenCalled()
+})
+
+test("the model stream refuses a response that outgrows the stream byte ceiling", async () => {
+  const text = "x".repeat(1024 * 1024)
+  const response = await createModelTurnHandler({
+    ...options,
+    resolve: () =>
+      Effect.succeed({
+        model: Model.make({
+          stream: () =>
+            Stream.concat(
+              Stream.fromIterable(Array.from({ length: 17 }, (_, index) => ({
+                type: "text-delta" as const,
+                id: "t",
+                text: `${index}${text}`
+              }))),
+              Stream.make({ type: "settle" as const, stopReason: "stop" as const })
+            )
+        }),
+        options: { modelId: "fixture" }
+      })
+  })(streamPost({ runId: "run", messages: [] }))
+  expect(response.status).toBe(502)
+  expect(await response.json()).toEqual({ status: "error", code: "stream_failed" })
+})

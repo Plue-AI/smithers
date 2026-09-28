@@ -55,7 +55,7 @@ const securityReview = Smithers.SecurityReview({
       threat: "A crafted model binding exfiltrates the owner's provider API key to an attacker-chosen URL.",
       lookFor: [
         "A credential read from env or ModelCredentials before planModelBinding succeeds, or under a name other than plan.credential.",
-        "A fetch used for a provider call that does not set redirect: 'manual', letting a 3xx carry the key header to another origin (environmentModelResolver's guardedFetch defaults to plain globalThis.fetch).",
+        "A fetch used for a provider call that does not set redirect: 'manual', letting a 3xx carry the key header to another origin.",
         "A Route or Endpoint built from a baseUrl or path that did not come from the validated ModelPlan."
       ],
       paths: ["src/EnvironmentResolver.ts", "src/LocalModel.ts", "src/ConfiguredModelRoute.ts", "src/ModelProbe.ts"]

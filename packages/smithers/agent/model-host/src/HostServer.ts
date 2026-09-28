@@ -14,6 +14,7 @@ import { z } from "zod"
 import { runDurableChatTurn } from "./DurableChatProducer.ts"
 import type { DurableChatGrant } from "./DurableChatProducer.ts"
 import type { ProducerError, ResolveFailed } from "./ModelHostError.ts"
+import { StreamTooLarge } from "./ModelHostError.ts"
 import { runModelTurn } from "./ModelTurnHost.ts"
 import type { ModelTurnOptions } from "./ModelTurnHost.ts"
 
@@ -153,17 +154,46 @@ const streamRequest = (value: unknown): StartAgentTurnRequest | undefined => {
   } as StartAgentTurnRequest
 }
 
+const MAX_BODY_BYTES = 2 * 1024 * 1024
+
+/**
+ * Reads at most MAX_BODY_BYTES of the body as JSON. The byte count is taken
+ * while streaming, so a chunked body with no content-length is cancelled at
+ * the limit instead of being buffered whole.
+ */
 const boundedJson = async (request: Request): Promise<unknown | undefined> => {
   const length = Number(request.headers.get("content-length") ?? "0")
-  if (!Number.isFinite(length) || length < 0 || length > 2 * 1024 * 1024) return undefined
+  if (!Number.isFinite(length) || length < 0 || length > MAX_BODY_BYTES) return undefined
+  if (request.body === null) return undefined
   try {
-    const bytes = new Uint8Array(await request.arrayBuffer())
-    if (bytes.byteLength === 0 || bytes.byteLength > 2 * 1024 * 1024) return undefined
+    const reader = request.body.getReader()
+    const chunks: Array<Uint8Array> = []
+    let size = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > MAX_BODY_BYTES) {
+        await reader.cancel()
+        return undefined
+      }
+      chunks.push(value)
+    }
+    if (size === 0) return undefined
+    const bytes = new Uint8Array(size)
+    let offset = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset)
+      offset += chunk.byteLength
+    }
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown
   } catch {
     return undefined
   }
 }
+
+/** The most NDJSON bytes one sealed stream response holds; the Go reader caps at the same 16 MiB. */
+const MAX_STREAM_BYTES = 16 * 1024 * 1024
 
 /**
  * Failed model host turns by failure class.
@@ -221,11 +251,20 @@ const classify = (cause: Cause.Cause<ResolveFailed | ProducerError | Model.Model
 const digest = (value: string): Buffer => createHash("sha256").update(value).digest()
 
 /**
- * Compares a presented header with the expected one in constant time. Equal
+ * The bearer check every model host route runs: compares the presented
+ * Authorization header with `Bearer <authorization>` in constant time. Equal
  * length SHA-256 digests keep the comparison from leaking a prefix match.
+ *
+ * @category constructors
+ * @since 1.0.0-rc.0
  */
-const authorized = (presented: string | null, expected: Buffer): boolean =>
-  presented !== null && timingSafeEqual(digest(presented), expected)
+export const bearerAuthorization = (authorization: string): (request: Request) => boolean => {
+  const expected = digest(`Bearer ${authorization}`)
+  return (request) => {
+    const presented = request.headers.get("authorization")
+    return presented !== null && timingSafeEqual(digest(presented), expected)
+  }
+}
 
 /**
  * Creates the Fetch handler shared by the local executable and Plue service.
@@ -236,7 +275,7 @@ const authorized = (presented: string | null, expected: Buffer): boolean =>
 export const createModelTurnHandler = (options: ModelTurnHandlerOptions): (request: Request) => Promise<Response> => {
   if (options.authorization.trim() === "") throw new Error("model host authorization is required")
   const callbackBaseUrl = normalizedBaseUrl(options.callbackBaseUrl)
-  const expectedAuthorization = digest(`Bearer ${options.authorization}`)
+  const authorized = bearerAuthorization(options.authorization)
   return async (request) => {
     const url = new URL(request.url)
     if (url.pathname === MODEL_HOST_HEALTH_PATH && request.method === "GET") {
@@ -244,7 +283,7 @@ export const createModelTurnHandler = (options: ModelTurnHandlerOptions): (reque
     }
     if (url.pathname === MODEL_HOST_STREAM_PATH) {
       if (request.method !== "POST") return new Response("Method not allowed", { status: 405 })
-      if (!authorized(request.headers.get("authorization"), expectedAuthorization)) {
+      if (!authorized(request)) {
         return Response.json({ status: "error", code: "forbidden" }, { status: 401 })
       }
       const body = streamRequest(await boundedJson(request))
@@ -267,15 +306,20 @@ export const createModelTurnHandler = (options: ModelTurnHandlerOptions): (reque
       }
       try {
         const resolved = await Effect.runPromise(options.resolve(grant), { signal: request.signal })
-        const frames: Array<AgentTurnFrame> = []
+        const encoder = new TextEncoder()
+        const lines: Array<string> = []
+        let size = 0
         await Effect.runPromise(
-          runModelTurn(resolved.model, body, resolved.options, (frame) =>
-            Effect.sync(() => {
-              frames.push(frame)
-            })),
+          runModelTurn(resolved.model, body, resolved.options, (frame: AgentTurnFrame) => {
+            const line = `${JSON.stringify(frame)}\n`
+            size += encoder.encode(line).byteLength
+            if (size > MAX_STREAM_BYTES) return Effect.fail(new StreamTooLarge({ limitBytes: MAX_STREAM_BYTES }))
+            lines.push(line)
+            return Effect.void
+          }),
           { signal: request.signal }
         )
-        return new Response(frames.map((frame) => `${JSON.stringify(frame)}\n`).join(""), {
+        return new Response(lines.join(""), {
           status: 200,
           headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" }
         })
@@ -285,7 +329,7 @@ export const createModelTurnHandler = (options: ModelTurnHandlerOptions): (reque
     }
     if (url.pathname !== MODEL_HOST_TURN_PATH) return new Response("Not found", { status: 404 })
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 })
-    if (!authorized(request.headers.get("authorization"), expectedAuthorization)) {
+    if (!authorized(request)) {
       return Response.json({ status: "error", code: "forbidden" }, { status: 401 })
     }
     const grant = decodeGrant(await boundedJson(request), callbackBaseUrl)
