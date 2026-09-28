@@ -3,7 +3,7 @@
  *
  * The function interpolates each token straight into a declaration string that
  * a caller drops into a `<style>` element, and it is exported. Nothing outside
- * this package imports it today, so the delimiter checks below close an API
+ * this package imports it today, so the grammar checks below close an API
  * contract gap rather than a live vulnerability -- but an exported function
  * with an unusual input contract and no stated one is the defect.
  */
@@ -45,7 +45,7 @@ describe("the input contract", () => {
   test("rejects a value that would end the declaration or the rule", () => {
     for (const hostile of ["red;color:blue", "red}", "red{", "red</style><script>alert(1)</script><style>x"]) {
       expect(() => serializeThemeVariant(variantWith({ bg: hostile })), hostile).toThrow(
-        /theme token --bg contains a CSS or markup delimiter/,
+        /theme token --bg is not a color, RGB channel triple, or shadow recipe/,
       );
     }
   });
@@ -53,6 +53,45 @@ describe("the input contract", () => {
   test("rejects a comment opener, an at-rule, and quote characters", () => {
     for (const hostile of ["red/*", '"', "'", "@import url(x)"]) {
       expect(() => serializeThemeVariant(variantWith({ text: hostile })), hostile).toThrow(TypeError);
+    }
+  });
+
+  test("rejects a value that loads a URL, so an untrusted token cannot make the viewer fetch", () => {
+    for (
+      const hostile of [
+        "url(//evil.example/t)",
+        "url(https://evil.example/t)",
+        "image-set(//evil.example/t 1x)",
+        "image(//evil.example/t)",
+        "src(//evil.example/t)",
+        "0 1px 2px url(//evil.example/t)",
+        "var(--x)",
+        "expression(alert(1))",
+        "red",
+      ]
+    ) {
+      expect(() => serializeThemeVariant(variantWith({ bg: hostile })), hostile).toThrow(
+        /theme token --bg is not a color, RGB channel triple, or shadow recipe/,
+      );
+    }
+  });
+
+  test("accepts the documented color forms", () => {
+    for (
+      const value of [
+        "#fff",
+        "#ffff",
+        "#ff3366",
+        "#ff336680",
+        "rgba(43,108,176,0.3)",
+        "rgba(49, 93, 152, 0.22)",
+        "rgb(1,2,3)",
+        "1 22 39",
+        "0 1px 2px rgb(var(--shadow-rgb) / 0.05)",
+        "0 4px 6px -1px rgb(var(--shadow-rgb) / 0.1), 0 2px 4px -2px rgb(var(--shadow-rgb) / 0.1)",
+      ]
+    ) {
+      expect(serializeThemeVariant(variantWith({ bg: value })), value).toContain(`--bg:${value};`);
     }
   });
 

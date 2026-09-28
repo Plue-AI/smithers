@@ -44,20 +44,29 @@ const TOKEN_ORDER: readonly (readonly [string, keyof ThemeVariantTokens])[] = [
   ["--shadow-3", "shadow3"],
 ];
 
+const NUMBER = String.raw`(?:\d+(?:\.\d+)?|\.\d+)`;
+const HEX = String.raw`#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})`;
+const RGB = String.raw`rgba?\(\s*${NUMBER}\s*,\s*${NUMBER}\s*,\s*${NUMBER}\s*(?:,\s*${NUMBER}\s*)?\)`;
+const COLOR = `(?:${HEX}|${RGB})`;
+const CHANNELS = `${NUMBER} ${NUMBER} ${NUMBER}`;
+const LENGTH = String.raw`-?${NUMBER}(?:px)?`;
+const SHADOW_COLOR = String.raw`(?:rgb\(var\(--shadow-rgb\)\s*/\s*${NUMBER}\)|${COLOR})`;
+const SHADOW = String.raw`(?:inset\s+)?${LENGTH}\s+${LENGTH}(?:\s+${LENGTH}){0,2}\s+${SHADOW_COLOR}`;
+
 /**
- * Anything that would end the declaration, end the rule, open a comment, or
- * escape the surrounding `<style>` element. A token value carrying one of
- * these is not a color, and interpolating it would let the caller write CSS or
- * markup the emitter never intended. `/` and `(` stay legal because the shadow
- * recipes are `rgb(var(--shadow-rgb) / 0.05)`.
+ * The only token shapes the emitter interpolates: a hex or `rgb()`/`rgba()`
+ * color, a space-separated RGB channel triple (`--shadow-rgb`), or a
+ * comma-separated shadow list over `rgb(var(--shadow-rgb) / <alpha>)` or a
+ * color. An allowlist, not a delimiter denylist: a value that ends the
+ * declaration, escapes `<style>`, or loads a resource (`url()`,
+ * `image-set()`, `image()`, `src()`) matches none of these.
  */
-// eslint-disable-next-line no-control-regex -- control characters are exactly what this rejects.
-const CSS_UNSAFE = /[;{}<>\\@"']|\/\*|[\u0000-\u001F\u007F]/;
+const TOKEN_GRAMMAR = new RegExp(`^(?:${COLOR}|${CHANNELS}|${SHADOW}(?:\\s*,\\s*${SHADOW})*)$`, "i");
 
 /** Long enough for the widest shipped shadow recipe, short enough to be a cap. */
 const MAX_TOKEN_LENGTH = 160;
 
-function checkedValue(variant: ThemeVariantTokens, property: string, key: keyof ThemeVariantTokens): string {
+function ownString(variant: ThemeVariantTokens, property: string, key: keyof ThemeVariantTokens): string {
   const descriptor = Object.getOwnPropertyDescriptor(variant, key);
   if (descriptor === undefined || !("value" in descriptor)) {
     throw new TypeError(`theme token ${property} must be an own data property, none found for ${String(key)}`);
@@ -71,8 +80,15 @@ function checkedValue(variant: ThemeVariantTokens, property: string, key: keyof 
       `theme token ${property} must be 1 to ${MAX_TOKEN_LENGTH} characters, received ${value.length}`,
     );
   }
-  if (CSS_UNSAFE.test(value)) {
-    throw new TypeError(`theme token ${property} contains a CSS or markup delimiter: ${JSON.stringify(value)}`);
+  return value;
+}
+
+function checkedValue(variant: ThemeVariantTokens, property: string, key: keyof ThemeVariantTokens): string {
+  const value = ownString(variant, property, key);
+  if (!TOKEN_GRAMMAR.test(value)) {
+    throw new TypeError(
+      `theme token ${property} is not a color, RGB channel triple, or shadow recipe: ${JSON.stringify(value)}`,
+    );
   }
   return value;
 }
@@ -98,18 +114,18 @@ export type SerializeThemeVariantOptions = {
  * the base `:root` rule passes `fonts: true`.
  *
  * Values are read as data-only own properties and validated: every token must
- * be a non-empty string of at most `MAX_TOKEN_LENGTH` (160) characters with no
- * CSS or markup delimiter, because the result is interpolated into a stylesheet
+ * be a non-empty string of at most `MAX_TOKEN_LENGTH` (160) characters matching
+ * `TOKEN_GRAMMAR`, because the result is interpolated into a stylesheet
  * verbatim.
  *
  * @throws {TypeError} when a token is missing, is not a string, is too long, or
- *   carries a delimiter.
+ *   is not a color, RGB channel triple, or shadow recipe.
  */
 export function serializeThemeVariant(
   variant: ThemeVariantTokens,
   options: SerializeThemeVariantOptions = {},
 ): string {
-  const scheme = checkedValue(variant, "color-scheme", "colorScheme");
+  const scheme = ownString(variant, "color-scheme", "colorScheme");
   if (scheme !== "light" && scheme !== "dark") {
     throw new TypeError(`theme color-scheme must be "light" or "dark", received ${JSON.stringify(scheme)}`);
   }

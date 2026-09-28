@@ -142,9 +142,10 @@ palette rule that restates it out-ranks a consumer's own bare `:root` font
 declarations.
 
 `serializeThemeVariant` validates every token as it goes. A missing key, a
-non-string, a value over 160 characters, or one carrying a CSS or markup
-delimiter throws a `TypeError` naming the property, because the result is
-interpolated into a stylesheet verbatim. Accessor properties are rejected too:
+non-string, a value over 160 characters, or one that is not a hex or numeric
+`rgb()`/`rgba()` color, RGB channel triple, or shadow recipe throws a
+`TypeError` naming the property, because the result is interpolated into a
+stylesheet verbatim. Accessor properties are rejected too:
 the function reads own data properties, so a getter cannot return one value to
 the check and another to the output.
 

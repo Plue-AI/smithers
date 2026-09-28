@@ -121,8 +121,8 @@ const securityReview = Smithers.SecurityReview({
       threat: "A caller or theme source that controls a token value injects CSS rules or closes the host's <style> element to run markup in the page of every viewer.",
       lookFor: [
         "A declaration in serializeThemeVariant, paletteThemeCss, standaloneThemeCss, or themeTokens built from a value that bypasses checkedValue.",
-        "A delimiter CSS_UNSAFE does not reject that ends a declaration or element, such as an escaped newline, `</style`, or a non-ASCII lookalike.",
-        "A token value such as `url(//host/x)` or `image-set(...)` that passes CSS_UNSAFE and makes the viewer's browser fetch an attacker-chosen URL."
+        "A value TOKEN_GRAMMAR accepts that ends a declaration or element, such as an escaped newline, `</style`, or a non-ASCII lookalike.",
+        "A token value such as `url(//host/x)` or `image-set(...)` that TOKEN_GRAMMAR accepts and makes the viewer's browser fetch an attacker-chosen URL."
       ],
       paths: ["src/serializeThemeVariant.ts", "src/paletteThemeCss.ts", "src/standaloneThemeCss.ts", "src/themeTokens.ts"]
     },
@@ -141,7 +141,7 @@ const securityReview = Smithers.SecurityReview({
       title: "Generated theme files contain only validated colors from the pinned @shikijs/themes",
       threat: "A compromised or unpinned @shikijs/themes release writes code or unvalidated values into src/themes/*.ts, which every Smithers UI imports.",
       lookFor: [
-        "An upstream color copied into the generated record without `opaque` or a hex check, such as `terminal.selectionBackground`.",
+        "An upstream color copied into the generated record without `opaque`, `selectionColor`, or another hex check.",
         "A generated string emitted without JSON.stringify, or a key emitted unquoted without the identifier regex.",
         "A path in writeFileSync or import() derived from theme data instead of the fixed specs table and outputDir."
       ],

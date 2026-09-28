@@ -34,6 +34,7 @@ import { contrastRatioOf, type Rgb } from "../src/contrastRatio.ts";
 import { rgbChannels } from "../src/rgbChannels.ts";
 import { mixChannels, mixColors } from "../src/mixColors.ts";
 import { secondaryText } from "./secondaryText.ts";
+import { selectionColor } from "./selectionColor.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const require = createRequire(import.meta.url);
@@ -90,7 +91,10 @@ function terminal(theme: UpstreamTheme, bg: string, text: string, semantic: Reco
   // Bright fallbacks repeat that mapping; bright black is a text/background
   // midpoint and bright white uses the editor foreground.
   const ansi = (name: string, fallback: string) => opaque(c[`terminal.ansi${name}`], fallback);
-  const selection = c["terminal.selectionBackground"] ?? `rgba(${rgbChannels(semantic.info).join(",")},0.3)`;
+  const selection = selectionColor(
+    c["terminal.selectionBackground"],
+    `rgba(${rgbChannels(semantic.info).join(",")},0.3)`,
+  );
   return {
     background: opaque(c["terminal.background"], bg),
     foreground: opaque(c["terminal.foreground"], text),

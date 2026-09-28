@@ -91,17 +91,20 @@ Spread a registry variant to build a partial override and you cannot hit this:
 const variant = { ...themeRegistry["night-owl"].light, brand: "#ff3366" }
 ```
 
-### `TypeError: theme token --bg contains a CSS or markup delimiter`
+### `TypeError: theme token --bg is not a color, RGB channel triple, or shadow recipe`
 
 ```text
-TypeError: theme token --bg contains a CSS or markup delimiter: "red;color:blue"
+TypeError: theme token --bg is not a color, RGB channel triple, or shadow recipe: "url(//evil.example/t)"
 ```
 
 The result of `serializeThemeVariant` is interpolated into a stylesheet
-verbatim, so a value that could end the declaration, end the rule, open a
-comment, or escape the `<style>` element is rejected: `;`, `{`, `}`, `<`, `>`,
-`\`, `@`, quotes, `/*`, and control characters. `/` and `(` stay legal, because
-the shadow recipes are `rgb(var(--shadow-rgb) / 0.05)`.
+verbatim, so every token must match an allowlist: a hex color (`#rgb`, `#rgba`,
+`#rrggbb`, `#rrggbbaa`), an `rgb()` or `rgba()` color with numeric channels, a
+space-separated RGB channel triple such as `1 22 39`, or a comma-separated
+shadow list such as `0 1px 2px rgb(var(--shadow-rgb) / 0.05)`. Anything else is
+rejected, including named colors, `var()`, delimiters that could end the
+declaration or escape the `<style>` element, and resource loaders such as
+`url()`, `image-set()`, `image()`, and `src()`.
 
 Values are also capped at 160 characters, which is long enough for the widest
 shipped shadow recipe.

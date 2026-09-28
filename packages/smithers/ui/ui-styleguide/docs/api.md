@@ -95,13 +95,15 @@ a fixed order.
   there out-ranks a consumer's own bare `:root` overrides.
 - Input is trusted but checked. Every token is read as an own data property, so
   a getter or a proxy cannot return one value to the check and another to the
-  output, and each must be a non-empty string of at most 160 characters with no
-  CSS or markup delimiter, because the result is interpolated into a stylesheet
-  verbatim. `/` and `(` stay legal, because the shadow recipes need them.
+  output, and each must be a non-empty string of at most 160 characters that
+  is a hex or numeric `rgb()`/`rgba()` color, an RGB channel triple, or a shadow
+  list over `rgb(var(--shadow-rgb) / <alpha>)`, because the result is
+  interpolated into a stylesheet verbatim. Named colors, `var()`, and
+  resource loaders such as `url()` are rejected.
 
 **Throws** `TypeError` naming the property when a token is missing, is an
-accessor, is not a string, is empty, exceeds 160 characters, carries a
-delimiter, or when `color-scheme` is neither `"light"` nor `"dark"`.
+accessor, is not a string, is empty, exceeds 160 characters, is not a
+color, RGB channel triple, or shadow recipe, or when `color-scheme` is neither `"light"` nor `"dark"`.
 
 ## Color math
 
@@ -186,7 +188,7 @@ documented on the [token reference](./reference/tokens.md).
 | Thrown by                                                | Type         | Cause                                                       |
 | -------------------------------------------------------- | ------------ | ------------------------------------------------------------ |
 | `themeCss`                                                | `RangeError` | `palettes` names a key the registry does not have.           |
-| `serializeThemeVariant`                                   | `TypeError`  | A token is missing, an accessor, not a string, empty, over 160 characters, or carries a CSS or markup delimiter. |
+| `serializeThemeVariant`                                   | `TypeError`  | A token is missing, an accessor, not a string, empty, over 160 characters, or not a color, RGB channel triple, or shadow recipe. |
 | `serializeThemeVariant`                                   | `TypeError`  | `colorScheme` is neither `"light"` nor `"dark"`.             |
 | `contrastRatio`                                           | `TypeError`  | An argument is not an opaque hex color.                      |
 | `contrastRatioOf`                                         | `TypeError`  | An argument is not three finite 0-255 channels.              |
