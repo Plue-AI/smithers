@@ -2,13 +2,60 @@ package microsandbox
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestGuestFSRemoveCLI(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not installed")
+	}
+	root := t.TempDir()
+	remove := func(path string) (string, error) {
+		cmd := exec.Command(python, "-B", filepath.Join("guest", "smithers-guest.py"), "fs", "remove", root, path)
+		cmd.Env = append(os.Environ(), "SMITHERS_GUEST_USER=")
+		output, err := cmd.CombinedOutput()
+		return string(output), err
+	}
+	assertMissing := func(t *testing.T, path string) {
+		t.Helper()
+		output, err := remove(path)
+		var exit *exec.ExitError
+		require.ErrorAs(t, err, &exit)
+		require.Equal(t, 2, exit.ExitCode(), output)
+		require.Contains(t, strings.ToLower(output), "no such file or directory")
+	}
+	assertRemoved := func(t *testing.T, path string) {
+		t.Helper()
+		output, err := remove(path)
+		require.NoError(t, err, output)
+		_, err = os.Lstat(filepath.Join(root, path))
+		require.True(t, errors.Is(err, os.ErrNotExist), "path still exists: %s; stat error: %v", path, err)
+	}
+
+	t.Run("missing path", func(t *testing.T) { assertMissing(t, "missing") })
+	t.Run("dangling symlink", func(t *testing.T) {
+		require.NoError(t, os.Symlink("absent-target", filepath.Join(root, "dangling")))
+		assertRemoved(t, "dangling")
+	})
+	t.Run("existing file and repeated removal", func(t *testing.T) {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "file"), []byte("data"), 0o600))
+		assertRemoved(t, "file")
+		assertMissing(t, "file")
+	})
+	t.Run("nonempty directory", func(t *testing.T) {
+		require.NoError(t, os.Mkdir(filepath.Join(root, "directory"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "directory", "child"), []byte("data"), 0o600))
+		assertRemoved(t, "directory")
+	})
+}
 
 // A Flow host's tools keep only PATH and HOME, so the guest's setup leaves
 // the layer's caches and offline Go settings where each tool looks by

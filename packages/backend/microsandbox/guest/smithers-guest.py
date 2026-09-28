@@ -277,6 +277,8 @@ def fs_remove(root, path):
     if parent != real_root and not parent.startswith(real_root + "/"):
         fail(3, "workspace mutation path resolves outside root")
     target = os.path.join(parent, parts[-1])
+    if not os.path.lexists(target):
+        fail(2, "no such file or directory")
     if os.path.islink(target) or os.path.isfile(target):
         os.unlink(target)
     elif os.path.isdir(target):
