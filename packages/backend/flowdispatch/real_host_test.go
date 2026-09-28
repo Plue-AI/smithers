@@ -29,14 +29,37 @@ import (
 // The project flow the box's coding host serves from the fixture repository.
 // Its one model turn is answered by distribution/fake-coding-provider.mjs, the
 // same scripted provider the image acceptance uses: it writes and reads back
-// flow-proof.txt, so the run completes without a real model.
-const realHostFlow = `---
-description: Write the proof file.
-capabilities: ["fs:read:**", "fs:write:**"]
-model: coding/implement
----
+// flow-proof.txt. The provider also answers the completion judge through the
+// host's Anthropic subscription route, so neither request needs a real model.
+const realHostFlow = `import { Action, Flow } from "@smthrs/flow"
+import { Schema } from "effect"
 
-Write flow-proof.txt and read it back.
+// The packaged host registers this action with its real agent runtime.
+const DispatchTurn = Action.make("coding/dispatch-turn", {
+  payload: {
+    turnId: Schema.String,
+    prompt: Schema.String,
+    history: Schema.Array(Schema.Struct({ role: Schema.String, content: Schema.String })),
+    role: Schema.String
+  },
+  success: Schema.Struct({ messages: Schema.Array(Schema.String) }),
+  error: Schema.Unknown
+})
+
+export default Flow.make("proof", {
+  description: "Write the proof file.",
+  capabilities: ["fs:read:**", "fs:write:**"],
+  effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+  payload: {},
+  success: Schema.Struct({ messages: Schema.Array(Schema.String) }),
+  error: Schema.Unknown,
+  body: () => DispatchTurn.call({
+    turnId: "proof",
+    prompt: "Write flow-proof.txt and read it back.",
+    history: [],
+    role: "coding/implement"
+  })
+})
 `
 
 // A file flow in the one shape every repository flow has (flows/<name>/flow.ts
@@ -92,9 +115,12 @@ func startCodingHost(t *testing.T, fixture realHostFixture, port int, generation
 		"SMITHERS_GATEWAY_ID=11111111-1111-4111-8111-111111111111",
 		"SMITHERS_CODING_IMPLEMENT_MODEL=openai:scripted",
 		"OPENAI_API_KEY=scripted-provider-key",
-		"AI_GATEWAY_API_KEY=scripted-evaluator-key",
+		"SMITHERS_OPENAI_AUTH=api-key",
+		"SMITHERS_ACCOUNT_POOL_URL=",
+		"ANTHROPIC_AUTH_TOKEN=scripted-evaluator-key",
+		"SMITHERS_MODEL_PROXY_URL="+fixture.provider,
+		"SMITHERS_MODEL_PROXY_PROVIDERS=anthropic",
 		"SMITHERS_OPENAI_COMPATIBLE_BASE_URL="+fixture.provider,
-		"SMITHERS_EVALUATOR_BASE_URL="+fixture.provider+"/v4/ai/evaluation-model",
 		"SMITHERS_CODING_LOCAL_OWNER=1",
 		"SMITHERS_OWNER_GENERATION="+strconv.FormatInt(generation, 10),
 		"SMITHERS_SOURCE_REVISION="+fixture.revision,
@@ -249,7 +275,7 @@ func realHostFixtureFor(t *testing.T) realHostFixture {
 
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "flows", "proof"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "flows", "proof", "flow.mdx"), []byte(realHostFlow), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "flows", "proof", "flow.ts"), []byte(realHostFlow), 0o644))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "flows", "echo"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "flows", "echo", "flow.ts"), []byte(realHostFileFlow), 0o644))
 	require.NoError(t, os.Symlink(filepath.Join(repositoryRoot, "node_modules"), filepath.Join(root, "node_modules")))
@@ -334,8 +360,9 @@ func TestRealBundledHostAdmissionReconnectCompletionAndCancellation(t *testing.T
 	stopFirst, firstDone := startAcceptanceWorker(service, "real-host-owner-1")
 	t.Cleanup(func() { stopAcceptanceWorker(t, stopFirst, firstDone) })
 	parked := waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool {
-		return operation.State == jobs.StateWaiting && bytes.Contains(operation.ExternalReceipt, []byte(`"Parked"`))
+		return operation.State.Terminal() || operation.State == jobs.StateWaiting && bytes.Contains(operation.ExternalReceipt, []byte(`"Parked"`))
 	})
+	require.Equal(t, jobs.StateWaiting, parked.State, "terminal receipt: %s", parked.TerminalReceipt)
 	require.Empty(t, parked.TerminalReceipt)
 	stopAcceptanceWorker(t, stopFirst, firstDone)
 	host.stop(t)
@@ -347,8 +374,9 @@ func TestRealBundledHostAdmissionReconnectCompletionAndCancellation(t *testing.T
 	stopSecond, secondDone := startAcceptanceWorker(service, "real-host-owner-2")
 	t.Cleanup(func() { stopAcceptanceWorker(t, stopSecond, secondDone) })
 	completed := waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool {
-		return operation.State == jobs.StateCompleted
+		return operation.State.Terminal()
 	})
+	require.Equal(t, jobs.StateCompleted, completed.State, "terminal receipt: %s", completed.TerminalReceipt)
 	var terminal terminalReceipt
 	require.NoError(t, json.Unmarshal(completed.TerminalReceipt, &terminal))
 	require.NotNil(t, terminal.Run)

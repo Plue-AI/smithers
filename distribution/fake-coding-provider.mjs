@@ -28,11 +28,28 @@ const server = createServer(async (request, response) => {
     response.end("data: [DONE]\n\n")
     return
   }
-  if (request.method === "POST" && request.url === "/v4/ai/evaluation-model") {
+  const subscriptionJudge = request.method === "POST" && request.url === "/anthropic/v1/messages"
+  if (subscriptionJudge) {
+    input = JSON.parse(input.messages.at(-1).content.find(part => part.type === "text").text)
+  }
+  if (subscriptionJudge || request.method === "POST" && request.url === "/v4/ai/evaluation-model") {
     const answers = Object.fromEntries(Object.entries(input.questions ?? {}).map(([name, question]) => {
       if (question.type !== "boolean") throw new Error(`unexpected evaluation type: ${question.type}`)
       return [name, { type: "boolean", probability: name === "complete" ? 0.99 : 0.01 }]
     }))
+    if (subscriptionJudge) {
+      response.writeHead(200, { "content-type": "text/event-stream" })
+      for (const event of [
+        { type: "message_start", message: { id: "judge", role: "assistant", content: [], usage: {} } },
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: JSON.stringify({ answers }) } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: {} },
+        { type: "message_stop" }
+      ]) response.write(`data: ${JSON.stringify(event)}\n\n`)
+      response.end()
+      return
+    }
     response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ answers }))
     return
   }
