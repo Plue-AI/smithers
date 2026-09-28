@@ -4,18 +4,24 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestParseAndFormatUSD(t *testing.T) {
-	for in, want := range map[string]int64{"25": 25 * NanosPerUSD, "0.50": 50 * NanosPerCent, "0.000000001": 1} {
+	for in, want := range map[string]int64{
+		"25": 25 * NanosPerUSD, "0.50": 50 * NanosPerCent,
+		"0.000000001": 1, " 000.000000001 ": 1,
+		"9223372036.854775807": math.MaxInt64,
+	} {
 		got, err := ParseUSD(in)
 		require.NoError(t, err, in)
 		require.Equal(t, want, got, in)
 	}
-	for _, bad := range []string{"", "0", "-1", "abc", "0x19", "1/4", "0.0000000001", "1e30", "99999999999"} {
+	for _, bad := range []string{"", "0", "0.000000000", "-1", "+1", ".5", "1.", "1,000", "abc", "0x19", "1/4", "0.0000000001", "1e30", "99999999999", "9223372036.854775808"} {
 		_, err := ParseUSD(bad)
 		require.Error(t, err, bad)
 	}
@@ -23,6 +29,36 @@ func TestParseAndFormatUSD(t *testing.T) {
 	require.Equal(t, "0.5", FormatUSD(50*NanosPerCent))
 	require.Equal(t, "-0.000000001", FormatUSD(-1))
 	require.Equal(t, "0", FormatUSD(0))
+	require.Equal(t, "9223372036.854775807", FormatUSD(math.MaxInt64))
+	require.Equal(t, "-9223372036.854775808", FormatUSD(math.MinInt64))
+}
+
+func TestOperatorCommandRejectsSyntaxBeforeDatabase(t *testing.T) {
+	l := Ledger{}
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing command", want: "usage: credits"},
+		{name: "unknown command", args: []string{"transfer"}, want: "usage: credits"},
+		{name: "unknown flag", args: []string{"balance", "-bogus"}, want: "flag provided but not defined"},
+		{name: "extra argument", args: []string{"balance", "extra"}, want: "unexpected argument"},
+		{name: "missing owner", args: []string{"balance"}, want: "-owner must be"},
+		{name: "blank owner name", args: []string{"balance", "-owner", "user: "}, want: "-owner must be"},
+		{name: "unknown owner type", args: []string{"balance", "-owner", "team:alice"}, want: "-owner must be"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, diagnostics bytes.Buffer
+			err := l.OperatorCommand(context.Background(), tc.args, &out, &diagnostics)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v, want %q", err, tc.want)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("failed command wrote balance: %q", out.String())
+			}
+		})
+	}
 }
 
 func TestOperatorCommandGrantsIdempotentlyByKey(t *testing.T) {

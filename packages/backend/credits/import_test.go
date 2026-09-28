@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -157,19 +160,29 @@ func TestLegacyImportValidatesArchive(t *testing.T) {
 	at := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 	later := at.Add(time.Hour)
 	earlier := at.Add(-time.Hour)
-	for name, archive := range map[string][]LegacyAccount{
-		"duplicate source": {{SourceID: "a"}, {SourceID: "a"}},
-		"blank source":     {{SourceID: " "}},
-		"bad owner":        {{SourceID: "a", OwnerType: "team", OwnerID: 1}},
-		"balance mismatch": {{SourceID: "a", BalanceNanos: 5, Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: 4}}}},
-		"expired counted":  {{SourceID: "a", BalanceNanos: 5, Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: 5, ExpiresAt: &earlier}}}},
-		"duplicate grant":  {{SourceID: "a", BalanceNanos: 2, Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: 1}, {SourceKey: "g", RemainingNanos: 1}}}},
-		"negative grant":   {{SourceID: "a", Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: -1}}}},
-		"invalid source":   {{SourceID: "a", Source: json.RawMessage(`{`)}},
-		"owing with grant": {{SourceID: "a", BalanceNanos: -1, Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: 1, ExpiresAt: &later}}}},
+	for name, tc := range map[string]struct {
+		archive []LegacyAccount
+		want    string
+	}{
+		"duplicate source":     {[]LegacyAccount{{SourceID: "a"}, {SourceID: "a"}}, "duplicate legacy source a"},
+		"blank source":         {[]LegacyAccount{{SourceID: " "}}, "invalid legacy source id"},
+		"bad owner":            {[]LegacyAccount{{SourceID: "a", OwnerType: "team", OwnerID: 1}}, "invalid owner"},
+		"balance mismatch":     {[]LegacyAccount{{SourceID: "a", BalanceNanos: 5, Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: 4}}}}, "live grants 4 nanos differ from balance 5 nanos"},
+		"expired counted":      {[]LegacyAccount{{SourceID: "a", BalanceNanos: 5, Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: 5, ExpiresAt: &earlier}}}}, "live grants 0 nanos differ from balance 5 nanos"},
+		"duplicate grant":      {[]LegacyAccount{{SourceID: "a", BalanceNanos: 2, Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: 1}, {SourceKey: "g", RemainingNanos: 1}}}}, `invalid grant "g"`},
+		"negative grant":       {[]LegacyAccount{{SourceID: "a", Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: -1}}}}, `invalid grant "g"`},
+		"invalid source":       {[]LegacyAccount{{SourceID: "a", Source: json.RawMessage(`{`)}}, "source JSON"},
+		"owing with grant":     {[]LegacyAccount{{SourceID: "a", BalanceNanos: -1, Grants: []LegacyGrant{{SourceKey: "g", RemainingNanos: 1, ExpiresAt: &later}}}}, "an owing account cannot hold live grants"},
+		"source colon":         {[]LegacyAccount{{SourceID: "a:b"}}, "invalid legacy source id"},
+		"owner id absent":      {[]LegacyAccount{{SourceID: "a", OwnerType: "user"}}, "invalid owner"},
+		"owner type absent":    {[]LegacyAccount{{SourceID: "a", OwnerID: 1}}, "invalid owner"},
+		"blank grant key":      {[]LegacyAccount{{SourceID: "a", Grants: []LegacyGrant{{SourceKey: ""}}}}, `invalid grant ""`},
+		"reserved grant key":   {[]LegacyAccount{{SourceID: "a", Grants: []LegacyGrant{{SourceKey: openingGrantKey}}}}, `invalid grant "opening"`},
+		"grant total overflow": {[]LegacyAccount{{SourceID: "a", BalanceNanos: math.MaxInt64, Grants: []LegacyGrant{{SourceKey: "one", RemainingNanos: math.MaxInt64}, {SourceKey: "two", RemainingNanos: 1}}}}, "grant total overflows"},
 	} {
-		if _, err := DryRun(at, archive); err == nil {
-			t.Errorf("%s accepted", name)
+		report, err := DryRun(at, tc.archive)
+		if err == nil || !strings.Contains(err.Error(), tc.want) || !reflect.DeepEqual(report, ImportReport{}) {
+			t.Errorf("%s: report=%+v err=%v, want zero report and %q", name, report, err, tc.want)
 		}
 	}
 	if _, err := DryRun(time.Time{}, nil); err == nil {
@@ -178,6 +191,38 @@ func TestLegacyImportValidatesArchive(t *testing.T) {
 	report, err := DryRun(at, []LegacyAccount{{SourceID: "a", BalanceNanos: 9}, {SourceID: "b", BalanceNanos: -3}})
 	if err != nil || report.SyntheticOpenings != 1 || report.BalanceNanos != 6 {
 		t.Fatalf("report=%+v err=%v", report, err)
+	}
+}
+
+func TestDryRunUsesExportTimeAndCanonicalSourceBytes(t *testing.T) {
+	at := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	expiresAtCutover := at
+	expiresAfterCutover := at.Add(time.Microsecond)
+	archive := []LegacyAccount{{
+		SourceID: "with-expired-grant", BalanceNanos: 7,
+		Grants: []LegacyGrant{
+			{SourceKey: "expired", RemainingNanos: 3, ExpiresAt: &expiresAtCutover},
+			{SourceKey: "live", RemainingNanos: 7, ExpiresAt: &expiresAfterCutover},
+		},
+		Source: json.RawMessage(`{ "audit": { "id": 1 } }`),
+	}}
+	first, err := DryRun(at, archive)
+	if err != nil || first.Count != 1 || first.Sealed != 1 || first.BalanceNanos != 7 || first.SyntheticOpenings != 0 {
+		t.Fatalf("cutover report=%+v err=%v", first, err)
+	}
+	archive[0].Source = json.RawMessage(`{"audit":{"id":1}}`)
+	second, err := DryRun(at, archive)
+	if err != nil || !reflect.DeepEqual(first, second) {
+		t.Fatalf("equivalent source changed receipt: first=%+v second=%+v err=%v", first, second, err)
+	}
+	archive[0].Source = json.RawMessage(`{"audit":{"id":2}}`)
+	third, err := DryRun(at, archive)
+	if err != nil || first.Checksum == third.Checksum || first.Items[0].Checksum == third.Items[0].Checksum {
+		t.Fatalf("changed source kept receipt: first=%+v third=%+v err=%v", first, third, err)
+	}
+	archive[0].Source = json.RawMessage(`{"audit":{"id":1}}`)
+	if _, err := DryRun(at.Add(time.Microsecond), archive); err == nil {
+		t.Fatal("grant expiring at the export time counted as live")
 	}
 }
 

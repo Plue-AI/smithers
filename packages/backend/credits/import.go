@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"strings"
 	"time"
 
@@ -96,6 +97,7 @@ func normalize(exportedAt time.Time, input []LegacyAccount) ([]normalized, error
 		return nil, errors.New("credits: archive export time required")
 	}
 	seen := map[string]bool{}
+	var total, amount big.Int
 	out := make([]normalized, 0, len(input))
 	for _, a := range input {
 		if a.SourceID == "" || strings.TrimSpace(a.SourceID) != a.SourceID || strings.Contains(a.SourceID, ":") {
@@ -105,6 +107,11 @@ func normalize(exportedAt time.Time, input []LegacyAccount) ([]normalized, error
 			return nil, fmt.Errorf("credits: duplicate legacy source %s", a.SourceID)
 		}
 		seen[a.SourceID] = true
+		// Opening debt is stored as a positive int64. MinInt64 cannot be
+		// negated, so reject it before import or verification touches the DB.
+		if a.BalanceNanos == math.MinInt64 {
+			return nil, fmt.Errorf("%s: opening debt overflows", a.SourceID)
+		}
 		if a.OwnerType != "" || a.OwnerID != 0 {
 			if !validOwner(a.OwnerType, a.OwnerID) {
 				return nil, fmt.Errorf("%s: invalid owner", a.SourceID)
@@ -156,8 +163,22 @@ func normalize(exportedAt time.Time, input []LegacyAccount) ([]normalized, error
 		}
 		n.raw, n.checksum = raw, digest(raw)
 		out = append(out, n)
+		amount.SetInt64(a.BalanceNanos)
+		total.Add(&total, &amount)
+	}
+	// Only the overall total is independent of database state. Ownership
+	// subtotals can change when owners resolve or sealed receipts attach.
+	if _, err := reportTotal("balance_nanos", &total); err != nil {
+		return nil, err
 	}
 	return out, nil
+}
+
+func reportTotal(name string, total *big.Int) (int64, error) {
+	if !total.IsInt64() {
+		return 0, fmt.Errorf("credits: report %s total %s overflows int64", name, total.String())
+	}
+	return total.Int64(), nil
 }
 
 func digest(b []byte) string {
@@ -165,32 +186,51 @@ func digest(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (r *ImportReport) tally() {
+func (r ImportReport) tally() (ImportReport, error) {
 	r.Owned, r.Claimed, r.Sealed, r.SyntheticOpenings = 0, 0, 0, 0
-	r.BalanceNanos, r.OwnedNanos, r.SealedNanos = 0, 0, 0
+	// Sum exactly before checking bounds: a representable final total must
+	// not depend on the order of credits and debts in the archive.
+	var balance, owned, sealed, amount big.Int
 	digest := sha256.New()
 	for _, item := range r.Items {
 		digest.Write([]byte(item.SourceID + "\x00" + item.Checksum + "\n"))
-		r.BalanceNanos += item.BalanceNanos
+		amount.SetInt64(item.BalanceNanos)
+		balance.Add(&balance, &amount)
 		switch item.Disposition {
 		case Owned:
 			r.Owned++
-			r.OwnedNanos += item.BalanceNanos
+			owned.Add(&owned, &amount)
 		case OwnerClaimed:
 			r.Claimed++
 		default:
 			r.Sealed++
-			r.SealedNanos += item.BalanceNanos
+			sealed.Add(&sealed, &amount)
 		}
 		if item.SyntheticOpening {
 			r.SyntheticOpenings++
 		}
 	}
+	for _, total := range []struct {
+		name  string
+		value *big.Int
+		dest  *int64
+	}{
+		{"balance_nanos", &balance, &r.BalanceNanos},
+		{"owned_nanos", &owned, &r.OwnedNanos},
+		{"sealed_nanos", &sealed, &r.SealedNanos},
+	} {
+		value, err := reportTotal(total.name, total.value)
+		if err != nil {
+			return ImportReport{}, err
+		}
+		*total.dest = value
+	}
 	r.Count = len(r.Items)
 	r.Checksum = hex.EncodeToString(digest.Sum(nil))
+	return r, nil
 }
 
-func dryRun(accounts []normalized) ImportReport {
+func dryRun(accounts []normalized) (ImportReport, error) {
 	report := ImportReport{Items: make([]ImportItem, 0, len(accounts))}
 	for _, a := range accounts {
 		d := OwnerUnknown
@@ -200,8 +240,7 @@ func dryRun(accounts []normalized) ImportReport {
 		report.Items = append(report.Items, ImportItem{SourceID: a.SourceID, Checksum: a.checksum, Disposition: d,
 			BalanceNanos: a.BalanceNanos, SyntheticOpening: a.synthetic})
 	}
-	report.tally()
-	return report
+	return report.tally()
 }
 
 // DryRun validates an archive and reports counts, totals and checksums
@@ -211,13 +250,16 @@ func DryRun(exportedAt time.Time, input []LegacyAccount) (ImportReport, error) {
 	if err != nil {
 		return ImportReport{}, err
 	}
-	return dryRun(accounts), nil
+	return dryRun(accounts)
 }
 
 // Import credits each legacy account to its owner, or seals it when the owner
 // is unknown or missing. Each account commits in its own transaction with a
 // receipt, so an interrupted run resumes; an exact replay is a no-op and a
 // changed record for an imported source is ErrConflict.
+// On failure, the report contains only successfully committed or replayed
+// accounts. If its totals cannot fit int64, the report is empty and the error
+// gives the exact overflowing total; per-account receipts may already exist.
 func (l Ledger) Import(ctx context.Context, exportedAt time.Time, input []LegacyAccount) (ImportReport, error) {
 	accounts, err := normalize(exportedAt, input)
 	if err != nil {
@@ -231,20 +273,26 @@ func (l Ledger) Import(ctx context.Context, exportedAt time.Time, input []Legacy
 		// Grants live at a future export time may already be expired.
 		return ImportReport{}, fmt.Errorf("credits: archive export time %s is after the database clock %s", exportedAt, now)
 	}
-	report := dryRun(accounts)
-	for i, a := range accounts {
-		item := &report.Items[i]
+	report := ImportReport{Items: make([]ImportItem, 0, len(accounts))}
+	for _, a := range accounts {
+		var disposition Disposition
 		err = l.transaction(ctx, func(tx pgx.Tx) error {
 			d, e := importOne(ctx, tx, a)
-			item.Disposition = d
+			disposition = d
 			return e
 		})
 		if err != nil {
-			return report, fmt.Errorf("import %s: %w", a.SourceID, err)
+			partial, tallyErr := report.tally()
+			return partial, errors.Join(fmt.Errorf("import %s: %w", a.SourceID, err), tallyErr)
 		}
+		report.Items = append(report.Items, ImportItem{SourceID: a.SourceID, Checksum: a.checksum, Disposition: disposition,
+			BalanceNanos: a.BalanceNanos, SyntheticOpening: a.synthetic})
 	}
-	report.tally()
-	return report, nil
+	result, err := report.tally()
+	if err != nil {
+		return ImportReport{}, fmt.Errorf("import report (per-account receipts may already exist): %w", err)
+	}
+	return result, nil
 }
 
 func ownerExists(ctx context.Context, tx pgx.Tx, ownerType string, ownerID int64) (bool, error) {
@@ -324,6 +372,8 @@ func importOne(ctx context.Context, tx pgx.Tx, a normalized) (Disposition, error
 // Verify reads every imported account back and compares it with the archive:
 // the receipt checksum, the stored source record, each grant's amount and
 // expiry, and the opening debt. Any difference is an error.
+// On failure, the report contains only the verified prefix, or is empty if
+// those totals cannot fit int64. Verification never changes stored receipts.
 func (l Ledger) Verify(ctx context.Context, exportedAt time.Time, input []LegacyAccount) (ImportReport, error) {
 	accounts, err := normalize(exportedAt, input)
 	if err != nil {
@@ -336,16 +386,17 @@ func (l Ledger) Verify(ctx context.Context, exportedAt time.Time, input []Legacy
 	if receipts != len(accounts) {
 		return ImportReport{}, fmt.Errorf("verify: %d receipts stored, %d accounts in the archive: %w", receipts, len(accounts), ErrConflict)
 	}
-	report := dryRun(accounts)
-	for i, a := range accounts {
+	report := ImportReport{Items: make([]ImportItem, 0, len(accounts))}
+	for _, a := range accounts {
 		d, err := l.verifyOne(ctx, a)
 		if err != nil {
-			return report, fmt.Errorf("verify %s: %w", a.SourceID, err)
+			partial, tallyErr := report.tally()
+			return partial, errors.Join(fmt.Errorf("verify %s: %w", a.SourceID, err), tallyErr)
 		}
-		report.Items[i].Disposition = d
+		report.Items = append(report.Items, ImportItem{SourceID: a.SourceID, Checksum: a.checksum, Disposition: d,
+			BalanceNanos: a.BalanceNanos, SyntheticOpening: a.synthetic})
 	}
-	report.tally()
-	return report, nil
+	return report.tally()
 }
 
 func (l Ledger) verifyOne(ctx context.Context, a normalized) (Disposition, error) {
