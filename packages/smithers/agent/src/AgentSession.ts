@@ -52,10 +52,10 @@
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import { ControlFacts } from "@smthrs/control"
-import { LaunchFailed, PersistenceError } from "@smthrs/control/ControlError"
+import { EnvelopeMismatch, LaunchFailed, PersistenceError } from "@smthrs/control/ControlError"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import { ControlRuntime, type PendingResume } from "@smthrs/control/ControlRuntime"
-import type { Envelope, PlanCard, RunStatus } from "@smthrs/control/ControlSchema"
+import { Envelope, type PlanCard, type RunStatus } from "@smthrs/control/ControlSchema"
 import * as Digest from "@smthrs/core/Digest"
 import { ExecutionFacts } from "@smthrs/engine-store"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
@@ -1497,7 +1497,8 @@ export const approvedEnvelope = (
  * `envelope` is the one the attempt spends against, with approved raises
  * applied. A request already made against that ceiling is reused as it was
  * recorded, proposal included, so a re-driven run finds the operator's
- * decision on it rather than asking a new question.
+ * decision on it rather than asking a new question. A concurrent park that
+ * registered the same request first wins: this one parks on its proposal.
  *
  * @category budget
  * @since 1.0.0
@@ -1524,30 +1525,57 @@ export const budgetParking = (
           cause
         })
       ))
-      const budget = Budget.raise(envelope.budget, exceeded)
-      const unit = exceeded.scope === "tokens" ? "tokens" : "ms"
-      const raised = exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
-      const question = recorded?.question ??
-        `Raise the ${exceeded.scope} budget from ${exceeded.max} to ${raised} ${unit}?`
-      const target = recorded?.payload.target ?? {
-        _tag: "Node" as const,
-        runId,
-        requestId: identity.requestId,
-        digest: identity.digest,
-        envelope: { ...envelope, budget }
+      const question = (budget: Envelope["budget"]) => {
+        const unit = exceeded.scope === "tokens" ? "tokens" : "ms"
+        const raised = exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
+        return `Raise the ${exceeded.scope} budget from ${exceeded.max} to ${raised} ${unit}?`
       }
-      const token = yield* ControlFacts.commitApprovalRequest(journal, runtime, {
-        runId,
-        requestId: identity.requestId,
-        question,
-        payload: { target, scope: "run", idempotencyKey: `approve:${identity.requestId}` }
-      }, sourceId).pipe(Effect.mapError((cause) =>
-        new HarnessError.HarnessError({
-          code: "engine_failed",
-          message: "The budget approval request and token could not be committed",
-          cause
-        })
-      ))
+      const commit = (request: {
+        readonly question: string
+        readonly target: typeof ControlFacts.ApprovalRequestFact.Type["payload"]["target"]
+      }) =>
+        ControlFacts.commitApprovalRequest(journal, runtime, {
+          runId,
+          requestId: identity.requestId,
+          question: request.question,
+          payload: { target: request.target, scope: "run", idempotencyKey: `approve:${identity.requestId}` }
+        }, sourceId).pipe(Effect.map((token) => ({ token, question: request.question })))
+      const proposed = (budget: Envelope["budget"]) => ({
+        question: question(budget),
+        target: {
+          _tag: "Node" as const,
+          runId,
+          requestId: identity.requestId,
+          digest: identity.digest,
+          envelope: { ...envelope, budget }
+        }
+      })
+      const { question: asked, token } = yield* commit(
+        recorded === undefined
+          ? proposed(Budget.raise(envelope.budget, exceeded))
+          : { question: recorded.question, target: recorded.payload.target }
+      ).pipe(
+        // A concurrent park of this run registered the same identity between
+        // the scan and this commit, with the raise its own elapsed time
+        // proposed. The runtime holds one proposal per identity and reports
+        // it in the refusal, so park on that one.
+        Effect.catchIf(
+          (cause): cause is EnvelopeMismatch =>
+            recorded === undefined && cause instanceof EnvelopeMismatch && cause.planId === identity.requestId,
+          (cause) =>
+            Option.match(decodeRegisteredEnvelope(cause.expected), {
+              onNone: () => Effect.fail(cause),
+              onSome: (registered) => commit(proposed(registered.budget))
+            })
+        ),
+        Effect.mapError((cause) =>
+          new HarnessError.HarnessError({
+            code: "engine_failed",
+            message: "The budget approval request and token could not be committed",
+            cause
+          })
+        )
+      )
       // A decided request no longer parks: a denial is the refusal it
       // asked to lift, and an approval this attempt did not apply is too.
       if (token._tag !== "Pending") {
@@ -1559,7 +1587,7 @@ export const budgetParking = (
       }
       const failure = new HarnessError.HarnessError({
         code: "engine_failed",
-        message: `Budget approval required: ${question}`,
+        message: `Budget approval required: ${asked}`,
         cause: Schema.encodeUnknownSync(Permission.PermissionRequired)(
           new Permission.PermissionRequired({
             code: "permission_required",
@@ -1567,13 +1595,16 @@ export const budgetParking = (
             runId,
             capability: Capability.make("model:call", `budget/${exceeded.scope}`),
             tier: "irreversible",
-            meta: { question }
+            meta: { question: asked }
           })
         )
       })
       return { waiting: { reason: "budget", token: identity.requestId }, failure }
     })
 })
+
+/** The envelope a runtime's `EnvelopeMismatch` names as registered, if it decodes. */
+const decodeRegisteredEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(Envelope))
 
 /**
  * Parses a run envelope's formatted capabilities, dropping every entry the
