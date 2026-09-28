@@ -5,7 +5,6 @@ import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs
 import { Node } from "@smthrs/plan"
 import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
-import type * as Scope from "effect/Scope"
 import { effect, pollUntil } from "./Harness.ts"
 import { layerWired } from "./MemoryFlowRuntime.ts"
 
@@ -118,24 +117,31 @@ describe("Flow.make requires a body", () => {
   })
 })
 
-/**
- * `Flow.Execution<Tag>` is a phantom marker no service ever provides. Nothing
- * discharges it any more — the flow-level handler attachment that once did is
- * gone with the handler — and the authoring surface reaches a declared
- * action's implementation instead.
- *
- * DECIDED (2026-08-11): the definition-level combinator keeps
- * its own coverage through this cast rather than the assertions moving to the
- * module-level `Flow.withRollback`. A declared action's implementation is
- * exactly the position the marker stood for — inside a running execution, with
- * the flow scope in context — so dropping the marker states what is true
- * instead of silently retiring the combinator the definition still exposes.
- */
-const inExecution = <A, E>(
-  effect: Effect.Effect<A, E, FlowRuntime.FlowInstance | Scope.Scope | Flow.Execution<string>>
-): Effect.Effect<A, E, FlowRuntime.FlowInstance> => effect as Effect.Effect<A, E, FlowRuntime.FlowInstance>
-
 describe("Flow definition combinators", () => {
+  it("declaration rollback layer needs only FlowRuntime, like the module helper", () => {
+    const Step = Action.make("Definition/rollback-types/step", {
+      payload: {},
+      success: Schema.String,
+      error: Schema.String
+    })
+    const flow = Flow.make("Definition/rollback-types", {
+      payload: {},
+      success: Schema.String,
+      error: Schema.String,
+      body: (payload) => Step.call(payload)
+    })
+    const moduleLayer = Step.toLayer(() =>
+      Flow.withRollback(Effect.succeed("reserved"), () => Effect.void)
+    )
+    const definitionLayer = Step.toLayer(() =>
+      flow.withRollback(Effect.succeed("reserved"), () => Effect.void)
+    )
+    const moduleRequirements:
+      Layer.Layer<Action.Requirement<"Definition/rollback-types/step">, never, FlowRuntime.FlowRuntime> = moduleLayer
+    const definitionRequirements: typeof moduleRequirements = definitionLayer
+    expectTypeOf(definitionRequirements).toEqualTypeOf(moduleRequirements)
+  })
+
   effect("withRollback is reachable from the definition as well as the module", () => {
     const rolledBack: Array<string> = []
     const Step = Action.make("Definition/rollback/step", {
@@ -152,10 +158,10 @@ describe("Flow definition combinators", () => {
     const layer = layerWired(Layer.mergeAll(
       Step.toLayer(() =>
         Effect.gen(function*() {
-          yield* inExecution(flow.withRollback(
+          yield* flow.withRollback(
             Effect.succeed("resource"),
             (value: string) => Effect.sync(() => void rolledBack.push(`undo:${value}`))
-          ))
+          )
           return yield* Effect.fail("boom")
         })
       ),
@@ -181,10 +187,10 @@ describe("Flow definition combinators", () => {
     })
     const layer = layerWired(Layer.mergeAll(
       Step.toLayer(() =>
-        inExecution(flow.withRollback(
+        flow.withRollback(
           Effect.succeed("kept"),
           (value: string) => Effect.sync(() => void rolledBack.push(`undo:${value}`))
-        ))
+        )
       ),
       Interpreter.layer(flow)
     ))

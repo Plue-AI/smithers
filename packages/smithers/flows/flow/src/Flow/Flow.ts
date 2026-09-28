@@ -348,7 +348,7 @@ export interface Flow<
     ) => Effect.Effect<
       A,
       E,
-      R | R2 | FlowInstance | Execution<Tag> | Scope.Scope
+      R | R2 | FlowInstance | Scope.Scope
     >
     <A, E, R, R2>(
       effect: Effect.Effect<A, E, R>,
@@ -359,7 +359,7 @@ export interface Flow<
     ): Effect.Effect<
       A,
       E,
-      R | R2 | FlowInstance | Execution<Tag> | Scope.Scope
+      R | R2 | FlowInstance | Scope.Scope
     >
   }
 }
