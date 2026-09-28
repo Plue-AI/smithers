@@ -108,9 +108,9 @@ export interface Encoded {
       }
       /**
        * Set when the caller already dispatched this round and is following
-       * it after a suspension. A run parked on an event schedules its own
-       * re-drive when the event arrives, so a durable implementation joins it
-       * instead of driving it again. Absent, `execute` drives as before.
+       * it after a suspension. Admission, a wake, or an elapsed poll's
+       * `resume` already scheduled the drive, so a durable implementation
+       * joins it instead of starting another. Absent, `execute` drives as before.
        */
       readonly follow?: boolean | undefined
     }

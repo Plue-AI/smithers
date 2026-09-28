@@ -13,7 +13,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter, RetryPolicy } from "@smthrs/flow"
 import { Journal, SqlJournal } from "@smthrs/journal"
 import * as Notifying from "@smthrs/journal/test/Notifying"
 import { Jj } from "@smthrs/kernel"
@@ -24,15 +24,19 @@ import * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
+import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as Migrations from "../src/Migrations.ts"
 import * as OwnerIdentity from "../src/OwnerIdentity.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
+import * as WakeBus from "../src/WakeBus.ts"
+import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { sha256, withCrypto } from "./Sha256.ts"
 
 const jj = Jj.make({
@@ -224,6 +228,138 @@ const durable = <A, E>(body: Effect.Effect<A, E, DurableServices | Crypto.Crypto
   withCrypto(body.pipe(Effect.scoped, Effect.provide(services)))
 
 const roundId = (lineageId: string, ordinal: number) => sha256(JSON.stringify(["flow-round/v2", lineageId, ordinal]))
+
+const Suspended = Flow.make("trampoline/suspended", {
+  payload: {},
+  success: Schema.String,
+  body: opaqueHandlerBody
+})
+
+const suspensionPolicy = RetryPolicy.make({
+  initialMs: 5_000,
+  factor: 1,
+  maxMs: 5_000,
+  maxAttempts: 2
+})
+
+const PollingGate = Flow.make("trampoline/polling-gate", {
+  payload: {},
+  success: Schema.String,
+  suspendedRetryPolicy: RetryPolicy.make({ initialMs: 5_000, factor: 1, maxMs: 5_000 }),
+  body: () => Flow.park({ reason: "approval", token: "polling-gate" })
+})
+
+const claimsFor = (runId: string) =>
+  Effect.gen(function*() {
+    const journal = yield* Journal.Journal
+    yield* journal.flush
+    const page = yield* journal.entries({ runId: runId as never, limit: 100 })
+    return page.entries.filter((entry) =>
+      entry.eventType === "flows.engine.run-decision" &&
+      (entry.payload as { readonly decision?: string }).decision === "claimed-and-activated"
+    ).length
+  })
+
+describe("a durable suspended caller", () => {
+  it.effect("survives three wake signals with maxAttempts 2 and completes when its wait is answered", () =>
+    Effect.gen(function*() {
+      const gate = DurableDeferred.make("trampoline-repeated-wakes", { success: Schema.String })
+      const baseBus = WakeBus.makeUnsafe()
+      let waitRegistrations = 0
+      const bus: WakeBus.Service = {
+        ...baseBus,
+        awaitWake: (executionId) =>
+          Effect.sync(() => {
+            waitRegistrations++
+          }).pipe(Effect.andThen(baseBus.awaitWake(executionId)))
+      }
+      const observed = yield* durable(
+        Effect.gen(function*() {
+          const engine = (yield* EngineStore.make({
+            owner: { hostId: "repeated-wake-host" },
+            journalSource: "trampoline-repeated-wakes",
+            isAlive: () => Effect.succeed(false)
+          })) as FlowRuntime.FlowRuntime["Service"]
+          yield* engine.register(Suspended, () => DurableDeferred.await(gate))
+          const caller = yield* engine.execute(Suspended, {
+            executionId: "repeated-wake-lineage",
+            payload: {},
+            discard: false,
+            suspendedRetryPolicy: suspensionPolicy
+          }).pipe(Effect.forkChild({ startImmediately: true }))
+
+          yield* TestDatabase.until(Effect.gen(function*() {
+            return waitRegistrations === 1 && (yield* bus.waiters("repeated-wake-lineage")) === 1
+          }))
+          for (const nextRegistration of [2, 3, 4]) {
+            yield* bus.wake("repeated-wake-lineage")
+            yield* TestDatabase.until(Effect.gen(function*() {
+              return caller.pollUnsafe() !== undefined ||
+                (waitRegistrations >= nextRegistration && (yield* bus.waiters("repeated-wake-lineage")) === 1)
+            }))
+            if (caller.pollUnsafe() !== undefined) break
+          }
+          const premature = caller.pollUnsafe() !== undefined
+          yield* engine.deferredDone(gate, {
+            flowName: Suspended._tag,
+            executionId: "repeated-wake-lineage",
+            deferredName: gate.name,
+            exit: Exit.succeed("answered")
+          })
+          const answer = yield* Effect.exit(Fiber.join(caller))
+          return { premature, waitRegistrations, answer }
+        }).pipe(
+          Effect.provideService(WakeBus.WakeBus, bus),
+          Effect.provide(TestClock.layer())
+        )
+      )
+
+      expect(observed.premature).toBe(false)
+      expect(observed.waitRegistrations).toBe(4)
+      expect(observed.answer).toEqual(Exit.succeed("answered"))
+    }))
+
+  it.effect("makes exactly one durable claim for one elapsed suspension poll", () =>
+    Effect.gen(function*() {
+      const bus = WakeBus.makeUnsafe()
+      const observed = yield* durable(
+        Effect.gen(function*() {
+          const engine = (yield* EngineStore.make({
+            owner: { hostId: "elapsed-poll-host" },
+            journalSource: "trampoline-elapsed-poll",
+            isAlive: () => Effect.succeed(false)
+          })) as FlowRuntime.FlowRuntime["Service"]
+          const registered = yield* Layer.build(
+            Interpreter.layer(PollingGate).pipe(
+              Layer.provideMerge(Action.layerImplementations),
+              Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
+            )
+          )
+          const caller = yield* PollingGate.execute({}, { executionId: "elapsed-poll-lineage" }).pipe(
+            Effect.provide(registered),
+            Effect.forkChild({ startImmediately: true })
+          )
+          yield* TestDatabase.until(Effect.map(bus.waiters("elapsed-poll-lineage"), (count) => count === 1))
+          const before = yield* claimsFor("elapsed-poll-lineage")
+
+          yield* TestClock.adjust("5 seconds")
+          yield* TestDatabase.until(Effect.gen(function*() {
+            return (yield* claimsFor("elapsed-poll-lineage")) > before &&
+              (yield* bus.waiters("elapsed-poll-lineage")) === 1
+          }))
+          const after = yield* claimsFor("elapsed-poll-lineage")
+          yield* Fiber.interrupt(caller)
+          return { before, after }
+        }).pipe(
+          Effect.provideService(WakeBus.WakeBus, bus),
+          Effect.provide(TestClock.layer())
+        )
+      )
+
+      expect(observed.before).toBe(1)
+      expect(observed.after - observed.before).toBe(1)
+    }))
+})
 
 describe("a durable lineage", () => {
   it.effect("counts to its target across rounds, chaining each one under the lineage", () =>

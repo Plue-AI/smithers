@@ -186,11 +186,8 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
     let current = runRound(lineage, Option.getOrUndefined(parentInstance), undefined, opts.discard === true)
 
     const follow = Effect.gen(function*() {
-      // The lineage this caller is following. Round 0 is the execution it
-      // asked for; every later round is a separate execution with its own
-      // journal, derived from the lineage and the ordinal so a restart lands
-      // on the same one (`docs/specs/Concepts/Trampoline Loops.md`).
-      let resumeAttempt = 0
+      // The retry policy is 1-based; only elapsed polls advance this counter.
+      let resumeAttempt = 1
       // The expiration origin for the resume loop is in-process by design:
       // the loop itself only lives as long as this caller, and a restart
       // re-enters `execute` with a fresh budget. What must not happen is the
@@ -254,9 +251,8 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
         if (!opts.discard && Option.isSome(parentInstance)) {
           return yield* Flow.suspend(parentInstance.value)
         }
-        // The resume delay is derived from the attempt count (data policy) so
-        // backoff survives a restart.
-        resumeAttempt = resumeAttempt + 1
+        // Only elapsed polls advance this caller's retry policy. A wake
+        // observes work already scheduled elsewhere and spends no attempt.
         const elapsedMs = (yield* Clock.currentTimeMillis) - resumeStartMs
         const delay = yield* RetryPolicy.nextDelayEffect(
           suspendedRetryPolicy,
@@ -290,7 +286,10 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
         // already scheduled the re-drive, and resuming is itself a wake: two
         // callers following one parked run would wake each other forever,
         // re-driving it back to back with no delay.
-        if (!woken) yield* options.resume(lineage.flow, lineage.executionId)
+        if (!woken) {
+          resumeAttempt = resumeAttempt + 1
+          yield* options.resume(lineage.flow, lineage.executionId)
+        }
         current = runRound(lineage, Option.getOrUndefined(parentInstance), undefined, true)
       }
     })

@@ -9,6 +9,7 @@ import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
  * without touching the poisoned evidence or re-running the action.
  */
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Action, Flow, FlowRuntime, RetryPolicy } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
 import * as Notifying from "@smthrs/journal/test/Notifying"
@@ -16,7 +17,6 @@ import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
 import { CacheStore } from "@smthrs/step-cache"
-import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -210,8 +210,6 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
       const parked = yield* run(
         Effect.gen(function*() {
           const store = yield* RunStore.RunStore
-          const following = yield* Deferred.make<void>()
-          const continueFollowing = yield* Deferred.make<void>()
           let claims = 0
           const engine = yield* makeEngine.pipe(Effect.provideService(
             RunStore.RunStore,
@@ -220,17 +218,6 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
               claim: (...args) =>
                 Effect.gen(function*() {
                   claims++
-                  if (claims === 2) {
-                    // Discard starts a background lineage follower. Hold its next
-                    // round before the real claim so this process observes its
-                    // first quarantine, not a row/marker split across two rounds.
-                    // Closing this process interrupts the barrier; process 3 below
-                    // performs the actual recovery with the unwrapped store.
-                    // This proves the first park, not persistence in a live
-                    // process: the follower can currently resume quarantine.
-                    yield* Deferred.succeed(following, undefined)
-                    yield* Deferred.await(continueFollowing)
-                  }
                   return yield* store.claim(...args)
                 })
             })
@@ -241,12 +228,16 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
             payload: {},
             discard: true
           })
-          yield* Deferred.await(following)
-          expect(claims).toBe(2)
-          const journal = yield* Journal.Journal
-          yield* journal.flush
-          const page = yield* journal.entries({ runId: "quarantine-run" as never, limit: 50 })
+          // The discard follower joins the first drive. Observe its durable
+          // quarantine park without waiting for another claim.
+          yield* TestDatabase.until(Effect.gen(function*() {
+            const row = yield* store.get("quarantine-run")
+            const waiting = yield* state.waiting("quarantine-run")
+            return row.status === "suspended" &&
+              Option.isSome(waiting) && waiting.value.reason === "quarantine"
+          }))
           return {
+            claims,
             row: yield* store.get("quarantine-run"),
             waiting: yield* state.waiting("quarantine-run"),
             sweep: yield* state.waitingRuns({ reason: "quarantine" }),
@@ -257,6 +248,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
 
       // Parked, not failed: the run is suspended under the typed quarantine
       // reason, keyed to the poisoned attempt for the operator.
+      expect(parked.claims).toBe(1)
       expect(parked.row.status).toBe("suspended")
       const waiting = Option.getOrThrow(parked.waiting)
       expect(waiting.reason).toBe("quarantine")

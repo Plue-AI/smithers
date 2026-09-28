@@ -39,6 +39,8 @@ const ownerA: Ownership.OwnerId = {
 
 const fakeEngine = {} as unknown as FlowRuntime.FlowRuntime["Service"]
 
+const stores = TestStores.layerAt(":memory:")
+
 const makeDriver = (owner: Ownership.OwnerId) =>
   RunDriver.make({
     owner,

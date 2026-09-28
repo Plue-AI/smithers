@@ -2453,15 +2453,6 @@ export const make = (
         )
       })
 
-    /** A suspended run parked on an event, with no cancellation to deliver. */
-    const isParkedOnEvent = (executionId: string): Effect.Effect<boolean> =>
-      Effect.gen(function*() {
-        const row = yield* store.get(executionId).pipe(Effect.orDie)
-        if (row.status !== "suspended" || row.cancelRequestedAtMs !== null) return false
-        const waiting = yield* engineState.waiting(executionId)
-        return Option.isSome(waiting) && waiting.value.reason === "event"
-      })
-
     const readResult = (flow: Flow.Any, executionId: string) =>
       Effect.annotateCurrentSpan({ executionId, flow: flow._tag }).pipe(
         Effect.andThen(store.get(executionId)),
@@ -2537,14 +2528,10 @@ export const make = (
         // protocol is needed here (issues #29/#40/#54/#55/#56) and the
         // mutual `coordinator.run` deadlock cannot form.
         yield* ensureRun(flow, options)
-        // A follower joins a run parked on an event instead of driving it.
-        // The event's arrival (a completed deferred, a settled child)
-        // schedules its own re-drive, and the follower's elapsed poll resumes
-        // the run before it re-enters here, so driving it again only claimed
-        // it and cleared its waiting row for a replay that parked on the same
-        // wait point. For that window the run's open wait was invisible: a
-        // signal addressed to it found no wait to complete.
-        yield* (options.follow === true && (yield* isParkedOnEvent(options.executionId))
+        // Admission, a wake, or the follower's elapsed poll already scheduled
+        // this drive. Join it regardless of the waiting reason: starting a
+        // fresh drain here would claim and replay a still-suspended run again.
+        yield* (options.follow === true
           ? coordinator.join(options.executionId)
           : coordinator.run(options.executionId))
         if (options.discard) return undefined as Discard extends true ? void : never
