@@ -1,9 +1,10 @@
 /** Executable boundary only: Node-compatible process APIs also run under Bun. */
 import { NodeServices } from "@effect/platform-node"
 import { Effect, Layer, Schema } from "effect"
-import { readFile } from "node:fs/promises"
-import { isAbsolute, relative, resolve, sep } from "node:path"
+import { readFile, realpath } from "node:fs/promises"
+import { resolve, sep } from "node:path"
 import { parseArgs } from "node:util"
+import { containedWikiOutput } from "../coding/wiki-output.ts"
 import { operations } from "./operations.ts"
 import { type Input, PageSpec } from "./schema.ts"
 
@@ -25,7 +26,8 @@ if (values.help) {
     "node --experimental-strip-types flows/wiki/main.ts [--verified] [--model provider:model] [--output path] [--database .flows/engine.db] [--run id] [--reuse-run terminal-run-id]\nDefault: a clearly unreviewed preview. --verified performs real AgentAction semantic review and fails if any section lacks support. Runtime host is selected from the actual Node/Bun executable."
   )
 } else {
-  const root = resolve(values.root ?? process.cwd()), output = resolve(root, values.output ?? ".flows/wiki")
+  const root = await realpath(resolve(values.root ?? process.cwd()))
+  const requestedOutput = resolve(root, values.output ?? ".flows/wiki")
   // The one page catalog: the `pages` of the repository's coding project,
   // the same declaration the Cloud refresh (coding/wiki) publishes.
   const project = JSON.parse(await readFile(resolve(root, ".smithers/coding-project.json"), "utf8")) as {
@@ -39,19 +41,29 @@ if (values.help) {
     console.log(
       JSON.stringify(
         await Effect.runPromise(
-          operations({ root, output }).check(pages, values.verified).pipe(Effect.provide(NodeServices.layer))
+          operations({ root, output: requestedOutput }).check(pages, values.verified).pipe(
+            Effect.provide(NodeServices.layer)
+          )
         ),
         null,
         2
       )
     )
   } else {
-    const destination = relative(root, output)
-    if (!destination || destination === ".." || destination.startsWith(`..${sep}`) || isAbsolute(destination)) {
-      throw new Error(
-        "Generation output must be a dedicated directory inside --root. Publish the resulting immutable snapshot separately; --check can inspect an exported snapshot."
-      )
+    // Lexical containment is not enough: a committed symlink at .flows or any
+    // other ancestor would route snapshots outside --root. Publication and the
+    // engine database are resolved through their real ancestors, and
+    // publication re-resolves after the (slow) review before writing.
+    const publicationRoot = containedWikiOutput(root, requestedOutput)
+    const requestedDatabase = resolve(root, values.database ?? ".flows/engine.db")
+    if (!requestedDatabase.startsWith(resolve(root, ".flows") + sep)) {
+      throw new Error("--database must be a file under --root/.flows")
     }
+    const [output, database] = await Effect.runPromise(
+      Effect.all([publicationRoot, containedWikiOutput(root, requestedDatabase)]).pipe(
+        Effect.provide(NodeServices.layer)
+      )
+    )
     const [{ Action, Interpreter }, { Capability }, { default: Wiki }, { actionLayers, agentLayers, hostEvaluator }] =
       await Promise.all([
         import("@smthrs/flow"),
@@ -76,9 +88,9 @@ if (values.help) {
     // actions independently recapture and the write gate rechecks it after review.
     const evaluator = values.verified ? hostEvaluator(process.env) : undefined
     const layers = Layer.mergeAll(
-      actionLayers({ root, output, verify: !!values.verified, evaluator }),
+      actionLayers({ root, output, publicationRoot, verify: !!values.verified, evaluator }),
       Interpreter.layer(Wiki),
-      ...(incremental ? [incremental.reuseLayers({ root, output })] : []),
+      ...(incremental ? [incremental.reuseLayers({ root, output, publicationRoot })] : []),
       ...(values.verified
         ? [agentLayers((await import("../release-support/runtime.ts")).liveSeats(values.model), 900_000, evaluator)]
         : [])
@@ -96,6 +108,8 @@ if (values.help) {
       })
     const rules = [
       ...[
+        // Exact entries (no glob) for root and the output parent admit only the
+        // realPath/stat of those directories, never the files beneath them.
         ...new Set([
           root,
           ...sourceFiles.map((file) => resolve(root, file)),
@@ -128,7 +142,7 @@ if (values.help) {
       return yield* Wiki.execute(input, { executionId: runId })
     })
     const result = await Effect.runPromise(Effect.scoped(execute.pipe(Effect.provide(runtime.layerHost({
-      filename: resolve(root, values.database ?? ".flows/engine.db"),
+      filename: database,
       workspaceRoot: root,
       owner: { hostId: `wiki-${process.pid}` },
       signals: [],

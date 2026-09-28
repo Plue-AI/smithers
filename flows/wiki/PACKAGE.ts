@@ -18,6 +18,7 @@ const data = [
     "flows/wiki/jev-citations.ts",
     "flows/repository/jev-checks.ts",
     "flows/coding/schema.ts",
+    "flows/coding/wiki-output.ts",
     "flows/release-support/runtime.ts"
   ])
 ].map((file) => S.file(`//${file}`))

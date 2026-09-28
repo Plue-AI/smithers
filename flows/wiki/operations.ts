@@ -15,6 +15,31 @@ export const digest = (text: string) =>
     const bytes = yield* crypto.digest("SHA-256", new TextEncoder().encode(text))
     return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("")
   })
+const privateSegment = /^(?:node_modules|Smithers-Ops)$/i
+const privateFile =
+  /^(?:id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|credentials\.json|service-account.*\.json|secrets?(?:\..*)?\.(?:json|ya?ml|toml)|.*\.(?:env|token|pem|key|p8|p12|pfx|jks|ppk|keystore|asc|gpg|tfvars|tfvars\.json|tfstate(?:\.backup)?|db|sqlite))$/i
+// Hidden names are private by default: `.git`, `.jj`, `.flows`, `.env*`,
+// `.alchemy`, `.wrangler`, `.claude` and every future tool's state dir.
+// Only these committed public names pass (compared case-sensitively).
+const publicHiddenDirectory = new Set([".github", ".agents", ".changeset"])
+const publicHiddenFile = new Set([".gitignore", ".gitattributes", ".editorconfig", ".node-version"])
+// `.smithers` holds committed declarations beside gitignored engine state
+// (runs, executions, cache, *.db), so only its declarations pass.
+const smithersDeclarationFile =
+  /^(?:WORKSPACE\.ts|FACTORY\.ts|factory\.json|home\.json|target-index\.json|environment\.nix|coding-project\.json|agents\.ts|sandbox\.ts|smithers\.config\.ts)$/
+const smithersDeclarationDirectory = new Set(["workflows", "prompts", "agents", "components"])
+const privateHidden = (parts: ReadonlyArray<string>) =>
+  parts.some((part, index) => {
+    if (!part.startsWith(".")) return false
+    const last = index === parts.length - 1
+    if (last) return !publicHiddenFile.has(part)
+    if (publicHiddenDirectory.has(part)) return false
+    if (part !== ".smithers") return true
+    const rest = parts.slice(index + 1)
+    return rest.length === 1
+      ? !smithersDeclarationFile.test(rest[0]!)
+      : !smithersDeclarationDirectory.has(rest[0]!)
+  })
 const safePath = (value: string) => {
   if (
     !/^[A-Za-z0-9_./@-]+$/.test(value) || value.startsWith("/") ||
@@ -22,10 +47,17 @@ const safePath = (value: string) => {
   ) {
     throw fail("invalid-input", `Expected a repository-relative source path: ${value}`)
   }
-  if (/^(?:\.git|\.jj|\.flows|node_modules|Smithers-Ops)(?:\/|$)/i.test(value) || /(?:^|\/)\.env(?:\.|$)/.test(value)) {
-    throw fail("invalid-input", `Private/runtime path is not a wiki input: ${value}`)
+  return refusePrivate(value, value)
+}
+// At any depth, and applied to the declared name and to the symlink-resolved
+// target. Hidden names use an allowlist, so `.ENV` or `.JJ` on a
+// case-insensitive disk is refused like any other hidden name.
+const refusePrivate = (relative: string, declared: string) => {
+  const parts = relative.split(/[\\/]/)
+  if (privateHidden(parts) || parts.some((part) => privateSegment.test(part)) || privateFile.test(parts.at(-1)!)) {
+    throw fail("invalid-input", `Private/runtime path is not a wiki input: ${declared}`)
   }
-  return value
+  return declared
 }
 
 /** Heading sections keep the review obligation small and explicit. */
@@ -66,6 +98,10 @@ export const operations = (
       if (!file.startsWith(root + path.sep)) {
         return yield* Effect.fail(fail("invalid-input", `Source escapes repository: ${relative}`))
       }
+      yield* Effect.try({
+        try: () => refusePrivate(path.relative(root, file), relative),
+        catch: (error) => error as WikiError
+      })
       const stat = yield* fs.stat(file)
       if (stat.type !== "File" || stat.size > BigInt(maxFileBytes)) {
         return yield* Effect.fail(fail("invalid-input", `Source is not a bounded text file: ${relative}`))
