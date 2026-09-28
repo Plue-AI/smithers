@@ -203,7 +203,7 @@ describe("ToolCallOutput parts", () => {
             parts={[
               { kind: "text", text: "Found it" },
               { kind: "json", value: { hits: 2 } },
-              { kind: "image", src: "https://x.test/a.png", alt: "chart of hits" },
+              { kind: "image", src: "/artifacts/a.png", alt: "chart of hits" },
               { kind: "code", code: "return 1;", language: "ts" },
               { kind: "error", message: "partial failure" },
             ]}
@@ -219,6 +219,28 @@ describe("ToolCallOutput parts", () => {
     expect(html).toContain("return 1;");
     expect(html).toContain("partial failure");
     expect(html).toContain('role="alert"');
+  });
+
+  test("an image part on another origin renders its alt text, never a fetch", () => {
+    const html = renderToStaticMarkup(
+      <ToolCall name="inspect" state="output-available" defaultOpen>
+        <ToolCallHeader />
+        <ToolCallContent>
+          <ToolCallOutput
+            parts={[
+              { kind: "image", src: "https://attacker.test/p.png?leak=1", alt: "remote" },
+              { kind: "image", src: "javascript:alert(1)", alt: "script" },
+              { kind: "image", src: "blob:https://app.test/5c1d", alt: "local blob" },
+            ]}
+          />
+        </ToolCallContent>
+      </ToolCall>,
+    );
+    expect(html).not.toContain("attacker.test");
+    expect(html).not.toContain("javascript:");
+    expect(html.match(/<img/g) ?? []).toHaveLength(1);
+    expect(html).toContain('src="blob:https://app.test/5c1d"');
+    expect(html).toContain(">remote</span>");
   });
 
   test("partial parts mark data-partial and suppress copy affordances", () => {

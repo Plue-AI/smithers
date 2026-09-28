@@ -110,7 +110,14 @@ function configColor(entry: ChartConfig[string] | undefined, theme: "light" | "d
 }
 
 const CSS_IDENTIFIER = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
-const UNSAFE_CSS_VALUE = /[;{}]|<\/style/i;
+/**
+ * The color syntaxes a series may name: hex, a named color, a `var(--token)`,
+ * or a color function over plain numbers and keywords. An allowlist, because a
+ * denylist of `;{}` still lets `url(...)` or `image-set(...)` through to make
+ * the viewer's browser fetch a remote resource.
+ */
+const SAFE_CSS_COLOR =
+  /^(?:#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|[a-z]+|var\(--[a-z0-9_-]+\)|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([0-9a-z.%\s,/+-]*\))$/i;
 
 /**
  * Emits the per-series `--color-<key>` custom properties for the ACTIVE
@@ -124,7 +131,7 @@ function ChartStyle({ id, config }: { id: string; config: ChartConfig; }) {
     const lines = Object.entries(config)
       .map(([key, entry]) => {
         const color = configColor(entry, theme);
-        return color && CSS_IDENTIFIER.test(key) && !UNSAFE_CSS_VALUE.test(color)
+        return color && CSS_IDENTIFIER.test(key) && SAFE_CSS_COLOR.test(color)
           ? `  --color-${key}: ${color};`
           : null;
       })

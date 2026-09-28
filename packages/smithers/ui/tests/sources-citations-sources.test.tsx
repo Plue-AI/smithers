@@ -86,7 +86,7 @@ describe("Sources compound anatomy", () => {
             href=" https://smithers.sh/docs "
             domain="smithers.sh"
             excerpt="How sources work"
-            faviconUrl="https://smithers.sh/favicon.ico"
+            faviconUrl="/favicons/smithers.sh.ico"
           />
         </SourcesContent>
       </Sources>,
@@ -99,6 +99,23 @@ describe("Sources compound anatomy", () => {
     expect(container!.querySelector(".sui-sources-title")?.textContent).toBe("Docs");
     expect(container!.querySelector(".sui-sources-domain")?.textContent).toBe("smithers.sh");
     expect(container!.querySelector(".sui-sources-excerpt")?.textContent).toBe("How sources work");
+  });
+
+  test("Source never loads a third-party favicon; it falls back to the initial tile", async () => {
+    await render(
+      <Sources defaultOpen>
+        <SourcesTrigger />
+        <SourcesContent>
+          <Source title="A" domain="attacker.test" faviconUrl="https://attacker.test/pixel.png?run=secret" />
+          <Source title="B" domain="bttacker.test" faviconUrl="//attacker.test/pixel.png" />
+          <Source title="C" domain="cttacker.test" faviconUrl={"/\t/attacker.test/pixel.png"} />
+          <Source title="D" domain="dttacker.test" faviconUrl="data:image/png;base64,iVBORw0KGgo=" />
+        </SourcesContent>
+      </Sources>,
+    );
+    expect(container!.innerHTML).not.toContain("attacker.test/pixel");
+    expect([...container!.querySelectorAll(".sui-sources-favicon-fallback")].map((node) => node.textContent)).toEqual(["A", "B", "C"]);
+    expect(container!.querySelector(".sui-sources-favicon")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw0KGgo=");
   });
 
   test("Source falls back to a domain-initial tile without a faviconUrl", async () => {

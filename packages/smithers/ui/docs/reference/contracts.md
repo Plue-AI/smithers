@@ -191,6 +191,59 @@ and a `[truncated]` marker row at the bound, both carrying
 `data-schema-truncated="true"`. Two properties that share one referenced object
 render twice; only an actual ancestor cycle is reported as circular.
 
+### Untrusted values
+
+- `src/adapters/chart.tsx` writes a chart config color into the generated
+  `<style>` block only when it is hex, a named color, `var(--token)`, or a color
+  function (`rgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`, `oklch`, `color`) over
+  plain numbers and keywords. Any other value, `url(...)` and `image-set(...)`
+  included, is dropped.
+- `src/internal/safeImageSrc.ts` gates the `ToolCall` image part and the
+  `Source` and `InlineCitation` favicons. It admits `data:image/...`, `blob:`,
+  and same-origin relative paths only, because an `<img>` fetches on render.
+  A refused favicon falls back to the initial tile; a refused tool image
+  renders its alt text. Proxy a remote image through your own origin.
+- `EnvironmentVariable` masks a value through `SecretField` when `secret` is
+  unset and either the name contains `KEY`, `TOKEN`, `SECRET`, `PASS`,
+  `CREDENTIAL`, `AUTH`, `PRIVATE`, `COOKIE`, `SESSION`, `DSN`, `URL`, `URI`,
+  `SALT`, `CERT`, `SIGN`, `HMAC`, or `BEARER`, or has `PW`, `PWD`, `SK`, `PAT`,
+  `OTP`, `TOTP`, or `PIN` as a whole `_`-separated word, or the trimmed value
+  is a URL carrying `user:password@`. The name match is a heuristic: a
+  harmless name containing one of these words (`AUTHOR`, `PUBLIC_URL`) is
+  masked too. Pass `secret={false}` to show such a value.
+- `assembleLine` in `src/flow-form.ts` (and `assembleArgs`, its line alone)
+  withholds a value when it contains one of the tokens the app's grammars
+  share, or when the positional read places it elsewhere. It does not know
+  each flow's own grammar.
+  - On the default positional path it ends the line before the first value
+    with a `--flag`, a `name=` binding (`sourceCard=`, `against=`, `by=`), or
+    a `from:<ref>` token, a `sourceCard` or list item that is not one token,
+    or any value `positionalRead` would place in another field: a multi-word
+    value short of the final slot, a value behind an unset slot, or an optional
+    value a required slot behind it would take. JSON gets no exemption: JSON
+    with whitespace short of the final slot is withheld unless the flow's
+    `partial` reads it back whole. True booleans are written as trailing
+    `--name` tokens.
+  - A flow's own `args` builder gets the same token refusal. A `--flag` or
+    `sourceCard=` token the builder writes inside the value's JSON string
+    literal is kept; a `name=` binding or `from:` token is withheld however it
+    is quoted. When the flow declares `partial`, every carried value must also
+    read back through it. Without `partial`, a builder that joins a multi-word
+    value short of its final slot is not detected.
+  - A value that ends in an `owner/repo` token is not withheld, because whether
+    a grammar reads the last token as a repository depends on the flow and on
+    which repositories the app knows.
+  - Every value left out is returned in `withheld`. A caller that runs the
+    line re-parsed as text must compare the grammar's read of that line with
+    the named payload, and refuse when a field differs or appears; the app's
+    confirmation button and deferred commands do (`carriesPayload`), and the
+    search palette drops such an action. A caller that shows the line beside
+    the named payload it submits uses `displayLine`, which names the withheld
+    fields after the line.
+- `Attachment` thumbnails and `MessageAvatar` images are not gated by
+  `safeImageSrc`: the host supplies them. Do not pass model or tool output to
+  them.
+
 ### Other bounded helpers
 
 - `src/artifacts/SecretField.tsx` clamps `maskLength` to

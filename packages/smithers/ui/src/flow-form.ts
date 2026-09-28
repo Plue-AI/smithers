@@ -447,11 +447,83 @@ const blank = (value: FieldValue | undefined): boolean =>
 export const missingFields = (fields: ReadonlyArray<FormField>, draft: FormDraft): Array<string> =>
   fields.filter((field) => field.required && field.kind !== "boolean" && blank(draft[field.name])).map((field) => field.name)
 
+/** The slash line a filled form assembles to, and the values it could not carry. */
+export interface AssembledLine {
+  /** The line the flow's grammar parses. */
+  readonly args: string
+  /**
+   * The fields whose values the line left out because the grammar would not
+   * read them back as themselves. A caller that runs the line re-parsed as
+   * text loses these; a caller that shows the line beside a named payload
+   * must name them (`displayLine`).
+   */
+  readonly withheld: ReadonlyArray<string>
+}
+
 /**
  * The filled form as the one slash line the flow's grammar parses. The
- * default is positional in schema order — blanks skipped, a true boolean as
- * `--name`, an array space-joined — which is the shape most grammars in
- * SlashPayload.ts take; a flow whose grammar differs supplies `args`.
+ * default is positional in schema order — blanks skipped, an array
+ * space-joined, every true boolean as a trailing `--name` — which is the shape
+ * most grammars in SlashPayload.ts take; a flow whose grammar differs supplies
+ * `args`.
+ *
+ * The grammars split on whitespace and have no quoting, so the line carries a
+ * value only when it reads back as itself. On the default path a value
+ * carrying a `--flag` or `sourceCard=` token, a `sourceCard` or list item that
+ * is not one token, and any value the positional read (`positionalRead`, with
+ * the flow's `partial`) would place in another field ends the line before it:
+ * a multi-word value short of the final slot (JSON included, unless the flow's
+ * `partial` reads it balanced), a value behind an unset slot, or a value an
+ * optional slot would pass to a required one. Everything from the first such
+ * value on is `withheld`.
+ *
+ * A flow's own `args` builder gets the same refusal: a value whose `--flag` or
+ * `sourceCard=` token, or whose whitespace in a `sourceCard`, the builder
+ * writes unquoted (not as its JSON string literal) is withheld; a value with a
+ * `name=` binding or a `from:<ref>` token is withheld however it is quoted;
+ * and when the flow declares `partial` every carried value must read back
+ * through it.
+ *
+ * These checks know the grammars' shared tokens, not every flow's grammar: a
+ * value ending in an `owner/repo` token can still be read as a trailing
+ * repository by that flow's grammar. A caller that re-runs the line as text
+ * must compare the grammar's read of it with the named payload (apps/app
+ * Commands.ts `carriesPayload`).
+ *
+ * @category derivation
+ */
+export const assembleLine = (
+  fields: ReadonlyArray<FormField>,
+  hints: FormHints | undefined,
+  payload: Readonly<Record<string, unknown>>
+): AssembledLine => {
+  payload = publicFormPayload(fields, payload)
+  if (hints?.args !== undefined) return builtLine(fields, hints, hints.args, payload)
+  const groups = [...fields.filter((field) => field.name === "sourceCard"), ...fields.filter((field) => field.name !== "sourceCard")]
+    .flatMap((field): Array<LineGroup> => {
+      const value = payload[field.name]
+      if (value === undefined || value === null) return []
+      if (field.kind === "boolean") return value === true || value === "true" ? [{ field, kind: "flag", text: `--${field.name}` }] : []
+      if (Array.isArray(value)) {
+        const items = value.map(String).filter((item) => item.trim() !== "").map((item) => item.trim())
+        return items.length === 0 ? [] : [{ field, kind: "items", text: items.join(" "), items }]
+      }
+      const text = String(value).trim()
+      if (text === "") return []
+      return [{ field, kind: field.name === "sourceCard" ? "source" : "text", text }]
+    })
+  // A flag goes last: the grammars read one anywhere, and the positional read stops at the first.
+  const flags = groups.filter((group) => group.kind === "flag").map(lineText)
+  const values = groups.filter((group) => group.kind !== "flag")
+  let length = values.findIndex((group) => !isOneValue(group))
+  if (length === -1) length = values.length
+  while (length > 0 && !readsBackAsWritten(fields, hints, values.slice(0, length), flags)) length -= 1
+  const withheld = [...new Set(values.slice(length).map((group) => group.field.name))]
+  return { args: [...values.slice(0, length).map(lineText), ...flags].join(" "), withheld }
+}
+
+/**
+ * `assembleLine`'s line alone.
  *
  * @category derivation
  */
@@ -459,19 +531,133 @@ export const assembleArgs = (
   fields: ReadonlyArray<FormField>,
   hints: FormHints | undefined,
   payload: Readonly<Record<string, unknown>>
-): string => {
-  payload = publicFormPayload(fields, payload)
-  if (hints?.args !== undefined) return hints.args(payload).trim()
-  return [...fields.filter((field) => field.name === "sourceCard"), ...fields.filter((field) => field.name !== "sourceCard")]
-    .flatMap((field) => {
-      const value = payload[field.name]
-      if (value === undefined || value === null) return []
-      if (field.kind === "boolean") return value === true || value === "true" ? [`--${field.name}`] : []
-      if (Array.isArray(value)) return value.map(String).filter((item) => item.trim() !== "")
-      const text = String(value).trim()
-      return text === "" ? [] : [field.name === "sourceCard" ? `sourceCard=${text}` : text]
-    })
-    .join(" ")
+): string => assembleLine(fields, hints, payload).args
+
+/**
+ * The line as display copy beside a named payload: the withheld fields named
+ * after it, so the echo never hides a value the run carried.
+ *
+ * @category derivation
+ */
+export const displayLine = (line: AssembledLine): string =>
+  line.withheld.length === 0 ? line.args : `${line.args} (+${line.withheld.join(", ")})`.trim()
+
+type LineGroup = {
+  readonly field: FormField
+  readonly kind: "flag" | "source" | "items" | "text"
+  readonly text: string
+  readonly items?: ReadonlyArray<string>
+}
+
+const lineText = (group: LineGroup): string => group.kind === "source" ? `sourceCard=${group.text}` : group.text
+
+/**
+ * A token the app's grammars read as something other than text: a `--flag`,
+ * a `sourceCard=` or other `name=` binding (`against=`, `by=`, `lineage=`),
+ * or the `from:<ref>` a change or pull request reads anywhere in its line.
+ */
+const smuggles = (token: string): boolean =>
+  token.startsWith("--") || /^[A-Za-z]+=/.test(token) || /^from:/i.test(token)
+
+/** The flag or `sourceCard=` tokens a JSON string literal keeps inside one value (fileArgs, JSON payloads). */
+const quotable = (token: string): boolean => token.startsWith("--") || /^sourceCard=/i.test(token)
+
+/** Whether a group is one value no token of which the grammar reads as a flag, a binding, or a second item. */
+const isOneValue = (group: LineGroup): boolean => {
+  if (group.kind === "flag") return true
+  if (group.kind === "source") return !/\s/.test(group.text) && !group.text.startsWith("--")
+  if (group.kind === "items") return group.items!.every((item) => !/\s/.test(item) && !smuggles(item))
+  return !group.text.split(/\s+/).some(smuggles)
+}
+
+const collapse = (value: unknown): string => String(value).trim().split(/\s+/).join(" ")
+
+const parsedJson = (value: unknown): unknown => {
+  if (typeof value !== "string") return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return undefined
+  }
+}
+
+/** Whether the grammar's read of a field is the value written: whitespace-collapsed text, a number, or equal JSON. */
+const readsAs = (got: unknown, want: unknown): boolean => {
+  if (got === undefined || got === null) return false
+  const asText = (value: unknown) => Array.isArray(value) ? collapse(value.map(String).join(" ")) : typeof value === "object" ? JSON.stringify(value) : collapse(value)
+  if (asText(got) === asText(want)) return true
+  if (typeof want === "number" || typeof got === "number") return Number(got) === Number(want) && String(want).trim() !== ""
+  const left = parsedJson(got)
+  const right = parsedJson(want)
+  return left !== undefined && typeof left === "object" && JSON.stringify(left) === JSON.stringify(right)
+}
+
+/**
+ * Whether the positional read of this exact line places every value in its own
+ * field and no value in any other.
+ */
+const readsBackAsWritten = (
+  fields: ReadonlyArray<FormField>,
+  hints: FormHints | undefined,
+  groups: ReadonlyArray<LineGroup>,
+  flags: ReadonlyArray<string>
+): boolean => {
+  const expected = new Map<string, string>()
+  for (const group of groups) expected.set(group.field.name, group.field.kind === "number" ? String(Number(group.text)) : group.text)
+  const read = positionalRead(fields, hints, [...groups.map(lineText), ...flags].join(" ")).payload
+  const booleans = new Set(fields.filter((field) => field.kind === "boolean").map((field) => field.name))
+  const readNames = Object.keys(read).filter((name) => read[name] !== undefined && !booleans.has(name))
+  if (readNames.some((name) => !expected.has(name))) return false
+  for (const [name, value] of expected) if (!readsAs(read[name], value)) return false
+  return true
+}
+
+const present = (value: unknown): boolean =>
+  value !== undefined && value !== null && !(typeof value === "string" && value.trim() === "") && !(Array.isArray(value) && value.length === 0)
+
+const valueText = (value: unknown): string =>
+  Array.isArray(value) ? value.map(String).join(" ") : typeof value === "object" ? JSON.stringify(value) : String(value).trim()
+
+/**
+ * Whether a flow's builder wrote this value where its grammar cannot read a
+ * flag or a binding out of it: no such token, or the value written as its
+ * JSON string literal (quoted, as `fileArgs` and JSON payloads write it).
+ */
+const placedSafely = (field: FormField, value: unknown, args: string): boolean => {
+  const text = valueText(value)
+  const tokens = text.split(/\s+/)
+  // A binding reads out of a quoted value too: the grammars split on whitespace.
+  if (tokens.some((token) => smuggles(token) && !quotable(token))) return false
+  const unsafe = tokens.some(quotable) || (field.name === "sourceCard" && /\s/.test(text))
+  return !unsafe || args.includes(JSON.stringify(text))
+}
+
+/** A flow `args` builder's line, withholding every value it would write where the grammar misreads it. */
+const builtLine = (
+  fields: ReadonlyArray<FormField>,
+  hints: FormHints,
+  build: (payload: Readonly<Record<string, unknown>>) => string,
+  payload: Readonly<Record<string, unknown>>
+): AssembledLine => {
+  const carried: Record<string, unknown> = { ...payload }
+  const withheld: Array<string> = []
+  const checked = fields.filter((field) => field.kind !== "boolean")
+  for (;;) {
+    const args = build(carried).trim()
+    const live = checked.filter((field) => present(carried[field.name]))
+    let refused = live.filter((field) => !placedSafely(field, carried[field.name], args))
+    if (refused.length === 0 && hints.partial !== undefined) {
+      const read = hints.partial(args)
+      refused = live.filter((field) => !readsAs(read[field.name], carried[field.name]))
+      const spilled = checked.some((field) => !live.includes(field) && present(read[field.name]))
+      if (refused.length === 0 && spilled && live.length > 0) refused = [live[live.length - 1]!]
+    }
+    if (refused.length === 0) return { args, withheld }
+    for (const field of refused) {
+      delete carried[field.name]
+      withheld.push(field.name)
+    }
+  }
 }
 
 /** Write-only properties are never an input to a durable command or form. */

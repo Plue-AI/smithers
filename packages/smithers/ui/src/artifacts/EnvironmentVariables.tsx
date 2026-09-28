@@ -7,8 +7,20 @@ import { SecretField } from "./SecretField";
 export type EnvironmentVariableModel = {
   name: string;
   value?: string;
+  /** Masks the value. Unset, a credential-shaped name masks it; pass `false` to show it. */
   secret?: boolean;
 };
+
+/**
+ * Names that usually hold a credential: masked unless the caller passes `secret={false}`.
+ * `URL`/`URI`/`DSN` cover connection strings (`DATABASE_URL`), `PASS` covers `PASSWORD`,
+ * `PASSWD`, and `PASSPHRASE`. Short abbreviations (`PW`, `PWD`, `SK`, `PAT`, `OTP`, `TOTP`, `PIN`)
+ * count only as a whole `_`-separated word, so `MYSQL_PWD` and `GH_PAT` mask while `PATH` shows.
+ * The match is a heuristic: a harmless name that contains one of these words (`AUTHOR`) is masked too.
+ */
+const CREDENTIAL_NAME = /KEY|TOKEN|SECRET|PASS|CREDENTIAL|AUTH|PRIVATE|COOKIE|SESSION|DSN|URL|URI|SALT|CERT|SIGN|HMAC|BEARER|(?:^|_)(?:PWD?|SK|PAT|T?OTP|PIN)(?:_|$)/i;
+/** A URL carrying `user:password@` credentials, whatever its variable is called. */
+const CREDENTIAL_URL = /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:[^/@\s]*@/i;
 
 export type EnvironmentVariablesProps = Omit<ComponentProps<"div">, "children"> & (
   | { variables: readonly EnvironmentVariableModel[]; children?: never }
@@ -39,11 +51,13 @@ export function EnvironmentVariables(props: EnvironmentVariablesProps) {
 export type EnvironmentVariableProps = Omit<ComponentProps<"div">, "children"> & {
   name: string;
   value?: string;
+  /** Masks the value. Unset, a credential-shaped name masks it; pass `false` to show it. */
   secret?: boolean;
 };
 
-export function EnvironmentVariable({ name, value, secret = false, className, ...props }: EnvironmentVariableProps) {
+export function EnvironmentVariable({ name, value, secret: declared, className, ...props }: EnvironmentVariableProps) {
   useInjectUiCss();
+  const secret = declared ?? (CREDENTIAL_NAME.test(name) || (value !== undefined && CREDENTIAL_URL.test(value.trim())));
   return (
     <div data-slot="environment-variable" data-secret={secret ? "true" : "false"} className={cn("sui-envvar", className)} {...props}>
       <span className="sui-envvar-name">{name}</span>

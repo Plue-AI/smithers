@@ -13,6 +13,7 @@ import { cn } from "../cn";
 import { useInjectUiCss } from "../styles";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../tooltip";
 import { safeHref } from "../internal/safeHref";
+import { safeImageSrc } from "../internal/safeImageSrc";
 
 export type CitationSource = {
   id: string;
@@ -161,8 +162,9 @@ export function InlineCitation({
 }
 
 function CitationFavicon({ source }: { source: CitationSource }) {
-  if (source.faviconUrl !== undefined) {
-    return <img className="sui-citation-favicon" src={source.faviconUrl} alt="" width={16} height={16} />;
+  const faviconSrc = source.faviconUrl === undefined ? undefined : safeImageSrc(source.faviconUrl);
+  if (faviconSrc !== undefined) {
+    return <img className="sui-citation-favicon" src={faviconSrc} alt="" width={16} height={16} />;
   }
   const initial =
     (source.domain ?? "").trim().charAt(0).toUpperCase() || source.title.trim().charAt(0).toUpperCase() || "?";

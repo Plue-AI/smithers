@@ -154,7 +154,8 @@ const securityReview = Smithers.SecurityReview({
       title: "Model- or tool-supplied image URLs never load arbitrary remote origins",
       threat: "A prompt-injected model or tool result sets an image or favicon URL that makes the viewer's browser send run data or their IP to an attacker host on render, with no click.",
       lookFor: [
-        "An <img src> fed from ToolCall part.src, Sources or InlineCitation faviconUrl, Attachment thumbnailUrl, or Message avatar src without a scheme or origin allowlist.",
+        "An <img src> fed from ToolCall part.src, Sources or InlineCitation faviconUrl without passing src/internal/safeImageSrc.ts.",
+        "Attachment thumbnailUrl/AttachmentPreview src (src/chat/Attachment.tsx) and MessageAvatar src (src/chat/Message.tsx) are still unguarded <img> sinks: accepted because the host supplies them (uploads, avatars), but a caller wiring model or tool output into them reopens the fetch-on-render leak.",
         "A markdown image node rendered as <img> with the document-supplied URL.",
         "An img src accepting javascript:, file:, or a remote http(s) URL where only data:, blob:, or same-origin should reach it."
       ],
@@ -172,8 +173,8 @@ const securityReview = Smithers.SecurityReview({
       title: "Chart config keys and colors cannot break out of the generated <style> block",
       threat: "A caller-supplied chart config breaks out of the injected stylesheet to restyle or overlay app UI, or loads a remote url() that tracks the viewer.",
       lookFor: [
-        "ChartStyle emitting a key or id that fails CSS_IDENTIFIER, or a color that contains ;, {, }, or </style.",
-        "A color value such as url(https://...) or image-set(...) accepted by UNSAFE_CSS_VALUE and reaching fill/stroke.",
+        "ChartStyle emitting a key or id that fails CSS_IDENTIFIER, or a color that SAFE_CSS_COLOR does not admit.",
+        "SAFE_CSS_COLOR widening so a value such as url(https://...) or image-set(...) reaches fill/stroke.",
         "Any other style injection (styles.tsx, terminal.tsx, MarkdownEditor.tsx) built from props rather than static CSS."
       ],
       paths: ["src/adapters/chart.tsx", "src/styles.tsx", "src/adapters/terminal.tsx", "src/adapters/markdown-editor/MarkdownEditor.tsx"]
@@ -184,7 +185,7 @@ const securityReview = Smithers.SecurityReview({
       threat: "A shoulder-surfer, screen recorder, or DOM-reading extension reads a user's API key or environment secret shown while masked.",
       lookFor: [
         "SecretField rendering value, a length-derived mask, or the value inside an aria-label/title/data attribute while revealed is false.",
-        "EnvironmentVariable rendering a credential-shaped value as plain text because secret defaults to false.",
+        "EnvironmentVariable rendering a credential-shaped value as plain text: a name CREDENTIAL_NAME misses (including the whole-word PW/PWD/SK/PAT/OTP/TOTP/PIN abbreviations) or a user:password@ URL value, leading whitespace included, CREDENTIAL_URL misses.",
         "A write-only flow-form field that reaches assembleArgs, a draft, or a console call instead of being dropped by publicFormPayload."
       ],
       paths: ["src/artifacts/SecretField.tsx", "src/artifacts/EnvironmentVariables.tsx", "src/flow-form.ts", "src/internal/useCopyFeedback.ts"]
@@ -195,6 +196,9 @@ const securityReview = Smithers.SecurityReview({
       threat: "Prefilled or model-suggested form text runs a different flow, adds a --flag, or rebinds sourceCard so a run acts on another card than the user chose.",
       lookFor: [
         "assembleArgs joining a text value containing spaces, --name, or sourceCard= unquoted so the flow grammar reads it as a separate token.",
+        "assembleLine writing a value positionalRead would place in another field (a multi-word value short of the final slot, JSON with whitespace, a value behind an unset slot, an optional value a required slot would take) instead of withholding it.",
+        "assembleLine returning a flow args builder's line without withholding a value it writes unquoted with a --flag or sourceCard= token, or one the flow's partial does not read back.",
+        "A caller that re-parses an assembled line as text (search actions) offering it with a non-empty withheld, or a display echo dropping withheld fields instead of using displayLine.",
         "splitRunSource or runSearchPayload trusting a sourceCard or run id taken from user-typed args instead of the recorded card.",
         "parseCommand or COMMAND_NAME widening so punctuation or a typo after / executes a side-effecting flow instead of becoming a prompt."
       ],

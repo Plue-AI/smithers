@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "../cn";
+import { safeImageSrc } from "../internal/safeImageSrc";
 import { CodeBlock } from "../primitives/CodeBlock";
 import { StatusPill } from "../status-pill";
 import { useInjectUiCss } from "../styles";
@@ -314,16 +315,20 @@ function ToolResultPartView({ part, name }: { part: ToolResultPart; name: string
         </pre>
       );
     }
-    case "image":
-      return (
+    case "image": {
+      const src = safeImageSrc(part.src);
+      return src === undefined ? (
+        <span className="sui-toolcall-part-image" data-blocked="true">{part.alt}</span>
+      ) : (
         <img
           className="sui-toolcall-part-image"
-          src={part.src}
+          src={src}
           alt={part.alt}
           width={part.width}
           height={part.height}
         />
       );
+    }
     case "code":
       return (
         <div className="sui-toolcall-part" data-partial={part.partial ? "true" : "false"}>

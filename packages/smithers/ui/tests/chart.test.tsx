@@ -89,6 +89,36 @@ describe("<ChartContainer>", () => {
     expect(html).not.toContain("bad};body");
   });
 
+  test("admits only color syntax, never a remote fetch", () => {
+    const config: Parameters<typeof ChartContainer>[0]["config"] = {
+      hex: { color: "#2a78d6" },
+      named: { color: "rebeccapurple" },
+      token: { color: "var(--chart-1)" },
+      oklch: { color: "oklch(0.7 0.1 250 / 50%)" },
+      remote: { color: "url(https://attacker.example/x)" },
+      imageSet: { color: 'image-set("https://attacker.example/x" 1x)' },
+      nested: { color: "rgb(var(--x, url(https://attacker.example/x)))" },
+      escaped: { color: "u\\72l(https://attacker.example/x)" },
+    };
+    const html = renderToStaticMarkup(
+      <ChartContainer id="fetch" config={config}>
+        <BarChart width={400} height={200} data={[]}>
+          <Bar dataKey="hex" fill="var(--color-hex)" />
+        </BarChart>
+      </ChartContainer>,
+    );
+
+    expect(html).toContain("--color-hex: #2a78d6;");
+    expect(html).toContain("--color-named: rebeccapurple;");
+    expect(html).toContain("--color-token: var(--chart-1);");
+    expect(html).toContain("--color-oklch: oklch(0.7 0.1 250 / 50%);");
+    expect(html).not.toContain("attacker.example");
+    expect(html).not.toContain("--color-remote");
+    expect(html).not.toContain("--color-imageSet");
+    expect(html).not.toContain("--color-nested");
+    expect(html).not.toContain("--color-escaped");
+  });
+
   test("does not interpolate an unsafe chart id into the style block", () => {
     const unsafeId = 'release</style><script data-xss="">owned</script><style>';
     const html = renderToStaticMarkup(

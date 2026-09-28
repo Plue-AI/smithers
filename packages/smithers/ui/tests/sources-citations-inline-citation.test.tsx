@@ -168,6 +168,18 @@ describe("CitationCard", () => {
     expect(quote?.tagName).toBe("BLOCKQUOTE");
     expect(quote?.textContent).toContain("quoted words");
   });
+
+  test("never loads a third-party favicon; same-origin favicons still render", async () => {
+    await render(
+      <>
+        <CitationCard source={{ id: "r", title: "Remote", domain: "attacker.test", faviconUrl: "https://attacker.test/p.png?run=1" }} />
+        <CitationCard source={{ id: "l", title: "Local", domain: "smithers.sh", faviconUrl: "/favicons/smithers.sh.ico" }} />
+      </>,
+    );
+    expect(container!.innerHTML).not.toContain("attacker.test/p.png");
+    expect(container!.querySelector(".sui-citation-favicon-fallback")?.textContent).toBe("A");
+    expect([...container!.querySelectorAll(".sui-citation-favicon")].map((node) => node.getAttribute("src"))).toEqual(["/favicons/smithers.sh.ico"]);
+  });
 });
 
 describe("CitationCarousel", () => {

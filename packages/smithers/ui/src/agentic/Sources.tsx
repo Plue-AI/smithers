@@ -11,6 +11,7 @@ import {
 import { cn } from "../cn";
 import { useInjectUiCss } from "../styles";
 import { safeHref } from "../internal/safeHref";
+import { safeImageSrc } from "../internal/safeImageSrc";
 
 export type SourceItem = { id: string; label: string; href?: string };
 
@@ -209,9 +210,10 @@ export function Source({
     (typeof title === "string" ? title.trim().charAt(0).toUpperCase() : "") ||
     "?";
 
+  const faviconSrc = faviconUrl === undefined ? undefined : safeImageSrc(faviconUrl);
   const favicon =
-    faviconUrl !== undefined ? (
-      <img className="sui-sources-favicon" src={faviconUrl} alt="" width={16} height={16} />
+    faviconSrc !== undefined ? (
+      <img className="sui-sources-favicon" src={faviconSrc} alt="" width={16} height={16} />
     ) : (
       <span className="sui-sources-favicon-fallback" aria-hidden="true">
         {initial}

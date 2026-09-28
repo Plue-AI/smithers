@@ -122,6 +122,51 @@ describe("EnvironmentVariables", () => {
     expect(rows[2]!.textContent).toContain("—");
   });
 
+  test("a credential-shaped name masks its value unless the caller opts out", async () => {
+    await render(
+      <EnvironmentVariables
+        variables={[
+          { name: "OPENAI_API_KEY", value: "sk-leak-1" },
+          { name: "GITHUB_TOKEN", value: "ghp-leak-2" },
+          { name: "DB_PASSWORD", value: "pw-leak-3" },
+          { name: "PUBLIC_KEY_ID", value: "shown-4", secret: false },
+          { name: "NODE_ENV", value: "production" },
+          { name: "DATABASE_URL", value: "postgres://app:pw-leak-5@db/app" },
+          { name: "REDIS_URI", value: "redis-leak-6" },
+          { name: "GPG_PASSPHRASE", value: "phrase-leak-7" },
+          { name: "HASH_SALT", value: "salt-leak-8" },
+          { name: "TLS_CERT", value: "cert-leak-9" },
+          { name: "SIGNING_KEY_PEM", value: "sign-leak-10" },
+          { name: "UPSTREAM", value: "https://u:pw-leak-11@proxy.example" },
+          { name: "MYSQL_PWD", value: "leak-12" },
+          { name: "ADMIN_PW", value: "leak-13" },
+          { name: "STRIPE_SK", value: "leak-14" },
+          { name: "GH_PAT", value: "leak-15" },
+          { name: "TOTP_SEED", value: "leak-16" },
+          { name: "OTP", value: "leak-17" },
+          { name: "WEBHOOK_HMAC", value: "leak-18" },
+          { name: "BEARER", value: "leak-19" },
+          { name: "API_PIN", value: "leak-20" },
+          { name: "MIRROR", value: "  postgres://a:leak-21@db" },
+          { name: "PATH", value: "/usr/bin" },
+          { name: "FOOTPRINT", value: "small" },
+        ]}
+      />,
+    );
+    const html = container!.innerHTML;
+    for (const leak of ["sk-leak-1", "ghp-leak-2", "pw-leak-3", "pw-leak-5", "redis-leak-6", "phrase-leak-7", "salt-leak-8", "cert-leak-9", "sign-leak-10", "pw-leak-11",
+      "leak-12", "leak-13", "leak-14", "leak-15", "leak-16", "leak-17", "leak-18", "leak-19", "leak-20", "leak-21"]) {
+      expect(html).not.toContain(leak);
+    }
+    expect(html).toContain("shown-4");
+    expect(html).toContain("production");
+    expect(html).toContain("/usr/bin");
+    expect(html).toContain("small");
+    const secrets = [...container!.querySelectorAll('[data-slot="environment-variable"]')].map((row) => row.getAttribute("data-secret"));
+    expect(secrets).toEqual(["true", "true", "true", "false", "false", "true", "true", "true", "true", "true", "true", "true",
+      "true", "true", "true", "true", "true", "true", "true", "true", "true", "true", "false", "false"]);
+  });
+
   test("compound mode renders EnvironmentVariable children", async () => {
     await render(
       <EnvironmentVariables>
