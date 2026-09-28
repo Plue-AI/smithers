@@ -4,6 +4,19 @@
 
 ### Breaking Changes
 
+- `MemoryEntries.make` and `MemoryEntries.layer` now take a
+  `WithMemory.Policy`. A script's `remember` or `recall` bank outside the
+  policy fails with `invalid_namespace` before the store runs, and every
+  remembered fact records the chain, link, and call ordinal as provenance.
+  Before, a model-authored script could read or write any bank the store
+  reached.
+- `QuickJsRunner` reads the outcome from a sealed completion value. A script
+  that closes its async wrapper fails with `runtime` and
+  `QuickJsRunner.escapedWrapper` instead of replacing the outcome, and the
+  parse check no longer runs authored code.
+- `Chain.run` hands catalog handlers and the author context the JSON copy
+  it journals, never the runner's live payload object.
+
 - `RegistryCatalog.declarationDigest` is now `Descriptor.declarationDigest`
   re-exported from `@smthrs/registry`, the package that owns
   `FlowDescriptor`, instead of a second hand-rolled digest of the same type.

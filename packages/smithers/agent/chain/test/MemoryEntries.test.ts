@@ -1,4 +1,5 @@
 import * as Flows from "@smthrs/memory/Flows"
+import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as RecallKeyword from "@smthrs/memory/RecallKeyword"
 import * as TestMemory from "@smthrs/memory/test/TestMemory"
 import { Effect, Layer } from "effect"
@@ -10,9 +11,11 @@ import { flow, runChain } from "./harness.ts"
 
 const services = Layer.provideMerge(RecallKeyword.layer, TestMemory.layerWithDatabase)
 
+const policy = { banks: ["worldview", "b"], maxTokens: 1000, retain: "on-complete" } as const
+
 const entriesOf = (): Promise<ReadonlyArray<Catalog.Entry>> =>
   Effect.runPromise(
-    MemoryEntries.make.pipe(Effect.provide(services)) as Effect.Effect<
+    MemoryEntries.make(policy).pipe(Effect.provide(services)) as Effect.Effect<
       ReadonlyArray<Catalog.Entry>,
       never,
       never
@@ -36,7 +39,7 @@ describe("MemoryEntries", () => {
   it("remembers into the real store and recalls it back", async () => {
     const entries = await Effect.runPromise(
       Effect.gen(function*() {
-        const built = yield* MemoryEntries.make
+        const built = yield* MemoryEntries.make(policy)
         const remember = built[0] as Catalog.Entry
         const recall = built[1] as Catalog.Entry
         const written = yield* remember.handler({
@@ -80,7 +83,7 @@ describe("MemoryEntries", () => {
 
   it("escalates a store failure as a typed call error", async () => {
     const failing = await Effect.runPromise(
-      MemoryEntries.make.pipe(
+      MemoryEntries.make(policy).pipe(
         Effect.provide(
           Layer.merge(
             Layer.succeed(
@@ -156,7 +159,7 @@ describe("MemoryEntries", () => {
     expect(scalar).toMatch(/^[0-9a-f]{64}$/)
 
     const codeless = await Effect.runPromise(
-      MemoryEntries.make.pipe(
+      MemoryEntries.make(policy).pipe(
         Effect.provide(
           Layer.merge(
             Layer.succeed(
@@ -180,7 +183,7 @@ describe("MemoryEntries", () => {
     expect(error.cause).toBe("unknown")
 
     const oddFailures = await Effect.runPromise(
-      MemoryEntries.make.pipe(
+      MemoryEntries.make(policy).pipe(
         Effect.provide(
           Layer.merge(
             Layer.succeed(
@@ -210,7 +213,7 @@ describe("MemoryEntries", () => {
 
   it("refuses output that leaves the shipped contract", async () => {
     const broken = await Effect.runPromise(
-      MemoryEntries.make.pipe(
+      MemoryEntries.make(policy).pipe(
         Effect.provide(
           Layer.merge(
             Layer.succeed(
@@ -243,7 +246,7 @@ describe("MemoryEntries", () => {
         (await import("../src/Catalog.ts")).Catalog,
         (service) => Effect.succeed(service.entries.map((entry) => entry.name))
       ).pipe(
-        Effect.provide(MemoryEntries.layer.pipe(Layer.provide(services)))
+        Effect.provide(MemoryEntries.layer(policy).pipe(Layer.provide(services)))
       )
     )
     // The system entries come last so a host entry cannot shadow them.
@@ -258,12 +261,50 @@ describe("MemoryEntries", () => {
     )
     const { entries, outcome } = await Effect.runPromise(
       Effect.gen(function*() {
-        const built = yield* MemoryEntries.make
+        const built = yield* MemoryEntries.make(policy)
         const run = yield* Effect.promise(() => runChain({ author: Author.layerMock([script]), entries: built }))
         return { entries: built, ...run }
       }).pipe(Effect.provide(services)) as Effect.Effect<never, never, never> as never
     ) as { entries: ReadonlyArray<Catalog.Entry>; outcome: unknown }
     expect(entries).toHaveLength(2)
     expect(JSON.stringify(outcome)).toContain("the registry mounts flows")
+  })
+
+  // A script is model-authored: the bank in its payload is not authority.
+  it("refuses a bank outside the host policy for remember and recall", async () => {
+    const [remember, recall] = await entriesOf() as [Catalog.Entry, Catalog.Entry]
+    const written = await callError(remember, { bank: "other-user", key: "k", text: "poison" })
+    expect(written.cause).toBe("invalid_namespace")
+    const read = await callError(recall, { banks: ["worldview", "other-user"], query: "q" })
+    expect(read.cause).toBe("invalid_namespace")
+  })
+
+  it("records the chain, link, and call that wrote a fact", async () => {
+    const fact = await Effect.runPromise(
+      Effect.gen(function*() {
+        const [remember] = yield* MemoryEntries.make(policy)
+        yield* remember!.handler(
+          { bank: "worldview", key: "traced", text: "t" },
+          { chain: "chain-1", key: "key" as never, link: 2, ordinal: 3 }
+        )
+        const store = yield* MemoryStore.MemoryStore
+        const facts = yield* store.listAllFacts
+        return facts.find((row) => row.key === "traced")
+      }).pipe(Effect.provide(services)) as Effect.Effect<MemoryStore.Fact | undefined, never, never>
+    )
+    expect(fact?.provenance).toEqual({ iteration: 3, nodeId: "link-2", runId: "chain-1" })
+  })
+
+  it("fails typed on an invalid policy", async () => {
+    const error = await Effect.runPromise(
+      Effect.flip(MemoryEntries.make({ ...policy, banks: [] })).pipe(
+        Effect.provide(services)
+      ) as unknown as Effect.Effect<
+        { readonly code: string },
+        never,
+        never
+      >
+    )
+    expect(error.code).toBe("invalid_argument")
   })
 })

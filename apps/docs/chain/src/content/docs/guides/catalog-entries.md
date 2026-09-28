@@ -36,7 +36,9 @@ An entry carries:
   payload is whatever the script passed, already copied across the JSON
   boundary. The slot is the call's `{ chain, link, ordinal }` position,
   handed over so entries that spawn scoped work (sub-chains) can derive
-  deterministic child identities.
+  deterministic child identities. A failing handler's `CallError` message
+  is journaled verbatim and shown to the model on the next link, so keep
+  credentials and private data out of it.
 - `capabilities` (optional): the claims the `Authorize` seam evaluates per
   call. Undeclared is conservatively the broadest claim: the chain asks under
   `["*"]`, never silently passes. An explicit empty array claims no external

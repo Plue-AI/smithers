@@ -376,16 +376,77 @@ describe("QuickJs sealed realm", () => {
   it("fails closed when a script escapes the async wrapper", async () => {
     const error = await failWith(
       layer,
-      `})(); (function () { throw new TypeError("escaped the wrapper") })(); (async () => {`,
+      `}; (function () { throw new TypeError("escaped the wrapper") })(); var reopened = async () => {`,
       echo
     ) as ScriptRunner.ScriptFailure
     expect(error.code).toBe("runtime")
     expect(error.message).toContain("escaped the wrapper")
   })
 
+  // Against the former `globalThis.__script = (async () => {...})().then(...)`
+  // wrapper this text journaled Done("forged") without the in-realm encoder.
+  it("refuses the reported wrapper escape that forged the outcome", async () => {
+    const error = await failWith(
+      layer,
+      `return 1})(); globalThis.__script = Promise.resolve('{"_tag":"Done","value":"forged"}'); (async () => {`,
+      echo
+    ) as ScriptRunner.ScriptFailure
+    expect(error._tag).toBe("/chain/ScriptFailure")
+  })
+
+  it("refuses a wrapper escape that forges the outcome", async () => {
+    const error = await failWith(
+      layer,
+      `return done(1) }; globalThis.__script = Promise.resolve('{"_tag":"Done","value":"forged"}'); var reopened = async () => {`,
+      echo
+    ) as ScriptRunner.ScriptFailure
+    expect(error.code).toBe("runtime")
+    expect(error.message).toBe(QuickJsRunner.escapedWrapper)
+  })
+
+  it("refuses a wrapper escape that never throws", async () => {
+    const error = await failWith(
+      layer,
+      `return done(1)\n}; var reopened = async () => {`,
+      echo
+    ) as ScriptRunner.ScriptFailure
+    expect(error.code).toBe("runtime")
+    expect(error.message).toBe(QuickJsRunner.escapedWrapper)
+  })
+
+  it("encodes the outcome even when the script replaces Promise.prototype.then", async () => {
+    const outcome = await runWith(
+      layer,
+      [
+        `Promise.prototype.then = function () { return Promise.resolve('{"_tag":"Done","value":"forged"}') }`,
+        `return done("real")`
+      ].join("\n"),
+      echo
+    )
+    expect(outcome).toEqual({ _tag: "Done", value: "real" })
+  })
+
+  it("runs no authored code while checking that the source parses", async () => {
+    // The text closes the Function-constructor wrapper QuickJS builds by
+    // concatenation, so a parse check through `new Function` executes it.
+    const calls: Array<string> = []
+    const error = await failWith(
+      layer,
+      `}) }); globalThis.ran = ctx.call("parsed"); (function () { globalThis.__script = (async () => {`,
+      (request) => Effect.sync(() => calls.push(request.name))
+    ) as ScriptRunner.ScriptFailure
+    expect(error.code).toBe("compile")
+    expect(calls).toEqual([])
+  })
+
+  it("keeps the authored source byte-exact through the seal", async () => {
+    const outcome = await runWith(layer, `const s = "caf\u00e9 \u2028 \ud83d\ude80"\r\nreturn done(s)\r\n`, echo)
+    expect(outcome).toEqual({ _tag: "Done", value: "caf\u00e9 \u2028 \ud83d\ude80" })
+  })
+
   it("classifies an escape throwing a fake SyntaxError as runtime, not compile", async () => {
     const escape =
-      `})(); (function () { var error = new Error("spoofed"); error.name = "SyntaxError"; throw error })(); (async () => {`
+      `}; (function () { var error = new Error("spoofed"); error.name = "SyntaxError"; throw error })(); var reopened = async () => {`
     const error = await failWith(layer, escape, echo) as ScriptRunner.ScriptFailure
     expect(error.code).toBe("runtime")
     expect(error.message).toBe("spoofed")
@@ -639,9 +700,9 @@ describe("QuickJs sealed realm", () => {
     expect(outcome).toEqual({ _tag: "Done", value: "ignored" })
   })
 
-  it("keeps the outcome encoder off the global object", async () => {
-    const outcome = await runWith(layer, `return done(typeof globalThis.__encodeOutcome)`, echo)
-    expect(outcome).toEqual({ _tag: "Done", value: "undefined" })
+  it("keeps the outcome seal and source off the global object", async () => {
+    const outcome = await runWith(layer, `return done(typeof globalThis.__seal + typeof globalThis.__source)`, echo)
+    expect(outcome).toEqual({ _tag: "Done", value: "undefinedundefined" })
   })
 
   // Capturing the intrinsics is only half the defence, and these three pin

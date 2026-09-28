@@ -14,7 +14,9 @@ import type * as CallKey from "./CallKey.ts"
 
 /**
  * A call that reached its entry and failed there. The chain journals it as
- * an observation rather than crashing the run.
+ * an observation rather than crashing the run. The message is journaled
+ * verbatim and shown to the model on the next link, so a handler must keep
+ * credentials and private data out of it.
  *
  * @category errors
  * @since 0.1.0

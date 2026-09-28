@@ -393,6 +393,10 @@ export const run = (options: Options): Effect.Effect<Outcome.RunResult, RunError
                   : Observation.make("call_failed", `"${name}" received input that is not JSON-serializable`)
               )
             }
+            // Every consumer below reads this copy, never the live payload: a
+            // runner binding may pass an object whose getters answer
+            // differently on a second read, and the handler must act on
+            // exactly what was authorized and journaled.
             const jsonPayload = payloadBoundary.value as typeof Schema.Json.Type
             const scriptDigest = origin === "script" ? linkDigest : CallKey.harnessDigest
             if (prior !== undefined) {
@@ -451,7 +455,7 @@ export const run = (options: Options): Effect.Effect<Outcome.RunResult, RunError
               }
               const promoted = yield* steeringFor(ordinal)
               const context = [
-                ...Author.contextOf(payload),
+                ...Author.contextOf(jsonPayload),
                 ...promoted.map((line) => `[steering] ${line}`)
               ]
               const raw = yield* author.author({ context, prefix })
@@ -504,7 +508,7 @@ export const run = (options: Options): Effect.Effect<Outcome.RunResult, RunError
             const key = CallKey.make(link, scriptDigest, ordinal, Catalog.entryDigest(entry))
             const settle = (signal?: AbortSignal) =>
               Effect.gen(function*() {
-                const result = yield* entry.handler(payload, { chain: chainId, link, ordinal, key, signal }).pipe(
+                const result = yield* entry.handler(jsonPayload, { chain: chainId, link, ordinal, key, signal }).pipe(
                   Effect.catchTag("/chain/CallError", (error) =>
                     Effect.gen(function*() {
                       // Run failures stay typed and un-settled, through every

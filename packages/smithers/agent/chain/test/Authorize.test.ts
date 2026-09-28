@@ -414,6 +414,18 @@ describe("Authorize", () => {
     expect(evaluate([rules], parsed)).toBe(expected)
   })
 
+  it("allows a relative dot scope under allow-all and denies one that climbs out", async () => {
+    // Flows declare `fs:read:.` for the workspace root; the capability
+    // matcher's dot-segment guard must not turn that into a hard deny.
+    expect(await verdictOf([allowAll], "fs:read:.")).toBe("allow")
+    expect(await verdictOf([allowAll], "fs:write:./src/./out")).toBe("allow")
+    expect(await verdictOf([allowAll], "fs:write:src/nested/../out")).toBe("allow")
+    // `src/**` must select the normal form too, so `src/a/../../etc` asks.
+    expect(await verdictOf([allowSrc], "fs:read:src/a/../../etc/passwd")).toBe("ask")
+    expect(await verdictOf([allowAll], "fs:read:../outside")).toBe("deny")
+    expect(await verdictOf([allowAll], "fs:read:/w/../etc/passwd")).toBe("deny")
+  })
+
   it("denies a wildcard claim whose overlap with a deny rule cannot be proven", async () => {
     // `fs:read:a/b/**` plainly covers `a/b/x`, which the deny rule forbids,
     // and the deny is placed LAST so rule ordering cannot excuse an allow.

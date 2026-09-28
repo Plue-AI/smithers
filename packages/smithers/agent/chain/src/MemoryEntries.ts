@@ -8,6 +8,12 @@
  * the memory package's stable error code as the call's `cause`
  * (https://chain.smithers.sh/contract/).
  *
+ * Both entries run under the host's `WithMemory.Policy`: a bank the policy
+ * does not name fails `invalid_namespace` before the store runs, an empty
+ * bank means the policy's own, and every remembered fact records the chain,
+ * link, and call ordinal that wrote it. A script is model-authored, so the
+ * bank in its payload is never the authority.
+ *
  * Composition note: hosts that also mount the memory flows through the
  * registry must bind them there OR here, not both — a catalog holding two
  * `remember` declarations discloses one and runs the other, and journals
@@ -19,8 +25,10 @@
 
 import * as Digest from "@smthrs/core/Digest"
 import * as Flows from "@smthrs/memory/Flows"
+import type * as MemoryError from "@smthrs/memory/MemoryError"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Recall from "@smthrs/memory/Recall"
+import * as WithMemory from "@smthrs/memory/WithMemory"
 import { Effect, Layer, Schema } from "effect"
 import * as Catalog from "./Catalog.ts"
 import { failureCode } from "./internal/failureCode.ts"
@@ -59,12 +67,15 @@ export const contractDigest = (contract: Contract): string =>
 
 const entryOf = <A>(
   contract: Contract,
-  run: (input: A) => Effect.Effect<unknown, { readonly code: string; readonly message: string }>,
+  run: (
+    input: A,
+    slot: Catalog.CallSlot | undefined
+  ) => Effect.Effect<unknown, { readonly code: string; readonly message: string }>,
   decode: (payload: unknown) => Effect.Effect<A, unknown>
 ): Catalog.Entry => ({
   description: contract.description,
   digest: contractDigest(contract),
-  handler: (payload) =>
+  handler: (payload, slot) =>
     Effect.gen(function*() {
       const input = yield* decode(payload).pipe(
         Effect.mapError((error) =>
@@ -75,7 +86,7 @@ const entryOf = <A>(
           })
         )
       )
-      const result = yield* run(input).pipe(
+      const result = yield* run(input, slot).pipe(
         Effect.mapError((error) =>
           new Catalog.CallError({
             cause: codeOf(error),
@@ -101,63 +112,79 @@ const entryOf = <A>(
   name: contract.name
 })
 
+// The call slot is the fact's provenance: the chain is the run, the link is
+// the node, and the call ordinal is the iteration within it.
+const provenanceOf = (slot: Catalog.CallSlot | undefined): MemoryStore.Provenance =>
+  slot === undefined ? {} : { iteration: slot.ordinal, nodeId: `link-${slot.link}`, runId: slot.chain }
+
 /**
  * Builds the two memory entries over the ambient store and recall
  * services — exactly those two services are captured, so call-time
- * provisions of anything else are never shadowed.
+ * provisions of anything else are never shadowed. Every call runs under
+ * `policy`; an invalid policy fails with the memory package's
+ * `invalid_argument` error.
  *
  * @category constructors
  * @since 0.1.0
  * @slop
  */
-export const make: Effect.Effect<
+export const make = (policy: WithMemory.Policy): Effect.Effect<
   ReadonlyArray<Catalog.Entry>,
-  never,
+  MemoryError.MemoryError,
   MemoryStore.MemoryStore | Recall.Recall
-> = Effect.gen(function*() {
-  const store = yield* MemoryStore.MemoryStore
-  const recall = yield* Recall.Recall
-  const decodeRemember = Schema.decodeUnknownEffect(Flows.RememberInput)
-  const decodeRecall = Schema.decodeUnknownEffect(Flows.RecallInput)
-  return [
-    entryOf(
-      {
-        description: Flows.rememberDescription,
-        effects: { ...Flows.rememberEffects },
-        input: Flows.RememberInput,
-        name: Flows.rememberName,
-        output: Flows.RememberOutput
-      },
-      (input: Flows.RememberInputType) =>
-        Flows.runRemember(input).pipe(Effect.provideService(MemoryStore.MemoryStore, store)),
-      decodeRemember
-    ),
-    entryOf(
-      {
-        description: Flows.recallDescription,
-        effects: { ...Flows.recallEffects },
-        input: Flows.RecallInput,
-        name: Flows.recallName,
-        output: Flows.RecallOutput
-      },
-      (input: Recall.Input) => Flows.runRecall(input).pipe(Effect.provideService(Recall.Recall, recall)),
-      decodeRecall
-    )
-  ]
-})
+> =>
+  Effect.gen(function*() {
+    const [remember, recallFlow] = yield* Effect.try({
+      catch: (error) => error as MemoryError.MemoryError,
+      try: () => [WithMemory.withMemory(Flows.remember, policy), WithMemory.withMemory(Flows.recall, policy)] as const
+    })
+    const store = yield* MemoryStore.MemoryStore
+    const recall = yield* Recall.Recall
+    const decodeRemember = Schema.decodeUnknownEffect(Flows.RememberInput)
+    const decodeRecall = Schema.decodeUnknownEffect(Flows.RecallInput)
+    return [
+      entryOf(
+        {
+          description: Flows.rememberDescription,
+          effects: { ...Flows.rememberEffects },
+          input: Flows.RememberInput,
+          name: Flows.rememberName,
+          output: Flows.RememberOutput
+        },
+        (input: Flows.RememberInputType, slot) =>
+          Flows.runRememberFor(remember, input, provenanceOf(slot)).pipe(
+            Effect.provideService(MemoryStore.MemoryStore, store)
+          ),
+        decodeRemember
+      ),
+      entryOf(
+        {
+          description: Flows.recallDescription,
+          effects: { ...Flows.recallEffects },
+          input: Flows.RecallInput,
+          name: Flows.recallName,
+          output: Flows.RecallOutput
+        },
+        (input: Recall.Input) =>
+          Flows.runRecallFor(recallFlow, input).pipe(Effect.provideService(Recall.Recall, recall)),
+        decodeRecall
+      )
+    ]
+  })
 
 /**
- * The memory entries as a whole catalog of their own — composed with the
- * system entries, keeping the sealed realm's promise.
+ * The memory entries under `policy` as a whole catalog of their own —
+ * composed with the system entries, keeping the sealed realm's promise.
  *
  * @category layers
  * @since 0.1.0
  * @slop
  */
-export const layer: Layer.Layer<
+export const layer = (policy: WithMemory.Policy): Layer.Layer<
   Catalog.Catalog,
-  never,
+  MemoryError.MemoryError,
   MemoryStore.MemoryStore | Recall.Recall
-> = Layer.effect(Catalog.Catalog)(
-  Effect.map(make, (entries) => Catalog.make(Catalog.withSystem(entries)))
-)
+> =>
+  Layer.effect(Catalog.Catalog)(
+    Effect.map(make(policy), (entries) => Catalog.make(Catalog.withSystem(entries)))
+  )

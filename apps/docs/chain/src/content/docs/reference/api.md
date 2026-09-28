@@ -583,6 +583,12 @@ randomness are the `sys/now` and `sys/random` catalog entries.
   WebAssembly abort, a host `RangeError`, a bridge bug) rather than from
   the script. A script's own throw never carries it. The boundary also logs
   the defect with its cause at `Warning` level.
+- `escapedWrapper = "the script escaped its async wrapper"`: the `runtime`
+  failure for a script whose text closed the async wrapper it is spliced
+  into. The runner parses the wrapped source compile-only, then compares
+  the body function's source with the authored text before the body runs.
+  The outcome always passes the in-realm encoder, whatever the script does
+  to realm globals such as `Promise.prototype.then`.
 - `defaultLimits: Required<Limits>`: `{ memoryBytes: 64 * 1024 * 1024,
   stackBytes: stackCeiling, steps: 10000 }`. Passing an explicit `undefined`
   for any field opts out of that limit.
@@ -678,7 +684,9 @@ The catalog of entries a script may call. Gate 3 is membership in it.
   `name: string`, `message: string`, and optional `cause: string`. A call
   that reached its entry and failed there. The chain journals it as a
   `call_failed` observation rather than crashing the run, unless `cause` is
-  `approval_required`, which parks in place.
+  `approval_required`, which parks in place. The message is journaled
+  verbatim and shown to the model on the next link, so a handler must keep
+  credentials and private data out of it.
 
 ### Models
 
@@ -736,16 +744,22 @@ The memory door: `remember` and `recall` as catalog entries, bound over the
   contract (name, description, effect declaration, and the input/output
   schema shapes), so a memory-package upgrade that changes the contract
   re-keys every call that names it instead of replaying stale results.
-- `make: Effect<ReadonlyArray<Catalog.Entry>, never, MemoryStore.MemoryStore
-  | Recall.Recall>`: builds the two memory entries over the ambient store
-  and recall services. Exactly those two services are captured, so call-time
-  provisions of anything else are never shadowed. A malformed payload fails
+- `make(policy: WithMemory.Policy): Effect<ReadonlyArray<Catalog.Entry>,
+  MemoryError, MemoryStore.MemoryStore | Recall.Recall>`: builds the two
+  memory entries over the ambient store and recall services. Exactly those
+  two services are captured, so call-time provisions of anything else are
+  never shadowed. Every call runs under `policy`: a bank the policy does not
+  name fails with cause `invalid_namespace` before the store runs, an empty
+  bank means the policy's own, and each remembered fact records `{ runId:
+  chain, nodeId: "link-<link>", iteration: ordinal }` as provenance. An
+  invalid policy fails with `invalid_argument`. A malformed payload fails
   with cause `invalid_input` quoting the actual parse failure; a result
   outside the output contract fails with `invalid_output`; a store failure
   carries the memory package's stable error code as the call's `cause`.
-- `layer: Layer.Layer<Catalog.Catalog, never, MemoryStore.MemoryStore |
-  Recall.Recall>`: the memory entries as a whole catalog of their own,
-  composed with the system entries.
+- `layer(policy: WithMemory.Policy): Layer.Layer<Catalog.Catalog,
+  MemoryError, MemoryStore.MemoryStore | Recall.Recall>`: the memory entries
+  under `policy` as a whole catalog of their own, composed with the system
+  entries.
 
 Hosts that also mount the memory flows through the registry must bind them
 there OR here, not both: a catalog holding two `remember` declarations

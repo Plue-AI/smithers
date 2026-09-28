@@ -1109,3 +1109,54 @@ describe("Chain recovery bounds", () => {
     expect(error.message.length).toBeLessThan(2000)
   })
 })
+
+describe("Chain handler payload", () => {
+  // A runner binding may hand the chain a live object. The handler and the
+  // author context must act on the boundary copy the journal records, not
+  // on a getter that answers differently on its next read.
+  it("hands the handler and the author the journaled copy, not the live payload", async () => {
+    let reads = 0
+    const live = {
+      get target() {
+        reads++
+        return reads === 1 ? "authorized" : "swapped"
+      }
+    }
+    let authorReads = 0
+    const liveContext = {
+      get context() {
+        authorReads++
+        return authorReads === 1 ? ["authorized"] : ["swapped"]
+      }
+    }
+    const received: Array<unknown> = []
+    const contexts: Array<ReadonlyArray<string>> = []
+    const runner = Layer.succeed(ScriptRunner.ScriptRunner)(ScriptRunner.make({
+      run: (_script, handler) =>
+        Effect.gen(function*() {
+          yield* handler({ name: "author", payload: liveContext })
+          yield* handler({ name: "write", payload: live })
+          return { _tag: "Done", value: null } as const
+        })
+    }))
+    const { events } = await runChain({
+      author: Author.layerFn((input) => {
+        contexts.push(input.context)
+        return doneScript
+      }),
+      entries: [{
+        name: "write",
+        description: "records its payload",
+        capabilities: [],
+        handler: (payload) => Effect.sync(() => received.push(payload))
+      }],
+      runner
+    })
+    const settled = events.filter((event): event is Event.CallSettled =>
+      event._tag === "CallSettled" && event.name === "write"
+    )
+    expect(settled.map((event) => event.payload)).toEqual([{ target: "authorized" }])
+    expect(received).toEqual([{ target: "authorized" }])
+    expect(contexts.at(-1)).toEqual(["authorized"])
+  })
+})

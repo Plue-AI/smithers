@@ -105,6 +105,21 @@ export const defaultLimits: Required<Limits> = {
 }
 
 /**
+ * The `runtime` failure message for a script whose text closed the async
+ * wrapper it is spliced into.
+ *
+ * The wrapper is source concatenation, so a script can end its own body
+ * early, run top-level statements, and reopen a body for the suffix to
+ * close. The seal compares the body function's source text with the
+ * authored text and refuses anything else before the body runs.
+ *
+ * @category constants
+ * @since 0.1.0
+ * @slop
+ */
+export const escapedWrapper = "the script escaped its async wrapper"
+
+/**
  * The prelude evaluated before every script. It installs `ctx.call`,
  * the three outcome constructors, and removes the realm's two sources of
  * nondeterminism. The raw bridge is captured in a closure and deleted
@@ -128,11 +143,15 @@ const prelude = `(function () {
   var intrinsicIsFinite = Number.isFinite
   var intrinsicStringify = JSON.stringify
   var intrinsicParse = JSON.parse
+  var intrinsicFunctionToString = Function.prototype.toString
   var IntrinsicTypeError = TypeError
   var IntrinsicError = Error
   var IntrinsicPromise = Promise
   var intrinsicPromiseReject = IntrinsicPromise.reject.bind(IntrinsicPromise)
   var bridge = globalThis.__call
+  // The authored text, set by the host as a string value. It never passes
+  // through source concatenation a second time.
+  var expectedBody = "async () => {\\n" + globalThis.__source + "\\n}"
   var maxDepth = ${JsonBoundary.maxJsonDepth}
   // The in-realm twin of JsonBoundary.jsonBoundary, and it must stay a
   // twin: whatever the two bindings disagree about is a value that behaves
@@ -206,13 +225,27 @@ const prelude = `(function () {
   // the two runner bindings would disagree about what a valid outcome is.
   // Returning null (never throwing) keeps the distinction the host draws
   // between "not JSON" and "not an outcome".
-  globalThis.__encodeOutcome = function (value) {
+  var encodeOutcome = function (value) {
     try {
       return intrinsicStringify(copyJson(value, 0, []))
     } catch (error) {
       return null
     }
   }
+  // The seal is the only path from the body to the host. It is an intrinsic
+  // async function, so the promise the host reads is native and the value
+  // always passes encodeOutcome: no realm Promise.prototype.then, and no
+  // reassigned global, can substitute a result. The source check refuses a
+  // body that is not exactly the authored text, which is what a wrapper
+  // escape leaves behind.
+  globalThis.__seal = async function (body) {
+    if (intrinsicFunctionToString.call(body) !== expectedBody) {
+      throw new IntrinsicError(${JSON.stringify(escapedWrapper)})
+    }
+    var value = await body()
+    return encodeOutcome(value === undefined ? null : value)
+  }
+  delete globalThis.__source
   delete globalThis.__call
   delete globalThis.Date
   delete Math.random
@@ -247,17 +280,18 @@ const prelude = `(function () {
   }
 })()`
 
-// The encoder is captured into an eval-lexical `const` and deleted from the
+// The seal is captured into an eval-lexical `const` and deleted from the
 // global object before the script body runs, so it is neither reachable as
-// `globalThis.__encodeOutcome` nor reassignable. The `__script` assignment
-// stays one top-level statement of the exact former shape: a script that
-// escapes the async wrapper must still land as a runtime failure.
+// `globalThis.__seal` nor reassignable. The host reads the evaluation's
+// completion value, the final statement, which authored text can neither
+// follow nor reassign. A script that escapes the async wrapper leaves
+// `__body` bound to a shorter function, and the seal refuses it as a
+// runtime failure.
 const wrap = (text: string): string =>
-  `const __encodeOutcome = globalThis.__encodeOutcome
-delete globalThis.__encodeOutcome
-globalThis.__script = (async () => {\n${text}\n})().then(function (value) {
-  return __encodeOutcome(value === undefined ? null : value)
-})`
+  `const __seal = globalThis.__seal
+delete globalThis.__seal
+const __body = async () => {\n${text}\n}
+__seal(__body)`
 
 interface BridgeCall {
   readonly name: string
@@ -480,17 +514,22 @@ const evaluate = <E>(
     })
     context.setProp(context.global, "__call", bridge)
     bridge.dispose()
+    const source = context.newString(script.text)
+    context.setProp(context.global, "__source", source)
+    source.dispose()
 
     // The prelude is a fixed string over an empty realm; a failure here is
     // a defect in this module, never a property of the script.
     context.unwrapResult(context.evalCode(prelude)).dispose()
 
-    // Parse first, without executing: an in-realm Function construction
-    // over the wrapped source distinguishes a genuine parse failure from
-    // any runtime error — including a script that throws an error merely
-    // *named* SyntaxError — without trusting error names.
+    // Parse first, without executing: a compile-only evaluation of the
+    // wrapped source distinguishes a genuine parse failure from any runtime
+    // error — including a script that throws an error merely *named*
+    // SyntaxError — without trusting error names. An in-realm Function
+    // construction is not a parse check: QuickJS builds the function by
+    // concatenating its source, so text that closes that wrapper runs.
     const wrapped = wrap(script.text)
-    const parsed = context.evalCode(`new Function(${JSON.stringify(wrapped)})`)
+    const parsed = context.evalCode(wrapped, "script.js", { compileOnly: true })
     if (parsed.error !== undefined) {
       const failure = context.dump(parsed.error)
       parsed.error.dispose()
@@ -512,9 +551,7 @@ const evaluate = <E>(
         message: JsonBoundary.failureMessage(failure)
       })
     }
-    started.value.dispose()
-
-    const scriptHandle = context.getProp(context.global, "__script")
+    const scriptHandle = started.value
     yield* Effect.addFinalizer(() => Effect.sync(() => scriptHandle.dispose()))
 
     while (true) {

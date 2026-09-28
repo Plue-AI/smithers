@@ -58,16 +58,24 @@ never lies about what actually ran.
 
 ## Bind memory
 
-`MemoryEntries.layer` mounts a whole catalog of the two memory entries,
-composed with the system entries; `MemoryEntries.make` returns just the
-entries, for composing with your own:
+`MemoryEntries.layer(policy)` mounts a whole catalog of the two memory
+entries, composed with the system entries; `MemoryEntries.make(policy)`
+returns just the entries, for composing with your own:
 
 ```ts
 import { MemoryEntries } from "@smthrs/chain"
 import { Layer } from "effect"
 
-const catalog = MemoryEntries.layer.pipe(Layer.provide(memoryServices))
+const policy = { banks: ["worldview"], maxTokens: 2000, retain: "on-complete" } as const
+const catalog = MemoryEntries.layer(policy).pipe(Layer.provide(memoryServices))
 ```
+
+The policy is the `WithMemory.Policy` from [@smthrs/memory](/api/memory),
+and it is the authority on banks. A script is model-authored, so a bank in
+its payload that the policy does not name fails with cause
+`invalid_namespace` before the store runs; an empty bank means the policy's
+own. Each remembered fact records the chain, link, and call ordinal that
+wrote it as provenance.
 
 The layer needs `MemoryStore.MemoryStore` and `Recall.Recall` from
 [@smthrs/memory](/api/memory); exactly those two services are captured, so

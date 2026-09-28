@@ -252,7 +252,10 @@ There are two runners and only one of them is a sandbox.
 
 - `QuickJsRunner.layer()` is the production sealed interpreter: a fresh
   QuickJS realm per link, with the memory, stack, and step limits above, and
-  no host globals. This is the only runner for model-authored scripts.
+  no host globals. This is the only runner for model-authored scripts. A
+  script that closes its async wrapper fails with `runtime` and
+  `QuickJsRunner.escapedWrapper`; it cannot replace the outcome the host
+  reads.
 - `ScriptRunner.layerInProcess` provides NO isolation. The `Function`
   constructor builds its body in global scope, so a script reaches
   `globalThis`, `process`, and dynamic `import()`. It exists for trusted
