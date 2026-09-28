@@ -108,6 +108,21 @@ describe.skipIf(!jjInstalled)("NodeJj", () => {
       expect(status).toContain("Working copy")
     }))
 
+  it.effect("quickstart compares immutable snapshots and restores the first tree", () =>
+    Effect.gen(function*() {
+      const guide = readFileSync(new URL("../docs/quickstart.md", import.meta.url), "utf8")
+      const snippet = guide.match(/```ts\n([\s\S]*?)\n```/)?.[1]
+      expect(snippet).toContain("jj.diff(first.commitId, second.commitId)")
+      const code = snippet!.replace("const repository = process.cwd()", `const repository = ${JSON.stringify(repository)}`)
+      const { stdout } = yield* Effect.promise(() =>
+        execFilePromise("node", ["--input-type=module", "-e", code], { cwd: previousCwd })
+      )
+      expect(stdout).toContain("-first")
+      expect(stdout).toContain("+second")
+      expect(stdout).toContain("note.txt is now: first")
+      expect(readFileSync(join(repository, "note.txt"), "utf8")).toBe("first\n")
+    }))
+
   it.effect("captures attempts without closing, describing, or committing a change", () =>
     Effect.gen(function*() {
       const description = "operator's work\n\nKeep these notes.\n"

@@ -8,7 +8,7 @@ sidebar:
 This quickstart runs the whole reversible-step cycle against a real repository:
 take a snapshot, change a file, take another, read the diff between them, and
 put the working copy back. By the end you will have seen the three operations
-Smithers relies on to undo a step, and the change id that ties them together.
+Smithers relies on to undo a step, and the commit id that pins each recorded tree.
 
 ## Prerequisites
 
@@ -44,22 +44,20 @@ const note = join(repository, "note.txt")
 const program = Effect.gen(function*() {
   const jj = yield* Jj
 
-  // The state to come back to. `snapshot` describes the current change, reads
-  // its commit id, and opens a fresh one, so the id names the tree just closed.
+  // Capture the working-copy tree without closing or describing its change.
   writeFileSync(note, "first\n")
-  const { commitId } = yield* jj.snapshot("first note")
+  const first = yield* jj.snapshot("first note")
 
   // Do the work a step would do.
   writeFileSync(note, "second\n")
-  yield* jj.snapshot("second note")
+  const second = yield* jj.snapshot("second note")
 
-  // `@-` is the parent of the working copy: the change the second snapshot
-  // just closed.
-  const diff = yield* jj.diff(commitId, "@-")
+  // Compare the two recorded trees, not `@-` (the working-copy parent).
+  const diff = yield* jj.diff(first.commitId, second.commitId)
   console.log(diff)
 
   // Undo it. `restore` replaces the working copy with the recorded tree.
-  yield* jj.restore(commitId)
+  yield* jj.restore(first.commitId)
   console.log(`note.txt is now: ${readFileSync(note, "utf8").trim()}`)
 }).pipe(Effect.provide(NodeJj.layerAt(repository)))
 
@@ -88,16 +86,21 @@ note.txt is now: first
 
 ## What just happened
 
-`snapshot("first note")` set the description on the working-copy change, read
-back its commit id and short change id, and opened a new empty change on top.
+On Node and Bun, `snapshot("first note")` captured the working-copy tree
+without describing or closing the change, and returned its commit and change
+ids. The second snapshot captures another tree in that same change. Browser
+snapshot behavior still differs until #1976 is implemented.
 The commit id is the durable handle: it names one tree forever, survives a
 process restart, and is what Smithers stores in the journal. The change id is
 a display name that follows later rewrites of the change.
 
 `diff(from, to)` asked jj for a git-format unified diff between two revisions.
-Each argument is `@`, `@-`, a commit id, or a change id. Any other string, such
-as a revset, fails with `invalid_ref` before jj runs, and an id that resolves to
-nothing fails with `invalid_ref` rather than producing an empty diff.
+Both arguments go through jj's revision language, so `@`, `@-`, a commit id,
+and a change id are accepted. Any other string, such as a revset, fails with
+`invalid_ref` before jj runs, and an id that resolves to nothing fails with
+`invalid_ref` rather than producing an empty diff. After native snapshots, `@-`
+still names the working-copy parent; compare snapshot commit IDs to diff their
+recorded trees.
 
 `restore(commitId)` replaced the working copy with the tree recorded at that
 commit. It is a replacement, not a merge: uncommitted edits are overwritten and

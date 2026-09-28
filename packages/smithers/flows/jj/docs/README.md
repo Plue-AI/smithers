@@ -70,24 +70,25 @@ const repository = "/srv/checkouts/main"
 const reversible = Effect.gen(function*() {
   const jj = yield* Jj
 
-  // Record a point to come back to. `snapshot` describes the current change,
-  // reads its id, and opens a fresh one, so the id names the change just
-  // closed.
-  const { changeId } = yield* jj.snapshot("before the risky step")
+  // Capture the current working-copy tree without closing its change.
+  // Keep the commit id: the change id can move when the change is rewritten.
+  const { commitId } = yield* jj.snapshot("before the risky step")
 
   // Do the work a step would do.
   yield* Effect.sync(() => writeFileSync(`${repository}/note.txt`, "attempt\n"))
 
   // Read what changed, then put the working copy back the way it was.
-  const patch = yield* jj.diff(changeId, "@")
-  yield* jj.restore(changeId)
+  const patch = yield* jj.diff(commitId, "@")
+  yield* jj.restore(commitId)
 
   return patch
 }).pipe(Effect.provide(NodeJj.layerAt(repository)))
 ```
 
-`changeId` is a durable handle: it is the string jj prints, it survives a
-process restart, and it is what you store to reach the same tree later.
+`commitId` names the recorded tree across process restarts. Store it for later
+diffs and restores; `changeId` is a moving display pointer. Native Node and Bun
+snapshots do not describe or open changes. The browser backend still differs
+until browser snapshot parity is implemented (#1976).
 
 ## How this fits with @smthrs/flows
 
