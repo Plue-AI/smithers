@@ -107,7 +107,7 @@ pnpm exec smithers-build test '//scripts/repo-contract/...'
 | `cli-verbs.test.mjs` | The CLI reference indexes every canonical command, retains the compatibility pages, and documents only flags the public parser accepts. |
 | `smithers-links.test.mjs` | Every smithers.sh URL a package ships reaches the built documentation, directly or through one production redirect. |
 | `fault-skips.test.mjs` | No focused, parked, or inverted test in any package's `test/faults` tree, every conditional skip declared with its reason, every required gate still in the matrix — including the ones that are red — and every package carrying fault cases wired to a `faults` target, a serial fault config, and the CI step that runs them. |
-| `machine-paths.test.mjs` | No tracked file under `evals/`, `scripts/`, or a package's `test/faults` tree names one machine's home directory. Recorded material — wave reports, archives, the authoring corpus — is exempt, because rewriting it would falsify a record. |
+| `machine-paths.test.mjs` | No tracked file under `evals/`, `scripts/`, or a package's `test/faults` tree names one machine's home directory (`/Users/<name>`, `/home/<name>`, the superuser's `root` home, or `C:\Users\<name>`). Recorded material — wave reports, archives, the authoring corpus — is exempt, because rewriting it would falsify a record. |
 
 ## Retired-suite coverage
 

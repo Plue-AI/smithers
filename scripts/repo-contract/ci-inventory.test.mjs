@@ -2,9 +2,9 @@ import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
 import { createPlanner, requestPlan } from "../ci-planner.mjs"
-import { readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { test } from "node:test"
 import { planned, plannedInProcess, resolveInventory, root, runnerFor, targetInvocation } from "../ci-inventory.mjs"
 import { openPackageIndex } from "@smthrs/build-cli/Cli"
@@ -145,9 +145,33 @@ test("release smoke retains packing, fresh execution and its measured Exec deadl
   assert.ok(smoke.dependencies.includes("//scripts:releasePack"), "source qualification still rebuilds candidate bytes")
 })
 
+/**
+ * Where the resolved inventory is written: the operator's SMITHERS_CI_INVENTORY,
+ * else a file in a fresh private directory. A predictable name under a shared
+ * tmpdir() lets another local user pre-plant a symlink the write follows.
+ * The default directory is removed once every assertion passes and kept on a
+ * failure, so the logged path is there to read when it matters.
+ */
+const inventoryArtifact = (environment = process.env) =>
+  environment.SMITHERS_CI_INVENTORY ?? join(mkdtempSync(join(tmpdir(), "smithers-ci-inventory-")), "inventory.json")
+
+test("the default inventory artifact lives in a fresh private directory", () => {
+  const first = inventoryArtifact({})
+  const second = inventoryArtifact({})
+  try {
+    assert.notEqual(dirname(first), dirname(second))
+    assert.ok(!existsSync(first), "the artifact path is new, so nothing pre-planted sits there")
+    if (process.platform !== "win32") assert.equal(statSync(dirname(first)).mode & 0o777, 0o700)
+    assert.equal(inventoryArtifact({ SMITHERS_CI_INVENTORY: "chosen.json" }), "chosen.json")
+  } finally {
+    rmSync(dirname(first), { recursive: true, force: true })
+    rmSync(dirname(second), { recursive: true, force: true })
+  }
+})
+
 test("required CI resolves package, app, script, evaluation and fault suites to real runners", async () => {
   const inventory = await resolveInventory()
-  const artifact = process.env.SMITHERS_CI_INVENTORY ?? join(tmpdir(), `smithers-ci-inventory-${process.pid}.json`)
+  const artifact = inventoryArtifact()
   writeFileSync(artifact, `${JSON.stringify(inventory, null, 2)}\n`)
   console.log(`Resolved CI inventory: ${artifact}`)
   assert.deepEqual(inventory.selectionErrors, [], "every required command must successfully plan")
@@ -231,6 +255,7 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
   for (const app of ["server", "app", "review", "bug-worker"]) {
     assert.match(readFileSync(join(root, `apps/${app}/PACKAGE.ts`), "utf8"), /Coverage policy: assertion-only/)
   }
+  if (process.env.SMITHERS_CI_INVENTORY === undefined) rmSync(dirname(artifact), { recursive: true, force: true })
 })
 
 test("public project copy keeps the support contract out of the short description", () => {

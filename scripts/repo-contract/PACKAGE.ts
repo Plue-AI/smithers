@@ -275,7 +275,7 @@ const securityReview = Smithers.SecurityReview({
       title: "The machine-path gate catches every tracked home-directory path under evals, scripts and fault suites",
       threat: "A contributor commits an operator's username and home layout, leaking a maintainer's local identity and paths in the public repository, while the gate stays green.",
       lookFor: [
-        "A homePath regex that misses a username-bearing path: /root/, Windows C:\\Users\\<name>, /Users/<name> at end of line or before a quote without a trailing slash.",
+        "A homePath regex that misses a username-bearing path: the superuser's home (also under macOS's /var), a shell ~<name> home, Windows C:\\Users\\<name> at any escaping depth, or /Users/<name> followed by punctuation or the end of the line.",
         "An isRecorded exemption broader than the reports, archive and SFT-corpus directories it documents.",
         "An inventory command whose failure or empty output is treated as a pass instead of asserting status 0 and a nonempty list.",
         "A git/jj selection that reads an ancestor repository's inventory instead of this workspace's."

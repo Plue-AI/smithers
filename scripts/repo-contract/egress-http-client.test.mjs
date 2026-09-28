@@ -28,9 +28,11 @@
  * Run it with `node --test "scripts/repo-contract/*.test.mjs"`.
  */
 import assert from "node:assert/strict"
-import { readdirSync, readFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join, relative, sep } from "node:path"
 import { describe, it } from "node:test"
+import ts from "typescript"
 
 import { repoRoot as root } from "../workspace-packages.mjs"
 
@@ -60,6 +62,7 @@ const skippedDirectories = new Set([
   ".git",
   ".jj",
   ".astro",
+  ".cache",
   ".turbo",
   ".vite"
 ])
@@ -71,40 +74,51 @@ const skippedPaths = new Set([
   "apps/app/build"
 ])
 
+/** Every JavaScript and TypeScript extension Node, Bun or a bundler loads as code. */
+const sourceExtension = /\.(?:[cm]?[jt]s|[jt]sx)$/
+
 /** Source files, never a test double and never a declaration. */
-const isSource = (name) =>
-  (name.endsWith(".ts") || name.endsWith(".tsx") || name.endsWith(".mjs"))
-  && !name.endsWith(".d.ts")
-  && !/\.(test|spec)\.[cm]?tsx?$/.test(name)
-  && !/\.(test|spec)\.mjs$/.test(name)
+export const isSource = (name) =>
+  sourceExtension.test(name)
+  && !/\.d\.[cm]?ts$/.test(name)
+  && !/\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/.test(name)
 
 /** Every shipped source file under {@link scanned}, as repository-relative paths. */
 export const sources = (repositoryRoot = root) => {
   const found = []
+  // Real paths of the directories already walked, so a symlink loop ends.
+  const visited = new Set()
   const walk = (directory) => {
     let entries
     try {
+      const real = realpathSync(directory)
+      if (visited.has(real)) return
+      visited.add(real)
       entries = readdirSync(directory, { withFileTypes: true })
     } catch {
       return
     }
     for (const entry of entries) {
       const path = relative(repositoryRoot, join(directory, entry.name)).split(sep).join("/")
-      if (entry.isDirectory()) {
+      // Git tracks symlinks and every compiler and bundler follows them, so a
+      // link is judged by what it points at; the skip lists still match its name.
+      let kind = entry
+      if (entry.isSymbolicLink()) {
+        try {
+          kind = statSync(join(directory, entry.name))
+        } catch {
+          continue
+        }
+      }
+      if (kind.isDirectory()) {
         if (!skippedDirectories.has(entry.name) && !skippedPaths.has(path)) walk(join(directory, entry.name))
-      } else if (entry.isFile() && isSource(entry.name)) {
+      } else if (kind.isFile() && isSource(entry.name)) {
         found.push(path)
       }
     }
   }
   for (const tree of scanned) walk(join(repositoryRoot, tree))
   return found.sort()
-}
-
-/** Prose, which may name the banned spelling to explain why it is banned. */
-const isComment = (line) => {
-  const trimmed = line.trimStart()
-  return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")
 }
 
 /**
@@ -118,6 +132,49 @@ const banned = [
   { pattern: /\blayerUndici\b/, name: "NodeHttpClient.layerUndici" },
   { pattern: /\bmakeDispatcher\b/, name: "NodeHttpClient.makeDispatcher" }
 ]
+
+/** A string whose whole text is the name: a property key held in a variable. */
+const exact = (pattern) => new RegExp(`^${pattern.source.replaceAll("\\b", "")}$`)
+
+const scriptKind = (path) =>
+  /\.[jt]sx$/.test(path) ? ts.ScriptKind.TSX : /\.[cm]?js$/.test(path) ? ts.ScriptKind.JS : ts.ScriptKind.TS
+
+/**
+ * Every banned spelling in `content` outside a comment, as `line name` pairs.
+ *
+ * Comments are prose, which may name the banned spelling to explain why it is
+ * banned, so they are exempt. The TypeScript parser decides what is a comment:
+ * a line-prefix rule exempts code that follows a closing block comment or that
+ * starts with `*` inside an expression. Identifiers and computed member names
+ * are checked, so `NodeHttpClient["layerUndici"]` fails too, and so does any
+ * string whose whole text is a banned name, the key of `NodeHttpClient[k]`. A
+ * string that only describes the ban, such as a security-review prompt, is
+ * prose like a comment. The raw-text pre-check also passes any file holding a
+ * `\u` escape, so an escaped identifier reaches the parser.
+ *
+ * Known limit: the check reads single literals, not constant folding, so a key
+ * assembled at runtime, `NodeHttpClient["layer" + "Undici"]` or a template with
+ * a substitution, passes. Review catches that spelling; this gate does not.
+ */
+export const bannedUses = (path, content) => {
+  if (!/layerUndici|makeDispatcher|\\u/.test(content)) return []
+  const file = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind(path))
+  const found = []
+  const visit = (node) => {
+    const named = ts.isIdentifier(node)
+      || (ts.isStringLiteralLike(node) && ts.isElementAccessExpression(node.parent) && node.parent.argumentExpression === node)
+    const key = ts.isStringLiteralLike(node) && !named
+    if (named || key) {
+      const text = ts.isIdentifier(node) ? ts.idText(node) : node.text
+      for (const { pattern, name } of banned) {
+        if (key ? exact(pattern).test(text) : pattern.test(text)) found.push(`${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1} ${name}`)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return found
+}
 
 /**
  * The one file allowed to name them in code: the constructor that wraps them.
@@ -162,12 +219,7 @@ describe("the outbound HTTP client shipped compositions install", () => {
       }
       if (content.includes("EgressHttpClient.layer(") || content.includes("layerEgressHttpClient(")) installs += 1
       if (path === defines) continue
-      for (const [index, line] of content.split("\n").entries()) {
-        if (isComment(line)) continue
-        for (const { pattern, name } of banned) {
-          if (pattern.test(line)) offenders.push(`${path}:${index + 1} ${name}`)
-        }
-      }
+      for (const use of bannedUses(path, content)) offenders.push(`${path}:${use}`)
     }
     // A gate whose subject has vanished is a gate that cannot fail. The
     // replacement has to be installed somewhere for the ban to mean anything.
@@ -180,5 +232,49 @@ describe("the outbound HTTP client shipped compositions install", () => {
         + "`@smthrs/platform-node`, which is the same plain pool when no proxy is named:\n  "
         + offenders.join("\n  ")
     )
+  })
+})
+
+describe("the egress gate's own reading", () => {
+  it("scans every JavaScript and TypeScript extension, never a declaration or test", () => {
+    for (const name of ["a.ts", "a.tsx", "a.mts", "a.cts", "a.js", "a.jsx", "a.mjs", "a.cjs"]) {
+      assert.ok(isSource(name), `${name} is shipped source`)
+    }
+    for (const name of ["a.d.ts", "a.d.mts", "a.d.cts", "a.test.js", "a.spec.cjs", "a.test.tsx", "a.test.mjs", "a.json", "a.md"]) {
+      assert.ok(!isSource(name), `${name} is not shipped source`)
+    }
+  })
+
+  it("exempts comments by parsing, not by line prefix", () => {
+    assert.deepEqual(bannedUses("a.ts", "// layerUndici is banned\n/** makeDispatcher too */\nconst x = 1\n"), [])
+    assert.deepEqual(bannedUses("a.ts", "/* ok */ Layer.provide(NodeHttpClient.layerUndici)\n"), ["1 NodeHttpClient.layerUndici"])
+    assert.deepEqual(bannedUses("a.js", "const n = 2\n  * NodeHttpClient.makeDispatcher().x\n"), ["2 NodeHttpClient.makeDispatcher"])
+    assert.deepEqual(bannedUses("a.cjs", "const c = NodeHttpClient[\"layerUndici\"]\n"), ["1 NodeHttpClient.layerUndici"])
+    assert.deepEqual(bannedUses("a.jsx", "const c = <X layer={NodeHttpClient.layerUndici} />\n"), ["1 NodeHttpClient.layerUndici"])
+    assert.deepEqual(bannedUses("a.ts", "const ok = NodeHttpClient.layerUndiciNoDispatcher\n"), [])
+    assert.deepEqual(bannedUses("a.ts", "const prose = \"a bare layerUndici ignores the proxy\"\n"), [])
+    assert.deepEqual(bannedUses("a.ts", "const k = \"layerUndici\"\nLayer.provide(NodeHttpClient[k])\n"), ["1 NodeHttpClient.layerUndici"])
+    assert.deepEqual(bannedUses("a.ts", "const k = `makeDispatcher`\n"), ["1 NodeHttpClient.makeDispatcher"])
+    assert.deepEqual(bannedUses("a.ts", "Layer.provide(NodeHttpClient.layer\\u0055ndici)\n"), ["1 NodeHttpClient.layerUndici"])
+  })
+
+  it("reads a symlinked source file and a symlinked directory, and survives a link loop", () => {
+    const fixture = mkdtempSync(join(tmpdir(), "egress-gate-"))
+    try {
+      mkdirSync(join(fixture, "packages/q/src"), { recursive: true })
+      mkdirSync(join(fixture, "packages/q/test"), { recursive: true })
+      writeFileSync(join(fixture, "packages/q/test/real.ts"), "Layer.provide(NodeHttpClient.layerUndici)\n")
+      symlinkSync("../test/real.ts", join(fixture, "packages/q/src/Bad.ts"))
+      symlinkSync("../test", join(fixture, "packages/q/src/linked"))
+      symlinkSync("..", join(fixture, "packages/q/src/loop"))
+      const found = sources(fixture)
+      assert.ok(found.includes("packages/q/src/Bad.ts"), found.join(","))
+      assert.ok(found.includes("packages/q/src/linked/real.ts"), found.join(","))
+      assert.deepEqual(bannedUses("Bad.ts", readFileSync(join(fixture, "packages/q/src/Bad.ts"), "utf8")), [
+        "1 NodeHttpClient.layerUndici"
+      ])
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
   })
 })
