@@ -87,7 +87,9 @@ A write or removal that targets a reserved path or lies beneath one fails
 of one is refused with `path_escapes_workspace` like any other symlink. Names
 match after NFKC normalization and case folding, so a spelling a
 case-insensitive volume equates with a reserved path, such as `.FLOWS`, is
-refused on every volume.
+refused on every volume. An NTFS 8.3 short-name shape, such as `FLOWS~1`, is
+refused wherever a reserved segment stands, because an NTFS volume with short
+names on opens the long name through it.
 Filesystem hosts must support exclusive `wx` file creation, `stat` with an
 mtime, `utimes`, `rename`, and `remove`.
 

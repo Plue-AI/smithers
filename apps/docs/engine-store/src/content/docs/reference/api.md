@@ -422,7 +422,9 @@ and every `reservedPaths` entry, under any write set or boundary mode. A change
 that targets or lies beneath a reserved path fails with `host_unavailable`.
 Reserved names match after Unicode NFKC normalization and case folding, so
 `.FLOWS` or `.ﬂows`, which open `.flows` on default APFS and NTFS volumes, are
-refused on every volume.
+refused on every volume. An NTFS 8.3 short-name shape, such as `FLOWS~1`, is
+refused wherever a reserved segment stands, because an NTFS volume with short
+names on opens the long name through it, including from WSL or SMB.
 Hosts must support exclusive `wx` file creation, `stat` with an mtime,
 `utimes`, `rename`, and `remove`; writers that ignore the lock are outside this
 guarantee.

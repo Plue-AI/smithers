@@ -1274,6 +1274,19 @@ const lockFailure = (cause: unknown): WorkspaceError =>
 // default APFS. Folding more than a volume does only refuses more names.
 const foldPath = (path: string): string => path.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC")
 
+// NTFS with 8.3 name creation on (the system volume default) also opens a
+// long name through its generated short name: `.flows` through `FLOWS~1`, or
+// `FL3A2B~1` once the numbered tails collide. Linux reaches such a volume
+// through WSL's `/mnt/c` and macOS through SMB, so the shape is refused on
+// every host. The pattern is broader than the generator: any `~` and digit
+// tail on a base of at most eight characters, with an extension of at most
+// three.
+const shortNameAlias = /^[^.~]{0,7}~\d{1,7}(\.[^.]{0,3})?$/u
+const isShortNameAlias = (segment: string): boolean => {
+  const base = segment.split(".")[0] ?? ""
+  return base.length <= 8 && shortNameAlias.test(segment)
+}
+
 /**
  * Builds the filesystem-backed workspace sandbox.
  *
@@ -1328,17 +1341,26 @@ export const makeFileSystem = (
     commitLockName,
     engineStateName,
     ...(options.reservedPaths ?? []).map((path) => path.replace(/^(\.\/)+/, "").replaceAll(/\/+$/g, ""))
-  ].filter((path) => path !== "" && path !== ".").map((name) => ({ name, folded: foldPath(name) }))
-  // The reserved entry the root-relative `path` targets or lies beneath, if
-  // any. The confined host refuses every symlink on a path, so the remaining
-  // aliases are spellings the volume itself equates: case, compatibility, and
-  // normalization variants on APFS and NTFS. Comparing folded spellings
-  // refuses them on every volume, case-sensitive ones included.
+  ].filter((path) => path !== "" && path !== ".").map((name) => ({ name, segments: foldPath(name).split("/") }))
+  // Why the root-relative `path` is refused, if it targets or lies beneath a
+  // reserved entry. The confined host refuses every symlink on a path, so the
+  // remaining aliases are spellings the volume itself equates: case,
+  // compatibility, and normalization variants on APFS and NTFS, and NTFS 8.3
+  // short names. Comparing folded segments, and refusing a short-name shape
+  // wherever a reserved segment stands, refuses them on every volume,
+  // case-sensitive ones included.
   const reservedAt = (path: string): string | undefined => {
-    const folded = foldPath(path)
-    return reserved.find((entry) => folded === entry.folded || folded.startsWith(`${entry.folded}/`))?.name
+    const segments = foldPath(path).split("/")
+    const within = reserved.filter((entry) => entry.segments.length <= segments.length)
+    const exact = within.find((entry) => entry.segments.every((segment, index) => segments[index] === segment))
+    if (exact !== undefined) return `the workspace path ${exact.name} is reserved`
+    const alias = within.find((entry) =>
+      entry.segments.every((segment, index) => segments[index] === segment || isShortNameAlias(segments[index] ?? ""))
+    )
+    if (alias === undefined) return undefined
+    const spelling = path.split("/").slice(0, alias.segments.length).join("/")
+    return `the workspace path ${spelling} may be a short-name alias of a reserved path`
   }
-  const refuseReserved = (name: string): WorkspaceError => hostFailure(`the workspace path ${name} is reserved`)
   const hostPath = (path: string) => root === "" ? path : `${root}/${path}`
   // One host call, not two: the read reports an absent path itself. On the
   // confined host
@@ -1368,7 +1390,7 @@ export const makeFileSystem = (
     Effect.gen(function*() {
       for (const change of changes) {
         const hit = reservedAt(change.path)
-        if (hit !== undefined) return yield* Effect.fail(refuseReserved(hit))
+        if (hit !== undefined) return yield* Effect.fail(hostFailure(hit))
       }
       yield* fs.makeDirectory(root === "" ? "." : root, { recursive: true }).pipe(Effect.mapError(hostFailure))
       // Pinned once per commit, after the root exists: every lock, preflight,

@@ -1754,6 +1754,65 @@ describe("WorkspaceSandbox filesystem host confinement", () => {
       ))
   }
 
+  // NTFS with 8.3 names on opens a long name through its generated short
+  // name, and WSL and SMB carry that onto Linux and macOS hosts.
+  for (
+    const [path, spelling] of [
+      ["FLOWS~1/state.sqlite", "FLOWS~1"],
+      ["flows~12/objects/blob", "flows~12"],
+      ["SMITHE~1.LOC", "SMITHE~1.LOC"],
+      ["FL3A2B~1/state.sqlite", "FL3A2B~1"],
+      ["OBJECT~1/blob", "OBJECT~1"]
+    ] as const
+  ) {
+    it.effect(`reserves the NTFS short-name spelling ${JSON.stringify(path)}`, () =>
+      withCrypto(
+        Effect.scoped(Effect.gen(function*() {
+          const { fs, root } = yield* temp
+          const sandbox = WorkspaceSandbox.makeFileSystem(fs, hostPath, yield* ArtifactStore.ArtifactStore, root, {
+            reservedPaths: ["objects/"]
+          })
+          const accepted = yield* write(sandbox, [[path, "REPLACED"]], [path])
+          expect(yield* Effect.flip(sandbox.materialize(accepted))).toMatchObject({
+            code: "host_unavailable",
+            cause: `the workspace path ${spelling} may be a short-name alias of a reserved path`
+          })
+          expect(yield* fs.exists(`${root}/${path}`)).toBe(false)
+        })).pipe(Effect.provide(nodeLayer))
+      ))
+  }
+
+  it.effect("reserves a short-name spelling of a nested reserved segment", () =>
+    withCrypto(
+      Effect.scoped(Effect.gen(function*() {
+        const { fs, root } = yield* temp
+        const sandbox = WorkspaceSandbox.makeFileSystem(fs, hostPath, yield* ArtifactStore.ArtifactStore, root, {
+          reservedPaths: ["state/engine.sqlite"]
+        })
+        const path = "state/ENGINE~1.SQL"
+        const accepted = yield* write(sandbox, [[path, "REPLACED"]], [path])
+        expect(yield* Effect.flip(sandbox.materialize(accepted))).toMatchObject({
+          code: "host_unavailable",
+          cause: `the workspace path ${path} may be a short-name alias of a reserved path`
+        })
+      })).pipe(Effect.provide(nodeLayer))
+    ))
+
+  for (const path of ["state/a~b", "longername~1/x", "docs/FLOWS~1", "state~/x"]) {
+    it.effect(`keeps the non-alias or unreserved position ${JSON.stringify(path)} writable`, () =>
+      withCrypto(
+        Effect.scoped(Effect.gen(function*() {
+          const { fs, root } = yield* temp
+          const sandbox = WorkspaceSandbox.makeFileSystem(fs, hostPath, yield* ArtifactStore.ArtifactStore, root, {
+            reservedPaths: ["state/engine.sqlite"]
+          })
+          const accepted = yield* write(sandbox, [[path, "ok"]], [path])
+          yield* sandbox.materialize(accepted)
+          expect(yield* fs.readFileString(`${root}/${path}`)).toBe("ok")
+        })).pipe(Effect.provide(nodeLayer))
+      ))
+  }
+
   it.live("serializes copy-back with a separate process and a root alias", () =>
     withCrypto(
       Effect.scoped(Effect.gen(function*() {
