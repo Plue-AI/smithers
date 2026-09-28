@@ -32,7 +32,9 @@ jobs:
   gate:
     name: apps gates
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Setup 3 min, UI typecheck 1, unit tests 7, conformance 1, browser suite
+    # ~22 (30m target timeout), TUI ~10, server 4, site 4: ~51 typical, ~59 worst.
+    timeout-minutes: 75
     env:
       SMITHERS_CACHE_URL: ${{ secrets.SMITHERS_CACHE_URL }}
       SMITHERS_CACHE_READ_TOKEN: ${{ secrets.SMITHERS_CACHE_READ_TOKEN }}

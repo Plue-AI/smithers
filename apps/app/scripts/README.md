@@ -21,9 +21,13 @@ E2E harnesses, configs and RPC fixtures. It depends on the RPC, gateway and
 shared UI typechecks so the inspected package sources contribute their keys.
 The `browserE2e` target invokes `run-pr-e2e.mjs`, which installs Chromium, runs
 `test:e2e:auth`, `test:e2e:probes` and `test:e2e:graph-lifecycle`, then the
-offline Playwright, site and flow-graph suites. TestInventory admits a CI
+offline Playwright, showcase, site and flow-graph suites, serially: T1 and
+graph each rebuild `dist/`, the showcase serves T1's `dist/`, and T1, site and
+graph write `test-results/`. A failed Chromium install stops the wrapper; a
+failed suite does not stop the later ones, and the wrapper exits with the first
+failure's code. Each step prints its duration. The run takes ~22 min on
+ubuntu-latest under the target's 30m timeout. TestInventory admits a CI
 browser tier only from that runner's argv, never from a `package.json` alias.
-Any failed command stops the wrapper with a nonzero exit code.
 
 ## Launch checklist (`launch-checklist.ts`)
 

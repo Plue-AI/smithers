@@ -180,11 +180,13 @@ const conformance = Smithers.NodeTest({
  * Runs pinned Playwright and Bun browser OAuth tests, with no live provider
  * calls, the built smithers.sh landing and its AppIsland (e2e/site), and the
  * flow-graph tier: the app over a real control plane and a real engine on
- * localhost, with nothing intercepted (e2e/graph/README.md).
+ * localhost, with nothing intercepted (e2e/graph/README.md). The steps run
+ * serially (scripts/run-pr-e2e.mjs says why) in ~22 min on ubuntu-latest;
+ * 30m keeps 30% headroom inside the apps-e2e job's 70.
  */
 const browserE2e = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("scripts/run-pr-e2e.mjs")),
-  timeout: "20m",
+  timeout: "30m",
   srcs: [sources, componentSources, styleSources, harnessSources, suiteSources, ...buildConfigs,
     Smithers.file("playwright.config.ts"), Smithers.file("playwright.site.config.ts"), Smithers.file("playwright.graph.config.ts"),
     Smithers.file("playwright.showcase.config.ts"), Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml"),

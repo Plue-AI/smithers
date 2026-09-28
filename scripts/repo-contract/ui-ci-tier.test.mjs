@@ -8,7 +8,7 @@
  *
  * Run it with `node --test scripts/repo-contract/ui-ci-tier.test.mjs`.
  */
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import assert from "node:assert/strict"
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -63,17 +63,27 @@ describe("required PR selection", () => {
   })
 })
 
-it("the selected browser executable installs its matching browser then runs Playwright and propagates failure", () => {
+it("the selected browser executable installs its matching browser, runs every tier past a failure and propagates it", () => {
   const temporary = mkdtempSync(join(tmpdir(), "smithers-pr-browser-"))
+  // A pnpm that records its argv, exits 23 when the argv contains BROWSER_TEST_FAIL
+  // and 7 when it contains BROWSER_TEST_LATER_FAIL.
+  const run = (fail, laterFail = "no step matches this") => {
+    const calls = join(temporary, `calls-${fail}-${laterFail}`)
+    const result = spawnSync(process.execPath, [join(root, "apps/app/scripts/run-pr-e2e.mjs")], {
+      cwd: join(root, "apps/app"), env: { ...process.env, PATH: `${temporary}:${process.env.PATH}`, BROWSER_TEST_CALLS: calls, BROWSER_TEST_FAIL: fail, BROWSER_TEST_LATER_FAIL: laterFail }, stdio: "pipe"
+    })
+    return { status: result.status, calls: readFileSync(calls, "utf8").trim().split("\n") }
+  }
   try {
     const fake = join(temporary, "pnpm")
-    const calls = join(temporary, "calls")
-    writeFileSync(fake, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$BROWSER_TEST_CALLS"\nif [ "$3" = "test" ]; then exit 23; fi\n')
+    writeFileSync(fake, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$BROWSER_TEST_CALLS"\ncase "$*" in *"$BROWSER_TEST_FAIL"*) exit 23;; *"$BROWSER_TEST_LATER_FAIL"*) exit 7;; esac\n')
     chmodSync(fake, 0o755)
-    assert.throws(() => execFileSync(process.execPath, [join(root, "apps/app/scripts/run-pr-e2e.mjs")], {
-      cwd: join(root, "apps/app"), env: { ...process.env, PATH: `${temporary}:${process.env.PATH}`, BROWSER_TEST_CALLS: calls }, stdio: "pipe"
-    }), (error) => error.status === 23)
-    assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n"), ["exec playwright install --with-deps chromium", "run test:e2e:auth", "run test:e2e:probes", "run test:e2e:graph-lifecycle", "exec playwright test"])
+    const tiers = ["exec playwright install --with-deps chromium", "run test:e2e:auth", "run test:e2e:probes", "run test:e2e:graph-lifecycle", "exec playwright test",
+      "exec playwright test --config playwright.showcase.config.ts", "exec playwright test --config playwright.site.config.ts", "exec playwright test --config playwright.graph.config.ts"]
+    assert.deepEqual(run("test:e2e:auth"), { status: 23, calls: tiers }, "a red tier must not hide the later tiers")
+    assert.deepEqual(run("test:e2e:auth", "playwright.site.config.ts"), { status: 23, calls: tiers }, "the first red's code wins")
+    assert.deepEqual(run("install"), { status: 23, calls: tiers.slice(0, 1) }, "no tier runs without its browser")
+    assert.deepEqual(run("no step matches this"), { status: 0, calls: tiers })
   } finally { rmSync(temporary, { recursive: true, force: true }) }
 })
 
