@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- Reject sparse provider batches and vectors instead of returning incomplete embeddings.
 - Keyword recall scores every row of each selected bank. It read only the
   newest `requestedRows * 5` rows, so a bank with more than about 40 records
   lost recall of its older memories.

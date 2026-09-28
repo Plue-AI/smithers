@@ -72,18 +72,22 @@ const validate = (
   inputs: ReadonlyArray<string>,
   vectors: ReadonlyArray<ReadonlyArray<number>>
 ): Effect.Effect<EmbedManyResponse, MemoryError.MemoryError> => {
+  const invalid = () => Effect.fail(unavailable("embedding provider returned an invalid batch"))
   const dimensions = vectors[0]?.length
-  if (
-    vectors.length !== inputs.length ||
-    dimensions === 0 ||
-    vectors.some((vector) =>
-      vector.length !== dimensions ||
-      vector.some((value) => !Number.isFinite(value))
-    )
-  ) {
-    return Effect.fail(unavailable("embedding provider returned an invalid batch"))
+  if (vectors.length !== inputs.length || dimensions === undefined || dimensions === 0) return invalid()
+  const embeddings: Array<EmbedResponse> = []
+  // Array iterators visit missing slots, unlike some/map. Validate the same
+  // components that are copied so a sparse provider response cannot become data.
+  for (const vector of vectors) {
+    if (vector === undefined || vector.length !== dimensions) return invalid()
+    const values: Array<number> = []
+    for (const value of vector) {
+      if (!Number.isFinite(value)) return invalid()
+      values.push(value)
+    }
+    embeddings.push({ vector: values })
   }
-  return Effect.succeed({ embeddings: vectors.map((vector) => ({ vector: [...vector] })) })
+  return Effect.succeed({ embeddings })
 }
 
 /**
