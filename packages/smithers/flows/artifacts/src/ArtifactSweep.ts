@@ -246,9 +246,6 @@ export const makeFileSystem = (
       const checkParent = yield* ArtifactPath.guard(fs, `${directory}/${validated.slice(0, 2)}`).pipe(
         Effect.mapError(hostFailure)
       )
-      if (coordination === "required") {
-        yield* ArtifactPath.guard(fs, `${directory}/${ArtifactLocks.directoryName}`).pipe(Effect.mapError(hostFailure))
-      }
       return yield* ArtifactLocks.withDigest(
         fs,
         directory,

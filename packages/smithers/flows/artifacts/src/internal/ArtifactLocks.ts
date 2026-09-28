@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Semaphore from "effect/Semaphore"
 import * as FileLease from "../FileLease.ts"
+import * as ArtifactPath from "./ArtifactPath.ts"
 
 interface Entry {
   readonly semaphore: Semaphore.Semaphore
@@ -82,12 +83,20 @@ export const withDigest = <A, E, R, E2>(
     const coordinated = coordination === "process"
       ? Deferred.succeed(ready, undefined).pipe(Effect.andThen(effect))
       : Effect.gen(function*() {
+        // The lock directory is refused as a symlink before and after it is
+        // created, and its identity is re-checked before every lock-file
+        // mutation, so a swap of `.locks` for a link cannot redirect lock,
+        // claim, or tombstone writes and removals elsewhere. The portable
+        // filesystem cannot make a check atomic with the mutation after it.
         const lockDirectory = `${directory}/${directoryName}`
+        yield* ArtifactPath.guard(fs, lockDirectory).pipe(Effect.mapError(failure))
         yield* fs.makeDirectory(lockDirectory, { recursive: true, mode: 0o700 }).pipe(Effect.mapError(failure))
+        const checkLockDirectory = yield* ArtifactPath.guard(fs, lockDirectory).pipe(Effect.mapError(failure))
         return yield* FileLease.hold(fs, `${lockDirectory}/${digest}.lock`, effect, failure, {
           label: "Artifact lock",
           annotations: { digest },
-          onAcquired: Deferred.succeed(ready, undefined).pipe(Effect.asVoid)
+          onAcquired: Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
+          guard: checkLockDirectory
         })
       })
 

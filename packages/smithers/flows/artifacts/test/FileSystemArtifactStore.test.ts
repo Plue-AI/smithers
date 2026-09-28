@@ -946,6 +946,100 @@ describe("Node filesystem publication security", () => {
       })).pipe(Effect.provide(NodeFileSystem.layer), withCrypto))
   }
 
+  for (const entry of ["root", "fanout", "blob"] as const) {
+    it.live(`has, findMissing, and get refuse a planted ${entry} symlink instead of reporting a stored blob`, () =>
+      Effect.scoped(Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "artifacts-read-link-" })
+        const directory = `${root}/objects`
+        const outside = `${root}/outside`
+        const foreign = `${outside}/${digest.slice(0, 2)}/${digest}`
+        yield* fs.makeDirectory(`${outside}/${digest.slice(0, 2)}`, { recursive: true })
+        yield* fs.writeFileString(foreign, artifact)
+        yield* fs.makeDirectory(`${directory}/${digest.slice(0, 2)}`, { recursive: true })
+        if (entry === "root") {
+          yield* fs.remove(directory, { recursive: true })
+          yield* fs.symlink(outside, directory)
+        } else if (entry === "fanout") {
+          yield* fs.remove(`${directory}/${digest.slice(0, 2)}`, { recursive: true })
+          yield* fs.symlink(`${outside}/${digest.slice(0, 2)}`, `${directory}/${digest.slice(0, 2)}`)
+        } else {
+          yield* fs.symlink(foreign, `${directory}/${digest.slice(0, 2)}/${digest}`)
+        }
+        const artifacts = ArtifactStore.makeFileSystem(fs, hostPath, { directory })
+        for (
+          const exit of [
+            yield* artifacts.has(digest).pipe(Effect.exit),
+            yield* artifacts.findMissing([digest]).pipe(Effect.exit),
+            yield* artifacts.get(digest).pipe(Effect.exit)
+          ]
+        ) {
+          expect(errorOf(exit), JSON.stringify(exit)).toMatchObject({ code: "unavailable" })
+        }
+      })).pipe(Effect.provide(NodeFileSystem.layer), withCrypto))
+  }
+
+  it.live("refuses a .locks directory swapped for a symlink right after it is created", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "artifacts-locks-swap-" })
+      const directory = `${root}/objects`
+      const outside = `${root}/outside`
+      yield* fs.makeDirectory(outside)
+      const lockWrites: Array<string> = []
+      const hostile = {
+        ...fs,
+        makeDirectory: (path: string, options?: Parameters<typeof fs.makeDirectory>[1]) =>
+          Effect.gen(function*() {
+            yield* fs.makeDirectory(path, options)
+            if (path === `${directory}/.locks`) {
+              yield* fs.rename(path, `${path}-saved`)
+              yield* fs.symlink(outside, path)
+            }
+          }),
+        writeFileString: (path: string, data: string, options?: Parameters<typeof fs.writeFileString>[2]) =>
+          Effect.suspend(() => {
+            lockWrites.push(path)
+            return fs.writeFileString(path, data, options)
+          })
+      }
+      const exit = yield* ArtifactStore.makeFileSystem(hostile, hostPath, { directory }).put(bytes(artifact)).pipe(
+        Effect.exit
+      )
+      expect(errorOf(exit), JSON.stringify(exit)).toMatchObject({ code: "unavailable" })
+      expect(lockWrites).toEqual([])
+      expect(yield* fs.readDirectory(outside)).toEqual([])
+    })).pipe(Effect.provide(NodeFileSystem.layer), withCrypto))
+
+  it.live("refuses to release a lock through a .locks directory swapped for a symlink while held", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "artifacts-locks-held-swap-" })
+      const directory = `${root}/objects`
+      const outside = `${root}/outside`
+      const locks = `${directory}/.locks`
+      yield* fs.makeDirectory(outside)
+      const hostile = {
+        ...fs,
+        rename: (from: string, to: string) =>
+          Effect.gen(function*() {
+            yield* fs.rename(from, to)
+            if (from.includes(".tmp-")) {
+              // A racing writer swaps `.locks` for a link to a directory holding
+              // a file with the holder's name and owner token.
+              yield* fs.copyFile(`${locks}/${digest}.lock`, `${outside}/${digest}.lock`)
+              yield* fs.rename(locks, `${locks}-saved`)
+              yield* fs.symlink(outside, locks)
+            }
+          })
+      }
+      const exit = yield* ArtifactStore.makeFileSystem(hostile, hostPath, { directory }).put(bytes(artifact)).pipe(
+        Effect.exit
+      )
+      expect(errorOf(exit), JSON.stringify(exit)).toMatchObject({ code: "unavailable" })
+      expect(yield* fs.readDirectory(outside)).toEqual([`${digest}.lock`])
+    })).pipe(Effect.provide(NodeFileSystem.layer), withCrypto))
+
   for (const entry of ["root", "fanout"] as const) {
     it.live(`refuses ${entry} replacement after writing and before rename`, () =>
       Effect.scoped(Effect.gen(function*() {

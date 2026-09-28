@@ -74,6 +74,13 @@ export interface Options {
 export interface HoldOptions extends Omit<Options, "acquireWithin"> {
   /** Runs once, the moment the lease is held and before `effect` starts. */
   readonly onAcquired?: Effect.Effect<void> | undefined
+  /**
+   * Runs before every create, heartbeat, rename, and remove of the lock, its
+   * claim, or its tombstone. A failure refuses that step through `failure`,
+   * so a caller can re-check that the lock directory was not replaced (for
+   * example by a symlink) after it was created.
+   */
+  readonly guard?: Effect.Effect<void, unknown> | undefined
 }
 
 /**
@@ -135,6 +142,10 @@ export const hold = <A, E, R, E2>(
      */
     let acquired = false
 
+    const guard = options.guard === undefined ? Effect.void : options.guard.pipe(Effect.mapError(failure))
+    const guarded = <B, F, S>(mutation: Effect.Effect<B, F, S>): Effect.Effect<B, F | E2, S> =>
+      Effect.andThen(guard, mutation)
+
     const statIfPresent = (path: string): Effect.Effect<Option.Option<FileSystem.File.Info>, E2> =>
       fs.stat(path).pipe(
         Effect.map(Option.some),
@@ -178,14 +189,14 @@ export const hold = <A, E, R, E2>(
 
     const removeIfOwnedBy = (path: string, expected: string): Effect.Effect<void> =>
       fs.readFileString(path).pipe(
-        Effect.flatMap((found) => found === expected ? fs.remove(path) : Effect.void),
+        Effect.flatMap((found) => found === expected ? guarded(fs.remove(path)) : Effect.void),
         Effect.ignore
       )
 
     const acquire = Effect.gen(function*() {
       while (true) {
         const created = yield* Effect.uninterruptible(
-          fs.writeFileString(lockPath, owner, { flag: "wx", mode: 0o600 }).pipe(
+          guarded(fs.writeFileString(lockPath, owner, { flag: "wx", mode: 0o600 })).pipe(
             Effect.andThen(Effect.sync(() => {
               acquired = true
               return true
@@ -225,7 +236,7 @@ export const hold = <A, E, R, E2>(
     const reclaim = (observed: string): Effect.Effect<boolean, E2> => {
       const claimPath = `${lockPath}.reclaim-${observed.replace(/[^0-9A-Za-z-]/g, "_").slice(0, 96)}`
       return Effect.acquireUseRelease(
-        fs.writeFileString(claimPath, owner, { flag: "wx", mode: 0o600 }).pipe(
+        guarded(fs.writeFileString(claimPath, owner, { flag: "wx", mode: 0o600 })).pipe(
           Effect.as(true),
           Effect.catch((cause): Effect.Effect<boolean, E2> =>
             isReason(cause, "AlreadyExists") ? Effect.succeed(false) : Effect.fail(failure(cause))
@@ -245,7 +256,7 @@ export const hold = <A, E, R, E2>(
             const current = yield* observe(lockPath)
             if (Option.isNone(current) || current.value !== observed || !(yield* isStale(lockPath))) return true
             const tombstone = `${lockPath}.stale-${owner}`
-            const moved = yield* fs.rename(lockPath, tombstone).pipe(
+            const moved = yield* guarded(fs.rename(lockPath, tombstone)).pipe(
               Effect.as(true),
               Effect.catch((cause): Effect.Effect<boolean, E2> =>
                 isReason(cause, "NotFound") ? Effect.succeed(false) : Effect.fail(failure(cause))
@@ -260,9 +271,11 @@ export const hold = <A, E, R, E2>(
             if (
               Option.isSome(displaced) && displaced.value !== observed && displaced.value !== directoryGeneration
             ) {
-              yield* fs.writeFileString(lockPath, displaced.value, { flag: "wx", mode: 0o600 }).pipe(Effect.ignore)
+              yield* guarded(fs.writeFileString(lockPath, displaced.value, { flag: "wx", mode: 0o600 })).pipe(
+                Effect.ignore
+              )
             }
-            yield* fs.remove(tombstone, { recursive: true }).pipe(Effect.ignore)
+            yield* guarded(fs.remove(tombstone, { recursive: true })).pipe(Effect.ignore)
             return true
           }),
         (claimed) => claimed ? removeIfOwnedBy(claimPath, owner) : Effect.void
@@ -270,7 +283,7 @@ export const hold = <A, E, R, E2>(
     }
 
     const release = fs.readFileString(lockPath).pipe(
-      Effect.flatMap((found) => found === owner ? fs.remove(lockPath) : Effect.void),
+      Effect.flatMap((found) => found === owner ? guarded(fs.remove(lockPath)) : Effect.void),
       // A concurrent stale-lock reaper can win release. `NotFound`
       // means no lock remains for this owner to release or leak.
       Effect.catch((cause): Effect.Effect<void, E2> =>
@@ -304,7 +317,7 @@ export const hold = <A, E, R, E2>(
               )
               if (beat === "own") {
                 const timestamp = new Date(yield* Clock.currentTimeMillis)
-                yield* Effect.ignore(fs.utimes(lockPath, timestamp, timestamp))
+                yield* Effect.ignore(guarded(fs.utimes(lockPath, timestamp, timestamp)))
                 continue
               }
               // A read the host refused for any other reason is no evidence

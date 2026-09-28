@@ -110,6 +110,11 @@ use the memory or remote tier until the host supplies them.
 
 Publication and sweep removal reject detected symlinks at the objects root,
 fanout, and blob paths, and recheck directory identities before mutation.
+Reads and probes (`get`, `has`, `findMissing`) refuse the same symlinks as
+`unavailable` instead of following them, so a planted link is never reported
+as a stored blob. The `.locks` directory is refused as a symlink before and
+after creation, and its identity is rechecked before every lock, claim, and
+tombstone mutation.
 Scratch cleanup and inventory inspect one directory level at a time and skip
 symlinked entries. The portable Effect filesystem API provides no `lstat`,
 no-follow open, or descriptor-relative rename/unlink. Inspection uses

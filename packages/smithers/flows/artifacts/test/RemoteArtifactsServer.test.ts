@@ -219,6 +219,82 @@ const onTier = <A>(
     }
   })
 
+/** Answers every request with a redirect to `location`. */
+const startRedirector = (location: string): Promise<Tier> =>
+  new Promise((resolve) => {
+    const requests: Array<string> = []
+    const server = createServer((request, response) => {
+      requests.push(`${request.method} ${request.url}`)
+      response.writeHead(302, { location }).end()
+    })
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      resolve({
+        port: typeof address === "object" && address !== null ? address.port : 0,
+        requests,
+        stored: () => undefined,
+        resumeUploads: () => {},
+        close: () =>
+          new Promise((closed) => {
+            server.closeAllConnections()
+            server.close(() => closed())
+          })
+      })
+    })
+  })
+
+/** Records every request and the credential header it carried. */
+const startCollector = (): Promise<
+  { readonly port: number; readonly seen: Array<string>; close: () => Promise<void> }
+> =>
+  new Promise((resolve) => {
+    const seen: Array<string> = []
+    const server = createServer((request, response) => {
+      seen.push(`${request.method} ${String(request.headers["x-cache-token"])}`)
+      response.writeHead(200).end()
+    })
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      resolve({
+        port: typeof address === "object" && address !== null ? address.port : 0,
+        seen,
+        close: () =>
+          new Promise((closed) => {
+            server.closeAllConnections()
+            server.close(() => closed())
+          })
+      })
+    })
+  })
+
+describe("redirects", () => {
+  it("never follows a 3xx to another origin, so credential headers stay with the tier", async () => {
+    const collector = await startCollector()
+    const tier = await startRedirector(`http://127.0.0.1:${collector.port}/steal`)
+    try {
+      const store = Effect.provide(
+        RemoteArtifacts.make({ endpoint: "https://cas.test", headers: { "x-cache-token": "secret" } }),
+        transport(tier.port)
+      )
+      for (
+        const operation of [
+          Effect.flatMap(store, (tiered) => Effect.asVoid(tiered.get(digest))),
+          Effect.flatMap(store, (tiered) => Effect.asVoid(tiered.has(digest))),
+          Effect.flatMap(store, (tiered) => Effect.asVoid(tiered.put(payload)))
+        ]
+      ) {
+        const exit = await Effect.runPromise(Effect.exit(withCrypto(operation)))
+        expect(exit._tag).toBe("Failure")
+      }
+      expect(tier.requests.length).toBeGreaterThan(0)
+      expect(collector.seen).toEqual([])
+    } finally {
+      await tier.close()
+      await collector.close()
+    }
+  })
+})
+
 describe("a real server", () => {
   it("resumes an interrupted chunked upload from the prefix the server kept", () =>
     onTier({ _tag: "Accept", failAfterChunks: 1 }, async (tier) => {

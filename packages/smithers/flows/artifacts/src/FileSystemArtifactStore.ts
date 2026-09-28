@@ -257,11 +257,6 @@ export const makeFileSystem = (
               Effect.mapError(hostFailure)
             )
             const checkRoot = yield* ArtifactPath.guard(fs, directory).pipe(Effect.mapError(hostFailure))
-            if (coordination === "required") {
-              yield* ArtifactPath.guard(fs, `${directory}/${ArtifactLocks.directoryName}`).pipe(
-                Effect.mapError(hostFailure)
-              )
-            }
             return yield* ArtifactLocks.withDigest(
               fs,
               directory,
@@ -387,11 +382,31 @@ export const makeFileSystem = (
     )
   )
 
+  /**
+   * Refuses a symlinked or wrong-typed objects directory, fanout, or blob
+   * before a read or probe follows it. The digest check alone guards `get`'s
+   * bytes, but `has` would otherwise report a planted foreign link as a stored
+   * blob and let a publication skip its upload. The returned check re-inspects
+   * all three and refuses an observed replacement.
+   */
+  const guardBlob = (blob: { readonly parent: string; readonly path: string }) =>
+    Effect.gen(function*() {
+      const checkRoot = yield* ArtifactPath.guard(fs, directory)
+      const checkParent = yield* ArtifactPath.guard(fs, blob.parent)
+      const checkFile = yield* ArtifactPath.guard(fs, blob.path, "File")
+      return Effect.gen(function*() {
+        yield* checkRoot
+        yield* checkParent
+        yield* checkFile
+      }).pipe(Effect.mapError(hostFailure))
+    }).pipe(Effect.mapError(hostFailure))
+
   const get: Service["get"] = Effect.fn("ArtifactStore.get")((digest: string) =>
     Effect.gen(function*() {
       const validated = yield* validateDigest(digest)
       yield* Effect.annotateCurrentSpan({ digest: validated })
       const blob = fanout(directory, validated)
+      const checkBlob = yield* guardBlob(blob)
       const bytes = yield* fs.readFile(blob.path).pipe(
         Effect.catch((cause): Effect.Effect<Uint8Array, ArtifactMissing | ArtifactStoreError> => {
           const missing = new ArtifactMissing({ code: "artifact_missing", digest: validated })
@@ -404,6 +419,7 @@ export const makeFileSystem = (
           )
         })
       )
+      yield* checkBlob
       const measured = yield* measureBytes(bytes)
       if (measured !== validated) {
         return yield* Effect.fail(
@@ -423,7 +439,9 @@ export const makeFileSystem = (
     Effect.gen(function*() {
       const validated = yield* validateDigest(digest)
       yield* Effect.annotateCurrentSpan({ digest: validated })
-      return yield* fs.exists(fanout(directory, validated).path).pipe(Effect.mapError(hostFailure))
+      const blob = fanout(directory, validated)
+      yield* guardBlob(blob)
+      return yield* fs.exists(blob.path).pipe(Effect.mapError(hostFailure))
     })
   )
 

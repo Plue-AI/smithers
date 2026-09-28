@@ -293,6 +293,7 @@ describe("uploads", () => {
     "https://user:secret@cache.example.com",
     "https://cache.example.com?tenant=one",
     "https://cache.example.com#fragment",
+    "http://cache.localhost:8080",
     "not a URL"
   ])("refuses unsafe endpoint %s before sending credentials", (endpoint) =>
     Effect.gen(function*() {
@@ -306,7 +307,7 @@ describe("uploads", () => {
     }))
 
   it.effect.each(["http://127.0.0.1:8080", "http://localhost:8080/cache", "http://[::1]:8080"])(
-    "accepts plain HTTP to loopback %s, as the step cache does",
+    "accepts plain HTTP to literal loopback %s",
     (endpoint) =>
       Effect.gen(function*() {
         const tier = remote(() => new Response(null, { status: 404 }), { endpoint })

@@ -74,7 +74,7 @@ left the process. Every message names the violated rule and nothing else.
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `invalid remote artifact option: endpoint`                                      | The endpoint is not a string.                                                                                      |
 | `invalid remote artifact endpoint`                                              | No `URL` parser accepts it.                                                                                        |
-| `remote artifact endpoint must use HTTPS`                                       | The scheme is not `https:`, and the host is not loopback (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`).       |
+| `remote artifact endpoint must use HTTPS`                                       | The scheme is not `https:`, and the host is not literal loopback (`localhost`, `127.0.0.1`, `[::1]`).              |
 | `remote artifact endpoint must not contain credentials, a query, or a fragment` | The endpoint carries userinfo, `?`, or `#`.                                                                        |
 | `invalid remote artifact option: options`                                       | A header name is not an HTTP token, or a header value is not a string, exceeds 16 KiB, or has a control character. |
 | `invalid remote artifact option: <name>`                                        | A deadline, `maxDownloadBytes`, `maxFindMissingResponseBytes`, `chunkBytes`, or `downloadPolicy` is out of range.  |

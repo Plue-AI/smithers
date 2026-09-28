@@ -25,11 +25,22 @@ const fileInfo = (mtime: Date) =>
     size: BigInt(0)
   }) as FileSystem.File.Info
 
+const directoryInfo = {
+  type: "Directory",
+  mtime: Option.none(),
+  size: BigInt(0),
+  dev: 1,
+  ino: Option.some(1)
+} as unknown as FileSystem.File.Info
+
+/** Answers the lock directory's own identity check; `overrides.stat` scripts the lock files. */
+const isLockDirectory = (path: string): boolean => path.endsWith(`/${ArtifactLocks.directoryName}`)
+
 const host = (overrides: Partial<FileSystem.FileSystem> = {}) => {
   let owner = ""
   let removes = 0
   let heartbeats = 0
-  const fs = FileSystem.makeNoop({
+  let fs = FileSystem.makeNoop({
     makeDirectory: (() => Effect.void) as never,
     writeFileString: ((_path: string, value: string) =>
       Effect.sync(() => {
@@ -48,6 +59,11 @@ const host = (overrides: Partial<FileSystem.FileSystem> = {}) => {
       })) as never,
     ...overrides
   })
+  const stat = fs.stat
+  fs = {
+    ...fs,
+    stat: ((path: string) => isLockDirectory(path) ? Effect.succeed(directoryInfo) : stat(path)) as never
+  }
   return { fs, owner: () => owner, removes: () => removes, heartbeats: () => heartbeats }
 }
 

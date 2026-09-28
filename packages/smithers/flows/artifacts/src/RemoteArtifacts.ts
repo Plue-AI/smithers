@@ -59,6 +59,7 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as Headers from "effect/unstable/http/Headers"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -127,8 +128,8 @@ export interface Options {
    * Four shapes are refused at construction as `invalid_configuration`, before
    * any request leaves and therefore before `headers` can reach a wire: a value
    * that is not a string, one no `URL` parser accepts, a scheme other than
-   * `https:` (plain `http:` is accepted only for a loopback host: `localhost`,
-   * `*.localhost`, `127.0.0.1`, or `[::1]`), and an endpoint carrying
+   * `https:` (plain `http:` is accepted only for the literal loopback hosts
+   * `localhost`, `127.0.0.1`, and `[::1]`), and an endpoint carrying
    * userinfo, a query, or a fragment. The
    * last rule keeps a credential out of a place nothing here would redact: an
    * endpoint is interpolated into every request path and into span attributes.
@@ -365,11 +366,13 @@ export const make = (
       try: () => new URL(configured.endpoint),
       catch: () => configurationFailure("invalid remote artifact endpoint")
     })
-    // The loopback exemption is the step cache's (`RemoteCacheStore`): a
-    // self-hosted cache on this machine is reachable over plain HTTP, and
-    // loopback traffic never leaves the host.
-    const loopback = endpoint.hostname === "localhost" || endpoint.hostname.endsWith(".localhost") ||
-      endpoint.hostname === "127.0.0.1" || endpoint.hostname === "[::1]"
+    // A self-hosted cache on this machine is reachable over plain HTTP, and
+    // loopback traffic never leaves the host. Only literal loopback names are
+    // exempt: a `*.localhost` name reaches loopback only on a resolver that
+    // follows RFC 6761, and one that forwards it to DNS would carry the
+    // credential headers over plaintext to whatever host answers.
+    const loopback = endpoint.hostname === "localhost" || endpoint.hostname === "127.0.0.1" ||
+      endpoint.hostname === "[::1]"
     if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
       return yield* Effect.fail(configurationFailure("remote artifact endpoint must use HTTPS"))
     }
@@ -401,7 +404,16 @@ export const make = (
     // a digest read back out of a durable row.
     const casUrl = (digest: ArtifactStore.Digest) => `${base}/cas/${digest}`
     const scopedClient = HttpClient.withScope(client)
-    /** Keep body processing inside the exchange; abort unused responses on every exit. */
+    /**
+     * Keep body processing inside the exchange; abort unused responses on every exit.
+     *
+     * Redirects are never followed. A fetch-based client follows them by
+     * default and strips only `Authorization` on a cross-origin hop, so a
+     * tier answering `3xx` would otherwise receive the credential headers at
+     * another origin or over plain HTTP. Manual mode hands the `3xx` back,
+     * where it is an unexpected status (or, for `308`, the resumable-upload
+     * answer this protocol already speaks).
+     */
     const send = <A, E, R>(
       operation: string,
       request: HttpClientRequest.HttpClientRequest,
@@ -409,7 +421,12 @@ export const make = (
     ): Effect.Effect<A, E | ArtifactStore.ArtifactStoreError, R> =>
       Effect.gen(function*() {
         const redactedNames = yield* Headers.CurrentRedactedNames
+        const requestInit = yield* Effect.serviceOption(FetchHttpClient.RequestInit)
         return yield* scopedClient.execute(request).pipe(
+          Effect.provideService(FetchHttpClient.RequestInit, {
+            ...Option.getOrUndefined(requestInit),
+            redirect: "manual"
+          }),
           Effect.mapError((cause) => transportFailure(operation, cause)),
           Effect.flatMap(use),
           Effect.provideService(Headers.CurrentRedactedNames, [...redactedNames, ...credentialNames]),

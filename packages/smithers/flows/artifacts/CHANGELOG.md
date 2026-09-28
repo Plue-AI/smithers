@@ -7,6 +7,15 @@
 - The filesystem store syncs the real ancestors of a Windows drive directory.
   Breaking: `makeFileSystem(fs, path, options)` takes the host `Path`, and
   `layerFileSystem` requires `Path.Path` (`NodePath.layer` on Node) (#2302).
+- The filesystem store's `get`, `has`, and `findMissing` refuse a symlinked
+  objects root, fanout, or blob as `unavailable` instead of following it.
+- Artifact locks refuse a symlinked `.locks` directory before and after
+  creating it and recheck its identity before every lock-file mutation;
+  `FileLease.hold` takes a `guard` option for that check.
+- `RemoteArtifacts` never follows redirects (fetch runs with
+  `redirect: "manual"`), and allows plain `http:` only for the literal
+  loopback hosts `localhost`, `127.0.0.1`, and `[::1]`. Breaking: an
+  `http://*.localhost` endpoint is refused.
 
 ## [1.0.0-rc.0] - 2026-08-31
 
