@@ -1,9 +1,12 @@
 """Exercise the boundary gate against real source and Go dependency graphs."""
 
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("boundaries", Path(__file__).with_name("check-go-boundaries.py"))
 boundaries = importlib.util.module_from_spec(spec)
@@ -104,6 +107,50 @@ class BoundaryTests(unittest.TestCase):
         self.write("apps/backend/main.go", "package main\nfunc main() {}\n")
         self.assertEqual(boundaries.source_imports(self.root), [])
         self.assertEqual(boundaries.local_graph(self.root), [])
+
+    def test_transitive_testkit_is_rejected_at_root_and_subpackage(self):
+        self.write("go.mod", "module github.com/smithersai/smithers\n\ngo 1.26.8\n")
+        for suffix in ("", "/fixtures"):
+            with self.subTest(suffix=suffix):
+                self.write(f"packages/backend/testkit{suffix}/fixture.go", "package fixture\n")
+                self.write("packages/adapter/adapter.go", f'package adapter\nimport _ "github.com/smithersai/smithers/packages/backend/testkit{suffix}"\n')
+                self.write("apps/backend/main.go", 'package main\nimport _ "github.com/smithersai/smithers/packages/adapter"\nfunc main() {}\n')
+                self.assertEqual(boundaries.local_graph(self.root), ["default backend imports testkit"])
+
+    def test_main_source_only_never_runs_dependency_resolution(self):
+        for failures in ([], ["source import is forbidden", "private schema restored"]):
+            with self.subTest(failures=failures):
+                out, err = io.StringIO(), io.StringIO()
+                with patch.object(boundaries, "source_imports", return_value=failures) as source:
+                    with patch.object(boundaries, "local_graph", side_effect=AssertionError("source-only must not run Go")) as graph:
+                        with patch.object(boundaries.sys, "argv", ["check-go-boundaries.py", "--source-only"]):
+                            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                                result = boundaries.main()
+                source.assert_called_once_with()
+                graph.assert_not_called()
+                self.assertEqual(result, 1 if failures else 0)
+                self.assertEqual(out.getvalue(), "" if failures else "Go import boundaries are clean\n")
+                self.assertEqual(err.getvalue(), "\n".join(failures) + "\n" if failures else "")
+
+    def test_main_reports_both_source_and_dependency_failures(self):
+        for source_failures, graph_failures, expected in (
+            ([], [], ""),
+            (["source refusal"], [], "source refusal\n"),
+            ([], ["graph refusal"], "graph refusal\n"),
+            (["source refusal"], ["graph refusal"], "source refusal\ngraph refusal\n"),
+        ):
+            with self.subTest(source=source_failures, graph=graph_failures):
+                out, err = io.StringIO(), io.StringIO()
+                with patch.object(boundaries, "source_imports", return_value=list(source_failures)) as source:
+                    with patch.object(boundaries, "local_graph", return_value=graph_failures) as graph:
+                        with patch.object(boundaries.sys, "argv", ["check-go-boundaries.py"]):
+                            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                                result = boundaries.main()
+                source.assert_called_once_with()
+                graph.assert_called_once_with()
+                self.assertEqual(result, 1 if expected else 0)
+                self.assertEqual(err.getvalue(), expected)
+                self.assertEqual(out.getvalue(), "" if expected else "Go import boundaries are clean\n")
 
 
 if __name__ == "__main__":

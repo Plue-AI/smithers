@@ -92,14 +92,22 @@ def read_overlays(path: str | None) -> dict[str, tuple[set[str], str]]:
     if path is None:
         return {}
     manifest = json.loads(Path(path).read_text())
-    if manifest.get("version") != 1 or not isinstance(manifest.get("objects"), list):
+    if (not isinstance(manifest, dict) or type(manifest.get("version")) is not int
+            or manifest["version"] != 1 or not isinstance(manifest.get("objects"), list)):
         raise RuntimeError("invalid private overlay manifest")
     overlays: dict[str, tuple[set[str], str]] = {}
     for entry in manifest["objects"]:
-        name, hashes = entry["object"], entry["sha256"]
-        if name in overlays or entry["disposition"] not in {"private", "obsolete"} or not hashes:
+        if not isinstance(entry, dict):
+            raise RuntimeError("invalid private overlay entry")
+        name, hashes, disposition = entry.get("object"), entry.get("sha256"), entry.get("disposition")
+        if not isinstance(name, str) or not name:
+            raise RuntimeError("invalid private overlay object name")
+        if (name in overlays or not isinstance(disposition, str)
+                or disposition not in {"private", "obsolete"}
+                or not isinstance(hashes, list) or not hashes
+                or any(not isinstance(value, str) or not value for value in hashes)):
             raise RuntimeError(f"invalid private overlay: {name}")
-        overlays[name] = (set(hashes), entry["disposition"])
+        overlays[name] = (set(hashes), disposition)
     return overlays
 
 
@@ -176,7 +184,9 @@ def existing_versions(actual: dict, snapshots: list[tuple[int, str, dict]]) -> t
     for version, checksum, changed in snapshots:
         matches = {key for key, definition in changed.items() if key in actual
                    and comparable(actual[key], key[1]) == comparable(definition, key[1])}
-        if len(matches) == len(changed):
+        # A data-only or removal-only migration leaves no positive schema
+        # evidence. Keep it pending rather than infer that it already ran.
+        if changed and len(matches) == len(changed):
             recognized.append((version, checksum))
             later.update(changed)
         elif matches:
@@ -245,6 +255,7 @@ def main() -> int:
     try:
         if args.baseline_url == args.target_url:
             raise RuntimeError("baseline and target databases must differ")
+        overlays = read_overlays(args.overlays)
         baseline_version = int(sql(args.baseline_url, "SHOW server_version_num")) // 10000
         target_version = int(sql(args.target_url, "SHOW server_version_num")) // 10000
         if baseline_version != target_version:
@@ -255,7 +266,7 @@ def main() -> int:
         existing, later, partial = existing_versions(actual, snapshots)
         checksum = hashlib.sha256(BASELINE.read_bytes()).hexdigest()
         checksums = {1: checksum, **{version: digest for version, digest, _ in snapshots}}
-        drift = (product_drift(expected, actual, read_overlays(args.overlays), later)
+        drift = (product_drift(expected, actual, overlays, later)
                  + partial + ledger_drift(args.target_url, checksums))
         drift.sort(key=lambda item: (item["object"], item["reason"]))
         if args.apply and not drift:

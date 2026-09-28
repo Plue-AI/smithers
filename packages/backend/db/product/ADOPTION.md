@@ -7,6 +7,10 @@ never changed by adoption; `migrate apply` runs the remaining versions in
 order. Plue's private overlay manifest pins the definitions of private
 triggers, constraints, and legacy columns attached to product tables.
 
+Migrations with no added or changed schema objects, including data-only updates
+and removal-only migrations, stay pending because a schema dump cannot prove
+they ran. They must be safe to rerun when `migrate apply` follows adoption.
+
 1. Complete and verify a database backup.
 2. Create an **empty scratch database on the same PostgreSQL major version** as
    the target. The tool installs the checked-in baseline there.
