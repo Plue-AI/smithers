@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,12 +29,7 @@ const (
 	defaultWorkflowSandboxSchedulerInterval = 5 * time.Second
 	defaultWorkflowSandboxSchedulerClaim    = int32(5)
 
-	defaultWorkflowSandboxVCPUCount = int32(2)
-	defaultWorkflowSandboxMemoryMB  = int32(4096)
-	defaultWorkflowSandboxRootfsMB  = int64(2048)
-	defaultWorkflowSandboxTimeout   = 10 * time.Minute
-	maxWorkflowSandboxTimeout       = 30 * time.Minute
-	workflowSandboxFinalizeTimeout  = 15 * time.Second
+	workflowSandboxFinalizeTimeout = 15 * time.Second
 	// Claims expire after two minutes in SQL. Refresh every 30 seconds so a
 	// healthy worker has several chances to renew through a transient database
 	// error, while a crashed worker becomes reclaimable promptly.
@@ -44,26 +38,7 @@ const (
 	// absorbs ordinary clock skew and response latency so a replacement worker
 	// cannot reclaim the row while the previous sandbox is still executing.
 	workflowSandboxClaimExpirySafetyMargin = 5 * time.Second
-	// workflowSandboxDeleteTimeout bounds the best-effort VM teardown so a hung
-	// sandbox provider DeleteSandbox cannot block the delete goroutine forever.
-	workflowSandboxDeleteTimeout = 30 * time.Second
-	// workflowSandboxIdleTimeoutSeconds is a leak backstop: if the scheduler pod
-	// crashes between CreateSandbox and the deferred DeleteSandbox, sandbox provider reclaims the
-	// idle VM on its own. It sits safely ABOVE maxWorkflowSandboxTimeout so it can
-	// never reap a run that is still within its own execution budget.
-	workflowSandboxIdleTimeoutSeconds = int64((maxWorkflowSandboxTimeout + 10*time.Minute) / time.Second)
-	defaultWorkflowSandboxService     = "smithers-workflow"
-	defaultWorkflowSandboxWorkdir     = "/workspace/repo"
-	defaultWorkflowSandboxRunnerSH    = "/opt/smithers/run-workflow.sh"
 )
-
-var defaultWorkflowSandboxPackages = []string{"git", "curl", "jj", "nodejs_26"}
-var defaultWorkflowSandboxRegistries = []string{
-	"registry.npmjs.org",
-	"registry.yarnpkg.com",
-	"pypi.org",
-	"files.pythonhosted.org",
-}
 
 // WorkflowSandboxSchedulerQuerier is the DB contract needed by the sandbox scheduler.
 type WorkflowSandboxSchedulerQuerier interface {
@@ -71,12 +46,7 @@ type WorkflowSandboxSchedulerQuerier interface {
 	RenewWorkflowSandboxClaim(ctx context.Context, arg runtimeports.RenewWorkflowSandboxClaimParams) (pgtype.Timestamptz, error)
 	MarkWorkflowRunSuccess(ctx context.Context, arg runtimeports.MarkWorkflowRunSuccessParams) (db.WorkflowRun, error)
 	MarkWorkflowRunFailure(ctx context.Context, arg runtimeports.MarkWorkflowRunFailureParams) (db.WorkflowRun, error)
-	// ResumeWorkflowRun flips a cancelled/failure run back to queued. The
-	// scheduler uses it only to requeue a run whose sandbox create was
-	// refused for fleet capacity; terminal semantics are unchanged otherwise.
-	ResumeWorkflowRun(ctx context.Context, id int64) error
 
-	GetWorkflowDefinition(ctx context.Context, arg db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error)
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 	GetOrgByID(ctx context.Context, id int64) (db.Organization, error)
@@ -84,7 +54,6 @@ type WorkflowSandboxSchedulerQuerier interface {
 
 	CancelWorkflowTasks(ctx context.Context, workflowRunID int64) error
 
-	ListWorkflowStepsByRunID(ctx context.Context, runID int64) ([]db.WorkflowStep, error)
 	// NixOS CI plane: a sandbox-plane run that carries a rendered job graph
 	// runs each job in its own kind=vm guest (see workflow_nix_ci.go).
 	ListTaskStepInfoForRun(ctx context.Context, workflowRunID int64) ([]db.ListTaskStepInfoForRunRow, error)
@@ -93,7 +62,6 @@ type WorkflowSandboxSchedulerQuerier interface {
 	MarkWorkflowTaskTerminalByID(ctx context.Context, arg db.MarkWorkflowTaskTerminalByIDParams) (int64, error)
 	UnblockWorkflowTask(ctx context.Context, id int64) error
 	SkipBlockedWorkflowTask(ctx context.Context, id int64) error
-	CreateWorkflowStep(ctx context.Context, arg db.CreateWorkflowStepParams) (db.WorkflowStep, error)
 	UpdateWorkflowStepStatusRunning(ctx context.Context, stepID int64) (int64, error)
 	UpdateWorkflowStepStatusTerminal(ctx context.Context, arg db.UpdateWorkflowStepStatusTerminalParams) (int64, error)
 
@@ -117,10 +85,9 @@ type WorkflowSandboxVMClient interface {
 type WorkflowSandboxSchedulerOption func(*WorkflowSandboxSchedulerWorker)
 
 // WorkflowSandboxSchedulerWorker claims queued sandbox-plane workflow runs
-// (workflow_runs.execution_plane = 'sandbox') and executes them whole inside
-// sandbox provider VMs. ClaimQueuedWorkflowRuns enforces the plane filter
-// atomically, so runner-plane CI runs and agent-plane runs are never claimed
-// here even while their tasks sit pending for the gVisor runner.
+// (workflow_runs.execution_plane = 'sandbox') and runs each CI job in its
+// own NixOS kind=vm guest. ClaimQueuedWorkflowRuns enforces the plane filter
+// atomically, so agent-plane and flow-plane runs are never claimed here.
 type WorkflowSandboxSchedulerWorker struct {
 	queries  WorkflowSandboxSchedulerQuerier
 	sandbox  WorkflowSandboxVMClient
@@ -128,26 +95,15 @@ type WorkflowSandboxSchedulerWorker struct {
 	interval time.Duration
 	limit    int32
 
-	timeout         time.Duration
 	finalizeTimeout time.Duration
 	claimHeartbeat  time.Duration
-	vcpuCount       int32
-	memoryMB        int32
-	rootfsSizeMB    int64
 
-	apiBaseURL      string
-	gitBaseURL      string
-	secretInjector  *SecretInjector
-	allowedRegistry []string
-	apiGatewayURL   string
-
-	// cliPackage and jjExport are the npm CLI archive and native jj helper
-	// every orchestrator VM receives; the runner script requires both.
-	cliPackage string
-	jjExport   string
+	apiBaseURL     string
+	gitBaseURL     string
+	secretInjector *SecretInjector
 
 	// ciGuests builds the kind=vm NixOS guest request for a CI task. Unset,
-	// every sandbox-plane run falls back to the whole-workflow orchestrator VM.
+	// every sandbox-plane run fails.
 	ciGuests WorkflowCIGuestProvisioner
 	// ciPollInterval is the live-log flush cadence for NixOS CI guests.
 	ciPollInterval time.Duration
@@ -228,17 +184,9 @@ func NewWorkflowSandboxSchedulerWorker(
 		logger:          slog.Default(),
 		interval:        envDuration("SMITHERS_WORKFLOW_SANDBOX_POLL_INTERVAL", defaultWorkflowSandboxSchedulerInterval),
 		limit:           envInt32("SMITHERS_WORKFLOW_SANDBOX_CLAIM_LIMIT", defaultWorkflowSandboxSchedulerClaim),
-		timeout:         clampWorkflowSandboxTimeout(envDuration("SMITHERS_WORKFLOW_SANDBOX_TIMEOUT", defaultWorkflowSandboxTimeout)),
 		finalizeTimeout: workflowSandboxFinalizeTimeout,
 		claimHeartbeat:  workflowSandboxClaimHeartbeatInterval,
-		vcpuCount:       envInt32("SMITHERS_WORKFLOW_SANDBOX_VCPU_COUNT", defaultWorkflowSandboxVCPUCount),
-		memoryMB:        envInt32("SMITHERS_WORKFLOW_SANDBOX_MEMORY_MB", defaultWorkflowSandboxMemoryMB),
-		rootfsSizeMB:    envInt64("SMITHERS_WORKFLOW_SANDBOX_DISK_MB", defaultWorkflowSandboxRootfsMB),
-		allowedRegistry: parseWorkflowSandboxRegistries(os.Getenv("SMITHERS_WORKFLOW_SANDBOX_ALLOWED_REGISTRIES")),
-		apiGatewayURL:   strings.TrimSpace(os.Getenv("SMITHERS_WORKFLOW_SANDBOX_API_GATEWAY_URL")),
 		ciPollInterval:  nixCIPollInterval,
-		cliPackage:      workspaceCLIPackage(),
-		jjExport:        workspaceJJExport(),
 	}
 
 	for _, opt := range opts {
@@ -247,18 +195,6 @@ func NewWorkflowSandboxSchedulerWorker(
 		}
 	}
 
-	if worker.timeout <= 0 {
-		worker.timeout = defaultWorkflowSandboxTimeout
-	}
-	if worker.vcpuCount <= 0 {
-		worker.vcpuCount = defaultWorkflowSandboxVCPUCount
-	}
-	if worker.memoryMB <= 0 {
-		worker.memoryMB = defaultWorkflowSandboxMemoryMB
-	}
-	if worker.rootfsSizeMB <= 0 {
-		worker.rootfsSizeMB = defaultWorkflowSandboxRootfsMB
-	}
 	if worker.limit <= 0 {
 		worker.limit = defaultWorkflowSandboxSchedulerClaim
 	}
@@ -530,24 +466,22 @@ func (w *WorkflowSandboxSchedulerWorker) failUnstartedClaimedRuns(ctx context.Co
 func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim workflowSandboxRunClaim) error {
 	run := claim.Run
 
-	// A sandbox-plane run that carries a rendered job graph is CI and runs one
-	// NixOS kind=vm guest per job. A run without tasks is an InvokeWorkflow run
-	// and keeps the single-VM smithers-orchestrator path below. See
-	// runHasTaskGraph.
+	// Every sandbox-plane run is CI: it carries a rendered job graph and runs
+	// one NixOS kind=vm guest per job. Invoked flows run on the flow plane
+	// (InvokedFlowService), so a run without tasks has nothing to run here.
 	nixCI, err := runHasTaskGraph(ctx, w.queries, run.ID)
 	if err != nil {
 		return w.failRun(ctx, claim, 0, "failed to load workflow job graph")
 	}
-	if nixCI && w.ciGuests == nil {
+	if !nixCI {
+		return w.failRun(ctx, claim, 0, "workflow run has no CI jobs to run")
+	}
+	if w.ciGuests == nil {
 		return w.failRun(ctx, claim, 0, "CI guests are not configured on this deployment")
 	}
 
-	budget := w.timeout
-	if nixCI {
-		// Each job carries its own 120m ceiling; this is the whole-run backstop.
-		budget = w.nixCIRunTimeout()
-	}
-	runCtx, cancel := context.WithTimeout(ctx, budget)
+	// Each job carries its own 120m ceiling; this is the whole-run backstop.
+	runCtx, cancel := context.WithTimeout(ctx, w.nixCIRunTimeout())
 	defer cancel()
 
 	logger := middleware.LoggerWithWorkflowRun(runCtx, run.ID)
@@ -556,48 +490,15 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 	// lifecycle SSE subscribers) that execution has actually started.
 	NotifyWorkflowRunEvent(runCtx, w.queries, run.ID, "workflow_sandbox.running")
 
-	def, err := w.queries.GetWorkflowDefinition(runCtx, db.GetWorkflowDefinitionParams{
-		ID:           run.WorkflowDefinitionID,
-		RepositoryID: run.RepositoryID,
-	})
-	if err != nil {
-		return w.failRun(runCtx, claim, 0, "failed to load workflow definition")
-	}
-
 	repository, owner, cloneUserID, err := w.resolveRepositoryOwner(runCtx, run.RepositoryID)
 	if err != nil {
 		return w.failRun(runCtx, claim, 0, "failed to resolve workflow repository owner")
 	}
 
-	// The NixOS CI path owns its steps: each job's step is marked running when
-	// its guest boots and terminal when the job ends, so the single-step
-	// bookkeeping the orchestrator path needs would be wrong here.
-	var step db.WorkflowStep
-	if !nixCI {
-		step, err = w.ensureRunningStep(runCtx, run.ID)
-		if err != nil {
-			return w.failRun(runCtx, claim, 0, "failed to prepare workflow step")
-		}
-	}
-
-	var cloneURL, cloneToken string
-	revokeCloneToken := func() {}
-	if !nixCI {
-		cloneURL, cloneToken, revokeCloneToken, err = w.buildCloneURL(runCtx, repository.ID, owner, repository.Name, cloneUserID)
-		if err != nil {
-			return w.failRun(runCtx, claim, step.ID, "failed to build clone url")
-		}
-	}
-	defer revokeCloneToken()
-
-	// redactEnv collects every sensitive value injected into the sandbox (true
+	// redactEnv collects every sensitive value injected into the guests (true
 	// repository/org secrets plus per-run tokens, NOT plain variables) so run
-	// logs can be scrubbed before insertion and SSE broadcast — mirroring the
-	// gVisor runner's RepositorySecrets redaction layer.
+	// logs can be scrubbed before insertion and SSE broadcast.
 	redactEnv := map[string]string{}
-	if cloneToken != "" {
-		redactEnv["SMITHERS_REPO_CLONE_TOKEN"] = cloneToken
-	}
 
 	secrets := map[string]string{}
 	if w.secretInjector != nil {
@@ -610,17 +511,17 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 				// A stored subscription-token refusal names the secret, never its value.
 				message = apiErr.Message
 			}
-			return w.failRun(runCtx, claim, step.ID, message)
+			return w.failRun(runCtx, claim, 0, message)
 		}
 		for name, value := range repoSecrets {
 			redactEnv[name] = value
 		}
 	}
 
-	// Mint a per-run scoped jjhub API token so the workflow's runner tools can
-	// call the REST API as the owning user. Best-effort: a mint failure must not
-	// fail the run (the tools simply 401 if used). Org-owned repos have no
-	// user-scoped token (cloneUserID == 0), so skip them.
+	// Mint a per-run scoped jjhub API token so the jobs can call the REST API
+	// as the owning user. Best-effort: a mint failure must not fail the run
+	// (the tools simply 401 if used). Org-owned repos have no user-scoped
+	// token (cloneUserID == 0), so skip them.
 	if repository.UserID.Valid && cloneUserID > 0 {
 		if apiToken, apiErr := issueTemporaryRepoAPIToken(runCtx, w.queries, cloneUserID, run.RepositoryID, fmt.Sprintf("sandbox-run-%d", run.ID)); apiErr != nil {
 			logger.Warn("failed to mint per-run jjhub api token", "error", apiErr)
@@ -643,109 +544,15 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 		}
 	}
 
-	// EGRESS: buildFirewallPolicy is deny-by-default and always allows the
-	// SMITHERS_JJHUB_API_URL host, so the runner's jjhub tools work under the
-	// firewall enforced by the self-hosted sandbox network policy.
-
-	if nixCI {
-		return w.executeNixCIRun(runCtx, claim, nixCIRunEnvironment{
-			RepositoryID:   run.RepositoryID,
-			Owner:          owner,
-			RepositoryName: repository.Name,
-			CloneUserID:    cloneUserID,
-			Revision:       resolveWorkflowTargetRevision(run),
-			Secrets:        secrets,
-			RedactEnv:      redactEnv,
-		})
-	}
-
-	createReq, err := w.buildCreateVMRequest(run, def, step, cloneURL, secrets)
-	if err != nil {
-		logger.Error("workflow runner payload unavailable", "error", err)
-		return w.failRun(runCtx, claim, step.ID, "workflow runner payload unavailable")
-	}
-	createCtx := sandboxProvisionContext(runCtx, "create", "workflow_run", fmt.Sprint(run.ID), fmt.Sprintf("step-%d", step.ID))
-	vm, err := w.sandbox.CreateSandbox(createCtx, createReq)
-	if err != nil {
-		// A capacity refusal is a transient verdict on the fleet, not on the
-		// run: the control plane rejected placement BEFORE any VM existed, so
-		// the run returns to the re-claimable queue and a later poll retries
-		// it once a guest slot frees. Every other create error stays terminal.
-		if isNoCapacityError(err) {
-			return w.requeueRunAfterCapacityRefusal(runCtx, claim, err)
-		}
-		return w.failRun(runCtx, claim, step.ID, "failed to create workflow sandbox")
-	}
-
-	// The sandbox clones the repository during VM creation, so the clone token
-	// is spent the moment CreateSandbox returns. Revoke it NOW instead of at run end:
-	// the run can last up to 30 minutes, and the token is embedded in the clone
-	// URL sandbox provider received. (The deferred revoke covers earlier failure paths
-	// and is a no-op after this.)
-	revokeCloneToken()
-
-	defer func() {
-		deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(runCtx), workflowSandboxDeleteTimeout)
-		defer cancel()
-		if deleteErr := w.sandbox.DeleteSandbox(deleteCtx, vm.ID); deleteErr != nil {
-			logger.Warn("failed to delete workflow sandbox", "vm_id", vm.ID, "error", deleteErr)
-		}
-	}()
-
-	timeoutMS := int64(w.timeout / time.Millisecond)
-	execResp, err := w.sandbox.Execute(runCtx, vm.ID, sandbox.ExecRequest{
-		Command:   workflowSandboxExecCommand(),
-		TimeoutMS: &timeoutMS,
+	return w.executeNixCIRun(runCtx, claim, nixCIRunEnvironment{
+		RepositoryID:   run.RepositoryID,
+		Owner:          owner,
+		RepositoryName: repository.Name,
+		CloneUserID:    cloneUserID,
+		Revision:       resolveWorkflowTargetRevision(run),
+		Secrets:        secrets,
+		RedactEnv:      redactEnv,
 	})
-
-	// The workflow may have run for many minutes, so runCtx can be at or past
-	// its deadline here. Finalization (logs + terminal status) must run on a
-	// context minted NOW — after the long exec — rather than at function entry,
-	// so its own short budget is not consumed by the run itself. Deriving via
-	// WithoutCancel keeps it alive even when runCtx has already expired.
-	finalizeCtx, finalizeCancel := w.finalizeContext(runCtx)
-	defer finalizeCancel()
-
-	if err != nil {
-		failureMessage := "workflow execution failed"
-		if stdErrors.Is(err, context.DeadlineExceeded) || stdErrors.Is(runCtx.Err(), context.DeadlineExceeded) {
-			failureMessage = fmt.Sprintf("workflow execution exceeded timeout of %s", w.timeout)
-		}
-		_ = w.appendLog(finalizeCtx, run.ID, step.ID, "system", RedactSecretValues(redactEnv, "exec failed: "+err.Error()))
-		return w.finalizeFailure(finalizeCtx, claim, step.ID, failureMessage)
-	}
-
-	w.appendOutputLogs(finalizeCtx, run.ID, step.ID, execResp.Stdout, execResp.Stderr, redactEnv)
-
-	exitCode := int32(1)
-	if execResp.StatusCode != nil {
-		exitCode = *execResp.StatusCode
-	}
-	if exitCode != 0 {
-		_ = w.appendLog(finalizeCtx, run.ID, step.ID, "system", fmt.Sprintf("workflow exited with status %d", exitCode))
-		return w.finalizeFailure(finalizeCtx, claim, step.ID, "workflow execution failed")
-	}
-
-	terminal, err := w.queries.MarkWorkflowRunSuccess(finalizeCtx, claim.successParams())
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			// The run left this token/generation underneath us (for example a
-			// cancel, resume, or lease reclaim). Do not overwrite step state or
-			// emit a terminal event for the newer owner.
-			logger.Info("workflow run already terminal, skipping sandbox success finalization")
-			return nil
-		}
-		return err
-	}
-	_, _ = w.queries.UpdateWorkflowStepStatusTerminal(finalizeCtx, db.UpdateWorkflowStepStatusTerminalParams{
-		StepID: step.ID,
-		Status: "success",
-	})
-	RevokeWorkflowRunCredentials(finalizeCtx, w.queries, run.ID, run.RepositoryID)
-	w.cancelRunTasks(finalizeCtx, run.ID)
-	NotifyWorkflowRunEvent(finalizeCtx, w.queries, run.ID, "workflow_sandbox.success")
-	w.publishTerminal(finalizeCtx, terminal)
-	return nil
 }
 
 // publishTerminal settles the run's external announcements. Call it only
@@ -757,11 +564,10 @@ func (w *WorkflowSandboxSchedulerWorker) publishTerminal(ctx context.Context, ru
 	}
 }
 
-// cancelRunTasks terminalizes any dispatched runner tasks still active for a
-// run the sandbox just terminalized. The sandbox executes the whole workflow
-// itself, so leftover pending/blocked/running tasks would disagree with the
-// aggregate run status and stay claimable by runners. Only called after
-// winning the run's atomic queued/running -> terminal transition.
+// cancelRunTasks terminalizes any tasks still active for a run the scheduler
+// just terminalized, so leftover pending/blocked/running tasks cannot
+// disagree with the aggregate run status. Only called after winning the
+// run's atomic queued/running -> terminal transition.
 func (w *WorkflowSandboxSchedulerWorker) cancelRunTasks(ctx context.Context, runID int64) {
 	if err := w.queries.CancelWorkflowTasks(ctx, runID); err != nil {
 		w.logger.Warn("failed to cancel workflow tasks after sandbox terminalization", "run_id", runID, "error", err)
@@ -775,38 +581,6 @@ func (w *WorkflowSandboxSchedulerWorker) failRun(ctx context.Context, claim work
 	finalizeCtx, cancel := w.finalizeContext(ctx)
 	defer cancel()
 	return w.finalizeFailure(finalizeCtx, claim, stepID, message)
-}
-
-// requeueRunAfterCapacityRefusal returns a claimed run to the queued pool
-// after the sandbox control plane refuses placement because the fleet is full
-// (HTTP 503, code no_capacity). No VM exists — the refusal precedes placement —
-// so there is nothing to tear down and no terminal side effects (step verdict,
-// task cancel, failure event, credential revocation) may fire.
-//
-// The release is two claim-safe writes on a detached finalize context. First
-// the claim-fenced MarkWorkflowRunFailure: it is the only write that both
-// proves this worker still owns the token/generation and clears
-// workflow_sandbox_claims (its DB trigger), exactly as failRun's terminal
-// write does. Then ResumeWorkflowRun flips that failure back to queued — it
-// matches only cancelled/failure rows, so it is a no-op unless the fenced
-// write just landed — leaving the run immediately re-claimable by
-// ClaimQueuedWorkflowRuns in its original created_at order. A lost fence
-// (pgx.ErrNoRows) means a newer owner holds the run and decides its fate.
-func (w *WorkflowSandboxSchedulerWorker) requeueRunAfterCapacityRefusal(ctx context.Context, claim workflowSandboxRunClaim, cause error) error {
-	finalizeCtx, cancel := w.finalizeContext(ctx)
-	defer cancel()
-	if _, err := w.queries.MarkWorkflowRunFailure(finalizeCtx, claim.failureParams()); err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			w.logger.Info("workflow run left this claim before capacity requeue; leaving it to the new owner", "run_id", claim.Run.ID)
-			return nil
-		}
-		return fmt.Errorf("release workflow sandbox claim after capacity refusal: %w", err)
-	}
-	if err := w.queries.ResumeWorkflowRun(finalizeCtx, claim.Run.ID); err != nil {
-		return fmt.Errorf("requeue capacity-refused workflow run %d: %w", claim.Run.ID, err)
-	}
-	w.logger.Info("workflow sandbox run requeued after capacity refusal", "run_id", claim.Run.ID, "error", cause)
-	return nil
 }
 
 // finalizeFailure performs the terminal-failure writes on the given context. The
@@ -853,28 +627,6 @@ func (w *WorkflowSandboxSchedulerWorker) finalizeContext(ctx context.Context) (c
 		timeout = workflowSandboxFinalizeTimeout
 	}
 	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
-}
-
-func (w *WorkflowSandboxSchedulerWorker) ensureRunningStep(ctx context.Context, runID int64) (db.WorkflowStep, error) {
-	steps, err := w.queries.ListWorkflowStepsByRunID(ctx, runID)
-	if err != nil {
-		return db.WorkflowStep{}, err
-	}
-	if len(steps) > 0 {
-		step := steps[0]
-		_, _ = w.queries.UpdateWorkflowStepStatusRunning(ctx, step.ID)
-		return step, nil
-	}
-	step, err := w.queries.CreateWorkflowStep(ctx, db.CreateWorkflowStepParams{
-		WorkflowRunID: runID,
-		Name:          "sandbox",
-		Position:      1,
-		Status:        "running",
-	})
-	if err != nil {
-		return db.WorkflowStep{}, err
-	}
-	return step, nil
 }
 
 func (w *WorkflowSandboxSchedulerWorker) buildCloneURL(
@@ -945,144 +697,6 @@ func (w *WorkflowSandboxSchedulerWorker) resolveRepositoryOwner(
 		return repository, org.Name, ownerID, nil
 	}
 	return db.Repository{}, "", 0, fmt.Errorf("repository owner not set")
-}
-
-func (w *WorkflowSandboxSchedulerWorker) buildCreateVMRequest(
-	run db.WorkflowRun,
-	def db.WorkflowDefinition,
-	step db.WorkflowStep,
-	cloneURL string,
-	secrets map[string]string,
-) (sandbox.CreateRequest, error) {
-	waitForReady := false
-	deleteOnStop := sandbox.DeleteOnStop
-	idleTimeoutSeconds := workflowSandboxIdleTimeoutSeconds
-
-	workflowPath := strings.TrimPrefix(strings.TrimSpace(def.Path), "/")
-	if workflowPath == "" {
-		workflowPath = "flows/workflow/flow.ts"
-	}
-
-	files := map[string]sandbox.SandboxFile{
-		defaultWorkflowSandboxRunnerSH: {
-			Content:    workflowSandboxRunnerScript(run.ID, workflowPath),
-			Executable: true,
-		},
-	}
-	if !addWorkspaceCLIFrom(files, w.cliPackage) {
-		return sandbox.CreateRequest{}, fmt.Errorf("npm CLI package %q is unavailable", w.cliPackage)
-	}
-	if !addWorkspaceJJExportFrom(files, w.jjExport) {
-		return sandbox.CreateRequest{}, fmt.Errorf("jj export helper %q is unavailable", w.jjExport)
-	}
-
-	enable := false
-	service := sandbox.ServiceSpec{
-		Name:    defaultWorkflowSandboxService,
-		Mode:    sandbox.ServiceModeOneshot,
-		Exec:    []string{defaultWorkflowSandboxRunnerSH},
-		User:    "smithers",
-		Workdir: defaultWorkflowSandboxWorkdir,
-		Env:     cloneSandboxEnvironment(secrets),
-		Enable:  &enable,
-	}
-
-	req := sandbox.CreateRequest{
-		GitRepos: []sandbox.GitRepositorySpec{
-			{
-				Repo: cloneURL,
-				Path: defaultWorkflowSandboxWorkdir,
-				Rev:  resolveWorkflowTargetRevision(run),
-			},
-		},
-		Packages: append([]string(nil), defaultWorkflowSandboxPackages...),
-		Files:    files,
-		Users: []sandbox.LinuxUserSpec{
-			{
-				Name:  "smithers",
-				Home:  "/home/smithers",
-				Shell: "/bin/bash",
-			},
-		},
-		Init: &sandbox.ServiceConfig{
-			Enabled:  true,
-			Services: []sandbox.ServiceSpec{service},
-		},
-		Persistence: &sandbox.PersistencePolicy{
-			Type:        sandbox.PersistenceEphemeral,
-			DeleteEvent: &deleteOnStop,
-		},
-		IdleTimeoutSeconds: &idleTimeoutSeconds,
-		VCPUCount:          &w.vcpuCount,
-		MemSizeMB:          &w.memoryMB,
-		RootfsSizeMB:       &w.rootfsSizeMB,
-		WaitForReady:       &waitForReady,
-		Workdir:            defaultWorkflowSandboxWorkdir,
-		Firewall:           w.buildFirewallPolicy(),
-	}
-
-	_ = step // Keep step in the signature so future VM templates can include step-specific metadata.
-	_ = run  // Keep run in the signature so future VM templates can include trigger metadata.
-	return req, nil
-}
-
-func (w *WorkflowSandboxSchedulerWorker) buildFirewallPolicy() *sandbox.FirewallPolicy {
-	allowHosts := make([]string, 0, len(w.allowedRegistry)+2)
-	if gatewayHost := hostForFirewallRule(w.apiGatewayURL); gatewayHost != "" {
-		allowHosts = append(allowHosts, gatewayHost)
-	}
-	// The jjhub API host must always be reachable: the sandbox env carries
-	// SMITHERS_JJHUB_API_URL (= apiBaseURL) for the runner's issue/landing/
-	// bookmark tools, and deny-by-default egress would fail those calls closed
-	// whenever a distinct gateway host is configured.
-	if apiHost := hostForFirewallRule(w.apiBaseURL); apiHost != "" {
-		allowHosts = append(allowHosts, apiHost)
-	}
-	for _, host := range w.allowedRegistry {
-		if trimmed := strings.TrimSpace(host); trimmed != "" {
-			allowHosts = append(allowHosts, trimmed)
-		}
-	}
-	allowHosts = uniqueSortedStrings(allowHosts)
-
-	egressRules := make([]sandbox.FirewallEgressRule, 0, len(allowHosts))
-	for _, host := range allowHosts {
-		egressRules = append(egressRules, sandbox.FirewallEgressRule{
-			Host:     host,
-			Port:     443,
-			Protocol: "tcp",
-		})
-	}
-
-	// Always return an explicit deny policy, even when configuration produced no
-	// valid allow hosts. A nil policy means provider defaults and would turn a
-	// typo such as an empty registry allow-list into unrestricted sandbox
-	// egress—the opposite of the execution boundary's fail-closed contract.
-	// The worker renders this closed allowlist into the guest network policy.
-	return &sandbox.FirewallPolicy{
-		DefaultEgressAction: "deny",
-		EgressAllow:         egressRules,
-	}
-}
-
-func (w *WorkflowSandboxSchedulerWorker) appendOutputLogs(
-	ctx context.Context,
-	runID, stepID int64,
-	stdout string,
-	stderr string,
-	redactEnv map[string]string,
-) {
-	writeStream := func(stream string, value string) {
-		normalized := strings.ReplaceAll(value, "\r\n", "\n")
-		for _, line := range strings.Split(normalized, "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			_ = w.appendLog(ctx, runID, stepID, stream, RedactSecretValues(redactEnv, line))
-		}
-	}
-	writeStream("stdout", stdout)
-	writeStream("stderr", stderr)
 }
 
 func (w *WorkflowSandboxSchedulerWorker) appendLog(
@@ -1180,125 +794,11 @@ func (w *WorkflowSandboxSchedulerWorker) appendLogWithTx(
 	})
 }
 
-func workflowSandboxExecCommand() string {
-	return strings.Join([]string{
-		"set -euo pipefail",
-		"systemctl start " + defaultWorkflowSandboxService + ".service",
-		"while systemctl is-active --quiet " + defaultWorkflowSandboxService + ".service; do",
-		"  sleep 1",
-		"done",
-		"if systemctl is-failed --quiet " + defaultWorkflowSandboxService + ".service; then",
-		"  journalctl -u " + defaultWorkflowSandboxService + ".service --no-pager -n 200",
-		"  exit 1",
-		"fi",
-		"journalctl -u " + defaultWorkflowSandboxService + ".service --no-pager -n 200",
-	}, "\n")
-}
-
-func workflowSandboxRunnerScript(runID int64, workflowPath string) string {
-	return strings.Join([]string{
-		"#!/usr/bin/env bash",
-		"set -euo pipefail",
-		"export SMITHERS_WORKFLOW_PATH=" + shellQuote(path.Join(defaultWorkflowSandboxWorkdir, workflowPath)),
-		"export SMITHERS_WORKFLOW_ROOT=" + shellQuote(defaultWorkflowSandboxWorkdir),
-		"export SMITHERS_WORKFLOW_RUN_ID=" + shellQuote(strconv.FormatInt(runID, 10)),
-		`export HOME="${HOME:-/home/smithers}"`,
-		`cli_dir="$HOME/.local/lib/smithers-cli"`,
-		`mkdir -p "$cli_dir" "$HOME/.local/bin"`,
-		"test -s " + shellQuote(workspaceCLIPackageB64Path+".part0000"),
-		"cat " + shellQuote(workspaceCLIPackageB64Path) + `.part* | base64 -d | tar -xzf - -C "$cli_dir"`,
-		"base64 -d < " + shellQuote(workspaceJJExportB64Path) + ` | gzip -d > "$HOME/.local/bin/smithers-jj-export"`,
-		`chmod 755 "$HOME/.local/bin/smithers-jj-export"`,
-		`export SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$HOME/.local/bin/smithers-jj-export"`,
-		"cd " + shellQuote(defaultWorkflowSandboxWorkdir),
-		// sandbox provider clones via a token-bearing URL that persists in
-		// .git/config's remote.origin.url. The token is revoked server-side
-		// right after VM creation, but the dead credential must not linger
-		// where `git remote -v`, tooling, or logs can pick it up. Best-effort.
-		`origin_url="$(git remote get-url origin 2>/dev/null || true)"`,
-		`scrubbed_url="$(printf '%s' "$origin_url" | sed -E 's#^([a-z][a-z0-9+.-]*://)[^@/]+@#\1#')"`,
-		`if [ -n "$origin_url" ] && [ "$scrubbed_url" != "$origin_url" ]; then`,
-		`  git remote set-url origin "$scrubbed_url" || true`,
-		"fi",
-		`exec node "$cli_dir/node_modules/@smthrs/cli/bin/smithers.mjs" flow start ` + shellQuote(strings.TrimSuffix(strings.TrimPrefix(workflowPath, "flows/"), "/flow.ts")) + " --root " + shellQuote(defaultWorkflowSandboxWorkdir),
-	}, "\n")
-}
-
-func cloneSandboxEnvironment(environment map[string]string) map[string]string {
-	if len(environment) == 0 {
-		return nil
-	}
-	cloned := make(map[string]string, len(environment))
-	for name, value := range environment {
-		cloned[name] = value
-	}
-	return cloned
-}
-
 func resolveWorkflowTargetRevision(run db.WorkflowRun) string {
 	if sha := strings.TrimSpace(run.TriggerCommitSha); sha != "" {
 		return sha
 	}
 	return strings.TrimSpace(run.TriggerRef)
-}
-
-func parseWorkflowSandboxRegistries(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return append([]string(nil), defaultWorkflowSandboxRegistries...)
-	}
-	return uniqueSortedStrings(splitCSV(raw))
-}
-
-func splitCSV(raw string) []string {
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
-}
-
-func uniqueSortedStrings(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		if _, exists := seen[trimmed]; exists {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		out = append(out, trimmed)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func hostForFirewallRule(rawURL string) string {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
-		return ""
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(parsed.Hostname())
-}
-
-func clampWorkflowSandboxTimeout(timeout time.Duration) time.Duration {
-	switch {
-	case timeout <= 0:
-		return defaultWorkflowSandboxTimeout
-	case timeout > maxWorkflowSandboxTimeout:
-		return maxWorkflowSandboxTimeout
-	default:
-		return timeout
-	}
 }
 
 func envDuration(key string, fallback time.Duration) time.Duration {
@@ -1323,18 +823,6 @@ func envInt32(key string, fallback int32) int32 {
 		return fallback
 	}
 	return int32(parsed)
-}
-
-func envInt64(key string, fallback int64) int64 {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return fallback
-	}
-	return parsed
 }
 
 func buildPublicRepoCloneURL(baseURL, owner, repo string) (string, error) {

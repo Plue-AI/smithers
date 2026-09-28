@@ -127,11 +127,7 @@ func workspaceJJExport() string {
 
 // addWorkspaceCLI stages the deployed npm package, including production dependencies.
 func addWorkspaceCLI(files map[string]sandbox.SandboxFile) bool {
-	return addWorkspaceCLIFrom(files, workspaceCLIPackage())
-}
-
-func addWorkspaceCLIFrom(files map[string]sandbox.SandboxFile, archive string) bool {
-	if !addWorkspaceExecutable(files, archive, workspaceCLIPackageB64Path, workspaceCLIPackageEnv, "npm CLI package") {
+	if !addWorkspaceExecutable(files, workspaceCLIPackage(), workspaceCLIPackageB64Path, workspaceCLIPackageEnv, "npm CLI package") {
 		return false
 	}
 	// The installed dependency tree exceeds one guest RPC's 64 MiB frame.
@@ -159,11 +155,7 @@ func addWorkspaceCodingHost(files map[string]sandbox.SandboxFile) bool {
 // as /usr/local/bin/smithers-jj-export. Missing payloads only warn: the helper
 // is a coding-flow dependency, not a provisioning precondition.
 func addWorkspaceJJExport(files map[string]sandbox.SandboxFile) bool {
-	return addWorkspaceJJExportFrom(files, workspaceJJExport())
-}
-
-func addWorkspaceJJExportFrom(files map[string]sandbox.SandboxFile, path string) bool {
-	return addWorkspaceExecutable(files, path, workspaceJJExportB64Path, workspaceJJExportBinaryEnv, "jj export helper")
+	return addWorkspaceExecutable(files, workspaceJJExport(), workspaceJJExportB64Path, workspaceJJExportBinaryEnv, "jj export helper")
 }
 
 // Runtime helpers reuse the existing single-file guest transport.

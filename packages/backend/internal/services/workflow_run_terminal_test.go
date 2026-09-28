@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/sandbox"
 	"github.com/smithersai/smithers/packages/backend/webhooks"
 )
 
@@ -172,48 +171,10 @@ func TestNixCIRun_TerminalOutcomePublishesCommitStatusCheckRunWebhookAndTriggers
 				polls:   map[string]int{},
 				scripts: map[string]nixCIGuestScript{"build": {chunks: []string{"make build\n"}, exitCode: tc.exitCode}},
 			}
-			worker := newRunnableWorkflowSandboxScheduler(t, queries, guests.client(t),
+			worker := NewWorkflowSandboxSchedulerWorker(queries, guests.client(t),
 				WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
 				WithWorkflowSandboxSchedulerCIGuests(guests),
 				WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
-				WithWorkflowSandboxSchedulerTerminalPublisher(publisher),
-			)
-
-			require.NoError(t, worker.PollOnce(context.Background()))
-
-			surfaces.assertPublished(t, tc.status, tc.conclusion, tc.action)
-		})
-	}
-}
-
-func TestWorkflowSandboxScheduler_OrchestratorTerminalOutcomePublishes(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		exitCode   int32
-		status     string
-		conclusion string
-		action     string
-	}{
-		{name: "success", exitCode: 0, status: "success", conclusion: "success", action: "completed"},
-		{name: "failure", exitCode: 1, status: "failure", conclusion: "failure", action: "failure"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			queries := newSandboxSchedulerRunQuerier(42, 14)
-			queries.markWorkflowRunSuccessFn = func(context.Context, int64) (db.WorkflowRun, error) {
-				return sandboxTerminalRun("success"), nil
-			}
-			queries.markWorkflowRunFailureFn = func(context.Context, int64) (db.WorkflowRun, error) {
-				return sandboxTerminalRun("failure"), nil
-			}
-			publisher, surfaces := newTerminalPublisher(t)
-			exitCode := tc.exitCode
-			client := &mockWorkflowSandboxVMClient{
-				execAwaitFn: func(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {
-					return sandbox.ExecResult{StatusCode: &exitCode}, nil
-				},
-			}
-			worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
-				WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
 				WithWorkflowSandboxSchedulerTerminalPublisher(publisher),
 			)
 
@@ -229,10 +190,10 @@ func TestWorkflowSandboxScheduler_OrchestratorTerminalOutcomePublishes(t *testin
 func TestWorkflowSandboxScheduler_LostTerminalRaceDoesNotPublish(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		exitCode int32
+		exitCode string
 	}{
-		{name: "success", exitCode: 0},
-		{name: "failure", exitCode: 1},
+		{name: "success", exitCode: "0"},
+		{name: "failure", exitCode: "1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			queries := newSandboxSchedulerRunQuerier(42, 14)
@@ -243,19 +204,18 @@ func TestWorkflowSandboxScheduler_LostTerminalRaceDoesNotPublish(t *testing.T) {
 				return db.WorkflowRun{}, pgx.ErrNoRows
 			}
 			publisher, surfaces := newTerminalPublisher(t)
-			exitCode := tc.exitCode
-			client := &mockWorkflowSandboxVMClient{
-				execAwaitFn: func(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {
-					return sandbox.ExecResult{StatusCode: &exitCode}, nil
-				},
-			}
-			worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
-				WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
+			guests := sandboxSchedulerGuests(tc.exitCode, "make build\n")
+			client := guests.client(t)
+			worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+				WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
+				WithWorkflowSandboxSchedulerCIGuests(guests),
+				WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
 				WithWorkflowSandboxSchedulerTerminalPublisher(publisher),
 			)
 
 			require.NoError(t, worker.PollOnce(context.Background()))
 
+			require.Len(t, client.createCalls, 1, "the job ran before the terminal write lost the race")
 			surfaces.assertNothingPublished(t)
 		})
 	}

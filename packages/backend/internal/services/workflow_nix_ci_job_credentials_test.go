@@ -115,7 +115,7 @@ func TestNixCIRun_JobTokenReachesOnlyItsGuestAndDiesWithTheJob(t *testing.T) {
 		assert.Empty(t, client.deleteCalls, "the token is revoked before the guest is destroyed")
 		client.mu.Unlock()
 	}
-	worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
 		WithWorkflowSandboxSchedulerCIGuests(guests),
 		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
@@ -158,7 +158,7 @@ func TestNixCIRun_JobTokenFailureStillRunsTheJob(t *testing.T) {
 	client := guests.client(t)
 	token := jobTokenGuest(client)
 	creds := &fakeCIJobCredentials{issueErr: errors.New("db down")}
-	worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
 		WithWorkflowSandboxSchedulerCIGuests(guests),
 		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),

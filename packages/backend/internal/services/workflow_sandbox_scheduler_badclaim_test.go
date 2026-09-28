@@ -11,7 +11,6 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/runtimeports"
-	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
 type badClaimSchedulerQuerier struct {
@@ -34,35 +33,19 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_BadClaimDoesNotAbortBatch(t *te
 	expired.ClaimLeaseExpiresAt = pgtype.Timestamptz{Time: time.Now().Add(-time.Second), Valid: true}
 	good := testWorkflowSandboxClaimRow(db.WorkflowRun{ID: 42, RepositoryID: 100, WorkflowDefinitionID: 7, TriggerRef: "main", TriggerCommitSha: "deadbeef"})
 
-	base := &mockWorkflowSandboxSchedulerQuerier{
-		getWorkflowDefinitionFn: func(context.Context, db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Name: "CI", Path: ".smithers/workflows/ci.tsx"}, nil
-		},
-		getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
-			return db.Repository{ID: 100, Name: "demo", UserID: pgtype.Int8{Int64: 11, Valid: true}}, nil
-		},
-		getUserByIDFn: func(context.Context, int64) (db.User, error) {
-			return db.User{ID: 11, Username: "alice"}, nil
-		},
-		listWorkflowStepsByRunIDFn: func(_ context.Context, runID int64) ([]db.WorkflowStep, error) {
-			return []db.WorkflowStep{{ID: 9, WorkflowRunID: runID, Status: "queued"}}, nil
-		},
-	}
-	sandboxClient := &mockWorkflowSandboxVMClient{
-		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
-			return sandbox.CreateResult{ID: "vm-good"}, nil
-		},
-		execAwaitFn: func(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {
-			success := int32(0)
-			return sandbox.ExecResult{StatusCode: &success}, nil
-		},
-	}
-	worker := newRunnableWorkflowSandboxScheduler(t,
+	// The good row carries a one-job graph; the bad rows must never run it.
+	base := nixCIQuerier([]db.WorkflowTask{nixCITaskRow(1, 11, "build", nil)})
+	guests := &fakeNixCIGuests{polls: map[string]int{}, scripts: map[string]nixCIGuestScript{"build": {exitCode: "0"}}}
+	sandboxClient := guests.client(t)
+	worker := NewWorkflowSandboxSchedulerWorker(
 		badClaimSchedulerQuerier{mockWorkflowSandboxSchedulerQuerier: base, rows: []runtimeports.ClaimQueuedWorkflowRunsRow{missingToken, expired, good}},
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
-		WithWorkflowSandboxSchedulerAPIBaseURL("https://api.smithers.test/api"),
+		WithWorkflowSandboxSchedulerCIGuests(guests),
+		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
 	)
 	require.NoError(t, worker.PollOnce(context.Background()))
 	assert.Equal(t, []int64{42}, base.markSuccessIDs)
+	assert.Empty(t, base.markFailureIDs, "a skipped claim is left for lease expiry, never finalized")
+	assert.Len(t, sandboxClient.createCalls, 1, "only the good claim boots a guest")
 }

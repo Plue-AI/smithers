@@ -128,14 +128,12 @@ const (
 // runHasTaskGraph reports whether a claimed sandbox-plane run carries a
 // rendered job graph.
 //
-// The two sandbox-plane producers are distinguishable exactly here:
 // createWorkflowRunRows writes one workflow_step + one workflow_task per job,
-// while InvokeWorkflow (the whole-workflow smithers-orchestrator path) writes
-// the run row alone. A run with tasks is a CI DAG whose jobs this executor runs
-// one guest each; a run without tasks keeps the single-VM orchestrator path,
-// which cancels any leftover tasks precisely because it assumes none. A lookup
-// error is returned rather than read as "no tasks", so a CI run can never be
-// handed to the orchestrator path by a failed query.
+// so a run with tasks is a CI DAG whose jobs this executor runs one guest
+// each. A sandbox-plane run without tasks has nothing to run and fails;
+// invoked flows run on the flow plane instead. A lookup error is returned
+// rather than read as "no tasks", so a failed query never fails a CI run as
+// empty.
 func runHasTaskGraph(ctx context.Context, q nixCITaskQuerier, runID int64) (bool, error) {
 	rows, err := q.ListTaskStepInfoForRun(ctx, runID)
 	if err != nil {

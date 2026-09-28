@@ -239,9 +239,6 @@ func nixCIQuerier(tasks []db.WorkflowTask) *mockWorkflowSandboxSchedulerQuerier 
 				ExecutionPlane:       WorkflowRunPlaneSandbox,
 			}}, nil
 		},
-		getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 5, RepositoryID: 100, Path: ".smithers/workflows/ci.tsx"}, nil
-		},
 		getRepoByIDFn: func(_ context.Context, _ int64) (db.Repository, error) {
 			return testRepositoryOwnedByUser(100, 9, "demo"), nil
 		},
@@ -271,7 +268,7 @@ func testRepositoryOwnedByUser(id, userID int64, name string) db.Repository {
 func newNixCIWorker(t *testing.T, queries *mockWorkflowSandboxSchedulerQuerier, guests *fakeNixCIGuests) (*WorkflowSandboxSchedulerWorker, *mockWorkflowSandboxVMClient) {
 	t.Helper()
 	client := guests.client(t)
-	worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
 		WithWorkflowSandboxSchedulerCIGuests(guests),
 		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
@@ -404,32 +401,34 @@ func TestNixCIRun_GuestProvisionFailureFailsTheTask(t *testing.T) {
 	assert.Equal(t, []int64{42}, queries.markFailureIDs)
 }
 
-func TestNixCIRun_RunWithoutTaskGraphKeepsTheOrchestratorPath(t *testing.T) {
-	// InvokeWorkflow creates a sandbox-plane run with no tasks. That run must
-	// keep booting the single whole-workflow VM, not one guest per job.
+func TestNixCIRun_RunWithoutTaskGraphFailsWithoutBootingAVM(t *testing.T) {
+	// Invoked flows run on the flow plane (InvokedFlowService). A
+	// sandbox-plane run without tasks has nothing to run: it fails without
+	// creating, executing, or provisioning anything.
 	queries := nixCIQuerier(nil)
 	guests := &fakeNixCIGuests{polls: map[string]int{}, scripts: map[string]nixCIGuestScript{}}
 	worker, client := newNixCIWorker(t, queries, guests)
 
 	require.NoError(t, worker.PollOnce(context.Background()))
 
-	require.Len(t, client.createCalls, 1)
+	assert.Empty(t, client.createCalls, "no whole-workflow VM is booted")
+	assert.Empty(t, client.execCalls, "nothing is executed")
 	assert.Empty(t, guests.requests, "the NixOS CI guest provisioner is never consulted")
-	assert.NotEqual(t, "registry.test/nix:closure", client.createCalls[0].Image)
-	assert.Equal(t, []int64{42}, queries.markSuccessIDs)
+	assert.Empty(t, queries.markSuccessIDs)
+	assert.Equal(t, []int64{42}, queries.markFailureIDs)
 }
 
-// A CI run never falls back to the whole-workflow orchestrator VM: without a
-// CI guest provisioner, or when its job graph cannot be read, it fails.
+// Without a CI guest provisioner, or when its job graph cannot be read, a CI
+// run fails without booting anything.
 func TestNixCIRun_WithoutAProvisionerCIRunFails(t *testing.T) {
 	queries := nixCIQuerier([]db.WorkflowTask{nixCITaskRow(1, 11, "build", nil)})
 	client := &mockWorkflowSandboxVMClient{}
-	worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"))
 
 	require.NoError(t, worker.PollOnce(context.Background()))
 
-	assert.Empty(t, client.createCalls, "no orchestrator VM is booted for a CI run")
+	assert.Empty(t, client.createCalls, "no VM is booted for a CI run")
 	assert.Equal(t, []int64{42}, queries.markFailureIDs)
 }
 
@@ -440,13 +439,13 @@ func TestNixCIRun_JobGraphLookupErrorFailsTheRun(t *testing.T) {
 	}
 	guests := &fakeNixCIGuests{polls: map[string]int{}, scripts: map[string]nixCIGuestScript{}}
 	client := guests.client(t)
-	worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
+	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
 		WithWorkflowSandboxSchedulerCIGuests(guests))
 
 	require.NoError(t, worker.PollOnce(context.Background()))
 
-	assert.Empty(t, client.createCalls, "a failed lookup never boots the orchestrator VM")
+	assert.Empty(t, client.createCalls, "a failed lookup never boots a VM")
 	assert.Equal(t, []int64{42}, queries.markFailureIDs)
 }
 
