@@ -1022,9 +1022,18 @@ export const make = (
           approvalChannel: options.approvalChannel
         })
         const catalogReady = yield* Deferred.make<Executable.Catalog>()
+        // Lifecycle, steering and approval belong to the control journal. The
+        // registration phase otherwise inherits the engine's separate journal.
+        // Select only Journal: an unmaterialized engine.journal layer can also
+        // provide the control RunStore, which must not replace the native one.
+        const controlJournal = yield* Journal.Journal.pipe(Effect.provide(engine.journal))
         const authority = modules === undefined
           ? undefined
-          : yield* ModuleAuthority.make(Deferred.await(catalogReady), actionHost, native.agentLimits?.weights)
+          : yield* ModuleAuthority.make(Deferred.await(catalogReady), actionHost, {
+            controlJournal,
+            parks: askPolicy(environment) !== "refuse",
+            weights: native.agentLimits?.weights
+          })
         const registrations = modules === undefined ? undefined : (
           yield* Layer.build(modules.pipe(
             // No approved card exists at registration. ModuleAuthority installs
@@ -1149,11 +1158,6 @@ export const make = (
             Fiber.join,
             Fiber.interrupt
           )
-        // Lifecycle, steering and approval belong to the control journal. The
-        // registration phase otherwise inherits the engine's separate journal.
-        // Select only Journal: an unmaterialized engine.journal layer can also
-        // provide the control RunStore, which must not replace the native one.
-        const controlJournal = yield* Journal.Journal.pipe(Effect.provide(engine.journal))
         // Capture the original native services before selecting the control
         // journal for AgentSession. This observer lives in the same host scope,
         // outside admission transactions; it opens no persistence of its own.

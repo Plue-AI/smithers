@@ -34,7 +34,13 @@ import { ModuleOwner } from "./ModuleOwner.ts"
 export const make = (
   catalog: Effect.Effect<Executable.Catalog>,
   actionHost: AgentAction.Host,
-  weights?: Budget.Weights
+  budgetHost: {
+    /** The owning control run's journal, where budget requests and decisions live. */
+    readonly controlJournal: Journal.Service
+    /** Whether a refused `park` budget may ask an operator, as the session's `asks` says. */
+    readonly parks: boolean
+    readonly weights?: Budget.Weights | undefined
+  }
 ) =>
   Effect.gen(function*() {
     const engine = yield* FlowRuntime.FlowRuntime
@@ -132,14 +138,21 @@ export const make = (
         return { rootId, flowId: card.flowId, envelope: card.envelope }
       })
 
+    const parking = AgentSession.budgetParking(budgetHost.controlJournal, control)
     // Concurrent descendants share one existing Budget accumulator. RcMap
     // holds it until all handlers release it; later acquisition recovers the
-    // existing journal's usage, including after a process restart.
+    // existing journal's usage, including after a process restart. The
+    // ceiling is the approved card's with every approved budget raise applied,
+    // so a resumed module spends against what the operator granted (#2739).
     const budgets = yield* RcMap.make({
       lookup: (rootId: string) =>
         Effect.gen(function*() {
           const { envelope } = yield* owner(rootId)
-          return yield* Budget.make(Budget.policyFromEnvelope(envelope, { weights })).pipe(Effect.orDie)
+          const spending = yield* AgentSession.approvedEnvelope(budgetHost.controlJournal, rootId, envelope)
+            .pipe(Effect.orDie)
+          const budget = yield* Budget.make(Budget.policyFromEnvelope(spending, { weights: budgetHost.weights }))
+            .pipe(Effect.orDie)
+          return { budget, envelope: spending }
         })
     })
 
@@ -172,7 +185,7 @@ export const make = (
                   boundary: JSON.stringify([executionId, input.boundary])
                 })
             })
-            const budget = yield* RcMap.get(budgets, rootId).pipe(Effect.orDie)
+            const { budget, envelope: spending } = yield* RcMap.get(budgets, rootId).pipe(Effect.orDie)
             const instance = yield* FlowRuntime.FlowInstance
             const trace = yield* EventSink.durable(journal)
             const accountingInstance = { ...instance, executionId: rootId }
@@ -190,6 +203,12 @@ export const make = (
               usageOf: (id) => account(budget.usageOf(id))
             }
             return yield* handler(payload, executionId).pipe(
+              // A `park` budget parks the owning control run, as a prompt
+              // run's does; a host that refuses asks fails it instead.
+              (effect) =>
+                budgetHost.parks
+                  ? Effect.provideService(effect, Budget.Parking, parking(rootId, spending))
+                  : effect,
               CapabilitySet.attenuate(AgentSession.patterns(envelope.capabilities)),
               Effect.provideService(AgentAction.Host, {
                 ...actionHost,

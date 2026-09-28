@@ -1393,14 +1393,22 @@ const askIdentity = (
 const budgetRequestPrefix = "budget/"
 
 /**
- * The identity of one budget park, derived from its run and the budget it asks
- * for, so a resumed run that exceeds the raised budget asks again.
+ * The identity of one budget park, derived from its run, the scope it
+ * exceeded, and the ceiling it exceeded, so a resumed run that exceeds an
+ * approved raise asks again.
+ *
+ * The proposal is not part of it. A raise covers what the run has used, and a
+ * latency run's elapsed time grows while it waits: an identity hashed from the
+ * proposal named a new request on every re-drive, so a denial never answered
+ * the request it was made on and the run asked again instead of failing
+ * (#2739).
  */
 const budgetIdentity = (
   runId: string,
-  budget: Envelope["budget"]
+  scope: Budget.BudgetExceeded["scope"],
+  ceiling: Envelope["budget"]
 ): { readonly digest: string; readonly requestId: string } => {
-  const digest = Digest.digest(CanonicalJson.stringify({ budget, runId }))
+  const digest = Digest.digest(CanonicalJson.stringify({ ceiling, runId, scope }))
   return { digest, requestId: `${budgetRequestPrefix}${runId}/${digest}` }
 }
 
@@ -1436,6 +1444,136 @@ const approvedRaises = (
     const target = entry.eventType === "control.approval.approved" ? budgetDecision(entry) : undefined
     return target === undefined ? [] : [target.envelope.budget]
   })
+
+/** Visits every page of one run's control journal, in order. */
+const scanRun = (
+  journal: Journal.Service,
+  runId: string,
+  visit: (entries: ReadonlyArray<JournalEvent.Entry>) => void
+) =>
+  Effect.gen(function*() {
+    let after: JournalEvent.Seq | undefined
+    for (;;) {
+      const page = yield* journal.entries({
+        runId: JournalEvent.RunId.make(runId),
+        limit: 1_000,
+        ...(after === undefined ? {} : { after })
+      })
+      visit(page.entries)
+      if (!page.hasMore) return
+      after = page.entries.at(-1)!.seq
+    }
+  })
+
+/**
+ * The envelope one run spends against: its approved card's, with every budget
+ * raise an operator approved in the run's control journal applied.
+ *
+ * A native module handler reads it on each entry, so a park approved in this
+ * process or before a restart reaches the resumed module as it reaches a
+ * resumed prompt run.
+ *
+ * @category budget
+ * @since 1.0.0
+ */
+export const approvedEnvelope = (
+  journal: Journal.Service,
+  runId: string,
+  envelope: Envelope
+): Effect.Effect<Envelope, Journal.JournalError> => {
+  const raises: Array<Envelope["budget"]> = []
+  return scanRun(journal, runId, (entries) => {
+    raises.push(...approvedRaises(entries))
+  }).pipe(Effect.map(() => Budget.raisedBy(envelope, raises)))
+}
+
+/**
+ * Parks a run whose `park` budget refused a call: registers the request for a
+ * raised budget in the run's control journal and answers with the `budget`
+ * wait and the requirement that suspends the frame. Approving the request
+ * raises the ceiling the resumed attempt spends against; denying it fails the
+ * run.
+ *
+ * `envelope` is the one the attempt spends against, with approved raises
+ * applied. A request already made against that ceiling is reused as it was
+ * recorded, proposal included, so a re-driven run finds the operator's
+ * decision on it rather than asking a new question.
+ *
+ * @category budget
+ * @since 1.0.0
+ */
+export const budgetParking = (
+  journal: Journal.Service,
+  runtime: Pick<ControlRuntime["Service"], "registerApproval">
+) =>
+(runId: string, envelope: Envelope): Budget.Parking["Service"] => ({
+  park: (exceeded) =>
+    Effect.gen(function*() {
+      const identity = budgetIdentity(runId, exceeded.scope, envelope.budget)
+      let recorded: typeof ControlFacts.ApprovalRequestFact.Type | undefined
+      yield* scanRun(journal, runId, (entries) => {
+        for (const entry of entries) {
+          if (recorded !== undefined || entry.eventType !== "control.approval.requested") continue
+          const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
+          if (Option.isSome(fact) && fact.value.requestId === identity.requestId) recorded = fact.value
+        }
+      }).pipe(Effect.mapError((cause) =>
+        new HarnessError.HarnessError({
+          code: "engine_failed",
+          message: "The run's budget requests could not be read",
+          cause
+        })
+      ))
+      const budget = Budget.raise(envelope.budget, exceeded)
+      const unit = exceeded.scope === "tokens" ? "tokens" : "ms"
+      const raised = exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
+      const question = recorded?.question ??
+        `Raise the ${exceeded.scope} budget from ${exceeded.max} to ${raised} ${unit}?`
+      const target = recorded?.payload.target ?? {
+        _tag: "Node" as const,
+        runId,
+        requestId: identity.requestId,
+        digest: identity.digest,
+        envelope: { ...envelope, budget }
+      }
+      const token = yield* ControlFacts.commitApprovalRequest(journal, runtime, {
+        runId,
+        requestId: identity.requestId,
+        question,
+        payload: { target, scope: "run", idempotencyKey: `approve:${identity.requestId}` }
+      }, sourceId).pipe(Effect.mapError((cause) =>
+        new HarnessError.HarnessError({
+          code: "engine_failed",
+          message: "The budget approval request and token could not be committed",
+          cause
+        })
+      ))
+      // A decided request no longer parks: a denial is the refusal it
+      // asked to lift, and an approval this attempt did not apply is too.
+      if (token._tag !== "Pending") {
+        return yield* new HarnessError.HarnessError({
+          code: "model_failed",
+          message: exceeded.message,
+          cause: exceeded
+        })
+      }
+      const failure = new HarnessError.HarnessError({
+        code: "engine_failed",
+        message: `Budget approval required: ${question}`,
+        cause: Schema.encodeUnknownSync(Permission.PermissionRequired)(
+          new Permission.PermissionRequired({
+            code: "permission_required",
+            requestId: identity.requestId,
+            runId,
+            capability: Capability.make("model:call", `budget/${exceeded.scope}`),
+            tier: "irreversible",
+            meta: { question }
+          })
+        )
+      })
+      return { waiting: { reason: "budget", token: identity.requestId }, failure }
+    })
+})
 
 /**
  * Parses a run envelope's formatted capabilities, dropping every entry the
@@ -1780,8 +1918,16 @@ export const readExecution = (
       )
       if (Option.isNone(row)) return { _tag: "Missing" } as const
       const waiting = yield* state.waiting(row.value.runId)
-      const reason = Option.isSome(waiting) ? waiting.value.reason : undefined
       const current = row.value
+      const tree = yield* state.waitingTree(current.runId)
+      // A module run's budget parks the native child that made the call, and
+      // the root only awaits that child. The tree's budget wait is why the
+      // run waits, and what an operator acts on (#2739).
+      const reason = Option.isSome(waiting)
+        ? waiting.value.reason === "event" && tree.some((wait) => wait.reason === "budget")
+          ? "budget"
+          : waiting.value.reason
+        : undefined
       // Every open human wait in the TREE, not just this row's own.
       //
       // A flow that calls another flow parks the child execution, and those
@@ -1793,7 +1939,7 @@ export const readExecution = (
       // workspace 6f2733a3 parked on `coding-clarification` with no way to
       // answer it. This port is the only reader of both databases, so it is
       // where the tree's open questions become visible.
-      const pendingWaits = (yield* state.waitingTree(current.runId))
+      const pendingWaits = tree
         .flatMap((wait) =>
           ControlExecutor.pendingWaitOf({
             runId: wait.runId,
@@ -2281,65 +2427,7 @@ export const make = (
           )
         })
 
-    /**
-     * Parks a run whose `park` budget refused a call: registers the request
-     * for a raised budget and answers with the `budget` wait and the
-     * requirement that suspends the frame. Approving the request raises the
-     * ceiling the resumed attempt spends against; denying it fails the run.
-     */
-    const parking = (runId: string, envelope: Envelope): Budget.Parking["Service"] => ({
-      park: (exceeded) =>
-        Effect.gen(function*() {
-          const budget = Budget.raise(envelope.budget, exceeded)
-          const identity = budgetIdentity(runId, budget)
-          const unit = exceeded.scope === "tokens" ? "tokens" : "ms"
-          const raised = exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
-          const question = `Raise the ${exceeded.scope} budget from ${exceeded.max} to ${raised} ${unit}?`
-          const target = {
-            _tag: "Node" as const,
-            runId,
-            requestId: identity.requestId,
-            digest: identity.digest,
-            envelope: { ...envelope, budget }
-          }
-          const token = yield* ControlFacts.commitApprovalRequest(journal, runtime, {
-            runId,
-            requestId: identity.requestId,
-            question,
-            payload: { target, scope: "run", idempotencyKey: `approve:${identity.requestId}` }
-          }, sourceId).pipe(Effect.mapError((cause) =>
-            new HarnessError.HarnessError({
-              code: "engine_failed",
-              message: "The budget approval request and token could not be committed",
-              cause
-            })
-          ))
-          // A decided request no longer parks: a denial is the refusal it
-          // asked to lift, and an approval this attempt did not apply is too.
-          if (token._tag !== "Pending") {
-            return yield* new HarnessError.HarnessError({
-              code: "model_failed",
-              message: exceeded.message,
-              cause: exceeded
-            })
-          }
-          const failure = new HarnessError.HarnessError({
-            code: "engine_failed",
-            message: `Budget approval required: ${question}`,
-            cause: Schema.encodeUnknownSync(Permission.PermissionRequired)(
-              new Permission.PermissionRequired({
-                code: "permission_required",
-                requestId: identity.requestId,
-                runId,
-                capability: Capability.make("model:call", `budget/${exceeded.scope}`),
-                tier: "irreversible",
-                meta: { question }
-              })
-            )
-          })
-          return { waiting: { reason: "budget", token: identity.requestId }, failure }
-        })
-    })
+    const parking = budgetParking(journal, runtime)
 
     /**
      * Answers from the decision itself, not from a scan of unrelated grants.
@@ -3298,22 +3386,14 @@ export const make = (
     const pendingBudgetWait = (runId: string) =>
       Effect.gen(function*() {
         const pending = new Map<string, true>()
-        let after: JournalEvent.Seq | undefined
-        for (;;) {
-          const page = yield* journal.entries({
-            runId: JournalEvent.RunId.make(runId),
-            limit: 1_000,
-            ...(after === undefined ? {} : { after })
-          })
-          for (const entry of page.entries) {
+        yield* scanRun(journal, runId, (entries) => {
+          for (const entry of entries) {
             const requestId = budgetRequestOf(entry)
             if (requestId === undefined) continue
             if (entry.eventType === "control.approval.requested") pending.set(requestId, true)
             else pending.delete(requestId)
           }
-          if (!page.hasMore) break
-          after = page.entries.at(-1)!.seq
-        }
+        })
         const token = [...pending.keys()].at(-1)
         return token === undefined ? undefined : { reason: "budget", token }
       }).pipe(

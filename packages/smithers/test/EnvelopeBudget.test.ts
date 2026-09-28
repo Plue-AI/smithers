@@ -203,7 +203,13 @@ const sse = (text: string, tokens: number): string =>
  * run to its end. Every call costs 20 tokens: the first frame fits and does not
  * finish, and the second is projected at 20 + 20 and parks.
  */
-const parkedRun = async (decision: "approve" | "deny") => {
+const parkedRun = async (
+  decision: "approve" | "deny",
+  ceiling: { readonly declaration: ReadonlyArray<string>; readonly delayMs: number } = {
+    declaration: ["  tokens: 30"],
+    delayMs: 0
+  }
+) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "flows-cli-budget-park-")))
   const agent = new MockAgent()
   try {
@@ -216,7 +222,7 @@ const parkedRun = async (decision: "approve" | "deny") => {
         "description: Reviews a proposed change.",
         "model: openai:gpt-4o-mini",
         "budget:",
-        "  tokens: 30",
+        ...ceiling.declaration,
         "  onExceeded: park",
         "---",
         "",
@@ -226,14 +232,17 @@ const parkedRun = async (decision: "approve" | "deny") => {
     )
     const bodies: Array<string> = []
     agent.disableNetConnect()
-    agent.get("https://api.openai.com").intercept({ method: "POST", path: "/v1/responses" }).reply(
+    const reply = agent.get("https://api.openai.com").intercept({ method: "POST", path: "/v1/responses" }).reply(
       200,
       (options) => {
         bodies.push(String(options.body))
         return sse(bodies.length === 1 ? "```cell\nconst looked = 1\n```" : "```cell\nctx.done(\"reviewed\")\n```", 20)
       },
       { headers: { "content-type": "text/event-stream" } }
-    ).persist()
+    )
+    // Undici refuses a zero delay, so only a slow provider sets one.
+    if (ceiling.delayMs > 0) reply.delay(ceiling.delayMs)
+    reply.persist()
     const client = await Effect.runPromise(
       NodeHttpClient.makeUndici.pipe(Effect.provideService(NodeHttpClient.Dispatcher, agent))
     )
@@ -286,8 +295,10 @@ const parkedRun = async (decision: "approve" | "deny") => {
         )
         yield* decision === "approve" ? control.approve(approval) : control.deny(approval)
         const terminal = new Set(["control.run.completed", "control.run.failed", "control.run.cancelled"])
-        const events = yield* control.watch({ runId, follow: true }).pipe(
-          Stream.takeUntil((event) => terminal.has(event.kind)),
+        // A second request, not a settlement, is what a decision whose
+        // identity drifted on resume looks like.
+        const events = yield* control.watch({ runId, follow: true, afterSequence: requested[0]!.sequence }).pipe(
+          Stream.takeUntil((event) => terminal.has(event.kind) || event.kind === "control.approval.requested"),
           Stream.runCollect
         )
         return { parked, callsWhileParked, approval, last: [...events].at(-1)?.kind, settled: yield* summary }
@@ -321,6 +332,18 @@ describe("a parked budget", () => {
 
   it("fails the run when the raise is denied, without calling the provider again", async () => {
     const observed = await parkedRun("deny")
+
+    expect(observed.parked).toMatchObject({ status: "parked", waitingReason: "budget" })
+    expect(observed.last).toBe("control.run.failed")
+    expect(observed.settled?.status).toBe("failed")
+    expect(observed.bodies).toHaveLength(1)
+  }, 60_000)
+
+  it("fails a run whose latency raise is denied instead of asking again on resume", async () => {
+    // The first response takes 150 ms against a 100 ms ceiling, so the second
+    // call parks. The elapsed time keeps growing while parked, and the denial
+    // must still answer the request it was made on (#2739).
+    const observed = await parkedRun("deny", { declaration: ["  milliseconds: 100"], delayMs: 150 })
 
     expect(observed.parked).toMatchObject({ status: "parked", waitingReason: "budget" })
     expect(observed.last).toBe("control.run.failed")
