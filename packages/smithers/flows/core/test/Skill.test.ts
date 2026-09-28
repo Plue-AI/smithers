@@ -278,32 +278,38 @@ describe("Skill", () => {
     )
   })
 
-  it("retains hostile unknown keys as frozen own data properties", () => {
-    const skill = parse([
-      "---",
-      "name: guarded",
-      "description: Guard hostile keys",
-      "__proto__:",
-      "  admin: yes",
-      "constructor: construct",
-      "prototype:",
-      "  enabled: true",
-      "---",
-      "Prompt"
-    ].join("\n"))
+  it.each([
+    ["__proto__", ["__proto__:", "  admin: yes"]],
+    ["constructor", ["constructor: construct"]],
+    ["prototype", ["prototype:", "  enabled: true"]],
+    ["__proto__", ["nested:", "  - __proto__:", "      admin: yes"]],
+    ["constructor", ["metadata:", "  constructor: construct"]]
+  ])("refuses the reserved key %s at any depth", (key, fields) => {
+    const text = document(["name: guarded", "description: Guard hostile keys", ...fields])
+    const refused = failure(text)
 
-    expect(Object.keys(skill.extra)).toEqual(["__proto__", "constructor", "prototype"])
-    expect(Object.getOwnPropertyDescriptor(skill.extra, "__proto__")).toEqual({
-      value: { admin: "yes" },
-      enumerable: true,
-      writable: false,
-      configurable: false
-    })
-    expect(Object.getOwnPropertyDescriptor(skill.extra, "constructor")?.value).toBe("construct")
-    expect(Object.getOwnPropertyDescriptor(skill.extra, "prototype")?.value).toEqual({ enabled: "true" })
-    expect(Object.getPrototypeOf(skill.extra)).toBeNull()
-    expect(Object.isFrozen(skill.extra)).toBe(true)
-    expect(({} as Record<string, unknown>).admin).toBeUndefined()
+    expect(refused.code).toBe("skill_invalid_frontmatter")
+    expect(refused.message).toBe(`Skill frontmatter must not use the reserved key ${key}`)
+    expect(Result.isFailure(Markdown.lowerSkill(text))).toBe(true)
+  })
+
+  it.each([
+    ["a mapping", ["loop: &a", "  c: *a"]],
+    ["a sequence", ["loop: &a [*a]"]],
+    ["a nested mapping", ["metadata:", "  outer: &a", "    inner:", "      again: *a"]]
+  ])("refuses a recursive alias through %s instead of throwing", (_shape, fields) => {
+    const text = document(["name: cyclic", "description: Guard recursive aliases", ...fields])
+    const refused = failure(text)
+
+    expect(refused.code).toBe("skill_invalid_frontmatter")
+    expect(refused.message).toBe("Skill frontmatter must not contain a recursive alias")
+    expect(Result.isFailure(Markdown.lowerSkill(text))).toBe(true)
+  })
+
+  it("accepts one anchored mapping reused by sibling aliases", () => {
+    const skill = parse(document(["name: shared", "description: Reuse an anchor", "a: &m", "  k: v", "b: *m", "c: *m"]))
+
+    expect({ ...skill.extra }).toEqual({ a: { k: "v" }, b: { k: "v" }, c: { k: "v" } })
   })
 
   it("retains unknown keys without treating them as errors", () => {

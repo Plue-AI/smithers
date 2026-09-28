@@ -517,7 +517,12 @@ const parseSkill: (text: string) => Result.Result<SkillDocument, MarkdownError>
 
 Parses an Agent Skills document with failsafe-schema YAML semantics and
 validates its frontmatter with
-[`validateSkillFrontmatter`](#markdownvalidateskillfrontmatter).
+[`validateSkillFrontmatter`](#markdownvalidateskillfrontmatter). A mapping at
+any depth that uses the reserved key `__proto__`, `constructor`, or `prototype`
+fails with `skill_invalid_frontmatter`, so a copy of `extra` cannot re-point a
+prototype. An alias that refers back to its own anchor, such as
+`b: &a { c: *a }`, fails with the same code instead of producing a circular
+value.
 
 ### Markdown.SkillDocument and Markdown.SkillFrontmatter
 
