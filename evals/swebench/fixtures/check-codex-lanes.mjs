@@ -232,11 +232,13 @@ function runnerFixture(harness, scenario, check, overrideEnvironment = {}) {
       mkdirSync(join(dir, path), { recursive: true })
     }
     const script = harness === "codex" ? "run-instance-codex.sh" : "run-instance.sh"
-    for (const path of [script, "lib/run-paths.sh", "lib/lock.sh", "lib/codex-auth.sh", "lib/transport.sh"]) {
+    for (const path of [script, "lib/run-paths.sh", "lib/lock.sh", "lib/codex-auth.sh", "lib/transport.sh", "lib/run-with-timeout.py"]) {
       copyFileSync(join(root, path), join(dir, path))
     }
     put("swb-verified.json", "[]")
     put("bin/smithers-jj-export", "#!/bin/sh\nexit 0\n")
+    // A GNU timeout on the fixture host must not hide the macOS failure.
+    put("bin/timeout", "#!/bin/sh\nexit 127\n")
     put(".subject.json", "{\"stamp\":\"fixture\"}")
     put("lib/validate-instance.mjs", "console.log(\"base\")")
     put("lib/write-prompt-codex.mjs", "console.log(\"fix the bug\")")
@@ -272,6 +274,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 if [ "$FIXTURE_SCENARIO" = agent-timeout ]; then exit 124; fi
+if [ "$FIXTURE_SCENARIO" = wall-timeout ]; then sleep 3; fi
 `
     )
     put(
@@ -315,7 +318,7 @@ switch (args[0]) {
       join(dir, script),
       "a__a-1",
       ...(harness === "codex"
-        ? ["10", "fixture-model", "r1"] :
+        ? [scenario === "wall-timeout" ? "1" : "10", "fixture-model", "r1"] :
         ["fixture-seat", "10", "r1"])
     ], {
       cwd: dir,
@@ -370,7 +373,7 @@ for (const scenario of ["capture-failure", "missing-patch"]) {
   })
 }
 
-for (const scenario of ["success", "empty-patch", "agent-timeout"]) {
+for (const scenario of ["success", "empty-patch", "agent-timeout", "wall-timeout"]) {
   test(`codex ${scenario} captures before deleting its workspace`, () => {
     runnerFixture("codex", scenario, ({ dir, work, result }) => {
       assert.equal(result.status, 0, result.stdout + result.stderr)
@@ -378,7 +381,7 @@ for (const scenario of ["success", "empty-patch", "agent-timeout"]) {
       const patch = readFileSync(join(dir, "patches-codex/a__a-1-r1.patch"), "utf8")
       assert.equal(patch, scenario === "empty-patch" ? "" : "paid attempt patch\n")
       assert.ok(!existsSync(join(dir, "logs-codex/a__a-1-r1.capture-failed")))
-      if (scenario === "agent-timeout") {
+      if (scenario === "agent-timeout" || scenario === "wall-timeout") {
         assert.equal(JSON.parse(readFileSync(join(dir, "timings-codex/a__a-1-r1.json"))).exitCode, 124)
       }
     })

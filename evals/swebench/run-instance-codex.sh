@@ -248,7 +248,7 @@ esac
 echo "[$RUN_ID] codex start ($MODEL, effort $EFFORT, ${BUDGET}s)"
 START=$(date +%s)
 CODE=0
-timeout "$BUDGET" codex exec \
+python3 "$S/lib/run-with-timeout.py" "$BUDGET" codex exec \
   -C "$WORK" \
   -m "$MODEL" \
   -c model_reasoning_effort="$EFFORT" \
