@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "@effect/vitest"
 import { Action, DurableDeferred, DurableQueue, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
-import { Cause, Effect, Exit, Fiber, Layer, Logger, Option, Schedule, Schema } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Logger, Option, Schedule, Schema, Tracer } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { TestClock } from "effect/testing"
 import { PersistedQueue } from "effect/unstable/persistence"
@@ -214,6 +214,155 @@ describe("DurableQueue", () => {
       Effect.provide(Logger.layer([capture])),
       Effect.provide(layerMemory),
       Effect.provide(PersistedQueueLayer)
+    )
+  })
+
+  effect("refuses an item whose token names a deferred this queue does not own", () => {
+    // Regression: the worker completed whatever deferred a stored token named,
+    // so a forged item could settle a WaitFor gate, a human task, or another
+    // queue's wait under this queue's success schema.
+    const WorkerQueue = DurableQueue.make({
+      name: "DurableQueue/ForeignToken",
+      payload: { id: Schema.String, value: Schema.Number },
+      success: Schema.Number,
+      error: Schema.String,
+      idempotencyKey: ({ id }) => id
+    })
+    const itemSchema = Schema.Struct({
+      token: DurableDeferred.Token,
+      payload: WorkerQueue.payloadSchema,
+      traceId: Schema.String,
+      spanId: Schema.String,
+      sampled: Schema.Boolean
+    })
+    const logs: Array<{ readonly level: string; readonly message: string }> = []
+    const capture = Logger.make((entry) => {
+      logs.push({ level: entry.logLevel, message: String(entry.message) })
+    })
+    const handled: Array<string> = []
+    const tokenFor = (deferredName: string) =>
+      new DurableDeferred.TokenParsed({
+        flowName: "DurableQueue/ForeignToken/Host",
+        executionId: "victim",
+        deferredName
+      }).asToken
+
+    return Effect.gen(function*() {
+      const queue = yield* PersistedQueue.make({
+        name: `DurableQueue/${WorkerQueue.name}`,
+        schema: itemSchema
+      })
+      yield* Effect.forkChild(
+        DurableQueue.makeWorker(
+          WorkerQueue,
+          ({ id, value }) => Effect.sync(() => (handled.push(id), value + 1))
+        ),
+        { startImmediately: true }
+      )
+      for (
+        const [id, deferredName] of [
+          ["gate", "approve-deploy"],
+          ["sibling", `${WorkerQueue.deferred.name}/other`],
+          ["prefix", `${WorkerQueue.deferred.name}/prefix/extra`],
+          ["long", `approve-${"x".repeat(200)}`]
+        ] as const
+      ) {
+        yield* queue.offer({
+          token: tokenFor(deferredName),
+          payload: { id, value: 1 },
+          traceId: "0".repeat(32),
+          spanId: "0".repeat(16),
+          sampled: false
+        }, { id })
+      }
+      yield* queue.offer({
+        token: tokenFor(`${WorkerQueue.deferred.name}/valid`),
+        payload: { id: "valid", value: 41 },
+        traceId: "1".repeat(32),
+        spanId: "1".repeat(16),
+        sampled: false
+      }, { id: "valid" })
+      for (let turn = 0; turn < 100 && handled.length === 0; turn++) yield* Effect.yieldNow
+
+      expect(handled).toEqual(["valid"])
+      const refused = logs.filter((entry) => entry.level === "Error").map((entry) => entry.message)
+      expect(refused).toHaveLength(4)
+      expect(refused[0]).toContain("approve-deploy")
+      expect(refused[1]).toContain(`${WorkerQueue.deferred.name}/other`)
+      expect(refused[2]).toContain(`${WorkerQueue.deferred.name}/prefix/extra`)
+      expect(refused[3]).toContain(`approve-${"x".repeat(120)} [80 characters dropped]`)
+      expect(refused[3]).not.toContain("x".repeat(121))
+    }).pipe(
+      Effect.provide(Logger.layer([capture])),
+      Effect.provide(layerMemory),
+      Effect.provide(PersistedQueueLayer)
+    )
+  })
+
+  effect("links the worker span only to a stored parent with trace-context ids", () => {
+    const WorkerQueue = DurableQueue.make({
+      name: "DurableQueue/TraceParent",
+      payload: { id: Schema.String },
+      success: Schema.Void,
+      idempotencyKey: ({ id }) => id
+    })
+    const itemSchema = Schema.Struct({
+      token: DurableDeferred.Token,
+      payload: WorkerQueue.payloadSchema,
+      traceId: Schema.String,
+      spanId: Schema.String,
+      sampled: Schema.Boolean
+    })
+    const spans: Array<Tracer.NativeSpan> = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      }
+    })
+    const handled: Array<string> = []
+
+    return Effect.gen(function*() {
+      const queue = yield* PersistedQueue.make({
+        name: `DurableQueue/${WorkerQueue.name}`,
+        schema: itemSchema
+      })
+      yield* Effect.forkChild(
+        DurableQueue.makeWorker(WorkerQueue, ({ id }) => Effect.sync(() => void handled.push(id))),
+        { startImmediately: true }
+      )
+      for (
+        const [id, traceId, spanId] of [
+          ["forged", "attacker-chosen-trace", "attacker-span"],
+          ["linked", "a".repeat(32), "b".repeat(16)]
+        ] as const
+      ) {
+        yield* queue.offer({
+          token: new DurableDeferred.TokenParsed({
+            flowName: "DurableQueue/TraceParent/Host",
+            executionId: id,
+            deferredName: `${WorkerQueue.deferred.name}/${id}`
+          }).asToken,
+          payload: { id },
+          traceId,
+          spanId,
+          sampled: true
+        }, { id })
+      }
+      for (let turn = 0; turn < 100 && handled.length < 2; turn++) yield* Effect.yieldNow
+
+      expect(handled).toEqual(["forged", "linked"])
+      const workerSpans = spans.filter((span) => span.name === `DurableQueue/${WorkerQueue.name}/worker`)
+      expect(workerSpans).toHaveLength(2)
+      const parents = workerSpans.map((span) => Option.getOrUndefined(span.parent))
+      expect(parents[0]).toBeUndefined()
+      expect(parents[1]?.traceId).toBe("a".repeat(32))
+      expect(parents[1]?.spanId).toBe("b".repeat(16))
+    }).pipe(
+      Effect.provide(layerMemory),
+      Effect.provide(PersistedQueueLayer),
+      Effect.provideService(Tracer.Tracer, tracer)
     )
   })
 

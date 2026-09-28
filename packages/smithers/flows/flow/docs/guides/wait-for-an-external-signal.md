@@ -76,6 +76,11 @@ from a payload, for a resolver that knows what was asked for but not which id it
 was admitted under. This requires the flow to declare `idempotencyKey`; use
 `tokenFromExecutionId` when the caller supplied an execution id explicitly.
 
+A token is an address, not a credential. Anyone who knows the flow and the
+execution id, or the payload, can rebuild it, so a resolver that accepts
+completions from other parties must authorize the caller before it calls
+`DurableDeferred.succeed`.
+
 ## Name exactly one target
 
 A `WaitFor` payload names the wait point by `name`, relative to the running

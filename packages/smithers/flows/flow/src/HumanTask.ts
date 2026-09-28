@@ -896,6 +896,10 @@ export const layer: Layer.Layer<never, never, Crypto.Crypto | FlowRuntime> = act
  * run. An admitted answer then resumes the run through the ordinary durable
  * deferred path.
  *
+ * The token is not a credential: anyone who knows or derives the address of
+ * the open attempt can answer it. The host decides who may answer, and must
+ * authorize the caller before calling `answer`.
+ *
  * ```ts
  * yield* HumanTask.answer({ token: waiting.token, value: { decision: "ship" } })
  * ```

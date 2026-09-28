@@ -48,7 +48,9 @@ requirements are collected.
 `deferredDoneIfWaiting` answers a `DeferredDoneIfWaitingOutcome` of `Completed`,
 `Existing`, or `NotWaiting`. It exists so a completion can be admitted as one
 mutation only while its run is actually parked on that wait, which is what stops
-a guessed or stale token from pre-answering a run.
+a guessed or stale token from pre-answering a run. It does not authorize the
+caller: a token is an unsigned address, so the host authorizes whoever
+completes an open wait.
 
 `recordNode` is the one optional method, and optional in the strong sense: a
 runtime that keeps no history leaves it absent and the walk is unchanged, so no

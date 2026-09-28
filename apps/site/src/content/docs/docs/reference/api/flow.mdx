@@ -415,6 +415,8 @@ The brand identifier that distinguishes a completion token from an ordinary stri
 
 A branded string identifying one durable deferred of one flow execution.
 
+A token is an address, not a credential. It is unsigned base64url JSON of the flow name, execution id, and deferred name, and `tokenFromExecutionId` and `tokenFromPayload` rebuild it from those values. Anyone who can call a completion entry point (`done`, `succeed`, `fail`, `failCause`, `HumanTask.answer`) against the run's `FlowRuntime` can complete an open wait whose address they know or derive. A host that exposes completion to other parties must authorize the caller first.
+
 ### `DurableDeferred.TokenInvalid`
 
 - **Type:** `Schema.TaggedError` with fields `code: "malformed_token" | "deferred_mismatch"` and `message: string`
@@ -456,7 +458,7 @@ Creates a token by deriving the execution id from the flow payload. Declare an `
 - **Signature:** `done(self: DurableDeferred<Success, Error>, options: { readonly token: Token; readonly exit: Exit.Exit<Success["Type"], Error["Type"]> }): Effect.Effect<void, TokenInvalid, FlowRuntime | Success["EncodingServices"] | Error["EncodingServices"]>`
 - **Since:** `0.1.0`
 
-Completes the deferred a token addresses with an exit, encoded through the deferred's schemas. A token whose `deferredName` is not this deferred's name fails with `TokenInvalid`.
+Completes the deferred a token addresses with an exit, encoded through the deferred's schemas. A token whose `deferredName` is not this deferred's name fails with `TokenInvalid`. The token is not a credential: authorize the caller before completing a wait on its behalf.
 
 ### `DurableDeferred.succeed`
 
@@ -1163,7 +1165,7 @@ The human-task implementation: park, validate, re-ask, settle. Provide it beside
 - **Signature:** `answer(options: { readonly token: DurableDeferred.Token; readonly value: typeof Schema.Json.Type }): Effect.Effect<void, DurableDeferred.TokenInvalid | HumanAnswerInvalid, FlowRuntime>`
 - **Since:** `0.1.0`
 
-Records one answer to a human task. `token` is the value the run parked with. The runtime checks that exact approval wait and records the completion as one mutation, so a guessed, unopened, or stale token cannot pre-answer a run. A token whose deferred name `HumanTask.deferred` could not have written fails with `TokenInvalid` carrying `deferred_mismatch`.
+Records one answer to a human task. `token` is the value the run parked with. The runtime checks that exact approval wait and records the completion as one mutation, so a guessed, unopened, or stale token cannot pre-answer a run. A token whose deferred name `HumanTask.deferred` could not have written fails with `TokenInvalid` carrying `deferred_mismatch`. The token does not authorize the caller: anyone who knows or derives the open attempt's address can answer it, so the host must decide who may answer before calling `answer`.
 
 ### `HumanTask.decode`
 

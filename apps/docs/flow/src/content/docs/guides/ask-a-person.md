@@ -108,6 +108,10 @@ stale token cannot pre-answer a run. A token whose deferred name
 `HumanTask.deferred` could not have written fails with
 `DurableDeferred.TokenInvalid` carrying `deferred_mismatch`.
 
+These checks bound when an answer lands, not who sends it. A token is an
+unsigned address the execution id and attempt rebuild, so the endpoint that
+calls `HumanTask.answer` must authorize the person first.
+
 Do not track the attempt number in your own process. Read it back from the
 engine's waiting row, which carries the `approval` reason and the token of the
 one attempt that is open.

@@ -91,6 +91,13 @@ on both worker constructors. Failed takes consume attempts; interrupt-only exits
 do not. A declared handler failure that is successfully recorded completes the
 item instead of retrying it.
 
+A worker completes only the wait its own `process` call created: an item stored
+under ID `key` must carry a token for `DurableQueue/<name>/<key>`. An item whose
+token is malformed or names any other wait point is logged at error level and
+acknowledged without running the handler. The worker links its span to the
+offering span only when the stored trace and span ids are 32 and 16 lowercase hex
+characters.
+
 A take failure after the handler produces a recordable exit is logged at error
 level with the queue name, item ID, completion token, attempt, attempt limit, and
 whether that limit was reached. At exhaustion the store drops or quarantines the

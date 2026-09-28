@@ -280,6 +280,31 @@ export const process: <
     return yield* DurableDeferred.await(deferred)
   })
 
+const maxDeferredNameExcerptChars = 128
+
+/** Renders a bounded excerpt of a stored deferred name for a diagnostic. */
+const deferredNameExcerpt = (name: string): string =>
+  name.length <= maxDeferredNameExcerptChars
+    ? name
+    : `${name.slice(0, maxDeferredNameExcerptChars)} [${name.length - maxDeferredNameExcerptChars} characters dropped]`
+
+const traceIdPattern = /^[0-9a-f]{32}$/
+const spanIdPattern = /^[0-9a-f]{16}$/
+
+/**
+ * The offering span as the worker span's parent, when the stored ids have the
+ * W3C trace-context shape every Effect and OpenTelemetry tracer writes. A
+ * stored item is not trusted to splice arbitrary identifiers into a trace.
+ */
+const externalParent = (item: {
+  readonly traceId: string
+  readonly spanId: string
+  readonly sampled: boolean
+}): Tracer.ExternalSpan | undefined =>
+  traceIdPattern.test(item.traceId) && spanIdPattern.test(item.spanId)
+    ? Tracer.externalSpan({ traceId: item.traceId, spanId: item.spanId, sampled: item.sampled })
+    : undefined
+
 const defaultRetrySchedule = Schedule.min([
   Schedule.exponential(500, 1.5),
   Schedule.spaced("1 minute")
@@ -322,6 +347,20 @@ const makeWorkerEffect = Effect.fnUntraced(function*<
           // Parse before running the handler. A malformed completion address
           // cannot strand a handler result that was already produced.
           const parsed = yield* DurableDeferred.TokenParsed.parse(item.token)
+          // `process` offers each item under its key and addresses the
+          // deferred `<queue deferred>/<key>`. Anything else in this queue
+          // names a wait point the queue does not own (another queue's item,
+          // a WaitFor gate, a human task), so completing it here would settle
+          // a foreign wait under this queue's success schema.
+          const expected = `${self.deferred.name}/${metadata.id}`
+          if (parsed.deferredName !== expected) {
+            return yield* new DurableDeferred.TokenInvalid({
+              code: "deferred_mismatch",
+              message: `The item "${metadata.id}" addresses the deferred "${
+                deferredNameExcerpt(parsed.deferredName)
+              }", not "${deferredNameExcerpt(expected)}".`
+            })
+          }
           const deferred = DurableDeferred.make(parsed.deferredName, {
             success: self.deferred.successSchema,
             error: self.deferred.errorSchema
@@ -354,11 +393,7 @@ const makeWorkerEffect = Effect.fnUntraced(function*<
         `DurableQueue/${self.name}/worker`,
         {
           captureStackTrace: false,
-          parent: Tracer.externalSpan({
-            traceId: item.traceId,
-            spanId: item.spanId,
-            sampled: item.sampled
-          })
+          parent: externalParent(item)
         }
       )
     }).pipe(

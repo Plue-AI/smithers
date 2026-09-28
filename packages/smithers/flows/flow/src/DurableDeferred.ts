@@ -342,6 +342,14 @@ export type TokenTypeId = typeof TokenTypeId
  * Branded string token identifying a durable deferred for a flow
  * execution.
  *
+ * A token is an address, not a credential. It is unsigned base64url JSON of
+ * the flow name, execution id, and deferred name, and `tokenFromExecutionId`
+ * and `tokenFromPayload` rebuild it from those values alone. Anyone who can
+ * call `done`, `succeed`, `fail`, `failCause`, or `HumanTask.answer` against
+ * the run's `FlowRuntime` can complete an open wait whose address they know or
+ * derive. A host that exposes completion to other parties must authorize the
+ * caller before it calls one of them.
+ *
  * @category token
  * @since 0.1.0
  */
@@ -576,6 +584,9 @@ export const tokenFromPayload: {
 /**
  * Completes the durable deferred identified by a token with the supplied exit,
  * encoding the result through the deferred schemas.
+ *
+ * The token is not a credential (see {@link Token}): authorize the caller
+ * before completing a wait on its behalf.
  *
  * @category combinators
  * @since 0.1.0
