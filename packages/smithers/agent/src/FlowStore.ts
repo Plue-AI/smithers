@@ -166,12 +166,29 @@ const listPaths = (paths: Iterable<string>): ReadonlyArray<SavedFlow> => {
 }
 
 /**
+ * Refuses a map key that is not a clean file path under `flows/<id>/`.
+ *
+ * The in-memory store has no filesystem to resolve a path against, so the key
+ * is the whole address: one that names another flow's directory, or a `.` or
+ * `..` segment, would land beside the flow being saved rather than in it.
+ */
+const validateMemoryPath = (id: string, key: string): Effect.Effect<void, FlowStoreError> => {
+  const prefix = `flows/${id}/`
+  const rest = key.startsWith(prefix) ? key.slice(prefix.length).split("/") : []
+  return rest.length > 0 && rest.every((segment) => segment !== "" && segment !== "." && segment !== "..")
+    ? Effect.void
+    : Effect.fail(error("invalid_path", `"${key}" is not a file path inside ${prefix}.`))
+}
+
+/**
  * Constructs a store over an in-memory map, keyed by path.
  *
  * The map is the caller's, so a test writes through the store and reads the
  * bytes back without a filesystem. The listing is derived from the keys rather
  * than tracked separately, which is what lets a host hand in a map it populated
- * itself and still have the flows in it be listable.
+ * itself and still have the flows in it be listable. Every key must be a file
+ * path under `flows/<id>/`; the whole write is refused before any key is stored
+ * otherwise.
  *
  * @category constructors
  * @since 0.1.0
@@ -181,6 +198,7 @@ export const makeMemory = (written: Map<string, string> = new Map()): Service =>
     write: (id, files) =>
       Effect.gen(function*() {
         yield* validateId(id)
+        for (const path of Object.keys(files)) yield* validateMemoryPath(id, path)
         for (const [path, source] of Object.entries(files)) written.set(path, source)
         return { files: Object.keys(files) }
       }),

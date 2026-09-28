@@ -128,6 +128,24 @@ describe("FlowStore.makeMemory", () => {
     expect(refused(await run(store.write("../escape", { "flows/../escape/flow.ts": "" }))).code).toBe("invalid_id")
     expect(written.size).toBe(0)
   })
+
+  it.each([
+    "flows/other/flow.ts",
+    "README.md",
+    "flows/triage",
+    "flows/triage/",
+    "flows/triage/../other/flow.ts",
+    "flows/triage/./flow.ts",
+    "flows/triage//flow.ts"
+  ])("refuses the key %s outside flows/<id>/ before storing anything", async (key) => {
+    const written = new Map<string, string>()
+    const store = FlowStore.makeMemory(written)
+
+    const result = await run(store.write("triage", { "flows/triage/flow.ts": "kept", [key]: "outside" }))
+
+    expect(refused(result).code).toBe("invalid_path")
+    expect(written.size).toBe(0)
+  })
 })
 
 describe("FlowStore.layerFileSystem", () => {

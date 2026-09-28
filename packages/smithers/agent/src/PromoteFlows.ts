@@ -144,6 +144,14 @@ export const showScriptFlow = Flow.make({
 })
 
 /**
+ * The authority `flows/write-flow` needs: writing files under `/flows/`.
+ *
+ * @category flows
+ * @since 1.0.0
+ */
+export const writeFlowCapabilities = ["fs:write:/flows/**"]
+
+/**
  * The `flows/write-flow` declaration.
  *
  * @category flows
@@ -155,6 +163,10 @@ export const writeFlowFlow = Flow.make({
     "Save a flow: writes flow.ts, flow.e2e.ts, and its fixture under flows/<id>/. The id must be lowercase letters, digits, and hyphens.",
   input: WriteFlowInput,
   output: WriteFlowOutput,
+  // Saving writes workspace files that the next frame discovers, so the run's
+  // envelope must already grant writing them; without this declaration a run
+  // with no write authority could still create flow files.
+  capabilities: writeFlowCapabilities,
   effects: { reads: [], writes: ["flows/**"], mode: "expected", onConflict: "serialize", tier: "irreversible" }
 })
 

@@ -1967,6 +1967,9 @@ interface Ports {
 
 The host's own run path. Each port returns data or a promise of it; the flow
 returns it as plain JSON. A thrown error becomes the call's failure text.
+The model chooses every `id` and `flow`, so the host scopes them: `inspect`
+answers only runs this session may read, and `run` refuses flows that are not
+model-invocable and routes the launch through the host's own approval.
 
 ### SmithersPlugin.knowledge, SmithersPlugin.brief, SmithersPlugin.guide
 
@@ -2016,10 +2019,10 @@ host whose flows are laid out differently replaces both through `Options`.
 
 ### PromoteFlows flow declarations and schemas
 
-| Export                                                  | Declaration                                                                                                                                                                                                                                      |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `showScriptFlow`, `ShowScriptInput`, `ShowScriptOutput` | `flows/show-script`: return the source of every cell this turn has executed, plus the rules and the skeleton. Input `{ bestPractices? }` (extra guidance appended after the house rules). Output `{ cells, bestPractices, template }`.           |
-| `writeFlowFlow`, `WriteFlowInput`, `WriteFlowOutput`    | `flows/write-flow`: write `flow.ts`, `flow.e2e.ts`, and the fixture under `flows/<id>/`. Input `{ id, description, flowSource, testSource, fixtureJson }`. Output `{ files }`, the root-relative paths written. Declares `writes: ["flows/**"]`. |
+| Export                                                                        | Declaration                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `showScriptFlow`, `ShowScriptInput`, `ShowScriptOutput`                       | `flows/show-script`: return the source of every cell this turn has executed, plus the rules and the skeleton. Input `{ bestPractices? }` (extra guidance appended after the house rules). Output `{ cells, bestPractices, template }`.                                                                                                                                     |
+| `writeFlowFlow`, `writeFlowCapabilities`, `WriteFlowInput`, `WriteFlowOutput` | `flows/write-flow`: write `flow.ts`, `flow.e2e.ts`, and the fixture under `flows/<id>/`. Input `{ id, description, flowSource, testSource, fixtureJson }`. Output `{ files }`, the root-relative paths written. Declares `writes: ["flows/**"]` and `capabilities: writeFlowCapabilities` (`["fs:write:/flows/**"]`), so a run whose envelope lacks that write is refused. |
 
 ## FlowStore
 
@@ -2089,6 +2092,9 @@ const layerMemory: (written?: Map<string, string>) => Layer.Layer<FlowStore>
 
 A store over an in-memory map, keyed by path. The map is the caller's, so a
 test writes through the store and reads the bytes back without a filesystem.
+Every key must be a file path under `flows/<id>/` with no empty, `.`, or `..`
+segment; otherwise the whole write fails with
+`FlowStoreError { code: "invalid_path" }` before any key is stored.
 
 ### FlowStore.makeNoop, FlowStore.layerNoop
 

@@ -171,6 +171,11 @@ export const brief = [
  * Host operations behind the run flows. Each returns JSON-shaped data or a
  * promise of it; a thrown error reaches the cell as the call's failure text.
  *
+ * The model chooses every `id` and `flow` these receive, and this plugin
+ * passes them through unchanged, so the host is the authority: `inspect`
+ * answers only runs this session may read, and `run` refuses flows that are
+ * not model-invocable and launches through the host's own approval.
+ *
  * @category models
  * @since 1.0.0-rc.1
  */

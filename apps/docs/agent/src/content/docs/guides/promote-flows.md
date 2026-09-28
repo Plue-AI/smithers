@@ -39,6 +39,9 @@ const run = agent.run({
   `ctx.flows` on the next frame. Supply the same registry to `Agent.run` and
   the promotion binding's context. Refresh is best effort; a failed refresh
   leaves the files saved and discovery waits for a later successful refresh.
+  It declares `fs:write:/flows/**`, so the run's `capabilityEnvelope` must
+  grant that write; a run without it gets `capability_refused` and nothing is
+  saved.
 
 `Agent.run` reads the visible catalog at each frame boundary and journals the
 descriptor snapshot. The model prompt, `ctx.flows`, and call admission use that
@@ -55,11 +58,11 @@ replaces both for a host whose flows are laid out differently.
 `FlowStore` is the one contract a checkout, a browser host, and a test all
 satisfy:
 
-| Layer                             | Where files go                                                                                           |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `FlowStore.layerFileSystem(root)` | `<root>/flows/<id>/{flow.ts,flow.e2e.ts,fixtures/<id>.json}`, through Effect's `FileSystem`.             |
-| `FlowStore.layerMemory(map)`      | A caller-owned `Map<string, string>` keyed by path, so a test reads the bytes back without a filesystem. |
-| `FlowStore.layerNoop()`           | Nowhere: refuses with `FlowStoreError { code: "unsupported" }` and a message the model can read.         |
+| Layer                             | Where files go                                                                                                                                              |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FlowStore.layerFileSystem(root)` | `<root>/flows/<id>/{flow.ts,flow.e2e.ts,fixtures/<id>.json}`, through Effect's `FileSystem`.                                                                |
+| `FlowStore.layerMemory(map)`      | A caller-owned `Map<string, string>` keyed by path, so a test reads the bytes back without a filesystem. Every key must be a file path under `flows/<id>/`. |
+| `FlowStore.layerNoop()`           | Nowhere: refuses with `FlowStoreError { code: "unsupported" }` and a message the model can read.                                                            |
 
 Every message a store returns is written for the model that will read it back
 as a call failure, because the cell that asked to save a flow is the only thing
