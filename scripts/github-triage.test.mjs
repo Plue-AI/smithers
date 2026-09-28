@@ -1,8 +1,10 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, it } from "node:test"
 
-import { fallbackReport, validateReport } from "./github-triage.mjs"
+import { fallbackReport, prepare, validateReport } from "./github-triage.mjs"
 
 const documentedReports = (kind) => {
   const source = readFileSync(new URL(`../flows/${kind}-triage/flow.mdx`, import.meta.url), "utf8")
@@ -55,6 +57,52 @@ describe("GitHub triage report contract", () => {
       for (const example of documentedReports(kind)) {
         assert.ok(validateReport(example, kind), `flows/${kind}-triage/flow.mdx documents a report the publisher rejects`)
       }
+    }
+  })
+})
+
+describe("GitHub triage preparation", () => {
+  it("includes paginated issue comments in the context, bounded to three pages", async () => {
+    const root = mkdtempSync(join(tmpdir(), "smithers-triage-"))
+    const previous = { cwd: process.cwd(), token: process.env.GH_TOKEN, repository: process.env.GITHUB_REPOSITORY, fetch: globalThis.fetch }
+    const pages = []
+    try {
+      process.chdir(root)
+      process.env.GH_TOKEN = "test-token"
+      delete process.env.GITHUB_REPOSITORY
+      const eventPath = join(root, "event.json")
+      writeFileSync(eventPath, JSON.stringify({ repository: { full_name: "owner/repo" }, issue: { number: 42, title: "Issue", user: { login: "opener" } } }))
+      globalThis.fetch = async (url) => {
+        pages.push(url)
+        const page = Number(new URL(url).searchParams.get("page"))
+        const rows = Array.from({ length: 100 }, (_, index) => ({
+          user: { login: `author-${page}-${index}` },
+          body: `comment-${page}-${index}`,
+          created_at: "2026-01-02T00:00:00Z"
+        }))
+        return { ok: true, json: async () => rows }
+      }
+      const context = await prepare("issue", eventPath)
+      assert.deepEqual(pages, [1, 2, 3].map((page) => `https://api.github.com/repos/owner/repo/issues/42/comments?per_page=100&page=${page}`))
+      assert.equal(context.comments.length, 300)
+      assert.deepEqual(context.comments[100], { author: "author-2-0", body: "comment-2-0", createdAt: "2026-01-02T00:00:00Z" })
+      assert.deepEqual(JSON.parse(readFileSync(join(root, ".triage/context.json"), "utf8")).comments, context.comments)
+      pages.length = 0
+      globalThis.fetch = async (url) => {
+        pages.push(url)
+        return { ok: true, json: async () => [{ user: { login: "last" }, body: "only comment", created_at: "2026-01-03T00:00:00Z" }] }
+      }
+      const shortContext = await prepare("issue", eventPath)
+      assert.equal(pages.length, 1)
+      assert.deepEqual(shortContext.comments, [{ author: "last", body: "only comment", createdAt: "2026-01-03T00:00:00Z" }])
+    } finally {
+      globalThis.fetch = previous.fetch
+      process.chdir(previous.cwd)
+      if (previous.token === undefined) delete process.env.GH_TOKEN
+      else process.env.GH_TOKEN = previous.token
+      if (previous.repository === undefined) delete process.env.GITHUB_REPOSITORY
+      else process.env.GITHUB_REPOSITORY = previous.repository
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

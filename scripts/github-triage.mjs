@@ -100,6 +100,14 @@ export async function prepare(kind, eventPath = process.env.GITHUB_EVENT_PATH) {
   const subject = kind === "issue" ? event.issue : event.pull_request
   if (!object(subject) || !Number.isSafeInteger(subject.number)) throw new Error(`event has no ${kind}`)
 
+  let comments = []
+  if (kind === "issue") {
+    for (let page = 1; page <= 3; page++) {
+      const rows = await api(`/repos/${repository}/issues/${subject.number}/comments?per_page=100&page=${page}`)
+      comments.push(...rows.map((row) => ({ author: row.user?.login ?? "unknown", body: row.body ?? "", createdAt: row.created_at })))
+      if (rows.length < 100) break
+    }
+  }
   let files = []
   if (kind === "pr") {
     const rows = await api(`/repos/${repository}/pulls/${subject.number}/files?per_page=100`)
@@ -117,6 +125,7 @@ export async function prepare(kind, eventPath = process.env.GITHUB_EVENT_PATH) {
     author: subject.user?.login ?? "unknown",
     title: subject.title ?? "",
     body: subject.body ?? "",
+    ...(kind === "issue" ? { comments } : {}),
     ...(kind === "pr" ? { draft: subject.draft === true, changedFiles: subject.changed_files ?? files.length, files } : {}),
     allowedLabels: Object.keys(LABELS)
   }
