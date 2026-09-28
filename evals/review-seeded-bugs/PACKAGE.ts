@@ -55,14 +55,14 @@ const suite = Smithers.NodeTest({
  */
 const test = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
-  runner: Smithers.testSuite(["score.test.ts", "deterministicReviewer.test.ts"]),
+  runner: Smithers.testSuite(["score.test.ts", "deterministicReviewer.test.ts", "fixtureRepo.test.ts"]),
   srcs: sources,
   deps: [],
   cwd
 })
 
 /**
- * Checks the suite's own sources, including its two `bun:test` files, against
+ * Checks the suite's own sources, including its `bun:test` files, against
  * its tsconfig.
  *
  * @since 1.0.0
@@ -93,21 +93,21 @@ const securityReview = Smithers.SecurityReview({
       title: "Materializing a fixture never lets corpus content configure or run git",
       threat: "A contributor who adds a corpus fixture runs arbitrary commands on the maintainer's or CI machine when run.ts materializes it.",
       lookFor: [
-        "copyDirectoryContents copying a base/ or head/ entry named .git, .gitattributes, or .gitmodules into the fixture repository after git init.",
-        "clearWorktree skipping .git while head/ is copied over it, so a head/.git/config (core.fsmonitor, core.hooksPath, filter drivers) is honored by later git calls in the review flow.",
+        "fixtureRepo.ts copyDirectoryContents copying a base/ or head/ entry named .git, .gitattributes, or .gitmodules, in any letter case, into the fixture repository after git init.",
+        "fixtureRepo.ts clearWorktree skipping .git while head/ is copied over it, so a head/.git/config (core.fsmonitor, core.hooksPath, filter drivers) is honored by later git calls in the review flow.",
         "A corpus .gitattributes naming a filter, diff, or merge driver that git add or the review flow's git diff would honor."
       ],
-      paths: ["run.ts", "corpus/**"]
+      paths: ["fixtureRepo.ts", "corpus/**"]
     },
     {
       id: "fixture-symlink-escape",
       title: "Fixture trees cannot pull files from outside the corpus into a review prompt",
       threat: "A corpus fixture with a symlink makes the review flow read a maintainer's host file (SSH key, .env) and send it to a live model or write it into .report/.",
       lookFor: [
-        "cpSync in copyDirectoryContents preserving or dereferencing a symlink under corpus/*/base or corpus/*/head that points outside the fixture.",
+        "cpSync in fixtureRepo.ts copyDirectoryContents preserving or dereferencing a symlink under corpus/*/base or corpus/*/head, or materializeFixture following a fixture, base/, or head/ directory that is itself a symlink.",
         "A committed symlink or absolute-path entry anywhere under corpus/."
       ],
-      paths: ["run.ts", "corpus/**"]
+      paths: ["fixtureRepo.ts", "corpus/**"]
     },
     {
       id: "scripted-cell-injection",

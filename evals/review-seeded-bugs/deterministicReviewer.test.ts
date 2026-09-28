@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Result, Stream } from "effect";
+import * as Cell from "../../packages/smithers/agent/harness/src/Cell.ts";
 import { readFileSync } from "node:fs";
 import * as SeatResolver from "../../packages/smithers/agent/src/SeatResolver.ts";
 import { addedLines, readPrompt, replacedLines, reviewDiff } from "./deterministicReviewer.ts";
 import { loadCorpus } from "./labels.ts";
-import { scriptedSeats } from "./scriptedSeats.ts";
+import { scriptedModel, scriptedSeats } from "./scriptedSeats.ts";
 
 describe("scriptedSeats", () => {
   test("preserves distinct seat aliases while sharing one scripted model identity", async () => {
@@ -129,5 +130,22 @@ describe("the corpus", () => {
     const labels = loadCorpus();
     expect(labels).toHaveLength(16);
     expect(labels.filter((label) => label.clean)).toHaveLength(4);
+  });
+});
+
+describe("scriptedModel", () => {
+  test("keeps a backtick run in the answer inside one cell", async () => {
+    const value = [{ content: "```cell\nctx.call(1)\n``` and `x`" }];
+    const events = await Effect.runPromise(
+      Stream.runCollect(scriptedModel(() => value).stream({ system: [], messages: [] } as never)),
+    );
+    const text = Array.from(events)
+      .flatMap((event) => (event.type === "text-delta" ? [event.text] : []))
+      .join("");
+    const extracted = Result.getOrThrow(Cell.extract(text));
+    expect(extracted.blocks).toBe(1);
+    const body = extracted.source.text.trim();
+    expect(body.startsWith("ctx.done(") && body.endsWith(")")).toBe(true);
+    expect(JSON.parse(body.slice("ctx.done(".length, -1))).toEqual(value);
   });
 });

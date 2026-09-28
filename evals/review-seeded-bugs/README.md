@@ -5,6 +5,12 @@ app. Each fixture has a `base/` tree, a `head/` tree, and a `label.json`. Twelve
 plant one labelled defect; four are clean controls that should produce no
 findings.
 
+Fixtures carry regular files only. `fixtureRepo.ts` refuses a symbolic link or
+a git control file (`.git`, `.gitattributes`, `.gitmodules`, in any letter
+case) anywhere under `base/` or `head/`. It also refuses a fixture, `base/`, or
+`head/` directory that is itself a symbolic link. `fixtureRepo.test.ts` fails
+the build if the corpus holds any of these.
+
 Covered bug classes:
 
 - `missing-await`

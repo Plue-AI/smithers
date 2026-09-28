@@ -60,7 +60,10 @@ export function scriptedModel(answer: (ask: Ask) => unknown): Model.Model {
             new ModelError.ModelError({ code: "invalid_request", message: "scripted model refused" }),
           );
         }
-        const cell = `ctx.done(${JSON.stringify(value)})`;
+        // A backtick run in `value` would close the ```cell fence early, so each
+        // backtick is written as its JSON escape; backticks only occur inside
+        // JSON strings, where ``` decodes to the same character.
+        const cell = `ctx.done(${JSON.stringify(value).replaceAll("`", "\\u0060")})`;
         return Stream.fromIterable([
           ModelEvent.ModelEvent.TextStart({ type: "text-start", id: "cell" }),
           ModelEvent.ModelEvent.TextDelta({ type: "text-delta", id: "cell", text: "```cell\n" + cell + "\n```" }),

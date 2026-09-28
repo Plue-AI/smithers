@@ -28,8 +28,7 @@
  *
  * @since 1.0.0
  */
-import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -39,6 +38,7 @@ import { reviewSeatResolver } from "../../apps/review/src/workflow/reviewSeatRes
 import { resolveReviewSeats } from "../../apps/review/src/workflow/reviewSeats.ts";
 import { type Baseline, baselineFrom, drift, type FixtureOutcome } from "./baseline.ts";
 import { answerReview } from "./deterministicReviewer.ts";
+import { materializeFixture } from "./fixtureRepo.ts";
 import { loadCorpus, type PlantedBugLabel } from "./labels.ts";
 import { scriptedSeats } from "./scriptedSeats.ts";
 import { scoreCorpus, type CorpusScore, type ReviewFinding } from "./score.ts";
@@ -50,49 +50,10 @@ interface FixtureRun extends FixtureOutcome {
   findings: ReviewFinding[];
 }
 
-function run(command: string, args: string[], cwd: string): void {
-  execFileSync(command, args, { cwd, stdio: "pipe" });
-}
-
-function copyDirectoryContents(from: string, to: string): void {
-  mkdirSync(to, { recursive: true });
-  for (const entry of readdirSync(from, { withFileTypes: true })) {
-    cpSync(join(from, entry.name), join(to, entry.name), { recursive: true, force: true });
-  }
-}
-
-function clearWorktree(repoDir: string): void {
-  for (const entry of readdirSync(repoDir, { withFileTypes: true })) {
-    if (entry.name === ".git") continue;
-    rmSync(join(repoDir, entry.name), { recursive: true, force: true });
-  }
-}
-
-/** A real git repository whose first commit is `base/` and whose worktree is `head/`. */
-function materializeFixture(label: PlantedBugLabel, workRoot: string): string {
-  const fixtureDir = join(corpusDir, label.fixture);
-  const baseDir = join(fixtureDir, "base");
-  const headDir = join(fixtureDir, "head");
-  if (!existsSync(baseDir) || !existsSync(headDir)) {
-    throw new Error(`Fixture ${label.fixture} must have base/ and head/ directories`);
-  }
-  const repoDir = join(workRoot, "repo");
-  copyDirectoryContents(baseDir, repoDir);
-  run("git", ["init"], repoDir);
-  run("git", ["config", "user.email", "review-seeded-bugs@example.com"], repoDir);
-  run("git", ["config", "user.name", "Review Seeded Bugs"], repoDir);
-  run("git", ["config", "commit.gpgsign", "false"], repoDir);
-  run("git", ["add", "."], repoDir);
-  run("git", ["commit", "-m", "base"], repoDir);
-  clearWorktree(repoDir);
-  copyDirectoryContents(headDir, repoDir);
-  return repoDir;
-}
-
 async function runFixture(label: PlantedBugLabel, layer: ReturnType<typeof layerMemory>): Promise<FixtureRun> {
   const workRoot = mkdtempSync(join(tmpdir(), `review-seeded-${label.fixture}-`));
   try {
-    const repoDir = materializeFixture(label, workRoot);
+    const repoDir = materializeFixture(join(corpusDir, label.fixture), workRoot);
     const result = await Effect.runPromise(
       Review.execute(
         {

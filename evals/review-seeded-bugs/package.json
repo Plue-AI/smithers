@@ -6,7 +6,7 @@
   "description": "Seeded-bug corpus for the review flow, its deterministic reviewing seat, and the scorer that grades them",
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test score.test.ts deterministicReviewer.test.ts",
+    "test": "bun test score.test.ts deterministicReviewer.test.ts fixtureRepo.test.ts",
     "test:suite": "bun run.ts"
   },
   "dependencies": {
