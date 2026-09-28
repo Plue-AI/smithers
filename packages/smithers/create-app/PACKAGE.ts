@@ -77,8 +77,10 @@ const securityReview = Smithers.SecurityReview({
   checks: [
     {
       id: "turn-endpoint-admission",
-      title: "The public turn and flow-run handlers refuse oversized, unauthenticated, or malformed requests before spending model calls",
-      threat: "An anonymous internet caller posts to a scaffolded Worker's /api/turn and runs paid model turns on the app owner's provider keys.",
+      title:
+        "The public turn and flow-run handlers refuse oversized, unauthenticated, or malformed requests before spending model calls",
+      threat:
+        "An anonymous internet caller posts to a scaffolded Worker's /api/turn and runs paid model turns on the app owner's provider keys.",
       lookFor: [
         "turnResponse or runTurn reading request.json() with no byte cap on the body before Schema decode.",
         "turnResponse doing no caller authentication itself while docs/api.md presents it as the complete handler to mount.",
@@ -90,7 +92,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "turn-error-disclosure",
       title: "Turn refusals and error frames carry no provider bodies, keys, stack text, or internal paths",
-      threat: "Any turn caller reads provider error text, internal layer messages, or configuration detail about the app owner's deployment from the NDJSON stream.",
+      threat:
+        "Any turn caller reads provider error text, internal layer messages, or configuration detail about the app owner's deployment from the NDJSON stream.",
       lookFor: [
         "messageOf(cause) forwarding a raw provider or interpreter error message into an error frame or a host_unconfigured body.",
         "A seatsFromEnv refusal message that interpolates the key value rather than the binding name.",
@@ -101,7 +104,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "seat-credential-routing",
       title: "Provider keys from env are sent only to their own provider's fixed endpoint",
-      threat: "An app author or seat id string causes the Worker to send ANTHROPIC_API_KEY or OPENAI_API_KEY to a host other than that provider.",
+      threat:
+        "An app author or seat id string causes the Worker to send ANTHROPIC_API_KEY or OPENAI_API_KEY to a host other than that provider.",
       lookFor: [
         "seatsFromEnv choosing a provider or base URL from any part of the seat id after the prefix.",
         "A key read from env without Redacted.make, or a Redacted key unwrapped into a log, frame, or error.",
@@ -112,7 +116,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "capability-envelope",
       title: "Every routed flow runs under exactly the TOOLS.ts grant, empty by default, and bounded limits",
-      threat: "A prompt-injected model in one turn calls tool flows or capabilities the app author never granted, or spends unbounded model budget on the owner's account.",
+      threat:
+        "A prompt-injected model in one turn calls tool flows or capabilities the app author never granted, or spends unbounded model budget on the owner's account.",
       lookFor: [
         "layerFor passing a capabilityEnvelope other than tools.grant mapped through patternOf, or a default that is not the empty envelope.",
         "patternOf accepting an action outside Capability.PatternAction or a resource longer than Capability.maxResourceLength.",
@@ -124,7 +129,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "generated-route-injection",
       title: "File names in an app tree cannot inject code into routes.gen.ts or routes.ui.gen.ts",
-      threat: "A contributor or checked-in dependency adds a file whose path breaks out of a generated import literal and runs code in the app's Worker and browser bundles.",
+      threat:
+        "A contributor or checked-in dependency adds a file whose path breaks out of a generated import literal and runs code in the app's Worker and browser bundles.",
       lookFor: [
         "Any render or renderUi line interpolating a file path, route, pane name, or flow id without JSON.stringify.",
         "A page, pane, or flow segment reaching the output without passing isRouteSegment.",
@@ -135,7 +141,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "route-table-writes",
       title: "Route regeneration writes only the two tables and their .tmp staging files under the app root",
-      threat: "A crafted --root, --app, or dirs value makes smithers-routes or the Vite plugin overwrite files outside the developer's app directory.",
+      threat:
+        "A crafted --root, --app, or dirs value makes smithers-routes or the Vite plugin overwrite files outside the developer's app directory.",
       lookFor: [
         "writeRoutes or publishTables writing a path not derived from resolve(options.root, 'routes.gen.ts' | 'routes.ui.gen.ts').",
         "A pre-existing symlinked routes.gen.ts.tmp being followed by writeFileSync.",
@@ -146,7 +153,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "brand-css-injection",
       title: "Brand tokens and Google Fonts families cannot inject CSS rules or load unexpected origins",
-      threat: "A brand value copied from an untrusted theme adds arbitrary CSS or an @import from an attacker origin to every page of the app.",
+      threat:
+        "A brand value copied from an untrusted theme adds arbitrary CSS or an @import from an attacker origin to every page of the app.",
       lookFor: [
         "brandCss writing a token or font value containing ';', '}', or newline verbatim into the rule.",
         "A googleFonts family interpolated into the @import url without encodeURIComponent or a quote check.",
@@ -157,7 +165,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "fixture-secret-capture",
       title: "Recorded model fixtures store no credentials, headers, or secrets from tool results",
-      threat: "A developer running SMTHRS_RECORD=1 commits a fixture that exposes a provider key or a tool's secret output to everyone who can read the repository.",
+      threat:
+        "A developer running SMTHRS_RECORD=1 commits a fixture that exposes a provider key or a tool's secret output to everyone who can read the repository.",
       lookFor: [
         "recordModel or toRequestLike copying request headers, the Redacted key, or the prepared request into a RecordedCall.",
         "Tool-result content or ModelError messages written to the fixture without any redaction while docs tell users to commit it.",
@@ -168,7 +177,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "deploy-target-secrets",
       title: "CreateApp's deploy target keeps Cloudflare credentials scoped and approval-gated",
-      threat: "A build step or dev server exfiltrates the app owner's Cloudflare API token, or deploys without the owner's approval.",
+      threat:
+        "A build step or dev server exfiltrates the app owner's Cloudflare API token, or deploys without the owner's approval.",
       lookFor: [
         "deploy losing approval: 'required' or its gate on build.",
         "An HttpSecret whose allowed origins include anything but https://api.cloudflare.com.",
@@ -189,7 +199,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "docs-unsafe-snippets",
       title: "Copyable docs examples carry no real keys and no wildcard capability grant as a default",
-      threat: "A user copies a docs snippet and ships a Worker with a hard-coded key or an all-action grant that lets injected prompts call every tool.",
+      threat:
+        "A user copies a docs snippet and ships a Worker with a hard-coded key or an all-action grant that lets injected prompts call every tool.",
       lookFor: [
         "A string shaped like a provider key or Cloudflare token in docs/*.md.",
         "An example TOOLS.ts using [{ action: \"*\", resource: \"*\" }] without the trusted-local-use caveat."

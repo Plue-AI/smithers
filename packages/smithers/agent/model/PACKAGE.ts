@@ -24,7 +24,14 @@ const securityReview = Smithers.SecurityReview({
         "WireTrace.record or ModelRequest serialization writing a signed header, bearer value, or account id instead of only public headers and hashes.",
         "Auth.sign output or the affinity header spread over signed headers so a protocol-controlled name overwrites Authorization."
       ],
-      paths: ["src/Auth.ts", "src/Endpoint.ts", "src/Route.ts", "src/OpenAIChatGPT.ts", "src/ModelRequest.ts", "src/internal/WireTrace.ts"]
+      paths: [
+        "src/Auth.ts",
+        "src/Endpoint.ts",
+        "src/Route.ts",
+        "src/OpenAIChatGPT.ts",
+        "src/ModelRequest.ts",
+        "src/internal/WireTrace.ts"
+      ]
     },
     {
       id: "error-redaction",
@@ -37,7 +44,15 @@ const securityReview = Smithers.SecurityReview({
         "redactStructuredValue or redactTextBody stopping at a depth or pattern so a nested or unconventional credential field survives.",
         "Stream-time failures (HTTP 200 protocol errors, framing errors) mapped outside the sanitize captured for the signed attempt."
       ],
-      paths: ["src/RequestExecutor.ts", "src/Route.ts", "src/ModelError.ts", "src/FailureCopy.ts", "src/Classifier.ts", "src/*Messages.ts", "src/OpenAI*.ts"]
+      paths: [
+        "src/RequestExecutor.ts",
+        "src/Route.ts",
+        "src/ModelError.ts",
+        "src/FailureCopy.ts",
+        "src/Classifier.ts",
+        "src/*Messages.ts",
+        "src/OpenAI*.ts"
+      ]
     },
     {
       id: "provider-output-bounds",
@@ -49,7 +64,14 @@ const securityReview = Smithers.SecurityReview({
         "Tool-call argument or reasoning text accumulated across stream frames without a total budget.",
         "Recursive walks of provider JSON (redaction, classification, event decoding) with no depth limit."
       ],
-      paths: ["src/Framing.ts", "src/RequestExecutor.ts", "src/Evaluator.ts", "src/ToolStream.ts", "src/AnthropicMessages.ts", "src/OpenAI*.ts"]
+      paths: [
+        "src/Framing.ts",
+        "src/RequestExecutor.ts",
+        "src/Evaluator.ts",
+        "src/ToolStream.ts",
+        "src/AnthropicMessages.ts",
+        "src/OpenAI*.ts"
+      ]
     },
     {
       id: "proxy-origin-routing",
@@ -86,7 +108,13 @@ const securityReview = Smithers.SecurityReview({
         "A tool-call delta or end accepted for an unknown or reused callId, letting one call's fragments merge into another call's arguments.",
         "Tool-search or deferred-tool responses (OpenAIResponses, DeferredTools) turning provider-supplied names into callable tools without matching the request's declared tools."
       ],
-      paths: ["src/ToolStream.ts", "src/ModelEvent.ts", "src/DeferredTools.ts", "src/AnthropicMessages.ts", "src/OpenAI*.ts"]
+      paths: [
+        "src/ToolStream.ts",
+        "src/ModelEvent.ts",
+        "src/DeferredTools.ts",
+        "src/AnthropicMessages.ts",
+        "src/OpenAI*.ts"
+      ]
     },
     {
       id: "evaluator-prompt-state",
@@ -103,7 +131,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "docs-examples-secrets",
       title: "Docs and README examples carry no real keys and show redacted credential handling",
-      threat: "A user copies a docs snippet that hardcodes a key or passes a plain string credential into a sealed request.",
+      threat:
+        "A user copies a docs snippet that hardcodes a key or passes a plain string credential into a sealed request.",
       lookFor: [
         "A literal key-shaped value (sk-, sk-ant-, bearer tokens) in docs or README.",
         "An example passing a credential through headers or ModelRequest instead of Auth with Redacted."

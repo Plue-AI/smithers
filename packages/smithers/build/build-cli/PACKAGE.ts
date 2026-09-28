@@ -190,7 +190,12 @@ const securityReview = Smithers.SecurityReview({
         "An out path that is absolute, contains '..', or resolves outside the package's output directory.",
         "A response body read without the byte limit or deadline, or a URL with credentials printed without redactUrl."
       ],
-      paths: ["src/FetchExec.ts", "src/internal/rules/FetchExecutor.ts", "src/internal/rules/FetchPlan.ts", "src/internal/rules/FetchRule.ts"]
+      paths: [
+        "src/FetchExec.ts",
+        "src/internal/rules/FetchExecutor.ts",
+        "src/internal/rules/FetchPlan.ts",
+        "src/internal/rules/FetchRule.ts"
+      ]
     },
     {
       id: "generated-scripts-injection",

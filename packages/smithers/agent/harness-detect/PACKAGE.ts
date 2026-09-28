@@ -27,7 +27,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "probe-env-allowlist",
       title: "Version and model probe children see only PROBE_ENV_KEYS plus NO_COLOR",
-      threat: "A harness CLI spawned only for --version or model listing receives Smithers Cloud, GitHub, or other session tokens from the caller's environment.",
+      threat:
+        "A harness CLI spawned only for --version or model listing receives Smithers Cloud, GitHub, or other session tokens from the caller's environment.",
       lookFor: [
         "probeEnv copying keys outside PROBE_ENV_KEYS, or spreading the source env.",
         "A token-bearing key (SMITHERS_CLOUD_TOKEN, GITHUB_TOKEN, AWS_*, *_SESSION) added to PROBE_ENV_KEYS.",
@@ -38,7 +39,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "binary-resolution-hijack",
       title: "findBinary resolves only absolute, user- or system-owned directories",
-      threat: "A malicious repository or writable directory plants a fake `claude`/`codex` that the app then launches with the user's credentials.",
+      threat:
+        "A malicious repository or writable directory plants a fake `claude`/`codex` that the app then launches with the user's credentials.",
       lookFor: [
         "A relative PATH entry (for example `.` or `node_modules/.bin`) joined without rejecting non-absolute dirs, so resolution depends on the process cwd.",
         "A candidate dir derived from an env var or repository content rather than host.home or a fixed system prefix.",
@@ -50,7 +52,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "env-dir-override-scope",
       title: "Env-overridden config dirs are read-only lookups of fixed credential file names",
-      threat: "A caller-supplied CLAUDE_CONFIG_DIR, CODEX_HOME, GEMINI_DIR, KIMI_SHARE_DIR, or XDG_CONFIG_HOME makes detection read an arbitrary file and surface its strings as an account label.",
+      threat:
+        "A caller-supplied CLAUDE_CONFIG_DIR, CODEX_HOME, GEMINI_DIR, KIMI_SHARE_DIR, or XDG_CONFIG_HOME makes detection read an arbitrary file and surface its strings as an account label.",
       lookFor: [
         "envDir output joined with anything other than a fixed credential file name.",
         "Content of a file read via an env-overridden dir returned beyond a boolean, an email, or an organization label.",
@@ -61,7 +64,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "untrusted-json-parse",
       title: "Hostile credential or config JSON cannot crash detection or mutate shared objects",
-      threat: "A crafted auth.json, providers.json, or JWT payload on this machine throws out of detectHarnessesWith or pollutes Object.prototype in the host app.",
+      threat:
+        "A crafted auth.json, providers.json, or JWT payload on this machine throws out of detectHarnessesWith or pollutes Object.prototype in the host app.",
       lookFor: [
         "Parsed objects merged, spread, or Object.assign-ed into a shared object where a `__proto__` key could mutate prototypes.",
         "hasNonEmptyStringDeep or another walker over parsed JSON losing its depth bound.",
@@ -72,7 +76,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "launch-argv-fixed",
       title: "Launch and model-list argv are fixed literals, never built from host data",
-      threat: "A value from env or a config file injects extra flags or a different binary into the argv the app spawns.",
+      threat:
+        "A value from env or a config file injects extra flags or a different binary into the argv the app spawns.",
       lookFor: [
         "A `launch`, `models.list`, or `models.flag` entry derived from host.env, file content, or a parsed model id.",
         "harnessModelSpec returning a binary other than the detector's literal `binary`."
@@ -82,7 +87,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "probe-output-bounded",
       title: "A probed binary's output reaches the Harness row only as a bounded, control-free version string",
-      threat: "A planted or compromised CLI prints ANSI escapes or megabytes on --version, and the app's TUI or UI renders it as the version field.",
+      threat:
+        "A planted or compromised CLI prints ANSI escapes or megabytes on --version, and the app's TUI or UI renders it as the version field.",
       lookFor: [
         "parseVersionLine returning the raw first line (no version match) without stripping control characters or capping its length.",
         "Detect.ts copying host.version output into the row without passing it through parseVersionLine."

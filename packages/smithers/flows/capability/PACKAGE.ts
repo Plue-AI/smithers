@@ -45,7 +45,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "match-budget-fails-closed",
       title: "Matching stays linear and an undecidable rule denies",
-      threat: "An attacker-authored grant or resource stalls the kernel or lets an undecidable deny fall through to a later allow.",
+      threat:
+        "An attacker-authored grant or resource stalls the kernel or lets an undecidable deny fall through to a later allow.",
       lookFor: [
         "A RegExp or recursive backtracking matcher reintroduced for resource globs.",
         "matches returning true, or evaluate skipping a rule, when pattern.length * resource.length exceeds maxMatchWork.",
@@ -75,7 +76,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "subsumes-overlap-conservative",
       title: "subsumes answers true and mayOverlap answers false only when provable",
-      threat: "A grant store widens a grant or drops a deny restriction on an unprovable pattern relationship, granting a flow authority it never asked for.",
+      threat:
+        "A grant store widens a grant or drops a deny restriction on an unprovable pattern relationship, granting a flow authority it never asked for.",
       lookFor: [
         "resourceSubsumes returning true for a right resource with `*` or `?` outside the `left/**` prefix, or for `a/**` over `ab`.",
         "actionSubsumes letting a namespace wildcard cover `*` or another namespace.",
@@ -87,7 +89,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "parse-round-trip",
       title: "Parsing and formatting round-trip without changing authority",
-      threat: "A persisted or model-supplied capability string parses to a wider action or resource than the text that was reviewed.",
+      threat:
+        "A persisted or model-supplied capability string parses to a wider action or resource than the text that was reviewed.",
       lookFor: [
         "parse or parsePattern splitting the resource on a colon, or accepting an action missing from Action or PatternAction.",
         "The bare `*` sentinel expanding to `**` for any input other than exactly `*`.",
@@ -98,7 +101,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "tier-classification",
       title: "Out-of-workspace writes and spawns classify as irreversible",
-      threat: "An agent's write outside the workspace or process spawn is classified compensable and runs without approval or idempotency key.",
+      threat:
+        "An agent's write outside the workspace or process spawn is classified compensable and runs without approval or idempotency key.",
       lookFor: [
         "lexicalPath or isInsideWorkspace treating `/w-evil` as inside root `/w`, or `..` segments as contained.",
         "A relative or `.` workspaceRoot classifying any write as compensable.",
@@ -112,7 +116,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "permission-error-decoding",
       title: "Untrusted permission-error payloads are validated without running their code",
-      threat: "A foreign or forged error object runs getters, loops on cycles, or smuggles a forged PermissionRequired that an attended surface approves.",
+      threat:
+        "A foreign or forged error object runs getters, loops on cycles, or smuggles a forged PermissionRequired that an attended surface approves.",
       lookFor: [
         "isPermissionError or isPermissionMeta reading a property through an accessor or inherited getter.",
         "A cyclic or deeply nested meta object that isPermissionMeta accepts or that exhausts the stack.",
@@ -130,13 +135,19 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "display-escaping",
       title: "Rendered permission errors escape control and format characters",
-      threat: "A model- or user-chosen resource spoofs an approval prompt or log line with newlines, bidi overrides, or oversized text.",
+      threat:
+        "A model- or user-chosen resource spoofs an approval prompt or log line with newlines, bidi overrides, or oversized text.",
       lookFor: [
         "A field in formatError or toPlatformError interpolated without displayField.",
         "displayChunk leaving a Cc, Cf, Zl, or Zp character unescaped, or truncation splitting an escape sequence.",
         "Output longer than maxDisplayFieldLength after truncation."
       ],
-      paths: ["src/formatError.ts", "src/toPlatformError.ts", "src/internal/displayField.ts", "src/maxDisplayFieldLength.ts"]
+      paths: [
+        "src/formatError.ts",
+        "src/toPlatformError.ts",
+        "src/internal/displayField.ts",
+        "src/maxDisplayFieldLength.ts"
+      ]
     }
   ]
 })

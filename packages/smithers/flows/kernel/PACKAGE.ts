@@ -39,7 +39,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "fs-confinement",
       title: "Confined filesystem access never escapes the workspace root",
-      threat: "A flow granted workspace file access reads or writes host files outside the workspace via symlinks, hard links, or '..'.",
+      threat:
+        "A flow granted workspace file access reads or writes host files outside the workspace via symlinks, hard links, or '..'.",
       lookFor: [
         "canonicalResource or isInside accepting a path whose realpath leaves the root (prefix match without separator, symlink loop past depth 40, missing ancestor).",
         "A check-then-use window where the path is authorized by name and then opened by name, letting a symlink be swapped in between.",
@@ -51,7 +52,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "http-grant-per-hop",
       title: "Every HTTP hop is authorized for its own scheme, host, and model",
-      threat: "A flow granted one origin or model reaches another host, cleartext transport, or a different model through redirects or URL tricks.",
+      threat:
+        "A flow granted one origin or model reaches another host, cleartext transport, or a different model through redirects or URL tricks.",
       lookFor: [
         "A redirect followed by the underlying client (redirect not forced to manual) or a hop that skips the guarded postprocess.",
         "capabilityFor collapsing distinct targets to one resource (userinfo, port, IDN or case, non-https scheme mapped to a bare host).",
@@ -75,7 +77,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "grant-journal-replay",
       title: "Replayed grant journals cannot inject or reshape authority",
-      threat: "Anyone able to append to the run journal forges remembered or envelope grants that activate on the next start.",
+      threat:
+        "Anyone able to append to the run journal forges remembered or envelope grants that activate on the next start.",
       lookFor: [
         "decodeTrustedEntry trusting an entry by sourceId and eventType alone without binding it to the policy run and plan digest.",
         "Payload schema allowing excess properties, oversized patterns, or rule counts past maximumRules on replay.",
@@ -97,7 +100,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "jj-capability-resource",
       title: "jj operations are checked against a canonical workspace resource",
-      threat: "A flow granted jj access to its workspace mutates another repository or writes through an unchecked jj path.",
+      threat:
+        "A flow granted jj access to its workspace mutates another repository or writes through an unchecked jj path.",
       lookFor: [
         "A Jj method that reaches @smthrs/jj without a GrantStore check, or a write operation checked as a read.",
         "A repository path passed to makeCapability without canonicalResource."
@@ -113,7 +117,16 @@ const securityReview = Smithers.SecurityReview({
         "A noop layer (ChildProcessSpawner, HttpClient, Workspace, Jj layerNoop) that skips GrantStore.check while providing the guarded tag.",
         "An allow-all default in a helper that production HostServices.layer could select."
       ],
-      paths: ["src/test/**", "src/GrantStore.ts", "src/HostServices.ts", "src/index.ts", "src/ChildProcessSpawner.ts", "src/HttpClient.ts", "src/Workspace.ts", "src/Jj.ts"]
+      paths: [
+        "src/test/**",
+        "src/GrantStore.ts",
+        "src/HostServices.ts",
+        "src/index.ts",
+        "src/ChildProcessSpawner.ts",
+        "src/HttpClient.ts",
+        "src/Workspace.ts",
+        "src/Jj.ts"
+      ]
     }
   ]
 })

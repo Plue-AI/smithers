@@ -27,7 +27,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "grant-wire-validation",
       title: "A durable turn grant is strictly decoded, unexpired and pinned to the configured callback origin",
-      threat: "A caller holding the host bearer makes the host send grant tokens or frames to an origin they control, or commit to another run's journal.",
+      threat:
+        "A caller holding the host bearer makes the host send grant tokens or frames to an origin they control, or commit to another run's journal.",
       lookFor: [
         "decodeGrant accepting a producerBaseUrl that differs from the normalized callbackBaseUrl, or with userinfo, query or fragment.",
         "A grant whose request.runId, cursor.runId or cursor.legId is not checked against the grant's runId and legId.",
@@ -38,7 +39,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "stream-path-owner-trust",
       title: "The sealed stream endpoint never takes owner identity or model binding from the request body",
-      threat: "A caller with the shared host bearer runs a turn as another owner or against a model and credential that owner did not configure.",
+      threat:
+        "A caller with the shared host bearer runs a turn as another owner or against a model and credential that owner did not configure.",
       lookFor: [
         "The MODEL_HOST_STREAM_PATH branch reading ownerId from the JSON body and passing it into the resolver grant.",
         "environmentModelResolver preferring grant.request.model over the configured binding without the planner pinning origin and credential.",
@@ -48,7 +50,8 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "credential-egress-pinning",
-      title: "A provider credential is read by one planned name and sent only to its planned origin with redirects refused",
+      title:
+        "A provider credential is read by one planned name and sent only to its planned origin with redirects refused",
       threat: "A crafted model binding exfiltrates the owner's provider API key to an attacker-chosen URL.",
       lookFor: [
         "A credential read from env or ModelCredentials before planModelBinding succeeds, or under a name other than plan.credential.",
@@ -60,18 +63,26 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "credential-output-redaction",
       title: "Model output, tool calls, samples and errors never echo the provider credential or provider text",
-      threat: "A prompt-injected or malicious provider reflects the owner's API key into frames, logs or HTTP responses the renderer and other users see.",
+      threat:
+        "A prompt-injected or malicious provider reflects the owner's API key into frames, logs or HTTP responses the renderer and other users see.",
       lookFor: [
         "A text, reasoning, tool name or tool argument emission that bypasses StreamingCredentialCutter or cutModelCredential.",
         "StreamingCredentialCutter emitting a secret prefix split across chunks, or finish() skipping the cut.",
         "A log annotation, ModelHostError message or HTTP error body that includes a cause, provider message or URL."
       ],
-      paths: ["src/ModelTurnHost.ts", "src/ModelProbe.ts", "src/LocalModel.ts", "src/HostServer.ts", "src/ModelHostError.ts"]
+      paths: [
+        "src/ModelTurnHost.ts",
+        "src/ModelProbe.ts",
+        "src/LocalModel.ts",
+        "src/HostServer.ts",
+        "src/ModelHostError.ts"
+      ]
     },
     {
       id: "probe-egress-policy",
       title: "A model Test dials only the planned origin, and only loopback when the host has no egress",
-      threat: "A caller of the model Test endpoint makes the host send an owner credential to, or probe, an internal or attacker-chosen URL.",
+      threat:
+        "A caller of the model Test endpoint makes the host send an owner credential to, or probe, an internal or attacker-chosen URL.",
       lookFor: [
         "createModelProbe planning with options other than { egress: false } when options.egress is false, so the offline host reaches a non-loopback origin.",
         "A decision or generation call in ModelProbe that runs outside the manualRedirects layer or ignores http.redirected() before returning success.",
@@ -82,7 +93,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "journal-receipt-fencing",
       title: "Each committed frame is hash-checked against the expected cursor before the producer advances",
-      threat: "A compromised or confused producer endpoint forks or rewrites a user's durable chat transcript without detection.",
+      threat:
+        "A compromised or confused producer endpoint forks or rewrites a user's durable chat transcript without detection.",
       lookFor: [
         "DurableChatProducer.write advancing this.cursor when the reply batch, from, previousHash or hash does not match the locally computed digest.",
         "A retry that re-sends a frame under a stale cursor after a CommitRefused fence loss."
@@ -92,7 +104,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "untrusted-turn-shape",
       title: "Renderer-supplied messages and tools are shape-checked before becoming a provider request",
-      threat: "A caller injects system-role content or malformed tool schemas that crash the host or override owner instructions.",
+      threat:
+        "A caller injects system-role content or malformed tool schemas that crash the host or override owner instructions.",
       lookFor: [
         "turnRequest or streamRequest casting a body to StartAgentTurnRequest without checking message roles, tool names or parameter objects.",
         "appendWireMessage mapping an unknown role or item type to a system or tool message.",

@@ -87,7 +87,11 @@ const securityReview = Smithers.SecurityReview({
         "An unsupported method (symlink, link, open, chmod, copy, realPath without backend support) returning success instead of failing.",
         "access() skipping the mode check when readable or writable is requested."
       ],
-      paths: ["src/BrowserFileSystem/make.ts", "src/BrowserFileSystem/platformError.ts", "src/BrowserFileSystem/realPath.ts"]
+      paths: [
+        "src/BrowserFileSystem/make.ts",
+        "src/BrowserFileSystem/platformError.ts",
+        "src/BrowserFileSystem/realPath.ts"
+      ]
     },
     {
       id: "write-semantics-preserved",
@@ -113,7 +117,11 @@ const securityReview = Smithers.SecurityReview({
         "A handle.read result whose bytesRead is not checked to lie within 0..size before slicing the buffer.",
         "A stream handle that is not closed on interruption or failure."
       ],
-      paths: ["src/BrowserFileSystem/readDirectory.ts", "src/BrowserFileSystem/streamFile.ts", "src/BrowserFileSystem/normalizePath.ts"]
+      paths: [
+        "src/BrowserFileSystem/readDirectory.ts",
+        "src/BrowserFileSystem/streamFile.ts",
+        "src/BrowserFileSystem/normalizePath.ts"
+      ]
     }
   ]
 })

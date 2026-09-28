@@ -93,7 +93,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "docs-credential-examples",
       title: "Docs show credentials only as placeholders passed through headers",
-      threat: "A user copies an example that embeds a real token, userinfo URL, or plain-http remote endpoint into production.",
+      threat:
+        "A user copies an example that embeds a real token, userinfo URL, or plain-http remote endpoint into production.",
       lookFor: [
         "A literal token, key, or password in a docs code block instead of a declared variable.",
         "An example endpoint using http:// for a non-loopback host or user:pass@ userinfo."

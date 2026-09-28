@@ -83,7 +83,8 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "isolation-defaults-and-reattach",
-      title: "Providers default to no network and no host access, and reattach only to a machine whose configuration matches",
+      title:
+        "Providers default to no network and no host access, and reattach only to a machine whose configuration matches",
       threat:
         "An attacker who pre-creates a privileged or host-mounted machine under a predictable name gets a flow's commands and secrets run inside it on reattach.",
       lookFor: [
@@ -124,8 +125,7 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "snapshot-secret-scrub",
       title: "A captured Microsandbox snapshot holds no credential the preparation machine was given",
-      threat:
-        "Every later session restored from a snapshot reads a token or sign-in file left on the prepared disk.",
+      threat: "Every later session restored from a snapshot reads a token or sign-in file left on the prepared disk.",
       lookFor: [
         "A credential file an agent CLI or package manager writes that is missing from credentialFiles.",
         "A grep exit code or partial-read case treated as clean, or a capture that proceeds after scrubbed fails.",

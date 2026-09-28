@@ -27,7 +27,8 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "shape-refinement-forgery",
-      title: "hasSmithersErrorShape stays a total, side-effect-contained structural check that is never trusted as provenance",
+      title:
+        "hasSmithersErrorShape stays a total, side-effect-contained structural check that is never trusted as provenance",
       threat:
         "A caller who throws an attacker-built object (proxy or getter-laden Error) crashes or misroutes a failure classifier, or passes a forged error as a genuine Smithers failure.",
       lookFor: [

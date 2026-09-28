@@ -26,7 +26,14 @@ const securityReview = Smithers.SecurityReview({
         "A ControlRpcs procedure outside the ControlAuth middleware, or a production composition wiring layerNoopAuth to a listening server.",
         "The fingerprint or mutationKey dropping principal id/kind so one principal replays another principal's receipt."
       ],
-      paths: ["src/ControlServer.ts", "src/ControlRpcs.ts", "src/ControlLive.ts", "src/SqlControlRuntime.ts", "src/ControlRuntime.ts", "src/Channels.ts"]
+      paths: [
+        "src/ControlServer.ts",
+        "src/ControlRpcs.ts",
+        "src/ControlLive.ts",
+        "src/SqlControlRuntime.ts",
+        "src/ControlRuntime.ts",
+        "src/Channels.ts"
+      ]
     },
     {
       id: "approval-authority",
@@ -39,7 +46,13 @@ const securityReview = Smithers.SecurityReview({
         "ApprovalAuthority.compile granting a scope or target the delegation did not list (cross product of targets and scopes, or hierarchical scope inference).",
         "answerableWait treating a caller-chosen Node digest as a HumanTask wait token so an approval for one wait answers another run's wait."
       ],
-      paths: ["src/ApprovalAuthority.ts", "src/ControlLive.ts", "src/ControlRuntime.ts", "src/SqlControlRuntime.ts", "src/ControlExecutor.ts"]
+      paths: [
+        "src/ApprovalAuthority.ts",
+        "src/ControlLive.ts",
+        "src/ControlRuntime.ts",
+        "src/SqlControlRuntime.ts",
+        "src/ControlExecutor.ts"
+      ]
     },
     {
       id: "run-requires-approved-plan",
@@ -64,7 +77,13 @@ const securityReview = Smithers.SecurityReview({
         "Channels ingest producing a Signal for a run id and wait name taken straight from an unauthenticated payload without scoping to runs that channel started.",
         "Signal admission binding a wait token another command already reserved, or rebinding a delivered/terminal command."
       ],
-      paths: ["src/ControlLive.ts", "src/ControlExecutor.ts", "src/SqlControlRuntime.ts", "src/Channels.ts", "src/migrations/0003_signal_commands.ts"]
+      paths: [
+        "src/ControlLive.ts",
+        "src/ControlExecutor.ts",
+        "src/SqlControlRuntime.ts",
+        "src/Channels.ts",
+        "src/migrations/0003_signal_commands.ts"
+      ]
     },
     {
       id: "webhook-ingress",
@@ -81,7 +100,8 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "credential-confidentiality",
-      title: "Credential plaintext exists only inside Redacted and AES-GCM ciphertext is bound to its id, name, and version",
+      title:
+        "Credential plaintext exists only inside Redacted and AES-GCM ciphertext is bound to its id, name, and version",
       threat:
         "Anyone reading the control database, logs, or journal learns a stored connection secret, or swaps one credential's ciphertext onto another reference.",
       lookFor: [
@@ -91,7 +111,13 @@ const securityReview = Smithers.SecurityReview({
         "Credential.get or list returning a reference before the host authorize hook runs, or distinguishing missing from denied ids in its error.",
         "SqlCredentialStore.write committing without the version compare-and-set in the same DurableWriter transaction."
       ],
-      paths: ["src/Credential.ts", "src/CredentialCipher.ts", "src/WebCryptoCipher.ts", "src/CredentialStore.ts", "src/SqlCredentialStore.ts"]
+      paths: [
+        "src/Credential.ts",
+        "src/CredentialCipher.ts",
+        "src/WebCryptoCipher.ts",
+        "src/CredentialStore.ts",
+        "src/SqlCredentialStore.ts"
+      ]
     },
     {
       id: "bearer-token-auth",
@@ -108,7 +134,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "sql-parameterization",
       title: "Control SQL binds every value as a parameter",
-      threat: "A caller-controlled run id, flow id, filter, or cursor injects SQL and reads or rewrites another run's control rows.",
+      threat:
+        "A caller-controlled run id, flow id, filter, or cursor injects SQL and reads or rewrites another run's control rows.",
       lookFor: [
         "sql.literal, sql.unsafe, or string concatenation in SqlControlRuntime or the migrations carrying any value derived from ListRequest, WatchFilter, or a cursor.",
         "A column or ORDER BY fragment chosen from request text rather than from a fixed branch."
@@ -118,18 +145,26 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "mutation-input-bounds",
       title: "Untrusted mutation and query input is bounded and inert before canonicalization or storage",
-      threat: "A bearer holder or webhook caller crashes or stalls the control plane with oversized, deep, or getter-laden input.",
+      threat:
+        "A bearer holder or webhook caller crashes or stalls the control plane with oversized, deep, or getter-laden input.",
       lookFor: [
         "A Control mutation (plan, run, steer, signal, cancel) that canonicalizes, clones, or stores input before MutationBoundary.admit.",
         "A list or watch request with an unbounded page size, filter array, or recursion depth (human_wait_ancestry without maxWaitTreeDepth).",
         "JSON.parse of stored payload_json or a base64 wait token without try/catch or a size bound."
       ],
-      paths: ["src/internal/MutationBoundary.ts", "src/ControlLive.ts", "src/SqlControlRuntime.ts", "src/ControlExecutor.ts", "src/ControlSchema.ts"]
+      paths: [
+        "src/internal/MutationBoundary.ts",
+        "src/ControlLive.ts",
+        "src/SqlControlRuntime.ts",
+        "src/ControlExecutor.ts",
+        "src/ControlSchema.ts"
+      ]
     },
     {
       id: "run-data-exposure",
       title: "List, watch, and health output reveal only what the caller may see",
-      threat: "A bearer holder or dashboard viewer reads flow inputs, steer text, agent output tails, or credentials of runs they did not start.",
+      threat:
+        "A bearer holder or dashboard viewer reads flow inputs, steer text, agent output tails, or credentials of runs they did not start.",
       lookFor: [
         "List or Watch projections that include raw flow input, signal payloads, or steer message bodies without redaction.",
         "Health exposing a session outputTail when the binding did not set exposeOutput: true.",

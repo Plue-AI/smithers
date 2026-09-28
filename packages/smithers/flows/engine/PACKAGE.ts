@@ -84,7 +84,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "proxy-execution-id-scope",
       title: "A served execute, discard, or resume never reaches an execution outside the caller's namespace",
-      threat: "A remote client of a FlowProxy HTTP or RPC server joins, reads the result of, or re-drives another tenant's flow execution by guessing or reusing its execution id.",
+      threat:
+        "A remote client of a FlowProxy HTTP or RPC server joins, reads the result of, or re-drives another tenant's flow execution by guessing or reusing its execution id.",
       lookFor: [
         "A handler in FlowProxyServer.ts that passes request.executionId to flow.execute or flow.resume without routing it through scopeExecutionId or resumeExecutionId.",
         "resumeExecutionId falling back to the client value when a configured ExecutionIdScope returns undefined.",
@@ -95,19 +96,26 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "proxy-defect-redaction",
       title: "A handler defect crosses the proxy boundary only as the redacted FlowHandlerDefect",
-      threat: "A remote caller who triggers a failing flow reads the API key, bearer token, or request headers an action's HTTP or SDK error carried.",
+      threat:
+        "A remote caller who triggers a failing flow reads the API key, bearer token, or request headers an action's HTTP or SDK error carried.",
       lookFor: [
         "A proxy handler path that is not wrapped in guardDefects, so Schema.Defect encodes the raw defect object to the caller.",
         "A log or error message that interpolates the raw defect, cause, or payload instead of renderDiagnostic output.",
         "A secret spelling sanitizeDiagnosticText misses that a realistic HTTP client error embeds in message: `Authorization: Basic <b64>`, `cookie: session=<v>`, URL userinfo `https://user:pass@host`, and a `?key=<v>` query parameter all pass through unredacted today.",
         "A secret split across the 512-character slice boundary, or placed in a field outside diagnosticKeys that a nested cause re-exposes through message."
       ],
-      paths: ["src/FlowProxyServer.ts", "src/internal/Diagnostic.ts", "src/FlowEngine/make.ts", "src/FlowEngine/Dispatch.ts"]
+      paths: [
+        "src/FlowProxyServer.ts",
+        "src/internal/Diagnostic.ts",
+        "src/FlowEngine/make.ts",
+        "src/FlowEngine/Dispatch.ts"
+      ]
     },
     {
       id: "diagnostic-renderer-safety",
       title: "renderDiagnostic never runs caller code and stays bounded on hostile values",
-      threat: "A flow implementation or remote payload that raises a crafted error object hangs, floods, or executes code in the server process when the engine renders it.",
+      threat:
+        "A flow implementation or remote payload that raises a crafted error object hangs, floods, or executes code in the server process when the engine renders it.",
       lookFor: [
         "A property read in projectDiagnostic that uses normal access (value[key], toString, JSON.stringify of the raw object) instead of Object.getOwnPropertyDescriptor data values.",
         "A depth, array length, or output length bound that is removed or applied after unbounded work.",
@@ -118,18 +126,25 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "execution-id-reuse-identity",
       title: "A reused execution id joins only the same flow, payload, and lineage",
-      threat: "A caller reusing another run's execution id with a different flow or payload receives that run's settled result or corrupts its journal.",
+      threat:
+        "A caller reusing another run's execution id with a different flow or payload receives that run's settled result or corrupts its journal.",
       lookFor: [
         "An execute or deferredDone path in layerMemory.ts that joins an existing execution without comparing flow tag, samePayload, round, and parent.",
         "An ExecutionIdentityConflict whose message or expected/actual fields echo the recorded payload instead of a fixed description.",
         "poll returning a settlement recorded under a different flow declaration instead of Option.none."
       ],
-      paths: ["src/FlowEngine/layerMemory.ts", "src/FlowEngine/make.ts", "src/FlowEngine/Round.ts", "src/FlowEngine/Trampoline.ts"]
+      paths: [
+        "src/FlowEngine/layerMemory.ts",
+        "src/FlowEngine/make.ts",
+        "src/FlowEngine/Round.ts",
+        "src/FlowEngine/Trampoline.ts"
+      ]
     },
     {
       id: "action-key-collision",
       title: "Distinct actions, schemas, runs, and boundaries never derive the same persisted action key",
-      threat: "A flow author or caller-owned idempotency object makes one action replay another action's recorded outcome, including a charge or irreversible side effect.",
+      threat:
+        "A flow author or caller-owned idempotency object makes one action replay another action's recorded outcome, including a charge or irreversible side effect.",
       lookFor: [
         "A key input in actionKey or ordinalScope that concatenates strings without length framing or a form tag, so two different inputs encode identically.",
         "A cache-kind key that omits the environment, declaration digest, boundary digest, implementationVersion, or nondeterministic flag it is documented to include.",
@@ -140,18 +155,25 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "replay-decode-before-trust",
       title: "Recorded outcomes from a durable store are schema-decoded before a flow consumes them",
-      threat: "Anyone able to write the durable store injects a forged action or deferred result that the flow trusts as a real completion.",
+      threat:
+        "Anyone able to write the durable store injects a forged action or deferred result that the flow trusts as a real completion.",
       lookFor: [
         "An actionExecute or deferredResult value returned to the body without decoding through exitSchemaPartial or the deferred exitSchema.",
         "A deferredDoneIfWaiting path that completes a deferred without passing through the waiting token check.",
         "An irreversible-tier action re-dispatched on retry without an idempotency key or journal hit check."
       ],
-      paths: ["src/FlowEngine/make.ts", "src/FlowEngine/Dispatch.ts", "src/FlowEngine/Encoded.ts", "src/FlowEngine/SnapshotBoundary.ts"]
+      paths: [
+        "src/FlowEngine/make.ts",
+        "src/FlowEngine/Dispatch.ts",
+        "src/FlowEngine/Encoded.ts",
+        "src/FlowEngine/SnapshotBoundary.ts"
+      ]
     },
     {
       id: "proxy-http-route-encoding",
       title: "Generated HTTP routes are unambiguous and injective in the flow tag",
-      threat: "A flow tag containing slashes, percent escapes, or lone surrogates routes a request to a different flow's handler.",
+      threat:
+        "A flow tag containing slashes, percent escapes, or lone surrogates routes a request to a different flow's handler.",
       lookFor: [
         "tagToPath emitting any character outside the hex-encoded single segment, or accepting ill-formed UTF-16 without InvalidFlowTag.",
         "assertNoCollisions skipped for a prefix or group that toHttpApiGroup or layerRpcHandlers builds.",

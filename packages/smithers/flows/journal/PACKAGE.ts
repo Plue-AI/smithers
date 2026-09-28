@@ -57,7 +57,8 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "logger-redaction",
-      title: "The redacting logger redacts message, cause, annotations, stack frames, and console output before any logger reads them",
+      title:
+        "The redacting logger redacts message, cause, annotations, stack frames, and console output before any logger reads them",
       threat:
         "An action that logs a token leaks it to the operator's terminal, the .flows/logs file, or an OTLP collector via Logger.tracerLogger.",
       lookFor: [

@@ -75,12 +75,17 @@ const securityReview = Smithers.SecurityReview({
         "A path where the deadline race wins but the scoped session release does not run, leaving a reattachable machine with the payload on disk.",
         "A stale result.json from an earlier attempt that is read because files.remove failed silently."
       ],
-      paths: ["src/SandboxedFlow.ts", "docs/guides/run-a-child-flow-in-a-sandbox.md", "docs/concepts/runner-protocol.md"]
+      paths: [
+        "src/SandboxedFlow.ts",
+        "docs/guides/run-a-child-flow-in-a-sandbox.md",
+        "docs/concepts/runner-protocol.md"
+      ]
     },
     {
       id: "host-guarded-layering",
       title: "Flow bodies receive only the guarded, capability-checked host services",
-      threat: "A flow body or agent action reads, writes, or spawns outside the workspace grants by resolving a raw host service.",
+      threat:
+        "A flow body or agent action reads, writes, or spawns outside the workspace grants by resolving a raw host service.",
       lookFor: [
         "A raw platform.host.layerAt service tag that is provideMerge'd into the engine context and not overridden by layerContainedAt or HostServices.",
         "The privileged Jj or raw FileSystem reachable from Action implementations rather than only from EngineStore machinery.",
@@ -91,7 +96,8 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "runtime-config-secrets",
-      title: "Runtime configuration errors and storage paths never expose DSN credentials or place engine state where flows can tamper",
+      title:
+        "Runtime configuration errors and storage paths never expose DSN credentials or place engine state where flows can tamper",
       threat:
         "An operator's Postgres password leaks into an error or log, or a flow body rewrites artifact objects the engine trusts on replay.",
       lookFor: [
@@ -105,7 +111,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "docs-copyable-snippets",
       title: "Copyable docs snippets do not teach unsafe sandbox or runtime configuration",
-      threat: "A user copying a guide ships shared session keys, applies an unreviewed guest diff to the host, or hardcodes a credential.",
+      threat:
+        "A user copying a guide ships shared session keys, applies an unreviewed guest diff to the host, or hardcodes a credential.",
       lookFor: [
         "A snippet that applies Result.diff to the host workspace without a review or path check.",
         "A snippet with a literal API key, DSN password, or token, or a session key constant across executions."

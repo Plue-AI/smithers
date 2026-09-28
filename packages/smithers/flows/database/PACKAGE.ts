@@ -142,5 +142,17 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { check, circular, docs, docsFiles, reviewTagsMigrationsAndKeys, faults, fmt, lib, lint, test, ...securityReview }
+  targets: {
+    check,
+    circular,
+    docs,
+    docsFiles,
+    reviewTagsMigrationsAndKeys,
+    faults,
+    fmt,
+    lib,
+    lint,
+    test,
+    ...securityReview
+  }
 })

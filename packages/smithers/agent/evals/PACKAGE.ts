@@ -21,7 +21,14 @@ const securityReview = Smithers.SecurityReview({
         "An EvalError message interpolating a baseline, suite, scorer or step-key value without flattenControlCharacters.",
         "A gate or runner summary path that bypasses ciGrade's flattening, or a sanitizer that misses C1 controls such as U+009B or bidi overrides."
       ],
-      paths: ["src/Baseline.ts", "src/Suite.ts", "src/Regression.ts", "src/Gate.ts", "src/Runner.ts", "src/internal/controlCharacters.ts"]
+      paths: [
+        "src/Baseline.ts",
+        "src/Suite.ts",
+        "src/Regression.ts",
+        "src/Gate.ts",
+        "src/Runner.ts",
+        "src/internal/controlCharacters.ts"
+      ]
     },
     {
       id: "markdown-report-escaping",
@@ -61,7 +68,8 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "report-secret-exposure",
-      title: "Reports and errors do not publish case inputs, ground truth or target output beyond what the caller opted into",
+      title:
+        "Reports and errors do not publish case inputs, ground truth or target output beyond what the caller opted into",
       threat:
         "A reader of CI logs or PR comments reads secrets or private data carried in eval case inputs, expected values or model outputs.",
       lookFor: [

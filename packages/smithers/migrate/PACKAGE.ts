@@ -37,7 +37,13 @@ const securityReview = Smithers.SecurityReview({
         "A verification command resolved from a package.json script the agent can rewrite during the same unit before `Verify.run` executes it.",
         "Agent write access to `.git/`, `.jj/`, or package manager config that a later host-run jj, git, or install command would execute."
       ],
-      paths: ["src/flow/Layers.ts", "src/flow/Verify.ts", "src/flow/Transform.ts", "src/Units.ts", "src/internal/CliScripts.ts"]
+      paths: [
+        "src/flow/Layers.ts",
+        "src/flow/Verify.ts",
+        "src/flow/Transform.ts",
+        "src/Units.ts",
+        "src/internal/CliScripts.ts"
+      ]
     },
     {
       id: "exec-shell-quoting",
@@ -49,7 +55,13 @@ const securityReview = Smithers.SecurityReview({
         "`CommandLine.quote` leaving a token with `'`, `$`, backtick, or newline unquoted.",
         "A git ref or jj revset built from a unit id without the `[^A-Za-z0-9._-]` sanitizer in `gitRef`."
       ],
-      paths: ["src/flow/internal/Exec.ts", "src/internal/CommandLine.ts", "src/flow/Checkpoint.ts", "src/flow/Verify.ts", "src/flow/Contract.ts"]
+      paths: [
+        "src/flow/internal/Exec.ts",
+        "src/internal/CommandLine.ts",
+        "src/flow/Checkpoint.ts",
+        "src/flow/Verify.ts",
+        "src/flow/Contract.ts"
+      ]
     },
     {
       id: "checkpoint-path-containment",
@@ -107,7 +119,13 @@ const securityReview = Smithers.SecurityReview({
         "A lock in `Lock.ts` released on a token mismatch, or a stale lock taken over while its holder is alive.",
         "A missing `pending-unit.json` check letting a second run overwrite backups still needed for recovery."
       ],
-      paths: ["src/flow/Gate.ts", "src/flow/MigrateFlow.ts", "src/flow/Command.ts", "src/flow/Lock.ts", "src/flow/internal/Pending.ts"]
+      paths: [
+        "src/flow/Gate.ts",
+        "src/flow/MigrateFlow.ts",
+        "src/flow/Command.ts",
+        "src/flow/Lock.ts",
+        "src/flow/internal/Pending.ts"
+      ]
     }
   ]
 })

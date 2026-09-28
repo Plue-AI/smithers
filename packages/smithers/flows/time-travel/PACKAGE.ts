@@ -55,7 +55,12 @@ const securityReview = Smithers.SecurityReview({
         "A child run deleted (flows_attempts, flows_journal_events, snapshots, edges) without first re-reading and matching its owner triple inside the same transaction.",
         "A Lease.withHeldLease body that keeps mutating after the heartbeat fiber reports `fence_lost`."
       ],
-      paths: ["src/SqlTimeTravelStore.ts", "src/MemoryTimeTravelStore.ts", "src/internal/Lease.ts", "src/internal/Rewind.ts"]
+      paths: [
+        "src/SqlTimeTravelStore.ts",
+        "src/MemoryTimeTravelStore.ts",
+        "src/internal/Lease.ts",
+        "src/internal/Rewind.ts"
+      ]
     },
     {
       id: "recovery-claim-before-restore",
@@ -80,7 +85,13 @@ const securityReview = Smithers.SecurityReview({
         "An effect with `requiresIdempotencyKey` and no recorded key that is still reverted.",
         "A rewind option such as `detachedChildren: \"cancel\"` or `wholeRepo` reachable from an unvalidated string rather than the decoded literal union."
       ],
-      paths: ["src/CompensationHandlers.ts", "src/internal/EffectHandlerRegistry.ts", "src/internal/Compensation.ts", "src/internal/Rewind.ts", "src/TimeTravel.ts"]
+      paths: [
+        "src/CompensationHandlers.ts",
+        "src/internal/EffectHandlerRegistry.ts",
+        "src/internal/Compensation.ts",
+        "src/internal/Rewind.ts",
+        "src/TimeTravel.ts"
+      ]
     },
     {
       id: "effect-io-leak",
@@ -116,7 +127,13 @@ const securityReview = Smithers.SecurityReview({
         "The `edgesUnder` recursive query or LineageTree.descendants trusting `$.effect.output.childRunId` / `$.nextExecutionId` without joining to a row proving that child's parent is this run.",
         "The child loop in the truncate transaction deleting `flows_journal_events`/`flows_attempts` for a child run id without confirming the child row names this run as its parent."
       ],
-      paths: ["src/EffectBoundary.ts", "src/SqlTimeTravelStore.ts", "src/MemoryTimeTravelStore.ts", "src/internal/LineageTree.ts", "src/internal/Rewind.ts"]
+      paths: [
+        "src/EffectBoundary.ts",
+        "src/SqlTimeTravelStore.ts",
+        "src/MemoryTimeTravelStore.ts",
+        "src/internal/LineageTree.ts",
+        "src/internal/Rewind.ts"
+      ]
     },
     {
       id: "history-bounds",
@@ -127,7 +144,15 @@ const securityReview = Smithers.SecurityReview({
         "A journal read in Replay, Rewind, SnapshotProjector, or JournalPages without a page size or `maxHistoryEntries` cap.",
         "A caller-supplied `maxHistoryEntries` or frame `seq` accepted without the positive-integer decode in `Position`/`Frame`."
       ],
-      paths: ["src/internal/Replay.ts", "src/internal/JournalPages.ts", "src/internal/HistoryLimit.ts", "src/internal/SnapshotProjector.ts", "src/internal/Rewind.ts", "src/Frame.ts", "src/TimeTravel.ts"]
+      paths: [
+        "src/internal/Replay.ts",
+        "src/internal/JournalPages.ts",
+        "src/internal/HistoryLimit.ts",
+        "src/internal/SnapshotProjector.ts",
+        "src/internal/Rewind.ts",
+        "src/Frame.ts",
+        "src/TimeTravel.ts"
+      ]
     }
   ]
 })

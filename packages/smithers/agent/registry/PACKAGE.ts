@@ -30,7 +30,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "pack-manifest-paths",
       title: "Pack manifest flows and skills paths stay lexically and physically inside the pack root",
-      threat: "A malicious installed pack's manifest points a source at ../../ or an absolute path and exposes host files as flows.",
+      threat:
+        "A malicious installed pack's manifest points a source at ../../ or an absolute path and exposes host files as flows.",
       lookFor: [
         "isPackRelativePath accepting an absolute, drive-letter, backslash, or empty segment path.",
         "Pack.sources skipping the realPath check when only one side fails to resolve, letting a symlinked source escape.",
@@ -104,14 +105,20 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "untrusted-parse-bounds",
       title: "Parsing hostile flow sources stays bounded in memory, time, and prototype safety",
-      threat: "A malicious flow file exhausts the host's memory or CPU during a scan, or pollutes object prototypes via frontmatter.",
+      threat:
+        "A malicious flow file exhausts the host's memory or CPU during a scan, or pollutes object prototypes via frontmatter.",
       lookFor: [
         "readFile of an entry or closure module before a byte ceiling is enforced on the bytes actually read.",
         "YAML parsed with a schema other than failsafe, or aliases and merge keys expanded without a limit.",
         "Frontmatter results built on a normal prototype so __proto__ or constructor keys reach consumers.",
         "A ModuleMetadata tokenizer loop or regex with super-linear behavior on crafted input."
       ],
-      paths: ["src/Discovery.ts", "src/internal/Frontmatter.ts", "src/internal/ModuleMetadata.ts", "src/internal/ModuleClosure.ts"]
+      paths: [
+        "src/Discovery.ts",
+        "src/internal/Frontmatter.ts",
+        "src/internal/ModuleMetadata.ts",
+        "src/internal/ModuleClosure.ts"
+      ]
     }
   ]
 })

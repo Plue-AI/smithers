@@ -19,7 +19,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "capability-signature",
       title: "Share and workspace capabilities verify only under their own key, scheme, and claim encoding",
-      threat: "A share-link holder forges or widens a capability to read or write another branch or the whole workspace.",
+      threat:
+        "A share-link holder forges or widens a capability to read or write another branch or the whole workspace.",
       lookFor: [
         "A signed claim field omitted from `canonical`, or a field encoded without the UTF-8 byte-length prefix.",
         "A scheme label shared between BranchShare and WorkspaceShare, or missing from either canonical encoding.",
@@ -33,7 +34,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "check-order-and-expiry",
       title: "Signature is checked before scope, expiry, and access, and expiry is exclusive",
-      threat: "A holder of an expired or read-only capability keeps reading or writes to a branch they were only shown.",
+      threat:
+        "A holder of an expired or read-only capability keeps reading or writes to a branch they were only shown.",
       lookFor: [
         "`verifyClaims` reporting scope or expiry before the signature check.",
         "An expiry comparison using `>` instead of `>=` against the clock.",
@@ -55,7 +57,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "run-read-authz",
       title: "Non-branch runs need the workspace principal and branch runs need a verified capability for that branch",
-      threat: "An anonymous caller or a holder of one branch's link reads another branch's or the workspace's journal entries.",
+      threat:
+        "An anonymous caller or a holder of one branch's link reads another branch's or the workspace's journal entries.",
       lookFor: [
         "A Snapshot, Read, or Subscribe path that reaches the journal before `runIdsFor` authorizes the scope.",
         "`branchOfRunId` mapping a run id to a branch other than the one whose journal it reads.",
@@ -78,7 +81,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "branch-mint-delegation",
       title: "Branch creation needs the workspace principal and delegated links never outlive or out-scope the parent",
-      threat: "An anonymous caller creates branches, or a read-link holder mints a write link or one that outlives its parent.",
+      threat:
+        "An anonymous caller creates branches, or a read-link holder mints a write link or one that outlives its parent.",
       lookFor: [
         "`Branch.CreateBranch` minting without checking `SyncPrincipal.isWorkspace`.",
         "`Branch.MintShare` verifying the parent with `read` access, or minting for a branch other than the verified `claims.branchId`.",
@@ -90,7 +94,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "branch-write-integrity",
       title: "Commands and presence writes are authorized for the exact branch they mutate",
-      threat: "A write-link holder on one branch appends commands or evicts participants on another branch, or impersonates a peer.",
+      threat:
+        "A write-link holder on one branch appends commands or evicts participants on another branch, or impersonates a peer.",
       lookFor: [
         "A submit or announce whose `branchId` is read from the caller's object after `share.verify` instead of the frozen copy.",
         "`Branch.Leave` or `announce` letting one capability remove or overwrite a `participantId` it did not announce.",
@@ -108,12 +113,19 @@ const securityReview = Smithers.SecurityReview({
         "Per-branch state (`RcMap`, receipts ledger, presence map) that grows without idle eviction or a capacity.",
         "A policy option accepting NaN, Infinity, or a negative number as a limit."
       ],
-      paths: ["src/SyncServer.ts", "src/BranchCommands.ts", "src/BranchPresence.ts", "src/SyncProtocol.ts", "src/internal/PolicyOptions.ts"]
+      paths: [
+        "src/SyncServer.ts",
+        "src/BranchCommands.ts",
+        "src/BranchPresence.ts",
+        "src/SyncProtocol.ts",
+        "src/internal/PolicyOptions.ts"
+      ]
     },
     {
       id: "fail-closed-fallback-layers",
       title: "Noop and test layers refuse every capability and never grant the workspace principal to a transport",
-      threat: "A remote client of a gateway wired with a published noop or test layer reads every workspace run without a credential.",
+      threat:
+        "A remote client of a gateway wired with a published noop or test layer reads every workspace run without a credential.",
       lookFor: [
         "A `makeNoop` authority whose `verify` succeeds, or a `SyncServer.layerNoop` that returns journal data.",
         "The published `./test/TestSync` export `layerWorkspaceAuth` (trusts every connection as owner) reachable from a non-test composition."
@@ -129,7 +141,13 @@ const securityReview = Smithers.SecurityReview({
         "A `Redacted` secret unwrapped anywhere except the key import.",
         "A client-side decode that trusts a server frame without `Admission.decode`."
       ],
-      paths: ["src/SyncError.ts", "src/internal/CauseText.ts", "src/SyncClient.ts", "src/WorkspaceShare.ts", "src/BranchShare.ts"]
+      paths: [
+        "src/SyncError.ts",
+        "src/internal/CauseText.ts",
+        "src/SyncClient.ts",
+        "src/WorkspaceShare.ts",
+        "src/BranchShare.ts"
+      ]
     }
   ]
 })
