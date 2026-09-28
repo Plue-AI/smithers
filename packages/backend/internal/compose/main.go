@@ -570,7 +570,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	adminRepoService := services.NewAdminRepoService(queries)
 	webhookService := services.NewWebhookService(queries, webhookSecretCodec, services.WithWebhookOwnershipGuard(repoOwnershipFence))
 	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
-	variableService := services.NewVariableService(queries, services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
+	variableService := services.NewVariableService(queries, services.WithVariableOwnershipGuard(repoOwnershipFence), services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 
 	blobConfig := cfg.Blob
 	blobConfig.TransferBaseURL = publicBaseURL

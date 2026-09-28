@@ -40,7 +40,8 @@ type VariableQuerier interface {
 }
 
 type VariableService struct {
-	queries VariableQuerier
+	queries        VariableQuerier
+	ownershipGuard RepoOwnershipGuard
 	// subscriptionTokens mirrors feature_flags.subscription_connections.
 	subscriptionTokens bool
 }
@@ -51,6 +52,11 @@ type VariableServiceOption func(*VariableService)
 // or ChatGPT subscription token in a variable. Off by default (hosted).
 func WithVariableSubscriptionTokens(allowed bool) VariableServiceOption {
 	return func(s *VariableService) { s.subscriptionTokens = allowed }
+}
+
+// WithVariableOwnershipGuard serializes repository variable writes with ownership changes.
+func WithVariableOwnershipGuard(g RepoOwnershipGuard) VariableServiceOption {
+	return func(s *VariableService) { s.ownershipGuard = g }
 }
 
 func NewVariableService(q VariableQuerier, opts ...VariableServiceOption) *VariableService {
@@ -121,13 +127,24 @@ func (s *VariableService) SetVariable(ctx context.Context, actor *db.User, owner
 		return VariableResponse{}, err
 	}
 
-	created, err := s.queries.CreateOrUpdateVariable(ctx, db.CreateOrUpdateVariableParams{
-		RepositoryID: repository.ID,
-		Name:         trimmedName,
-		Value:        value,
+	var created db.RepositoryVariable
+	err = guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
+		if err := s.requireWriteAccess(ctx, repository, actor); err != nil {
+			return err
+		}
+		var err error
+		created, err = s.queries.CreateOrUpdateVariable(ctx, db.CreateOrUpdateVariableParams{
+			RepositoryID: repository.ID,
+			Name:         trimmedName,
+			Value:        value,
+		})
+		if err != nil {
+			return pkgerrors.Internal("failed to set variable").WithCause(err)
+		}
+		return nil
 	})
 	if err != nil {
-		return VariableResponse{}, pkgerrors.Internal("failed to set variable").WithCause(err)
+		return VariableResponse{}, err
 	}
 
 	return toVariableResponse(created), nil
@@ -200,13 +217,18 @@ func (s *VariableService) DeleteVariable(ctx context.Context, actor *db.User, ow
 		return err
 	}
 
-	if err := s.queries.DeleteVariable(ctx, db.DeleteVariableParams{
-		RepositoryID: repository.ID,
-		Name:         trimmedName,
-	}); err != nil {
-		return pkgerrors.Internal("failed to delete variable").WithCause(err)
-	}
-	return nil
+	return guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
+		if err := s.requireWriteAccess(ctx, repository, actor); err != nil {
+			return err
+		}
+		if err := s.queries.DeleteVariable(ctx, db.DeleteVariableParams{
+			RepositoryID: repository.ID,
+			Name:         trimmedName,
+		}); err != nil {
+			return pkgerrors.Internal("failed to delete variable").WithCause(err)
+		}
+		return nil
+	})
 }
 
 func (s *VariableService) SetOrgVariable(ctx context.Context, actor *db.User, orgName, name, value string) (VariableResponse, error) {
