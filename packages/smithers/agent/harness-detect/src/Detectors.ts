@@ -99,6 +99,8 @@ export interface HarnessModels {
   readonly suggestions: ReadonlyArray<string>
   /** argv[0] is the binary name; the output is one model id per line. */
   readonly list?: ReadonlyArray<string>
+  /** The provider API-key variables the `list` probe needs; no other probe gets a key. */
+  readonly listCredentials?: ReadonlyArray<string>
 }
 
 /**
@@ -223,7 +225,18 @@ export const DETECTORS: ReadonlyArray<Detector> = [
     models: {
       flag: ["--model"],
       suggestions: [OPENCODE_KIMI_MODEL, OPENCODE_CEREBRAS_MODEL],
-      list: ["opencode", "models"]
+      list: ["opencode", "models"],
+      // `opencode models` lists a provider only when its credential is present.
+      listCredentials: [
+        "OPENCODE_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "KIMI_API_KEY",
+        "CEREBRAS_API_KEY",
+        "OPENROUTER_API_KEY"
+      ]
     },
     signal: (host) => {
       const { join } = hostPath(host)
@@ -254,7 +267,12 @@ export const DETECTORS: ReadonlyArray<Detector> = [
     displayName: "OpenCode · Kimi",
     binary: "opencode",
     launch: ["opencode", "--model", OPENCODE_KIMI_MODEL],
-    models: { flag: ["--model"], suggestions: [OPENCODE_KIMI_MODEL], list: ["opencode", "models", "kimi-for-coding"] },
+    models: {
+      flag: ["--model"],
+      suggestions: [OPENCODE_KIMI_MODEL],
+      list: ["opencode", "models", "kimi-for-coding"],
+      listCredentials: ["KIMI_API_KEY"]
+    },
     signal: (host) => {
       const { join } = hostPath(host)
       const auth = readJson(host, join(host.home, ".local", "share", "opencode", "auth.json"))
@@ -278,7 +296,8 @@ export const DETECTORS: ReadonlyArray<Detector> = [
     models: {
       flag: ["--model"],
       suggestions: [OPENCODE_CEREBRAS_MODEL, "cerebras/gpt-oss-120b"],
-      list: ["opencode", "models", "cerebras"]
+      list: ["opencode", "models", "cerebras"],
+      listCredentials: ["CEREBRAS_API_KEY"]
     },
     signal: (host) => {
       const { join } = hostPath(host)

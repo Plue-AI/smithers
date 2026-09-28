@@ -1,6 +1,6 @@
 import { AGENT_ROLES } from "@smthrs/rpc/AgentRoles"
 import { HARNESS_IDS } from "@smthrs/rpc/LocalApp"
-import { join } from "node:path"
+import { delimiter, join } from "node:path"
 import { describe, expect, test } from "vitest"
 import {
   decodeJwtClaims,
@@ -10,6 +10,7 @@ import {
   harnessCandidateDirs,
   harnessModels,
   harnessModelSpec,
+  modelProbeEnv,
   parseVersionLine,
   PROBE_ENV_KEYS,
   probeEnv,
@@ -149,6 +150,26 @@ describe("the candidate dirs", () => {
     const h = host({ binaries: ["/Users/u/.bun/bin/codex", "/usr/bin/claude"], env: { PATH: undefined } })
     expect(findBinary("codex", h)).toBe("/Users/u/.bun/bin/codex")
     expect(findBinary("claude", h)).toBeNull()
+  })
+
+  test("a relative PATH entry is never searched, so the cwd cannot plant a binary", async () => {
+    // A cloned repository is the cwd: `.` and `node_modules/.bin` would resolve inside it.
+    const h = host({
+      binaries: ["node_modules/.bin/claude", "./codex", "codex", "/usr/bin/codex"],
+      env: { PATH: ".:node_modules/.bin:/usr/bin" }
+    })
+    expect(findBinary("claude", h)).toBeNull()
+    expect(findBinary("codex", h)).toBe("/usr/bin/codex")
+    await detectHarnessesWith(h)
+    expect(h.probed).toEqual(["/usr/bin/codex"])
+    const windows = host({
+      platform: "win32",
+      home: "C:\\Users\\u",
+      binaries: ["tools\\claude.exe", "\\rel\\codex.exe", "D:\\bin\\codex.exe"],
+      env: { PATH: "tools;D:\\bin" }
+    })
+    expect(findBinary("claude", windows)).toBeNull()
+    expect(findBinary("codex", windows)).toBe("D:\\bin\\codex.exe")
   })
 })
 
@@ -527,6 +548,15 @@ describe("helpers", () => {
     expect(parseVersionLine("")).toBeNull()
   })
 
+  test("parseVersionLine returns a bounded, control-free string for a hostile banner", () => {
+    // A planted binary cannot drive the terminal that renders the version field.
+    expect(parseVersionLine("\u001b]0;pwned\u0007\u001b[2Jhello\u009b31m\r\u202eevil\n")).toBe("hello31mevil")
+    expect(parseVersionLine("\u001b[31m1.2.3\u001b[0m")).toBe("1.2.3")
+    expect(parseVersionLine("x".repeat(10_000))).toHaveLength(64)
+    expect(parseVersionLine(`1.${"9".repeat(10_000)}`)).toHaveLength(64)
+    expect(parseVersionLine("\u001b[2J\u0007")).toBeNull()
+  })
+
   test("decodeJwtClaims never verifies and never throws", () => {
     expect(decodeJwtClaims(jwt({ email: "a@b.c" }))).toEqual({ email: "a@b.c" })
     expect(decodeJwtClaims("not-a-jwt")).toBeNull()
@@ -546,11 +576,44 @@ describe("helpers", () => {
       SMITHERS_CLOUD_TOKEN: "secret",
       GITHUB_TOKEN: "secret"
     })
-    expect(env).toEqual({ NO_COLOR: "1", HOME: "/Users/u", PATH: "/usr/bin", ANTHROPIC_API_KEY: "sk" })
+    // A --version probe holds no provider key.
+    expect(env).toEqual({ NO_COLOR: "1", HOME: "/Users/u", PATH: "/usr/bin" })
+    expect(PROBE_ENV_KEYS.filter((key) => key.endsWith("_API_KEY"))).toEqual([])
     // The allowlist is the whole contract: a key absent from it never reaches a probe.
     expect(PROBE_ENV_KEYS).not.toContain("SMITHERS_CLOUD_TOKEN")
     expect(PROBE_ENV_KEYS).not.toContain("GITHUB_TOKEN")
     expect(new Set(PROBE_ENV_KEYS).size).toBe(PROBE_ENV_KEYS.length)
+  })
+
+  test("a probe child's PATH keeps only absolute entries", () => {
+    const env = probeEnv({ PATH: [".", "node_modules/.bin", "/usr/bin", "", "/bin"].join(delimiter) })
+    expect(env.PATH).toBe(["/usr/bin", "/bin"].join(delimiter))
+    expect(probeEnv({ PATH: "." })).toEqual({ NO_COLOR: "1" })
+  })
+
+  test("modelProbeEnv adds only the credentials that harness's model listing reads", () => {
+    const source = {
+      HOME: "/Users/u",
+      KIMI_API_KEY: "kimi",
+      CEREBRAS_API_KEY: "cerebras",
+      ANTHROPIC_API_KEY: "anthropic",
+      GITHUB_TOKEN: "secret"
+    }
+    expect(modelProbeEnv("opencode-kimi", source)).toEqual({ NO_COLOR: "1", HOME: "/Users/u", KIMI_API_KEY: "kimi" })
+    expect(modelProbeEnv("opencode-cerebras", source))
+      .toEqual({ NO_COLOR: "1", HOME: "/Users/u", CEREBRAS_API_KEY: "cerebras" })
+    expect(modelProbeEnv("opencode", source)).toEqual({
+      NO_COLOR: "1",
+      HOME: "/Users/u",
+      KIMI_API_KEY: "kimi",
+      CEREBRAS_API_KEY: "cerebras",
+      ANTHROPIC_API_KEY: "anthropic"
+    })
+    // A harness with no model listing is never probed for models, so it gets no key.
+    expect(modelProbeEnv("claude", source)).toEqual({ NO_COLOR: "1", HOME: "/Users/u" })
+    for (const detector of DETECTORS) {
+      expect(detector.models?.listCredentials === undefined || detector.models.list !== undefined).toBe(true)
+    }
   })
 
   test("a version probe has a finite budget", () => {

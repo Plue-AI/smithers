@@ -26,10 +26,13 @@ Path formatting and `PATH` separators follow `host.platform`.
   candidate dirs are not an optimization. On Windows the two POSIX prefixes are
   skipped and a binary matches only with a `PATHEXT` extension (default
   `.COM;.EXE;.BAT;.CMD`), so `claude.cmd` is found and the POSIX shim beside it
-  is not.
+  is not. A relative `PATH` entry (`.`, `node_modules/.bin`) is skipped, so a
+  cloned repository in the cwd cannot plant a binary for detection to probe.
 - **The version.** `<binary> --version`, delegated to the host, parsed with
   `parseVersionLine` — `"2.1.247 (Claude Code)"` is `2.1.247` and
-  `"crush version v0.1.11"` is `0.1.11`.
+  `"crush version v0.1.11"` is `0.1.11`. The result has escape sequences and
+  control characters stripped and is at most `VERSION_MAX_LENGTH` (64)
+  characters, so a hostile binary cannot drive the terminal that renders it.
 - **The account.** Per vendor, off this user's own files: `.claude.json`'s (in `CLAUDE_CONFIG_DIR` when set, then `~`)
   `oauthAccount` then `.credentials.json`, the Codex `auth.json` `id_token`'s
   `email` claim (decoded, never verified, never returned), the OpenCode
@@ -123,11 +126,18 @@ version cache and runs each probe under the app's seatbelt profile.
 
 ## Probe safety
 
-`PROBE_ENV_KEYS` is the complete set of environment variables a probe child
-may see, and `probeEnv` builds that environment plus `NO_COLOR`. Anything
-else — `SMITHERS_CLOUD_TOKEN`, `GITHUB_TOKEN`, an unrelated vendor key — is
-dropped, because a process that only prints its version has no business
-holding a session token. Sandboxing the probe is the adapter's job; the
+`PROBE_ENV_KEYS` is the complete set of environment variables a `--version`
+probe child may see, and `probeEnv` builds that environment plus `NO_COLOR`.
+Anything else — `SMITHERS_CLOUD_TOKEN`, `GITHUB_TOKEN`, every provider API
+key — is dropped, because a process that only prints its version has no
+business holding a credential. `probeEnv` also drops relative `PATH` entries,
+so a probed script's `#!/usr/bin/env node` cannot resolve an interpreter out
+of the cwd.
+
+A model-list probe uses `modelProbeEnv(id, source)` instead: `probeEnv` plus
+only the `listCredentials` of that harness's model table (`opencode models
+kimi-for-coding` gets `KIMI_API_KEY` and nothing else). A harness with no
+model listing gets no key. Sandboxing the probe is the adapter's job; the
 allowlist is shared so every adapter drops the same things.
 
 ## Exports
@@ -144,5 +154,7 @@ allowlist is shared so every adapter drops the same things.
 | `harnessModels(id)` / `harnessModelSpec(id)` | The model flag, suggestions and list argv                          |
 | `decodeJwtClaims(token)`                     | A JWT payload, unverified, never throwing                          |
 | `parseVersionLine(output)`                   | The version out of a CLI banner                                    |
-| `probeEnv(source)` / `PROBE_ENV_KEYS`        | The environment a probe child gets                                 |
+| `probeEnv(source)` / `PROBE_ENV_KEYS`        | The environment a `--version` probe child gets                     |
+| `modelProbeEnv(id, source)`                  | The environment a model-list probe child gets                      |
 | `VERSION_TIMEOUT_MS`                         | The budget one `--version` gets                                    |
+| `VERSION_MAX_LENGTH`                         | The longest version string `parseVersionLine` returns              |

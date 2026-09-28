@@ -22,4 +22,11 @@ export {
 export type { Detector, HarnessModels, Signal } from "./Detectors.ts"
 export { findBinary, harnessCandidateDirs } from "./HarnessHost.ts"
 export type { HarnessHost, HarnessId } from "./HarnessHost.ts"
-export { parseVersionLine, PROBE_ENV_KEYS, probeEnv, VERSION_TIMEOUT_MS } from "./Probe.ts"
+export {
+  modelProbeEnv,
+  parseVersionLine,
+  PROBE_ENV_KEYS,
+  probeEnv,
+  VERSION_MAX_LENGTH,
+  VERSION_TIMEOUT_MS
+} from "./Probe.ts"

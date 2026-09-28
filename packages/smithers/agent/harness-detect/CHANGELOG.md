@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Security
+
+- `findBinary` and `probeEnv` skip relative `PATH` entries, so a binary or
+  interpreter planted in the cwd is never resolved.
+- `--version` probes get no provider API key; `modelProbeEnv(id, source)`
+  gives a model-list probe only its harness's `listCredentials`.
+- `parseVersionLine` strips escape sequences and control characters and caps
+  the result at `VERSION_MAX_LENGTH` (64).
+
 ### Added
 
 - Extracted harness detection from `apps/app/src/bun/Harnesses.ts` into this

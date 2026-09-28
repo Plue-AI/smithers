@@ -17,7 +17,7 @@ import type { HarnessHost } from "../HarnessHost.ts"
  */
 export const hostPath = (
   host: { readonly platform?: string | undefined }
-): Pick<typeof NodePath, "join" | "resolve" | "sep" | "delimiter"> =>
+): Pick<typeof NodePath, "join" | "resolve" | "sep" | "delimiter" | "isAbsolute"> =>
   host.platform === undefined ? NodePath : host.platform === "win32" ? NodePath.win32 : NodePath.posix
 
 /**

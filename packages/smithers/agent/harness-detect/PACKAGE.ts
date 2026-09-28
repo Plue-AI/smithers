@@ -26,15 +26,16 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "probe-env-allowlist",
-      title: "Version and model probe children see only PROBE_ENV_KEYS plus NO_COLOR",
+      title: "Version probes see only PROBE_ENV_KEYS plus NO_COLOR; model-list probes add only their listCredentials",
       threat:
         "A harness CLI spawned only for --version or model listing receives Smithers Cloud, GitHub, or other session tokens from the caller's environment.",
       lookFor: [
         "probeEnv copying keys outside PROBE_ENV_KEYS, or spreading the source env.",
         "A token-bearing key (SMITHERS_CLOUD_TOKEN, GITHUB_TOKEN, AWS_*, *_SESSION) added to PROBE_ENV_KEYS.",
-        "A provider API key in PROBE_ENV_KEYS that no DETECTORS row or model listing reads."
+        "A provider API key in PROBE_ENV_KEYS, or a listCredentials key that the harness's model listing does not read.",
+        "A relative PATH entry left in the probe env."
       ],
-      paths: ["src/Probe.ts"]
+      paths: ["src/Probe.ts", "src/Detectors.ts"]
     },
     {
       id: "binary-resolution-hijack",

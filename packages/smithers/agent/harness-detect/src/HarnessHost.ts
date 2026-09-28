@@ -100,11 +100,15 @@ const compareSemver = (left: RegExpExecArray, right: RegExpExecArray): number =>
 /**
  * The first candidate dir, then PATH entry, that holds the binary.
  *
+ * A relative PATH entry (`.`, `node_modules/.bin`) is skipped: it resolves
+ * against the process cwd, which may be a cloned repository that plants a
+ * `claude` for detection to probe and the app to launch.
+ *
  * @category detection
  * @since 0.1.0
  */
 export const findBinary = (name: string, host: HarnessHost): string | null => {
-  const { delimiter, join } = hostPath(host)
+  const { delimiter, isAbsolute, join } = hostPath(host)
   const windows = host.platform === "win32"
   // Windows environment names are case-insensitive, so a copied env may
   // spell them `Path` or `PathExt`.
@@ -113,7 +117,7 @@ export const findBinary = (name: string, host: HarnessHost): string | null => {
       ? Object.entries(host.env).find(([candidate, value]) => value !== undefined && candidate.toUpperCase() === key)
         ?.[1]
       : undefined)
-  const fromPath = (variable("PATH") ?? "").split(delimiter).filter((dir) => dir !== "")
+  const fromPath = (variable("PATH") ?? "").split(delimiter).filter((dir) => isAbsolute(dir))
   // A Windows command is a file with an executable extension: npm installs
   // `claude.cmd`, native installers `codex.exe`. A bare `claude` beside them
   // is a POSIX shell shim Windows cannot launch.
