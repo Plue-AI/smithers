@@ -317,14 +317,18 @@ describe("unified control dispatch", () => {
       "list",
       "--root",
       "/fixture",
-      ...(filtered ? ["--flow", "demo/ship", "--status", "waiting-approval"] : []),
+      ...(filtered
+        ? ["--flow", "demo/ship", "--status", "waiting-approval", "--limit", "2", "--cursor", "page-2"]
+        : []),
       "--json"
     ])
     expect(order).toEqual(["reconcile", "query"])
     expect(ports.reconcile).toHaveBeenCalledExactlyOnceWith("/fixture")
     expect(ports.invoke.mock.calls[0]![0]).toEqual([
       "ps",
-      ...(filtered ? ["--flow", "demo/ship", "--status", "waiting-approval"] : [])
+      ...(filtered
+        ? ["--flow", "demo/ship", "--status", "waiting-approval", "--limit", "2", "--cursor", "page-2"]
+        : [])
     ])
   })
 

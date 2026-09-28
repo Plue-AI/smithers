@@ -693,7 +693,14 @@ const ps = Command.make("ps", {
       "completed",
       "failed"
     ] as const
-  ).pipe(Flag.optional, Flag.withDescription("Only list runs with this lifecycle status"))
+  ).pipe(Flag.optional, Flag.withDescription("Only list runs with this lifecycle status")),
+  // One keyed page per call: the listing never loads every run, and a caller
+  // walks further pages by passing back the `nextCursor` it printed.
+  limit: Flag.Int("limit").pipe(Flag.optional, Flag.withDescription("Runs per page, 1 to 500 (default 100)")),
+  cursor: Flag.String("cursor").pipe(
+    Flag.optional,
+    Flag.withDescription("Continue from the nextCursor a previous page printed")
+  )
 }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
@@ -706,7 +713,9 @@ const ps = Command.make("ps", {
           filters: {
             ...(Option.isNone(config.flow) ? {} : { flowId: config.flow.value }),
             ...(Option.isNone(config.status) ? {} : { status: config.status.value })
-          }
+          },
+          ...(Option.isNone(config.limit) ? {} : { limit: config.limit.value }),
+          ...(Option.isNone(config.cursor) ? {} : { cursor: config.cursor.value })
         }),
         now
       )

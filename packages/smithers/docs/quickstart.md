@@ -177,7 +177,9 @@ smthrs runs list
 `runs list` lists durable runs with their status, and `--status` filters on the seven
 statuses the release pins: `accepted`, `running`, `parked`,
 `waiting-approval`, `cancelled`, `completed`, and `failed`. An eighth value is
-a usage error, not an empty list.
+a usage error, not an empty list. A listing is one page of 100 runs; when more
+remain it prints `nextCursor`, and `--cursor <nextCursor>` reads the next page.
+`--limit` sets the page size, from 1 to 500.
 
 Take the run id from that listing and read what happened:
 

@@ -380,6 +380,31 @@ describe("listing verbs", () => {
     expect(result.wrongStatus).toEqual({ _tag: "runs", items: [] })
     expect(result.wrongFlow).toEqual({ _tag: "runs", items: [] })
   })
+
+  it("pages runs by key with --limit and --cursor", async () => {
+    const result = await run(
+      Effect.gen(function*() {
+        const launched = [(yield* launch()).runId, (yield* launch()).runId, (yield* launch()).runId]
+        const pages: Array<
+          { readonly items: ReadonlyArray<{ readonly runId: string }>; readonly nextCursor?: string }
+        > = []
+        let cursor: string | undefined
+        do {
+          const page = (yield* json(["--json", "ps", "--limit", "2", ...(cursor ? ["--cursor", cursor] : [])])) as {
+            readonly items: ReadonlyArray<{ readonly runId: string }>
+            readonly nextCursor?: string
+          }
+          pages.push(page)
+          cursor = page.nextCursor
+        } while (cursor !== undefined && pages.length < 5)
+        return { launched, pages }
+      }),
+      testControl
+    )
+
+    expect(result.pages.map((page) => page.items.length)).toEqual([2, 1])
+    expect(result.pages.flatMap((page) => page.items.map((item) => item.runId))).toEqual(result.launched)
+  })
 })
 
 describe("lifecycle verbs", () => {

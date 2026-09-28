@@ -194,7 +194,12 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
     .command("list", {
       description: "List durable runs filtered by flow or status",
       mcp: { annotations: { readOnlyHint: true } },
-      options: options.extend({ flow: z.string().optional(), status: z.enum(statuses).optional() }),
+      options: options.extend({
+        flow: z.string().optional(),
+        status: z.enum(statuses).optional(),
+        limit: z.number().int().min(1).max(500).optional().describe("Runs per page (default 100)"),
+        cursor: z.string().optional().describe("Continue from the nextCursor a previous page printed")
+      }),
       run: (c) =>
         guard(c, () =>
           observe<unknown>(c.options, runtime, { _tag: "runs", items: [] }, async () => {
@@ -203,7 +208,9 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
               [
                 "ps",
                 ...(c.options.flow ? ["--flow", c.options.flow] : []),
-                ...(c.options.status ? ["--status", c.options.status] : [])
+                ...(c.options.status ? ["--status", c.options.status] : []),
+                ...(c.options.limit === undefined ? [] : ["--limit", String(c.options.limit)]),
+                ...(c.options.cursor ? ["--cursor", c.options.cursor] : [])
               ],
               c.options,
               runtime
