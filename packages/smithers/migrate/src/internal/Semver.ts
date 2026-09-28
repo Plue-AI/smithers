@@ -30,6 +30,7 @@ const pattern = /(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/
  * Parses the first version in a dependency specifier, so `^0.35.0`,
  * `>=0.35.0 <1`, and `0.35.0` all parse. A specifier with no version at all
  * (`file:../smithers`, `workspace:*`, `latest`) returns `undefined`.
+ * Core components outside the safe integer range also return `undefined`.
  *
  * @since 1.0.0-rc.0
  * @private
@@ -37,8 +38,12 @@ const pattern = /(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/
 export const parse = (specifier: string): Version | undefined => {
   const match = pattern.exec(specifier)
   if (match === null) return undefined
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  const patch = Number(match[3])
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return undefined
   const prerelease = match[4] === undefined ? [] : match[4].split(".")
-  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease }
+  return { major, minor, patch, prerelease }
 }
 
 const comparePrerelease = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): number => {
@@ -55,7 +60,10 @@ const comparePrerelease = (left: ReadonlyArray<string>, right: ReadonlyArray<str
     const bNumeric = /^\d+$/.test(b)
     // Numeric identifiers always have lower precedence than alphanumeric ones.
     if (aNumeric && bNumeric) {
-      if (Number(a) !== Number(b)) return Number(a) < Number(b) ? -1 : 1
+      // Numeric prerelease identifiers can exceed JavaScript's integer range.
+      const aValue = BigInt(a)
+      const bValue = BigInt(b)
+      if (aValue !== bValue) return aValue < bValue ? -1 : 1
       continue
     }
     if (aNumeric) return -1
@@ -86,8 +94,10 @@ const oneZeroZero: Version = { major: 1, minor: 0, patch: 0, prerelease: ["0"] }
  *
  * `1.0.0-rc.0` is not before it: a numeric prerelease identifier has lower
  * precedence than an alphanumeric one, so `1.0.0-0 < 1.0.0-rc.0`. A specifier
- * with no version (`file:`, `link:`, `workspace:`) is treated as before it,
- * because a local link in a 0.x project points at a 0.x checkout.
+ * that cannot be parsed is treated as before it for legacy compatibility,
+ * including local links in a 0.x project. Callers deciding migration must
+ * admit the specifier with `parse` first rather than treating this fallback
+ * as evidence that an unsupported version is old.
  *
  * @since 1.0.0-rc.0
  * @private

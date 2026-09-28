@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Leave dependency versions with unsafe numeric core components unresolved
+  instead of classifying rounded major, minor, or patch values.
+- Compare numeric prerelease identifiers exactly, including values beyond
+  JavaScript's safe integer range, instead of treating rounded values as equal.
 - Generate `smthrs flow start <flow>` rather than the unrelated root `run`
   command. Translate `--input` to `--data` and bare `-d` to `--detached`;
   recognize the legacy `-d <literal JSON object>` data form without changing
