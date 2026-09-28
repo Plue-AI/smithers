@@ -3,11 +3,12 @@
  * @since 1.0.0
  */
 
-import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
+import type * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { Database } from "bun:sqlite"
 import type { Layer } from "effect"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { statSync } from "node:fs"
+import * as BunSqliteClient from "../internal/BunSqliteClient.ts"
 import * as PostgresSelection from "../internal/PostgresSelection.ts"
 import * as SqliteOpen from "../internal/SqliteOpen.ts"
 
@@ -46,6 +47,6 @@ export const layer = (options: BunDatabaseOptions): Layer.Layer<SqlClient.SqlCli
   PostgresSelection.layer(options.filename) ?? SqliteOpen.layer(
     options.filename,
     readTableNames,
-    SqliteClient.layer({ ...options.sqlite, filename: options.filename }),
+    BunSqliteClient.layer({ ...options.sqlite, filename: options.filename }),
     options.sqlite?.spanAttributes
   )

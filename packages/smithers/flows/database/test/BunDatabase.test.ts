@@ -9,7 +9,8 @@ import { vi } from "vitest"
 
 // Exercise the adapter's composition and guard in the Node coverage lane.
 // Native Bun behavior is independently exercised by NativeRuntimeParity's
-// real Bun processes. Neither this shim nor Node's SQLite is used there.
+// real Bun processes and the Bun client's affected rows by
+// agent/memory NativeBunAffectedRows.test.ts. Neither uses this shim.
 const probe = vi.hoisted(() => ({ fail: false }))
 vi.mock("bun:sqlite", async () => {
   const { DatabaseSync } = await import("node:sqlite")
@@ -33,7 +34,7 @@ vi.mock("bun:sqlite", async () => {
     }
   }
 })
-vi.mock("@effect/sql-sqlite-bun/SqliteClient", () => import("@effect/sql-sqlite-node/SqliteClient"))
+vi.mock("../src/internal/BunSqliteClient.ts", () => import("@effect/sql-sqlite-node/SqliteClient"))
 
 import * as BunDatabase from "../src/bun/BunDatabase.ts"
 
