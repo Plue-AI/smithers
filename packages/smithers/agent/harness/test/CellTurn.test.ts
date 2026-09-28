@@ -542,6 +542,55 @@ console.log(kept)`
     ])
   })
 
+  it("fails a run after five identical throwing cells", async () => {
+    const { events, failure, model } = await run({
+      script: Array.from({ length: 30 }, () => emits(`throw new Error("bash exited 1")`)),
+      state: state({ maxFrames: 30 })
+    })
+
+    expect(model.recorder.requests).toHaveLength(5)
+    expect(of(events, "resolved")).toHaveLength(0)
+    expect(String(failure)).toContain("Runaway guard: 5 consecutive frames")
+    expect(String(failure)).toContain("bash exited 1")
+  })
+
+  it("fails a run after five identical failing flow calls", async () => {
+    const failing = { _tag: "Success" as const, value: { exitCode: 1, stdout: "failed" } }
+    const { events, failure, model } = await run({
+      script: Array.from({ length: 30 }, () =>
+        emits(`const result = await ctx.call("fs/list", { path: "." }); if (result.exitCode !== 0) throw new Error("bash exited 1")`)),
+      calls: Array.from({ length: 5 }, () => failing),
+      state: state({ maxFrames: 30 })
+    })
+
+    expect(model.recorder.requests).toHaveLength(5)
+    expect(of(events, "resolved")).toHaveLength(0)
+    expect(String(failure)).toContain("Runaway guard")
+  })
+
+  it("fails repeated nonzero tool results even when the cell does not throw", async () => {
+    const { failure, model } = await run({
+      script: Array.from({ length: 30 }, () => emits(`await ctx.call("fs/list", { path: "." })`)),
+      calls: Array.from({ length: 5 }, () => ({
+        _tag: "Success" as const,
+        value: { exitCode: 1, stdout: "failed" }
+      })),
+      state: state({ maxFrames: 30 })
+    })
+
+    expect(model.recorder.requests).toHaveLength(5)
+    expect(String(failure)).toContain("Runaway guard")
+  })
+
+  it("resets the failure streak after a successful frame", async () => {
+    const script = Array.from({ length: 12 }, (_, index) =>
+      emits(index % 2 === 0 ? `throw new Error("bash exited 1")` : `console.log("working")`))
+    const { events, model } = await run({ script, state: state({ maxFrames: 12 }) })
+
+    expect(model.recorder.requests).toHaveLength(12)
+    expect(of(events, "resolved")).toHaveLength(1)
+  })
+
   it("stops at the frame budget instead of continuing forever", async () => {
     const { events, model } = await run({
       script: [

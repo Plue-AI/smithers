@@ -553,6 +553,16 @@ export class State extends Schema.Class<State>("flows/harness/CellTurn/State")({
     Schema.withConstructorDefault(Effect.succeed(defaultRepeatFrames)),
     Schema.withDecodingDefaultKey(Effect.succeed(defaultRepeatFrames))
   ),
+  /** Consecutive frames with the same uncorrected cell or call failure. */
+  failureFrames: NonNegativeSafeInt.pipe(
+    Schema.withConstructorDefault(Effect.succeed(0)),
+    Schema.withDecodingDefaultKey(Effect.succeed(0))
+  ),
+  /** Bounded identity of the failure being retried. */
+  failureKey: Schema.String.pipe(
+    Schema.withConstructorDefault(Effect.succeed("")),
+    Schema.withDecodingDefaultKey(Effect.succeed(""))
+  ),
   /**
    * Consecutive frames that observed only what this run had already observed.
    *
@@ -1181,6 +1191,8 @@ export const make = (options: {
     interventions: 0,
     repeatCap: options.repeatCap ?? defaultRepeatFrames,
     repeatFrames: 0,
+    failureFrames: 0,
+    failureKey: "",
     callSignatures: [],
     narrowingCap: options.narrowingCap ?? defaultNarrowingDemands,
     narrowingDemands: 0,
@@ -3495,6 +3507,16 @@ const frame = (
     const written = Supervision.prose(assistantText(answer))
     const { mutated } = accounting
     const { readOnlyFrames } = accounting.facts
+    const failed = ran.calls.length > 0 && ran.calls.every((call) => !call.ok || call.failing)
+    const failure = ran.calls.some((call) => call.ok && !call.failing)
+      ? ""
+      : outcome._tag === "raised"
+      ? `cell threw ${outcome.name}: ${outcome.message}`
+      : failed
+      ? ran.calls.map((call) => `${call.flow}: ${call.summary}`).join("; ")
+      : ""
+    const failureKey = failure.slice(0, 1_000)
+    const failureFrames = failureKey === "" ? 0 : failureKey === state.failureKey ? state.failureFrames + 1 : 1
     const facts: Frame.StateChanges = ran.restored.size === 0 ? accounting.facts : {
       ...accounting.facts,
       withheldFlows: state.withheldFlows.filter((name) => !ran.restored.has(name))
@@ -3505,7 +3527,7 @@ const frame = (
     const exit = settling(
       cell.digest,
       printed,
-      facts,
+      { ...facts, failureFrames, failureKey },
       { mutated, checks: accounting.frameChecks.map((check) => check.label) },
       supervision.offer({
         frame: state.frame,
@@ -4144,6 +4166,12 @@ export const run = (
       )
 
       for (;;) {
+        if (current.failureFrames >= 5) {
+          return yield* new HarnessError({
+            code: "model_failed",
+            message: `Runaway guard: ${current.failureFrames} consecutive frames repeated the same failure: ${current.failureKey}`
+          })
+        }
         if (current.maxFrames > 0 && current.frame >= current.maxFrames) {
           yield* emit(
             new AgentEvent.Resolved({
