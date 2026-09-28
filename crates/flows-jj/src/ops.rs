@@ -363,9 +363,11 @@ fn validate_workspace_name(name: &str) -> Result<(), OpError> {
 }
 
 /// The destination a `workspaceAdd` may create: an absolute path with no
-/// `.` or `..` component and no `.jj` component. The path is caller-chosen,
-/// and without these checks it could climb out of the directory the caller
-/// named or land a working copy inside a repository's `.jj` store.
+/// `.` or `..` component and no `.jj` or `.git` component, compared without
+/// regard to ASCII case because APFS and NTFS resolve `.JJ` to `.jj`. The
+/// path is caller-chosen, and without these checks it could climb out of the
+/// directory the caller named or land a working copy inside a repository's
+/// `.jj` store or colocated `.git` directory.
 fn workspace_destination(path: &str) -> Result<&Path, OpError> {
     let destination = Path::new(path);
     if !destination.is_absolute() {
@@ -380,11 +382,13 @@ fn workspace_destination(path: &str) -> Result<&Path, OpError> {
         .any(|segment| segment == "." || segment == "..");
     let bad_component = destination.components().any(|component| {
         matches!(component, Component::ParentDir | Component::CurDir)
-            || component.as_os_str() == ".jj"
+            || component.as_os_str().to_str().is_some_and(|segment| {
+                segment.eq_ignore_ascii_case(".jj") || segment.eq_ignore_ascii_case(".git")
+            })
     });
     if dot_segment || bad_component {
         return Err(OpError::unknown(format!(
-            "destination path {path:?} must not contain '.', '..', or '.jj' components"
+            "destination path {path:?} must not contain '.', '..', '.jj', or '.git' components"
         )));
     }
     Ok(destination)
@@ -895,6 +899,10 @@ mod tests {
         }
 
         let inside_store = root.join(".jj").join("lane");
+        // Case-insensitive filesystems (APFS, NTFS) resolve `.JJ` to `.jj`.
+        let inside_store_upper = root.join(".JJ").join("lane");
+        let inside_git = root.join(".git").join("lane");
+        let inside_git_upper = root.join(".Git").join("lane");
         let escaping = format!("{}/../escaped", temp.path().join("sub").display());
         let dotted = format!("{}/./dotted", temp.path().display());
         for (path, created) in [
@@ -905,6 +913,15 @@ mod tests {
             (
                 inside_store.to_str().unwrap().to_owned(),
                 inside_store.clone(),
+            ),
+            (
+                inside_store_upper.to_str().unwrap().to_owned(),
+                inside_store_upper.clone(),
+            ),
+            (inside_git.to_str().unwrap().to_owned(), inside_git.clone()),
+            (
+                inside_git_upper.to_str().unwrap().to_owned(),
+                inside_git_upper.clone(),
             ),
             (escaping, temp.path().join("escaped")),
             (dotted, temp.path().join("dotted")),
