@@ -12,6 +12,7 @@
  */
 import * as Classifier from "@smthrs/model/Classifier"
 import * as Evaluator from "@smthrs/model/Evaluator"
+import { Effect } from "effect"
 import type * as Session from "./session.ts"
 
 export type Source =
@@ -390,15 +391,14 @@ async (input: Judged): Promise<boolean> => {
         : { _tag: "JevFailed", code: "unreachable", message: error instanceof Error ? error.message : String(error) }
     )
   }
-  const raw = response.answers.notable
-  if (raw?.type !== "boolean") {
-    throw new MonitorError({
+  return Effect.runPromise(Classifier.decodeAnswers(question, response.answers).pipe(
+    Effect.map((answers) => answers.notable.value),
+    Effect.mapError(() => new MonitorError({
       _tag: "JevFailed",
       code: "invalid_answer",
       message: "Jev did not answer the notable question"
-    })
-  }
-  return raw.probability >= 0.5
+    }))
+  ))
 }
 
 /** What Luna is told. */
