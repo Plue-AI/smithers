@@ -98,7 +98,7 @@ export const run = (options: {
   readonly spillDir?: string
 }): Running => {
   const env = options.env ?? process.env
-  const shell = env.SHELL ?? bashOnPath(env.PATH) ?? "/bin/sh"
+  const shell = env.SHELL || bashOnPath(env.PATH) || "/bin/sh"
   const child = spawn(shell, ["-c", options.command], {
     cwd: options.cwd,
     env: { ...env, TERM: "dumb" },

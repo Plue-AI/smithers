@@ -1,10 +1,24 @@
 import { describe, expect, it } from "bun:test"
-import { readFileSync, statSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { delimiter, join } from "node:path"
 import * as Shell from "../src/shell.ts"
 import * as Transcript from "../src/transcript.ts"
 
+const bashExecutable = Bun.which("bash")
+
 describe("shell output", () => {
+  it("empty SHELL uses available POSIX shell", async () => {
+    const result = await Shell.run({
+      command: "printf '%s 中文 🦉' \"$0\"",
+      cwd: tmpdir(),
+      env: { SHELL: "", PATH: "" },
+      onOutput: () => {}
+    }).done
+    expect(result.exitCode).toBe(0)
+    expect(result.output).toBe("/bin/sh 中文 🦉")
+  })
+
   it("uses a POSIX shell when SHELL is unset and Bash is absent from PATH", async () => {
     const result = await Shell.run({
       command: "printf '%s 中文 🦉' \"$0\"",
@@ -15,6 +29,56 @@ describe("shell output", () => {
     expect(result.exitCode).toBe(0)
     expect(result.output).toBe("/bin/sh 中文 🦉")
   })
+
+  it.skipIf(bashExecutable === null)(
+    "uses an explicitly configured POSIX shell even when Bash is on PATH",
+    async () => {
+      const directory = mkdtempSync(join(tmpdir(), "smithers-shell-"))
+      try {
+        const bash = join(directory, "bash")
+        symlinkSync(bashExecutable!, bash)
+        const result = await Shell.run({
+          command: "printf '%s 中文 🦉' \"$0\"",
+          cwd: directory,
+          env: { SHELL: "/bin/sh", PATH: directory },
+          onOutput: () => {}
+        }).done
+        expect(result.exitCode).toBe(0)
+        expect(result.output).toBe("/bin/sh 中文 🦉")
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it.skipIf(bashExecutable === null)(
+    "uses executable Bash on PATH for unset and empty SHELL, skipping a non-executable candidate",
+    async () => {
+      const directory = mkdtempSync(join(tmpdir(), "smithers-shell-"))
+      try {
+        const blockedDirectory = join(directory, "blocked")
+        const executableDirectory = join(directory, "executable")
+        mkdirSync(blockedDirectory)
+        mkdirSync(executableDirectory)
+        writeFileSync(join(blockedDirectory, "bash"), "#!/bin/sh\nprintf blocked\n", { mode: 0o644 })
+        const bash = join(executableDirectory, "bash")
+        symlinkSync(bashExecutable!, bash)
+        const path = [blockedDirectory, executableDirectory].join(delimiter)
+        for (const env of [{ PATH: path }, { SHELL: "", PATH: path }]) {
+          const result = await Shell.run({
+            command: "printf '%s 中文 🦉' \"$0\"",
+            cwd: directory,
+            env,
+            onOutput: () => {}
+          }).done
+          expect(result.exitCode).toBe(0)
+          expect(result.output).toBe(`${bash} 中文 🦉`)
+        }
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
+    }
+  )
 
   it("preserves an explicitly configured shell's startup failure", async () => {
     const result = await Shell.run({
