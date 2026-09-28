@@ -78,7 +78,10 @@ it("preserves a transport rejection without interpreting it as a receipt race", 
 })
 
 it("preserves Retry-After for host scheduling without retrying a refused request", async () => {
-  const sync = IssueSync.make({ owner: "owner", repo: "repo", connector,
+  const sync = IssueSync.make({
+    owner: "owner",
+    repo: "repo",
+    connector,
     request: async () => new Response(null, { status: 429, headers: { "Retry-After": "120" } })
   })
   await expect(sync.drain()).rejects.toMatchObject({ status: 429, retryAfter: "120" })
@@ -86,15 +89,32 @@ it("preserves Retry-After for host scheduling without retrying a refused request
 
 it("stops a batch on a rate-limited receipt before making another API request", async () => {
   let requests = 0
-  const sync = IssueSync.make({ owner: "owner", repo: "repo", connector,
+  const sync = IssueSync.make({
+    owner: "owner",
+    repo: "repo",
+    connector,
     request: async (_path, init) => {
       requests++
       if (init?.method === "PUT") return new Response(null, { status: 429, headers: { "Retry-After": "120" } })
       if (init?.method === "POST") return Response.json({ state: "dispatching", token: "claim" })
-      return Response.json([1, 2].map(id => ({ id, key: String(id), issue_id: 42, state: "pending", event: "comment.created",
-        payload: { comment: { id, body: "hello" } }, message_id: "",
-        mapping: { provider: "slack", connection_id: "slack", scope_id: "T001", conversation_id: "C001", thread_id: "" }
-      })))
+      return Response.json(
+        [1, 2].map((id) => ({
+          id,
+          key: String(id),
+          issue_id: 42,
+          state: "pending",
+          event: "comment.created",
+          payload: { comment: { id, body: "hello" } },
+          message_id: "",
+          mapping: {
+            provider: "slack",
+            connection_id: "slack",
+            scope_id: "T001",
+            conversation_id: "C001",
+            thread_id: ""
+          }
+        }))
+      )
     }
   })
   await expect(sync.drain()).rejects.toMatchObject({ status: 429, retryAfter: "120" })
