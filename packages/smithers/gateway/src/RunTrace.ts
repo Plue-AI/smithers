@@ -1662,6 +1662,13 @@ const TERMINAL_KINDS: ReadonlySet<string> = new Set([
 
 /** One deduplicated record to the fold of the dispatch it was recorded under. */
 const route = (state: FoldTop, record: JournalRecord): void => {
+  // A run verdict stamped with another run's id (a child's, riding in this
+  // journal) must not settle this run's trace or pin its milestone.
+  if (
+    record.kind?.startsWith("control.run.") === true && record.runId !== undefined && record.runId !== state.run.runId
+  ) {
+    return
+  }
   state.firstAt = Math.min(state.firstAt, timeOf(record, asRecord(record.payload)))
   if (TERMINAL_KINDS.has(record.kind ?? "")) state.terminal = record
   const scope = callScope(record)
