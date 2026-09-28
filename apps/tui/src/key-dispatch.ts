@@ -59,10 +59,10 @@ export const context = (state: {
   return "composer"
 }
 
-/** A printable key with no modifier: typing, not a command. */
+/** The terminal parser emits one Unicode code point per text key, not one UTF-16 unit. */
 const typing = (key: KeyEvent): string | undefined => {
   const typed = key.sequence
-  return !key.ctrl && !key.meta && !key.option && typed.length === 1 && typed >= " " && typed !== "\x7f"
+  return !key.ctrl && !key.meta && !key.option && Array.from(typed).length === 1 && typed >= " " && typed !== "\x7f"
     ? typed
     : undefined
 }
