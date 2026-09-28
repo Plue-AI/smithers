@@ -113,10 +113,19 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 	if !provision && registrationDecision(request.Payload, request.Procedure) && !registrationAdmin(w, r, true) {
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
-	if !provision && request.Procedure == "Approval.Submit" {
-		if err := middleware.RequirePerson(r.Context(), "decide an approval"); err != nil {
-			browserFlowWakeFailed(w, err)
-			return request, flowruntime.Target{}, db.Workspace{}, false
+	if !provision {
+		var action string
+		switch request.Procedure {
+		case "Approval.Submit":
+			action = "decide an approval"
+		case "Cancel", "Signal", "Resume", "Steer":
+			action = "control a run"
+		}
+		if action != "" {
+			if err := middleware.RequirePerson(r.Context(), action); err != nil {
+				browserFlowWakeFailed(w, err)
+				return request, flowruntime.Target{}, db.Workspace{}, false
+			}
 		}
 	}
 	user := middleware.UserFromContext(r.Context())
