@@ -1695,6 +1695,37 @@ export const make = (
       })
 
     /**
+     * Announces a committed terminal settlement: to any in-process caller
+     * parked on this run's poll loop, and to every parent attached to the
+     * logical run, which is runnable now. That wake is the only thing that
+     * says so: a child settlement never passes through `scheduleResume`.
+     *
+     * A diamond's second parent lives only in its durable edge (issue #2500),
+     * and `ensureRun` records an edge under the round the parent joined, so
+     * the edges are gathered from every round of the lineage, deduplicated
+     * with the creating parent `state_json` carries. Each is recorded for the
+     * same reason `scheduleResume` records: the round this wake schedules is
+     * the one a host's park guard has to recognize.
+     */
+    const announceSettled = (executionId: string, state: RunState): Effect.Effect<void> =>
+      Effect.gen(function*() {
+        yield* wakeBus.wake(executionId)
+        const parents = new Set<string>()
+        if (state.parentExecutionId !== undefined) parents.add(state.parentExecutionId)
+        const rounds = yield* lifecycle.rounds(executionId).pipe(Effect.orDie)
+        for (const roundId of new Set([executionId, ...rounds.map((round) => round.runId)])) {
+          for (const edge of yield* engineState.runParents(roundId)) parents.add(edge.parentId)
+        }
+        if (parents.size === 0) return
+        const activeCoordinator = yield* Deferred.await(coordinatorDeferred)
+        for (const parentId of parents) {
+          yield* recordParentResume(parentId)
+          yield* activeCoordinator.wake(parentId)
+          yield* wakeBus.wake(parentId)
+        }
+      })
+
+    /**
      * Ends a lineage that asked for one round past its declared budget.
      *
      * The round itself ran to completion; what is refused is the handoff, so
@@ -1731,6 +1762,8 @@ export const make = (
         )
         if (transitioned._tag === "GuardFailed") {
           yield* cancelOwned(seam.executionId, seam.state)
+        } else if (transitioned._tag === "Transitioned") {
+          yield* announceSettled(seam.executionId, seam.state)
         }
       })
 
@@ -1759,6 +1792,8 @@ export const make = (
         )
         if (transitioned._tag === "GuardFailed") {
           yield* cancelOwned(seam.executionId, seam.state)
+        } else if (transitioned._tag === "Transitioned") {
+          yield* announceSettled(seam.executionId, seam.state)
         }
       })
 
@@ -2099,29 +2134,7 @@ export const make = (
                 // The settle is durable; tell any in-process caller parked on this
                 // run's poll loop, so a run driven to completion by a sweep or a
                 // coordinator wake is observed now rather than on the next tick.
-                yield* wakeBus.wake(executionId)
-                // Every parent that attached to this child is runnable now:
-                // the creating parent in `state_json` and each diamond parent
-                // whose only record is its durable edge (issue #2500). Edges
-                // are keyed on the lineage's first round, so a child that
-                // handed off still finds them from its last round.
-                const edges = yield* engineState.runParents(initial.lineageId ?? executionId)
-                const parents = new Set<string>()
-                if (activeState.parentExecutionId !== undefined) parents.add(activeState.parentExecutionId)
-                for (const edge of edges) parents.add(edge.parentId)
-                if (parents.size > 0) {
-                  const activeCoordinator = yield* Deferred.await(coordinatorDeferred)
-                  for (const parentId of parents) {
-                    // A parent that parked on this child is runnable now, and
-                    // this wake is the only thing that says so: a child
-                    // settlement never passes through `scheduleResume`. Recorded
-                    // for the same reason it is there — the round this wake
-                    // schedules is the one a host's park guard has to recognize.
-                    yield* recordParentResume(parentId)
-                    yield* activeCoordinator.wake(parentId)
-                    yield* wakeBus.wake(parentId)
-                  }
-                }
+                yield* announceSettled(executionId, activeState)
                 return
               }
             })
