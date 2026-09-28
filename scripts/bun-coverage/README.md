@@ -6,6 +6,13 @@ counters. Babel 7 lowers TypeScript, optional chaining, nullish coalescing and l
 assignment, then Istanbul creates and remaps standard statement, function, branch
 and line counters. No production ignore directives are accepted.
 
+The root compiles once and atomically publishes an immutable instrumentation
+artifact. Its whole code/zero-map/loader digest is bound to the owning source
+hashes, versions and options in the manifest. Children validate that binding,
+exact paths/loaders/zero-counter shapes and current source hashes before using
+it; final flush validates them again. They do not re-run Babel. Missing/tampered
+artifacts or changed unimported sources refuse the report.
+
 Run the qualification suite with Node 26:
 
 ```sh
