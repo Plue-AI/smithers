@@ -504,6 +504,70 @@ func TestBilling_H_WebhookDispatchInvalidPayloadsAndClaims(t *testing.T) {
 	}
 }
 
+func TestBilling_H_CheckoutCompletedFetchFailureRedeliveryActivatesOnce(t *testing.T) {
+	ctx := context.Background()
+	queries := billingHNewQuerier()
+
+	var subscriptions []db.UpsertBillingSubscriptionParams
+	queries.upsertBillingSubscriptionFn = func(_ context.Context, arg db.UpsertBillingSubscriptionParams) (db.BillingSubscription, error) {
+		subscriptions = append(subscriptions, arg)
+		return db.BillingSubscription{
+			ID:                   int64(len(subscriptions)),
+			BillingAccountID:     arg.BillingAccountID,
+			StripeSubscriptionID: arg.StripeSubscriptionID,
+			PlanKey:              arg.PlanKey,
+			Status:               arg.Status,
+		}, nil
+	}
+	client := billingHStripeClient()
+	fetchSubscription := client.getSubscriptionFn
+	fetchErr := errors.New("stripe subscription temporarily unavailable")
+	fetchCalls := 0
+	client.getSubscriptionFn = func(ctx context.Context, id string) (StripeSubscriptionSnapshot, error) {
+		fetchCalls++
+		require.Equal(t, "sub_h", id)
+		if fetchErr != nil {
+			return StripeSubscriptionSnapshot{}, fetchErr
+		}
+		return fetchSubscription(ctx, id)
+	}
+	svc := billingHService(queries, client)
+	const eventID = "evt_checkout_fetch_retry_h"
+	payload, signature := signedStripeEvent(t, eventID, "checkout.session.completed", map[string]any{
+		"id":           "cs_h",
+		"customer":     "cus_h",
+		"subscription": "sub_h",
+		"metadata":     map[string]string{"owner_type": BillingOwnerTypeUser, "owner_id": "42"},
+	})
+
+	err := svc.HandleStripeWebhook(ctx, payload, signature)
+	require.Error(t, err)
+	assert.Equal(t, 500, httpStatus(err))
+	assert.Empty(t, subscriptions)
+	assert.NotContains(t, queries.processedEvents, eventID)
+	assert.Equal(t, 1, fetchCalls)
+
+	fetchErr = nil
+	require.NoError(t, svc.HandleStripeWebhook(ctx, payload, signature))
+	require.Len(t, subscriptions, 1)
+	account := queries.accountsByCustomer["cus_h"]
+	require.NotZero(t, account.ID)
+	assert.Equal(t, BillingOwnerTypeUser, account.OwnerType)
+	assert.Equal(t, int64(42), account.OwnerID)
+	assert.Equal(t, account.ID, subscriptions[0].BillingAccountID)
+	assert.Equal(t, "sub_h", subscriptions[0].StripeSubscriptionID)
+	assert.Equal(t, "active", subscriptions[0].Status)
+	assert.Equal(t, BillingPlanPersonal, subscriptions[0].PlanKey)
+	assert.Equal(t, BillingIntervalMonthly, subscriptions[0].BillingInterval)
+	assert.Equal(t, "checkout.session.completed", queries.processedEvents[eventID])
+	assert.Equal(t, 2, fetchCalls)
+
+	// A duplicate of the successful delivery must not activate the plan again.
+	require.NoError(t, svc.HandleStripeWebhook(ctx, payload, signature))
+	assert.Len(t, subscriptions, 1)
+	assert.Equal(t, 2, fetchCalls)
+}
+
 func TestBilling_H_WebhookHandlerErrorBranches(t *testing.T) {
 	ctx := context.Background()
 	account := billingHAccount(BillingOwnerTypeUser, 42, "cus_h")
