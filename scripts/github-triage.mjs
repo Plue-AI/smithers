@@ -1,5 +1,14 @@
 #!/usr/bin/env node
 
+// Contract for the CI job that publishes triage:
+//   node scripts/github-triage.mjs prepare <issue|pr>
+//   node scripts/github-triage.mjs apply <issue|pr> <number>
+// <number> is baked into the command line by the caller
+// (`${{ github.event.issue.number }}` or `${{ github.event.pull_request.number }}`).
+// Environment: GH_TOKEN, GITHUB_EVENT_PATH, GITHUB_REPOSITORY, and
+// TRIAGE_BOT_LOGIN when GH_TOKEN is not the workflow's GITHUB_TOKEN (a GitHub
+// App writes as `<app-slug>[bot]`, a PAT as its user's login).
+
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import process from "node:process"
 import { isMain } from "./workspace-packages.mjs"
@@ -160,6 +169,14 @@ const ensureLabel = async (repository, name) => {
 // The login GitHub gives comments written with the workflow's GITHUB_TOKEN.
 export const BOT_LOGIN = "github-actions[bot]"
 
+// The login GH_TOKEN writes comments as. A malformed override is refused so a
+// typo can never widen which comments count as the bot's own.
+export const botLogin = (value = process.env.TRIAGE_BOT_LOGIN) => {
+  if (value === undefined || value === "") return BOT_LOGIN
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/.test(value)) throw new Error("TRIAGE_BOT_LOGIN is not a GitHub login")
+  return value
+}
+
 // Keeps model-written text from pinging people. GitHub resolves `@name` in the
 // rendered text nodes whenever a non-word character (or nothing) precedes the
 // `@`, after markdown and HTML entities are processed, so `.@a`, `_@a_`,
@@ -171,8 +188,8 @@ const AT_ENTITY = /&(?:#0*64;?|#x0*40;?|commat;)/gi
 export const neutralizeMentions = (value) => value.replace(AT_ENTITY, "@").replace(/(?<![A-Za-z0-9])@/g, "@\u200b")
 
 // The bot's own earlier triage comment, never one a user wrote with the marker.
-export const findOwnComment = (comments, marker) =>
-  comments.find((comment) => comment.user?.login === BOT_LOGIN && typeof comment.body === "string" && comment.body.includes(marker))
+export const findOwnComment = (comments, marker, login = botLogin()) =>
+  comments.find((comment) => comment.user?.login === login && typeof comment.body === "string" && comment.body.includes(marker))
 
 // `expectedNumber` is the issue or PR number the workflow bakes into the
 // command line (`${{ github.event.issue.number }}`). The event file lives on
@@ -182,6 +199,7 @@ export async function apply(kind, expectedNumber, eventPath = process.env.GITHUB
   if (!Number.isSafeInteger(expectedNumber) || expectedNumber <= 0) throw new Error("apply needs the issue or PR number as an argument")
   const { repository, subject } = await readSubject(kind, eventPath)
   if (subject.number !== expectedNumber) throw new Error(`event names ${kind} ${subject.number}, not ${expectedNumber}`)
+  const login = botLogin()
   const context = { repository, number: subject.number }
   let report
   try {
@@ -200,7 +218,7 @@ export async function apply(kind, expectedNumber, eventPath = process.env.GITHUB
   const marker = `<!-- smithers-${kind}-triage -->`
   const body = `${marker}\n## Smithers ${kind === "issue" ? "issue" : "PR"} triage\n\n${neutralizeMentions(report.comment)}\n\n<sub>${neutralizeMentions(report.summary)}</sub>`
   const comments = await api(`/repos/${context.repository}/issues/${context.number}/comments?per_page=100`)
-  const existing = findOwnComment(comments, marker)
+  const existing = findOwnComment(comments, marker, login)
   await api(existing ? `/repos/${context.repository}/issues/comments/${existing.id}` : `/repos/${context.repository}/issues/${context.number}/comments`, {
     method: existing ? "PATCH" : "POST",
     body: JSON.stringify({ body }),

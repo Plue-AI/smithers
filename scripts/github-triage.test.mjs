@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 
-import { apply, BOT_LOGIN, fallbackReport, neutralizeMentions, prepare, validateReport } from "./github-triage.mjs"
+import { apply, BOT_LOGIN, botLogin, fallbackReport, neutralizeMentions, prepare, validateReport } from "./github-triage.mjs"
 
 const documentedReports = (kind) => {
   const source = readFileSync(new URL(`../flows/${kind}-triage/flow.mdx`, import.meta.url), "utf8")
@@ -131,12 +131,18 @@ describe("GitHub triage entry point", () => {
 describe("GitHub triage publisher", () => {
   // The flow runs repository tests between prepare and apply, so anything in
   // .triage/ except the report may have been rewritten by untrusted code.
-  const publish = async ({ comments, report, expected = 7, event = { issue: { number: 7 } } }) => {
+  const publish = async ({ comments, report, expected = 7, event = { issue: { number: 7 } }, login }) => {
     const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import("node:fs")
     const { tmpdir } = await import("node:os")
     const { join } = await import("node:path")
     const root = mkdtempSync(join(tmpdir(), "smithers-triage-apply-"))
-    const previous = { cwd: process.cwd(), fetch: globalThis.fetch, token: process.env.GH_TOKEN, repository: process.env.GITHUB_REPOSITORY }
+    const previous = {
+      cwd: process.cwd(),
+      fetch: globalThis.fetch,
+      token: process.env.GH_TOKEN,
+      repository: process.env.GITHUB_REPOSITORY,
+      login: process.env.TRIAGE_BOT_LOGIN
+    }
     const calls = []
     try {
       mkdirSync(join(root, ".triage"))
@@ -147,6 +153,8 @@ describe("GitHub triage publisher", () => {
       process.chdir(root)
       process.env.GH_TOKEN = "test-token"
       process.env.GITHUB_REPOSITORY = "owner/repo"
+      if (login === undefined) delete process.env.TRIAGE_BOT_LOGIN
+      else process.env.TRIAGE_BOT_LOGIN = login
       globalThis.fetch = async (url, options = {}) => {
         const call = { url: String(url), method: options.method ?? "GET", body: options.body ? JSON.parse(options.body) : undefined }
         calls.push(call)
@@ -159,7 +167,13 @@ describe("GitHub triage publisher", () => {
     } finally {
       process.chdir(previous.cwd)
       globalThis.fetch = previous.fetch
-      for (const [name, value] of [["GH_TOKEN", previous.token], ["GITHUB_REPOSITORY", previous.repository]]) {
+      for (
+        const [name, value] of [
+          ["GH_TOKEN", previous.token],
+          ["GITHUB_REPOSITORY", previous.repository],
+          ["TRIAGE_BOT_LOGIN", previous.login]
+        ]
+      ) {
         if (value === undefined) delete process.env[name]
         else process.env[name] = value
       }
@@ -194,6 +208,19 @@ describe("GitHub triage publisher", () => {
     const onlyUser = await publish({ comments: [userFirst[0]], report })
     assert.equal(onlyUser.some(({ method }) => method === "PATCH"), false)
     assert.ok(onlyUser.some(({ url, method }) => method === "POST" && url.endsWith("/issues/7/comments")))
+  })
+
+  it("updates the earlier comment of the login TRIAGE_BOT_LOGIN names", async () => {
+    const marker = "<!-- smithers-issue-triage -->"
+    const comments = [
+      { id: 3, user: { login: BOT_LOGIN }, body: `${marker}\nfrom another token` },
+      { id: 4, user: { login: "smithers-triage[bot]" }, body: `${marker}\nold report` }
+    ]
+    const calls = await publish({ comments, report, login: "smithers-triage[bot]" })
+    assert.deepEqual(calls.filter(({ method }) => method === "PATCH").map(({ url }) => url), ["https://api.github.com/repos/owner/repo/issues/comments/4"])
+    assert.equal(calls.some(({ method, url }) => method === "POST" && url.endsWith("/issues/7/comments")), false)
+    await assert.rejects(publish({ comments, report, login: "a b" }), /TRIAGE_BOT_LOGIN is not a GitHub login/)
+    assert.equal(botLogin(""), BOT_LOGIN)
   })
 
   it("posts model-written text without live @mentions", async () => {
