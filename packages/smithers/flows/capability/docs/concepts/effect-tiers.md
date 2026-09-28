@@ -14,12 +14,13 @@ person they are agreeing to, and whether a retry needs an idempotency key.
 
 | Tier           | Meaning                                                        | Actions                                                                                                                                      |
 | -------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sealed`       | Observes without changing anything, so a repeat costs nothing. | `fs:read`, `net:get`, `model:call`, `jj:status`, `jj:diff`, `jj:root`                                                                        |
+| `sealed`       | Observes without changing anything, so a repeat costs nothing. | `fs:read`, `net:get`, `model:call`, `memory:read`, `jj:status`, `jj:diff`, `jj:root`                                                         |
 | `compensable`  | Changes state the run can undo from its own snapshot.          | `jj:snapshot`, `jj:restore`, `jj:workspace-add`, `jj:workspace-forget`, `jj:revert`, `jj:op-restore`, and an `fs:write` inside the workspace |
-| `irreversible` | Leaves the run's reach. Nothing here can undo it.              | `net:post`, `proc:spawn`, and an `fs:write` that escapes the workspace                                                                       |
+| `irreversible` | Leaves the run's reach. Nothing here can undo it.              | `net:post`, `proc:spawn`, `memory:write`, and an `fs:write` that escapes the workspace                                                       |
 
 `Capability.requiresIdempotencyKey` reports the one rule derived from the
-tier: only `irreversible` effects need a key to retry safely.
+tier: only `irreversible` effects need a key to retry safely. This includes
+`memory:write`: unlike sealed `memory:read`, a retry needs an idempotency key.
 
 ```ts
 import { Capability } from "@smthrs/capability"
