@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod"
+import { HttpUrlSchema } from "./WebUrl.ts"
 
 const title = z.string().min(1).max(120)
 const flow = z.string().regex(/^[a-z0-9_-]+(?:[./][a-z0-9_-]+)*$/)
@@ -37,7 +38,7 @@ export const RepositoryHomeBlockSchema = z.discriminatedUnion("type", [
     title: title.optional(),
     links: z.array(z.object({
       label: title,
-      url: z.url().refine((value) => /^https?:\/\//.test(value))
+      url: HttpUrlSchema
     })).min(1)
   })
 ])

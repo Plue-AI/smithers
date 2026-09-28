@@ -47,6 +47,7 @@ import {
   RunTimelineCardPayloadSchema
 } from "./TargetGraph.ts"
 import { IntegrationRowSchema, TaskMetaSchema } from "./Threads.ts"
+import { HttpUrlSchema, RelativeUrlPathSchema } from "./WebUrl.ts"
 
 /*
  * The targets card's table state (apps/app cards/TargetsTable.ts): the filter
@@ -321,7 +322,7 @@ export const WorkspaceDesktopSchema = z.object({
    * then, and a mint before then is refused 503 `desktop_not_ready`.
    */
   ready: z.boolean().nullable().optional(),
-  streamUrl: z.string().nullable(),
+  streamUrl: RelativeUrlPathSchema.nullable(),
   session: z.object({ id: z.string(), expiresAt: z.string().nullable() }).nullable()
 })
 /**
@@ -399,7 +400,7 @@ export const WorkspaceServiceSchema = z.object({
   /** plue#483 `port`; null when the service publishes none. */
   port: z.number().int().nullable().optional(),
   /** plue#483 `url`; null when the service publishes none. */
-  url: z.string().nullable().optional()
+  url: HttpUrlSchema.nullable().optional()
 })
 /**
  * The decoded value accepted by {@link WorkspaceServiceSchema}.
@@ -588,7 +589,7 @@ const CommitPersonSchema = z.object({
   name: z.string().nullable(),
   email: z.string().nullable(),
   login: z.string().optional(),
-  avatarUrl: z.string().optional()
+  avatarUrl: HttpUrlSchema.optional()
 })
 
 /** One commit row: the commits list's row and the commit card's head. */
@@ -992,13 +993,22 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
   z.object({
     ...cardBaseShape,
     kind: z.literal("browser"),
+    /*
+     * `url` is what was asked for and may be a refused scheme the card
+     * reports; only a frameable card is embedded, so the page it embeds
+     * (`finalUrl ?? url`) must be http(s) — an iframe `src` of `javascript:`
+     * runs in the app origin.
+     */
     payload: z.object({
       url: z.string(),
-      finalUrl: z.string().nullable(),
+      finalUrl: HttpUrlSchema.nullable(),
       status: z.number().int().nullable(),
       frameable: z.boolean(),
       blockReason: z.string().nullable(),
       error: z.string().optional()
+    }).refine((payload) => !payload.frameable || HttpUrlSchema.safeParse(payload.finalUrl ?? payload.url).success, {
+      message: "A frameable browser card embeds only an http(s) URL.",
+      path: ["url"]
     })
   }),
   /*
@@ -1460,7 +1470,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           updatedAt: z.string().nullable(),
           /** Where the row came from: Smithers Cloud's own tracker, or GitHub for a mirrored repo. Optional so older cards parse. */
           source: z.enum(["smithers-cloud", "github"]).optional(),
-          htmlUrl: z.string().optional(),
+          htmlUrl: HttpUrlSchema.optional(),
           /** The issue's labels when the read carried them; absent renders none. */
           labels: z.array(z.string()).optional(),
           /*
@@ -1506,7 +1516,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       author: z.string().nullable(),
       issueBody: z.string(),
       source: z.enum(["smithers-cloud", "github"]).optional(),
-      htmlUrl: z.string().optional(),
+      htmlUrl: HttpUrlSchema.optional(),
       conversation: z.object({ branchId: z.string(), owner: z.string(), creationKey: z.string() }).optional(),
       commentDraft: z.string().optional(),
       pendingComments: z.array(z.object({
@@ -1515,7 +1525,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         actor: z.enum(["user", "smithers"]),
         owner: z.string().optional(),
         turnId: z.string().optional(),
-        persona: z.object({ username: z.string(), iconEmoji: z.string().optional(), iconUrl: z.string().optional() })
+        persona: z.object({ username: z.string(), iconEmoji: z.string().optional(), iconUrl: HttpUrlSchema.optional() })
           .optional(),
         status: z.enum(["requested", "failed", "unknown"]),
         error: z.string().optional()
@@ -1555,7 +1565,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           id: z.number().int().optional(),
           idempotencyKey: z.string().optional(),
           reactions: z.array(z.object({ name: z.string(), actor: z.string(), active: z.boolean() })).optional(),
-          persona: z.object({ username: z.string(), iconEmoji: z.string().optional(), iconUrl: z.string().optional() })
+          persona: z.object({
+            username: z.string(),
+            iconEmoji: z.string().optional(),
+            iconUrl: HttpUrlSchema.optional()
+          })
             .optional(),
           commentBody: z.string(),
           createdAt: z.string().nullable(),
@@ -1913,7 +1927,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       installationId: z.number().int().nullable().optional(),
       configured: z.boolean().optional(),
       /** The trusted install URL (https://github.com only) step 1 opens. */
-      installUrl: z.string().optional(),
+      installUrl: HttpUrlSchema.optional(),
       /** The rate-limit line: below 20% remaining, and always on a card whose call was refused. */
       rateLimit: GitHubRateLimitSchema.optional(),
       /** The last act's honest refusal, kept on the card. */

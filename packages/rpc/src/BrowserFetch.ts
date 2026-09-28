@@ -220,14 +220,53 @@ export const isPublicAddress = (raw: string): boolean => {
   /*
    * Every other IPv6 form is judged by default-deny: only global unicast
    * (2000::/3) is public, routable space. That refuses ::, ::1, the
-   * IPv4-compatible ::7f00:1 forms, fc00::/7 unique-local, fe80::/10
-   * link-local, and ff00::/8 multicast without enumerating them — a form
-   * this guard does not recognise is never treated as public.
+   * IPv4-compatible ::7f00:1 forms, 64:ff9b::/96 NAT64, fc00::/7
+   * unique-local, fe80::/10 link-local, and ff00::/8 multicast without
+   * enumerating them — a form this guard does not recognise is never
+   * treated as public.
    */
-  const head = lower.split(":")[0] ?? ""
-  if (!/^[0-9a-f]{1,4}$/.test(head)) return false // "" for every "::…" form
-  const first = Number.parseInt(head, 16)
-  return first >= 0x2000 && first <= 0x3fff
+  const groups = ipv6Groups(lower)
+  if (groups === undefined) return false
+  const [first, second, third] = groups as [number, number, number]
+  if (first < 0x2000 || first > 0x3fff) return false
+  /*
+   * Two global-unicast prefixes are tunnels that carry an IPv4 address: a
+   * relay on the host's path would deliver them to that IPv4 host. 6to4
+   * (2002::/16) embeds it in groups 2-3, so judge it by the IPv4 rules.
+   * Teredo (2001::/32) obfuscates the client address, so refuse it outright.
+   */
+  if (first === 0x2002) return isPublicAddress(`${second >> 8}.${second & 0xff}.${third >> 8}.${third & 0xff}`)
+  if (first === 0x2001 && second === 0) return false
+  return true
+}
+
+/** The eight 16-bit groups of an IPv6 literal, expanding `::` and a dotted IPv4 tail; undefined if malformed. */
+const ipv6Groups = (ip: string): ReadonlyArray<number> | undefined => {
+  const halves = ip.split("::")
+  if (halves.length > 2) return undefined
+  const parse = (half: string): Array<number> | undefined => {
+    if (half === "") return []
+    const out: Array<number> = []
+    const parts = half.split(":")
+    for (const [index, part] of parts.entries()) {
+      const v4 = index === parts.length - 1 ? parseIpv4(part) : undefined
+      if (v4 !== undefined) {
+        const [a, b, c, d] = v4 as [number, number, number, number]
+        out.push((a << 8) | b, (c << 8) | d)
+      } else if (/^[0-9a-f]{1,4}$/.test(part)) {
+        out.push(Number.parseInt(part, 16))
+      } else {
+        return undefined
+      }
+    }
+    return out
+  }
+  const head = parse(halves[0] ?? "")
+  const tail = halves.length === 2 ? parse(halves[1] ?? "") : []
+  if (head === undefined || tail === undefined) return undefined
+  if (halves.length === 1) return head.length === 8 ? head : undefined
+  const gap = 8 - head.length - tail.length
+  return gap < 1 ? undefined : [...head, ...new Array<number>(gap).fill(0), ...tail]
 }
 
 const PRIVATE_HOST = "That address points at a private host, which the browser tool never reads."

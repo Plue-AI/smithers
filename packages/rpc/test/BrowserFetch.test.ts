@@ -86,6 +86,29 @@ describe("isPublicAddress", () => {
       expect(isPublicAddress(ip)).toBe(false)
     }
   })
+
+  test("IPv6 tunnel and translation prefixes that carry a private IPv4 address are refused", () => {
+    for (
+      const ip of [
+        "2002:7f00:1::", // 6to4 of 127.0.0.1
+        "2002:7f00:0001::",
+        "2002:a9fe:a9fe::1", // 6to4 of 169.254.169.254
+        "2002:0a00:0001:1::1", // 6to4 of 10.0.0.1
+        "[2002:c0a8:101::]", // 6to4 of 192.168.1.1
+        "2001::7f00:1", // Teredo
+        "2001:0:4136:e378:8000:63bf:3fff:fdd2", // Teredo
+        "64:ff9b::7f00:1", // NAT64 of 127.0.0.1
+        "64:ff9b::127.0.0.1",
+        "2606:4700::1111::1", // two gaps
+        "2606:4700:1:2:3:4:5:6:7" // nine groups
+      ]
+    ) {
+      expect(isPublicAddress(ip)).toBe(false)
+    }
+    for (const ip of ["2002:808:808::1", "2001:4860:4860::8888", "2606:4700:4700::1111", "2a00:1450:4001:1:2:3:4:5"]) {
+      expect(isPublicAddress(ip)).toBe(true)
+    }
+  })
 })
 
 const okPage = (body: string, headers: Record<string, string> = {}): Response =>

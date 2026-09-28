@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod"
+import { HttpUrlSchema } from "./WebUrl.ts"
 
 /*
  * The Smithers Cloud seam on the local origin
@@ -221,11 +222,12 @@ export const CloudSessionSchema = z.object({
  * @category models
  */
 export type CloudSession = z.infer<typeof CloudSessionSchema>
-/** `POST /api/cloud-auth/start`
+/** `POST /api/cloud-auth/start`: the sign-in page the app opens. http(s)
+ * only, matching the API origins a self-hosted target may use.
  * @since 1.0.0
  * @category schemas
  */
-export const CloudAuthStartResponseSchema = z.object({ url: z.string() })
+export const CloudAuthStartResponseSchema = z.object({ url: HttpUrlSchema })
 /**
  * The decoded value accepted by {@link CloudAuthStartResponseSchema}.
  *

@@ -14,6 +14,10 @@ and location.
 
 ## Resolution and framing answers
 
+Only public addresses are read. IPv6 is default-deny: only global unicast
+(`2000::/3`) passes. A 6to4 address (`2002::/16`) is judged by the IPv4 address
+it embeds, and Teredo (`2001::/32`) is refused.
+
 A hostname whose resolver returns no addresses, or an NXDOMAIN answer, fails with
 `The host <name> could not be resolved.` A resolver that errors fails with
 `The name resolver did not answer (<cause>); try again.` so an outage is never

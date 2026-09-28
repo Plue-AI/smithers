@@ -193,7 +193,8 @@ const securityReview = Smithers.SecurityReview({
         "src/RepositoryHome.ts",
         "src/AppLinks.ts",
         "src/Mythical.ts",
-        "src/CloudTunnel.ts"
+        "src/CloudTunnel.ts",
+        "src/WebUrl.ts"
       ]
     },
     {

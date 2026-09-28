@@ -96,7 +96,18 @@ export const LSP_LANGUAGE_SERVER_MISSING = "language_server_missing"
 
 const lspOrdinal = z.number().int().min(1)
 const lspRepoId = z.string().min(1)
-const lspRepoPath = z.string().min(1).max(4096)
+/*
+ * A repository-root-relative path: no leading slash, no backslash, no control
+ * characters, and no empty, `.` or `..` segment, so the contract itself never
+ * names a file outside the root. A symlink can still leave it, so a host
+ * serving these routes checks containment on disk as well.
+ */
+const isRootRelativePath = (value: string): boolean =>
+  !value.startsWith("/") && !/[\\\u0000-\u001f\u007f]/.test(value) &&
+  value.split("/").every((part) => part !== "" && part !== "." && part !== "..")
+const lspRepoPath = z.string().min(1).max(4096).refine(isRootRelativePath, {
+  message: "Expected a path relative to the repository root."
+})
 /**
  * The digest (the file card's `digest`) of the file text the server was
  * asked about. A file card whose own digest differs shows a file the answer

@@ -46,6 +46,44 @@ export const digestOf = (codes) => {
 
 const quote = (text) => JSON.stringify(text)
 
+const CODE = /^[A-Za-z][A-Za-z0-9_]*$/u
+const FAULT = /^[a-z][a-z_]*$/u
+const DIGEST = /^sha256:[0-9a-f]{64}$/u
+const isCount = (value) => Number.isSafeInteger(value) && value >= 0
+
+/**
+ * The document is data, and the generated file is code: every field that
+ * reaches the TypeScript is checked for its shape first, so a row can never
+ * close a literal and open a statement. The digest proves nothing here — the
+ * same document supplies it — so validation, not the digest, is the gate.
+ */
+export const validationErrors = (document) => {
+  if (document === null || typeof document !== "object") return ["the document is not an object"]
+  const errors = []
+  if (!isCount(document.schema_version)) errors.push("schema_version is not a non-negative integer")
+  if (typeof document.digest !== "string" || !DIGEST.test(document.digest)) errors.push("digest is not sha256:<64 hex>")
+  const faults = Array.isArray(document.faults) ? document.faults : []
+  if (faults.length === 0 || !faults.every((fault) => typeof fault === "string" && FAULT.test(fault))) {
+    errors.push("faults is not a non-empty list of lowercase words")
+  }
+  if (!Array.isArray(document.codes)) return [...errors, "codes is not a list"]
+  for (const [index, row] of document.codes.entries()) {
+    const at = `codes[${index}]`
+    if (row === null || typeof row !== "object") {
+      errors.push(`${at} is not an object`)
+      continue
+    }
+    if (typeof row.code !== "string" || !CODE.test(row.code)) errors.push(`${at}.code is not an identifier`)
+    if (!faults.includes(row.fault)) errors.push(`${at}.fault is not one of faults`)
+    if (!Number.isSafeInteger(row.status) || row.status < 100 || row.status > 599) {
+      errors.push(`${at}.status is not an HTTP status`)
+    }
+    if (!isCount(row.retry_after)) errors.push(`${at}.retry_after is not a non-negative integer`)
+    if (typeof row.doc !== "string") errors.push(`${at}.doc is not a string`)
+  }
+  return errors
+}
+
 const render = (document) => {
   const faults = document.faults.map(quote).join(", ")
   const codes = document.codes.map((row) => `  ${quote(row.code)}`).join(",\n")
@@ -161,7 +199,10 @@ ${entries}
 }
 
 const load = async (from) => {
-  if (from.startsWith("http://") || from.startsWith("https://")) {
+  if (/^[a-z][a-z0-9+.-]*:/iu.test(from) && !from.startsWith("https://")) {
+    throw new Error(`--from ${from}: only https:// URLs or local files are read`)
+  }
+  if (from.startsWith("https://")) {
     const url = `${from.replace(/\/+$/u, "")}/api/meta/failure-codes`
     const response = await fetch(url)
     if (!response.ok) throw new Error(`${url} answered ${response.status}`)
@@ -186,6 +227,11 @@ const main = async () => {
     ? { text: readFileSync(canonicalPath, "utf8"), source: canonicalPath }
     : await load(from)
   const document = JSON.parse(text)
+  const invalid = validationErrors(document)
+  if (invalid.length > 0) {
+    console.error(`refresh-failure-codes: ${source} is not a failure-code document:\n  ${invalid.join("\n  ")}`)
+    process.exit(1)
+  }
   const recomputed = digestOf(document.codes)
   if (recomputed !== document.digest) {
     console.error(`refresh-failure-codes: ${source} carries ${document.digest} but its rows hash to ${recomputed}`)

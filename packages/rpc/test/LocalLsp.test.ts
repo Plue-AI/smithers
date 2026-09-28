@@ -44,6 +44,22 @@ describe("the code-intelligence wire model", () => {
     })
     expect(LspFileRequestSchema.safeParse({ repoId: "r1", path: "" }).success).toBe(false)
     expect(LspFileRequestSchema.safeParse({ repoId: "r1", path: "a".repeat(4097) }).success).toBe(false)
+    for (
+      const path of [
+        "/etc/passwd",
+        "../secrets",
+        "src/../../x",
+        "./src/a.ts",
+        "src//a.ts",
+        "src\\a.ts",
+        "a\u0000b",
+        "src/"
+      ]
+    ) {
+      expect(LspFileRequestSchema.safeParse({ repoId: "r1", path }).success).toBe(false)
+      expect(LspPositionRequestSchema.safeParse({ ...position, path }).success).toBe(false)
+    }
+    expect(LspFileRequestSchema.safeParse({ repoId: "r1", path: "src/a b#c%2e:d.ts" }).success).toBe(true)
   })
 
   test("a range is four 1-based ordinals, a location is a repository-relative path plus that range, and severity is a closed set", () => {

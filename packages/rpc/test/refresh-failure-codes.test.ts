@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
-import { digestOf } from "../scripts/refresh-failure-codes.mjs"
+import { digestOf, validationErrors } from "../scripts/refresh-failure-codes.mjs"
 
 const sourceScript = fileURLToPath(new URL("../scripts/refresh-failure-codes.mjs", import.meta.url))
 
@@ -82,5 +82,57 @@ describe("failure-code refresh CLI", () => {
     } finally {
       rmSync(files.root, { recursive: true, force: true })
     }
+  })
+
+  test("refuses a row whose fields would render as code, even with a matching digest", () => {
+    const files = fixture()
+    try {
+      const generatedBefore = files.run()
+      expect(generatedBefore.status).toBe(0)
+      const clean = readFileSync(files.generated, "utf8")
+      const external = join(files.root, "external.json")
+      const hostile = [
+        { code: "x", fault: "wait", status: "500 }; globalThis.PWNED = 1; ({ a: 1", retry_after: 0, doc: "d" },
+        { code: "x", fault: "wait", status: 500, retry_after: "0 }; globalThis.PWNED = 1; ({ a: 1", doc: "d" },
+        { code: "x\"]: 1 }; globalThis.PWNED = 1; //", fault: "wait", status: 500, retry_after: 0, doc: "d" },
+        { code: "x", fault: "nobody", status: 500, retry_after: 0, doc: "d" }
+      ]
+      for (const row of hostile) {
+        const codes = [row as never]
+        writeFileSync(external, JSON.stringify({ schema_version: 1, digest: digestOf(codes), faults: ["wait"], codes }))
+        const refused = files.run("--from", external)
+        expect(refused.status).toBe(1)
+        expect(refused.stderr).toContain("is not a failure-code document")
+        expect(readFileSync(files.generated, "utf8")).toBe(clean)
+        expect(readFileSync(files.canonical, "utf8")).toBe(files.text)
+      }
+      const schemaVersion = { ...files.document, schema_version: "1; globalThis.PWNED = 1" }
+      writeFileSync(external, JSON.stringify(schemaVersion))
+      expect(files.run("--from", external).status).toBe(1)
+      expect(readFileSync(files.generated, "utf8")).toBe(clean)
+    } finally {
+      rmSync(files.root, { recursive: true, force: true })
+    }
+  })
+
+  test("refuses a plain-http or other non-https --from URL before fetching", () => {
+    const files = fixture()
+    try {
+      for (const from of ["http://127.0.0.1:1", "ftp://example.com/codes.json", "file:///etc/passwd"]) {
+        const refused = files.run("--from", from)
+        expect(refused.status).not.toBe(0)
+        expect(refused.stderr).toContain("only https:// URLs or local files are read")
+      }
+      expect(readFileSync(files.canonical, "utf8")).toBe(files.text)
+    } finally {
+      rmSync(files.root, { recursive: true, force: true })
+    }
+  })
+
+  test("every row of the vendored registry passes validation", () => {
+    const vendored = JSON.parse(
+      readFileSync(fileURLToPath(new URL("../src/plue-failure-codes.json", import.meta.url)), "utf8")
+    )
+    expect(validationErrors(vendored)).toEqual([])
   })
 })

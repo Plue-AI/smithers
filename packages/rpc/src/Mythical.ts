@@ -23,6 +23,7 @@
  */
 
 import { z } from "zod"
+import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**
  * The route family this module owns. `{owner}` and `{repo}` are the
@@ -123,7 +124,7 @@ export type MythicalChangeKind = z.infer<typeof MythicalChangeKindSchema>
 export const MythicalIssueSchema = z.object({
   number: z.number().int().positive(),
   title: z.string(),
-  url: z.string()
+  url: HttpUrlSchema
 })
 
 /**
@@ -281,7 +282,7 @@ export type MythicalChecks = z.infer<typeof MythicalChecksSchema>
  */
 export const MythicalPullRequestSchema = z.object({
   number: z.number().int().positive(),
-  url: z.string(),
+  url: HttpUrlSchema,
   state: z.enum(["open", "closed", "merged"])
 })
 

@@ -21,3 +21,9 @@ export interface FailureCodeRow {
  * the rows in document order, with Go's default HTML escaping.
  */
 export const digestOf: (codes: ReadonlyArray<FailureCodeRow>) => string
+
+/**
+ * Why a parsed document cannot be rendered into TypeScript; empty when every
+ * field has the shape the generator emits as data.
+ */
+export const validationErrors: (document: unknown) => ReadonlyArray<string>

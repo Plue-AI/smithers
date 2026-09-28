@@ -34,3 +34,12 @@ keeps three leading characters followed by `…`; values of three characters or 
 become `…`. Repeated decoding is stable. Use parsed values for persistence and
 re-read upstream when a raw value is needed. This does not scrub old bytes already
 on disk; it redacts them when decoded and on subsequent writes.
+
+## Link fields
+
+Card URLs a renderer links, embeds or opens decode through `@smthrs/rpc/WebUrl`.
+`htmlUrl`, `installUrl`, `avatarUrl`, persona `iconUrl`, a workspace service
+`url`, and a browser card's `finalUrl` must be absolute `http://` or `https://`
+URLs. A desktop `streamUrl` must be an origin-relative path (`/…`, never `//`).
+A browser card may record a refused `url` of any scheme, but a `frameable` card
+must embed an http(s) page. A row that breaks these rules fails validation.
