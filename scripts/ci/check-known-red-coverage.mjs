@@ -3,7 +3,10 @@
 // stdin, takes every target the known-red verdict printed as failed ("newly
 // red" or "known red"), and reports each one neither excused by a live
 // `.github/ci-known-red.json` entry for the platform nor named, as a whole
-// label, in an open issue title.
+// label, in an open issue title. A run mixes Linux, macOS and Windows jobs, so
+// each red is judged on the platform of the job that printed it: the job
+// column of `gh run view --log` names `(windows-…)` or `(macos-…)`, and any
+// other line takes `--platform`.
 //
 //   gh run view <run> --log | node scripts/ci/check-known-red-coverage.mjs
 //
@@ -20,12 +23,24 @@ import { parse } from "../../packages/smithers/build/build-cli/src/KnownRed.ts"
 const verdictLine = /(?:newly red, no matching failure in [^:]+|known red \([^)]*\)): (\/\/\S+)\s*$/
 const labelCharacter = /[\w./@+:-]/
 
-export const failedTargets = (log) => [
-  ...new Set(log.split("\n").flatMap((line) => {
+const jobPlatform = (line, fallback) => {
+  const tab = line.indexOf("\t")
+  const job = tab === -1 ? "" : line.slice(0, tab)
+  if (/\(windows-/.test(job)) return "win32"
+  if (/\(macos-/.test(job)) return "darwin"
+  return fallback
+}
+
+export const failedTargets = (log, platform = "linux") => {
+  const seen = new Map()
+  for (const line of log.split("\n")) {
     const match = verdictLine.exec(line)
-    return match === null ? [] : [match[1]]
-  }))
-]
+    if (match === null) continue
+    const red = { label: match[1], platform: jobPlatform(line, platform) }
+    seen.set(`${red.platform} ${red.label}`, red)
+  }
+  return [...seen.values()]
+}
 
 const names = (title, label) => {
   for (let at = title.indexOf(label); at !== -1; at = title.indexOf(label, at + 1)) {
@@ -40,16 +55,15 @@ const names = (title, label) => {
 
 // Platform and expiry follow KnownRed.judge: an entry without `platforms`
 // applies everywhere, and `expires` is the last UTC day it holds.
-export const uncovered = ({ failed, entries, issues, platform, today }) => {
+export const uncovered = ({ failed, entries, issues, today }) => {
   if (!Array.isArray(issues) || issues.some((issue) => typeof issue?.title !== "string" || typeof issue?.state !== "string")) {
     throw new Error("the issue list must be an array of { title, state }")
   }
-  const excused = new Set(entries
-    .filter((entry) => entry.platforms === undefined || entry.platforms.includes(platform))
-    .filter((entry) => entry.expires >= today)
-    .map((entry) => entry.label))
+  const live = entries.filter((entry) => entry.expires >= today)
+  const excused = ({ label, platform }) =>
+    live.some((entry) => entry.label === label && (entry.platforms === undefined || entry.platforms.includes(platform)))
   const titles = issues.filter((issue) => issue.state.toUpperCase() === "OPEN").map((issue) => issue.title)
-  return failed.filter((label) => !excused.has(label) && !titles.some((title) => names(title, label)))
+  return failed.filter((red) => !excused(red) && !titles.some((title) => names(title, red.label)))
 }
 
 const openIssues = (repository) => {
@@ -74,11 +88,11 @@ const main = () => {
   })
   let failed, entries, issues
   try {
-    failed = failedTargets(readFileSync(0, "utf8"))
+    failed = failedTargets(readFileSync(0, "utf8"), values.platform)
     entries = parse(values["known-red"], readFileSync(values["known-red"], "utf8"))
     issues = values.issues === undefined ? openIssues(values.repo) : JSON.parse(readFileSync(values.issues, "utf8"))
-    const unowned = uncovered({ failed, entries, issues, platform: values.platform, today: values.today })
-    for (const label of unowned) process.stderr.write(`no owner: ${label}\n`)
+    const unowned = uncovered({ failed, entries, issues, today: values.today })
+    for (const red of unowned) process.stderr.write(`no owner: ${red.label} (${red.platform})\n`)
     process.stderr.write(`${failed.length} red targets, ${unowned.length} without an owner\n`)
     process.exitCode = unowned.length === 0 ? 0 : 1
   } catch (cause) {

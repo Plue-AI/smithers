@@ -18,8 +18,9 @@ const entry = (label, fields = {}) => ({
   failureDigest: fingerprint("reviewed failure"),
   ...fields
 })
-const judge = (failed, fields = {}) =>
-  uncovered({ failed, entries: [], issues: [], platform: "linux", today, ...fields })
+const judge = (labels, { platform = "linux", ...fields } = {}) =>
+  uncovered({ failed: labels.map((label) => ({ label, platform })), entries: [], issues: [], today, ...fields })
+    .map((red) => red.label)
 
 test("reads every failed target the known-red verdict printed, once each", () => {
   const log = [
@@ -30,7 +31,26 @@ test("reads every failed target the known-red verdict printed, once each", () =>
     "green again, remove from .github/ci-known-red.json: //scripts:ok",
     "newly red, no matching failure in .github/ci-known-red.json: //packages/smithers/build:fmt"
   ].join("\n")
-  assert.deepEqual(failedTargets(log), ["//packages/smithers/build:fmt", "//packages/smithers:test"])
+  assert.deepEqual(failedTargets(log), [
+    { label: "//packages/smithers/build:fmt", platform: "linux" },
+    { label: "//packages/smithers:test", platform: "linux" }
+  ])
+})
+
+test("judges each red on the platform of the job that printed it", () => {
+  const label = "//packages/smithers/build/build-cli:test"
+  const line = (job) => `${job}\tWorkspace targets\t2026-09-28T04:00:00Z known red (.github/ci-known-red.json): ${label}`
+  const windows = line("package suites (windows-latest)")
+  const linux = line("workspace graph (coverage gates enforced)")
+  assert.deepEqual(failedTargets([windows, line("package suites (macos-latest)"), linux, windows].join("\n")), [
+    { label, platform: "win32" },
+    { label, platform: "darwin" },
+    { label, platform: "linux" }
+  ])
+  const entries = [entry(label, { platforms: ["win32"] })]
+  const judged = (log) => uncovered({ failed: failedTargets(log), entries, issues: [], today })
+  assert.deepEqual(judged(windows), [])
+  assert.deepEqual(judged([windows, linux].join("\n")), [{ label, platform: "linux" }])
 })
 
 test("reports an uncovered failed target", () => {
@@ -86,7 +106,7 @@ test("the command fails on an unowned red and passes when every red has an owner
   const log = "known red (x): //a:test\nnewly red, no matching failure in x: //b:test\n"
   const red = cli(log, "[]")
   assert.equal(red.status, 1, red.stderr)
-  assert.match(red.stderr, /no owner: \/\/b:test/)
+  assert.match(red.stderr, /no owner: \/\/b:test \(linux\)/)
   assert.doesNotMatch(red.stderr, /\/\/a:test/)
   const green = cli(log, JSON.stringify([{ title: "//b:test is red", state: "OPEN" }]))
   assert.equal(green.status, 0, green.stderr)
