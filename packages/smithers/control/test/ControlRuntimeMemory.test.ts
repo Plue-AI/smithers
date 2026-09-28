@@ -4,7 +4,7 @@
  * leaves behind.
  */
 import { Deferred, Effect, Exit } from "effect"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   AlreadyResolved,
   ClaimLost,
@@ -17,7 +17,13 @@ import {
   PlanNotFound,
   RunNotFound
 } from "../src/ControlError.ts"
-import { ControlRuntime, type MemoryOptions, type Service } from "../src/ControlRuntime.ts"
+import {
+  ControlRuntime,
+  type IdPage,
+  type IdPageRequest,
+  type MemoryOptions,
+  type Service
+} from "../src/ControlRuntime.ts"
 import type { Envelope, Principal } from "../src/ControlSchema.ts"
 import { delegateApproval } from "./ApprovalFixtures.ts"
 import { memoryRuntime } from "./TestStack.ts"
@@ -107,6 +113,50 @@ describe("ControlRuntime.layerMemory", () => {
     })
     expect(observed.reused).toBeInstanceOf(InvalidInput)
     expect((observed.reused as InvalidInput).issue).toBe("idempotency key plan:budget was used for another plan")
+  })
+
+  it("pages plan and run inventories without walking every entry, and ends at the inventory it started with", async () => {
+    const total = 600
+    const limit = 50
+    // Every Map this runtime walks while a page is read, by size. A page that
+    // walks a whole inventory holds or visits all of it on every page.
+    const walked: Array<number> = []
+    const observed = await withRuntime((runtime) =>
+      Effect.gen(function*() {
+        for (let index = 0; index < total; index++) yield* start(runtime)
+        const walk = (page: (request: IdPageRequest) => Effect.Effect<IdPage, unknown>) =>
+          Effect.gen(function*() {
+            const ids: Array<string> = []
+            let cursor: { after?: number; through?: number } = {}
+            for (;;) {
+              const spies = (["keys", "values", "entries"] as const).map((method) => {
+                const original = Map.prototype[method]
+                return vi.spyOn(Map.prototype, method).mockImplementation(function(this: Map<unknown, unknown>) {
+                  walked.push(this.size)
+                  return original.call(this)
+                } as never)
+              })
+              const read = yield* page({ ...cursor, limit }).pipe(Effect.ensuring(Effect.sync(() => {
+                for (const spy of spies) spy.mockRestore()
+              })))
+              ids.push(...read.ids)
+              // More work arrives between pages; this walk must not chase it.
+              yield* start(runtime)
+              if (read.next === undefined) return ids
+              cursor = { after: read.next, through: read.through }
+            }
+          })
+        const runs = yield* walk(runtime.pageRunIds)
+        const plans = yield* walk(runtime.pagePlanIds)
+        return { runs, plans }
+      })
+    )
+
+    expect(walked.filter((size) => size > limit)).toEqual([])
+    expect(observed.runs).toEqual(Array.from({ length: total }, (_, index) => `run-${index + 1}`))
+    // Plans are walked after the run walk admitted one launch per run page.
+    expect(observed.plans).toHaveLength(total + Math.ceil(total / limit))
+    expect(new Set(observed.plans).size).toBe(observed.plans.length)
   })
 
   it("replays a plan for a repeated idempotency key and refuses a reused one", async () => {

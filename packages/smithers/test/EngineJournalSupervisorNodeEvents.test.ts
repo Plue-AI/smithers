@@ -143,7 +143,7 @@ const supervised = (
       runs: Context.get(native, RunStore.RunStore),
       control: {
         getRun: () => Effect.succeed(summary(runId)),
-        pageRunIds: () => Effect.succeed({ ids: [runId] })
+        pageRunIds: () => Effect.succeed({ ids: [runId], through: 1 })
       }
     }).pipe(Effect.provideService(Scope.Scope, scope))
     yield* controlJournal.transact(supervisor.start(runId))

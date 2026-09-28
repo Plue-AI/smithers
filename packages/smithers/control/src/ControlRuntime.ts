@@ -106,25 +106,33 @@ export interface RunPage {
 }
 
 /**
- * One key-ordered page of ids. `next` is the key to pass as `after` for the
- * following page; it is absent on the last page.
+ * One page of an inventory walk. `next` is the position to pass as `after`
+ * for the following page; it is absent on the last page. `through` is the
+ * highest position the walk covers: the first page pins it to the newest
+ * entry at that moment, and the caller passes it back unchanged so every
+ * later page stops there. A walk therefore ends even while new entries keep
+ * arriving; they sort after `through` and belong to the next walk.
  *
  * @category models
  * @since 1.0.0
  */
-export interface IdPage<Key> {
+export interface IdPage {
   readonly ids: ReadonlyArray<string>
-  readonly next?: Key | undefined
+  readonly next?: number | undefined
+  readonly through: number
 }
 
 /**
- * A keyed id page request. `limit` must be an integer from 1 through 500.
+ * An inventory page request. Positions are the store's insertion-ordered row
+ * key, so each page is one indexed seek. `limit` must be an integer from 1
+ * through 500.
  *
  * @category models
  * @since 1.0.0
  */
-export interface IdPageRequest<Key> {
-  readonly after?: Key | undefined
+export interface IdPageRequest {
+  readonly after?: number | undefined
+  readonly through?: number | undefined
   readonly limit: number
 }
 
@@ -405,10 +413,10 @@ export interface Service {
   readonly authorizeApproval: ApprovalAuthority.Service["authorize"]
   readonly plan: (input: PlanInput) => Effect.Effect<PlanOutcome, FlowNotFound | InvalidInput | PersistenceError>
   readonly getPlan: (planId: string) => Effect.Effect<StoredPlan, PlanNotFound | PersistenceError>
-  /** Plan ids in key order, one bounded page at a time. */
+  /** Plan ids in insertion order, one bounded page at a time. */
   readonly pagePlanIds: (
-    request: IdPageRequest<string>
-  ) => Effect.Effect<IdPage<string>, InvalidInput | PersistenceError>
+    request: IdPageRequest
+  ) => Effect.Effect<IdPage, InvalidInput | PersistenceError>
   readonly lookupApproval: (
     target: ApprovalTarget
   ) => Effect.Effect<
@@ -457,13 +465,13 @@ export interface Service {
   >
   readonly getRun: (runId: RunId) => Effect.Effect<RunSummary, RunNotFound | PersistenceError>
   /**
-   * Every durable run id in listing order, one bounded page at a time, for
+   * Every durable run id in insertion order, one bounded page at a time, for
    * recovery and journal partition discovery. Reads keys only; use queryRuns
    * for summaries.
    */
   readonly pageRunIds: (
-    request: IdPageRequest<RunCursor>
-  ) => Effect.Effect<IdPage<RunCursor>, InvalidInput | PersistenceError>
+    request: IdPageRequest
+  ) => Effect.Effect<IdPage, InvalidInput | PersistenceError>
   readonly queryRuns: (request: RunQuery) => Effect.Effect<RunPage, InvalidInput | PersistenceError>
   readonly listFlows: Effect.Effect<
     ReadonlyArray<{ readonly flowId: FlowId; readonly description: string }>,
@@ -654,6 +662,29 @@ export const idPageLimit = (limit: number): Effect.Effect<void, InvalidInput> =>
   Number.isSafeInteger(limit) && limit >= 1 && limit <= 500
     ? Effect.void
     : Effect.fail(new InvalidInput({ issue: "limit: must be an integer between 1 and 500" }))
+
+/**
+ * One inventory page over dense insertion positions, where `idAt` resolves a
+ * position by direct lookup. Visits at most `limit` positions, so a page
+ * costs and holds one page however many entries exist.
+ */
+const pageByPosition = (
+  request: IdPageRequest,
+  newest: number,
+  idAt: (position: number) => string | undefined
+): IdPage => {
+  const through = request.through ?? newest
+  const ids: Array<string> = []
+  let position = request.after ?? 0
+  let visited = 0
+  while (position < through && visited < request.limit) {
+    position += 1
+    visited += 1
+    const id = idAt(position)
+    if (id !== undefined) ids.push(id)
+  }
+  return position < through ? { ids, next: position, through } : { ids, through }
+}
 
 interface MutablePlan {
   readonly card: PlanCard
@@ -865,10 +896,11 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
         ),
         pagePlanIds: Effect.fn("ControlRuntime.pagePlanIds")(function*(request) {
           yield* idPageLimit(request.limit)
-          const after = request.after
-          const keys = Array.from(plans.keys()).filter((planId) => after === undefined || planId > after).sort()
-          const ids = keys.slice(0, request.limit)
-          return keys.length > request.limit ? { ids, next: ids.at(-1)! } : { ids }
+          return pageByPosition(
+            request,
+            planSequence,
+            (position) => plans.has(`plan-${position}`) ? `plan-${position}` : undefined
+          )
         }),
         lookupApproval: Effect.fn("ControlRuntime.lookupApproval")(function*(target) {
           const requested = snapshot(target)
@@ -1056,26 +1088,11 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
         ),
         pageRunIds: Effect.fn("ControlRuntime.pageRunIds")(function*(request) {
           yield* idPageLimit(request.limit)
-          const after = request.after
-          const selected: Array<MutableRun> = []
-          for (const run of runs.values()) {
-            if (after !== undefined && (after.source !== 0 || run.sequence <= after.sequence)) continue
-            selected.push(run)
-            if (selected.length > request.limit) break
-          }
-          const page = selected.slice(0, request.limit)
-          const last = page.at(-1)
-          return {
-            ids: page.map((run) => run.summary.runId),
-            ...(selected.length <= request.limit || last === undefined ? {} : {
-              next: {
-                source: 0 as const,
-                sequence: last.sequence,
-                createdAt: last.summary.createdAt,
-                runId: last.summary.runId
-              }
-            })
-          }
+          return pageByPosition(
+            request,
+            runSequence,
+            (position) => runs.has(`run-${position}`) ? `run-${position}` : undefined
+          )
         }),
         queryRuns: Effect.fn("ControlRuntime.queryRuns")(function*(request) {
           if (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 500) {

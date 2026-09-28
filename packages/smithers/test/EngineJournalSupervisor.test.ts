@@ -38,7 +38,7 @@ const setup = Effect.gen(function*() {
         const run = controls.get(id)
         return run === undefined ? Effect.fail(new RunNotFound({ runId: id })) : Effect.succeed(run)
       }),
-    pageRunIds: () => Effect.sync(() => ({ ids: [...controls.keys()] }))
+    pageRunIds: () => Effect.sync(() => ({ ids: [...controls.keys()], through: controls.size }))
   }
   const options = { engineJournal, controlJournal, engineState, runs, control }
   const lifetime = yield* Scope.Scope
@@ -480,6 +480,28 @@ describe("private native journal supervision", () => {
         yield* restarted.recover
         expect(yield* f.rows()).toEqual(rows)
         expect(reads).toBe(previousReads)
+      }))),
+    30_000
+  )
+
+  it(
+    "recovery skips a paged run that retention deleted before its admission, without a gap entry",
+    () =>
+      Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+        const f = yield* setup
+        yield* f.create()
+        yield* f.finish()
+        f.controls.set("root", summary("root", "completed"))
+        const supervisor = yield* f.make({
+          control: {
+            ...f.control,
+            // The page still lists "gone"; the row vanished before admission.
+            pageRunIds: () => Effect.succeed({ ids: ["root", "gone"], through: 2 })
+          }
+        })
+        yield* supervisor.recover
+        yield* until(f.rows(), isSettled)
+        expect(yield* f.rows("gone")).toEqual([])
       }))),
     30_000
   )

@@ -1219,78 +1219,154 @@ describe("global watch bounds SQL inventory", () => {
   const runCount = 250
   const planCount = 120
 
+  // The plan read is SQLite's; PostgreSQL's planner may prefer a scan on a
+  // table this small whatever the index offers.
+  const sqliteOnly = !process.env.SMITHERS_TEST_PG_URL
+
+  interface InventoryRead {
+    readonly text: string
+    readonly rows: number
+    readonly plan: ReadonlyArray<string>
+  }
+
   /**
    * Records every run or plan inventory SELECT the watch issues, with the
-   * number of rows it returned. The transformer re-reads each matching
-   * statement once on the same connection, outside itself, so the count is
-   * the real row count SQLite hands back.
+   * number of rows it returned and SQLite's query plan for it. The
+   * transformer re-reads each matching statement once on the same
+   * connection, outside itself, so the count is the real row count SQLite
+   * hands back and the plan is the one it runs.
    */
-  const inventoryReads =
-    (reads: Array<{ readonly text: string; readonly rows: number }>): Statement.Transformer => (self, sql) =>
-      Effect.gen(function*() {
-        const [text, params] = self.compile()
-        if (/^\s*(SELECT|WITH)\b/i.test(text) && /\bFROM (flows_runs|control_plans)\b/i.test(text)) {
-          const rows = yield* sql.unsafe(text, params).pipe(
+  const inventoryReads = (
+    reads: Array<InventoryRead>,
+    admitBeforeRunPage?: (sql: Statement.Constructor) => Effect.Effect<void>
+  ): Statement.Transformer =>
+  (self, sql) =>
+    Effect.gen(function*() {
+      const [text, params] = self.compile()
+      if (/^\s*(SELECT|WITH)\b/i.test(text) && /\bFROM (flows_runs|control_plans)\b/i.test(text)) {
+        const bare = <A extends object>(statement: string, values: ReadonlyArray<unknown> = params) =>
+          sql.unsafe<A>(statement, values).pipe(
             Effect.provideService(Statement.CurrentTransformer, undefined),
             Effect.orDie
           )
-          reads.push({ text, rows: rows.length })
+        if (admitBeforeRunPage !== undefined && /\bFROM flows_runs\b/i.test(text)) {
+          yield* admitBeforeRunPage(sql).pipe(Effect.provideService(Statement.CurrentTransformer, undefined))
         }
-        return self
-      })
+        const rows = yield* bare(text)
+        const plan = sqliteOnly
+          ? yield* bare<{ readonly detail: string }>(`EXPLAIN QUERY PLAN ${text}`)
+          : []
+        reads.push({ text, rows: rows.length, plan: plan.map((step) => step.detail) })
+      }
+      return self
+    })
+
+  /**
+   * Seeds `runCount` engine runs and `planCount` plans, each with one journal
+   * entry, then collects the global watch while recording inventory reads.
+   */
+  const watchInventory = (
+    follow: boolean,
+    reads: Array<InventoryRead>,
+    counts: { readonly runs: number; readonly plans: number } = { runs: runCount, plans: planCount },
+    admitBeforeRunPage?: (sql: Statement.Constructor) => Effect.Effect<void>
+  ) =>
+    Effect.runPromise(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const journal = yield* Journal.Journal
+        const sql = yield* SqlClient.SqlClient
+        const partitions: Array<string> = []
+        for (let index = 0; index < counts.runs; index++) {
+          const runId = `inventory-run-${String(index).padStart(5, "0")}`
+          yield* sql`INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
+          VALUES (${runId}, 'pending', ${index}, ${JSON.stringify({ version: 1, flowName: "page/test", payload: {} })})`
+          partitions.push(runId)
+        }
+        for (let index = 0; index < counts.plans; index++) {
+          const planId = `inventory-plan-${String(index).padStart(5, "0")}`
+          yield* sql`INSERT INTO control_plans (plan_id, card_json, decoded_input_json, decision)
+          VALUES (${planId}, '{}', '{}', 'pending')`
+          partitions.push(`plan:${planId}`)
+        }
+        for (const partition of partitions) {
+          yield* journal.emitDurableUnfenced(
+            new JournalEvent.Input({
+              runId: JournalEvent.RunId.make(partition),
+              sourceId: JournalEvent.SourceId.make("/test"),
+              eventType: "test.seeded",
+              payload: { partition }
+            })
+          )
+        }
+        yield* journal.flush
+        // A finite watch is collected to its end, which proves it has one.
+        const events = yield* control.watch({ follow }).pipe(
+          follow ? Stream.take(partitions.length) : (stream) => stream,
+          Stream.runCollect,
+          Effect.provideService(Statement.CurrentTransformer, inventoryReads(reads, admitBeforeRunPage))
+        )
+        return { partitions, events }
+      }).pipe(Effect.provide(durable()), Effect.scoped, Effect.orDie)
+    )
 
   it.each([false, true])(
-    "with N real SQLite runs, no inventory query returns over one page of keys; main SELECT returns all N (follow: %s)",
+    "every inventory SELECT returns at most one page of keys and the watch delivers all N partitions (follow: %s)",
     async (follow) => {
-      const reads: Array<{ readonly text: string; readonly rows: number }> = []
-      const observed = await Effect.runPromise(
-        Effect.gen(function*() {
-          const control = yield* Control
-          const journal = yield* Journal.Journal
-          const sql = yield* SqlClient.SqlClient
-          const partitions: Array<string> = []
-          for (let index = 0; index < runCount; index++) {
-            const runId = `inventory-run-${String(index).padStart(3, "0")}`
-            yield* sql`INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
-            VALUES (${runId}, 'pending', ${index}, ${
-              JSON.stringify({ version: 1, flowName: "page/test", payload: {} })
-            })`
-            partitions.push(runId)
-          }
-          for (let index = 0; index < planCount; index++) {
-            const planId = `inventory-plan-${String(index).padStart(3, "0")}`
-            yield* sql`INSERT INTO control_plans (plan_id, card_json, decoded_input_json, decision)
-            VALUES (${planId}, '{}', '{}', 'pending')`
-            partitions.push(`plan:${planId}`)
-          }
-          for (const partition of partitions) {
-            yield* journal.emitDurableUnfenced(
-              new JournalEvent.Input({
-                runId: JournalEvent.RunId.make(partition),
-                sourceId: JournalEvent.SourceId.make("/test"),
-                eventType: "test.seeded",
-                payload: { partition }
-              })
-            )
-          }
-          yield* journal.flush
-          const events = yield* control.watch({ follow }).pipe(
-            Stream.take(partitions.length),
-            Stream.runCollect,
-            Effect.provideService(Statement.CurrentTransformer, inventoryReads(reads))
-          )
-          return { partitions, events }
-        }).pipe(Effect.provide(durable()), Effect.scoped, Effect.orDie)
-      )
+      const reads: Array<InventoryRead> = []
+      const observed = await watchInventory(follow, reads)
 
       expect(observed.events.map((event) => event.runId).sort()).toEqual([...observed.partitions].sort())
       expect(reads.length).toBeGreaterThan(0)
       // One keyed page plus the continuation key, never the whole table.
       for (const read of reads) expect(read.rows, read.text).toBeLessThanOrEqual(partitionPage + 1)
+      // One read pins the newest position, then one read per page.
       const runPages = reads.filter((read) => /\bFROM flows_runs\b/i.test(read.text))
       const planPages = reads.filter((read) => /\bFROM control_plans\b/i.test(read.text))
-      expect(runPages).toHaveLength(Math.ceil(runCount / partitionPage))
-      expect(planPages).toHaveLength(Math.ceil(planCount / partitionPage))
+      expect(runPages).toHaveLength(1 + Math.ceil(runCount / partitionPage))
+      expect(planPages).toHaveLength(1 + Math.ceil(planCount / partitionPage))
+    }
+  )
+
+  it("a finite watch ends at the inventory it started with while runs keep arriving between pages", async () => {
+    const reads: Array<InventoryRead> = []
+    let admitted = 0
+    // More than a page of new runs lands before every run inventory read, for
+    // 30 rounds: an unbounded walk always finds a next page until they stop.
+    const admit = (sql: Statement.Constructor) =>
+      Effect.gen(function*() {
+        if (admitted >= 30 * (partitionPage + 50)) return
+        for (let index = 0; index < partitionPage + 50; index++) {
+          const runId = `late-run-${String(admitted++).padStart(5, "0")}`
+          yield* sql`INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
+          VALUES (${runId}, 'pending', ${1_000_000 + admitted}, ${
+            JSON.stringify({ version: 1, flowName: "page/test", payload: {} })
+          })`
+        }
+      }).pipe(Effect.orDie)
+    const observed = await watchInventory(false, reads, { runs: runCount, plans: 0 }, admit)
+
+    expect(observed.events.map((event) => event.runId).sort()).toEqual([...observed.partitions].sort())
+    // The first read pins the bound; the walk then covers only the seeded
+    // runs and the runs admitted before that pin.
+    const runPages = reads.filter((read) => /\bFROM flows_runs\b/i.test(read.text))
+    expect(runPages).toHaveLength(1 + Math.ceil((runCount + partitionPage + 50) / partitionPage))
+  })
+
+  it.skipIf(!sqliteOnly)(
+    "every inventory page, continuations included, is an index seek rather than a table scan",
+    async () => {
+      const reads: Array<InventoryRead> = []
+      await watchInventory(false, reads)
+
+      const continuations = reads.filter((read) => read.rows > 1)
+      expect(continuations.length).toBeGreaterThan(2)
+      for (const read of reads) {
+        // A SCAN step or a temporary sort b-tree visits every row of the
+        // table on every page, which makes walking all pages quadratic.
+        expect(read.plan.join("\n"), read.text).not.toMatch(/\bSCAN\b|TEMP B-TREE/)
+        expect(read.plan.join("\n"), read.text).toMatch(/^SEARCH (flows_runs|control_plans)\b/m)
+      }
     }
   )
 })

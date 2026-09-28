@@ -175,7 +175,7 @@ const runtimeLayer = (
 ): Layer.Layer<ControlRuntime> => {
   const stub: RuntimeStub = {
     pendingSignals: Effect.succeed([]),
-    pageRunIds: () => Effect.succeed({ ids: [] }),
+    pageRunIds: () => Effect.succeed({ ids: [], through: 0 }),
     deliveredSignals: () => Effect.succeed([]),
     getRun: () => Effect.succeed(launchInput.run),
     getPlan: () => Effect.succeed(launchInput.plan),

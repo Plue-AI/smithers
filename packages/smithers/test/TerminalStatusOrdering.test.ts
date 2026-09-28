@@ -108,7 +108,7 @@ const setup = Effect.gen(function*() {
   }
   const control: Pick<ControlRuntime, "getRun" | "pageRunIds"> = {
     getRun: (id) => id === runId ? Effect.succeed(summary) : Effect.fail(new RunNotFound({ runId: id })),
-    pageRunIds: () => Effect.succeed({ ids: [summary.runId] })
+    pageRunIds: () => Effect.succeed({ ids: [summary.runId], through: 1 })
   }
   return {
     controlJournal,

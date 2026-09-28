@@ -39,7 +39,7 @@ import {
 import type { CancelRecord, Launch } from "./ControlExecutor.ts"
 import { ControlExecutor } from "./ControlExecutor.ts"
 import * as ControlFacts from "./ControlFacts.ts"
-import { ControlRuntime, type RunCursor, type RunPage } from "./ControlRuntime.ts"
+import { ControlRuntime, type IdPage, type IdPageRequest, type RunPage } from "./ControlRuntime.ts"
 import type {
   ControlEvent,
   FireSummary,
@@ -1217,25 +1217,37 @@ export const layer: Layer.Layer<
       )
 
     /**
-     * Every journal partition, plans first, one keyed id page at a time.
+     * Every journal partition, plans first, one inventory page at a time.
      *
      * The walk reads keys only and pulls the next page when the consumer asks
      * for it, so a global watch holds one page of ids rather than the whole
-     * run table. Keys are immutable, so a partition that exists before the
-     * walk starts is listed exactly once; one created during the walk may be
-     * listed or not, and the follow tail covers it either way.
+     * run table. Each inventory's first page pins its newest position and
+     * every later page stops there, so the walk is finite however fast runs
+     * are admitted: a partition that exists before the walk starts is listed
+     * exactly once, and one created during the walk is left to the follow
+     * tail.
      */
+    const inventory = (
+      page: (request: IdPageRequest) => Effect.Effect<IdPage, ControlError>
+    ): Stream.Stream<string, ControlError> => {
+      const first: Omit<IdPageRequest, "limit"> = {}
+      return Stream.paginate(
+        first,
+        (cursor) =>
+          Effect.map(
+            page({ ...cursor, limit: partitionPageSize }),
+            (next) =>
+              [
+                next.ids,
+                next.next === undefined ? Option.none() : Option.some({ after: next.next, through: next.through })
+              ] as const
+          )
+      )
+    }
+
     const journalPartitions: Stream.Stream<string, ControlError> = Stream.concat(
-      Stream.paginate(undefined as string | undefined, (after) =>
-        Effect.map(
-          runtime.pagePlanIds({ after, limit: partitionPageSize }),
-          (page) => [page.ids.map((planId) => `plan:${planId}`), Option.fromNullishOr(page.next)] as const
-        )),
-      Stream.paginate(undefined as RunCursor | undefined, (after) =>
-        Effect.map(
-          runtime.pageRunIds({ after, limit: partitionPageSize }),
-          (page) => [page.ids, Option.fromNullishOr(page.next)] as const
-        ))
+      Stream.map(inventory(runtime.pagePlanIds), (planId) => `plan:${planId}`),
+      inventory(runtime.pageRunIds)
     )
 
     const snapshot = (filter: WatchFilter): Stream.Stream<ControlEvent, ControlError> =>

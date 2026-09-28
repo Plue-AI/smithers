@@ -73,6 +73,7 @@ import * as ControlExecutor from "./ControlExecutor.ts"
 import type {
   ApprovalToken,
   BulkGrant,
+  IdPage,
   IdPageRequest,
   LaunchResult,
   MemoryFlow,
@@ -1305,16 +1306,38 @@ const makeRuntime = (
       )
     }
 
-    const pagePlanIds = Effect.fn("SqlControlRuntime.pagePlanIds")(function*(request: IdPageRequest<string>) {
-      yield* idPageLimit(request.limit)
-      const rows = yield* sql<{ readonly planId: string }>`
-        SELECT plan_id AS "planId" FROM control_plans
-        WHERE ${request.after === undefined ? sql.literal("1 = 1") : sql`plan_id > ${request.after}`}
-        ORDER BY plan_id LIMIT ${request.limit + 1}
-      `.pipe(query("page plans"))
-      const ids = rows.slice(0, request.limit).map((row) => row.planId)
-      return rows.length > request.limit ? { ids, next: ids.at(-1)! } : { ids }
-    })
+    /**
+     * One inventory page of `table` by `rowid`: the insertion-ordered row key
+     * both dialects index (SQLite's b-tree key, PostgreSQL's identity column),
+     * so a page is one seek and `limit + 1` rows however large the table is.
+     * The first page pins `through` to the newest row, so a walk ends while
+     * inserts continue.
+     */
+    const pageByRowId = (
+      request: IdPageRequest,
+      table: "flows_runs" | "control_plans",
+      column: "run_id" | "plan_id",
+      operation: string
+    ): Effect.Effect<IdPage, InvalidInput | PersistenceError> =>
+      Effect.gen(function*() {
+        yield* idPageLimit(request.limit)
+        const through = request.through ?? Number(
+          (yield* sql<{ readonly newest: number | string | null }>`
+            SELECT MAX(rowid) AS newest FROM ${sql.literal(table)}
+          `.pipe(query(operation)))[0]?.newest ?? 0
+        )
+        const rows = yield* sql<{ readonly id: string; readonly position: number | string }>`
+          SELECT ${sql.literal(column)} AS id, rowid AS position FROM ${sql.literal(table)}
+          WHERE rowid > ${request.after ?? 0} AND rowid <= ${through}
+          ORDER BY rowid LIMIT ${request.limit + 1}
+        `.pipe(query(operation))
+        const selected = rows.slice(0, request.limit)
+        return rows.length > request.limit
+          ? { ids: selected.map((row) => row.id), next: Number(selected.at(-1)!.position), through }
+          : { ids: selected.map((row) => row.id), through }
+      })
+
+    const pagePlanIds = (request: IdPageRequest) => pageByRowId(request, "control_plans", "plan_id", "page plans")
 
     const messages = <S extends Schema.Top>(
       runId: RunId,
@@ -1712,21 +1735,13 @@ const makeRuntime = (
         })
       ),
       /**
-       * Every durable run, this plane's own first: `control_runs` indexes only
-       * the runs this plane launched, while a child, a fork, and a later
-       * trampoline round are created by the engine straight into `flows_runs`.
-       * One keyset statement per page, with no row decoded, so a caller that
-       * walks every run holds one page of ids at a time.
+       * Every durable run in `flows_runs` insertion order: `control_runs`
+       * indexes only the runs this plane launched, while a child, a fork, and a
+       * later trampoline round are created by the engine straight into
+       * `flows_runs`. One indexed seek per page, with no row decoded, so a
+       * caller that walks every run holds one page of ids at a time.
        */
-      pageRunIds: Effect.fn("SqlControlRuntime.pageRunIds")(function*(request) {
-        yield* idPageLimit(request.limit)
-        const keys = yield* runPageKeys({ cursor: request.after, limit: request.limit }, false, false)
-        const selected = keys.slice(0, request.limit)
-        return {
-          ids: selected.map((key) => key.runId),
-          ...(keys.length > request.limit ? { next: selected[selected.length - 1]! } : {})
-        }
-      }),
+      pageRunIds: (request) => pageByRowId(request, "flows_runs", "run_id", "page runs"),
       queryRuns: Effect.fn("SqlControlRuntime.queryRuns")(function*(request) {
         if (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 500) {
           return yield* new InvalidInput({ issue: "limit: must be an integer between 1 and 500" })

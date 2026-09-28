@@ -361,11 +361,19 @@ export const make = (options: Options) =>
       }))
 
     /** Answers whether an observation is on its way to adopt {@link hold}'s entry. */
-    const admit = (id: string, allowMissing: boolean, pending?: Active) =>
+    const admit = (id: string, allowMissing: boolean, pending?: Active, skipVanished = false) =>
       Effect.gen(function*() {
         // This row can still be uncommitted in the admission transaction.
         // Keep its read in the caller's control context; isolate native reads only.
-        const control = yield* options.control.getRun(id)
+        const found = yield* options.control.getRun(id).pipe(
+          Effect.map(Option.some),
+          Effect.catchTag(
+            "/control/RunNotFound",
+            (error) => skipVanished ? Effect.succeed(Option.none()) : Effect.fail(error)
+          )
+        )
+        if (Option.isNone(found)) return false
+        const control = found.value
         const native = yield* isolated(nativeRoot(id, control))
         if (native.row === undefined && !allowMissing) return false
         if (yield* settled(id, native.generation)) return false
@@ -471,17 +479,27 @@ export const make = (options: Options) =>
     })
     // Native validation happens before paging history. This includes terminal
     // control/native rows whose observation was interrupted before settlement.
-    // Run ids arrive one keyed page at a time, so recovery never holds the
-    // whole run table.
-    const recover = Stream.paginate(undefined as ControlRuntime.RunCursor | undefined, (after) =>
-      options.control.pageRunIds({ after, limit: recoveryPageSize }).pipe(
-        Effect.catchTag("/control/InvalidInput", Effect.die),
-        Effect.map((page) =>
-          [page.ids, Option.fromNullishOr(page.next)] as const
+    // Run ids arrive one page at a time, so recovery never holds the whole run
+    // table. The first page pins the newest run, so recovery ends while
+    // launches continue; a run launched meanwhile is admitted by its own launch.
+    const firstPage: Omit<ControlRuntime.IdPageRequest, "limit"> = {}
+    const recover = Stream.paginate(
+      firstPage,
+      (cursor) =>
+        options.control.pageRunIds({ ...cursor, limit: recoveryPageSize }).pipe(
+          Effect.catchTag("/control/InvalidInput", Effect.die),
+          Effect.map((page) =>
+            [
+              page.ids,
+              page.next === undefined ? Option.none() : Option.some({ after: page.next, through: page.through })
+            ] as const
+          )
         )
-      )).pipe(
-        Stream.mapEffect((runId) => admit(runId, false), { concurrency: 8 }),
-        Stream.runDrain
-      )
+    ).pipe(
+      // A paged id can be deleted by retention or `smithers gc` before its
+      // admission reads it; that run has nothing left to recover.
+      Stream.mapEffect((runId) => admit(runId, false, undefined, true), { concurrency: 8 }),
+      Stream.runDrain
+    )
     return { start, wrap, recover, awaitSettled }
   })
