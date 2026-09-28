@@ -210,8 +210,10 @@ method was called.
   override that method.
 - `could not run trigger migrations`: the database refused the schema. Check
   that the SQL client points at a writable database.
-- `could not decode trigger row`: a row's `input_json` did not parse. Something
-  outside this package wrote the row.
+- `could not decode trigger row`: a row's `input_json` did not parse, or the
+  row fails the declaration schema `register` enforces (an empty id, flow, or
+  cron, or a `maxCatchUp` above the limit). Something outside this package
+  wrote the row; the cause names the field.
 - `trigger input is not JSON-serializable`: the input contained a cycle.
 - `trigger store read failed` or `trigger store write failed`: the underlying
   SQL call failed, and its error is the cause.

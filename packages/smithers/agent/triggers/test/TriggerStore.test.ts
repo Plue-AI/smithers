@@ -537,6 +537,31 @@ describe("TriggerStore", () => {
     expect(error.cause).toBeDefined()
   })
 
+  // A row is decoded through the declaration schema, not cast. The column
+  // CHECKs cover the policy literals, but nothing in the table bounds
+  // `max_catch_up` or refuses an empty cron, so a tampered row used to reach
+  // the scheduler as a declaration `register` would have refused.
+  it("refuses a stored row that the declaration schema would refuse", async () => {
+    const errors = await Effect.runPromise(
+      Effect.gen(function*() {
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const store = yield* TriggerStore.TriggerStore
+        yield* store.register({ ...trigger, id: "unbounded" })
+        yield* store.register({ ...trigger, id: "blank-cron" })
+        yield* store.register({ ...trigger, id: "blank-flow" })
+        yield* sql`UPDATE flows_triggers SET max_catch_up = 1000000000 WHERE trigger_id = 'unbounded'`
+        yield* sql`UPDATE flows_triggers SET cron = '' WHERE trigger_id = 'blank-cron'`
+        yield* sql`UPDATE flows_triggers SET flow_id = '' WHERE trigger_id = 'blank-flow'`
+        return yield* Effect.forEach(["unbounded", "blank-cron", "blank-flow"], (id) => Effect.flip(store.get(id)))
+      }).pipe(Effect.provide(layerWithSql))
+    )
+    expect(errors.map((error) => [error.code, error.message])).toEqual([
+      ["store", "could not decode trigger row unbounded"],
+      ["store", "could not decode trigger row blank-cron"],
+      ["store", "could not decode trigger row blank-flow"]
+    ])
+  })
+
   // A tick lists every trigger before it isolates them one by one, so a
   // listing that failed on the first undecodable row stopped every healthy
   // schedule in the store, including the ones that had nothing wrong.

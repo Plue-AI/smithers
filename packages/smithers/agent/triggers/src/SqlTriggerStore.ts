@@ -45,8 +45,8 @@ interface Row {
   readonly input_json: string
   readonly cron: string
   readonly timezone: string | null
-  readonly overlap: Registered["overlap"]
-  readonly catch_up: Registered["catchUp"]
+  readonly overlap: string
+  readonly catch_up: string
   readonly max_catch_up: number
   readonly enabled: number
   readonly revision: number
@@ -90,19 +90,32 @@ const storeError = (message: string, cause?: unknown) =>
 const unknownTrigger = (triggerId: string) =>
   new TriggerError({ code: "unknown_trigger", message: `unknown trigger ${triggerId}` })
 
-const declaration = (row: Row): Registered => ({
-  id: row.trigger_id,
-  flowId: row.flow_id,
-  input: JSON.parse(row.input_json) as Registered["input"],
-  cron: row.cron,
-  ...(row.timezone === null ? {} : { timezone: row.timezone }),
-  overlap: row.overlap,
-  catchUp: row.catch_up,
-  maxCatchUp: row.max_catch_up,
-  enabled: row.enabled === 1,
-  revision: row.revision,
-  ...(row.last_fired_at_ms === null ? {} : { lastFiredAt: row.last_fired_at_ms })
+// A stored row is decoded through the same schema `register` accepts, plus the
+// store-owned fields, rather than cast. The table's CHECKs cover the policy
+// literals but not the catch-up bound or the non-empty strings, and a row
+// anyone rewrote must not reach the scheduler as a declaration `register`
+// would have refused.
+const StoredDeclaration = Schema.Struct({
+  ...Trigger.Trigger.fields,
+  revision: Schema.Int,
+  lastFiredAt: Schema.optional(Schema.Number)
 })
+const decodeDeclaration = Schema.decodeUnknownSync(StoredDeclaration)
+
+const declaration = (row: Row): Registered =>
+  decodeDeclaration({
+    id: row.trigger_id,
+    flowId: row.flow_id,
+    input: JSON.parse(row.input_json),
+    cron: row.cron,
+    ...(row.timezone === null ? {} : { timezone: row.timezone }),
+    overlap: row.overlap,
+    catchUp: row.catch_up,
+    maxCatchUp: row.max_catch_up,
+    enabled: row.enabled === 1,
+    revision: row.revision,
+    ...(row.last_fired_at_ms === null ? {} : { lastFiredAt: row.last_fired_at_ms })
+  })
 
 // The offending id belongs in the message: a store failure that only says a
 // row would not decode leaves an operator grepping a shared database for it.

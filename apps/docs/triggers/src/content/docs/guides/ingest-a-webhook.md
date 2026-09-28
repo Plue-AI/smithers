@@ -104,20 +104,32 @@ door nobody opened is reported as unavailable rather than silently opening it.
 ```ts
 import * as Effect from "effect/Effect"
 
-const handle = (request: Request, deliveryId: string) =>
+const hex = (bytes: ArrayBuffer) =>
+  Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")
+
+const handle = (request: Request) =>
   Effect.gen(function*() {
     const body = new Uint8Array(yield* Effect.promise(() => request.arrayBuffer()))
+    const digest = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", body))
     return yield* github.ingest({
       body,
       headers: Object.fromEntries(request.headers),
-      idempotencyKey: deliveryId
+      idempotencyKey: `github:${hex(digest)}`
     })
   })
 ```
 
-`idempotencyKey` is the transport's own delivery id. Control deduplicates on it,
-so a webhook provider that retries a delivery gets an `AlreadyApplied` receipt
-and the flow starts once.
+Control deduplicates on `idempotencyKey`, so a provider that retries a delivery
+gets an `AlreadyApplied` receipt and the flow starts once.
+
+Derive the key from bytes the signature covers. Provider delivery headers such
+as `x-github-delivery` are not signed: anyone who captures one signed delivery
+can resend its body and signature with a fresh delivery id, and a key taken from
+that header starts the flow again. A key derived from the signed body sends the
+replay to the original receipt instead. If the provider signs a timestamp,
+include it in the key and refuse deliveries outside a short window. If two
+legitimate deliveries can carry identical bodies, key on a signed field that
+tells them apart, such as an event id inside the payload.
 
 `ingest` answers with a Control `Receipt` and fails with either a
 `TriggerError` or a `ControlError`:

@@ -229,6 +229,31 @@ describe("Webhook", () => {
     expect(calls.filter((call) => call === "signal:run-1:approval")).toHaveLength(1)
   })
 
+  it("dedups a replayed signed body only when the key comes from the signed bytes", async () => {
+    const calls: Array<string> = []
+    const webhook = Webhook.make(declaration(calls))
+    const body = { _tag: "start", flowId: "review", input: { pr: 7 } }
+    const bodyKey = async (bytes: Uint8Array) =>
+      Buffer.from(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))).toString("hex")
+    await run(
+      Effect.gen(function*() {
+        yield* webhook.register
+        // A delivery-id header is unsigned: a replay with a fresh id starts again.
+        yield* webhook.ingest(raw(body, "delivery-a"))
+        const headerReplay = yield* webhook.ingest(raw(body, "delivery-b"))
+        expect(headerReplay._tag).toBe("Accepted")
+        // A key derived from the signed body sends the replay to the original receipt.
+        const signed = raw(body, "unused")
+        const key = yield* Effect.promise(() => bodyKey(signed.body))
+        yield* webhook.ingest({ ...signed, idempotencyKey: key })
+        const bodyReplay = yield* webhook.ingest({ ...raw(body, "unused"), idempotencyKey: key })
+        expect(bodyReplay._tag).toBe("AlreadyApplied")
+      }),
+      calls
+    )
+    expect(calls.filter((call) => call === "run")).toHaveLength(3)
+  })
+
   it("exposes no direct execution method", () => {
     const webhook = Webhook.make(declaration([]))
     expect(Object.keys(webhook).sort()).toEqual(["ingest", "name", "register"])

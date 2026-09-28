@@ -25,6 +25,15 @@ describe("documentation contracts", () => {
     expect(read("docs/api.md")).not.toContain("two hosts never fire the same scheduled run twice")
   })
 
+  it("keys webhook deduplication on signed bytes, never an unsigned delivery header (security/replay)", () => {
+    const guide = read("docs/guides/ingest-a-webhook.md")
+    expect(guide).toContain("Derive the key from bytes the signature covers.")
+    expect(guide).toContain("are not signed")
+    expect(guide).toContain("refuse deliveries outside a short window")
+    expect(guide).not.toContain("idempotencyKey: deliveryId")
+    expect(guide).not.toContain("`idempotencyKey` is the transport's own delivery id")
+  })
+
   it("describes catch-up enumeration subject to overlap, not lossless billing (documentation/2, api-design/2)", () => {
     const guide = read("docs/guides/choose-a-policy.md")
     expect(guide).toContain("subject to overlap")
