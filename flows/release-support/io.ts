@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process"
 import { createHmac, randomBytes } from "node:crypto"
+import { existsSync } from "node:fs"
 import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import { ReleaseError } from "./schema.ts"
@@ -52,16 +53,45 @@ export const commandRunner = (root: string): RunCommand => async (command, args,
       else {
         // pnpm can report registry failures on stdout. Preserve both streams
         // so a confirmed 404 remains distinguishable from an auth/network error.
-        let diagnostic = `${command} exited ${code}: ${stdout.slice(-6000)}\n${stderr.slice(-6000)}`
-        for (const [key, value] of Object.entries({ ...process.env, ...options.env })) {
-          if (/token|secret|password|api.?key/i.test(key) && value && value.length >= 4) {
-            diagnostic = diagnostic.split(value).join("<redacted>")
-          }
-        }
-        reject(new ReleaseError({ step: command, message: diagnostic }))
+        // Redact whole streams before the tail cut so a secret split at the
+        // cut edge cannot survive in part.
+        const secrets = secretValues(options.env)
+        const out = redact(stdout, secrets).slice(-6000)
+        const err = redact(stderr, secrets).slice(-6000)
+        reject(new ReleaseError({ step: command, message: `${command} exited ${code}: ${out}\n${err}` }))
       }
     })
   })
+
+const secretName = /token|secret|passw(or)?d|passphrase|api.?key|credential|cookie|(^|_)pat(_|$)|(^|_)auth$/i
+// Broad words that also name benign runner state (XDG_SESSION_CLASS=user,
+// SSH_AUTH_SOCK=/run/...). Their values redact only when they look like a
+// credential: at least 8 characters and not an existing absolute path. This
+// deliberately over-redacts some benign values (GIT_AUTHOR_NAME,
+// GIT_AUTHOR_EMAIL, DBUS_SESSION_BUS_ADDRESS) so that AUTHORIZATION-style and
+// *_SESSION_* credentials never print.
+const weakSecretName = /auth|session|private/i
+
+const looksSecret = (key: string, value: string): boolean =>
+  secretName.test(key) ||
+  (weakSecretName.test(key) && value.length >= 8 && !(value.startsWith("/") && existsSync(value)))
+
+/**
+ * Values a failed command's diagnostic must not show: every inherited env value
+ * whose name looks like a credential, plus every value of 16 or more characters
+ * the step passes explicitly. Longest first so an enclosing secret redacts whole.
+ */
+const secretValues = (explicit: Readonly<Record<string, string>> = {}): ReadonlyArray<string> => {
+  const values = new Set<string>()
+  for (const [key, value] of Object.entries({ ...process.env, ...explicit })) {
+    if (value && value.length >= 4 && looksSecret(key, value)) values.add(value)
+  }
+  for (const value of Object.values(explicit)) if (value.length >= 16) values.add(value)
+  return [...values].sort((a, b) => b.length - a.length)
+}
+
+const redact = (text: string, secrets: ReadonlyArray<string>): string =>
+  secrets.reduce((current, value) => current.split(value).join("<redacted>"), text)
 
 /** Reject traversal and symlink escapes for existing files and new descendants. */
 export const inside = async (root: string, path: string): Promise<string> => {

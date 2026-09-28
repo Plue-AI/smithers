@@ -33,7 +33,7 @@ export const routeMessages = (
   ...queue,
   admit: (runId, notification) =>
     Effect.suspend(() => {
-      if (notification.targetLineageId !== runId || SteerPayload.decode(notification.payload)?.kind !== "Message") {
+      if (notification.targetLineageId !== runId || SteerPayload.decode(notification)?.kind !== "Message") {
         return queue.admit(runId, notification)
       }
       return journal.transact(Effect.gen(function*() {
@@ -197,7 +197,7 @@ export const feedbackLayer = ReceiveFeedback.toLayer(receiveFeedback)
 export const appendFeedback = (feedback: string, receipt: FeedbackReceipt): Effect.Effect<string, CodingError> => {
   const rendered: Array<string> = []
   for (const message of receipt.messages) {
-    const payload = SteerPayload.decode(message.payload)
+    const payload = SteerPayload.decode(message)
     if (payload?.kind !== "Message") {
       return Effect.fail(
         new CodingError({

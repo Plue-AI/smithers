@@ -106,6 +106,14 @@ const readJson = (response: HttpClientResponse.HttpClientResponse) =>
 export const githubReadable = (path: string): boolean =>
   /^\/(pulls(\/\d+\/(reviews|files))?|actions\/runs)(\?[A-Za-z0-9_=&]*)?$/.test(path)
 
+/** Plain http only reaches this machine; the bearer token and gateway credential never cross a network in clear. */
+const loopback = (hostname: string): boolean =>
+  hostname === "localhost" || hostname === "[::1]" || /^127(\.\d{1,3}){3}$/.test(hostname)
+
+/** `owner/repo` with no dot segments, so it cannot redirect a credentialed request path. */
+const repositoryName = (value: string): boolean =>
+  /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value) && value.split("/").every((part) => part !== "." && part !== "..")
+
 export const makeRemote = (options: RemoteOptions) =>
   Effect.gen(function*() {
     const client = yield* HttpClient.HttpClient
@@ -114,10 +122,10 @@ export const makeRemote = (options: RemoteOptions) =>
       catch: () => failed("Invalid repository binding")
     })
     if (
-      !/^https?:$/.test(api.protocol) || api.username || api.password || api.search || api.hash ||
+      !(api.protocol === "https:" || (api.protocol === "http:" && loopback(api.hostname))) || api.username ||
+      api.password || api.search || api.hash ||
       !api.pathname.endsWith("/api") ||
-      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(options.repositorySlug) ||
-      options.repositorySlug.split("/").some((part) => part === "." || part === "..")
+      !repositoryName(options.repositorySlug)
     ) {
       return yield* failed("Repository automation requires the provisioned repository API binding")
     }
@@ -217,7 +225,7 @@ export const makeRemote = (options: RemoteOptions) =>
           summary: "Repository provenance could not be read"
         })
       }
-      if (typeof fullName === "string" && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) {
+      if (typeof fullName === "string" && repositoryName(fullName)) {
         for (const kind of ["issues", "pulls"] as const) {
           const path = `/repos/${fullName}/${kind}?state=all&per_page=30`
           yield* read(
@@ -243,7 +251,7 @@ export const makeRemote = (options: RemoteOptions) =>
           Effect.flatMap((value) => {
             const metadata = object(value), fullName = metadata.full_name
             return metadata.source === "github" && typeof fullName === "string" &&
-                /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)
+                repositoryName(fullName)
               ? Effect.succeed(fullName)
               : Effect.fail(failed("This repository has no GitHub source"))
           }),
@@ -325,7 +333,7 @@ export const makeRemote = (options: RemoteOptions) =>
           const metadata = object(yield* send(HttpClientRequest.get(`${base}/repository-source`), false, true))
           if (
             metadata.source !== "github" || typeof metadata.full_name !== "string" ||
-            !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(metadata.full_name)
+            !repositoryName(metadata.full_name)
           ) {
             return yield* new CodingError({
               code: "source_refused",
@@ -396,7 +404,7 @@ export const makeRemote = (options: RemoteOptions) =>
             const metadata = object(yield* send(HttpClientRequest.get(`${base}/repository-source`)))
             const fullName = metadata.source === "github" ? metadata.full_name : undefined
             if (
-              typeof fullName !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName) ||
+              typeof fullName !== "string" || !repositoryName(fullName) ||
               (link && link[1] !== fullName)
             ) return yield* failed("The selected PR is not from this imported repository")
             const eventRepository = object(original.repository).full_name ?? object(object(direct.base).repo).full_name

@@ -28,6 +28,7 @@ const check = Smithers.Typecheck({
 const suite = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/content.test.ts"),
+    Smithers.file("//flows/test/release-redaction.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts")

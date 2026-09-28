@@ -245,3 +245,37 @@ test("native main retention uses only the provisioned native identity and exact 
     if (result._tag === "Failure") assert.equal(result.failure.code, code)
   }
 })
+
+test("the repository binding refuses plain http off loopback and a dot-segment GitHub source", async (t) => {
+  const options = {
+    apiBaseUrl: "http://api.example.test/api",
+    repositorySlug: "local/mirror",
+    repositoryId: 1,
+    workspaceId: "22222222-2222-4222-8222-222222222222",
+    token: Redacted.make("fixture-token"),
+    gatewayId: "11111111-1111-4111-8111-111111111111",
+    credential: "fixture-gateway"
+  }
+  await assert.rejects(
+    Effect.runPromise(makeRemote(options).pipe(Effect.provide(FetchHttpClient.layer))),
+    /provisioned repository API binding/
+  )
+  const urls: string[] = []
+  const server = createServer((request, response) => {
+    urls.push(request.url ?? "")
+    response.setHeader("content-type", "application/json")
+    response.end(JSON.stringify(
+      request.url === "/api/repos/local/mirror/repository-source" ? { source: "github", full_name: "../evil" } : {}
+    ))
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const address = server.address()
+  assert(address && typeof address !== "string")
+  const remote = await Effect.runPromise(
+    makeRemote({ ...options, apiBaseUrl: `http://127.0.0.1:${address.port}/api` })
+      .pipe(Effect.provide(FetchHttpClient.layer))
+  )
+  await assert.rejects(Effect.runPromise(remote.github!("/pulls")), /no GitHub source/)
+  assert.deepEqual(urls, ["/api/repos/local/mirror/repository-source"])
+})

@@ -18,7 +18,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
-import { layer } from "../invoke/host.ts"
+import { layer, sourceDigest } from "../invoke/host.ts"
 import { registerPinnedLibraries } from "../invoke/serve.ts"
 
 const declaration = `import { Flow } from "@smthrs/flow"
@@ -32,12 +32,18 @@ export default Flow.make("echo", {
 })
 `
 
-const phase = async (root: string, stateRoot: string, restart: boolean, source = declaration) => {
+const closureDeclaration = declaration.replace(
+  "import { Schema } from \"effect\"",
+  "import { Schema } from \"effect\"\nimport { suffix } from \"./helper.ts\""
+).replace("Node.succeed({ value })", "Node.succeed({ value: value + suffix })")
+const helper = "export const suffix = \"\"\n"
+
+const phase = async (root: string, stateRoot: string, restart: boolean, source = declaration, pin?: string) => {
   registerPinnedLibraries(root, stateRoot)
   const { platform } = process.versions.bun
     ? await import("../../packages/smithers/src/internal/BunControl.ts")
     : await import("../../packages/smithers/src/internal/NodeControlHost.ts")
-  const credential = "local-invoke-fixture", digest = createHash("sha256").update(source).digest("hex")
+  const credential = "local-invoke-fixture", digest = pin ?? createHash("sha256").update(source).digest("hex")
   let intent: any, runId = ""
   if (restart) {
     ;({ intent, runId } = JSON.parse(await readFile(join(stateRoot, "fixture-receipt.json"), "utf8")))
@@ -140,7 +146,12 @@ if (process.argv[2] === "--fixture") {
     process.argv[3]!,
     process.argv[4]!,
     process.argv[5] === "restart",
-    process.argv[5] === "mismatch" ? declaration.replace("Flow.make(\"echo\"", "Flow.make(\"other\"") : declaration
+    process.argv[5] === "mismatch" ?
+      declaration.replace("Flow.make(\"echo\"", "Flow.make(\"other\"") :
+      process.argv[5] === "closure" ?
+      closureDeclaration :
+      declaration,
+    process.argv[6]
   )
 } else {
   test(
@@ -171,6 +182,175 @@ if (process.argv[2] === "--fixture") {
       assert.deepEqual(results.map((r) => r.completed), [true, true])
     }
   )
+
+  test("the invocation pin covers the modules flow.ts imports beside itself", { timeout: 90_000 }, async (t) => {
+    const temporary = await mkdtemp(join(tmpdir(), "invoke-closure-")),
+      root = join(temporary, "repo"),
+      stateRoot = join(temporary, "state")
+    t.after(() => rm(temporary, { recursive: true, force: true }))
+    await mkdir(join(root, "flows", "echo"), { recursive: true })
+    await mkdir(stateRoot)
+    await writeFile(join(root, "flows", "echo", "flow.ts"), closureDeclaration)
+    await writeFile(join(root, "flows", "echo", "helper.ts"), helper)
+    const pin = sourceDigest(new TextEncoder().encode(closureDeclaration), [
+      { path: "helper.ts", contentDigest: createHash("sha256").update(helper).digest("hex") }
+    ])!
+    assert.notEqual(pin, createHash("sha256").update(closureDeclaration).digest("hex"))
+    const run = () =>
+      promisify(execFile)(
+        process.execPath,
+        [fileURLToPath(import.meta.url), "--fixture", root, stateRoot, "closure", pin],
+        { timeout: 55_000, maxBuffer: 1024 * 1024 }
+      )
+    const approved = await run()
+    assert.match(approved.stdout, /"completed":true/)
+    // flow.ts is unchanged; only the module it imports now does something else.
+    await writeFile(join(root, "flows", "echo", "helper.ts"), "export const suffix = \"-tampered\"\n")
+    await rm(join(stateRoot, "fixture-receipt.json"), { force: true })
+    await assert.rejects(run(), /Pinned invocation source changed/)
+  })
+
+  test(
+    "the invocation pin covers a sibling loaded by require() or an absolute path",
+    { timeout: 120_000 },
+    async (t) => {
+      const temporary = await mkdtemp(join(tmpdir(), "invoke-require-")),
+        root = join(temporary, "repo"),
+        stateRoot = join(temporary, "state"),
+        echo = join(root, "flows", "echo"),
+        marker = join(temporary, "impl-ran")
+      t.after(() => rm(temporary, { recursive: true, force: true }))
+      await mkdir(echo, { recursive: true })
+      await mkdir(stateRoot)
+      await writeFile(
+        join(echo, "impl.ts"),
+        `import { writeFileSync } from "node:fs"\nwriteFileSync(${
+          JSON.stringify(marker)
+        }, "ran")\nexport const suffix = "-tampered"\n`
+      )
+      for (
+        const load of [
+          `const { suffix } = require("./impl.ts")\n`,
+          `const { suffix } = import.meta.require("./impl.ts")\n`,
+          `import { suffix } from ${JSON.stringify(join(echo, "impl.ts"))}\n`,
+          `import { suffix } from ${JSON.stringify(`file://${join(echo, "impl.ts")}`)}\n`
+        ]
+      ) {
+        const flow = load + declaration.replace("Node.succeed({ value })", "Node.succeed({ value: value + suffix })")
+        await writeFile(join(echo, "flow.ts"), flow)
+        // The approver pinned flow.ts alone, as if it loaded nothing beside itself.
+        const pin = createHash("sha256").update(flow).digest("hex")
+        await rm(join(stateRoot, "fixture-receipt.json"), { force: true })
+        await assert.rejects(
+          promisify(execFile)(process.execPath, [
+            fileURLToPath(import.meta.url),
+            "--fixture",
+            root,
+            stateRoot,
+            "first",
+            pin
+          ], {
+            timeout: 55_000,
+            maxBuffer: 1024 * 1024
+          }),
+          /Pinned invocation source changed/,
+          load
+        )
+        await assert.rejects(readFile(marker), { code: "ENOENT" })
+      }
+    }
+  )
+
+  test("the invocation host refuses repository files that redirect bare imports", { timeout: 120_000 }, async (t) => {
+    const temporary = await mkdtemp(join(tmpdir(), "invoke-resolver-")),
+      root = join(temporary, "repo"),
+      stateRoot = join(temporary, "state"),
+      echo = join(root, "flows", "echo")
+    t.after(() => rm(temporary, { recursive: true, force: true }))
+    await mkdir(echo, { recursive: true })
+    await mkdir(stateRoot)
+    await writeFile(join(echo, "flow.ts"), declaration)
+    await writeFile(join(echo, "evil.ts"), "throw new Error(\"REPO-AUTHOR-CODE\")\n")
+    const digest = (bytes: string) => createHash("sha256").update(bytes).digest("hex")
+    const run = (pin = digest(declaration)) =>
+      promisify(execFile)(process.execPath, [
+        fileURLToPath(import.meta.url),
+        "--fixture",
+        root,
+        stateRoot,
+        "first",
+        pin
+      ], {
+        timeout: 55_000,
+        maxBuffer: 1024 * 1024
+      })
+    const redirect = JSON.stringify({ compilerOptions: { paths: { effect: ["./evil.ts"] } } })
+    // flow.ts and its closure are unchanged in every case; only resolution moves.
+    await writeFile(join(echo, "tsconfig.json"), redirect)
+    await assert.rejects(run(), /resolver configuration at flows\/echo\/tsconfig\.json/)
+    await rm(join(echo, "tsconfig.json"))
+    await mkdir(join(echo, "node_modules", "effect"), { recursive: true })
+    await assert.rejects(run(), /resolver configuration at flows\/echo\/node_modules/)
+    await rm(join(echo, "node_modules"), { recursive: true })
+    await mkdir(join(root, "node_modules", "zod"), { recursive: true })
+    await assert.rejects(run(), /resolver configuration at node_modules\/zod/)
+    await rm(join(root, "node_modules", "zod"), { recursive: true })
+    const rootConfig = JSON.stringify({ compilerOptions: { paths: { effect: ["./flows/echo/evil.ts"] } } })
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ extends: "./base.json" }))
+    await assert.rejects(run(), /resolver configuration at tsconfig\.json/)
+    await writeFile(join(root, "tsconfig.json"), rootConfig)
+    await assert.rejects(run(), /resolver configuration at tsconfig\.json/)
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { baseUrl: "." } }))
+    await assert.rejects(run(), /resolver configuration at tsconfig\.json/)
+    await rm(join(root, "tsconfig.json"))
+    // A pinned root package.json may not send `#impl` or a self-reference into
+    // repository code the pin never measures: approving flow.ts + package.json
+    // must not approve whatever impl.ts later becomes.
+    const tampered = join(temporary, "impl-ran")
+    const aliased = `import { suffix } from "#impl"\n` +
+      declaration.replace("Node.succeed({ value })", "Node.succeed({ value: value + suffix })")
+    await writeFile(join(echo, "flow.ts"), aliased)
+    await writeFile(
+      join(echo, "impl.ts"),
+      `import { writeFileSync } from "node:fs"\nwriteFileSync(${
+        JSON.stringify(tampered)
+      }, "ran")\nexport const suffix = "-tampered"\n`
+    )
+    for (
+      const manifest of [
+        { name: "repo", type: "module", imports: { "#impl": "./flows/echo/impl.ts" } },
+        { name: "repo", type: "module", exports: { "./impl": "./flows/echo/impl.ts" } }
+      ]
+    ) {
+      const bytes = JSON.stringify(manifest)
+      await writeFile(join(root, "package.json"), bytes)
+      const approved = sourceDigest(new TextEncoder().encode(aliased), [], [
+        { path: "package.json", contentDigest: digest(bytes) }
+      ])!
+      await assert.rejects(run(approved), /resolver configuration at package\.json/)
+      await assert.rejects(readFile(tampered), { code: "ENOENT" })
+    }
+    await writeFile(join(root, "package.json"), "{\"name\": ")
+    await assert.rejects(run(), /resolver configuration at package\.json/)
+    await rm(join(root, "package.json"))
+    await rm(join(echo, "impl.ts"))
+    await writeFile(join(echo, "flow.ts"), declaration)
+    // A root configuration the approver pinned is served, and a neighbouring
+    // flow's top-level code never runs in the credentialed host.
+    await writeFile(join(root, "tsconfig.json"), "{}")
+    const marker = join(temporary, "neighbour-ran")
+    await mkdir(join(root, "flows", "other"))
+    await writeFile(
+      join(root, "flows", "other", "flow.ts"),
+      `import { writeFileSync } from "node:fs"\nwriteFileSync(${JSON.stringify(marker)}, "ran")\n` +
+        declaration.replace("Flow.make(\"echo\"", "Flow.make(\"other\"")
+    )
+    const pinned = sourceDigest(new TextEncoder().encode(declaration), [], [
+      { path: "tsconfig.json", contentDigest: digest("{}") }
+    ])!
+    assert.match((await run(pinned)).stdout, /"completed":true/)
+    await assert.rejects(readFile(marker), { code: "ENOENT" })
+  })
 
   test("canonical invocation refuses a declared tag that differs from its path", { timeout: 30_000 }, async (t) => {
     const temporary = await mkdtemp(join(tmpdir(), "invoke-tag-refusal-")),

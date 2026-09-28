@@ -1,10 +1,12 @@
 import { NodeServices } from "@effect/platform-node"
 import { Effect, FileSystem, Schema } from "effect"
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
+import { fileURLToPath } from "node:url"
 import { separateWikiOutput } from "../coding/wiki-output.ts"
 import { reviewEvidence } from "../wiki/evidence.ts"
 import { operations } from "../wiki/operations.ts"
@@ -124,6 +126,82 @@ test("outside-root and private paths cannot become generation input, including s
       /WikiError|outside|escape|private|relative|Private|Source/
     )
   }
+})
+
+test("private files are refused at any depth, in any case and behind an in-root symlink", async (t) => {
+  const f = await fixture(t)
+  await mkdir(join(f.root, "pkg/.git"), { recursive: true })
+  await mkdir(join(f.root, "keys"))
+  const secrets = [
+    "config/prod.env",
+    "docker/app.env",
+    ".smithers/prompts/leak.env",
+    "auth.token",
+    "secrets.json",
+    "config/secrets.yaml",
+    "deploy/secret.prod.yml",
+    ".ENV",
+    "a/.Env.local",
+    ".envrc",
+    ".npmrc",
+    ".dev.vars",
+    "pkg/.git/config",
+    "pkg/.JJ/repo",
+    "keys/server.pem",
+    "keys/id_rsa",
+    "keys/id_ed25519.pub",
+    "home/.ssh/config",
+    ".env-local",
+    ".env_prod",
+    "home/.docker/config.json",
+    "home/.kube/config",
+    "infra/.terraform/providers.json",
+    "infra/terraform.tfstate",
+    "infra/terraform.tfstate.backup",
+    "web/.htpasswd",
+    "android/release.jks",
+    "keys/deploy.ppk",
+    "android/app.keystore",
+    ".yarnrc.yaml",
+    ".smithers/executions/x.json",
+    ".smithers/runs/x/journal.json",
+    ".smithers/cache/x.json",
+    ".smithers/smithers.db",
+    "pkg/.smithers/runs/x.json",
+    ".alchemy/app/prod/worker.json",
+    ".wrangler/state/x.json",
+    ".claude/settings.local.json",
+    ".github/.env",
+    ".GITHUB/workflows/ci.yml",
+    "infra/terraform.tfvars",
+    "infra/secrets.auto.tfvars",
+    "keys/app.p8",
+    "keys/private.asc",
+    "keys/private.gpg",
+    "credentials.json",
+    "service-account.json"
+  ]
+  for (const input of secrets) {
+    await mkdir(join(f.root, input, ".."), { recursive: true })
+    await writeFile(join(f.root, input), "SECRET=1\n")
+    await assert.rejects(run(f.ops.collect({ ...f.spec, inputs: [input] })), /Private\/runtime path/, input)
+  }
+  await symlink(join(f.root, ".npmrc"), join(f.root, "docs.md"))
+  await assert.rejects(run(f.ops.collect({ ...f.spec, inputs: ["docs.md"] })), /Private\/runtime path/)
+  // Committed public declarations stay readable.
+  const publicInputs = [
+    ".github/workflows/ci.yml",
+    ".agents/skills/x/SKILL.md",
+    ".smithers/WORKSPACE.ts",
+    ".smithers/workflows/ci.tsx",
+    "pkg/.smithers/agents.ts",
+    "pkg/.gitignore"
+  ]
+  for (const input of publicInputs) {
+    await mkdir(join(f.root, input, ".."), { recursive: true })
+    await writeFile(join(f.root, input), "export const x = 1\n")
+  }
+  await run(f.ops.collect({ ...f.spec, inputs: publicInputs }))
 })
 
 test("curated review excerpts retain full-file invalidation and enforce shown citation lines", async (t) => {
@@ -616,4 +694,29 @@ test("publication revalidates an output ancestor changed while semantic review w
     /outside the source workspace/
   )
   await assert.rejects(readFile(join(f.root, "wiki", "current.json")), /ENOENT/)
+})
+
+test("the wiki CLI refuses an output or database that a symlinked ancestor routes outside --root", {
+  timeout: 60_000
+}, async (t) => {
+  const f = await fixture(t)
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "smithers-wiki-outside-")))
+  t.after(() => rm(outside, { recursive: true, force: true }))
+  await mkdir(join(f.root, ".smithers"))
+  await writeFile(join(f.root, ".smithers/coding-project.json"), JSON.stringify({ pages: [f.spec] }))
+  const cli = fileURLToPath(new URL("../wiki/main.ts", import.meta.url))
+  const invoke = (...args: Array<string>) =>
+    spawnSync("node", [cli, "--root", f.root, ...args], { cwd: f.root, encoding: "utf8", timeout: 25_000 })
+  await symlink(outside, join(f.root, ".flows"), "dir")
+  const linked = invoke()
+  assert.notEqual(linked.status, 0, linked.stdout)
+  assert.match(linked.stderr, /inside --root, through no symlink out/)
+  await assert.rejects(readFile(join(outside, "wiki", "current.json")), /ENOENT/)
+  await rm(join(f.root, ".flows"))
+  const database = invoke("--database", join(outside, "engine.db"))
+  assert.notEqual(database.status, 0)
+  assert.match(database.stderr, /--database must be a file under --root\/\.flows/)
+  const contained = invoke("--run", "wiki-contained-preview")
+  assert.equal(contained.status, 0, contained.stderr)
+  assert.match(contained.stdout, /"verification":\s*"unreviewed"/)
 })
