@@ -224,8 +224,11 @@ The chat coordinator has `ui.publish`, `agent.delegate`, `tab.read`,
 depth 4 returns `AgentDepthExceeded`. Waiting releases the worker's pool slot.
 Delegation takes `{id, title, prompt}`, persists before launch, and returns a
 `requested` receipt immediately. Reusing the id deduplicates the request.
-A tab's one-line description comes from the worker's own seat. `r` or `/retry`
-resumes a failed, stopped, or parked tab on its requested model.
+A worker with no chosen model is routed by Jev to a seat and system-prompt
+variant; retry and restart keep both, and a seat picked in the retry picker drops
+the variant. A tab's one-line description comes from the seat the worker runs
+on, once routed. `r` or `/retry` resumes a failed, stopped, or parked tab on its
+requested model.
 Up to six workers can run at once (`SMITHERS_TUI_WORKERS` overrides the pool);
 later requests queue FIFO. They share the working directory, so
 independent requests should name disjoint files. Worker transcripts persist in
