@@ -1,0 +1,418 @@
+import { useRenderer } from "@opentui/react"
+import { testRender } from "@opentui/react/test-utils"
+import * as AgentEvent from "@smthrs/harness/AgentEvent"
+import * as Cell from "@smthrs/harness/Cell"
+import * as ModelRequest from "@smthrs/model/ModelRequest"
+import { afterEach, expect, test } from "bun:test"
+import { setImmediate, setTimeout as timerPhase } from "node:timers/promises"
+import { act, useState } from "react"
+import type * as Panels from "../src/panels.ts"
+import * as Timeline from "../src/timeline.ts"
+import { useTranscriptView } from "../src/transcript-view.ts"
+import * as Transcript from "../src/transcript.ts"
+import type { Tab } from "../src/workspace.ts"
+
+type Input = Omit<Parameters<typeof useTranscriptView>[0], "renderer" | "setSurface" | "setPanelFocus">
+type Projection = ReturnType<typeof useTranscriptView>
+let setup: Awaited<ReturnType<typeof testRender>> | undefined
+let projection: Projection | undefined
+let update: ((change: Partial<Input>) => void) | undefined
+const surfaces: string[] = []
+const panelFocus: boolean[] = []
+const current = (): Projection => {
+  if (projection === undefined) throw new Error("The mounted projection is unavailable")
+  return projection
+}
+const Harness = ({ initial }: { readonly initial: Input }) => {
+  const [input, setInput] = useState(initial)
+  update = (change) => setInput((before) => ({ ...before, ...change }))
+  projection = useTranscriptView({
+    ...input,
+    renderer: useRenderer(),
+    setSurface: (surface) => {
+      surfaces.push(surface)
+      setInput((before) => ({ ...before, surface }))
+    },
+    setPanelFocus: (focused) => panelFocus.push(focused)
+  })
+  return (
+    <box style={{ height: "100%", flexDirection: "column" }}>
+      <text>{input.surface} · {projection.focusedCard ?? "no card"} · {projection.monitored?.id ?? "no activity"}</text>
+      <scrollbox ref={projection.scroll} style={{ flexGrow: 1, minHeight: 0 }}>
+        {Array.from({ length: 30 }, (_, index) => <text key={`filler-${index}`}>line {index}</text>)}
+        {input.surface === "chat"
+          ? projection.rows.map((row) => <text key={row.key} id={row.key}>{row.key}</text>)
+          : null}
+        {projection.cardKeys.filter((key) => key.startsWith("agent:")).map((key) => (
+          <text key={key} id={key}>{key}</text>
+        ))}
+      </scrollbox>
+    </box>
+  )
+}
+const mount = async (options: Partial<Input> = {}) => {
+  setup = await testRender(
+    <Harness
+      initial={{
+        transcript: Transcript.empty,
+        tabs: [],
+        worker: () => Transcript.empty,
+        filter: Timeline.all,
+        surface: "chat",
+        panel: undefined,
+        width: 80,
+        ...options
+      }}
+    />,
+    { width: 80, height: 12 }
+  )
+  await setup.renderOnce()
+}
+const change = async (options: Partial<Input>) => {
+  await act(async () => {
+    update!(options)
+  })
+  await setup!.renderOnce()
+}
+const action = async (run: (view: Projection) => void) => {
+  await act(async () => {
+    run(current())
+  })
+  await setup!.renderOnce()
+}
+afterEach(async () => {
+  await act(async () => {
+    setup?.renderer.destroy()
+  })
+  setup = undefined
+  projection = undefined
+  update = undefined
+  surfaces.length = 0
+  panelFocus.length = 0
+})
+
+const panel: Panels.Panel = { id: "checks", title: "Checks", summary: "Passed", rows: [] }
+const card = Transcript.card(Transcript.empty, panel, 0)
+const tabs: ReadonlyArray<Tab> = ["w1", "w2", "w3", "w4"].map((id) => ({
+  id,
+  title: id,
+  prompt: "Work",
+  seat: "replay:test",
+  file: `${id}.jsonl`,
+  status: "running",
+  startedAt: 1,
+  depth: 0
+}))
+const running = (at: number) => {
+  let transcript = Transcript.user(Transcript.empty, "Work", false, at)
+  transcript = Transcript.apply(
+    transcript,
+    new AgentEvent.TurnOpened({
+      eventType: "flows.harness.turn-opened.v1",
+      seat: "replay:test",
+      modelParams: {},
+      activeToolNames: [],
+      contextDigest: "context"
+    }),
+    at
+  )
+  return Transcript.apply(
+    transcript,
+    new AgentEvent.ModelDelta({
+      eventType: "flows.harness.model-delta.v1",
+      delta: { type: "text-delta", id: "reply", text: "Working\n```js\n1\n```" }
+    }),
+    at + 1
+  )
+}
+const done = (at: number) => {
+  const transcript = running(at)
+  return Transcript.apply(
+    transcript,
+    new AgentEvent.Resolved({
+      eventType: "flows.harness.resolved.v1",
+      message: ModelRequest.Message.assistant("Done")
+    }),
+    at + 2
+  )
+}
+
+test("empty projection has no focus or activity and accepts harmless navigation", async () => {
+  await mount()
+  expect(current().cardKeys).toEqual([])
+  expect(current().showActivity).toBe(false)
+  await action((view) => {
+    view.moveCard("next")
+    view.inspectActivity(1)
+    view.reveal("missing")
+    view.followLive()
+    view.clearInspection()
+  })
+  expect(current().focusedCard).toBeUndefined()
+  expect(current().activeInspection).toBeUndefined()
+  expect(surfaces).toEqual([])
+  expect(panelFocus).toEqual([])
+})
+
+test.each([[35, "agent:w2"], [70, "agent:w3"], [140, "chat:0"]] as const)(
+  "card down at width %s follows the visible grid to %s",
+  async (width, target) => {
+    await mount({ transcript: card, tabs, width })
+    expect(current().cardKeys).toEqual(["chat:0", "agent:w1", "agent:w2", "agent:w3", "agent:w4"])
+    await action((view) => view.setCardFocus("agent:w1"))
+    expect(current().focusedWorker).toBe(tabs[0])
+    await action((view) => view.moveCard("down"))
+    expect(current().focusedCard).toBe(target)
+    expect(setup!.captureCharFrame()).toContain(target)
+  }
+)
+
+test("focus disappears when its worker is removed, without moving onto another worker", async () => {
+  await mount({ transcript: card, tabs })
+  await action((view) => view.setCardFocus("agent:w2"))
+  await change({ tabs: tabs.filter((tab) => tab.id !== "w2") })
+  expect(current().focusedCard).toBeUndefined()
+  expect(current().focusedWorker).toBeUndefined()
+  await action((view) => view.moveCard("next"))
+  expect(current().focusedCard).toBeUndefined()
+  expect(surfaces).toEqual([])
+})
+
+test.each(["summary", "tab:w1"])("card navigation stays unavailable on %s", async (surface) => {
+  await mount({ transcript: card, tabs, surface })
+  await action((view) => view.setCardFocus("agent:w1"))
+  expect(current().cardKeys).toEqual([])
+  expect(current().focusedCard).toBeUndefined()
+  await action((view) => view.moveCard("next"))
+  expect(surfaces).toEqual([])
+})
+
+test("a panel hides chat cards and activity, while its worker tab retains worker activity", async () => {
+  const worker = running(200)
+  await mount({ transcript: card, tabs, worker: () => worker, panel })
+  expect(current().cardKeys).toEqual([])
+  expect(current().showActivity).toBe(false)
+  await change({ surface: "tab:w2" })
+  expect(current().showActivity).toBe(true)
+  expect(current().monitored?.id).toBe("w2")
+})
+
+test("running activity wins over newer settled activity; stable ties retain source order", async () => {
+  const chat = running(100)
+  const completed = done(300)
+  await mount({ transcript: chat, tabs, worker: () => completed })
+  expect(current().monitored?.id).toBe("chat")
+  await change({ transcript: done(300) })
+  expect(current().monitored?.id).toBe("chat")
+  await change({ transcript: Transcript.empty })
+  expect(current().monitored?.id).toBe("w1")
+})
+
+test("inspection stays pinned against newer work and resets on a new turn's record identity", async () => {
+  const original = running(100)
+  await mount({ transcript: original })
+  await action((view) => view.inspectActivity(1, false))
+  expect(current().activeInspection?.seq).toBe(1)
+  expect(current().jumpTarget).toBe("chat:1")
+  expect(panelFocus).toEqual([false])
+  await change({ tabs, worker: () => running(300) })
+  expect(current().monitored?.id).toBe("chat")
+  expect(current().activeInspection?.seq).toBe(1)
+  await change({ transcript: running(400) })
+  expect(current().activeInspection).toBeUndefined()
+  expect(current().jumpTarget).toBeUndefined()
+  expect(current().monitored?.id).toBe("chat")
+})
+
+test("worker inspection opens its own tab and exposes only that worker's jump target", async () => {
+  const worker = running(200)
+  await mount({ transcript: done(100), tabs: [tabs[0]!], worker: () => worker })
+  await action((view) => view.inspectActivity(1))
+  expect(surfaces).toEqual(["tab:w1"])
+  expect(panelFocus).toEqual([false])
+  expect(current().workerJump("w1")).toBe("1")
+  expect(current().workerJump("w2")).toBeUndefined()
+  expect(current().jumpTarget).toBeUndefined()
+  await action((view) => view.inspectActivity(1))
+  expect(surfaces).toEqual(["tab:w1"])
+  await action((view) => view.clearInspection())
+  expect(current().activeInspection).toBeUndefined()
+  expect(current().workerJump("w1")).toBeUndefined()
+})
+
+test("reveal uses the mounted scroll box and follow-live clears inspection and reaches its bottom", async () => {
+  await mount({ transcript: running(100) })
+  const box = current().scroll.current!
+  expect(box.scrollTop).toBe(0)
+  await action((view) => view.reveal("chat:1"))
+  expect(box.scrollTop).toBeGreaterThan(0)
+  expect(setup!.captureCharFrame()).toContain("chat:1")
+  const position = box.scrollTop
+  await action((view) => view.reveal("unknown"))
+  expect(box.scrollTop).toBe(position)
+  await action((view) => view.inspectActivity(1, false))
+  await action((view) => view.followLive())
+  expect(current().activeInspection).toBeUndefined()
+  expect(box.scrollTop).toBe(box.scrollHeight - box.viewport.height)
+})
+
+test("chat inspection switches surface, then reveals the row after its real delayed mount", async () => {
+  await mount({ transcript: running(100), surface: "summary" })
+  const box = current().scroll.current!
+  await action((view) => view.inspectActivity(1))
+  // The immediate reveal ran while Summary had no chat children. Wait for the
+  // owned delayed callback's actual scroll effect, not an assumed wall time.
+  const deadline = Date.now() + 3000
+  while (box.scrollTop === 0 && Date.now() < deadline) {
+    await setImmediate()
+    await setup!.renderOnce()
+  }
+  expect(box.scrollTop).toBeGreaterThan(0)
+  expect(surfaces).toEqual(["chat"])
+  expect(panelFocus).toEqual([false])
+  expect(current().jumpTarget).toBe("chat:1")
+  expect(setup!.captureCharFrame()).toContain("chat:1")
+})
+
+test("a recorded opening without a produced cell can be inspected without inventing a jump", async () => {
+  const transcript = Transcript.apply(
+    Transcript.empty,
+    new AgentEvent.TurnOpened({
+      eventType: "flows.harness.turn-opened.v1",
+      seat: "replay:test",
+      modelParams: {},
+      activeToolNames: [],
+      contextDigest: "context"
+    }),
+    100
+  )
+  await mount({ transcript, surface: "summary" })
+  await action((view) => view.inspectActivity(1))
+  expect(current().showActivity).toBe(true)
+  expect(current().activeInspection?.seq).toBe(1)
+  expect(current().jumpTarget).toBeUndefined()
+  expect(surfaces).toEqual([])
+  expect(panelFocus).toEqual([false])
+})
+
+const longTranscript = (at: number) => {
+  let transcript = running(at)
+  for (let index = 0; index < 30; index++) transcript = Transcript.note(transcript, `Update ${index}`, at + index + 2)
+  return transcript
+}
+// This later real timer drains the existing 60 ms deferred reveal before
+// assertions/renderer teardown. It is an ordering barrier, not a speed claim.
+const drainReveal = async () => {
+  await timerPhase(100)
+  await setImmediate()
+}
+
+test("returning to live must invalidate an earlier delayed inspection reveal", async () => {
+  await mount({ transcript: longTranscript(100) })
+  await action((view) => view.inspectActivity(1))
+  await action((view) => view.followLive())
+  const box = current().scroll.current!
+  const liveEdge = box.scrollHeight - box.viewport.height
+  expect(box.scrollTop).toBe(liveEdge)
+  await drainReveal()
+  expect(current().activeInspection).toBeUndefined()
+  expect(box.scrollTop).toBe(liveEdge)
+})
+
+test("restoring a new session with reused row IDs must invalidate the old delayed reveal", async () => {
+  await mount({ transcript: longTranscript(100) })
+  await action((view) => view.inspectActivity(1))
+  await action((view) => view.clearInspection())
+  await change({ transcript: longTranscript(500) })
+  await action((view) => view.followLive())
+  const box = current().scroll.current!
+  const liveEdge = box.scrollHeight - box.viewport.height
+  expect(current().activeInspection).toBeUndefined()
+  expect(box.scrollTop).toBe(liveEdge)
+  await drainReveal()
+  expect(box.scrollTop).toBe(liveEdge)
+})
+
+test("inspection without jumping must invalidate a pending earlier scroll", async () => {
+  await mount({ transcript: longTranscript(100) })
+  await action((view) => view.inspectActivity(1))
+  const box = current().scroll.current!
+  box.scrollTop = box.scrollHeight
+  const position = box.scrollTop
+  await action((view) => view.inspectActivity(1, false))
+  await drainReveal()
+  expect(current().activeInspection?.seq).toBe(1)
+  expect(box.scrollTop).toBe(position)
+})
+
+test("new activity identity fences a pending reveal even without an explicit clear", async () => {
+  await mount({ transcript: longTranscript(100) })
+  await action((view) => view.inspectActivity(1))
+  await change({ transcript: longTranscript(500) })
+  const box = current().scroll.current!
+  box.scrollTop = box.scrollHeight
+  const position = box.scrollTop
+  await drainReveal()
+  expect(current().activeInspection).toBeUndefined()
+  expect(box.scrollTop).toBe(position)
+})
+
+test("unmount releases the scroll ref and pending reveal cannot change the destroyed viewport", async () => {
+  await mount({ transcript: longTranscript(100) })
+  const view = current()
+  const box = view.scroll.current!
+  await action((value) => value.inspectActivity(1))
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  setup = undefined
+  const position = box.scrollTop
+  await drainReveal()
+  expect(box.isDestroyed).toBe(true)
+  expect(view.scroll.current).toBeNull()
+  expect(box.scrollTop).toBe(position)
+})
+
+test("a later inspection retains its own target after both delayed deadlines", async () => {
+  let transcript = running(100)
+  transcript = Transcript.apply(
+    transcript,
+    new AgentEvent.CellProduced({ eventType: "flows.harness.cell-produced.v1", cell: Cell.source("1") }),
+    102
+  )
+  for (let index = 0; index < 20; index++) {
+    transcript = Transcript.note(transcript, `First update ${index}`, 103 + index)
+  }
+  transcript = Transcript.apply(
+    transcript,
+    new AgentEvent.TurnOpened({
+      eventType: "flows.harness.turn-opened.v1",
+      seat: "replay:test",
+      modelParams: {},
+      activeToolNames: [],
+      contextDigest: "context-two"
+    }),
+    200
+  )
+  transcript = Transcript.apply(
+    transcript,
+    new AgentEvent.ModelDelta({
+      eventType: "flows.harness.model-delta.v1",
+      delta: { type: "text-delta", id: "next", text: "Next\n```js\n2\n```" }
+    }),
+    201
+  )
+  for (let index = 0; index < 20; index++) {
+    transcript = Transcript.note(transcript, `Second update ${index}`, 202 + index)
+  }
+  await mount({ transcript })
+  await action((view) => view.inspectActivity(1))
+  await action((view) => view.inspectActivity(4))
+  const position = current().scroll.current!.scrollTop
+  await drainReveal()
+  expect(current().activeInspection?.seq).toBe(4)
+  expect(current().jumpTarget).toBe("chat:22")
+  expect(current().scroll.current!.scrollTop).toBe(position)
+  await setup!.renderOnce()
+  expect(setup!.captureCharFrame()).toContain("chat:22")
+})

@@ -5,7 +5,7 @@
  * step it lands on, in the chat or in the worker's own tab.
  */
 import type { CliRenderer, ScrollBoxRenderable } from "@opentui/core"
-import { useMemo, useRef, useState } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type * as Activity from "./activity.ts"
 import * as DragScroll from "./drag-scroll.ts"
 import type * as Panels from "./panels.ts"
@@ -49,6 +49,18 @@ export const useTranscriptView = (options: {
     { source: string; seq: number; first: Activity.Activity["records"][number] } | undefined
   >()
   const scroll = useRef<ScrollBoxRenderable>(null)
+  const pendingReveal = useRef<
+    {
+      inspection: NonNullable<typeof inspection>
+      timer: ReturnType<typeof setTimeout>
+    } | undefined
+  >(undefined)
+  const cancelReveal = useCallback(() => {
+    if (pendingReveal.current === undefined) return
+    clearTimeout(pendingReveal.current.timer)
+    pendingReveal.current = undefined
+  }, [])
+  useLayoutEffect(() => cancelReveal, [cancelReveal])
 
   /** A worker's lane color: its card rail, its crumb and its steering accent. */
   const lane = (id: string): string => laneColor(Math.max(0, tabs.findIndex((tab) => tab.id === id)))
@@ -91,6 +103,9 @@ export const useTranscriptView = (options: {
       ?? latestActivity.find((source) => source.activity.status === "running") ?? latestActivity[0]
   const showActivity = monitored !== undefined && (panel === undefined || surface.startsWith("tab:"))
   const activeInspection = showActivity && pinnedActivity === monitored ? inspection : undefined
+  useLayoutEffect(() => {
+    if (pendingReveal.current?.inspection !== activeInspection) cancelReveal()
+  }, [activeInspection, cancelReveal])
   const transcriptOf = (source: string) => source === chat ? transcript : worker(source)
   /** The transcript item a scrubber position lands on, in the chat or a worker's tab. */
   const jump = activeInspection === undefined ? undefined : (() => {
@@ -104,9 +119,11 @@ export const useTranscriptView = (options: {
     box.scrollTop = Math.max(0, box.scrollTop + child.y - box.viewport.y - 1)
   }
   const inspectActivity = (seq: number, jumping = true) => {
+    cancelReveal()
     if (monitored === undefined) return
     setPanelFocus(false)
-    setInspection({ source: monitored.id, seq, first: monitored.activity.records[0]! })
+    const nextInspection = { source: monitored.id, seq, first: monitored.activity.records[0]! }
+    setInspection(nextInspection)
     const id = Scrubber.target(transcriptOf(monitored.id), seq)
     if (id === undefined || !jumping) return
     // A worker's step shows in its own tab, which scrolls to it.
@@ -118,9 +135,15 @@ export const useTranscriptView = (options: {
     const key = Timeline.key(id)
     reveal(key)
     // A surface switch mounts the chat first; lay it out, then aim again.
-    setTimeout(() => reveal(key), 60)
+    const timer = setTimeout(() => {
+      if (pendingReveal.current?.timer !== timer) return
+      pendingReveal.current = undefined
+      reveal(key)
+    }, 60)
+    pendingReveal.current = { inspection: nextInspection, timer }
   }
   const followLive = () => {
+    cancelReveal()
     setInspection(undefined)
     const box = scroll.current
     if (box !== null) box.scrollTop = box.scrollHeight
@@ -154,6 +177,9 @@ export const useTranscriptView = (options: {
     inspectActivity,
     followLive,
     /** A new session starts at the live edge. */
-    clearInspection: () => setInspection(undefined)
+    clearInspection: () => {
+      cancelReveal()
+      setInspection(undefined)
+    }
   }
 }
