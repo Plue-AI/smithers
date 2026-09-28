@@ -19,6 +19,9 @@ import (
 
 var ErrModelCredentialMissing = errors.New("model credential is missing")
 
+// ErrModelRequestInvalid identifies a model stream request rejected before provider execution.
+var ErrModelRequestInvalid = errors.New("model stream request is invalid")
+
 // PlatformModelKeys supplies the provider keys the deployment pays for. Keys
 // are resolved per call by the metered model proxy and never cached, logged
 // or placed in a guest. Nil offers no platform models.

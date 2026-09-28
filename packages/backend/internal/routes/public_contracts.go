@@ -274,9 +274,18 @@ func (h *ModelStreamHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRecommendationError(w, http.StatusBadRequest, "request_invalid")
 		return
 	}
+	// Validate the JSON envelope here; the model host owns its request schema.
+	// Raw fields preserve numbers and original bytes at the host port boundary.
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(body, &object); err != nil || object == nil {
+		writeRecommendationError(w, http.StatusBadRequest, "request_invalid")
+		return
+	}
 	stream, err := h.Host.RunModelStream(r.Context(), ports.ModelStreamGrant{OwnerID: user.ID, Request: body})
 	if err != nil {
-		if errors.Is(err, ports.ErrModelCredentialMissing) {
+		if errors.Is(err, ports.ErrModelRequestInvalid) {
+			writeRecommendationError(w, http.StatusBadRequest, "request_invalid")
+		} else if errors.Is(err, ports.ErrModelCredentialMissing) {
 			writeRecommendationError(w, http.StatusServiceUnavailable, "credential_missing")
 		} else {
 			writeRecommendationError(w, http.StatusBadGateway, "model_unavailable")

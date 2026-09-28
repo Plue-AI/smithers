@@ -46,8 +46,17 @@ func (resolve ResolverFunc) ResolveChatModel(ctx context.Context, ownerID, repos
 // Lease is an authenticated private connection to one launched host. Close
 // joins process termination and workspace cleanup before a turn is released.
 type Lease interface {
+	// A nil client uses the standard HTTP transport with the caller's context.
 	Endpoint() (baseURL string, client *http.Client, token string)
 	Close(context.Context) error
+}
+
+func leaseEndpoint(lease Lease) (baseURL string, client *http.Client, token string) {
+	baseURL, client, token = lease.Endpoint()
+	if client == nil {
+		client = &http.Client{}
+	}
+	return
 }
 
 type Launcher interface {
@@ -60,6 +69,8 @@ type Host struct {
 }
 
 const cleanupTimeout = 15 * time.Second
+
+const maxModelStreamBytes = 16 << 20
 
 func New(resolver Resolver, launcher Launcher) (*Host, error) {
 	if resolver == nil || launcher == nil {
@@ -85,16 +96,12 @@ func (host *Host) RunChatTurn(ctx context.Context, grant ports.ChatTurnGrant) (r
 		defer cancel()
 		runErr = errors.Join(runErr, lease.Close(cleanupCtx))
 	}()
-	baseURL, client, token := lease.Endpoint()
+	baseURL, client, token := leaseEndpoint(lease)
 	// The lease client's timeout bounds probes and streams. A chat turn has
 	// no fixed length; the dispatcher context and producer lease end it.
-	var turnClient *http.Client
-	if client != nil {
-		copied := *client
-		copied.Timeout = 0
-		turnClient = &copied
-	}
-	transport, err := chat.NewHTTPChatHost(baseURL, turnClient, token)
+	turnClient := *client
+	turnClient.Timeout = 0
+	transport, err := chat.NewHTTPChatHost(baseURL, &turnClient, token)
 	if err != nil {
 		return err
 	}
@@ -109,8 +116,8 @@ func (host *Host) RunModelStream(ctx context.Context, grant ports.ModelStreamGra
 		return nil, errors.New("model stream has no authenticated owner")
 	}
 	var request map[string]any
-	if err := json.Unmarshal(grant.Request, &request); err != nil {
-		return nil, errors.New("model stream request is invalid")
+	if err := json.Unmarshal(grant.Request, &request); err != nil || request == nil {
+		return nil, ports.ErrModelRequestInvalid
 	}
 	runID := uuid.NewString()
 	request["runId"] = runID
@@ -137,7 +144,7 @@ func (host *Host) RunModelStream(ctx context.Context, grant ports.ModelStreamGra
 		defer cancel()
 		runErr = errors.Join(runErr, lease.Close(cleanupCtx))
 	}()
-	baseURL, client, token := lease.Endpoint()
+	baseURL, client, token := leaseEndpoint(lease)
 	endpoint := strings.TrimRight(baseURL, "/") + "/v1/model/stream"
 	requestHTTP, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(requestBody))
 	if err != nil {
@@ -152,12 +159,21 @@ func (host *Host) RunModelStream(ctx context.Context, grant ports.ModelStreamGra
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		defer response.Body.Close()
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		// The canonical host reserves 400 for request validation; provider
+		// and execution failures use 502.
+		if response.StatusCode == http.StatusBadRequest {
+			return nil, ports.ErrModelRequestInvalid
+		}
 		return nil, fmt.Errorf("model stream host refused request with status %d", response.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 16<<20))
+	// Read one extra byte so the cap cannot turn a truncated stream into success.
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxModelStreamBytes+1))
 	response.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read model stream: %w", err)
+	}
+	if len(body) > maxModelStreamBytes {
+		return nil, errors.New("model stream response too large")
 	}
 	return io.NopCloser(bytes.NewReader(body)), nil
 }

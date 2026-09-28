@@ -158,7 +158,7 @@ func (host *Host) RunModelTest(ctx context.Context, ownerID int64, request json.
 		defer cancel()
 		runErr = errors.Join(runErr, lease.Close(cleanupCtx))
 	}()
-	baseURL, client, token := lease.Endpoint()
+	baseURL, client, token := leaseEndpoint(lease)
 	private, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/model/test", bytes.NewReader(request))
 	if err != nil {
 		return nil, err
