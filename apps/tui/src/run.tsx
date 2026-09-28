@@ -138,6 +138,7 @@ if (values.print !== undefined) {
 // Help and print mode never initialize the terminal's native library.
 let flows: ReturnType<typeof FlowControl.make> | undefined
 try {
+  await import("./native.ts")
   const [{ createCliRenderer }, { createRoot }, { App }, { createElement }] = await Promise.all([
     import("@opentui/core"),
     import("@opentui/react"),

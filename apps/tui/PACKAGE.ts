@@ -9,6 +9,7 @@
  * @since 1.0.0
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as cli } from "../../packages/smithers/PACKAGE.ts"
 
 const cwd = "apps/tui"
 
@@ -30,7 +31,7 @@ const sources = [
  */
 const check = Smithers.Typecheck({
   srcs: sources,
-  deps: [],
+  deps: [cli.nativeSources],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
   incremental: false,
@@ -49,7 +50,7 @@ const unitTests = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   runner: Smithers.testSuite(["./test"]),
   srcs: sources,
-  deps: [],
+  deps: [cli.nativeSources],
   cwd
 })
 
@@ -59,7 +60,7 @@ const e2eTests = Smithers.NodeTest({
   runner: Smithers.testSuite(["./e2e"]),
   timeout: "20m",
   srcs: sources,
-  deps: [],
+  deps: [cli.nativeSources],
   cwd
 })
 
@@ -95,7 +96,10 @@ const fmt = Smithers.Dprint({
 /** Colocated source documentation consumed by the dedicated Astro site. */
 const docsFiles = Smithers.Filegroup({ srcs: [Smithers.glob("docs/**/*.md")], cwd })
 /** The real renderer and replay fixture used to execute documentation scripts. */
-const recordingSources = Smithers.Filegroup({ srcs: [...sources, Smithers.file("package.json")], cwd })
+const recordingSources = Smithers.Filegroup({
+  srcs: [...sources, Smithers.file("package.json"), cli.nativeSources],
+  cwd
+})
 
 /**
  * Security review of the terminal host: the approval gate, the person's own

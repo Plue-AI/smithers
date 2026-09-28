@@ -1,0 +1,69 @@
+{
+  "upstreamCommit": "6b9863ea7c5fae22bfebb23c242ddcc4c2b0aa0e",
+  "patchSha256": "008f3c535a02533d36ea8dd2c0f7bacc42fb374b73996eb8f5b08750b576c85c",
+  "artifacts": [
+    {
+      "target": "darwin-arm64",
+      "bytes": 5587568,
+      "sha256": "7f44e4e92256a3bcb88f0db732da48c93a42ea3ebb963a93b5861a5412486ae2",
+      "format": "Mach-O 64-bit dynamically linked shared library arm64"
+    },
+    {
+      "target": "darwin-x64",
+      "bytes": 5666863,
+      "sha256": "a9672b6c03f0ae9cc46445994354082c09321283df0308a1e600160e0200f00b",
+      "format": "Mach-O 64-bit dynamically linked shared library x86_64"
+    },
+    {
+      "target": "linux-arm64",
+      "bytes": 5716184,
+      "sha256": "42d7cd154d6fa5b3e5bdb04a1abe6c084257281a25bf43ceacc782d02b76538d",
+      "format": "ELF 64-bit LSB shared object, ARM aarch64, version 1 (SYSV), dynamically linked, BuildID[sha1]=a18f8edcb8d664ad981c62346512270d0439fe55, stripped"
+    },
+    {
+      "target": "linux-x64",
+      "bytes": 6093400,
+      "sha256": "f019ff467c06bda57a8f6ec6ed463f51b01bc5cb62eaa1343f61176da7a623e3",
+      "format": "ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), dynamically linked, BuildID[sha1]=8af514c79677c3550fff14ca4e7f70a340411227, stripped"
+    },
+    {
+      "target": "linux-arm64-musl",
+      "bytes": 5700048,
+      "sha256": "7c1b61a2a6c8cf8f9c8ed8b26640fb877ff5ff96c0fbd9e7101209dca458b1ed",
+      "format": "ELF 64-bit LSB shared object, ARM aarch64, version 1 (SYSV), dynamically linked, BuildID[sha1]=7f3f54e53e2fc6410c0ba6817787569ecbca8f4f, stripped"
+    },
+    {
+      "target": "linux-x64-musl",
+      "bytes": 6073136,
+      "sha256": "488705e1ea4b3748408e039dabb483815d310efa8d86b7148fb82395b9331153",
+      "format": "ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), dynamically linked, BuildID[sha1]=bcacb2ef32c27e0042b76131424364226eed6145, stripped"
+    },
+    {
+      "target": "win32-arm64",
+      "bytes": 5488128,
+      "sha256": "ccfe6eb7333f7ba26a23a649f75b4e931ae165cf6aa7c1f41ba1964b7a722f50",
+      "format": "PE32+ executable (DLL) (GUI) Aarch64, for MS Windows"
+    },
+    {
+      "target": "win32-x64",
+      "bytes": 6122496,
+      "sha256": "c1edbf802166b70fff2994715649a5c77d3dcb368ae0bf54af4321de7832345d",
+      "format": "PE32+ executable (DLL) (GUI) x86-64, for MS Windows"
+    }
+  ],
+  "reproducedHost": {
+    "target": "darwin-arm64",
+    "sha256": "7f44e4e92256a3bcb88f0db732da48c93a42ea3ebb963a93b5861a5412486ae2",
+    "cleanSourceDirectoriesDiffer": true
+  },
+  "nativeTests": {
+    "passed": 2158,
+    "skipped": 34,
+    "failed": 0
+  },
+  "limitations": [
+    "Only macOS arm64 artifacts executed locally; other targets cross-built and file headers inspected.",
+    "The 34 upstream skipped native tests remain skipped.",
+    "Fable review requested but configured API has insufficient credit."
+  ]
+}

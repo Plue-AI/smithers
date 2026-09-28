@@ -7,4 +7,6 @@
 import { afterAll } from "bun:test"
 import { claim } from "./scratch.ts"
 
+await import("../src/native.ts")
+
 afterAll(claim(), 300_000)

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -792,6 +793,45 @@ test("the platform package tarball carries all five native helpers including the
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test("the actual CLI tarball carries its native export and all eight verified editor artifacts", async () => {
+  const source = join(repoRoot, "packages/smithers")
+  const manifest = JSON.parse(readFileSync(join(source, "package.json"), "utf8"))
+  const native = JSON.parse(readFileSync(join(source, "vendor/opentui-native/manifest.json"), "utf8"))
+  const directory = await mkdtemp(join(tmpdir(), "smithers-pack-tui-native-"))
+  const digest = (bytes) => createHash("sha256").update(bytes).digest("hex")
+  try {
+    const staged = join(directory, "staged")
+    // Staging and packing read the actual public package without rebuilding or
+    // mutating its dist directory; normal release gates establish build freshness.
+    await stagePackage(source, staged, manifest)
+    const result = JSON.parse(execFileSync("pnpm", ["pack", "--json", "--config.ignore-scripts=true", "--pack-destination", directory], { cwd: staged, encoding: "utf8" }))
+    const filename = packResultFilename(Array.isArray(result) ? result[0] : result, manifest.name)
+    const tarball = join(directory, filename)
+    const entries = new Set(execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).trim().split("\n"))
+    const packed = JSON.parse(execFileSync("tar", ["-xOf", tarball, "package/package.json"], { encoding: "utf8" }))
+    assert.deepEqual(packed.exports["./tui-native"], publicationManifest(manifest).exports["./tui-native"])
+    assert.equal(assertExportTargets({ name: manifest.name, exports: { "./tui-native": packed.exports["./tui-native"] } }, entries, filename), 3)
+    assert.equal(Object.keys(native.targets).length, 8)
+    for (const [target, artifact] of Object.entries(native.targets)) {
+      const path = `package/vendor/opentui-native/${target}/${artifact.file}`
+      assert.ok(entries.has(path), `${target} native artifact absent from actual CLI tarball`)
+      const bytes = execFileSync("tar", ["-xOf", tarball, path], { maxBuffer: 32 * 1024 * 1024 })
+      assert.equal(digest(bytes), artifact.sha256, `${target} tarball bytes differ from verified manifest`)
+    }
+    for (const file of ["manifest.json", "native.patch", "verify.mjs", "rebuild.mjs", "README.md"]) {
+      assert.ok(entries.has(`package/vendor/opentui-native/${file}`), `${file} absent from native publication`)
+    }
+    execFileSync("tar", ["-xzf", tarball, "-C", directory])
+    const consumer = join(directory, "consumer")
+    await mkdir(join(consumer, "node_modules/@smthrs"), { recursive: true })
+    await symlink(join(directory, "package"), join(consumer, "node_modules/@smthrs/cli"))
+    const probe = join(consumer, "probe.mjs")
+    await writeFile(probe, 'import nativePath from "@smthrs/cli/tui-native"; import {readFileSync} from "node:fs"; import {createHash} from "node:crypto"; console.log(createHash("sha256").update(readFileSync(nativePath)).digest("hex"))\n')
+    const target = `${process.platform}-${process.arch}${process.platform === "linux" && process.env.OPENTUI_LIBC === "musl" ? "-musl" : ""}`
+    assert.equal(execFileSync(process.execPath, [probe], { cwd: consumer, encoding: "utf8" }).trim(), native.targets[target].sha256)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test("native smoke distinguishes an early rehearsal from a missing or incomplete release bundle", async () => {
   const directory = await mkdtemp(join(tmpdir(), "smithers-smoke-native-"))
   try {
@@ -971,4 +1011,34 @@ test("the release source revision refuses a tree with neither .git nor .jj", asy
   } finally {
     await rm(base, { recursive: true, force: true })
   }
+})
+
+
+test("native verifier validates aliased CLI paths but remains inert on import", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "smithers-native-verify-"))
+  try {
+    const actual = join(directory, "actual")
+    const alias = join(directory, "alias")
+    await mkdir(actual)
+    await cp(join(repoRoot, "packages/smithers/vendor/opentui-native/verify.mjs"), join(actual, "verify.mjs"))
+    await writeFile(join(actual, "manifest.json"), JSON.stringify({ patchSha256: "deliberately-not-the-patch-hash", targets: {} }))
+    await writeFile(join(actual, "native.patch"), "literal mismatched patch")
+    await symlink(actual, alias, "junction")
+    for (const path of [join(actual, "verify.mjs"), join(alias, "verify.mjs")]) {
+      for (const flags of [[], ["--preserve-symlinks-main"]]) {
+        const result = spawnSync(process.execPath, [...flags, path], { encoding: "utf8" })
+        assert.equal(result.error, undefined)
+        assert.equal(result.status, 1)
+        assert.match(result.stderr, /OpenTUI native source patch does not match its manifest/)
+      }
+    }
+    const url = pathToFileURL(join(alias, "verify.mjs")).href
+    const imported = spawnSync(process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(url)}); console.log("import-only")`], { encoding: "utf8" })
+    assert.equal(imported.status, 0)
+    assert.equal(imported.stdout, "import-only\n")
+    assert.equal(imported.stderr, "")
+    const verified = spawnSync(process.execPath, ["--input-type=module", "-e", `const {verifyNativeArtifacts} = await import(${JSON.stringify(url)}); verifyNativeArtifacts()`], { encoding: "utf8" })
+    assert.equal(verified.status, 1)
+    assert.match(verified.stderr, /OpenTUI native source patch does not match its manifest/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
 })

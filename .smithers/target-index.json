@@ -17299,6 +17299,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/native.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/palette.ts"
       },
       {
@@ -24460,7 +24464,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/smithers:nativeSources"
+    ],
     "source": {
       "file": "apps/tui/PACKAGE.ts"
     }
@@ -24521,7 +24527,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/smithers:nativeSources"
+    ],
     "source": {
       "file": "apps/tui/PACKAGE.ts"
     }
@@ -24625,7 +24633,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/smithers:nativeSources"
+    ],
     "source": {
       "file": "apps/tui/PACKAGE.ts"
     }
@@ -24728,7 +24738,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/smithers:nativeSources"
+    ],
     "source": {
       "file": "apps/tui/PACKAGE.ts"
     }
@@ -51523,6 +51535,19 @@
         "exclude": []
       },
       {
+        "kind": "glob",
+        "pattern": "packages/smithers/vendor/opentui-native/**",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/scripts/build-tui.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/scripts/tui-native-editor.mjs"
+      },
+      {
         "kind": "file",
         "path": "packages/smithers/src/index.ts"
       },
@@ -51566,6 +51591,26 @@
       {
         "kind": "file",
         "path": "eslint.jsdoc.js"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers:nativeSources",
+    "package": "packages/smithers",
+    "name": "nativeSources",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/vendor/opentui-native/**",
+        "exclude": []
       }
     ],
     "outputs": [],

@@ -11,7 +11,13 @@ const { check, circular, docs, docsFiles, fmt, lib, lint } = BuildAndCheckTypeSc
   // duration available; individual test deadlines remain unchanged.
   testTimeoutMs: 40 * 60_000,
   // `scripts/build.mjs` bundles the TUI that `smthrs tui` runs.
-  buildInputs: [Smithers.glob("//apps/tui/src/**/*.ts"), Smithers.glob("//apps/tui/src/**/*.tsx")],
+  buildInputs: [
+    Smithers.glob("//apps/tui/src/**/*.ts"),
+    Smithers.glob("//apps/tui/src/**/*.tsx"),
+    Smithers.glob("vendor/opentui-native/**"),
+    Smithers.file("scripts/build-tui.mjs"),
+    Smithers.file("scripts/tui-native-editor.mjs")
+  ],
   tests: Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**"] })
 })
 
@@ -62,6 +68,12 @@ const test = Smithers.Shell.Test({
  * `vitest.faults.config.ts`.
  */
 const faults = Smithers.FaultSuite({ cwd: "packages/smithers" })
+
+/** The corrected native editor and its reproducible source used by the TUI. */
+const nativeSources = Smithers.Filegroup({
+  srcs: [Smithers.glob("vendor/opentui-native/**")],
+  cwd: "packages/smithers"
+})
 
 /**
  * The command sources, README, package docs, and the manifest whose version
@@ -230,6 +242,7 @@ export const Package = Smithers.Package({
     fmt,
     lib,
     lint,
+    nativeSources,
     test,
     historyPostgresDatabase,
     docsSources,

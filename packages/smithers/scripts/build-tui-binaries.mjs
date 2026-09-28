@@ -24,6 +24,8 @@ import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { compiledEffectRuntime } from "./compiled-effect-runtime.mjs"
+import { nativeEditorPlugin } from "./tui-native-editor.mjs"
+import { verifyNativeArtifacts } from "../vendor/opentui-native/verify.mjs"
 import { nativeHelper, nativeHelperBootstrap } from "./tui-native-helper.mjs"
 
 if (typeof Bun === "undefined") {
@@ -32,6 +34,8 @@ if (typeof Bun === "undefined") {
 }
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+
+verifyNativeArtifacts()
 const app = resolve(packageRoot, "../../apps/tui")
 const manifest = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"))
 const fromApp = createRequire(join(app, "package.json"))
@@ -83,6 +87,7 @@ for (const target of selected) {
   console.log(`building ${name}`)
   const helper = helpers.get(target)
   const result = await Bun.build({
+    plugins: [nativeEditorPlugin(packageRoot)],
     entrypoints: [entryName, workerName],
     files: {
       [entryName]: `${runtime}\n${nativeHelperBootstrap(helper, packageRoot)}\nawait import(${JSON.stringify(join(app, "src/main.tsx"))});`,

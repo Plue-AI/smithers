@@ -72,6 +72,10 @@ Compiled interactive builds need a writable, executable `TMPDIR`; Alpine
 also needs `libstdc++`. See the [TUI installation guide](/docs/tui/) for
 source-checkout prerequisites and the full reference.
 
+The CLI package ships its native editor; keep the package intact when moving
+a Node installation. Compiled binaries embed the editor. Installation does not
+require Zig.
+
 ```bash
 smthrs tui                       # open the TUI here
 smthrs tui ../repo -c            # continue the latest conversation in ../repo

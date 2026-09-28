@@ -1,0 +1,936 @@
+diff --git a/packages/native/build.zig b/packages/native/build.zig
+--- a/packages/native/build.zig
++++ b/packages/native/build.zig
+@@ -512,6 +512,7 @@
+     const debug_use_llvm = b.option(bool, "debug-llvm", "Use LLVM backend for debug/test artifacts");
+     const target_option = b.option([]const u8, "library-target", "Build shared library for a specific target (e.g., 'x86_64-linux-gnu.2.17').");
+     const build_all = b.option(bool, "all", "Build for all supported targets") orelse false;
++    const strip_native = b.option(bool, "strip-native", "Strip native distribution libraries at compilation") orelse false;
+     const gpa_safe_stats = b.option(bool, "gpa-safe-stats", "Enable GPA safety checks for trustworthy allocator stats") orelse false;
+     const macos_sdk_path = resolveMacOSSDKPath(b);
+     const build_options = b.addOptions();
+@@ -529,19 +530,19 @@
+ 
+     if (target_option) |target_str| {
+         // Build single target
+-        buildSingleTarget(b, target_str, optimize, build_options, macos_sdk_path) catch |err| {
++        buildSingleTarget(b, target_str, optimize, build_options, macos_sdk_path, strip_native) catch |err| {
+             std.debug.print("Error building target '{s}': {}\n", .{ target_str, err });
+             std.process.exit(1);
+         };
+     } else if (build_all) {
+         // Build all supported targets
+-        buildAllTargets(b, optimize, build_options, macos_sdk_path) catch |err| {
++        buildAllTargets(b, optimize, build_options, macos_sdk_path, strip_native) catch |err| {
+             std.debug.print("Error building all targets: {}\n", .{err});
+             std.process.exit(1);
+         };
+     } else {
+         // Build for native target only (default)
+-        buildNativeTarget(b, optimize, build_options, macos_sdk_path) catch |err| {
++        buildNativeTarget(b, optimize, build_options, macos_sdk_path, strip_native) catch |err| {
+             std.debug.print("Error building native target: {}\n", .{err});
+             std.process.exit(1);
+         };
+@@ -638,6 +639,7 @@
+     optimize: std.builtin.OptimizeMode,
+     build_options: *std.Build.Step.Options,
+     macos_sdk_path: ?[]const u8,
++    strip_native: bool,
+ ) !void {
+     for (SUPPORTED_TARGETS) |supported_target| {
+         try buildTarget(
+@@ -648,6 +650,7 @@
+             optimize,
+             build_options,
+             macos_sdk_path,
++            strip_native,
+         );
+     }
+ }
+@@ -657,6 +660,7 @@
+     optimize: std.builtin.OptimizeMode,
+     build_options: *std.Build.Step.Options,
+     macos_sdk_path: ?[]const u8,
++    strip_native: bool,
+ ) !void {
+     // Find the matching supported target for the native platform
+     const native_arch = @tagName(builtin.cpu.arch);
+@@ -675,6 +679,7 @@
+                 optimize,
+                 build_options,
+                 macos_sdk_path,
++                strip_native,
+             );
+             return;
+         }
+@@ -690,6 +695,7 @@
+     optimize: std.builtin.OptimizeMode,
+     build_options: *std.Build.Step.Options,
+     macos_sdk_path: ?[]const u8,
++    strip_native: bool,
+ ) !void {
+     // Check if it matches a known target, use its output_name
+     for (SUPPORTED_TARGETS) |supported_target| {
+@@ -702,13 +708,14 @@
+                 optimize,
+                 build_options,
+                 macos_sdk_path,
++                strip_native,
+             );
+             return;
+         }
+     }
+     // Custom target - use target string as output name
+     const description = try std.fmt.allocPrint(b.allocator, "Custom target: {s}", .{target_str});
+-    try buildTarget(b, target_str, target_str, description, optimize, build_options, macos_sdk_path);
++    try buildTarget(b, target_str, target_str, description, optimize, build_options, macos_sdk_path, strip_native);
+ }
+ 
+ fn buildTarget(
+@@ -719,6 +726,7 @@
+     optimize: std.builtin.OptimizeMode,
+     build_options: *std.Build.Step.Options,
+     macos_sdk_path: ?[]const u8,
++    strip_native: bool,
+ ) !void {
+     const target_query = try std.Target.Query.parse(.{ .arch_os_abi = zig_target });
+     const target = b.resolveTargetQuery(target_query);
+@@ -734,7 +742,7 @@
+         .optimize = optimize,
+         // Release symbols must describe this exact optimized code. The package
+         // build detaches them before stripping only the distribution copy.
+-        .strip = false,
++        .strip = strip_native,
+     });
+ 
+     applyDependencies(b, module, optimize, target, build_options);
+@@ -756,7 +764,7 @@
+                 .custom = try std.fmt.allocPrint(b.allocator, "../lib/{s}", .{output_name}),
+             },
+         },
+-        .pdb_dir = if (optimize == .Debug) .default else if (target.result.os.tag == .windows) .{ .override = .{
++        .pdb_dir = if (strip_native) .disabled else if (optimize == .Debug) .default else if (target.result.os.tag == .windows) .{ .override = .{
+             .custom = try std.fmt.allocPrint(b.allocator, "../lib/{s}", .{output_name}),
+         } } else .disabled,
+     });
+diff --git a/packages/native/src/edit-buffer.zig b/packages/native/src/edit-buffer.zig
+--- a/packages/native/src/edit-buffer.zig
++++ b/packages/native/src/edit-buffer.zig
+@@ -7,6 +7,7 @@
+ const link = @import("link.zig");
+ 
+ const utf8 = @import("utf8.zig");
++const uucode = @import("uucode");
+ const event_emitter = @import("event-emitter.zig");
+ const event_bus = @import("event-bus.zig");
+ 
+@@ -184,6 +185,7 @@
+             .segment_splitter = .{ .ctx = self, .splitFn = splitSegmentCallback },
+             .event_sink = event_sink,
+         };
++        self.tb.rope().merge_fn = .{ .ctx = self, .call = mergeSegments };
+ 
+         return self;
+     }
+@@ -372,6 +374,92 @@
+         }
+     }
+ 
++    fn graphemeBoundary(self: *EditBuffer, left: []const u8, right: []const u8) bool {
++        if (left.len == 0 or right.len == 0) return true;
++        var last = left.len - 1;
++        while (last > 0 and (left[last] & 0xc0) == 0x80) : (last -= 1) {}
++        const previous = utf8.decodeUtf8Unchecked(left, last).cp;
++        const first = utf8.decodeUtf8Unchecked(right, 0).cp;
++        // Most pairs have the same boundary under every segmentation state.
++        // Avoid scanning a growing Unicode leaf for those ordinary key events.
++        var initial: uucode.grapheme.BreakState = .default;
++        const boundary = utf8.isGraphemeBreak(previous, first, &initial, self.tb.widthMethod());
++        var needs_context = false;
++        inline for (std.meta.tags(uucode.grapheme.BreakState)) |value| {
++            var state = value;
++            if (utf8.isGraphemeBreak(previous, first, &state, self.tb.widthMethod()) != boundary) needs_context = true;
++        }
++        if (!needs_context) return boundary;
++        var state: uucode.grapheme.BreakState = .default;
++        var prev: ?u21 = null;
++        var pos: usize = 0;
++        while (pos < left.len) {
++            const decoded = utf8.decodeUtf8Unchecked(left, pos);
++            _ = utf8.isGraphemeBreak(prev, decoded.cp, &state, self.tb.widthMethod());
++            prev = decoded.cp;
++            pos += decoded.len;
++        }
++        return utf8.isGraphemeBreak(prev, first, &state, self.tb.widthMethod());
++    }
++
++    /// Rope leaves must not split a grapheme introduced by separate key events.
++    /// Reuse contiguous add-buffer storage; only a cross-buffer continuation copies.
++    fn mergeSegments(ctx: *anyopaque, left: *const Segment, right: *const Segment) error{OutOfMemory}!?Segment {
++        const self: *EditBuffer = @ptrCast(@alignCast(ctx));
++        const l = left.asText() orelse return null;
++        const r = right.asText() orelse return null;
++        const left_bytes = l.getBytes(self.tb.memRegistry());
++        const right_bytes = r.getBytes(self.tb.memRegistry());
++        if (left_bytes.len == 0 or right_bytes.len == 0) return null;
++
++        const boundary = self.graphemeBoundary(left_bytes, right_bytes);
++        if (l.mem_id == r.mem_id and l.byte_end == r.byte_start) {
++            if (!boundary) return .{ .text = self.tb.createChunk(l.mem_id, l.byte_start, r.byte_end) };
++            return if (Segment.canMerge(left, right)) Segment.merge(self.allocator, left, right) else null;
++        }
++        if (boundary) return null;
++
++        self.ensureAddCapacity(left_bytes.len + right_bytes.len) catch return error.OutOfMemory;
++        const begin = self.add_buffer.append(left_bytes);
++        const end = self.add_buffer.append(right_bytes);
++        return .{ .text = self.tb.createChunk(begin.mem_id, begin.start, end.end) };
++    }
++
++    fn columnAfterInsert(self: *EditBuffer, cursor: Cursor, bytes: []const u8) !u32 {
++        const marker = self.tb.rope().getMarker(.linestart, cursor.row) orelse return EditBufferError.InvalidCursor;
++        var index = marker.leaf_index + 1;
++        var col: u32 = 0;
++        var prefix: []const u8 = &.{};
++        while (index < self.tb.rope().count()) : (index += 1) {
++            const segment = self.tb.rope().get(index).?;
++            const chunk = segment.asText() orelse break;
++            const content = chunk.getBytes(self.tb.memRegistry());
++            if (col + chunk.width_cols <= cursor.col) {
++                prefix = content;
++                col += chunk.width_cols;
++            } else {
++                if (col < cursor.col) {
++                    const position = utf8.findPosByWidth(content, cursor.col - col, self.tb.tabWidth(), chunk.isAsciiOnly(), false, self.tb.widthMethod());
++                    prefix = content[0..position.byte_offset];
++                }
++                break;
++            }
++        }
++        if (self.graphemeBoundary(prefix, bytes)) {
++            return cursor.col + utf8.calculateTextWidth(bytes, self.tb.tabWidth(), utf8.isAsciiOnly(bytes), self.tb.widthMethod());
++        }
++        // Only the preceding grapheme can change width when text is appended.
++        // Measure the prefix, not the whole rope delta: a right-hand suffix may
++        // also join this grapheme without moving the insertion point backwards.
++        const previous = utf8.getPrevGraphemeStart(prefix, prefix.len, self.tb.tabWidth(), .unicode);
++        const tail = if (previous) |part| prefix[part.start_offset..] else prefix;
++        const joined = try std.mem.concat(self.allocator, u8, &.{ tail, bytes });
++        defer self.allocator.free(joined);
++        const before = utf8.calculateTextWidth(tail, self.tb.tabWidth(), utf8.isAsciiOnly(tail), self.tb.widthMethod());
++        const after = utf8.calculateTextWidth(joined, self.tb.tabWidth(), utf8.isAsciiOnly(joined), self.tb.widthMethod());
++        return cursor.col - before + after;
++    }
++
+     pub fn insertText(self: *EditBuffer, bytes: []const u8) !void {
+         if (bytes.len == 0) return;
+         if (self.cursors.items.len == 0) return;
+@@ -390,8 +478,6 @@
+ 
+         var result = try self.tb.textToSegments(self.allocator, bytes, base_mem_id, base_start, false);
+         defer result.segments.deinit(result.allocator);
+-
+-        const inserted_width_cols = result.total_width_cols;
+ 
+         // Calculate width after last break
+         var width_after_last_break: u32 = 0;
+@@ -405,12 +491,17 @@
+             }
+         }
+ 
++        const inserted_col = if (num_breaks == 0) try self.columnAfterInsert(cursor, bytes) else width_after_last_break;
++
+         if (result.segments.items.len > 0) {
+             try self.tb.rope().insertSliceByWeight(insert_offset, result.segments.items, &self.segment_splitter);
+         }
+         if (num_breaks > 0) {
+             const new_row = cursor.row + @as(u32, @intCast(num_breaks));
+-            const new_col = width_after_last_break;
++            var new_col = inserted_col;
++            if (iter_mod.getCursorUnitBoundsAt(self.tb.rope(), self.tb.memRegistry(), new_row, new_col, self.tb.tabWidth(), self.tb.widthMethod())) |bounds| {
++                if (bounds.start < new_col) new_col = bounds.end;
++            }
+             const new_offset = iter_mod.coordsToOffset(self.tb.rope(), new_row, new_col) orelse 0;
+             self.cursors.items[0] = .{
+                 .row = new_row,
+@@ -419,7 +510,10 @@
+                 .offset = new_offset,
+             };
+         } else {
+-            const new_col = cursor.col + inserted_width_cols;
++            var new_col = inserted_col;
++            if (iter_mod.getCursorUnitBoundsAt(self.tb.rope(), self.tb.memRegistry(), cursor.row, new_col, self.tb.tabWidth(), self.tb.widthMethod())) |bounds| {
++                if (bounds.start < new_col) new_col = bounds.end;
++            }
+             const new_offset = iter_mod.coordsToOffset(self.tb.rope(), cursor.row, new_col) orelse 0;
+             self.cursors.items[0] = .{
+                 .row = cursor.row,
+@@ -472,9 +566,63 @@
+         self.emitNativeEvent("content-changed");
+     }
+ 
++    /// Display-column cursors cannot distinguish either side of a leading
++    /// zero-width grapheme. Both delete keys must still be able to remove it.
++    fn deleteLeadingZeroWidth(self: *EditBuffer, backwards: bool) !bool {
++        const cursor = self.getPrimaryCursor();
++        if (cursor.col != 0) return false;
++        const marker = self.tb.rope().getMarker(.linestart, cursor.row) orelse return false;
++        const Match = struct { index: u32, chunk: TextChunk, start: u32, end: u32 };
++        var match: ?Match = null;
++        var index = marker.leaf_index + 1;
++        scan: while (index < self.tb.rope().count()) : (index += 1) {
++            const segment = self.tb.rope().get(index).?;
++            const chunk = segment.asText() orelse break;
++            const content = chunk.getBytes(self.tb.memRegistry());
++            var pos: usize = 0;
++            while (pos < content.len) {
++                const start = pos;
++                const first = utf8.decodeUtf8Unchecked(content, pos);
++                var previous = first.cp;
++                var state: uucode.grapheme.BreakState = .default;
++                pos += first.len;
++                while (pos < content.len) {
++                    const decoded = utf8.decodeUtf8Unchecked(content, pos);
++                    if (utf8.isGraphemeBreak(previous, decoded.cp, &state, self.tb.widthMethod())) break;
++                    previous = decoded.cp;
++                    pos += decoded.len;
++                }
++                if (utf8.calculateTextWidth(content[start..pos], self.tb.tabWidth(), chunk.isAsciiOnly(), self.tb.widthMethod()) != 0) break :scan;
++                match = .{ .index = index, .chunk = chunk.*, .start = @intCast(start), .end = @intCast(pos) };
++                if (!backwards) break :scan;
++            }
++        }
++        const found = match orelse return false;
++        try self.autoStoreUndo();
++        var replacement: [2]Segment = undefined;
++        var count: usize = 0;
++        if (found.start > 0) {
++            replacement[count] = .{ .text = self.tb.createChunk(found.chunk.mem_id, found.chunk.byte_start, found.chunk.byte_start + found.start) };
++            count += 1;
++        }
++        if (found.chunk.byte_start + found.end < found.chunk.byte_end) {
++            replacement[count] = .{ .text = self.tb.createChunk(found.chunk.mem_id, found.chunk.byte_start + found.end, found.chunk.byte_end) };
++            count += 1;
++        }
++        try self.tb.rope().delete(found.index);
++        if (count > 0) try self.tb.rope().insert_slice(found.index, replacement[0..count]);
++        self.tb.markViewsDirty();
++        self.events.emit(.cursorChanged);
++        self.emitNativeEvent("cursor-changed");
++        self.emitNativeEvent("content-changed");
++        return true;
++    }
++
+     pub fn backspace(self: *EditBuffer) !void {
+         if (self.cursors.items.len == 0) return;
+         const cursor = self.cursors.items[0];
++
++        if (try self.deleteLeadingZeroWidth(true)) return;
+ 
+         if (cursor.row == 0 and cursor.col == 0) return;
+ 
+@@ -503,6 +651,8 @@
+     pub fn deleteForward(self: *EditBuffer) !void {
+         if (self.cursors.items.len == 0) return;
+         const cursor = self.cursors.items[0];
++
++        if (try self.deleteLeadingZeroWidth(false)) return;
+ 
+         try self.autoStoreUndo();
+ 
+diff --git a/packages/native/src/rope.zig b/packages/native/src/rope.zig
+--- a/packages/native/src/rope.zig
++++ b/packages/native/src/rope.zig
+@@ -413,7 +413,8 @@
+                     .leaf => |*l| {
+                         const leaf_weight = node.metrics().weight();
+ 
+-                        if (target_weight == 0) {
++                        // Zero-weight content at a boundary belongs to the prefix.
++                        if (target_weight == 0 and leaf_weight != 0) {
+                             return .{ .left = empty_leaf, .right = node };
+                         } else if (target_weight >= leaf_weight) {
+                             return .{ .left = node, .right = empty_leaf };
+@@ -431,12 +432,10 @@
+                             const result = try split_at_weight(b.left, target_weight, allocator, empty_leaf, split_leaf_fn);
+                             const new_right = try join_balanced(result.right, b.right, allocator);
+                             return .{ .left = result.left, .right = new_right };
+-                        } else if (target_weight > left_weight) {
++                        } else {
+                             const result = try split_at_weight(b.right, target_weight - left_weight, allocator, empty_leaf, split_leaf_fn);
+                             const new_left = try join_balanced(b.left, result.left, allocator);
+                             return .{ .left = new_left, .right = result.right };
+-                        } else {
+-                            return .{ .left = b.left, .right = b.right };
+                         }
+                     },
+                 };
+@@ -467,6 +466,13 @@
+         undo_depth: usize = 0,
+         version: u64 = 0,
+         marker_cache: MarkerCache,
++        /// The owner can remeasure or join text whose grapheme spans a leaf boundary.
++        merge_fn: ?MergeFn = null,
++
++        pub const MergeFn = struct {
++            ctx: *anyopaque,
++            call: *const fn (*anyopaque, *const T, *const T) error{OutOfMemory}!?T,
++        };
+ 
+         pub fn init(allocator: Allocator) error{OutOfMemory}!Self {
+             return initWithConfig(allocator, .{});
+@@ -705,6 +711,7 @@
+                 .redo_history = null,
+                 .curr_history = null,
+                 .marker_cache = MarkerCache.init(self.allocator),
++                .merge_fn = self.merge_fn,
+             };
+         }
+ 
+@@ -869,6 +876,7 @@
+                 .redo_history = null,
+                 .curr_history = null,
+                 .marker_cache = MarkerCache.init(self.allocator),
++                .merge_fn = self.merge_fn,
+             };
+         }
+ 
+@@ -917,18 +925,21 @@
+             const l_last = getLastLeafIn(left);
+             const r_first = getFirstLeafIn(right);
+ 
+-            if (@hasDecl(T, "canMerge") and @hasDecl(T, "merge")) {
+-                if (l_last != null and r_first != null) {
+-                    if (T.canMerge(l_last.?, r_first.?)) {
+-                        const merged = T.merge(self.allocator, l_last.?, r_first.?);
+-                        const merged_leaf = try Node.new_leaf(self.allocator, merged);
+-
+-                        const L = try dropLast(left, self.allocator, self.empty_leaf);
+-                        const R = try dropFirst(right, self.allocator, self.empty_leaf);
+-
+-                        const left_with_merged = try Node.join_balanced(L, merged_leaf, self.allocator);
+-                        return try Node.join_balanced(left_with_merged, R, self.allocator);
+-                    }
++            if (l_last != null and r_first != null) {
++                const maybe_merged = if (self.merge_fn) |merge_fn|
++                    try merge_fn.call(merge_fn.ctx, l_last.?, r_first.?)
++                else if (@hasDecl(T, "canMerge") and @hasDecl(T, "merge"))
++                    if (T.canMerge(l_last.?, r_first.?)) T.merge(self.allocator, l_last.?, r_first.?) else null
++                else
++                    null;
++                if (maybe_merged) |merged| {
++                    const merged_leaf = try Node.new_leaf(self.allocator, merged);
++
++                    const L = try dropLast(left, self.allocator, self.empty_leaf);
++                    const R = try dropFirst(right, self.allocator, self.empty_leaf);
++
++                    const left_with_merged = try Node.join_balanced(L, merged_leaf, self.allocator);
++                    return try Node.join_balanced(left_with_merged, R, self.allocator);
+                 }
+             }
+ 
+diff --git a/packages/native/src/tests/edit-buffer_test.zig b/packages/native/src/tests/edit-buffer_test.zig
+--- a/packages/native/src/tests/edit-buffer_test.zig
++++ b/packages/native/src/tests/edit-buffer_test.zig
+@@ -1940,3 +1940,372 @@
+     len = eb.getText(&buffer);
+     try std.testing.expectEqualStrings("Reset More", buffer[0..len]);
+ }
++
++fn insertUnicodeScalars(eb: *EditBuffer, text: []const u8) !void {
++    var it = (try std.unicode.Utf8View.init(text)).iterator();
++    while (it.nextCodepointSlice()) |scalar| try eb.insertText(scalar);
++}
++
++fn expectUnicodeText(eb: *EditBuffer, expected: []const u8) !void {
++    var out: [256]u8 = undefined;
++    try std.testing.expectEqualStrings(expected, out[0..eb.getText(&out)]);
++}
++
++test "EditBuffer - incremental Unicode preserves scalar order at every insertion" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++
++    for ([_][]const u8{ "e\u{0301}x", "😀e\u{0301}👨‍👩‍👧‍👦", "a\u{0301}\u{0327}b", "🏳️‍🌈x", "😀\ne\u{0301}x" }) |text| {
++        try eb.setText("");
++        var it = (try std.unicode.Utf8View.init(text)).iterator();
++        while (it.nextCodepointSlice()) |scalar| {
++            try eb.insertText(scalar);
++            try expectUnicodeText(eb, text[0..it.i]);
++        }
++    }
++}
++
++test "EditBuffer - incremental Unicode prefix extraction includes trailing combining marks" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++
++    const text = "😀e\u{0301}\u{0327}x";
++    var it = (try std.unicode.Utf8View.init(text)).iterator();
++    var out: [256]u8 = undefined;
++    while (it.nextCodepointSlice()) |scalar| {
++        try eb.insertText(scalar);
++        const cursor = eb.getPrimaryCursor();
++        try std.testing.expectEqualStrings(text[0..it.i], out[0..try eb.getTextRange(0, cursor.offset, &out)]);
++        try std.testing.expectEqualStrings(text[0..it.i], out[0..eb.getTextRangeByCoords(0, 0, cursor.row, cursor.col, &out)]);
++    }
++}
++
++test "EditBuffer - incremental Unicode cursor movement and middle insertion preserve accents" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++
++    try insertUnicodeScalars(eb, "😀e\u{0301}x");
++    try std.testing.expectEqual(@as(u32, 4), eb.getPrimaryCursor().col);
++    eb.moveLeft();
++    try std.testing.expectEqual(@as(u32, 3), eb.getPrimaryCursor().col);
++    try eb.insertText("!");
++    try expectUnicodeText(eb, "😀e\u{0301}!x");
++    eb.moveLeft();
++    eb.moveLeft();
++    try std.testing.expectEqual(@as(u32, 2), eb.getPrimaryCursor().col);
++    eb.moveRight();
++    try std.testing.expectEqual(@as(u32, 3), eb.getPrimaryCursor().col);
++    var out: [32]u8 = undefined;
++    try std.testing.expectEqualStrings("e\u{0301}", out[0..try eb.getTextRange(2, 3, &out)]);
++}
++
++test "EditBuffer - incremental Unicode backspace and forward delete remove base with accent" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++
++    try insertUnicodeScalars(eb, "😀e\u{0301}");
++    try eb.backspace();
++    try expectUnicodeText(eb, "😀");
++    try std.testing.expectEqual(@as(u32, 2), eb.getPrimaryCursor().col);
++    try eb.insertText("a");
++    try expectUnicodeText(eb, "😀a");
++
++    try eb.setText("");
++    try insertUnicodeScalars(eb, "😀e\u{0301}x");
++    try eb.setCursor(0, 2);
++    try eb.deleteForward();
++    try expectUnicodeText(eb, "😀x");
++    try std.testing.expectEqual(@as(u32, 2), eb.getPrimaryCursor().col);
++}
++
++test "EditBuffer - incremental Unicode selected range replacement and undo retain exact text" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++
++    try insertUnicodeScalars(eb, "😀e\u{0301}x");
++    var out: [32]u8 = undefined;
++    try std.testing.expectEqualStrings("e\u{0301}", out[0..eb.getTextRangeByCoords(0, 2, 0, 3, &out)]);
++    try eb.deleteRange(.{ .row = 0, .col = 3 }, .{ .row = 0, .col = 2 });
++    try expectUnicodeText(eb, "😀x");
++    try eb.insertText("a");
++    try eb.insertText("\u{0308}");
++    try expectUnicodeText(eb, "😀a\u{0308}x");
++    _ = try eb.undo();
++    try expectUnicodeText(eb, "😀ax");
++    _ = try eb.undo();
++    try expectUnicodeText(eb, "😀x");
++    _ = try eb.undo();
++    try expectUnicodeText(eb, "😀e\u{0301}x");
++    _ = try eb.redo();
++    try expectUnicodeText(eb, "😀x");
++}
++
++test "EditBuffer - incremental Unicode matches whole-string display width and end cursor" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    for ([_]@import("../utf8.zig").WidthMethod{ .wcwidth, .unicode }) |method| {
++        const typed = try EditBuffer.init(std.testing.allocator, pool, link_pool, method, null);
++        defer typed.deinit();
++        const pasted = try EditBuffer.init(std.testing.allocator, pool, link_pool, method, null);
++        defer pasted.deinit();
++        for ([_][]const u8{ "😀e\u{0301}x", "a\u{0301}\u{0327}b", "🏳️‍🌈x", "👨‍👩‍👧‍👦x", "😀\ne\u{0301}x" }) |text| {
++            try typed.setText("");
++            try insertUnicodeScalars(typed, text);
++            try pasted.setText(text);
++            const last_row = pasted.tb.getLineCount() - 1;
++            const last_width = pasted.tb.lineWidthAt(last_row);
++            try pasted.setCursor(last_row, last_width);
++            try expectUnicodeText(typed, text);
++            try std.testing.expectEqual(pasted.tb.getLength(), typed.tb.getLength());
++            try std.testing.expectEqual(pasted.getPrimaryCursor().row, typed.getPrimaryCursor().row);
++            try std.testing.expectEqual(pasted.getPrimaryCursor().col, typed.getPrimaryCursor().col);
++            try std.testing.expectEqual(pasted.getPrimaryCursor().offset, typed.getPrimaryCursor().offset);
++        }
++    }
++}
++
++test "EditBuffer - incremental Unicode accent extraction survives adjacent non-ASCII chunks" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++    var out: [128]u8 = undefined;
++    for ([_][]const u8{ "😀e\u{0301}😀", "😀e\u{0301}日本", "😀e\u{0301}👨‍👩‍👧‍👦" }) |text| {
++        try eb.setText("");
++        try insertUnicodeScalars(eb, text);
++        try std.testing.expectEqualStrings("😀e\u{0301}", out[0..try eb.getTextRange(0, 3, &out)]);
++        try std.testing.expectEqualStrings("e\u{0301}", out[0..eb.getTextRangeByCoords(0, 2, 0, 3, &out)]);
++    }
++}
++
++test "EditBuffer - incremental Unicode continuation crosses original and grown add buffers" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++
++    try eb.setText("😀e");
++    try eb.setCursor(0, 3);
++    try eb.insertText("\u{0301}");
++    try eb.insertText("x");
++    try expectUnicodeText(eb, "😀e\u{0301}x");
++    var selected: [32]u8 = undefined;
++    try std.testing.expectEqualStrings("e\u{0301}", selected[0..try eb.getTextRange(2, 3, &selected)]);
++    _ = try eb.undo();
++    try expectUnicodeText(eb, "😀e\u{0301}");
++    _ = try eb.undo();
++    try expectUnicodeText(eb, "😀e");
++    _ = try eb.redo();
++    try expectUnicodeText(eb, "😀e\u{0301}");
++
++    // Fill the documented initial 64 KiB add buffer; the accent must continue
++    // the preceding base even though the next insertion uses a new mem id.
++    try eb.setText("");
++    const prefix: [65535]u8 = @splat('a');
++    try eb.insertText(&prefix);
++    try eb.insertText("e");
++    try eb.insertText("\u{0301}");
++    try eb.insertText("x");
++    var out: [65540]u8 = undefined;
++    const len = eb.getText(&out);
++    try std.testing.expectEqual(@as(usize, 65539), len);
++    try std.testing.expectEqualStrings(&prefix, out[0..prefix.len]);
++    try std.testing.expectEqualStrings("e\u{0301}x", out[prefix.len..len]);
++    try std.testing.expectEqual(@as(u32, 65537), eb.getPrimaryCursor().col);
++    try std.testing.expectEqualStrings("e\u{0301}", selected[0..try eb.getTextRange(65535, 65536, &selected)]);
++    try eb.setCursor(0, 65536);
++    try eb.backspace();
++    const deleted_len = eb.getText(&out);
++    try std.testing.expectEqual(@as(usize, 65536), deleted_len);
++    try std.testing.expectEqualStrings("x", out[prefix.len..deleted_len]);
++}
++
++test "EditBuffer - incremental Unicode joining suffix lands after the joined grapheme" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .unicode, null);
++    defer eb.deinit();
++
++    try eb.setText("👩");
++    try eb.setCursor(0, 0);
++    try eb.insertText("👨");
++    try eb.insertText("\u{200d}");
++    try expectUnicodeText(eb, "👨‍👩");
++    try std.testing.expectEqual(@as(u32, 2), eb.getPrimaryCursor().col);
++    try eb.insertText("x");
++    try expectUnicodeText(eb, "👨‍👩x");
++    try std.testing.expectEqual(@as(u32, 3), eb.getPrimaryCursor().col);
++    eb.moveLeft();
++    try std.testing.expectEqual(@as(u32, 2), eb.getPrimaryCursor().col);
++    try eb.backspace();
++    try expectUnicodeText(eb, "x");
++}
++
++test "EditBuffer - incremental Unicode combining-only input keeps order at cursor zero" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++    try eb.insertText("\u{0301}");
++    try eb.insertText("\u{0327}");
++    try expectUnicodeText(eb, "\u{0301}\u{0327}");
++    try std.testing.expectEqual(@as(u32, 0), eb.getPrimaryCursor().col);
++    eb.moveLeft();
++    eb.moveRight();
++    try std.testing.expectEqual(@as(u32, 0), eb.getPrimaryCursor().col);
++    try eb.insertText("e");
++    try expectUnicodeText(eb, "\u{0301}\u{0327}e");
++    try std.testing.expectEqual(@as(u32, 1), eb.getPrimaryCursor().col);
++    _ = try eb.undo();
++    try expectUnicodeText(eb, "\u{0301}\u{0327}");
++}
++
++test "EditBuffer - incremental Unicode edits middle line after normalized CRLF" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++    try eb.setText("head\r\n😀x\r\nend");
++    try eb.setCursor(1, 2);
++    try eb.insertText("e");
++    try eb.insertText("\u{0301}");
++    try expectUnicodeText(eb, "head\n😀e\u{0301}x\nend");
++    try std.testing.expectEqual(@as(u32, 1), eb.getPrimaryCursor().row);
++    try std.testing.expectEqual(@as(u32, 3), eb.getPrimaryCursor().col);
++    var selected: [32]u8 = undefined;
++    try std.testing.expectEqualStrings("e\u{0301}", selected[0..eb.getTextRangeByCoords(1, 2, 1, 3, &selected)]);
++    try eb.insertText("\r\n");
++    try expectUnicodeText(eb, "head\n😀e\u{0301}\nx\nend");
++    try std.testing.expectEqual(@as(u32, 2), eb.getPrimaryCursor().row);
++    try std.testing.expectEqual(@as(u32, 0), eb.getPrimaryCursor().col);
++    try eb.backspace();
++    try expectUnicodeText(eb, "head\n😀e\u{0301}x\nend");
++    _ = try eb.undo();
++    try expectUnicodeText(eb, "head\n😀e\u{0301}\nx\nend");
++}
++
++test "EditBuffer - combining-only Backspace removes the zero-column draft" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    for ([_]@import("../utf8.zig").WidthMethod{ .wcwidth, .unicode }) |method| {
++        for ([_][]const u8{ "\u{0301}", "\u{0301}\u{0327}" }) |marks| {
++            for ([_][]const u8{ "", "x" }) |following| {
++                for ([_]bool{ false, true }) |typed| {
++                    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, method, null);
++                    defer eb.deinit();
++                    const original = try std.mem.concat(std.testing.allocator, u8, &.{ marks, following });
++                    defer std.testing.allocator.free(original);
++                    if (typed) {
++                        try eb.setText(following);
++                        try eb.setCursor(0, 0);
++                        try insertUnicodeScalars(eb, marks);
++                    } else {
++                        try eb.setText(original);
++                        try eb.setCursor(0, 0);
++                    }
++                    try expectUnicodeText(eb, original);
++                    try eb.backspace();
++                    try expectUnicodeText(eb, following);
++                    try std.testing.expectEqual(@as(u32, 0), eb.getPrimaryCursor().col);
++                    _ = try eb.undo();
++                    try expectUnicodeText(eb, original);
++                    _ = try eb.redo();
++                    try expectUnicodeText(eb, following);
++                }
++            }
++        }
++    }
++}
++
++test "EditBuffer - combining-only Delete removes the zero-column draft" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    for ([_]@import("../utf8.zig").WidthMethod{ .wcwidth, .unicode }) |method| {
++        for ([_][]const u8{ "\u{0301}", "\u{0301}\u{0327}" }) |marks| {
++            for ([_][]const u8{ "", "x" }) |following| {
++                for ([_]bool{ false, true }) |typed| {
++                    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, method, null);
++                    defer eb.deinit();
++                    const original = try std.mem.concat(std.testing.allocator, u8, &.{ marks, following });
++                    defer std.testing.allocator.free(original);
++                    if (typed) {
++                        try eb.setText(following);
++                        try eb.setCursor(0, 0);
++                        try insertUnicodeScalars(eb, marks);
++                    } else {
++                        try eb.setText(original);
++                        try eb.setCursor(0, 0);
++                    }
++                    try expectUnicodeText(eb, original);
++                    try eb.deleteForward();
++                    try expectUnicodeText(eb, following);
++                    try std.testing.expectEqual(@as(u32, 0), eb.getPrimaryCursor().col);
++                    _ = try eb.undo();
++                    try expectUnicodeText(eb, original);
++                    _ = try eb.redo();
++                    try expectUnicodeText(eb, following);
++                }
++            }
++        }
++    }
++}
++
++test "EditBuffer - leading combining ranges stay on their own line" {
++    const pool = gp.initGlobalPool(std.testing.allocator);
++    defer gp.deinitGlobalPool();
++    const link_pool = link.initGlobalLinkPool(std.testing.allocator);
++    defer link.deinitGlobalLinkPool();
++    const eb = try EditBuffer.init(std.testing.allocator, pool, link_pool, .wcwidth, null);
++    defer eb.deinit();
++    try eb.setText("x");
++    try eb.insertText("́");
++    var text: [64]u8 = undefined;
++    try std.testing.expectEqualStrings("́x", text[0..eb.getText(&text)]);
++    try std.testing.expectEqualStrings("́x", text[0..eb.tb.getTextRange(0, 1, &text)]);
++    try std.testing.expectEqualStrings("", text[0..eb.tb.getTextRange(0, 0, &text)]);
++    try eb.setText("a\nx");
++    try eb.setCursor(1, 0);
++    try eb.insertText("́");
++    try eb.insertText("̈");
++    try std.testing.expectEqualStrings("a\ń̈x", text[0..eb.getText(&text)]);
++    try std.testing.expectEqualStrings("́̈x", text[0..eb.tb.getTextRange(2, 3, &text)]);
++    try std.testing.expectEqualStrings("a\n", text[0..eb.tb.getTextRange(0, 2, &text)]);
++    try std.testing.expectEqualStrings("a\ń̈x", text[0..eb.tb.getTextRange(0, 3, &text)]);
++    try std.testing.expectEqualStrings("", text[0..eb.tb.getTextRange(2, 2, &text)]);
++}
+diff --git a/packages/native/src/tests/rope_test.zig b/packages/native/src/tests/rope_test.zig
+--- a/packages/native/src/tests/rope_test.zig
++++ b/packages/native/src/tests/rope_test.zig
+@@ -2360,3 +2360,63 @@
+     try rope.walk(&ctx, Context.walker);
+     try std.testing.expectEqual(@as(u32, 3), ctx.count);
+ }
++
++test "Rope - weighted boundary ties retain existing zero-weight leaves" {
++    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
++    defer arena.deinit();
++    const items = [_]WeightedItem{
++        .{ .value = 1, .weight = 0 }, .{ .value = 2, .weight = 3 },
++        .{ .value = 3, .weight = 0 }, .{ .value = 4, .weight = 0 },
++        .{ .value = 5, .weight = 2 }, .{ .value = 6, .weight = 0 },
++    };
++    const Case = struct { offset: u32, left: []const u32, right: []const u32 };
++    for ([_]Case{
++        .{ .offset = 0, .left = &.{1}, .right = &.{ 2, 3, 4, 5, 6 } },
++        .{ .offset = 3, .left = &.{ 1, 2, 3, 4 }, .right = &.{ 5, 6 } },
++        .{ .offset = 5, .left = &.{ 1, 2, 3, 4, 5, 6 }, .right = &.{} },
++    }) |case| {
++        const rope = try WeightedRope.from_slice(arena.allocator(), &items);
++        const splitter = makeWeightedSplitter();
++        const split = try WeightedRope.Node.split_at_weight(rope.root, case.offset, arena.allocator(), rope.empty_leaf, &splitter);
++        try std.testing.expectEqual(case.offset, split.left.metrics().weight());
++        try std.testing.expectEqual(5 - case.offset, split.right.metrics().weight());
++        try std.testing.expectEqual(case.left.len, split.left.count());
++        try std.testing.expectEqual(case.right.len, split.right.count());
++        for (case.left, 0..) |value, index| try std.testing.expectEqual(value, split.left.get(@intCast(index)).?.value);
++        for (case.right, 0..) |value, index| try std.testing.expectEqual(value, split.right.get(@intCast(index)).?.value);
++    }
++    var rope = try WeightedRope.from_slice(arena.allocator(), &items);
++    const splitter = makeWeightedSplitter();
++    try rope.insertSliceByWeight(3, &.{.{ .value = 99, .weight = 1 }}, &splitter);
++    for ([_]u32{ 1, 2, 3, 4, 99, 5, 6 }, 0..) |value, index| try std.testing.expectEqual(value, rope.get(@intCast(index)).?.value);
++    try rope.deleteRangeByWeight(3, 4, &splitter);
++    for ([_]u32{ 1, 2, 3, 4, 5, 6 }, 0..) |value, index| try std.testing.expectEqual(value, rope.get(@intCast(index)).?.value);
++    try std.testing.expectEqual(@as(u32, 6), rope.count());
++}
++
++test "Rope - count-weight boundaries preserve ordinary item partitions" {
++    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
++    defer arena.deinit();
++    const R = rope_mod.Rope(SimpleItem);
++    const Splitter = struct {
++        fn split(_: std.mem.Allocator, _: ?*anyopaque, _: *const SimpleItem, _: u32) error{ OutOfBounds, OutOfMemory }!R.Node.LeafSplitResult {
++            return error.OutOfBounds;
++        }
++    };
++    const splitter: R.Node.LeafSplitFn = .{ .ctx = null, .splitFn = Splitter.split };
++    const items = [_]SimpleItem{ .{ .value = 11 }, .{ .value = 22 }, .{ .value = 33 } };
++    const Case = struct { offset: u32, left: []const u32, right: []const u32 };
++    for ([_]Case{
++        .{ .offset = 0, .left = &.{}, .right = &.{ 11, 22, 33 } },
++        .{ .offset = 1, .left = &.{11}, .right = &.{ 22, 33 } },
++        .{ .offset = 2, .left = &.{ 11, 22 }, .right = &.{33} },
++        .{ .offset = 3, .left = &.{ 11, 22, 33 }, .right = &.{} },
++    }) |case| {
++        const rope = try R.from_slice(arena.allocator(), &items);
++        const split = try R.Node.split_at_weight(rope.root, case.offset, arena.allocator(), rope.empty_leaf, &splitter);
++        try std.testing.expectEqual(case.left.len, split.left.count());
++        try std.testing.expectEqual(case.right.len, split.right.count());
++        for (case.left, 0..) |value, index| try std.testing.expectEqual(value, split.left.get(@intCast(index)).?.value);
++        for (case.right, 0..) |value, index| try std.testing.expectEqual(value, split.right.get(@intCast(index)).?.value);
++    }
++}
+diff --git a/packages/native/src/text-buffer-iterators.zig b/packages/native/src/text-buffer-iterators.zig
+--- a/packages/native/src/text-buffer-iterators.zig
++++ b/packages/native/src/text-buffer-iterators.zig
+@@ -352,6 +352,7 @@
+         out_buffer: []u8,
+         out_index: *usize,
+         col_offset: *u32,
++        line_start_offset: u32 = 0,
+         start: u32,
+         end: u32,
+         line_count: u32,
+@@ -365,8 +366,16 @@
+             const chunk_start_offset = ctx.col_offset.*;
+             const chunk_end_offset = chunk_start_offset + chunk.width_cols;
+ 
+-            // Skip chunk if it's entirely outside range
+-            if (chunk_end_offset <= ctx.start or chunk_start_offset >= ctx.end) {
++            // Trailing zero-width chunks belong to their preceding column.
++            // At line start they belong to that line, never the previous newline.
++            const outside = if (chunk.width_cols == 0)
++                if (chunk_start_offset == ctx.line_start_offset)
++                    chunk_start_offset < ctx.start or chunk_start_offset >= ctx.end
++                else
++                    chunk_start_offset <= ctx.start or chunk_start_offset > ctx.end
++            else
++                chunk_end_offset <= ctx.start or chunk_start_offset >= ctx.end;
++            if (outside) {
+                 ctx.col_offset.* = chunk_end_offset;
+                 return;
+             }
+@@ -417,6 +426,7 @@
+ 
+             // Account for newline in display offset
+             ctx.col_offset.* += 1;
++            ctx.line_start_offset = ctx.col_offset.*;
+         }
+     };
+ 
+diff --git a/packages/native/src/text-buffer.zig b/packages/native/src/text-buffer.zig
+--- a/packages/native/src/text-buffer.zig
++++ b/packages/native/src/text-buffer.zig
+@@ -449,7 +449,9 @@
+ 
+         self.mem_registry.clear();
+ 
++        const merge_fn = self._rope.merge_fn;
+         self._rope = UnifiedRope.init(self.allocator) catch return;
++        self._rope.merge_fn = merge_fn;
+ 
+         self.markAllViewsDirty();
+     }
+@@ -1155,7 +1157,9 @@
+ 
+         _ = self.arena.reset(.retain_capacity);
+ 
++        const merge_fn = self._rope.merge_fn;
+         self._rope = UnifiedRope.init(self.allocator) catch return TextBufferError.OutOfMemory;
++        self._rope.merge_fn = merge_fn;
+ 
+         if (total_len > self.styled_capacity) {
+             const new_buf = self.global_allocator.alloc(u8, total_len) catch return TextBufferError.OutOfMemory;

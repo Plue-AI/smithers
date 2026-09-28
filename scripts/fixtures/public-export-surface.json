@@ -2,6 +2,21 @@
   "version": 1,
   "added": [
     {
+      "name": "@smthrs/cli",
+      "subpath": "./tui-native",
+      "development": {
+        "types": "./vendor/opentui-native/runtime.d.ts",
+        "bun": "./vendor/opentui-native/runtime.bun.mjs",
+        "default": "./vendor/opentui-native/runtime.node.mjs"
+      },
+      "published": {
+        "types": "./vendor/opentui-native/runtime.d.ts",
+        "bun": "./vendor/opentui-native/runtime.bun.mjs",
+        "default": "./vendor/opentui-native/runtime.node.mjs"
+      },
+      "reason": "Pinned corrected OpenTUI native artifact path for source and published TUI bootstrap through the existing setRenderLibPath seam. Node resolves the packaged file; Bun embeds the same file in compiled distribution. Help and print remain lazy; unsupported or missing artifacts refuse instead of selecting an unpatched library. See vendor/opentui-native/README.md and issue #2403."
+    },
+    {
       "name": "@smthrs/testing",
       "subpath": "./ProcessTable",
       "development": "./src/ProcessTable.ts",

@@ -23,6 +23,7 @@ import { builtinModules } from "node:module"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { build } from "esbuild"
+import { verifyNativeArtifacts } from "../vendor/opentui-native/verify.mjs"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -30,6 +31,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const packageName = (specifier) => specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/")
 
 export const buildTui = async () => {
+  verifyNativeArtifacts()
   const manifest = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"))
   const declared = new Set([
     ...Object.keys(manifest.dependencies ?? {}),
@@ -59,6 +61,7 @@ export const buildTui = async () => {
       setup(context) {
         context.onResolve({ filter: /^[^./]/ }, ({ path }) => {
           if (builtin(path)) return { path, external: true }
+          if (path === "@smthrs/cli/tui-native") return { path, external: true }
           const name = packageName(path)
           return !name.startsWith("@smthrs/") && declared.has(name) ? { path, external: true } : undefined
         })
@@ -69,7 +72,7 @@ export const buildTui = async () => {
   const undeclared = new Set()
   for (const output of Object.values(result.metafile.outputs)) {
     for (const { path, external } of output.imports) {
-      if (external && !builtin(path) && !path.startsWith(".") && !declared.has(packageName(path))) {
+      if (external && path !== "@smthrs/cli/tui-native" && !builtin(path) && !path.startsWith(".") && !declared.has(packageName(path))) {
         undeclared.add(path)
       }
     }

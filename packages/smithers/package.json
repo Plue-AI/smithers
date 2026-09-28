@@ -109,7 +109,12 @@
     "./suggest/Brief": "./src/suggest/Brief.ts",
     "./suggest/Checklist": "./src/suggest/Checklist.ts",
     "./suggest/SuggestFlow": "./src/suggest/SuggestFlow.ts",
-    "./CloudSandbox": "./src/CloudSandbox.ts"
+    "./CloudSandbox": "./src/CloudSandbox.ts",
+    "./tui-native": {
+      "types": "./vendor/opentui-native/runtime.d.ts",
+      "bun": "./vendor/opentui-native/runtime.bun.mjs",
+      "default": "./vendor/opentui-native/runtime.node.mjs"
+    }
   },
   "files": [
     "bin/**/*.mjs",
@@ -123,7 +128,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "vendor/opentui-native/**"
   ],
   "publishConfig": {
     "access": "public",
@@ -714,6 +720,11 @@
           "types": "./dist/cjs/CloudSandbox.d.ts",
           "default": "./dist/cjs/CloudSandbox.js"
         }
+      },
+      "./tui-native": {
+        "types": "./vendor/opentui-native/runtime.d.ts",
+        "bun": "./vendor/opentui-native/runtime.bun.mjs",
+        "default": "./vendor/opentui-native/runtime.node.mjs"
       }
     }
   },

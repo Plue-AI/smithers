@@ -28,11 +28,11 @@ for (const runtime of ["node", "compiled"] as const) {
     expect(built.status, built.stderr).toBe(0)
     const root = mkdtempSync(join(tmpdir(), `tui-${runtime}-`))
     const installation = join(root, "installation")
+    const installedCli = join(installation, "node_modules/@smthrs/cli")
     mkdirSync(installation)
     if (runtime === "node") {
-      cpSync(join(cli, "dist/tui"), join(installation, "tui"), { recursive: true })
-      // Relocate the host and its installed dependencies. The native package
-      // has only its published helper, with no checkout target/ to fall back to.
+      // Relocate the actual CLI package, including its external native export;
+      // dependency links cannot supply the CLI's own published artifact.
       const modules = join(installation, "node_modules")
       mkdirSync(modules)
       for (const name of readdirSync(join(cli, "node_modules"))) {
@@ -40,11 +40,17 @@ for (const runtime of ["node", "compiled"] as const) {
         if (name.startsWith("@")) {
           mkdirSync(join(modules, name))
           for (const child of readdirSync(join(cli, "node_modules", name))) {
-            if (name === "@smthrs" && child === "platform-node") continue
+            if (name === "@smthrs" && (child === "platform-node" || child === "cli")) continue
             symlinkSync(realpathSync(join(cli, "node_modules", name, child)), join(modules, name, child))
           }
         } else symlinkSync(realpathSync(join(cli, "node_modules", name)), join(modules, name))
       }
+      mkdirSync(installedCli, { recursive: true })
+      cpSync(join(cli, "package.json"), join(installedCli, "package.json"))
+      cpSync(join(cli, "vendor"), join(installedCli, "vendor"), { recursive: true })
+      cpSync(join(cli, "dist/tui"), join(installedCli, "dist/tui"), { recursive: true })
+      // The platform package has only its published helper, with no checkout
+      // target directory available to repair a missing release file.
       const native = join(modules, "@smthrs/platform-node")
       const bin = join(native, "bin", `${process.platform}-${process.arch}`)
       mkdirSync(bin, { recursive: true })
@@ -74,7 +80,7 @@ for (const runtime of ["node", "compiled"] as const) {
         cwd: project,
         command: runtime === "node"
           ? `env -u SMITHERS_WORKSPACE_JJ_EXPORT_BINARY node --experimental-ffi --disable-warning=ExperimentalWarning ${
-            join(installation, "tui/main.js")
+            join(installedCli, "dist/tui/main.js")
           } ${project}`
           : `env -u SMITHERS_WORKSPACE_JJ_EXPORT_BINARY ${join(installation, "smithers-tui")} ${project}`,
         env: {

@@ -1,0 +1,74 @@
+{
+  "upstream": {
+    "version": "0.5.11",
+    "commit": "6b9863ea7c5fae22bfebb23c242ddcc4c2b0aa0e",
+    "url": "https://codeload.github.com/anomalyco/opentui/tar.gz/6b9863ea7c5fae22bfebb23c242ddcc4c2b0aa0e",
+    "sha256": "6f3854e067fd34abc31c1d3360a00ff65ca13df734b34dc09b23137dec5c4e86"
+  },
+  "zig": {
+    "version": "0.16.0",
+    "tarball": "https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz",
+    "shasum": "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489",
+    "size": "52238004",
+    "host": "darwin-arm64",
+    "binarySha256": "e6cd688d25664983833aae272f501d4bceeae304875b8f1741209d15fd13a4ec"
+  },
+  "vendorSha256": "41df74dc52ec226e9610a2462054fab33e918ea950750f98d6cc0e26b0e9e04b",
+  "patchSha256": "008f3c535a02533d36ea8dd2c0f7bacc42fb374b73996eb8f5b08750b576c85c",
+  "optimization": "ReleaseFast",
+  "stripNative": true,
+  "targets": {
+    "darwin-arm64": {
+      "zigTarget": "aarch64-macos.13.0",
+      "output": "aarch64-macos",
+      "file": "libopentui.dylib",
+      "sha256": "7f44e4e92256a3bcb88f0db732da48c93a42ea3ebb963a93b5861a5412486ae2"
+    },
+    "darwin-x64": {
+      "zigTarget": "x86_64-macos.13.0",
+      "output": "x86_64-macos",
+      "file": "libopentui.dylib",
+      "sha256": "a9672b6c03f0ae9cc46445994354082c09321283df0308a1e600160e0200f00b"
+    },
+    "linux-arm64": {
+      "zigTarget": "aarch64-linux-gnu.2.17",
+      "output": "aarch64-linux",
+      "file": "libopentui.so",
+      "sha256": "42d7cd154d6fa5b3e5bdb04a1abe6c084257281a25bf43ceacc782d02b76538d"
+    },
+    "linux-x64": {
+      "zigTarget": "x86_64-linux-gnu.2.17",
+      "output": "x86_64-linux",
+      "file": "libopentui.so",
+      "sha256": "f019ff467c06bda57a8f6ec6ed463f51b01bc5cb62eaa1343f61176da7a623e3"
+    },
+    "linux-arm64-musl": {
+      "zigTarget": "aarch64-linux-musl",
+      "output": "aarch64-linux-musl",
+      "file": "libopentui.so",
+      "sha256": "7c1b61a2a6c8cf8f9c8ed8b26640fb877ff5ff96c0fbd9e7101209dca458b1ed"
+    },
+    "linux-x64-musl": {
+      "zigTarget": "x86_64-linux-musl",
+      "output": "x86_64-linux-musl",
+      "file": "libopentui.so",
+      "sha256": "488705e1ea4b3748408e039dabb483815d310efa8d86b7148fb82395b9331153"
+    },
+    "win32-arm64": {
+      "zigTarget": "aarch64-windows-gnu",
+      "output": "aarch64-windows",
+      "file": "opentui.dll",
+      "sha256": "ccfe6eb7333f7ba26a23a649f75b4e931ae165cf6aa7c1f41ba1964b7a722f50"
+    },
+    "win32-x64": {
+      "zigTarget": "x86_64-windows-gnu",
+      "output": "x86_64-windows",
+      "file": "opentui.dll",
+      "sha256": "c1edbf802166b70fff2994715649a5c77d3dcb368ae0bf54af4321de7832345d"
+    }
+  },
+  "macosSdk": {
+    "version": "15.5",
+    "settingsSha256": "58a133735f0a55a624a1703067059f6e78925e51725ec6e1f966072e142c9c42"
+  }
+}
