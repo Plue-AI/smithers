@@ -1,9 +1,84 @@
 package modelprice
 
 import (
+	"math"
 	"testing"
 	"time"
 )
+
+func TestPromptTokensIncludesEveryInputClass(t *testing.T) {
+	usage := Usage{InputTokens: 11, CacheReadTokens: 13, CacheWriteTokens: 17, OutputTokens: 100}
+	if got := usage.PromptTokens(); got != 41 {
+		t.Fatalf("prompt tokens=%d, want 41; output tokens are not prompt", got)
+	}
+}
+
+func TestMaximumChoosesDearerPromptClassAndKeepsOutputLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		rates Rates
+		want  Usage
+	}{
+		{"input", Rates{InputPerMTok: 9, CacheReadPerMTok: 3, CacheWritePerMTok: 4}, Usage{InputTokens: 23, OutputTokens: 7}},
+		{"cache read", Rates{InputPerMTok: 3, CacheReadPerMTok: 9, CacheWritePerMTok: 4}, Usage{CacheReadTokens: 23, OutputTokens: 7}},
+		{"cache write", Rates{InputPerMTok: 3, CacheReadPerMTok: 4, CacheWritePerMTok: 9}, Usage{CacheWriteTokens: 23, OutputTokens: 7}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			price := Price{Context: ContextFlat, Rates: tc.rates}
+			if got := price.Maximum(23, 7); got != tc.want {
+				t.Fatalf("maximum=%+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCostNanosRoundsOnlyOnceAndIncludesFlatCharge(t *testing.T) {
+	price := Price{Context: ContextFlat, Rates: Rates{
+		InputPerMTok: 1, OutputPerMTok: 1, CacheReadPerMTok: 1, CacheWritePerMTok: 1,
+	}, FlatPerCall: 2}
+	usage := Usage{InputTokens: 1, OutputTokens: 1, CacheReadTokens: 1, CacheWriteTokens: 1}
+	got, err := CostNanos(price, usage)
+	if err != nil || got != 2001 {
+		t.Fatalf("cost=%d err=%v, want one rounded nano plus 2000 flat nanos", got, err)
+	}
+	got, err = CostNanos(price, Usage{})
+	if err != nil || got != 2000 {
+		t.Fatalf("zero-token flat call=%d err=%v", got, err)
+	}
+}
+
+func TestCostNanosRejectsEveryNegativeUsageAndPriceClass(t *testing.T) {
+	base := Price{Context: ContextFlat, Rates: Rates{1, 1, 1, 1}}
+	for _, usage := range []Usage{
+		{InputTokens: -1}, {OutputTokens: -1}, {CacheReadTokens: -1}, {CacheWriteTokens: -1},
+	} {
+		if _, err := CostNanos(base, usage); err == nil || err.Error() != "negative model usage" {
+			t.Fatalf("usage %+v: err=%v", usage, err)
+		}
+	}
+	for _, rates := range []Rates{{-1, 1, 1, 1}, {1, -1, 1, 1}, {1, 1, -1, 1}, {1, 1, 1, -1}} {
+		price := Price{Context: ContextFlat, Rates: rates}
+		if _, err := CostNanos(price, Usage{}); err == nil || err.Error() != "negative model price" {
+			t.Fatalf("rates %+v: err=%v", rates, err)
+		}
+	}
+	base.FlatPerCall = -1
+	if _, err := CostNanos(base, Usage{}); err == nil || err.Error() != "negative model price" {
+		t.Fatalf("negative flat charge: err=%v", err)
+	}
+}
+
+func TestCostNanosUsesLongRatesWhenPromptClassSumExceedsInt64(t *testing.T) {
+	price := Price{
+		Context: ContextTiered, LongContextFrom: 10,
+		Rates:       Rates{InputPerMTok: 1, CacheReadPerMTok: 1},
+		LongContext: Rates{InputPerMTok: 0, CacheReadPerMTok: 0},
+	}
+	got, err := CostNanos(price, Usage{InputTokens: math.MaxInt64, CacheReadTokens: 1})
+	if err != nil || got != 0 {
+		t.Fatalf("long context after prompt sum overflow: cost=%d err=%v", got, err)
+	}
+}
 
 func TestCostNanosPreservesSubCentAndRejectsOverflow(t *testing.T) {
 	price, ok := Lookup("gpt-oss-120b")

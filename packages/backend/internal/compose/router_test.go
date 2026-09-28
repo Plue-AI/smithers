@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1743,11 +1744,11 @@ func TestServerRouter_RepoRoutesAreGroupedWithRepoContextMiddleware(t *testing.T
 	assert.Equal(t, 1, repoSvc.getRepoCalls, "repo group route should dispatch to the repo handler")
 }
 
-func TestServerRouter_RepoSyncRoute_BypassesRepoContextLookup(t *testing.T) {
-	t.Skip("Pre-existing nil-pointer panic deep in the handler chain on this synthetic config; not caused by current commits — needs separate investigation.")
+func TestServerRouter_RepoSyncRoute_RequiresRepoContextLookup(t *testing.T) {
 	t.Parallel()
 
-	queries := db.New(nil)
+	store := &repoSyncLookupDB{t: t}
+	queries := db.New(store)
 	router := buildRouterCompat(
 		testCORSConfig(),
 		queries,
@@ -1790,15 +1791,42 @@ func TestServerRouter_RepoSyncRoute_BypassesRepoContextLookup(t *testing.T) {
 		nil, // smithersMetrics
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/sync", strings.NewReader(`{
-		"bookmarks":[{"name":"main"}],
-		"working_copy_parent":{"commit_id":"abc"}
-	}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	// Sync must pass the repository gate. The old skipped test expected it to
+	// bypass this lookup, which predates the cross-repository authorization fix.
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+		body   string
+	}{
+		{"missing", pgx.ErrNoRows, http.StatusNotFound, `{"code":"not_found","fault":"user","message":"repository not found"}`},
+		{"unavailable", errors.New("private database diagnostic"), http.StatusInternalServerError, `{"code":"internal","fault":"bug","message":"failed to resolve repository"}`},
+	} {
+		for _, authenticated := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/authenticated=%v", tc.name, authenticated), func(t *testing.T) {
+				store.t = t
+				store.lookupErr = tc.err
+				store.lookupCalls = 0
+				store.provenanceCalls = 0
+				req := httptest.NewRequest(http.MethodPost, "/api/repos/Alice/Demo/sync", strings.NewReader(`{"bookmarks":[{"name":"main"}]}`))
+				req.Header.Set("Content-Type", "application/json")
+				if authenticated {
+					req = withRouterTokenAuth(req, middleware.ScopeWriteRepository)
+					middleware.AuthInfoFromContext(req.Context()).User = &db.User{ID: 42, Username: "bob", LowerUsername: "bob"}
+				}
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, req)
+				require.Equal(t, tc.status, rec.Code, rec.Body.String())
+				require.Equal(t, 1, store.lookupCalls, "sync must resolve the addressed repository")
+				if authenticated && errors.Is(tc.err, pgx.ErrNoRows) {
+					require.Equal(t, 1, store.provenanceCalls, "missing repository may resolve only through the caller’s imports")
+				} else {
+					require.Zero(t, store.provenanceCalls)
+				}
+				assert.JSONEq(t, tc.body, rec.Body.String())
+			})
+		}
+	}
 }
 
 func TestServerRouter_AuthRateLimitApplied(t *testing.T) {
