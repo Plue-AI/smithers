@@ -253,19 +253,22 @@ it("a run row with no identity of its own inherits its same-flow ancestor's", as
   )
 })
 
-it("an exact run lookup reports the drift a resume would refuse", async () => {
-  const lookup = (next: string) =>
+it("an exact run lookup reports a changed, a removed, and an unchanged flow", async () => {
+  const lookup = (next: string | undefined) =>
     scenario({
       next,
       act: (runId) => withControl((control) => control.list({ _tag: "runs", filters: { runId } }))
     })
   const drifted = await lookup("digest-v2")
   const unchanged = await lookup("digest-v1")
+  const removed = await lookup(undefined)
   const run = (exit: typeof drifted.acted) =>
     Exit.isSuccess(exit) && exit.value._tag === "runs" ? exit.value.items[0] : undefined
   expect(run(drifted.acted)?.codeDrift).toEqual({ recorded: "digest-v1", current: "digest-v2" })
   expect(run(unchanged.acted)).toBeDefined()
   expect(run(unchanged.acted)?.codeDrift).toBeUndefined()
+  // A removed flow has no current identity to name.
+  expect(run(removed.acted)?.codeDrift).toEqual({ recorded: "digest-v1" })
   // Computed for the reader, never stored on the row.
   expect(drifted.after.codeDrift).toBeUndefined()
 })

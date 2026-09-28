@@ -773,6 +773,34 @@ export const make = (
                     ].map((flow) => durableFlow(flow, root))
                   ]
                 })
+              ),
+            // The drift check asks what is on disk NOW. The snapshot above is
+            // the one discovery took at startup, and a flow edited or deleted
+            // while this host stays up is invisible to it, so a resume it
+            // passed was claimed and then failed by the executor's own byte
+            // check (#1807). Discovery wins here over a rebuilt entry: the
+            // question is whether the source moved, not what the host loaded.
+            currentFlows: () =>
+              registryService.refresh().pipe(
+                Effect.mapError((cause) =>
+                  new ControlError.PersistenceError({
+                    operation: "read the flows' current code",
+                    message: cause.message,
+                    cause
+                  })
+                ),
+                Effect.andThen(registryService.list()),
+                Effect.map((discovered) => {
+                  const named = new Set(discovered.map((flow) => flow.name))
+                  return [
+                    ...systemFlows,
+                    ...[
+                      ...discovered,
+                      ...(hostCatalog?.executables ?? []).map((entry) => entry.descriptor)
+                        .filter((descriptor) => !named.has(descriptor.name))
+                    ].map((flow) => durableFlow(flow, root))
+                  ]
+                })
               )
           })
         })

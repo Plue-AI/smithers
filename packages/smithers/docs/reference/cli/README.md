@@ -160,12 +160,14 @@ with `runs resume`.
 
 A run records the execution digest of the flow that started it and the engine
 version, both shown by `runs show`. A round or fork without its own record
-inherits its same-flow ancestor's. When the flow now has a different digest,
-is gone, or the engine version changed, `runs show` and `status <run>` report
+inherits its same-flow ancestor's. The check rescans the flow's files on disk,
+so an edit made while a host stays up counts. When the flow now has a different
+digest, is gone, or the engine version changed, `runs show` and `status <run>` report
 `codeDrift`, and every path that would re-drive the run refuses with
 `CodeDrift` and leaves it where it was: `runs resume`, `run --resume`, a node
 approval decision, and a steer wake. Pass `--allow-code-drift` to resume it on
-the changed code; the run then records that code, so later approvals proceed.
+the changed code; the run then records that code, so later approvals proceed
+and the executor runs it.
 
 A fork can resume only after its retained workspace and public run identity
 have both been reconciled. A workspace link left behind by an interrupted or

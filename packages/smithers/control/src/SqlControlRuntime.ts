@@ -147,6 +147,14 @@ export interface Options {
    * Existing plans retain the definition they were approved against.
    */
   readonly loadFlows?: (() => Effect.Effect<ReadonlyArray<DurableFlow>, PersistenceError>) | undefined
+  /**
+   * Reads each flow's code as it is on disk now, for the drift check that runs
+   * before a run is re-driven and for the code an allowed drift adopts. A host
+   * whose `loadFlows` answers from a cached snapshot supplies this, so a flow
+   * edited or deleted after the run parked is refused before the claim rather
+   * than found by the executor after it. Defaults to `loadFlows`.
+   */
+  readonly currentFlows?: (() => Effect.Effect<ReadonlyArray<DurableFlow>, PersistenceError>) | undefined
   readonly owner?: Ownership.OwnerId | undefined
   /**
    * Whether the process a running run's owner names is still working. With
@@ -411,6 +419,11 @@ const makeRuntime = (
     const readFlows = (options.loadFlows === undefined
       ? Effect.succeed(configuredFlows)
       : Effect.suspend(options.loadFlows)).pipe(
+        Effect.map((entries) => new Map(entries.map((flow) => [flow.flowId, flow] as const)))
+      )
+    const readCurrentFlows = options.currentFlows === undefined
+      ? readFlows
+      : Effect.suspend(options.currentFlows).pipe(
         Effect.map((entries) => new Map(entries.map((flow) => [flow.flowId, flow] as const)))
       )
 
@@ -1148,7 +1161,7 @@ const makeRuntime = (
         const summary = yield* summaryOf(row)
         return yield* transition(runId, claimant, {
           ...summary,
-          ...(adoptCode ? adoptedCode(summary, (yield* readFlows).get(summary.flowId), options.engineVersion) : {}),
+          ...(adoptCode ? adoptedCode(summary, (yield* readCurrentFlows).get(summary.flowId), options.engineVersion) : {}),
           ownerId: JSON.stringify(claimant)
         }, "accepted")
       })
@@ -1949,7 +1962,7 @@ const makeRuntime = (
       }),
       codeDrift: Effect.fn("SqlControlRuntime.codeDrift")(function*(runId: RunId) {
         const summary = yield* recordedCode(yield* requireRow(runId))
-        return codeDriftOf(summary, (yield* readFlows).get(summary.flowId), options.engineVersion)
+        return codeDriftOf(summary, (yield* readCurrentFlows).get(summary.flowId), options.engineVersion)
       }),
       resume: Effect.fn("SqlControlRuntime.resume")(function*(
         runId: RunId,
