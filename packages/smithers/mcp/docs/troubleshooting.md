@@ -97,18 +97,31 @@ catalog is refused rather than truncated on purpose: a silently smaller toolset
 is worse than a failed connection. See
 [Bound an untrusted server](./guides/bound-an-untrusted-server.md).
 
-## ... returned a tool name longer than N bytes, or containing a control character or "/"
+## ... returned a tool name longer than N bytes, or that is "." or "..", or contains "/" or an invisible or control character
 
 **Code.** `invalid_response`.
 
 **What happened.** A tool name exceeded `maxToolNameBytes` (128 by default), or
-contained `/`, a C0 control character, U+007F, or a C1 control character.
+was `.` or `..`, or contained `/`, a control character (C0, U+007F, C1), a
+format character such as a zero-width or bidi mark, U+2028, U+2029, or a lone
+surrogate.
 
 **What to change.** Rename the tool on the server. The name is embedded in the
 flow name `mcp/<server>/<tool>` and in the journal's declaration digest, so `/`
-would make it ambiguous and a control character would corrupt what a model
-reads. `returned a duplicate tool name at catalog index N` is the same class: a duplicate makes the
+would make it ambiguous and an invisible or control character would make it
+read as a different tool. `returned a duplicate tool name at catalog index N` is the same class: a duplicate makes the
 flow name ambiguous.
+
+## ... returned a tool description and inputSchema longer than N bytes
+
+**Code.** `invalid_response`.
+
+**What happened.** One tool's description plus its JSON-encoded `inputSchema`
+exceeded `maxToolDocumentBytes` (65536 by default).
+
+**What to change.** Shorten the tool's description or schema on the server, or
+raise `maxToolDocumentBytes` for a server you trust. The text is authored by the
+server and read by a model, so it is bounded like the rest of the catalog.
 
 ## ... did not answer METHOD within Nms
 

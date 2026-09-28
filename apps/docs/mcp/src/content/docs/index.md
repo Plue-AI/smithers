@@ -55,9 +55,10 @@ import { Effect } from "effect"
 const program = Effect.scoped(Effect.gen(function*() {
   const source = yield* McpFlows.connected({
     server: "github",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-github"],
-    env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN },
+    // A reviewed server installed at an exact version with --ignore-scripts.
+    command: "/path/to/mcp-servers/node_modules/.bin/mcp-server-github",
+    args: [],
+    env: { GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN },
     include: ["create_issue", "get_issue", "list_issues"]
   })
   const bindings = yield* source.bindings()
@@ -79,8 +80,11 @@ Three details in that program decide how the rest behaves:
 - `include` is an exact-name allowlist, checked against the catalog the server
   actually sent, so a typo fails the connection instead of quietly handing the
   model a smaller toolset. Omit it to project every tool.
-- `env` is merged into the inherited child environment rather than replacing it,
-  so a server started with a credential still receives `PATH` and `HOME`.
+- `env` is overlaid on a bootstrap allowlist (`PATH`, `HOME`, `USER`, `LANG`,
+  `LC_*`, `TERM`, `TMPDIR`, `SHELL`), not on the full host environment, so a
+  server receives only the credentials you declare. Install and pin the server
+  before giving it one, as
+  [Connect a server](/guides/connect-a-server/) shows.
 
 One step separates that source from a cell that can call it. Every projected
 flow declares the widest authority the capability vocabulary can express,

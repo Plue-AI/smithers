@@ -62,18 +62,44 @@ describe("MCP diagnostic privacy", () => {
         const circular: Record<string, unknown> = {}
         circular.self = circular
         report("invalid-response", circular)
+        // BigInt has no JSON form: a serialization defect drops only this event.
+        report("invalid-arguments", { count: 1n, message: secret })
         report("remote-error", { code: -32_000, message: secret })
       }).pipe(Effect.provide(Diagnostics.layer((event) => {
         events.push(event)
         if (event.source === "remote-error") throw new Error(secret)
       })))
     )
-    expect(events).toHaveLength(2)
+    expect(events.map((event) => event.source)).toEqual(["stderr", "invalid-response", "remote-error"])
     expect(events[0]!.truncated).toBe(true)
     expect(Redacted.value(events[0]!.detail)).toBe("x".repeat(16_383))
     expect(events[1]!.truncated).toBe(false)
+    expect(Redacted.value(events[1]!.detail)).toBe(JSON.stringify({ self: "[Circular]" }))
     expect(JSON.stringify(events)).not.toContain(secret)
   })
+
+  // StdioTransport redacts stderr before its cap; RealServer.integration covers it.
+  it.each(["spawn", "remote-error", "invalid-response", "invalid-arguments"] as const)(
+    "redacts credentials in a %s detail before a trusted observer unwraps it",
+    async (source) => {
+      const token = "ghp_" + "A".repeat(36)
+      const events: Array<Diagnostics.Event> = []
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const report = yield* Reporter.make("host")
+          report(source, { message: `echoed Bearer ${token}`, data: { apiKey: "plain-private-key-value" } })
+          report(source, `echoed ${token}`)
+        }).pipe(Effect.provide(Diagnostics.layer((event) => events.push(event))))
+      )
+      expect(events).toHaveLength(2)
+      for (const event of events) {
+        const detail = Redacted.value(event.detail)
+        expect(detail).not.toContain(token)
+        expect(detail).not.toContain("plain-private-key-value")
+        expect(detail).toContain("REDACTED")
+      }
+    }
+  )
 
   it("discards details when no trusted host receiver is configured", async () => {
     await Effect.runPromise(Effect.gen(function*() {

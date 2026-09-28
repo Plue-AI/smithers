@@ -21,15 +21,15 @@ capability system.
 `McpFlows.mcp` walks the catalog and produces one `FlowBinding.Binding` per
 tool. Each binding declares:
 
-| Field           | Value                                                                                              |
-| --------------- | -------------------------------------------------------------------------------------------------- |
-| `name`          | `<prefix>/<tool>`, where the prefix defaults to `mcp/<server>`.                                    |
-| `description`   | The tool's own description, or `MCP tool "<tool>" on server "<server>"` when the server sent none. |
-| `input`         | `McpFlows.Args`, a permissive `Record<string, unknown>`.                                           |
-| `inputDocument` | The server's own `inputSchema` document, carried by value.                                         |
-| `output`        | `McpFlows.Result`: `content`, `isError`, and optional `structuredContent`.                         |
-| `capabilities`  | `McpFlows.capabilities`, the same frozen list for every tool.                                      |
-| `effects`       | `McpFlows.effects`, the same conservative envelope for every tool.                                 |
+| Field           | Value                                                                                                                                                                       |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`          | `<prefix>/<tool>`, where the prefix defaults to `mcp/<server>`.                                                                                                             |
+| `description`   | `MCP tool "<tool>" on server "<server>"`, followed by `. Server-supplied description: <text>` when the server sent one, so the model reads the text as the remote server's. |
+| `input`         | `McpFlows.Args`, a permissive `Record<string, unknown>`.                                                                                                                    |
+| `inputDocument` | The server's own `inputSchema` document, carried by value.                                                                                                                  |
+| `output`        | `McpFlows.Result`: `content`, `isError`, and optional `structuredContent`.                                                                                                  |
+| `capabilities`  | `McpFlows.capabilities`, the same frozen list for every tool.                                                                                                               |
+| `effects`       | `McpFlows.effects`, the same conservative envelope for every tool.                                                                                                          |
 
 The name is scoped by server so two servers may offer a tool of the same name
 without colliding. A tool name may not contain `/`, which is what keeps

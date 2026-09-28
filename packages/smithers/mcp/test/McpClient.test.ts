@@ -118,6 +118,7 @@ describe("McpClient.connect", () => {
     expect(McpClient.defaultMaxStderrBytes).toBe(StdioTransport.defaultMaxStderrBytes)
     expect(McpClient.defaultMaxTools).toBe(256)
     expect(McpClient.defaultMaxToolNameBytes).toBe(128)
+    expect(McpClient.defaultMaxToolDocumentBytes).toBe(65_536)
     expect(McpClient.defaultMaxCatalogPages).toBe(32)
   })
 
@@ -191,22 +192,104 @@ describe("McpClient.connect", () => {
     {
       label: "slash in the name",
       tool: { name: "bad/name", inputSchema: { type: "object" } },
-      message: "MCP server \"catalog\" returned a tool name containing a control character or \"/\""
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
     },
     {
       label: "C0 control in the name",
       tool: { name: "bad\nname", inputSchema: { type: "object" } },
-      message: "MCP server \"catalog\" returned a tool name containing a control character or \"/\""
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
     },
     {
       label: "DEL in the name",
       tool: { name: "bad\u007fname", inputSchema: { type: "object" } },
-      message: "MCP server \"catalog\" returned a tool name containing a control character or \"/\""
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
     },
     {
       label: "C1 control in the name",
       tool: { name: "bad\u0085name", inputSchema: { type: "object" } },
-      message: "MCP server \"catalog\" returned a tool name containing a control character or \"/\""
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "the name \".\"",
+      tool: { name: ".", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "the name \"..\"",
+      tool: { name: "..", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a zero-width space in the name",
+      tool: { name: "bad\u200bname", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a zero-width joiner in the name",
+      tool: { name: "bad\u200dname", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a left-to-right mark in the name",
+      tool: { name: "bad\u200ename", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a right-to-left override in the name",
+      tool: { name: "bad\u202ename", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a first-strong isolate in the name",
+      tool: { name: "bad\u2068name", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a word joiner in the name",
+      tool: { name: "bad\u2060name", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a byte-order mark in the name",
+      tool: { name: "bad\ufeffname", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a soft hyphen in the name",
+      tool: { name: "bad\u00adname", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a line separator in the name",
+      tool: { name: "bad\u2028name", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a paragraph separator in the name",
+      tool: { name: "bad\u2029name", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
+    },
+    {
+      label: "a lone surrogate in the name",
+      tool: { name: "bad\ud800name", inputSchema: { type: "object" } },
+      message:
+        "MCP server \"catalog\" returned a tool name that is \".\" or \"..\", or contains \"/\" or an invisible or control character"
     }
   ])("rejects a catalog tool with $label", async ({ message, tool }) => {
     const error = await withFakeServer(
@@ -232,7 +315,7 @@ describe("McpClient.connect", () => {
         if (request.method === "tools/list") {
           return {
             tools: [
-              { name: "éé", inputSchema: { type: "object" } },
+              { name: "éé", description: "éééé" + "x", inputSchema: { type: "object" } },
               { name: "okay", inputSchema: { type: "object" } }
             ]
           }
@@ -245,6 +328,7 @@ describe("McpClient.connect", () => {
         args: [],
         maxTools: 2,
         maxToolNameBytes: 4,
+        maxToolDocumentBytes: 26,
         maxCatalogPages: 1
       })
     )
@@ -265,6 +349,12 @@ describe("McpClient.connect", () => {
       options: { maxToolNameBytes: 3 },
       tools: [{ name: "éé", inputSchema: { type: "object" } }],
       message: "MCP server \"catalog-limit\" returned a tool name longer than 3 bytes"
+    },
+    {
+      // 17 bytes of JSON schema plus a 9-byte description is 26 bytes.
+      options: { maxToolDocumentBytes: 25 },
+      tools: [{ name: "long", description: "éééé" + "x", inputSchema: { type: "object" } }],
+      message: "MCP server \"catalog-limit\" returned a tool description and inputSchema longer than 25 bytes"
     }
   ])("rejects a catalog one past $options", async ({ message, options, tools }) => {
     const error = await withFakeServer(
@@ -292,6 +382,7 @@ describe("McpClient.connect", () => {
       ["maxTools", 0],
       ["maxToolNameBytes", -1],
       ["maxCatalogPages", 1.5],
+      ["maxToolDocumentBytes", 0],
       ["handshakeTimeoutMs", Number.MAX_SAFE_INTEGER + 1],
       ["maxTools", Number.MAX_SAFE_INTEGER + 1],
       ["maxToolNameBytes", Number.MAX_SAFE_INTEGER + 1],
@@ -323,7 +414,7 @@ describe("McpClient.connect", () => {
   it("bounds every numeric ConnectOptionsSchema field before spawning", async () => {
     const nonNumeric = ["server", "command", "args", "cwd", "env"]
     const numeric = Object.keys(McpClient.ConnectOptionsSchema.fields).filter((name) => !nonNumeric.includes(name))
-    expect(numeric).toHaveLength(9)
+    expect(numeric).toHaveLength(10)
 
     for (const name of numeric) {
       const error = await withFakeServer(

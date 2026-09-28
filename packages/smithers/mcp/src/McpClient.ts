@@ -83,10 +83,17 @@ export interface ConnectOptions extends StdioTransport.ConnectOptions {
   /** Maximum tools accepted across every catalog page. See {@link defaultMaxTools}. */
   readonly maxTools?: number | undefined
   /**
-   * Maximum UTF-8 bytes in a tool name. Names also cannot contain `/`, C0 or
-   * C1 control characters, or U+007F. See {@link defaultMaxToolNameBytes}.
+   * Maximum UTF-8 bytes in a tool name. Names also cannot be `.` or `..`, or
+   * contain `/`, a control or format character (Unicode categories Cc and Cf,
+   * which include bidi and zero-width marks), U+2028, U+2029, or a lone
+   * surrogate. See {@link defaultMaxToolNameBytes}.
    */
   readonly maxToolNameBytes?: number | undefined
+  /**
+   * Maximum UTF-8 bytes of one tool's model-facing text: its description plus
+   * its JSON-encoded `inputSchema`. See {@link defaultMaxToolDocumentBytes}.
+   */
+  readonly maxToolDocumentBytes?: number | undefined
   /** Maximum pages walked while fetching the catalog. See {@link defaultMaxCatalogPages}. */
   readonly maxCatalogPages?: number | undefined
 }
@@ -116,6 +123,7 @@ export const ConnectOptionsSchema = Schema.Struct({
   maxStderrBytes: Schema.optional(PositiveInteger),
   maxTools: Schema.optional(PositiveInteger),
   maxToolNameBytes: Schema.optional(PositiveInteger),
+  maxToolDocumentBytes: Schema.optional(PositiveInteger),
   maxCatalogPages: Schema.optional(PositiveInteger)
 })
 
@@ -208,6 +216,15 @@ export const defaultMaxTools = 256
 export const defaultMaxToolNameBytes = 128
 
 /**
+ * Default maximum UTF-8 bytes of one tool's description plus its JSON-encoded
+ * `inputSchema`, the server-authored text a model reads for that tool.
+ *
+ * @category constants
+ * @since 1.0.0-rc.1
+ */
+export const defaultMaxToolDocumentBytes = 65_536
+
+/**
  * Default maximum number of remote catalog pages.
  *
  * @category constants
@@ -266,6 +283,7 @@ const asInitialize = (server: string, result: unknown): Result.Result<void, McpE
 type CatalogLimits = {
   readonly maxTools: number
   readonly maxToolNameBytes: number
+  readonly maxToolDocumentBytes: number
 }
 
 type ToolPage = {
@@ -274,13 +292,14 @@ type ToolPage = {
 
 const nameEncoder = new TextEncoder()
 
-const hasForbiddenToolNameCharacter = (name: string): boolean => {
-  for (let index = 0; index < name.length; index += 1) {
-    const code = name.charCodeAt(index)
-    if (name[index] === "/" || code <= 0x1f || code === 0x7f || (code >= 0x80 && code <= 0x9f)) return true
-  }
-  return false
-}
+// Cc covers C0, DEL, and C1. Cf covers bidi overrides and isolates (U+202A-202E,
+// U+2066-2069), zero-width marks (U+200B-200F, U+2060, U+FEFF), and soft hyphen:
+// all invisible text that makes `mcp/<server>/<tool>` read as another tool.
+// Cs catches a lone surrogate, which UTF-8 encoding would silently replace.
+const forbiddenToolNameCharacter = /[/\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/u
+
+const isForbiddenToolName = (name: string): boolean =>
+  name === "." || name === ".." || forbiddenToolNameCharacter.test(name)
 
 const asToolPage = (
   server: string,
@@ -319,10 +338,10 @@ const asToolPage = (
         `MCP server "${server}" returned a tool name longer than ${limits.maxToolNameBytes} bytes`
       ))
     }
-    if (hasForbiddenToolNameCharacter(record.name)) {
+    if (isForbiddenToolName(record.name)) {
       return Result.fail(invalidResponse(
         server,
-        `MCP server "${server}" returned a tool name containing a control character or "/"`
+        `MCP server "${server}" returned a tool name that is "." or "..", or contains "/" or an invisible or control character`
       ))
     }
     if (seen.has(record.name)) {
@@ -335,6 +354,15 @@ const asToolPage = (
       return Result.fail(invalidResponse(
         server,
         `MCP server "${server}" returned a tool whose inputSchema is not a JSON Schema object of type "object"`
+      ))
+    }
+    const description = typeof record.description === "string" ? record.description : undefined
+    const documentBytes = nameEncoder.encode(description ?? "").byteLength +
+      nameEncoder.encode(JSON.stringify(record.inputSchema)).byteLength
+    if (documentBytes > limits.maxToolDocumentBytes) {
+      return Result.fail(invalidResponse(
+        server,
+        `MCP server "${server}" returned a tool description and inputSchema longer than ${limits.maxToolDocumentBytes} bytes`
       ))
     }
     let outputSchema: Record<string, unknown> | undefined
@@ -350,7 +378,7 @@ const asToolPage = (
     seen.add(record.name)
     described.push({
       name: record.name,
-      description: typeof record.description === "string" ? record.description : undefined,
+      description,
       inputSchema: record.inputSchema,
       outputSchema
     })
@@ -761,11 +789,13 @@ export const connect = (
         const maxArgumentBytes = options.maxOutboundFrameBytes ?? defaultMaxOutboundFrameBytes
         const maxTools = options.maxTools ?? defaultMaxTools
         const maxToolNameBytes = options.maxToolNameBytes ?? defaultMaxToolNameBytes
+        const maxToolDocumentBytes = options.maxToolDocumentBytes ?? defaultMaxToolDocumentBytes
         const maxCatalogPages = options.maxCatalogPages ?? defaultMaxCatalogPages
         yield* Limits.checkPositiveIntegers(options.server, [
           ["handshakeTimeoutMs", handshakeTimeoutMs],
           ["maxTools", maxTools],
           ["maxToolNameBytes", maxToolNameBytes],
+          ["maxToolDocumentBytes", maxToolDocumentBytes],
           ["maxCatalogPages", maxCatalogPages]
         ])
 
@@ -798,7 +828,7 @@ export const connect = (
             asToolPage(
               options.server,
               listed,
-              { maxTools, maxToolNameBytes },
+              { maxTools, maxToolNameBytes, maxToolDocumentBytes },
               toolNames,
               tools
             )

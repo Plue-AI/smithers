@@ -40,8 +40,9 @@ import { Effect } from "effect"
 const program = Effect.scoped(Effect.gen(function*() {
   const source = yield* McpFlows.connected({
     server: "github",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-github"]
+    // Installed with --ignore-scripts at an exact version; see the Connect a server guide.
+    command: "/path/to/mcp-servers/node_modules/.bin/mcp-server-github",
+    args: []
   })
   return yield* source.bindings()
 }))
@@ -98,12 +99,12 @@ interface McpClient {
 
 One remote tool as the server describes it.
 
-| Field          | Type                                   | Meaning                                                                    |
-| -------------- | -------------------------------------- | -------------------------------------------------------------------------- |
-| `name`         | `string`                               | The tool's name. Never empty, never containing `/` or a control character. |
-| `description`  | `string \| undefined`                  | The server's description, when it sent a string.                           |
-| `inputSchema`  | `Record<string, unknown>`              | The tool's parameter shape, a JSON Schema document with `type: "object"`.  |
-| `outputSchema` | `Record<string, unknown> \| undefined` | The tool's structured result shape, when the server disclosed one.         |
+| Field          | Type                                   | Meaning                                                                                                |
+| -------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `name`         | `string`                               | The tool's name. Never empty, `.`, or `..`; never containing `/` or an invisible or control character. |
+| `description`  | `string \| undefined`                  | The server's description, when it sent a string.                                                       |
+| `inputSchema`  | `Record<string, unknown>`              | The tool's parameter shape, a JSON Schema document with `type: "object"`.                              |
+| `outputSchema` | `Record<string, unknown> \| undefined` | The tool's structured result shape, when the server disclosed one.                                     |
 
 ### McpClient.ToolResult
 
@@ -132,6 +133,7 @@ The result of one `tools/call`.
 | `maxStderrBytes`        | `number \| undefined`                              | Maximum diagnostic stderr bytes retained in memory and rendered after credential redaction. Default 2048. |
 | `maxTools`              | `number \| undefined`                              | Maximum tools accepted across every catalog page. Default 256.                                            |
 | `maxToolNameBytes`      | `number \| undefined`                              | Maximum UTF-8 bytes in a tool name. Default 128.                                                          |
+| `maxToolDocumentBytes`  | `number \| undefined`                              | Maximum UTF-8 bytes of one tool's description plus its JSON-encoded `inputSchema`. Default 65536.         |
 | `maxCatalogPages`       | `number \| undefined`                              | Maximum `tools/list` pages walked. Default 32.                                                            |
 
 Every numeric field must be a positive safe integer. Anything else fails with
@@ -196,6 +198,7 @@ adjust one without restating a literal.
 | `defaultMaxStderrBytes`        | 2048    | `maxStderrBytes`        |
 | `defaultMaxTools`              | 256     | `maxTools`              |
 | `defaultMaxToolNameBytes`      | 128     | `maxToolNameBytes`      |
+| `defaultMaxToolDocumentBytes`  | 65536   | `maxToolDocumentBytes`  |
 | `defaultMaxCatalogPages`       | 32      | `maxCatalogPages`       |
 
 `McpClient.maxJsonDepth` is a fixed safety limit of **128 nested containers**,

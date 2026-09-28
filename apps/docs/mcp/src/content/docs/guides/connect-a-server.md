@@ -1,6 +1,6 @@
 ---
 title: "Connect a server"
-description: "Spawn an MCP server over stdio: the command and arguments, the working directory, how env is merged rather than replaced, and which protocol revisions the handshake accepts."
+description: "Spawn an MCP server over stdio: the command and arguments, the working directory, how env overlays a bootstrap allowlist, and which protocol revisions the handshake accepts."
 sidebar:
   order: 1
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/mcp/docs/guides/connect-a-server.md"

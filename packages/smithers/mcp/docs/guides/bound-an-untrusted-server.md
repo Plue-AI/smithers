@@ -1,6 +1,6 @@
 ---
 title: "Bound an untrusted server"
-description: "The nine limits McpClient enforces on a remote server, their default values, what each one protects, and the rules a tool name must satisfy."
+description: "The ten limits McpClient enforces on a remote server, their default values, what each one protects, and the rules a tool name must satisfy."
 sidebar:
   order: 6
 ---
@@ -13,7 +13,7 @@ default constant.
 You rarely need to change these. Read this page when a real server trips one, or
 when you are deciding what to allow a server you do not trust.
 
-## The nine limits
+## The ten limits
 
 | Option                  | Default | Constant                                 | What it bounds                                      |
 | ----------------------- | ------- | ---------------------------------------- | --------------------------------------------------- |
@@ -24,6 +24,7 @@ when you are deciding what to allow a server you do not trust.
 | `maxOutboundFrameBytes` | 1048576 | `McpClient.defaultMaxOutboundFrameBytes` | One outbound JSON-RPC frame, in UTF-8 bytes.        |
 | `maxTools`              | 256     | `McpClient.defaultMaxTools`              | Tools accepted across every catalog page.           |
 | `maxToolNameBytes`      | 128     | `McpClient.defaultMaxToolNameBytes`      | UTF-8 bytes in one tool name.                       |
+| `maxToolDocumentBytes`  | 65536   | `McpClient.defaultMaxToolDocumentBytes`  | One tool's description plus JSON `inputSchema`.     |
 | `maxCatalogPages`       | 32      | `McpClient.defaultMaxCatalogPages`       | `tools/list` pages walked while following a cursor. |
 | `maxStderrBytes`        | 2048    | `McpClient.defaultMaxStderrBytes`        | Child stderr retained as a diagnostic tail.         |
 
@@ -53,8 +54,11 @@ refused before it is written.
 reading its stdin. Past capacity, an offer blocks until the deadline for that
 request expires.
 
-**`maxTools`, `maxToolNameBytes`, and `maxCatalogPages`** bound the catalog,
-which is the part a model reads. A catalog past `maxTools` fails with
+**`maxTools`, `maxToolNameBytes`, `maxToolDocumentBytes`, and
+`maxCatalogPages`** bound the catalog, which is the part a model reads.
+`maxToolDocumentBytes` counts the UTF-8 bytes of a tool's description plus its
+JSON-encoded `inputSchema`, so one tool cannot flood the model's context with
+server-authored text. A catalog past `maxTools` fails with
 `invalid_response` rather than being truncated, because a silently truncated
 toolset is worse than a refused connection. `maxCatalogPages` and a repeated
 cursor both end a cursor walk that would otherwise never finish.
@@ -99,13 +103,20 @@ not a constant-memory streaming JSON parser.
 Beyond the byte length, a tool name may not contain:
 
 - `/`, because the name is embedded in `mcp/<server>/<tool>`.
-- A C0 control character (U+0000 through U+001F).
-- U+007F.
-- A C1 control character (U+0080 through U+009F).
+- A control character (Unicode category Cc): C0 (U+0000 through U+001F),
+  U+007F, and C1 (U+0080 through U+009F).
+- A format character (Unicode category Cf), which includes zero-width marks
+  (U+200B through U+200F, U+2060, U+FEFF), bidi overrides and isolates
+  (U+202A through U+202E, U+2066 through U+2069), and the soft hyphen.
+- U+2028 or U+2029, the line and paragraph separators.
+- A lone UTF-16 surrogate.
+
+The name also may not be exactly `.` or `..`, which read as path segments.
 
 A name that breaks any of these fails the connection with `invalid_response`.
 The name reaches a model inside a flow name and the journal inside a declaration
-digest, so a control character in it is not cosmetic.
+digest. An invisible or reordering character would let one tool read as another
+to the model or to a person reviewing an approval, so none of these is cosmetic.
 
 Two tools with the same name in one catalog also fail: a duplicate would make
 `mcp/<server>/<tool>` ambiguous.

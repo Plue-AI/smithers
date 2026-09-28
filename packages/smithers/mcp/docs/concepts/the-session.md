@@ -129,5 +129,5 @@ cancelled either.
 
 - [Connect a server](../guides/connect-a-server.md): the options that shape all
   of this.
-- [Bound an untrusted server](../guides/bound-an-untrusted-server.md): the nine
+- [Bound an untrusted server](../guides/bound-an-untrusted-server.md): the ten
   limits and what each one protects.

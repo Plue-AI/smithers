@@ -19,8 +19,9 @@ tool:
 ```ts
 const source = yield * McpFlows.connected({
   server: "github",
-  command: "npx",
-  args: ["-y", "@modelcontextprotocol/server-github"],
+  // Installed with --ignore-scripts at an exact version; see Connect a server.
+  command: "/path/to/mcp-servers/node_modules/.bin/mcp-server-github",
+  args: [],
   include: ["create_issue", "get_issue", "list_issues"]
 })
 ```

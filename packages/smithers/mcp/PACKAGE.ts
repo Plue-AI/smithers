@@ -90,7 +90,7 @@ const securityReview = Smithers.SecurityReview({
         "A malicious server shadows another flow or server's tool by name, or a run calls an MCP tool with authority the host never granted.",
       lookFor: [
         "A tool name containing '/', control characters, or unbounded length reaching the `${prefix}/${toolName}` flow name.",
-        "A tool name of '.' or '..', or with zero-width or bidi format characters (U+200B-U+200F, U+202A-U+202E, U+2066-U+2069), that hasForbiddenToolNameCharacter accepts and that renders as a different flow name.",
+        "A tool name of '.' or '..', or with zero-width or bidi format characters (U+200B-U+200F, U+202A-U+202E, U+2066-U+2069), that isForbiddenToolName accepts and that renders as a different flow name.",
         "callTool dispatching a name that was not in the frozen catalog snapshot.",
         "A projected binding whose capabilities or effects are narrower than every action, making an opaque tool look safe to a read-only envelope.",
         "include/exclude or namePrefix handling that lets an empty or colliding prefix merge two servers' tools."

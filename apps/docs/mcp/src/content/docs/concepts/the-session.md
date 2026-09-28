@@ -130,5 +130,5 @@ cancelled either.
 
 - [Connect a server](/guides/connect-a-server/): the options that shape all
   of this.
-- [Bound an untrusted server](/guides/bound-an-untrusted-server/): the nine
+- [Bound an untrusted server](/guides/bound-an-untrusted-server/): the ten
   limits and what each one protects.

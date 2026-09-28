@@ -106,7 +106,11 @@ const toolBinding = (
   return FlowBinding.make({
     flow: {
       name: `${prefix}/${toolName}`,
-      description: tool.description ?? `MCP tool "${toolName}" on server "${client.server}"`,
+      // The server authors this text, so it is attributed as remote content
+      // rather than read as if the host had written it. The client bounds it.
+      description: tool.description === undefined
+        ? `MCP tool "${toolName}" on server "${client.server}"`
+        : `MCP tool "${toolName}" on server "${client.server}". Server-supplied description: ${tool.description}`,
       capabilities,
       effects,
       input: Args,
