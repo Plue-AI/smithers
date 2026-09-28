@@ -73,25 +73,32 @@ export const auditPublicExports = (root = repoRoot) =>
   libraryPackages(root)
     .filter((entry) => entry.manifest.private !== true)
     .map((entry) => {
-      const development = entry.manifest.exports
-      const published = entry.manifest.publishConfig?.exports
       const errors = []
-      for (const [label, map] of [["development", development], ["published", published]]) {
+      const inspectMap = (label, map) => {
         if (map === undefined) {
           errors.push(`${label}: missing export map`)
-          continue
+          return undefined
         }
-        for (const [key, target] of Object.entries(map)) {
+        if (map === null || typeof map !== "object" || Array.isArray(map)) {
+          errors.push(`${label}: export map must be an object`)
+          return undefined
+        }
+        const entries = Object.entries(map)
+        for (const [key, target] of entries) {
           if (key.includes("*") && target !== null) errors.push(`${label}: positive wildcard ${key}`)
         }
+        return entries
       }
+      const development = inspectMap("development", entry.manifest.exports)
+      const published = inspectMap("published", entry.manifest.publishConfig?.exports)
       if (
-        published !== undefined &&
-        JSON.stringify(Object.keys(development).sort()) !== JSON.stringify(Object.keys(published).sort())
+        development !== undefined && published !== undefined &&
+        JSON.stringify(development.map(([key]) => key).sort()) !== JSON.stringify(published.map(([key]) => key).sort())
       ) {
         errors.push("development/published keys differ")
       }
-      for (const [key, target] of Object.entries(development)) {
+      const developmentEntries = development ?? []
+      for (const [key, target] of developmentEntries) {
         if (key.includes("*") || target === null) continue
         for (const file of runtimeLeaves(target)) {
           if (/\.d\.[cm]?ts$/.test(file)) errors.push(`declaration-only runtime target ${key}: ${file}`)
@@ -100,7 +107,7 @@ export const auditPublicExports = (root = repoRoot) =>
           if (!existsSync(join(root, entry.dir, file))) errors.push(`missing source target ${key}: ${file}`)
         }
       }
-      const subpaths = Object.entries(development).filter(([key, target]) => !key.includes("*") && target !== null).map(
+      const subpaths = developmentEntries.filter(([key, target]) => !key.includes("*") && target !== null).map(
         ([key]) => key
       )
       return { name: entry.name, directory: entry.dir, subpaths, errors }

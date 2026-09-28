@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { describe, it } from "node:test"
-import { auditPublicExports, explicitMap, exportTarget, sourceSubpaths } from "../public-export-map.mjs"
+import { auditPublicExports, explicitMap, exportTarget, publicSubpaths, sourceSubpaths } from "../public-export-map.mjs"
 import { libraryPackages, repoRoot } from "../workspace-packages.mjs"
 
 const baseline = JSON.parse(readFileSync(new URL("../fixtures/public-export-surface.json", import.meta.url), "utf8"))
@@ -30,6 +30,65 @@ const additions = (name, mode) => Object.fromEntries(
 )
 
 describe("explicit public entrypoints", () => {
+  for (const [label, maps, errors, subpaths] of [
+    ["missing development", { publishConfig: { exports: { ".": "./dist/index.js" } } }, ["development: missing export map"], []],
+    ["missing development with a published wildcard", { publishConfig: { exports: { "./*": "./dist/*.js" } } }, ["development: missing export map", "published: positive wildcard ./*"], []],
+    ["missing published", { exports: { ".": "./src/index.ts" } }, ["published: missing export map"], ["."]],
+    ["missing published with a missing source", { exports: { ".": "./src/absent.ts" } }, ["published: missing export map", "missing source target .: ./src/absent.ts"], ["."]],
+    ["missing both", {}, ["development: missing export map", "published: missing export map"], []],
+    ["present empty maps", { exports: {}, publishConfig: { exports: {} } }, [], []],
+    ["different keys", { exports: { ".": "./src/index.ts" }, publishConfig: { exports: { "./index": "./dist/index.js" } } }, ["development/published keys differ"], ["."]],
+    ...[null, "", "./src/index.ts", [], ["./src/index.ts"], true, 1].flatMap((value) => [
+      [`invalid development ${JSON.stringify(value)}`, { exports: value, publishConfig: { exports: { ".": "./dist/index.js" } } }, ["development: export map must be an object"], []],
+      [`invalid published ${JSON.stringify(value)}`, { exports: { ".": "./src/index.ts" }, publishConfig: { exports: value } }, ["published: export map must be an object"], ["."]],
+      [`invalid both ${JSON.stringify(value)}`, { exports: value, publishConfig: { exports: value } }, ["development: export map must be an object", "published: export map must be an object"], []]
+    ])
+  ]) {
+    it(`reports ${label} without aborting the remaining package audit`, () => {
+      const root = mkdtempSync(join(tmpdir(), "smithers-export-map-admission-"))
+      try {
+        writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n")
+        for (const [directory, manifest] of [
+          ["a-invalid", { name: "@fixture/subject", ...maps }],
+          ["z-valid", { name: "@fixture/valid", exports: { ".": "./src/index.ts" }, publishConfig: { exports: { ".": "./dist/index.js" } } }]
+        ]) {
+          const packageRoot = join(root, "packages", directory)
+          mkdirSync(join(packageRoot, "src"), { recursive: true })
+          writeFileSync(join(packageRoot, "src/index.ts"), "export const value = 1\n")
+          writeFileSync(join(packageRoot, "package.json"), JSON.stringify(manifest))
+        }
+        assert.deepEqual(auditPublicExports(root), [
+          { name: "@fixture/subject", directory: "packages/a-invalid", subpaths, errors },
+          { name: "@fixture/valid", directory: "packages/z-valid", subpaths: ["."], errors: [] }
+        ])
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+  }
+
+  it("inventories only admitted existing sources and explicit exports before wildcard migration", () => {
+    const root = mkdtempSync(join(tmpdir(), "smithers-public-subpaths-"))
+    try {
+      mkdirSync(join(root, "src/internal"), { recursive: true })
+      for (const file of ["index.ts", "alpha.ts", "ambient.d.ts", "internal/Secret.ts"]) {
+        writeFileSync(join(root, "src", file), "")
+      }
+      const exports = {
+        ".": "./src/index.ts",
+        "./alpha": "./src/alpha.ts",
+        "./package.json": "./package.json",
+        "./*": "./src/*.ts",
+        "./internal/*": null,
+        "./index": null
+      }
+      assert.deepEqual(publicSubpaths(exports, root), [".", "./alpha", "./package.json"])
+      assert.deepEqual(publicSubpaths({ ".": "./src/index.ts" }, root), ["."])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("keeps every public package on matching explicit development and publication allowlists", () => {
     const rows = auditPublicExports()
     assert.equal(rows.length, current.size)
