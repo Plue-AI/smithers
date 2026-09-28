@@ -48,6 +48,8 @@ type TriggerServices = Transport | ServerConfig
 
 class TriggerError extends Data.TaggedError("TriggerError")<{ readonly status: number; readonly detail: string }> {}
 
+class MalformedTriggerAnswer extends Data.TaggedError("MalformedTriggerAnswer")<{}> {}
+
 /**
  * This deployment never got as far as asking, and the reason is a fact about
  * the ACCOUNT rather than about Smithers Cloud: `cloudTokenRefusal` classifies
@@ -57,7 +59,7 @@ class TriggerError extends Data.TaggedError("TriggerError")<{ readonly status: n
 class TokenError extends Data.TaggedError("TokenError")<{ readonly code: WorkerFailureCode; readonly message: string }> {}
 
 /** Either Smithers Cloud refused with a status, or this account has no token, or nothing answered at all. */
-type TriggerFailure = TriggerError | TokenError | UpstreamFailure
+type TriggerFailure = TriggerError | TokenError | UpstreamFailure | MalformedTriggerAnswer
 
 /** One `flow:*` registration as this route publishes it. Every field is Plue's own. */
 export interface TriggerRegistrationRow {
@@ -129,7 +131,9 @@ const cloud = (
       if (token.status !== "ok") return yield* Effect.fail(new TokenError(cloudTokenRefusal(token, token.detail)))
       response = yield* call(token.token)
     }
-    if (response.ok) return yield* readBoundedJson(response, limit).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    if (response.ok) return yield* readBoundedJson(response, limit).pipe(
+      Effect.mapError(() => new MalformedTriggerAnswer())
+    )
     return yield* Effect.fail(new TriggerError({ status: response.status, detail: yield* readRefusalDetail(response) }))
   })
 
@@ -144,6 +148,7 @@ const cloud = (
  */
 const cloudRefusal = (failure: TriggerFailure): Response => {
   if (failure._tag === "TokenError") return refuse(failure.code, failure.message)
+  if (failure._tag === "MalformedTriggerAnswer") return malformedTriggerAnswer()
   if (failure._tag !== "TriggerError") return upstreamUnreachable("Smithers Cloud", failure)
   const message = upstreamRefusalMessage("Smithers Cloud", failure.status, failure.detail)
   if (failure.status === 409) return refuse("trigger_approval_missing", message)
@@ -151,6 +156,9 @@ const cloudRefusal = (failure: TriggerFailure): Response => {
   const code = failure.status === 401 ? undefined : plueFailureCode(machineReadableRefusal(failure.detail).code)
   return code ? json(failure.status, { status: "error", code, message }) : refuse("upstream_refused", message)
 }
+
+const malformedTriggerAnswer = (): Response =>
+  refuse("upstream_malformed", "Smithers Cloud returned an unreadable repository job answer.")
 
 const repoOf = (value: unknown): string | undefined =>
   typeof value === "string" && isRelayRepoName(value) ? value : undefined
@@ -202,7 +210,8 @@ export const handleTriggerRegistrations = (
     if (session instanceof Response) return session
     const read = yield* Effect.result(cloud(session.login, `/api/repos/${repo}/repository-jobs`, { method: "GET" }, 1_500_000))
     if (Result.isFailure(read)) return cloudRefusal(read.failure)
-    const rows = Array.isArray(read.success) ? read.success : []
+    if (!Array.isArray(read.success)) return malformedTriggerAnswer()
+    const rows = read.success
     return json(200, {
       status: "ok",
       repo,
@@ -228,9 +237,10 @@ export const handleTriggerPause = (request: Request): Effect.Effect<Response, ne
     /*
      * Plue answers the registrations it updated, so an unregistered slug that
      * passes the job-name gate answers `[]` and stops nothing. The count is
-     * that array's length; anything else stopped nothing either.
+     * that array's length. A different shape cannot confirm a pause.
      */
-    return json(200, { status: "ok", paused: Array.isArray(paused.success) ? paused.success.length : 0 })
+    if (!Array.isArray(paused.success)) return malformedTriggerAnswer()
+    return json(200, { status: "ok", paused: paused.success.length })
   })
 
 /**
