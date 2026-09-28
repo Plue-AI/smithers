@@ -351,6 +351,41 @@ describe("expiration (issue #36)", () => {
 })
 
 describe("decide", () => {
+  it("keeps non-retryable integrity failures terminal across attempt and clock boundaries", () => {
+    const policy = RetryPolicy.make({
+      initialMs: 100,
+      factor: 2,
+      maxMs: 1_000,
+      maxAttempts: 2,
+      expirationMs: 300,
+      nonRetryable: ["CallerFatal"]
+    })
+
+    // Literal integrity tags keep this oracle independent of the production default list.
+    for (
+      const tag of [
+        "CallerFatal",
+        "@smthrs/engine-store/CacheCorruptionDetected",
+        "@smthrs/engine-store/AttemptEvidenceQuarantined"
+      ]
+    ) {
+      for (const attempt of [1, 2, 3]) {
+        for (const elapsedMs of [0, 300, 301]) {
+          expect(RetryPolicy.decide(policy, { attempt, elapsedMs, error: { _tag: tag } })).toEqual(
+            RetryPolicy.giveUp("nonRetryable")
+          )
+        }
+      }
+    }
+
+    expect(RetryPolicy.decide(policy, { attempt: 1, elapsedMs: 0, error: { _tag: "Transient" } }))
+      .toEqual(RetryPolicy.retryAfter(100))
+    expect(RetryPolicy.decide(policy, { attempt: 2, elapsedMs: 0, error: { _tag: "Transient" } }))
+      .toEqual(RetryPolicy.giveUp("exhausted"))
+    expect(RetryPolicy.decide(policy, { attempt: 1, elapsedMs: 300, error: { _tag: "Transient" } }))
+      .toEqual(RetryPolicy.giveUp("expired"))
+  })
+
   it("classifies tagged failures identically after an action Exit JSON round trip", () => {
     class CallerFatal extends Schema.TaggedError<CallerFatal>()("Retry/CallerFatal", {
       reason: Schema.String
