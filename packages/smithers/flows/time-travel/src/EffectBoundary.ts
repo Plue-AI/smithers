@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 
+import { EventTypes } from "@smthrs/engine-store/EventTypes"
 import * as Journal from "@smthrs/journal/Journal"
 import type * as JournalEvent from "@smthrs/journal/JournalEvent"
 import { OwnerId } from "@smthrs/journal/OwnerId"
@@ -131,6 +132,13 @@ export const Description = Schema.Struct({
  */
 export type Description = typeof Description.Type
 
+/**
+ * Effect kinds only the engine journals. Lineage edges are derived from the
+ * child-spawn kind, and a rewind archives and deletes every attached child an
+ * edge names, so a guarded action must never record one.
+ */
+const reservedKinds: ReadonlySet<string> = new Set([EventTypes.childSpawnKind])
+
 const Metadata = Schema.Record(Schema.String, Schema.Unknown)
 const isMetadata = Schema.is(Metadata)
 
@@ -215,6 +223,8 @@ const emit = (
  * `unknown` before their original cause is re-raised. The settlement section
  * is uninterruptible so cancellation cannot strand an in-memory action
  * after it has crossed the boundary without attempting the terminal record.
+ * A kind the engine reserves, such as `EventTypes.childSpawnKind`, fails as
+ * `invalid` before anything is journaled.
  *
  * @since 0.1.0
  * @category combinators
@@ -227,6 +237,9 @@ export const guard = <A, E, R>(
     const validated = yield* Schema.decodeUnknownEffect(Description)(description).pipe(
       Effect.mapError((cause) => error("invalid", "effect boundary description is invalid", cause))
     )
+    if (reservedKinds.has(validated.kind)) {
+      return yield* Effect.fail(error("invalid", `effect ${validated.id} uses the reserved kind ${validated.kind}`))
+    }
     if (validated.sourceSeq === Number.MAX_SAFE_INTEGER) {
       return yield* Effect.fail(error("invalid", `effect ${validated.id} has no terminal source sequence`))
     }

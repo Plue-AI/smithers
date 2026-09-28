@@ -66,7 +66,8 @@ const decodeJson = (value: string | null) =>
  * back to each handler's `rollback`, and a placeholder there would roll back
  * the wrong thing (the same reason `@smthrs/journal` Redaction excludes
  * `state_json`, checkpoints, and outcomes). A receipt must therefore never
- * carry a credential; `docs/guides/compensate-an-effect.md` says so.
+ * carry a credential: `Compensation.compensate` refuses one the redaction
+ * rules would rewrite, and `docs/guides/compensate-an-effect.md` says so.
  */
 const encodeJson = (value: unknown) => Schema.encodeEffect(Json)(value).pipe(Effect.mapError(mapError))
 

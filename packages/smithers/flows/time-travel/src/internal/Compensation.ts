@@ -5,6 +5,7 @@
  */
 
 import { Jj, jjError } from "@smthrs/jj"
+import * as Redaction from "@smthrs/journal/Redaction"
 import * as CacheStore from "@smthrs/step-cache/CacheStore"
 import * as Cause from "effect/Cause"
 import * as Duration from "effect/Duration"
@@ -304,13 +305,37 @@ const assertExecutable = (plan: Plan): Effect.Effect<void, TimeTravelError> => {
 }
 
 /**
+ * Refuses a receipt whose handler data the journal's redaction net would
+ * rewrite. A receipt is persisted verbatim so `rollback` gets it back byte for
+ * byte, which means a credential in it would sit in `flows_time_travel_receipts`
+ * and the audit detail in clear. The value itself never reaches the error.
+ */
+const refuseCredential = (receipt: RollbackReceipt): Effect.Effect<void, TimeTravelError> =>
+  // Data that is not JSON fails as a typed error where the store encodes it.
+  Effect.try(() => JSON.stringify(receipt.data ?? null)).pipe(
+    Effect.orElseSucceed(() => undefined),
+    Effect.flatMap((encoded) =>
+      encoded === undefined || Redaction.redactJsonString(encoded, Redaction.make()) === encoded
+        ? Effect.void
+        : Effect.fail(
+          error(
+            "compensation_failed",
+            `receipt for ${receipt.effect.id} carries a credential-shaped value; ` +
+              "return a secret reference or an identifier instead"
+          )
+        )
+    )
+  )
+
+/**
  * Runs resolved tier-3 handlers in reverse journal order.
  *
  * A handler failure rolls back every earlier handler receipt before the typed
  * failure escapes. When `onReceipts` is supplied, it runs after each successful
  * revert and before the next handler starts; a callback failure rolls back all
  * receipts collected so far. A receipt is therefore considered durable only
- * after its callback has succeeded.
+ * after its callback has succeeded. A receipt whose data the journal's
+ * redaction net would rewrite is refused the same way, before its callback.
  *
  * @since 0.1.0
  * @category compensation
@@ -357,21 +382,23 @@ export const compensate = (
             )
           }
           receipts.push(revertExit.value)
-          if (onReceipts !== undefined) {
-            const durableExit = yield* Effect.exit(onReceipts([...receipts]))
-            if (Exit.isFailure(durableExit)) {
-              const rollbackExit = yield* Effect.exit(rollbackHandlers(registry, receipts, timeout))
-              return yield* Effect.fail(
-                error(
-                  "compensation_failed",
-                  `could not persist compensation receipt for ${effect.id}: ${causeMessage(durableExit.cause)}`,
-                  {
-                    compensation: durableExit.cause,
-                    rollback: Exit.isFailure(rollbackExit) ? rollbackExit.cause : undefined
-                  }
-                )
+          const durableExit = yield* Effect.exit(
+            refuseCredential(revertExit.value).pipe(
+              Effect.andThen(onReceipts === undefined ? Effect.void : onReceipts([...receipts]))
+            )
+          )
+          if (Exit.isFailure(durableExit)) {
+            const rollbackExit = yield* Effect.exit(rollbackHandlers(registry, receipts, timeout))
+            return yield* Effect.fail(
+              error(
+                "compensation_failed",
+                `could not persist compensation receipt for ${effect.id}: ${causeMessage(durableExit.cause)}`,
+                {
+                  compensation: durableExit.cause,
+                  rollback: Exit.isFailure(rollbackExit) ? rollbackExit.cause : undefined
+                }
               )
-            }
+            )
           }
         }
         return receipts

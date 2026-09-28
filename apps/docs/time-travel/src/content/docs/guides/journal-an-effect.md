@@ -75,10 +75,11 @@ action's error channel. It never swallows the action's own failure.
 A `metadata` record merges into the entry's journal metadata field by field.
 Any other value is carried under `upstream`, and an unset one adds no key.
 
-Three declarations are refused before the action runs, all as `invalid`: a
-description that does not decode, a `sourceSeq` at `Number.MAX_SAFE_INTEGER`
-(there is no room for a terminal record above it), and an `irreversible` tier
-with no idempotency key.
+Four declarations are refused before the action runs, all as `invalid`: a
+description that does not decode, a `kind` the engine reserves
+(`EventTypes.childSpawnKind`, from which a rewind derives the children it
+archives), a `sourceSeq` at `Number.MAX_SAFE_INTEGER` (there is no room for a
+terminal record above it), and an `irreversible` tier with no idempotency key.
 
 ## Crossing twice is refused
 

@@ -256,6 +256,65 @@ describe("Compensation.compensate", () => {
       expect(receipts.map((receipt) => receipt.id)).toEqual(["second:rollback", "first:rollback"])
     }))
 
+  it.effect("refuses a credential-shaped receipt before it is durable and rolls every receipt back", () =>
+    Effect.gen(function*() {
+      const secret = "sk-live-0123456789abcdef"
+      const durable: Array<number> = []
+      const rolledBack: Array<string> = []
+      const layer = registryOf([{
+        kind: "send",
+        tier: "irreversible",
+        requiresIdempotencyKey: true,
+        residue: () => "residue",
+        revert: (effect) =>
+          Effect.succeed(effect.id === "first" ? { refundId: "re_1", apiToken: secret } : { voided: effect.id }),
+        rollback: (effect) =>
+          Effect.sync(() => {
+            rolledBack.push(effect.id)
+          })
+      }])
+      const plan = yield* (
+        Compensation.assess([irreversible("first", 1), irreversible("second", 2)]).pipe(
+          Effect.provide(cache()),
+          Effect.provide(layer)
+        )
+      )
+
+      const failure = yield* Effect.flip(
+        Compensation.compensate(plan, (receipts) => Effect.sync(() => void durable.push(receipts.length))).pipe(
+          Effect.provide(layer)
+        )
+      )
+
+      // Only `second` became durable; `first` was refused before its callback.
+      expect(durable).toEqual([1])
+      expect(rolledBack).toEqual(["first", "second"])
+      expect(failure).toMatchObject({
+        code: "compensation_failed",
+        message: expect.stringContaining("receipt for first carries a credential-shaped value")
+      })
+      expect(JSON.stringify(Schema.encodeSync(TimeTravelError)(failure))).not.toContain(secret)
+    }))
+
+  it.effect("leaves receipt data that is not JSON to the store's typed encoder", () =>
+    Effect.gen(function*() {
+      const layer = registryOf([{
+        kind: "send",
+        tier: "irreversible",
+        requiresIdempotencyKey: true,
+        residue: () => "residue",
+        revert: () => Effect.succeed({ amount: 1n }),
+        rollback: () => Effect.void
+      }])
+      const plan = yield* (
+        Compensation.assess([irreversible("first", 1)]).pipe(Effect.provide(cache()), Effect.provide(layer))
+      )
+
+      const receipts = yield* Compensation.compensate(plan).pipe(Effect.provide(layer))
+
+      expect(receipts.map((receipt) => receipt.data)).toEqual([{ amount: 1n }])
+    }))
+
   it.effect("rolls back the receipts it already collected when a later revert fails", () =>
     Effect.gen(function*() {
       const rolledBack: Array<string> = []

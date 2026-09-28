@@ -59,7 +59,11 @@ pass `@smthrs/journal` applies to journal payloads: recovery decodes it and
 hands it back to `rollback` byte for byte, and a placeholder there would roll
 back the wrong thing. A receipt must never carry a credential. Keep tokens and
 connection strings in the handler's closure and return only the identifier
-`rollback` needs, such as a refund id or a retraction handle.
+`rollback` needs, such as a refund id or a retraction handle. Compensation
+enforces this: a receipt the journal's redaction rules would rewrite, such as
+one with an `apiToken` field or a `Bearer` value, fails the rewind with
+`compensation_failed` before it is persisted, and every receipt collected so
+far is rolled back.
 
 **`rollback(effect, receipt)`** undoes a compensation this handler performed,
 from the receipt `revert` returned. A rewind that fails after compensating
