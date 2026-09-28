@@ -1053,6 +1053,27 @@ describe("KubernetesSandbox", () => {
     expect(deps.touched).toEqual([])
   })
 
+  it("refuses a caller override that would replace the one carrying neutral limits", () => {
+    const deps = untouchable<never>()
+    const make = (options: Partial<KubernetesSandbox.KubernetesSandboxOptions>) => () =>
+      KubernetesSandbox.make({ spawner: deps.value, image: "img", ...options })
+    const later = ["--overrides", JSON.stringify({ apiVersion: "v1", spec: {} })]
+    for (const limits of [{ cpus: 1 }, { memoryMib: 256 }, { timeoutSecs: 60 }]) {
+      expect(make({ limits, createArgs: later })).toThrow(
+        "kubernetes-sandbox: createArgs --overrides would replace the Pod override"
+      )
+    }
+    expect(make({ limits: { cpus: 1 }, createArgs: [`--overrides=${JSON.stringify({ spec: {} })}`] }))
+      .toThrow("createArgs --overrides would replace")
+    expect(make({ limits: { timeoutSecs: 60 }, createArgs: ["--override-type", "json"] }))
+      .toThrow("createArgs --override-type would replace")
+    expect(make({ nodeSelector: { pool: "a" }, createArgs: later })).toThrow("createArgs --overrides would replace")
+    // With nothing of its own to override, a caller's override is theirs.
+    expect(make({ createArgs: later })).not.toThrow()
+    expect(make({ limits: {}, createArgs: later })).not.toThrow()
+    expect(deps.touched).toEqual([])
+  })
+
   it.effect("handles empty resources and bounds sanitized Pod names", () =>
     Effect.gen(function*() {
       const fake = cluster()

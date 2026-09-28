@@ -65,7 +65,9 @@ export interface KubernetesSandboxOptions {
    * exclusive with the same field in `resources`; `timeoutSecs` is the Pod's
    * `activeDeadlineSeconds`, after which Kubernetes fails it. The limits
    * enter the configuration fingerprint, so a leftover Pod with others is
-   * refused rather than reattached.
+   * refused rather than reattached. A `createArgs` `--overrides` or
+   * `--override-type` beside any of them is refused when `make` is called,
+   * because kubectl keeps only the last override.
    */
   readonly limits?: ResourceLimits | undefined
   readonly serviceAccount?: string | undefined
@@ -192,6 +194,15 @@ const overrideArgs = (name: string, options: KubernetesSandboxOptions): Readonly
 export const make = (input: KubernetesSandboxOptions): Provider => {
   refuseNetworkPolicy("kubernetes-sandbox", input.network)
   const options = withLimits(input)
+  // kubectl keeps only the last `--overrides`, so a caller's would silently
+  // replace the one carrying the Pod's resources and deadline.
+  const overriding = (options.createArgs ?? []).find((arg) => /^--override(?:s|-type)(?:=|$)/.test(arg))
+  if (overriding !== undefined && overrideArgs("", options).length > 0) {
+    throw new TypeError(
+      `kubernetes-sandbox: createArgs ${overriding.split("=")[0]} would replace the Pod override carrying ` +
+        "limits, resources, serviceAccount, and nodeSelector; name those through the options"
+    )
+  }
   const program = options.program ?? "kubectl"
   const workdir = options.workdir ?? "/workspace"
   const prefix = options.namePrefix ?? "smthrs-sbx-"
