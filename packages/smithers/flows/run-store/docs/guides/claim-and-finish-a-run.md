@@ -8,10 +8,10 @@ sidebar:
 This is the path a durable executor walks on every run it picks up. Each step
 is a compare-and-swap you can lose, and losing is normal.
 
-## Read the row and restate the snapshot
+## Read the row and choose the snapshot
 
-Every claim guards three fields. Read the row, then restate exactly those three
-as the `expected` snapshot:
+Every claim guards three fields. Read the row; you can restate those three as
+the `expected` snapshot:
 
 ```ts
 import type { RunRow, RunSnapshot } from "@smthrs/run-store/RunStore"
@@ -23,9 +23,10 @@ const snapshot = (row: RunRow): RunSnapshot => ({
 })
 ```
 
-Pass the three-field object, not the whole row. A snapshot with extra
-properties is refused as invalid input, because the store copies it inertly and
-admits only the keys the compare-and-swap uses.
+The three-field helper is optional: a complete `RunRow` returned by `get` can
+also be passed directly as `expected`. The store copies only the three guarded
+fields; extra own data fields are ignored. Missing or inherited required fields,
+enumerable accessors on any key, and non-plain prototypes are refused.
 
 ## Claim, then activate
 

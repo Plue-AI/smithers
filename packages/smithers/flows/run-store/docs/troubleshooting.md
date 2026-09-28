@@ -23,11 +23,12 @@ never the value that failed. Every code and outcome is listed in the
 **What happened.** An input did not meet the durable contract, and nothing was
 written. The cause names the field and what was wrong with it. The common ones:
 
-- **A snapshot with the wrong shape.** `RunSnapshot` is exactly `status`,
-  `owner`, and `heartbeatAtMs`. An extra property, a missing one, a getter, or a
-  non-plain object is refused rather than partially read. So is a partial
-  ownership pair: `running` requires both an owner and a heartbeat, and every
-  other status requires neither.
+- **An invalid snapshot.** `RunSnapshot` requires own enumerable data fields
+  `status`, `owner`, and `heartbeatAtMs`. A `RunRow` returned by `get` is valid
+  as `expected`; extra own data fields are ignored. Missing or inherited
+  required fields, enumerable accessors on any key, and non-plain prototypes
+  are refused. So is a partial ownership pair: `running` requires both an
+  owner and a heartbeat, and every other status requires neither.
 - **A timestamp that is not a non-negative safe integer.** Every `nowMs`,
   `claimedAtMs`, `startedAtMs`, and `finishedAtMs` is checked on its own.
 - **A lease reading ahead of the store's clock.** `claim`, `claimAndOwn`,
