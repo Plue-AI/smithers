@@ -18,6 +18,17 @@ describe("waiting annotation", () => {
     expect(waitingAnnotation("parked", [], { reason: "released", token: null })).toEqual({ reason: "event" })
   })
 
+  it("keeps a declared token's question as the JSON text the first park wrote", () => {
+    const question = { question: "park here?" }
+    expect(waitingAnnotation("waiting-approval", [], { reason: "approval", token: "ask/run-1/abc", request: question }))
+      .toEqual({ reason: "approval", token: "ask/run-1/abc", request: JSON.stringify(question) })
+    // A question travels with its token: a reason the status overrides drops both.
+    expect(
+      waitingAnnotation("waiting-approval", [], { reason: "budget", token: "budget/run-1/abc", request: question })
+    )
+      .toEqual({ reason: "approval" })
+  })
+
   it("keeps approval and event parks distinct from timers", () => {
     expect(waitingAnnotation("waiting-approval", [])).toEqual({ reason: "approval" })
     expect(waitingAnnotation("parked", [])).toEqual({ reason: "event" })

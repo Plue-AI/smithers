@@ -27,6 +27,7 @@ import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
+import { FlowRuntime } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Jj from "@smthrs/jj"
@@ -246,8 +247,10 @@ const host = (
     WorkspaceSandbox.layerFileSystem(),
     registration
   ).pipe(Layer.provide([AtomicFileSystem.layer, NodeCrypto.layer, jj]))
+  // `provideMerge` rather than `provide`: a case may drive the engine itself,
+  // which is what a heartbeat sweep or a peer's poll is to the executor.
   return ControlLive.layer.pipe(
-    Layer.provide(engine),
+    Layer.provideMerge(engine),
     Layer.provideMerge(
       bindControl.pipe(Layer.provideMerge(
         Layer.mergeAll(
@@ -281,6 +284,8 @@ const makeRoot = (): string => {
 interface EngineRow {
   readonly status: string
   readonly waiting_reason: string | null
+  readonly waiting_token: string | null
+  readonly waiting_request: string | null
   readonly cancel_requested_at_ms: number | null
   readonly owner_host_id: string | null
 }
@@ -289,7 +294,8 @@ const readEngineRun = (root: string, runId: string): EngineRow | undefined => {
   const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
   try {
     return database.prepare(
-      "SELECT status, waiting_reason, cancel_requested_at_ms, owner_host_id FROM flows_runs WHERE run_id = ?"
+      `SELECT status, waiting_reason, waiting_token, waiting_request, cancel_requested_at_ms, owner_host_id
+       FROM flows_runs WHERE run_id = ?`
     ).get(runId) as unknown as EngineRow | undefined
   } finally {
     database.close()
@@ -320,6 +326,19 @@ const expireClocks = (root: string, runId: string): void => {
     database.prepare(
       "UPDATE flows_clock_deadlines SET due_at_ms = ? WHERE execution_id = ? AND completed_at_ms IS NULL"
     ).run(Date.now() - 1_000, runId)
+  } finally {
+    database.close()
+  }
+}
+
+/** How many engine journal records a run has. */
+const countEngineEvents = (root: string, runId: string): number => {
+  const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
+  try {
+    const row = database.prepare("SELECT count(*) AS n FROM flows_journal_events WHERE run_id = ?").get(runId) as
+      | { readonly n: number }
+      | undefined
+    return row?.n ?? 0
   } finally {
     database.close()
   }
@@ -578,6 +597,67 @@ describe("a parked run resumed by a later process", () => {
     expect(settled.status).toBe("completed")
     expect(notes).toContain("engine-park-second:decision=true")
   }, 180_000)
+})
+
+describe("a run parked on an in-run ask that a fresh host re-enters unasked", () => {
+  /**
+   * An unrequested round re-parks the run, and the park must keep the wait's
+   * token and question. The engine clears the waiting columns when it
+   * activates the round, so a host that did not take the park has only the
+   * durable approval facts to re-declare it from. Before this, the re-park in
+   * a second composition wrote `approval` with a null token and question: the
+   * inbox kept a gate it could no longer name or answer.
+   */
+  it("re-parks on the same approval token and question, still suspended", async () => {
+    frame = askFrame
+    const root = makeRoot()
+    const runId = await Effect.runPromise(
+      Effect.gen(function*() {
+        const id = yield* launch
+        yield* awaitParkEvent(id, "waiting-approval")
+        return id
+      }).pipe(Effect.provide(host(root, hostOwner)), Effect.scoped, Effect.orDie)
+    )
+    const parked = await settledEngineRow(root, runId)
+    expect(parked?.status).toBe("suspended")
+    expect(parked?.waiting_reason).toBe("approval")
+    expect(parked?.waiting_token).toMatch(/^ask\//)
+    expect(JSON.parse(parked?.waiting_request ?? "null")).toEqual({ question: "park here?" })
+
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const engine = yield* FlowRuntime.FlowRuntime
+        const runtime = yield* ControlRuntime.ControlRuntime
+        expect((yield* runtime.pendingResumes).filter((entry) => entry.runId === runId)).toEqual([])
+        const before = countEngineEvents(root, runId)
+        yield* engine.resume(AgentSession.agentFlow, runId)
+        // The round's activation and its re-park each commit with their own
+        // engine journal records, so a suspended row with more records than
+        // before is the re-park, never the first host's row.
+        let row = readEngineRun(root, runId)
+        for (let attempt = 0; attempt < 1_500; attempt++) {
+          row = readEngineRun(root, runId)
+          if (countEngineEvents(root, runId) > before && row?.status === "suspended" && row.owner_host_id === null) {
+            break
+          }
+          yield* Effect.sleep("20 millis")
+        }
+        expect(countEngineEvents(root, runId)).toBeGreaterThan(before)
+        return { row, run: yield* runtime.getRun(runId) }
+      }).pipe(
+        Effect.provide(host(root, secondOwner, "engine-park-second")),
+        Effect.scoped,
+        Effect.orDie
+      )
+    )
+
+    expect(observed.row?.status).toBe("suspended")
+    expect(observed.row?.waiting_reason).toBe("approval")
+    expect(observed.row?.waiting_token).toBe(parked?.waiting_token)
+    expect(observed.row?.waiting_request).toBe(parked?.waiting_request)
+    expect(observed.run.status).toBe("waiting-approval")
+    expect(notes).toEqual([])
+  }, 120_000)
 })
 
 /**

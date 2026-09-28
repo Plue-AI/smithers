@@ -22,6 +22,7 @@ import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
+import { FlowRuntime } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as Jj from "@smthrs/jj"
 import { Migrations, SqlJournal } from "@smthrs/journal"
@@ -193,8 +194,9 @@ const host = (root: string, owner: Ownership.OwnerId, engineHost: string) => {
     WorkspaceSandbox.layerFileSystem(),
     registration
   ).pipe(Layer.provide([AtomicFileSystem.layer, NodeCrypto.layer, jj]))
+  // `provideMerge` so a case can drive the engine as a peer's poll would.
   return ControlLive.layer.pipe(
-    Layer.provide(engine),
+    Layer.provideMerge(engine),
     Layer.provideMerge(
       Layer.mergeAll(
         SqlControlRuntime.layer({ owner, flows: controlFlows }).pipe(Layer.orDie),
@@ -223,9 +225,31 @@ const makeRoot = (): string => {
 const readEngineRun = (root: string, runId: string) => {
   const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
   try {
-    return database.prepare("SELECT status, waiting_reason FROM flows_runs WHERE run_id = ?").get(runId) as unknown as
-      | { readonly status: string; readonly waiting_reason: string | null }
+    return database.prepare(
+      `SELECT status, waiting_reason, waiting_token, waiting_request, owner_host_id
+       FROM flows_runs WHERE run_id = ?`
+    ).get(runId) as unknown as
+      | {
+        readonly status: string
+        readonly waiting_reason: string | null
+        readonly waiting_token: string | null
+        readonly waiting_request: string | null
+        readonly owner_host_id: string | null
+      }
       | undefined
+  } finally {
+    database.close()
+  }
+}
+
+/** How many engine journal records a run has; each committed round adds some. */
+const countEngineEvents = (root: string, runId: string): number => {
+  const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
+  try {
+    const row = database.prepare("SELECT count(*) AS n FROM flows_journal_events WHERE run_id = ?").get(runId) as
+      | { readonly n: number }
+      | undefined
+    return row?.n ?? 0
   } finally {
     database.close()
   }
@@ -343,6 +367,54 @@ describe("a run parked on its task-time budget", () => {
 
     expect(settled.kind).toBe("control.run.failed")
     expect(settled.run.status).toBe("failed")
+    expect(modelCalls).toEqual(["runaway-first"])
+  }, 180_000)
+
+  /**
+   * A round nobody asked for re-parks the run in a host that did not park
+   * it. The engine cleared the waiting columns when it activated that round,
+   * so the budget request's token and question come back from the run's
+   * durable approval facts, or the parked row no longer names the question
+   * Continue answers.
+   */
+  it("an unasked round in a fresh host keeps the budget park's token and question", async () => {
+    const root = makeRoot()
+    const parked = await parkInFirstProcess(root)
+
+    expect(parked.kind).toBe("control.approval.requested")
+    const first = readEngineRun(root, parked.runId)
+    expect(first).toMatchObject({ status: "suspended", waiting_reason: "budget" })
+    expect(first?.waiting_token).toMatch(/^budget\//)
+    expect(JSON.parse(first?.waiting_request ?? "null")).toEqual({ question: expect.stringMatching(/^Raise the /) })
+
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const engine = yield* FlowRuntime.FlowRuntime
+        const runtime = yield* ControlRuntime.ControlRuntime
+        expect((yield* runtime.pendingResumes).filter((entry) => entry.runId === parked.runId)).toEqual([])
+        const before = countEngineEvents(root, parked.runId)
+        yield* engine.resume(AgentSession.agentFlow, parked.runId)
+        let row = readEngineRun(root, parked.runId)
+        for (let attempt = 0; attempt < 1_500; attempt++) {
+          row = readEngineRun(root, parked.runId)
+          if (
+            countEngineEvents(root, parked.runId) > before && row?.status === "suspended" &&
+            row.owner_host_id === null
+          ) break
+          yield* Effect.sleep("20 millis")
+        }
+        expect(countEngineEvents(root, parked.runId)).toBeGreaterThan(before)
+        return { row, run: yield* runtime.getRun(parked.runId) }
+      }).pipe(Effect.provide(host(root, secondOwner, "runaway-second")), Effect.scoped, Effect.orDie)
+    )
+
+    expect(observed.row).toMatchObject({
+      status: "suspended",
+      waiting_reason: "budget",
+      waiting_token: first?.waiting_token,
+      waiting_request: first?.waiting_request
+    })
+    expect(observed.run.status).toBe("parked")
     expect(modelCalls).toEqual(["runaway-first"])
   }, 180_000)
 })

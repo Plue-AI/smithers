@@ -381,6 +381,17 @@ republishes its whole prefix, and this identity is what lets the journal's
 `UNIQUE (run_id, source_id, source_seq)` index refuse the duplicates while
 admitting events produced after a divergence.
 
+### AgentSession.agentFlow
+
+```ts
+const agentFlow: Flow.Flow<"agent/run", ...>
+```
+
+The one durable flow every agent run executes, registered by `make`. Its
+execution id is the control run id. `FlowRuntime.resume(agentFlow, runId)`
+re-drives a parked run through the registered handler; a round nobody
+requested re-parks on the same wait, token, and question.
+
 ### AgentSession.maxTracedBytes
 
 ```ts

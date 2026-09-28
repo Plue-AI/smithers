@@ -105,6 +105,7 @@ import { agentOutcome } from "./internal/AgentOutcome.ts"
 import { callId } from "./internal/CallIdentity.ts"
 import { failureJson } from "./internal/FailureJson.ts"
 import { failureSummary } from "./internal/FailureSummary.ts"
+import { latestPendingApproval } from "./internal/PendingApproval.ts"
 import { unordered } from "./internal/TraceOrder.ts"
 import { waitingAnnotation } from "./internal/WaitingAnnotation.ts"
 import type * as QuotaPolicy from "./QuotaPolicy.ts"
@@ -1422,16 +1423,12 @@ const budgetDecision = (entry: JournalEvent.Entry) => {
 }
 
 /**
- * The `budget/` request one approval entry names: a request, or the decision
- * that answered it.
+ * The `waiting_request` a park declares for one approval question: JSON text
+ * built from the question alone, because the question is what the run's
+ * `control.approval.requested` fact keeps. A host that re-parks the run
+ * without having parked it rebuilds the same text from that fact.
  */
-const budgetRequestOf = (entry: JournalEvent.Entry): string | undefined => {
-  if (entry.eventType !== "control.approval.requested") return budgetDecision(entry)?.requestId
-  const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
-  return Option.isSome(fact) && fact.value.requestId.startsWith(budgetRequestPrefix)
-    ? fact.value.requestId
-    : undefined
-}
+const declaredQuestion = (question: string): string => JSON.stringify({ question })
 
 /**
  * The budgets an operator approved for one run's budget parks, read from its
@@ -1599,7 +1596,7 @@ export const budgetParking = (
           })
         )
       })
-      return { waiting: { reason: "budget", token: identity.requestId }, failure }
+      return { waiting: { reason: "budget", token: identity.requestId, request: declaredQuestion(asked) }, failure }
     })
 })
 
@@ -1728,9 +1725,14 @@ export const settlementFailure = (error: unknown): unknown => failureJson(error)
 /**
  * The one durable flow every agent run executes. Its plan-time body is inert;
  * the behaviour is the `execute` registered by {@link make}, and the
- * execution id is the control run id.
+ * execution id is the control run id. A host re-drives a run by resuming it
+ * under this address, which is also how an unrequested round reaches the
+ * registered handler.
+ *
+ * @category flows
+ * @since 1.0.0
  */
-const agentFlow = Flow.make("agent/run", {
+export const agentFlow = Flow.make("agent/run", {
   payload: { runId: Schema.String, planId: Schema.String },
   success: Schema.Unknown,
   error: Schema.Unknown,
@@ -2433,7 +2435,11 @@ export const make = (
           // ask reaches this line, and the park then took the derived `event`
           // reason instead of `approval`.
           yield* Effect.provideService(
-            FlowRuntime.annotateWaiting({ reason: "approval", token: identity.requestId }),
+            FlowRuntime.annotateWaiting({
+              reason: "approval",
+              token: identity.requestId,
+              request: declaredQuestion(input.question)
+            }),
             FlowRuntime.FlowInstance,
             instance
           )
@@ -3409,27 +3415,30 @@ export const make = (
     )
 
     /**
-     * The budget park a run is still waiting on, read from its journal: the
-     * latest `budget/` approval request no decision has answered. The engine's
-     * own waiting row is gone by the time an unrequested round asks, because
-     * claiming the round cleared it.
+     * The approval park a run is still waiting on, read from its journal: the
+     * latest run approval request no decision has answered, with the question
+     * it asked. The engine's own waiting row is gone by the time an
+     * unrequested round asks, because claiming the round cleared it, and a
+     * host that did not park the run has nothing else to re-declare it from.
      */
-    const pendingBudgetWait = (runId: string) =>
+    const pendingApprovalWait = (runId: string) =>
       Effect.gen(function*() {
-        const pending = new Map<string, true>()
+        const approvals: Array<JournalEvent.Entry> = []
         yield* scanRun(journal, runId, (entries) => {
-          for (const entry of entries) {
-            const requestId = budgetRequestOf(entry)
-            if (requestId === undefined) continue
-            if (entry.eventType === "control.approval.requested") pending.set(requestId, true)
-            else pending.delete(requestId)
-          }
+          for (const entry of entries) if (entry.eventType.startsWith("control.approval.")) approvals.push(entry)
         })
-        const token = [...pending.keys()].at(-1)
-        return token === undefined ? undefined : { reason: "budget", token }
+        const pending = latestPendingApproval(approvals)
+        if (pending === undefined) return undefined
+        return {
+          reason: pending.requestId.startsWith(budgetRequestPrefix) ? "budget" : ControlExecutor.humanWaitReason,
+          token: pending.requestId,
+          // The value `declaredQuestion` serializes, so the re-park writes the
+          // same text the first park did.
+          request: { question: pending.question }
+        }
       }).pipe(
         Effect.catchCause((cause) =>
-          recoverCause(cause, "The run's budget park could not be read", undefined, { runId })
+          recoverCause(cause, "The run's approval park could not be read", undefined, { runId })
         )
       )
 
@@ -3492,7 +3501,7 @@ export const make = (
               ? yield* engineState.pendingClocks({ executionId: payload.runId })
               : []
             const prior = Option.getOrUndefined(yield* engineState.waiting(payload.runId)) ??
-              (yield* pendingBudgetWait(payload.runId))
+              (yield* pendingApprovalWait(payload.runId))
             yield* FlowRuntime.annotateWaiting(waitingAnnotation(controlRun.status, clocks, prior))
             return yield* Flow.suspend(instance)
           }
