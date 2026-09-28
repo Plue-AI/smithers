@@ -21,15 +21,16 @@
     "lint": "eslint src --max-warnings=0 && dprint check"
   },
   "dependencies": {
-    "zod": "4.5.4",
-    "@smthrs/canonical": "1.0.0-rc.1"
+    "@smthrs/canonical": "1.0.0-rc.1",
+    "string-width": "7.2.0",
+    "zod": "4.5.4"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
+    "@types/node": "26.4.1",
     "dprint": "0.55.2",
     "eslint": "9.39.1",
+    "typescript": "^5.9.3",
     "typescript-eslint": "8.65.0",
-    "@types/node": "26.4.1",
     "vitest": "5.0.0"
   }
 }

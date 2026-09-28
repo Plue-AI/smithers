@@ -66,6 +66,25 @@ describe("activity rows", () => {
       .toEqual({ text: "Waiting on backfill…", mark: "", state: "text" })
   })
 
+  test.each(["", " \n\t", "\r\n\t"])("blank activity text %j stays blank without a status mark", (text) => {
+    expect(SubagentCard.describe({ kind: "text", text })).toEqual({ text: "", mark: "", state: "text" })
+  })
+
+  test.each(
+    [
+      { state: "pending", expected: { text: "Running…", mark: "", state: "pending" } },
+      { state: "done", expected: { text: "Ran", mark: "✓", state: "done" } },
+      { state: "error", expected: { text: "Ran", mark: "✗", state: "error" } }
+    ] satisfies Array<{ state: "pending" | "done" | "error"; expected: Omit<SubagentCard.Row, "branch"> }>
+  )(
+    "a $state tool without a target keeps its verb and status without a stray space",
+    ({ state, expected }) => {
+      for (const target of ["", " \n\t"]) {
+        expect(SubagentCard.describe({ kind: "tool", tool: "bash", state, target })).toEqual(expected)
+      }
+    }
+  )
+
   test("shows the last five with ├ and └ and counts the rest as earlier", () => {
     const entries = Array.from({ length: 12 }, (_, index) => ({ ...read, target: `f${index}.ts` }))
     const shown = SubagentCard.activity(entries)
@@ -278,5 +297,56 @@ describe("grid", () => {
   test("gives each row its tallest card's height", () => {
     const layout = SubagentCard.grid(80, 3)
     expect(SubagentCard.rowHeights(layout, [9, 4, 3])).toEqual([9, 3])
+  })
+
+  test.each([
+    { heights: [], expected: [0, 0] },
+    { heights: [5], expected: [5, 0] },
+    { heights: [5, 9], expected: [9, 0] }
+  ])("unmeasured cards contribute zero to row heights for $heights", ({ heights, expected }) => {
+    const layout = SubagentCard.grid(80, 3)
+    const before = structuredClone(layout)
+    expect(SubagentCard.rowHeights(layout, heights)).toEqual(expected)
+    expect(layout).toEqual(before)
+  })
+})
+
+describe("display-column clipping", () => {
+  test.each(
+    [
+      ["", 0, ""],
+      ["abc", -1, ""],
+      ["abc", 0, ""],
+      ["abc", 1, "…"],
+      ["abc", 2, "a…"],
+      ["abc", 3, "abc"],
+      ["abc", 4, "abc"],
+      ["界界界", 1, "…"],
+      ["界界界", 2, "…"],
+      ["界界界", 4, "界…"],
+      ["界界界", 5, "界界…"],
+      ["界界界", 6, "界界界"],
+      ["e\u0301xy", 2, "e\u0301…"],
+      ["e\u0301xy", 3, "e\u0301xy"],
+      ["👍🏽ab", 3, "👍🏽…"],
+      ["👨‍👩‍👧‍👦ab", 3, "👨‍👩‍👧‍👦…"],
+      ["🇺🇸ab", 3, "🇺🇸…"],
+      ["界e\u0301😀x", 5, "界e\u0301…"],
+      ["界e\u0301😀x", 6, "界e\u0301😀x"]
+    ] as const
+  )("preserves whole graphemes in %j at %i columns", (text, width, expected) => {
+    expect(SubagentCard.clip(text, width)).toBe(expected)
+  })
+
+  test.each(["✓", "✗"] as const)("reserves the branch and %s beside a clipped CJK row", (mark) => {
+    const row = { branch: "├", text: "界界界界界界", mark, state: mark === "✓" ? "done" : "error" } as const
+    expect(SubagentCard.line(row, 9)).toBe(`├ 界界… ${mark}`)
+    expect(SubagentCard.line(row, 4)).toBe(`├  ${mark}`)
+    expect(SubagentCard.line(row)).toBe(`├ 界界界界界界 ${mark}`)
+  })
+
+  test("an unmarked row spends its columns on complete text", () => {
+    expect(SubagentCard.line({ branch: "└", text: "界界界界", mark: "", state: "text" }, 7))
+      .toBe("└ 界界…")
   })
 })

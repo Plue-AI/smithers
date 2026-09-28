@@ -38,6 +38,67 @@ const INFRA_CODES = (Object.keys(PLUE_FAILURES) as ReadonlyArray<PlueFailureCode
  */
 const CAPACITY_CODES: ReadonlyArray<PlueFailureCode> = ["no_capacity"]
 
+describe("legacy and empty-message copy units", () => {
+  test("a legacy never-answered refusal names the connection and offers only retry", () => {
+    const refusal = refusalFromStored({ status: 0, message: "Load failed" })
+    expect(refusalSentence(refusal)).toBe(
+      "Load failed. Nothing answered at all — that's the connection, not something you did. Try it again."
+    )
+    expect(refusalDoors(refusal)).toEqual(["retry"])
+  })
+
+  test.each([
+    {
+      status: 400,
+      message: "Change the request",
+      doors: ["retry"],
+      sentence: "Change the request. Smithers can't do that as asked."
+    },
+    {
+      status: 409,
+      message: "Transition unavailable",
+      doors: ["retry", "resume"],
+      sentence: "Transition unavailable. Smithers can't do that as asked."
+    },
+    {
+      status: 409,
+      message: "Already stopped!",
+      doors: ["retry", "resume"],
+      sentence: "Already stopped! Smithers can't do that as asked."
+    },
+    { status: 400, message: "  \n\t", doors: ["retry"], sentence: "Smithers can't do that as asked." }
+  ])(
+    "uncoded HTTP $status preserves the public sentence and doors for '$message'",
+    ({ status, message, doors, sentence }) => {
+      const refusal = refusalOf({ status, body: {}, message })
+      expect(refusalSentence(refusal)).toBe(sentence)
+      expect(refusalDoors(refusal)).toEqual(doors)
+    }
+  )
+
+  test("a recognized conflict's stated doors do not acquire the uncoded Resume fallback", () => {
+    const refusal = refusalOf({ status: 409, body: { code: "conflict" }, message: "Conflict" })
+    expect(refusalDoors(refusal)).toEqual(["retry"])
+    expect(refusalSentence(refusal)).toBe("conflict — Conflict. Smithers can't do that as asked.")
+  })
+
+  test("an empty client message still gives the connection explanation without a stray separator", () => {
+    const refusal = clientRefusal(new Error("Internal details"), "")
+    expect(refusalSentence(refusal)).toBe(
+      "Nothing answered at all — that's the connection, not something you did. Try it again."
+    )
+    expect(refusalDoors(refusal)).toEqual(["retry"])
+  })
+
+  test("a coded empty message preserves its code without inserting punctuation", () => {
+    const refusal = forCode("no_capacity", " \n\t ")
+    expect(refusalSentence(refusal)).toBe(
+      "no_capacity — This is not your fault — Smithers ran out of infra. Yell at @fucory to buy more."
+    )
+    expect(refusalDoors(refusal)).toEqual(["retry", "report"])
+  })
+})
+
 /**
  * The infra codes a Retry can never satisfy: nothing changes until Smithers
  * ships, migrates, or the reader opens a different box. Offering them a Retry

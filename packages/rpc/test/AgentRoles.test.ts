@@ -31,6 +31,16 @@ const custom = {
 } satisfies AgentRole
 
 describe("the agent role registry", () => {
+  test.each([
+    { id: "not-a-role", message: "Unknown agent role not-a-role" },
+    { id: "", message: "Unknown agent role " },
+    { id: "librarian", message: "Unknown agent role librarian" }
+  ])("the public JavaScript agentRole call rejects '$id' without changing its registry", ({ id, message }) => {
+    const before = structuredClone(AGENT_ROLES)
+    expect(() => Reflect.apply(agentRole, undefined, [id])).toThrowError(new Error(message))
+    expect(AGENT_ROLES).toEqual(before)
+  })
+
   test("seeds every built-in once, bound to a real harness and the verified model id, and stores no argv", () => {
     expect(AGENT_ROLES.map((role) => role.id)).toEqual([...AGENT_ROLE_IDS])
     for (const role of AGENT_ROLES) {
@@ -80,6 +90,16 @@ describe("known model names", () => {
 })
 
 describe("the cloud roles", () => {
+  test.each([
+    { id: "not-a-role", message: "Unknown cloud role not-a-role" },
+    { id: "", message: "Unknown cloud role " },
+    { id: "explainer", message: "Unknown cloud role explainer" }
+  ])("the public JavaScript cloudRole call rejects '$id' without changing its registry", ({ id, message }) => {
+    const before = structuredClone(CLOUD_AGENT_ROLES)
+    expect(() => Reflect.apply(cloudRole, undefined, [id])).toThrowError(new Error(message))
+    expect(CLOUD_AGENT_ROLES).toEqual(before)
+  })
+
   test("librarian and flows are served on Cerebras, carry no harness, and never join the agents store's built-ins", () => {
     expect(CLOUD_AGENT_ROLES.map((role) => role.id)).toEqual([...CLOUD_AGENT_ROLE_IDS])
     for (const role of CLOUD_AGENT_ROLES) {

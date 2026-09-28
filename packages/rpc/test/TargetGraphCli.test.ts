@@ -20,6 +20,114 @@ import {
 
 const graph = targetGraphFromCli(CliGraphEnvelopeSchema.parse(graphFixture), { repoId: "force" })
 
+describe("public CLI plan facts", () => {
+  const loaded = targetGraphFromCli(
+    CliGraphEnvelopeSchema.parse({
+      pattern: "//unit:*",
+      format: "json",
+      graph: "//unit:check\n  -data-> //unit:build",
+      roots: ["//unit:check"],
+      targets: [
+        { label: "//unit:check", target: "Shell.Test" },
+        { label: "//unit:build", target: "Shell.Build" }
+      ],
+      edges: [{ from: "//unit:check", to: "//unit:build", kind: "data" }],
+      warnings: ["Optional compiler unavailable"]
+    }),
+    { repoId: "unit", generatedAt: "2026-09-28T12:00:00Z", durationMs: 7 }
+  )
+
+  test("a minimal fact changes the rule without fabricating optional plan facts", () => {
+    const plan = CliPlanEnvelopeSchema.parse({
+      verb: "plan",
+      pattern: "//unit:check",
+      roots: ["//unit:check"],
+      targets: [{ label: "//unit:check", rule: "Custom.Check" }]
+    })
+    expect(plan.targets).toEqual([{ label: "//unit:check", rule: "Custom.Check", dependencies: [] }])
+    const before = structuredClone(loaded)
+    const planBefore = structuredClone(plan)
+    expect(mergePlanFacts(loaded, plan)).toEqual({
+      repoId: "unit",
+      nodes: [
+        {
+          label: "//unit:check",
+          package: "//unit",
+          name: "check",
+          rule: "Custom.Check",
+          kinds: [],
+          private: false,
+          plan: {}
+        },
+        { label: "//unit:build", package: "//unit", name: "build", rule: "Shell.Build", kinds: [], private: false }
+      ],
+      edges: [{ from: "//unit:check", to: "//unit:build", kind: "data" }],
+      warnings: ["Optional compiler unavailable"],
+      generatedAt: "2026-09-28T12:00:00Z",
+      durationMs: 7
+    })
+    expect(loaded).toEqual(before)
+    expect(plan).toEqual(planBefore)
+  })
+
+  test.each(["check", "write"] as const)(
+    "%s plan facts retain refusal, sandbox, outputs and explicit empty values",
+    (mode) => {
+      const plan = CliPlanEnvelopeSchema.parse({
+        verb: "plan",
+        pattern: "//unit:check",
+        roots: ["//unit:check"],
+        targets: [{
+          label: "//unit:check",
+          rule: "Custom.Check",
+          mode,
+          key: "",
+          cacheable: false,
+          dependencies: ["//unit:build"],
+          argv: [],
+          refusal: "Compiler unavailable",
+          sandbox: "isolated",
+          outDirs: ["dist"],
+          outFiles: ["check.json"]
+        }]
+      })
+      const before = structuredClone(loaded)
+      const planBefore = structuredClone(plan)
+      const merged = mergePlanFacts(loaded, plan)
+      expect(merged.nodes[0]).toEqual({
+        label: "//unit:check",
+        package: "//unit",
+        name: "check",
+        rule: "Custom.Check",
+        kinds: [],
+        private: false,
+        plan: {
+          mode,
+          key: "",
+          cacheable: false,
+          argv: [],
+          refusal: "Compiler unavailable",
+          sandbox: "isolated",
+          outDirs: ["dist"],
+          outFiles: ["check.json"]
+        }
+      })
+      expect(merged.nodes[1]).toEqual({
+        label: "//unit:build",
+        package: "//unit",
+        name: "build",
+        rule: "Shell.Build",
+        kinds: [],
+        private: false
+      })
+      expect(merged.edges).toEqual([{ from: "//unit:check", to: "//unit:build", kind: "data" }])
+      expect(merged.warnings).toEqual(["Optional compiler unavailable"])
+      expect(loaded).toEqual(before)
+      expect(plan).toEqual(planBefore)
+    }
+  )
+})
+
 describe("the force CLI graph envelope as a TargetGraphResponse", () => {
   test("parses 82 nodes and 94 edges", () => {
     expect(graph.nodes.length).toBe(82)

@@ -8,6 +8,7 @@ import {
   browserFetchWorkerCode,
   extractReadableText,
   isPublicAddress,
+  type ResolveHost,
   resolveHostOverHttps
 } from "../src/BrowserFetch.ts"
 import { refusalOf } from "../src/Refusal.ts"
@@ -109,6 +110,12 @@ describe("isPublicAddress", () => {
       expect(isPublicAddress(ip)).toBe(true)
     }
   })
+  test.each(["0x8.8.8.8", "+8.8.8.8", "8e0.8.8.8", "8.8.8.0008", "8. 8.8.8"])(
+    "rejects noncanonical numeric IPv4 spelling %s",
+    (ip) => {
+      expect(isPublicAddress(ip)).toBe(false)
+    }
+  )
 })
 
 const okPage = (body: string, headers: Record<string, string> = {}): Response =>
@@ -378,6 +385,41 @@ describe("browserFetch guards", () => {
       blockReason: "The site refuses embedding (X-Frame-Options: SAMEORIGIN)."
     })
   })
+
+  test.each(["", "ALLOW-FROM https://partner.example.com", "invalid"])(
+    "X-Frame-Options %s leaves embedding governed by CSP",
+    async (xfo) => {
+      for (
+        const policy of [
+          { csp: undefined, frameable: true, blockReason: null },
+          { csp: "frame-ancestors *", frameable: true, blockReason: null },
+          {
+            csp: "frame-ancestors 'none'",
+            frameable: false,
+            blockReason: "The site refuses embedding (Content-Security-Policy frame-ancestors 'none')."
+          }
+        ]
+      ) {
+        const outcome = await browserFetch("https://example.com/", {
+          resolveHost: publicResolver,
+          fetchImpl: async () =>
+            okPage("<p>Ready</p>", {
+              "x-frame-options": xfo,
+              ...(policy.csp === undefined ? {} : { "content-security-policy": policy.csp })
+            })
+        })
+        expect(outcome).toEqual({
+          ok: true,
+          status: 200,
+          finalUrl: "https://example.com/",
+          contentType: "text/html",
+          text: "Ready",
+          frameable: policy.frameable,
+          blockReason: policy.blockReason
+        })
+      }
+    }
+  )
 
   test.each(["*:*", "https:", "http:", "https://*", "'self' https:"])(
     "a frame-ancestors list containing %s admits any origin and still frames",
@@ -663,6 +705,43 @@ describe("browserFetch guards", () => {
     if (!outcome.ok) expect(outcome.message).toContain("took too long")
     expect(fetched).toBe(false)
   })
+
+  test("a resolver rejecting its native deadline keeps timeout wording and never starts pinned egress", async () => {
+    const requests: Array<{ hostname: string; signal: AbortSignal | undefined }> = []
+    const rejections: Array<unknown> = []
+    let fetches = 0
+    const resolveHost: ResolveHost = (hostname, signal) => {
+      requests.push({ hostname, signal })
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => {
+          rejections.push(signal.reason)
+          reject(signal.reason)
+        }, { once: true })
+      })
+    }
+    const outcome = await browserFetch("https://docs.example.com/page", {
+      timeoutMs: 20,
+      resolveHost,
+      fetchImpl: async () => {
+        fetches++
+        return okPage("unexpected")
+      }
+    })
+    expect(outcome).toEqual({
+      ok: false,
+      code: "timeout",
+      message: "Reading docs.example.com took too long and was stopped."
+    })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.hostname).toBe("docs.example.com")
+    const signal = requests[0]?.signal
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(true)
+    expect(signal?.reason).toMatchObject({ name: "TimeoutError" })
+    expect(rejections).toHaveLength(1)
+    expect(rejections[0]).toBe(signal?.reason)
+    expect(fetches).toBe(0)
+  }, 1000)
 
   test("the total deadline bounds a fetchImpl that never returns headers", async () => {
     let fetched = false

@@ -50,6 +50,7 @@ import {
   modelOriginOf,
   ModelRecordIdSchema,
   ModelsCardPayloadSchema,
+  modelSeat,
   modelSeatsOf,
   ModelStateFieldSchema,
   modelStateFieldsOf,
@@ -78,6 +79,31 @@ import type {
 } from "../src/ConfiguredModel.ts"
 import { PLUE_FAULTS } from "../src/PlueFailureCodes.ts"
 import { WORKER_FAILURE_CODES } from "../src/WorkerFailureCodes.ts"
+
+describe("public JavaScript model-seat compatibility behavior", () => {
+  // Existing fallback characterization, separate from a validation promise.
+  test("an unknown JavaScript seat keeps the current chat fallback without changing the catalog", () => {
+    const before = structuredClone(MODEL_SEATS)
+    expect(Reflect.apply(modelSeat, undefined, ["not-a-seat"])).toEqual({
+      id: "chat",
+      label: "Chat",
+      kind: "generation",
+      hosts: ["local"]
+    })
+    expect(MODEL_SEATS).toEqual(before)
+  })
+
+  test("a known cloud decision seat keeps its own row", () => {
+    const before = structuredClone(MODEL_SEATS)
+    expect(modelSeat("recommend")).toEqual({
+      id: "recommend",
+      label: "Recommendations",
+      kind: "decision",
+      hosts: ["cloud"]
+    })
+    expect(MODEL_SEATS).toEqual(before)
+  })
+})
 
 const LOOPBACK = "http://127.0.0.1:4010"
 
@@ -174,10 +200,12 @@ describe("credentials", () => {
     ["a query", "https://example.com/?key=1"],
     ["another scheme", "ftp://127.0.0.1"],
     ["no url at all", "localhost"],
-    ["blank", " "]
+    ["blank", " "],
+    ["unset", undefined]
   ])("a declared origin with %s declares nothing", (_, origin) => {
     expect(modelOriginOf(origin)).toBeUndefined()
-    expect(customModelCredentials({ SMITHERS_MODEL_KEY_X: "k", SMITHERS_MODEL_KEY_X_ORIGIN: origin })).toEqual([])
+    expect(customModelCredentials({ SMITHERS_MODEL_KEY_CUSTOM: "k", SMITHERS_MODEL_KEY_CUSTOM_ORIGIN: origin }))
+      .toEqual([])
   })
 
   test.each([
@@ -1050,6 +1078,32 @@ describe("a composed call", () => {
     ) {
       expect(decodeModelAnswers(questions, { ...valid, sure: { ...valid.sure, probabilities } })).toEqual({ ok: false })
     }
+  })
+
+  test.each([
+    {
+      name: "complete numeric indexes",
+      probabilities: { "0": 0.2, "1": 0.8 },
+      expected: { low: 0.2, high: 0.8 },
+      confidence: 0.8
+    },
+    {
+      name: "a missing numeric rung",
+      probabilities: { "1": 0.75 },
+      expected: { low: 0, high: 0.75 },
+      confidence: 0.75
+    },
+    { name: "an empty numeric dictionary", probabilities: {}, expected: { low: 0, high: 0 }, confidence: 0 }
+  ])("score answers decode $name into the declared rung labels", ({ probabilities, expected, confidence }) => {
+    expect(decodeModelAnswers({ sure: score }, { sure: { type: "score", score: 0.6, probabilities } })).toEqual({
+      ok: true,
+      answers: { sure: { type: "score", value: 0.6, label: "high", probabilities: expected, confidence } }
+    })
+  })
+
+  test.each(["-1", "0.5", "2"])("score answers reject numeric index %s outside the declared integer rungs", (index) => {
+    expect(decodeModelAnswers({ sure: score }, { sure: { type: "score", score: 0.6, probabilities: { [index]: 1 } } }))
+      .toEqual({ ok: false })
   })
 
   test("a temperature is drafted as the text typed, and only one in range becomes the wire's number", () => {

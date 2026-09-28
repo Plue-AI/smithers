@@ -16,11 +16,14 @@ import {
   isCapacityRefusal,
   mayAutoRetry,
   plueFailureCode,
+  type Refusal,
   REFUSAL_ORIGINS,
   refusalFromStored,
   refusalOf,
   retryAfterHeader,
-  statedRetryDelayMs
+  statedRetryDelayMs,
+  type StoredRefusal,
+  storedRefusal
 } from "../src/Refusal.ts"
 
 const vendored = JSON.parse(readFileSync(join(__dirname, "..", "src", "plue-failure-codes.json"), "utf8")) as {
@@ -109,6 +112,279 @@ describe("the vendored plue failure registry", () => {
     expect(busy.origin).toBe("plue")
     expect(busy.fault).toBe("infra")
     expect(mayAutoRetry(busy)).toBe(false)
+  })
+})
+
+describe("refusal persistence units", () => {
+  test.each(
+    [
+      { name: "missing code", stored: { status: 0, message: "Load failed" } },
+      { name: "null code", stored: { status: 0, message: "Load failed", code: null } }
+    ] satisfies Array<{ name: string; stored: StoredRefusal }>
+  )("a legacy never-answered record with $name remains a client refusal", ({ stored }) => {
+    expect(refusalFromStored(stored)).toEqual({
+      code: null,
+      rawCode: null,
+      fault: "infra",
+      message: "Load failed",
+      retryAfter: null,
+      status: null,
+      origin: "client"
+    })
+  })
+
+  test("a current client refusal stores a zero status and restores its connection attribution", () => {
+    const refused = clientRefusal("Connection closed")
+    const stored = storedRefusal(refused)
+    expect(stored).toEqual({
+      status: 0,
+      message: "Connection closed",
+      code: null,
+      retryAfterSeconds: null,
+      fault: "infra",
+      origin: "client"
+    })
+    const fromJson: StoredRefusal = JSON.parse(JSON.stringify(stored))
+    expect(refusalFromStored(fromJson)).toEqual({
+      code: null,
+      rawCode: null,
+      fault: "infra",
+      message: "Connection closed",
+      retryAfter: null,
+      status: null,
+      origin: "client"
+    })
+  })
+
+  test.each(
+    [
+      { origin: "client", status: 0, expectedStatus: null },
+      { origin: "local", status: 0, expectedStatus: null },
+      { origin: "worker", status: 0, expectedStatus: null },
+      { origin: "plue", status: 0, expectedStatus: null },
+      { origin: "client", status: 503, expectedStatus: 503 },
+      { origin: "local", status: 503, expectedStatus: 503 },
+      { origin: "worker", status: 503, expectedStatus: 503 },
+      { origin: "plue", status: 503, expectedStatus: 503 }
+    ] satisfies Array<{ origin: Refusal["origin"]; status: number; expectedStatus: number | null }>
+  )(
+    "a stated $origin origin survives status $status independently of code provenance",
+    ({ origin, status, expectedStatus }) => {
+      const stored: StoredRefusal = {
+        status,
+        message: "Workspace starting",
+        code: "workspace_starting",
+        origin,
+        retryAfterSeconds: 2
+      }
+      expect(refusalFromStored(stored)).toEqual({
+        code: "workspace_starting",
+        rawCode: "workspace_starting",
+        fault: "wait",
+        message: "Workspace starting",
+        retryAfter: 2,
+        status: expectedStatus,
+        origin
+      })
+    }
+  )
+
+  test.each(
+    [
+      { rawCode: "native_repo_not_found", code: "native_repo_not_found", fault: "user" },
+      { rawCode: "workspace_starting", code: "workspace_starting", fault: "wait" },
+      { rawCode: "no_capacity", code: "no_capacity", fault: "infra" },
+      { rawCode: "future_connection_failure", code: null, fault: "infra" }
+    ] satisfies Array<{ rawCode: string; code: Refusal["code"]; fault: Refusal["fault"] }>
+  )(
+    "a never-answered $rawCode record retains its code and verdict with client attribution",
+    ({ rawCode, code, fault }) => {
+      const stored: StoredRefusal = { status: 0, message: "Connection ended", code: rawCode }
+      expect(refusalFromStored(stored)).toEqual({
+        code,
+        rawCode,
+        fault,
+        message: "Connection ended",
+        retryAfter: null,
+        status: null,
+        origin: "client"
+      })
+    }
+  )
+
+  test.each(
+    [
+      { name: "user over the capacity registry", status: 503, code: "no_capacity", fault: "user" },
+      { name: "wait over the capacity registry", status: 503, code: "no_capacity", fault: "wait" },
+      { name: "bug over an uncoded user status", status: 403, code: null, fault: "bug" },
+      { name: "dependency over an uncoded user status", status: 403, code: null, fault: "dependency" },
+      { name: "infra over an uncoded user status", status: 403, code: null, fault: "infra" }
+    ] satisfies Array<{ name: string; status: number; code: Refusal["code"]; fault: Refusal["fault"] }>
+  )("a persisted verdict preserves $name", ({ status, code, fault }) => {
+    const stored: StoredRefusal = { status, message: "Recorded verdict", code, fault, origin: "plue" }
+    expect(refusalFromStored(stored)).toEqual({
+      code,
+      rawCode: code,
+      fault,
+      message: "Recorded verdict",
+      retryAfter: null,
+      status,
+      origin: "plue"
+    })
+  })
+
+  test.each([
+    { name: "a thrown string", error: "Connection closed", message: undefined, expected: "Connection closed" },
+    {
+      name: "an explicit public message",
+      error: new Error("Socket details"),
+      message: "Try again",
+      expected: "Try again"
+    },
+    { name: "an empty override on an Error", error: new Error("Socket details"), message: "", expected: "" },
+    { name: "an empty override on a thrown string", error: "Socket details", message: "", expected: "" }
+  ])("client classification preserves $name", ({ error, message, expected }) => {
+    expect(clientRefusal(error, message)).toEqual({
+      code: null,
+      rawCode: null,
+      fault: "infra",
+      message: expected,
+      retryAfter: null,
+      status: null,
+      origin: "client"
+    })
+  })
+
+  test.each(
+    [
+      {
+        name: "a legacy Plue capacity refusal",
+        stored: { status: 503, message: "Fleet full", code: "no_capacity", retryAfterSeconds: 30 },
+        expected: {
+          code: "no_capacity",
+          rawCode: "no_capacity",
+          fault: "infra",
+          message: "Fleet full",
+          retryAfter: 30,
+          status: 503,
+          origin: "plue"
+        }
+      },
+      {
+        name: "a legacy Worker wait with no invented retry delay",
+        stored: { status: 503, message: "Workspace starting", code: "workspace_starting" },
+        expected: {
+          code: "workspace_starting",
+          rawCode: "workspace_starting",
+          fault: "wait",
+          message: "Workspace starting",
+          retryAfter: null,
+          status: 503,
+          origin: "worker"
+        }
+      },
+      {
+        name: "a legacy native refusal",
+        stored: { status: 404, message: "Repository is absent", code: "native_repo_not_found" },
+        expected: {
+          code: "native_repo_not_found",
+          rawCode: "native_repo_not_found",
+          fault: "user",
+          message: "Repository is absent",
+          retryAfter: null,
+          status: 404,
+          origin: "local"
+        }
+      },
+      {
+        name: "an uncoded legacy dependency response",
+        stored: { status: 502, message: "Proxy unavailable" },
+        expected: {
+          code: null,
+          rawCode: null,
+          fault: "dependency",
+          message: "Proxy unavailable",
+          retryAfter: null,
+          status: 502,
+          origin: "worker"
+        }
+      },
+      {
+        name: "a code from a newer server without a stated verdict",
+        stored: { status: 500, message: "New server failure", code: "future_failure" },
+        expected: {
+          code: null,
+          rawCode: "future_failure",
+          fault: "bug",
+          message: "New server failure",
+          retryAfter: null,
+          status: 500,
+          origin: "worker"
+        }
+      },
+      {
+        name: "a newer server's explicit verdict, author and fractional pacing",
+        stored: {
+          status: 503,
+          message: "Workspace images syncing",
+          code: "workspace_images_syncing",
+          fault: "wait",
+          origin: "plue",
+          retryAfterSeconds: 1.25
+        },
+        expected: {
+          code: null,
+          rawCode: "workspace_images_syncing",
+          fault: "wait",
+          message: "Workspace images syncing",
+          retryAfter: 2,
+          status: 503,
+          origin: "plue"
+        }
+      }
+    ] satisfies Array<{ name: string; stored: StoredRefusal; expected: Refusal }>
+  )("restores $name without mutating the stored record", ({ stored, expected }) => {
+    const before = structuredClone(stored)
+    expect(refusalFromStored(stored)).toEqual(expected)
+    expect(stored).toEqual(before)
+  })
+
+  test("plan guidance survives JSON persistence with the original server verdict", () => {
+    const refusal = refusalOf({
+      status: 402,
+      message: "Monthly coding minutes used",
+      body: {
+        code: "plan_limit_exceeded",
+        plan_key: "starter",
+        limit_kind: "coding_minutes",
+        upgrade_plan_key: "pro"
+      }
+    })
+    const stored = storedRefusal(refusal)
+    expect(stored).toEqual({
+      status: 402,
+      message: "Monthly coding minutes used",
+      code: "plan_limit_exceeded",
+      retryAfterSeconds: null,
+      fault: "user",
+      origin: "plue",
+      plan_key: "starter",
+      limit_kind: "coding_minutes",
+      upgrade_plan_key: "pro"
+    })
+    const fromJson: StoredRefusal = JSON.parse(JSON.stringify(stored))
+    expect(refusalFromStored(fromJson)).toEqual({
+      code: "plan_limit_exceeded",
+      rawCode: "plan_limit_exceeded",
+      fault: "user",
+      message: "Monthly coding minutes used",
+      retryAfter: null,
+      status: 402,
+      origin: "plue",
+      plan_key: "starter",
+      limit_kind: "coding_minutes",
+      upgrade_plan_key: "pro"
+    })
   })
 })
 

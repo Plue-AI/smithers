@@ -8,6 +8,7 @@
  * @since 1.0.0
  */
 
+import stringWidth from "string-width"
 import { live, type Status } from "./WorkerControls.ts"
 
 /**
@@ -223,15 +224,25 @@ export const describe = (entry: Entry): Omit<Row, "branch"> => {
   }
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+
 /**
- * Text cut to `width` columns with a trailing `…`.
+ * Text cut to `width` display columns at a grapheme boundary with a trailing `…`.
  * @since 1.0.0
  * @category layout
  */
 export const clip = (text: string, width: number): string => {
-  const chars = [...text]
-  if (chars.length <= width) return text
-  return width <= 0 ? "" : `${chars.slice(0, width - 1).join("")}…`
+  if (width <= 0) return ""
+  if (stringWidth(text) <= width) return text
+  let prefix = ""
+  let used = 0
+  for (const { segment } of graphemes.segment(text)) {
+    const cells = stringWidth(segment)
+    if (used + cells > width - 1) break
+    prefix += segment
+    used += cells
+  }
+  return `${prefix}…`
 }
 
 /**
@@ -242,7 +253,7 @@ export const clip = (text: string, width: number): string => {
  */
 export const line = (row: Row, width?: number): string => {
   const mark = row.mark === "" ? "" : ` ${row.mark}`
-  const room = width === undefined ? undefined : width - 2 - [...mark].length
+  const room = width === undefined ? undefined : width - 2 - stringWidth(mark)
   return `${row.branch} ${room === undefined ? row.text : clip(row.text, room)}${mark}`
 }
 

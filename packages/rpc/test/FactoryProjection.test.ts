@@ -44,6 +44,33 @@ describe("the projected .smithers/factory.json of this repository", () => {
 })
 
 describe("the factory projection", () => {
+  test.each([
+    { name: "a dispatcher-only projection", projection: { on: [] } },
+    { name: "an explicitly empty catalog", projection: { on: [], flows: [] } }
+  ])("$name has no featured flows", ({ projection }) => {
+    const decoded = FactoryProjectionSchema.parse(projection)
+    const before = structuredClone(decoded)
+    expect(featuredFlows(decoded)).toEqual([])
+    expect(decoded).toEqual(before)
+  })
+
+  test("featured rows keep catalog order and a deliberately absent summary", () => {
+    const projection = FactoryProjectionSchema.parse({
+      on: [],
+      flows: [
+        { ...review, id: "z-last", summary: null },
+        { ...review, id: "hidden", featured: false },
+        { ...review, id: "a-first", summary: "Run the checks." }
+      ]
+    })
+    const before = structuredClone(projection)
+    expect(featuredFlows(projection)).toEqual([
+      { id: "z-last", summary: null },
+      { id: "a-first", summary: "Run the checks." }
+    ])
+    expect(projection).toEqual(before)
+  })
+
   test("lives at .smithers/factory.json", () => {
     expect(FACTORY_PROJECTION_PATH).toBe(".smithers/factory.json")
   })

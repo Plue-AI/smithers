@@ -674,6 +674,41 @@ describe("repository setup activation evidence", () => {
       "completed"
     )
   })
+  it.each([
+    { state: "requested" as const },
+    { state: "running" as const },
+    { state: "failed" as const, error: "Disconnected" }
+  ])(
+    "editing recovered $state work before its first receipt keeps the request without inventing proof",
+    ({ state, ...details }) => {
+      const initial = initialSetup("example/repo", "issues", "maintainer")
+      const setup = RepositorySetupSchema.parse({
+        ...initial,
+        request: {
+          id: "recovered-apply-request",
+          operation: "apply",
+          revision: 1,
+          digest: setupCandidate(initial),
+          state,
+          observeOnly: true,
+          ...details
+        }
+      })
+      const before = structuredClone(setup)
+      const edited = editSetup(setup, { ...setup.draft, budgetMinutes: 12 })
+      expect(edited.revision).toBe(2)
+      expect(edited.draft.budgetMinutes).toBe(12)
+      expect(setupCandidate(edited)).not.toBe(setupCandidate(setup))
+      expect(edited.request).toEqual(setup.request)
+      expect(edited.receipt).toBeUndefined()
+      expect(edited.evaluation).toBeUndefined()
+      expect(edited.trial).toBeUndefined()
+      expect(edited.previousReceipts).toEqual([])
+      expect(setupActivationProblems(edited)).toContain("Run evals for this draft.")
+      expect(setupActivationProblems(edited)).toContain("Complete the live trial for this draft.")
+      expect(setup).toEqual(before)
+    }
+  )
   it("requires a label for label-scoped activation and at least one enabled flow", () => {
     const setup = proven()
     setup.draft.scope = "label"

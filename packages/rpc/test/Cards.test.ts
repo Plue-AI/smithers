@@ -30,6 +30,92 @@ const builtInCardRow = {
 
 const base = { id: "card-r1", title: "Aomi", status: "active", createdAt: 0, ordinal: 0 }
 
+describe("persisted card decoding units", () => {
+  test.each([
+    { name: "null", value: null },
+    { name: "missing row", value: undefined },
+    { name: "boolean", value: false },
+    { name: "number", value: 17 },
+    { name: "string", value: "saved-card" },
+    { name: "array", value: [] }
+  ])("rejects a $name root instead of manufacturing a card", ({ value }) => {
+    expect(CardSchema.safeParse(value).success).toBe(false)
+  })
+
+  const profiles: Extract<Extract<Card, { kind: "agents" }>["payload"], { native: boolean }>["agents"] = [
+    {
+      id: "checks/review",
+      label: "checks/review",
+      purpose: "Reviews the change.",
+      model: { provider: "openai", id: "gpt-6-sol", label: "gpt-6-sol" },
+      builtin: false,
+      available: false,
+      reason: "",
+      account: ""
+    },
+    {
+      id: "checks/verify",
+      label: "checks/verify",
+      purpose: "Verifies the change.",
+      model: { provider: "openai", id: "gpt-6-sol", label: "gpt-6-sol" },
+      builtin: false,
+      available: true,
+      reason: "",
+      account: "maintainer"
+    }
+  ]
+
+  test("legacy null and primitive agent entries are removed while configured profiles retain their facts and order", () => {
+    const input = {
+      ...base,
+      kind: "agents",
+      payload: { native: false, agents: [null, profiles[0], "legacy-placeholder", 17, false, profiles[1], null] }
+    }
+    const before = structuredClone(input)
+    const card = CardSchema.parse(input)
+    expect(card.payload).toEqual({
+      native: false,
+      agents: [
+        {
+          id: "checks/review",
+          label: "checks/review",
+          purpose: "Reviews the change.",
+          model: { provider: "openai", id: "gpt-6-sol", label: "gpt-6-sol" },
+          builtin: false,
+          available: false,
+          reason: "",
+          account: ""
+        },
+        {
+          id: "checks/verify",
+          label: "checks/verify",
+          purpose: "Verifies the change.",
+          model: { provider: "openai", id: "gpt-6-sol", label: "gpt-6-sol" },
+          builtin: false,
+          available: true,
+          reason: "",
+          account: "maintainer"
+        }
+      ]
+    })
+    expect(input).toEqual(before)
+  })
+
+  test("a malformed object agent entry is validated instead of silently dropping a configured profile", () => {
+    const result = CardSchema.safeParse({
+      ...base,
+      kind: "agents",
+      payload: { native: false, agents: [profiles[0], { id: "checks/incomplete" }] }
+    })
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error("Incomplete configured profile was accepted")
+    const issue = result.error.issues[0]!
+    expect(issue).toMatchObject({ code: "invalid_union", path: ["payload"] })
+    if (issue.code !== "invalid_union") throw new Error("Configured profile error did not preserve its payload branch")
+    expect(issue.errors[0]!.map((entry) => entry.path)).toContainEqual(["agents", 1, "model"])
+  })
+})
+
 test("a write-only form rejects values in either persisted input map", () => {
   const payload = {
     flow: "model.credential.enroll",
