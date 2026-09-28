@@ -60,8 +60,8 @@ func (h *BillingHandler) GetUserBalance(w http.ResponseWriter, r *http.Request) 
 		"allowedToStartWork": overview.CreditBalanceNanos > 0,
 		"balance": map[string]any{
 			"totalUsd":           strconv.FormatFloat(float64(overview.CreditBalanceNanos)/nanosPerUSD, 'f', 2, 64),
-			"lifetimeChargedUsd": "0",
-			"chargeCount":        0,
+			"lifetimeChargedUsd": strconv.FormatFloat(float64(overview.LifetimeChargedNanos)/nanosPerUSD, 'f', 2, 64),
+			"chargeCount":        overview.ChargeCount,
 		},
 	})
 }

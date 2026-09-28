@@ -128,7 +128,7 @@ func TestBillingHandler_GetUserBalance_Success(t *testing.T) {
 	t.Parallel()
 	h := &BillingHandler{Service: &mockBillingRouteService{
 		getUserOverviewFn: func(context.Context, *db.User) (services.BillingOverview, error) {
-			return services.BillingOverview{CreditBalanceNanos: 2_500_000_000, CreditBalanceCents: 250}, nil
+			return services.BillingOverview{CreditBalanceNanos: 2_500_000_000, CreditBalanceCents: 250, LifetimeChargedNanos: 1_000_000_001, ChargeCount: 1}, nil
 		},
 	}}
 	req := withAuth(httptest.NewRequest(http.MethodGet, "/api/billing/balance", nil), 1, "alice")
@@ -140,6 +140,8 @@ func TestBillingHandler_GetUserBalance_Success(t *testing.T) {
 	assert.Equal(t, "ok", body["state"])
 	assert.Equal(t, true, body["allowedToStartWork"])
 	assert.Equal(t, "2.50", body["balance"].(map[string]any)["totalUsd"])
+	assert.Equal(t, "1.00", body["balance"].(map[string]any)["lifetimeChargedUsd"])
+	assert.Equal(t, float64(1), body["balance"].(map[string]any)["chargeCount"])
 }
 
 func TestBillingHandler_GetUserBalance_SubCentCreditIsSpendable(t *testing.T) {

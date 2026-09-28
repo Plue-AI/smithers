@@ -173,11 +173,13 @@ type BillingOverview struct {
 	Entitlements     []BillingEntitlementSummary `json:"entitlements"`
 	// CreditBalanceNanos is the owner's spendable platform credit in USD
 	// nanos; negative is owed. CreditBalanceCents rounds it toward zero.
-	CreditBalanceNanos int64                 `json:"credit_balance_nanos"`
-	CreditBalanceCents int64                 `json:"credit_balance_cents"`
-	UsagePeriodStart   time.Time             `json:"usage_period_start"`
-	UsagePeriodEnd     time.Time             `json:"usage_period_end"`
-	Usage              []BillingUsageSummary `json:"usage"`
+	CreditBalanceNanos   int64                 `json:"credit_balance_nanos"`
+	CreditBalanceCents   int64                 `json:"credit_balance_cents"`
+	LifetimeChargedNanos int64                 `json:"lifetime_charged_nanos"`
+	ChargeCount          int64                 `json:"charge_count"`
+	UsagePeriodStart     time.Time             `json:"usage_period_start"`
+	UsagePeriodEnd       time.Time             `json:"usage_period_end"`
+	Usage                []BillingUsageSummary `json:"usage"`
 }
 
 type BillingSessionResult struct {
@@ -235,6 +237,7 @@ type BillingCreditLedger interface {
 	EnsureAccount(ctx context.Context, ownerType string, ownerID int64) (int64, error)
 	Grant(ctx context.Context, accountID int64, key string, nanos int64, expiresAt *time.Time) error
 	OwnerBalance(ctx context.Context, ownerType string, ownerID int64) (int64, error)
+	OwnerSummary(ctx context.Context, ownerType string, ownerID int64) (balance, chargedNanos, chargeCount int64, err error)
 	Forfeit(ctx context.Context, ownerType string, ownerID int64, prefix string) (int64, error)
 }
 
@@ -1531,11 +1534,12 @@ func (s *BillingService) ownerOverview(ctx context.Context, owner billingOwnerRe
 		}
 	}
 	if s.credits != nil {
-		balance, err := s.credits.OwnerBalance(ctx, owner.OwnerType, owner.OwnerID)
+		balance, charged, count, err := s.credits.OwnerSummary(ctx, owner.OwnerType, owner.OwnerID)
 		if err != nil {
 			return BillingOverview{}, pkgerrors.Internal("failed to load credit balance").WithCause(err)
 		}
 		out.CreditBalanceNanos, out.CreditBalanceCents = balance, balance/credits.NanosPerCent
+		out.LifetimeChargedNanos, out.ChargeCount = charged, count
 	}
 	if subscription != nil {
 		out.Subscription = &BillingSubscriptionSummary{

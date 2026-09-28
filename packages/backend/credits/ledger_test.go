@@ -40,6 +40,45 @@ func mustBalance(t *testing.T, l Ledger, id, want int64) {
 	assertInvariants(t, l)
 }
 
+func TestOwnerSummaryCompletedCharges(t *testing.T) {
+	l, id := testLedger(t)
+	ctx := context.Background()
+	check := func(balance, charged, count int64) {
+		t.Helper()
+		b, n, c, err := l.OwnerSummary(ctx, "user", 1)
+		if err != nil || b != balance || n != charged || c != count {
+			t.Fatalf("summary=(%d, %d, %d), err=%v; want (%d, %d, %d)", b, n, c, err, balance, charged, count)
+		}
+	}
+	if b, n, c, err := l.OwnerSummary(ctx, "user", 999); err != nil || b != 0 || n != 0 || c != 0 {
+		t.Fatalf("absent account=(%d, %d, %d), err=%v", b, n, c, err)
+	}
+	if err := l.Grant(ctx, id, "intro", 2_000_000_000, nil); err != nil {
+		t.Fatal(err)
+	}
+	check(2_000_000_000, 0, 0)
+	if _, err := l.Reserve(ctx, id, "released", 100); err != nil {
+		t.Fatal(err)
+	}
+	check(2_000_000_000-100, 0, 0)
+	if _, err := l.Release(ctx, id, "released"); err != nil {
+		t.Fatal(err)
+	}
+	check(2_000_000_000, 0, 0)
+	if _, err := l.Reserve(ctx, id, "charged", 1_000_000_001); err != nil {
+		t.Fatal(err)
+	}
+	check(999_999_999, 0, 0)
+	if _, err := l.Settle(ctx, id, "charged", 1_000_000_001); err != nil {
+		t.Fatal(err)
+	}
+	check(999_999_999, 1_000_000_001, 1)
+	if _, err := l.Settle(ctx, id, "charged", 1_000_000_001); err != nil {
+		t.Fatal(err)
+	}
+	check(999_999_999, 1_000_000_001, 1)
+}
+
 // assertInvariants proves the event log explains every stored amount and that
 // every charged nano was paid from credit or is recorded as debt.
 func assertInvariants(t *testing.T, l Ledger) {

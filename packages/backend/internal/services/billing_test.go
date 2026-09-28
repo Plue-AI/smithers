@@ -1642,6 +1642,11 @@ func (f *fakeCreditLedger) OwnerBalance(_ context.Context, ownerType string, own
 	return total, nil
 }
 
+func (f *fakeCreditLedger) OwnerSummary(ctx context.Context, ownerType string, ownerID int64) (int64, int64, int64, error) {
+	balance, err := f.OwnerBalance(ctx, ownerType, ownerID)
+	return balance, 0, 0, err
+}
+
 // Reading a balance grants no plan credit: only a paid invoice does.
 func TestBillingService_BalanceReadGrantsNoPlanCredit(t *testing.T) {
 	queries := newBillingQuerierMock()

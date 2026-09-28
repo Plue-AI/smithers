@@ -317,17 +317,27 @@ func (l Ledger) Balance(ctx context.Context, accountID int64) (int64, error) {
 	return n, err
 }
 
+// OwnerSummary reports spendable balance and completed positive charges from
+// the owner's exact ledger. An absent account has no credit or charges.
+func (l Ledger) OwnerSummary(ctx context.Context, ownerType string, ownerID int64) (balance, chargedNanos, chargeCount int64, err error) {
+	err = l.handle().QueryRow(ctx, `SELECT
+		COALESCE((SELECT sum(available_nanos) FROM credit_grants
+			WHERE account_id = a.id AND (expires_at IS NULL OR expires_at > now())), 0)::bigint - a.debt_nanos,
+		COALESCE((SELECT sum(charged_nanos) FROM credit_reservations
+			WHERE account_id = a.id AND status = 'settled' AND charged_nanos > 0), 0)::bigint,
+		(SELECT count(*) FROM credit_reservations
+			WHERE account_id = a.id AND status = 'settled' AND charged_nanos > 0)
+		FROM credit_accounts a WHERE a.owner_type = $1 AND a.owner_id = $2`, ownerType, ownerID).Scan(&balance, &chargedNanos, &chargeCount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, 0, 0, nil
+	}
+	return balance, chargedNanos, chargeCount, err
+}
+
 // OwnerBalance reads an owner's balance without creating an account.
 func (l Ledger) OwnerBalance(ctx context.Context, ownerType string, ownerID int64) (int64, error) {
-	var id int64
-	err := l.handle().QueryRow(ctx, `SELECT id FROM credit_accounts WHERE owner_type = $1 AND owner_id = $2`, ownerType, ownerID).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	return l.Balance(ctx, id)
+	balance, _, _, err := l.OwnerSummary(ctx, ownerType, ownerID)
+	return balance, err
 }
 
 // allotment is an id (grant or reservation) and an amount.
