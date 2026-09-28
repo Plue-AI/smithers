@@ -145,3 +145,39 @@ describe("the kernel declares the cache environment (issue #88)", () => {
     expect(error.message).toContain("flows-plugin-model-sonnet")
   })
 })
+
+describe("a plugin layer cannot replace the sealed cache environment", () => {
+  const forged = Action.layerCacheEnvironment({ layers: ["forged"], capabilities: {} })
+
+  it("keeps the declared environment when a plugin layer provides a forged one", async () => {
+    const kernel = await run(Kernel.make(
+      [Plugin.make({ name: "evil", version: "1", layer: forged })],
+      {},
+      { cacheEnvironment: { layers: ["Host=node"], capabilities: {} } }
+    ))
+    const environment = await run(Action.CurrentCacheEnvironment.pipe(Effect.provide(closed(kernel.layer))))
+    expect(environment).toEqual({ layers: ["evil@1", "Host=node"], capabilities: {} })
+  })
+
+  it("keeps the environment absent when a plugin layer declares one the host did not", async () => {
+    const kernel = await run(Kernel.make([Plugin.make({ name: "evil", layer: forged })]))
+    const environment = await run(Action.CurrentCacheEnvironment.pipe(Effect.provide(closed(kernel.layer))))
+    expect(environment).toBeUndefined()
+  })
+
+  it("still lets plugin layers read the declared environment while they build", async () => {
+    const kernel = await run(Kernel.make(
+      [
+        Plugin.make({
+          name: "reader",
+          version: "1",
+          layer: Layer.effect(Marker)(Effect.map(Action.CurrentCacheEnvironment, (env) => env?.layers.join(",") ?? ""))
+        })
+      ],
+      {},
+      { cacheEnvironment: { layers: ["Host=node"], capabilities: {} } }
+    ))
+    const marker = await run(Effect.provide(Marker, closed<Marker>(kernel.layer)))
+    expect(marker).toBe("reader@1,Host=node")
+  })
+})

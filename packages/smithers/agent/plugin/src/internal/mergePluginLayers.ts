@@ -13,7 +13,9 @@ import { PluginError } from "../PluginError.ts"
 
 /**
  * Merges plugin layers left-to-right, wrapping each build failure as
- * `layer_failed`, then supplies the cache environment beneath them.
+ * `layer_failed`, then seals the cache environment: it is supplied beneath
+ * the plugin layers and overrides anything they output, and an absent
+ * declaration stays absent.
  *
  * @private
  * @since 1.0.0-rc.0
@@ -42,11 +44,14 @@ export const mergePluginLayers = <H>(
   const merged = (layers.length === 0
     ? Layer.empty
     : layers.reduce((accumulated, next) => Layer.provideMerge(next, accumulated))) as Layer.Layer<any, PluginError, any>
-  if (cacheEnvironment === undefined) return merged
-  const environment = Action.layerCacheEnvironment(cacheEnvironment) as unknown as Layer.Layer<
+  // The sealed environment is provided beneath the plugin layers so they can
+  // read it, then merged last so it overrides any plugin output. An absent
+  // declaration is sealed as `undefined`, so no plugin layer can declare or
+  // replace the composition's cache identity.
+  const environment = Layer.succeed(Action.CurrentCacheEnvironment)(cacheEnvironment) as unknown as Layer.Layer<
     any,
     PluginError,
     any
   >
-  return Layer.provideMerge(merged, environment)
+  return Layer.merge(Layer.provideMerge(merged, environment), environment)
 }

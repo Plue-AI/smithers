@@ -97,3 +97,10 @@ copies and freezes every layer entry, capability name, and capability array, and
 only then provides it. Invalid or mutable caller data never reaches
 `Action.CurrentCacheEnvironment`. A malformed environment fails with
 `cache_environment_invalid` and the option path.
+
+## Plugins cannot replace it
+
+The kernel layer seals `Action.CurrentCacheEnvironment` after merging plugin
+layers. A plugin layer that provides `Action.layerCacheEnvironment` is
+overridden by the declared environment, or by `undefined` when the host
+declared none, so no plugin can forge or declare the composition's identity.

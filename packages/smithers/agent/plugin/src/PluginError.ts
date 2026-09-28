@@ -46,6 +46,9 @@ export type PluginErrorCode = typeof PluginErrorCode.Type
  * `Plugins.parallel` with this same shape so they can be journalled on the
  * lossy telemetry channel.
  *
+ * `cause` is the plugin's unredacted failure and may hold secrets; hosts
+ * redact it before logging, persisting, or transmitting the error.
+ *
  * @category errors
  * @since 1.0.0-rc.0
  */

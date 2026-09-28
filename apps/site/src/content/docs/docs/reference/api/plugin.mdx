@@ -352,9 +352,10 @@ keep resolved plugin order.
 `layer` merges every selected plugin's layer left to right, so an earlier
 plugin's services are visible to a later plugin's layer, and the later plugin
 wins when two provide the same tag. A layer that fails during acquisition
-becomes `layer_failed` with the plugin's name. When the resolution declared a
-cache environment, `layer` also provides
-`Action.CurrentCacheEnvironment`.
+becomes `layer_failed` with the plugin's name. `layer` also seals
+`Action.CurrentCacheEnvironment`: plugin layers read the declared environment,
+or `undefined` when none was declared, and a plugin layer that provides its own
+environment is overridden.
 
 ### Limits
 
@@ -455,7 +456,8 @@ instead of one shared sealed identity. A scoped name reads as
 `%40scope/name@1.0.0`. A versionless composition fails with
 `cache_environment_invalid` instead of declaring an ambiguous cross-run
 identity. Invalid or mutable caller data never reaches
-`Action.CurrentCacheEnvironment`.
+`Action.CurrentCacheEnvironment`, and no plugin layer can declare or replace
+it.
 
 ## PluginError
 
@@ -489,6 +491,11 @@ Every startup and dispatch refusal uses this one error. `plugin` and `hook` are
 attribution, `path` is a diagnostic dollar-path into the refused value, and
 `cause` carries a failing handler's or layer's original failure. Match on
 `code`; the messages are prose.
+
+`cause` is not redacted. It holds whatever the plugin failed or threw with,
+which can include credentials or config values. Keep it in process for
+diagnostics, and redact it before a host logs, persists, or transmits a
+`PluginError`.
 
 A dollar-path is not an RFC 6901 JSON Pointer: `$` is the input, `.config` an
 identifier property, `[2]` an array index, and `["not an identifier"]` any other
