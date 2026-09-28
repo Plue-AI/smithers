@@ -245,6 +245,95 @@ const ciInventory = Smithers.NodeTest({
   deps: []
 })
 
+/**
+ * Security review of the repository-contract gates: the egress and privacy
+ * gates must keep failing when they should, and the gates' own child
+ * processes and temporary files must not widen what a test run can touch.
+ *
+ * @since 1.0.0
+ * @category security
+ */
+const securityReview = Smithers.SecurityReview({
+  cwd: "scripts/repo-contract",
+  include: ["*.mjs", "*.md"],
+  checks: [
+    {
+      id: "egress-gate-coverage",
+      title: "The egress gate reads every shipped source that could install a proxy-blind HTTP client",
+      threat: "A contributor ships a Node host that dials origins directly past the sandbox egress proxy, letting a sandboxed run exfiltrate data, while the gate stays green.",
+      lookFor: [
+        "A shipped source extension (.js, .cjs, .mts, .cts, .jsx) that isSource drops, so layerUndici or makeDispatcher in it is never scanned.",
+        "A skippedDirectories or skippedPaths entry that prunes a directory holding shipped, non-test source.",
+        "An isComment rule that exempts a code line (for example one starting with `*` inside an expression, or code after a `/* */` on the same line).",
+        "A banned spelling reachable without matching the regex, such as a renamed import or a computed property access on NodeHttpClient.",
+        "The defines allowlist or install-count floor changed so the ban can pass with the replacement absent."
+      ],
+      paths: ["egress-http-client.test.mjs"]
+    },
+    {
+      id: "home-path-leak-gate",
+      title: "The machine-path gate catches every tracked home-directory path under evals, scripts and fault suites",
+      threat: "A contributor commits an operator's username and home layout, leaking a maintainer's local identity and paths in the public repository, while the gate stays green.",
+      lookFor: [
+        "A homePath regex that misses a username-bearing path: /root/, Windows C:\\Users\\<name>, /Users/<name> at end of line or before a quote without a trailing slash.",
+        "An isRecorded exemption broader than the reports, archive and SFT-corpus directories it documents.",
+        "An inventory command whose failure or empty output is treated as a pass instead of asserting status 0 and a nonempty list.",
+        "A git/jj selection that reads an ancestor repository's inventory instead of this workspace's."
+      ],
+      paths: ["machine-paths.test.mjs", "scratch-artifacts.test.mjs"]
+    },
+    {
+      id: "child-process-containment",
+      title: "Gate child processes run fixed code with bounded time and no inherited secrets they do not need",
+      threat: "A repository file or environment value controls code a gate evaluates, or a hung child survives the gate, running attacker-chosen code or holding CI runner resources.",
+      lookFor: [
+        "A spawn or spawnSync `--eval`/`-e` string built by interpolating file contents, package names or environment values instead of passing data on stdin or IPC.",
+        "A shell: true spawn or an exec() of a string assembled from repository data.",
+        "A child spawned without timeout, SIGKILL fallback or t.after cleanup.",
+        "A child env built from `...process.env` that forwards cache tokens or credentials (SMITHERS_CACHE_TOKEN, NPM_TOKEN) to a stub it does not need them for.",
+        "A PATH prefix pointing at a directory that is not a fresh mkdtemp owned by the test."
+      ],
+      paths: ["ci-inventory.test.mjs", "public-export-maps.test.mjs", "ui-ci-tier.test.mjs", "machine-paths.test.mjs", "scratch-artifacts.test.mjs"]
+    },
+    {
+      id: "temp-file-safety",
+      title: "Gates write only inside fresh temporary directories they create and remove",
+      threat: "Another local user on a shared CI runner pre-plants a symlink at a predictable temp path so a gate overwrites or reads a file it should not.",
+      lookFor: [
+        "A writeFileSync to a predictable tmpdir() path (fixed name or pid) instead of a mkdtemp directory, such as the default smithers-ci-inventory-<pid>.json artifact.",
+        "An environment-supplied output path (SMITHERS_CI_INVENTORY) written without checking it stays inside the workspace or a temp directory.",
+        "rmSync(..., { recursive: true, force: true }) on a path not returned by mkdtemp in the same test.",
+        "symlinkSync into a fixture that points outside the fixture root."
+      ],
+      paths: ["ci-inventory.test.mjs", "cli-verbs.test.mjs", "public-export-maps.test.mjs", "ui-ci-tier.test.mjs"]
+    },
+    {
+      id: "publish-surface-gate",
+      title: "The package contract keeps the published npm surface explicit and free of private code",
+      threat: "A release publishes a private workspace package, an undeclared file (a .env or credentials fixture), or an unreviewed subpath to every npm user.",
+      lookFor: [
+        "A publishable manifest accepted without a nonempty `files` allowlist or with publishConfig.access other than public.",
+        "The private-dependency check skipping dependency kinds (optionalDependencies, peerDependencies) a consumer installs.",
+        "An export-map baseline entry or wildcard subpath admitted without the gate failing on a new source file.",
+        "A private: true check that treats a missing or string \"true\" value as private."
+      ],
+      paths: ["package-contract.test.mjs", "public-export-maps.test.mjs", "barrels.test.mjs"]
+    },
+    {
+      id: "ci-workflow-gates",
+      title: "Workflow gates keep required CI jobs failing on real failures",
+      threat: "A contributor edits ci.yml or reliability.yml so a required security or test job passes on failure, letting vulnerable code merge to main.",
+      lookFor: [
+        "An assertion that tolerates continue-on-error: true, `|| true`, or an allow-failure known-red list on a required job.",
+        "A regex match on a workflow run string loose enough to accept an extra command that skips or neuters the suite.",
+        "A test file excluded from every target in test-script-wiring without a stated reason.",
+        "A skip or todo in the fault matrix accepted without a declared reason row in fault-gaps.md."
+      ],
+      paths: ["ui-ci-tier.test.mjs", "reliability-workflow.test.mjs", "test-script-wiring.test.mjs", "ci-inventory.test.mjs", "fault-skips.test.mjs", "fault-gaps.md"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
-  targets: { barrels, cliVerbs, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps }
+  targets: { barrels, cliVerbs, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
 })

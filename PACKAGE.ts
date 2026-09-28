@@ -875,8 +875,190 @@ export const packageDefaults = Smithers.PackageDefaults({
   macro: BuildAndCheckTypeScriptPackage
 })
 
+// Security review of the files the root owns and no nested PACKAGE.ts does:
+// the GitHub workflows, the self-host distribution image, the native FFI
+// crate, the factory harness, install-time hooks and patches, and the public
+// `.smithers` projections. `crates/flows-jj`, `scripts`, `flows`, `examples`,
+// `apps`, `evals`, and `packages` have their own reviewers.
+const securityReview = Smithers.SecurityReview({
+  cwd: ".",
+  include: [
+    "PACKAGE.ts",
+    "package.json",
+    "pnpm-workspace.yaml",
+    ".npmrc",
+    ".pnpmfile.mjs",
+    "flake.nix",
+    ".github/workflows/*.yml",
+    ".github/scripts/*.sh",
+    ".smithers/*.ts",
+    ".smithers/*.json",
+    ".smithers/workflows/*.tsx",
+    "distribution/*",
+    "crates/smithers-ffi/Cargo.toml",
+    "crates/smithers-ffi/src/*.rs",
+    "factory/flows/*.ts",
+    "patches/*.patch"
+  ],
+  checks: [
+    {
+      id: "gha-untrusted-trigger-secrets",
+      title: "Jobs a fork pull request or a comment can start hold no write credential",
+      threat:
+        "An outside contributor opens a pull request or comments on an issue and runs code that steals the cache write token, npm token, Cloudflare token, mirror token, or an OIDC review identity.",
+      lookFor: [
+        "SMITHERS_CACHE_WRITE_TOKEN, NPM_TOKEN, CLOUDFLARE_API_TOKEN, IDENTITY_SERVICE_TOKEN, SMITHERS_CLOUD_MIRROR_TOKEN, or CANARY_SESSION_COOKIE referenced by a job that a pull_request or issue_comment event can reach, or by a job without an `environment:` gate.",
+        "A pull_request_target or workflow_run trigger that checks out or executes the pull request head.",
+        "pr-review.yml or review.yml granting id-token: write and pull-requests: write on issue_comment while calling a review action at a ref other than main, since only main's apps/review/action gateEvent admits write or admin commenters.",
+        "The `ci` declaration in PACKAGE.ts that generates ci.yml putting a write secret or `cache-publish` step on a job whose `if:` admits pull_request."
+      ],
+      paths: [".github/workflows/*.yml", "PACKAGE.ts"]
+    },
+    {
+      id: "gha-expression-injection",
+      title: "Workflow expressions never splice untrusted text into a shell script",
+      threat:
+        "A contributor who controls a branch name, PR title, or dispatch input runs arbitrary commands on a runner that holds repository secrets.",
+      lookFor: [
+        "`${{ github.event.* }}`, `${{ github.head_ref }}`, or `${{ inputs.* }}` interpolated directly inside a `run:` block instead of passed through `env:` and quoted.",
+        "release.yml sourceRef, releaseTag, or candidateRunId used before the step that checks it is a full hex SHA, a v<version> tag, or reachable from origin/main.",
+        "A third-party `uses:` pinned to a tag or branch instead of a 40-character commit SHA, other than smithersai's own reusable review workflow."
+      ],
+      paths: [".github/workflows/*.yml"]
+    },
+    {
+      id: "release-artifact-provenance",
+      title: "Only a tested candidate built from main reaches npm",
+      threat:
+        "A contributor or a poisoned artifact from another run publishes a malicious @smthrs package to every npm user.",
+      lookFor: [
+        "The candidateRunId and candidateArtifactId restore path accepting an artifact from a run that a pull_request, a fork, or a non-release workflow produced.",
+        "The npm publish step reachable when dryRun is true, when sourceRef is set, or from a tag not on main.",
+        "NODE_AUTH_TOKEN or id-token: write present in steps that run repository scripts or `pnpm install` without --ignore-scripts before publication."
+      ],
+      paths: [".github/workflows/release.yml", ".github/workflows/release-auth.yml"]
+    },
+    {
+      id: "distribution-image-hardening",
+      title: "The self-host image runs unprivileged and verifies what it downloads",
+      threat:
+        "A network attacker or a crafted backup gives code execution or file overwrite inside a self-hoster's Smithers container and its PostgreSQL data.",
+      lookFor: [
+        "A Dockerfile download (curl, cargo install --git, go mod download) without a pinned digest, SHA, or --locked, or a final stage that does not end with `USER smithers`.",
+        "restore.sh extracting files.tar where a symlink entry followed by a path through it can write outside SMITHERS_DATA_ROOT, since verify_backup only rejects absolute and `..` names.",
+        "SMITHERS_DATABASE_URL, which carries the database password, passed on a command line (pg_dump, psql --dbname) or printed in a `die` message.",
+        "A FROM base image (rust, debian, node, golang, postgres, oven/bun) pinned by tag rather than by @sha256 digest.",
+        "SMITHERS_AUTH_MODE, SMITHERS_LIB, or SMITHERS_RELEASE_FILE taken from the environment in a way that disables selfhost auth or sources an attacker-chosen script."
+      ],
+      paths: ["distribution/*"]
+    },
+    {
+      id: "ffi-path-confinement",
+      title: "Native file operations never follow a symlink or escape their root",
+      threat:
+        "A repository author or agent inside a workspace plants a symlink or races a rename so the host reads or overwrites files outside that workspace, including another tenant's checkout.",
+      lookFor: [
+        "A path component opened without O_NOFOLLOW or openat relative to a held directory fd in atomic_fs.rs, workspace_files.rs, workspace_local.rs, or tree_export.rs.",
+        "A check-then-use sequence (symlink_metadata or canonicalize, then a separate open by path) that a concurrent rename can win.",
+        "A caller-supplied relative path joined to a root without rejecting absolute paths, `..`, NUL, or Windows drive and UNC prefixes."
+      ],
+      paths: [
+        "crates/smithers-ffi/src/atomic_fs.rs",
+        "crates/smithers-ffi/src/atomic_windows_fs.rs",
+        "crates/smithers-ffi/src/atomic_windows_handle.rs",
+        "crates/smithers-ffi/src/file_eligibility.rs",
+        "crates/smithers-ffi/src/tree_export.rs",
+        "crates/smithers-ffi/src/workspace_files.rs",
+        "crates/smithers-ffi/src/workspace_local.rs"
+      ]
+    },
+    {
+      id: "ffi-git-transport",
+      title: "Native git and jj invocations cannot be steered by repository or request data",
+      threat:
+        "A repository author or a crafted source-import request runs commands on the host, leaks the credential socket's token to another origin, or fetches from an attacker's server.",
+      lookFor: [
+        "A git or jj Command that does not env_clear, disable hooks, pin GIT_CONFIG_GLOBAL, or restrict protocol.allow before touching a checkout.",
+        "A ref, URL, or path argument that can start with '-' or contain whitespace and reaches git argv without the exact-format check source_import.rs applies to refs/smithers/workspaces/.",
+        "api_base_url or git_url accepted over plain http to a non-loopback host, or http.followRedirects enabled while the credential helper is set."
+      ],
+      paths: [
+        "crates/smithers-ffi/src/source_import.rs",
+        "crates/smithers-ffi/src/source_publish.rs",
+        "crates/smithers-ffi/src/source_create.rs",
+        "crates/smithers-ffi/src/smithers_jj_export.rs",
+        "crates/smithers-ffi/src/workspace_engine.rs",
+        "crates/smithers-ffi/src/workspace_source.rs"
+      ]
+    },
+    {
+      id: "ffi-abi-memory-safety",
+      title: "Every exported C function validates its pointers and never unwinds across the ABI",
+      threat:
+        "A caller passing a null, dangling, or oversized buffer, or input that panics, corrupts memory in the Node or Go host process that serves every workspace.",
+      lookFor: [
+        "An `extern \"C\"` function in lib.rs that dereferences a pointer or calls from_raw_parts or CStr::from_ptr without a null and length check.",
+        "An `extern \"C\"` function whose body is not routed through the catch_unwind `execute` wrapper, or code outside that wrapper that can panic on caller input.",
+        "A returned buffer freed by a different allocator or free function than the one that allocated it, or freed twice."
+      ],
+      paths: ["crates/smithers-ffi/src/lib.rs"]
+    },
+    {
+      id: "factory-agent-confinement",
+      title: "Factory agent runs stay inside their allowed paths and environment",
+      threat:
+        "Text in a package README, source file, or queue item steers a headless `claude -p` agent into editing files outside its lane or reading the maintainer's credentials.",
+      lookFor: [
+        "An AgentTask whose --allowedTools grants unrestricted Bash, Write, or network tools, or whose environment is process.env rather than the agentEnvironment allowlist.",
+        "The unscoped `Read` tool plus a real HOME letting an injected agent read ~/.ssh, ~/.claude, or ~/.config credentials and copy them into an allowed path that later lands in a commit.",
+        "makeConfinementValidator skipped, or a task treated as successful when git reports changed paths outside allowedPaths plus logDir.",
+        "Package names, file names, or file contents spliced into a prompt or a `pnpm --filter` argument without the selectPackages validation."
+      ],
+      paths: ["factory/flows/*.ts"]
+    },
+    {
+      id: "install-hook-supply-chain",
+      title: "Install-time hooks, patches, and build allowlists add no hidden code execution",
+      threat:
+        "A contributor slips code into a dependency patch or pnpm hook that runs on every maintainer's machine and CI runner during install.",
+      lookFor: [
+        ".pnpmfile.mjs readPackage rewriting any package other than the classicCompilerTools names, or adding a dependency, script, or registry URL.",
+        "A patches/*.patch hunk that adds a postinstall script, child_process or fetch call, or an eval into the patched package.",
+        "pnpm-workspace.yaml allowBuilds admitting a package that has no documented need for an install script, or .npmrc adding a registry or auth line.",
+        "flake.nix or the Dockerfile fetching a source without a pinned hash."
+      ],
+      paths: [".pnpmfile.mjs", ".npmrc", "pnpm-workspace.yaml", "patches/*.patch", "flake.nix", "distribution/Dockerfile"]
+    },
+    {
+      id: "root-tool-targets",
+      title: "Root run and shell targets execute only fixed commands with scoped secrets",
+      threat:
+        "A contributor who edits project.json or a Shell target runs commands on the maintainer's machine with the GitHub CLI's credentials or the cache write token.",
+      lookFor: [
+        "A ToolRun or Shell target whose command or args derive from repository data that a pull request can change, beyond repoAbout's description argument to `gh repo edit`.",
+        "A Shell target with `sandbox: { network: true }` that also receives cacheWriteToken or another Smithers.Secret.",
+        "A credential other than the documented local test database password hard-coded in an env block."
+      ],
+      paths: ["PACKAGE.ts"]
+    },
+    {
+      id: "public-projection-leak",
+      title: "Projections published to the public mirror carry no secrets or private infrastructure",
+      threat:
+        "A signed-out visitor to smithers.sh reads a token, private hostname, local filesystem path, or private repository name from the committed .smithers projections.",
+      lookFor: [
+        "A token, key, cookie, or Authorization value in factory.json, home.json, target-index.json, or coding-project.json.",
+        "An absolute host path such as /Users/ or /home/, or a private repository or plue-only hostname, in those files.",
+        "FACTORY.ts or WORKSPACE.ts naming a Secret by value instead of by Smithers.Secret, or a `github.push:main` trigger that runs a flow with write authority on unreviewed input."
+      ],
+      paths: [".smithers/*.json", ".smithers/*.ts"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
   targets: {
+    ...securityReview,
     backendGoModules,
     backendGo,
     nativeFfi,

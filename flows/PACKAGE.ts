@@ -369,6 +369,181 @@ const fixtures = Smithers.NodeTest({
   timeout: "20m"
 })
 
+// Security review over the files this package owns. `wiki/` is a nested
+// package with its own review; suites, fixtures and installs are excluded.
+const securityReview = Smithers.SecurityReview({
+  cwd,
+  include: [
+    Smithers.glob("**/*.{ts,mjs,js,mdx}", {
+      exclude: ["wiki/**", "test/**", "node_modules/**", "migrate-smithers-v1/test/**", "**/*.test.ts", "pack.test.mjs"]
+    })
+  ],
+  checks: [
+    {
+      id: "repository-credential-containment",
+      title: "The reserved repository token and gateway credential never reach tools, models, logs or child processes",
+      threat: "A prompt-injected agent or approved shell tool reads SMITHERS_JJHUB_TOKEN or the gateway credential and acts as the workspace on its repository.",
+      lookFor: [
+        "SMITHERS_JJHUB_TOKEN read from process.env anywhere other than coding/landing-config.ts, or read before it is deleted there.",
+        "A spawned process or check environment built from process.env instead of the PATH/HOME/proxy allowlist in coding/serve.ts.",
+        "A token or credential passed to a model prompt, a run output, a receipt, an error message, or Redacted.value outside the HTTP bearer header.",
+        "invoke/serve.ts rpc or serve paths that print or journal the credential file contents."
+      ],
+      paths: [
+        "coding/serve.ts",
+        "coding/landing-config.ts",
+        "coding/landing.ts",
+        "coding/host.ts",
+        "invoke/**",
+        "repository/remote.ts",
+        "repository/check-receipt.ts",
+        "register-repository/host.ts"
+      ]
+    },
+    {
+      id: "remote-url-construction",
+      title: "Repository API URLs are built only from validated, encoded identifiers",
+      threat: "A repository event, PR body or server response steers a credentialed request to another repository, gateway or host.",
+      lookFor: [
+        "A path segment interpolated into a URL without encodeURIComponent or a pattern check (job keys like flow:<slug>, change ids from a landing response, fullName from repository-source).",
+        "The github(path) proxy accepting a path that githubReadable does not fully anchor, or fullName taken from event text instead of repository-source metadata.",
+        "apiBaseUrl accepted over plain http: outside a loopback test host while carrying a bearer token.",
+        "A PR link parsed from comment text used to pick the repository whose source is retained or reviewed."
+      ],
+      paths: ["repository/remote.ts", "repository/check-receipt.ts", "coding/landing.ts", "register-repository/**"]
+    },
+    {
+      id: "source-tree-confinement",
+      title: "Every read, write and process cwd stays inside its captured source tree",
+      threat: "A model-authored reproduction fixture, prompt-named path or repository symlink reads or overwrites host files outside the isolated checkout.",
+      lookFor: [
+        "A path from a model, event or repository joined to a root without normalizePath plus realPath containment (admitSourcePath, contained, inside).",
+        "A check done on the path string but the write or read done through a symlinked ancestor created after the check (TOCTOU).",
+        "Reproduction fixtures written without flag wx or able to overwrite existing source; repro.cwd resolved outside root.",
+        "Reads of .smithers/repository-jobs or other host-private paths through a symlink that repositorySourceReader does not re-check.",
+        "release-support atomicWrite/inside accepting an absolute, backslash or .. path."
+      ],
+      paths: [
+        "repository/source.ts",
+        "repository/execution.ts",
+        "repository/inspection.ts",
+        "repository/checks.ts",
+        "repository/check-context.ts",
+        "coding/filesystem.ts",
+        "coding/immutable-source.ts",
+        "coding/snapshots.ts",
+        "release-support/io.ts",
+        "register-repository/tree.ts"
+      ]
+    },
+    {
+      id: "process-exec-argv",
+      title: "Spawned commands use fixed programs and argv arrays, never shell strings built from untrusted text",
+      threat: "An issue author or model output runs arbitrary commands on the coding or release host with its credentials.",
+      lookFor: [
+        "ChildProcess.make or spawn with a shell (sh -c, shell: true) whose string includes event, model or repository text.",
+        "jj revsets or templates built by interpolating a commit id or ref that is not pattern-checked to hex first.",
+        "A model-authored argv (repro.argv, check commands) run without a timeout, output bound, or the isolated source cwd.",
+        "A flow.mdx/flow.ts capability grant `proc:spawn:<cmd> *` broader than the commands the body runs."
+      ],
+      paths: ["repository/**", "coding/**", "release-support/**", "register-repository/**", "**/flow.mdx", "**/flow.ts"]
+    },
+    {
+      id: "check-command-provenance",
+      title: "Shell check commands come only from the pinned, reviewed repository CI policy and run without credentials",
+      threat: "A change author or issue author gets arbitrary shell text run by /bin/sh -c on the coding host, or reads host credentials from inside a check.",
+      lookFor: [
+        "executeCommand's check.rule reaching /bin/sh -eu -c from the candidate tree, event payload, model output or an unpinned policy instead of readCiPolicy's pinned registration.",
+        "composeCiChecks or rawCheckId letting a local check reuse the inherited CI namespace, or a policy revision/digest change not refused by assertCiPolicyCurrent before execution.",
+        "checkEnvironment or ImmutableSourceOptions.environment carrying SMITHERS_JJHUB_TOKEN, a gateway credential or process.env instead of an explicit allowlist (runSourceProcess uses extendEnv: false).",
+        "A command check run with no deadline, or outside the scoped immutable export root."
+      ],
+      paths: [
+        "repository/checks.ts",
+        "repository/ci-policy.ts",
+        "repository/changes.ts",
+        "coding/immutable-source.ts",
+        "coding/host.ts",
+        "coding/serve.ts"
+      ]
+    },
+    {
+      id: "untrusted-event-prompt-injection",
+      title: "Issue, PR and comment text is treated as data and cannot authorize actions",
+      threat: "An outside GitHub user writes an issue or comment that makes an agent land code, publish a reply, approve a step or exfiltrate repository content.",
+      lookFor: [
+        "Event author text concatenated into a prompt without the untrusted-content framing in repository/intake.ts.",
+        "A publish, land, approve or pause decision keyed on text the event author controls rather than a verified role or approved digest (approved-text.ts, reply-trust).",
+        "A steering or correction message accepted from someone other than the run owner.",
+        "Withheld or hidden fields from the intake screen still reaching a later model step."
+      ],
+      paths: [
+        "repository/intake.ts",
+        "repository/replies.ts",
+        "repository/approved-text.ts",
+        "repository/triggers.ts",
+        "repository/delivery.ts",
+        "repository/jev-*.ts",
+        "coding/steering.ts",
+        "coding/correction.ts",
+        "coding/feedback.ts",
+        "issue-triage/**",
+        "pr-triage/**",
+        "review/**"
+      ]
+    },
+    {
+      id: "pinned-invocation-integrity",
+      title: "An invocation runs only the approved flow bytes under its own tag",
+      threat: "A repository author swaps the body of an approved flow via a sibling module or node_modules alias and runs it with the invocation credential.",
+      lookFor: [
+        "invoke/host.ts digest covering only flow.ts while relative imports run live.",
+        "registerPinnedLibraries replacing or trusting an existing repository node_modules entry.",
+        "A flow name with ./.. or backslash segments accepted by options.flow.",
+        "A descriptor registered whose declaredTag differs from its path-derived name."
+      ],
+      paths: [
+        "invoke/**",
+        "coding/host-modules.ts",
+        "coding/host-modules-build.mjs",
+        "coding/build.mjs",
+        "repository/registry.ts"
+      ]
+    },
+    {
+      id: "landing-authority",
+      title: "Landing and publication write only the approved change to the bound repository",
+      threat: "A coding run pushes unreviewed commits, rewrites main, or publishes to a repository or ref it was not bound to.",
+      lookFor: [
+        "A push or land call whose target ref, repository id or commit is not the one recorded in the approved plan or receipt.",
+        "Force pushes, deletes or ref updates outside refs/smithers/workspaces/<workspaceId>/.",
+        "A landing that proceeds when checks or the completion receipt are missing or failed.",
+        "vibe-cleanup deleting refs or files it did not create."
+      ],
+      paths: [
+        "coding/landing.ts",
+        "coding/vibe-*.ts",
+        "coding/source-*.ts",
+        "repository/delivery.ts",
+        "repository/changes.ts",
+        "repository/retention.ts"
+      ]
+    },
+    {
+      id: "release-secret-redaction",
+      title: "Release and publishing steps never leak registry or social credentials",
+      threat: "A release failure prints NPM or X tokens into logs, run outputs or public release notes that anyone can read.",
+      lookFor: [
+        "Diagnostics that redact only env keys matching token|secret|password|api.?key, missing names like *_AUTH, *_PAT or CREDENTIAL.",
+        "Output truncated before redaction so a partial secret survives the split/join.",
+        "Release notes or tweets built from model output without review before publishing.",
+        "npm publish, tag push or X post reachable without the release approval step."
+      ],
+      paths: ["release/**", "release-support/**", "release-content/**", "release-notes/**", "rollout/**"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
   targets: {
     coding,
@@ -389,6 +564,7 @@ export const Package = Smithers.Package({
     suite,
     recording,
     provider,
-    wiki
+    wiki,
+    ...securityReview
   }
 })

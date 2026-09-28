@@ -637,6 +637,125 @@ const bunCoverage = Smithers.NodeTest({
   deps: []
 })
 
+/**
+ * The security review of the operator, CI and release scripts this package
+ * owns. `repo-contract/` is its own package with its own review.
+ *
+ * These scripts hold the npm publication path, the GitHub triage token, the
+ * Cloud CI bootstrap and the host check cache, so the checks follow the
+ * credentials and the downloaded bytes.
+ */
+const reviewed = (pattern: string) =>
+  Smithers.glob(pattern, { exclude: ["repo-contract/**", "**/*.test.mjs", "**/*.test.ts", "**/test_*.py", "test/**"] })
+
+const securityReview = Smithers.SecurityReview({
+  cwd: "scripts",
+  include: [reviewed("**/*.mjs"), reviewed("**/*.ts"), reviewed("**/*.sh"), reviewed("**/*.py")],
+  checks: [
+    {
+      id: "triage-untrusted-report",
+      title: "Issue and PR triage publishes only validated output to the repository the event named",
+      threat: "An issue or PR author steers the triage model or code it runs into labeling, commenting on, or redirecting writes to issues the GitHub token can reach.",
+      lookFor: [
+        "apply() reading repository and number from .triage/context.json, a file the model step or the `pnpm test` it may spawn can rewrite before apply runs.",
+        "A report comment posted verbatim with attacker-influenced @mentions, links or markdown that impersonates a maintainer verdict.",
+        "A label, comment or PATCH target not checked against LABELS, the event's own number, or a comment authored by the triage bot itself.",
+        "GH_TOKEN or GitHub error bodies echoed into the fallback comment or stdout."
+      ],
+      paths: ["github-triage.mjs"]
+    },
+    {
+      id: "release-publish-integrity",
+      title: "npm publishes only the exact tarballs that passed smoke testing at the tagged commit",
+      threat: "A tampered pack directory, stale evidence or a mismatched tag lets a CI writer publish unreviewed bytes under the @smthrs scope to every consumer.",
+      lookFor: [
+        "A publish path that skips verifyLocalCandidate, the source sha/tag match, or the smoke-evidence candidateIntegrity comparison.",
+        "A manifest filename that can contain a path separator or '..' and escape the pack directory.",
+        "Retry or recovery logic that treats a registry integrity mismatch or a missing version as success.",
+        "A dist-tag choice that can publish a prerelease as latest."
+      ],
+      paths: ["publish-release.mjs", "cut-release.mjs", "set-release-version.mjs", "release-process.mjs"]
+    },
+    {
+      id: "release-archive-restore",
+      title: "A restored release archive comes only from this repository's Release run and cannot write outside staging",
+      threat: "A fork, another workflow, or a crafted zip substitutes release tarballs or writes files outside the restore directory on the release runner.",
+      lookFor: [
+        "verifyArchiveIdentity accepting a run whose repository, head_repository, path, event or artifact workflow_run fields differ from this repository's release.yml.",
+        "The python extractor admitting a member name with '/', '..', a symlink mode, or a duplicate, or exceeding the byte and count budgets.",
+        "A downloaded archive used before its sha256 digest equals the artifact's recorded digest.",
+        "The restore writing into an existing destination instead of a fresh mkdtemp staging directory."
+      ],
+      paths: ["restore-release.mjs"]
+    },
+    {
+      id: "packed-tarball-contents",
+      title: "Published tarballs contain only authored package files and no local credentials or caches",
+      threat: "A maintainer's local .env, .npmrc, .smithers database or credential under a package directory ships publicly inside an npm tarball.",
+      lookFor: [
+        "copyFilter admitting dotfiles, .smithers state beyond WORKSPACE.ts/agents.ts/sandbox.ts, or files a manifest `files` list does not name.",
+        "pnpm pack run without --config.ignore-scripts=true, letting a package lifecycle script execute during packing.",
+        "Native helper binaries copied from SMITHERS_NATIVE_HELPERS_DIR without a digest or provenance check."
+      ],
+      paths: ["pack-release.mjs", "release-native-helpers.mjs", "build-release.mjs", "packed-export-targets.mjs"]
+    },
+    {
+      id: "consumer-install-isolation",
+      title: "Smoke installs resolve first-party packages only from the loopback registry and run no install scripts",
+      threat: "A public-registry package squatting an @smthrs name, or a dependency's install script, runs code on the release runner that holds publish credentials.",
+      lookFor: [
+        "An npm, pnpm or bun install in a smoke or consumer probe without --ignore-scripts.",
+        "A scratch .npmrc that leaves any first-party scope resolving from the public registry.",
+        "The loopback registry binding to a non-loopback address or serving a path outside its tarball map."
+      ],
+      paths: ["smoke-release.mjs", "release-registry.mjs", "release-consumers.mjs", "check-npm-dedupe.mjs", "fixtures/installed-consumer/**"]
+    },
+    {
+      id: "ci-bootstrap-downloads",
+      title: "Every tool the Cloud CI bootstrap downloads and executes is pinned by version and digest",
+      threat: "A compromised or spoofed release host swaps a jj, ripgrep, Foundry, rustup or Node binary that then runs with the CI task's repository access.",
+      lookFor: [
+        "A download() or curl followed by tar/chmod/exec with no sha256sum -c against a pinned digest; ensure_node pins one, while the jj, ripgrep, Foundry and rustup-init downloads trust HTTPS alone.",
+        "A version read from a repository file used unvalidated in a URL or shell word.",
+        "apt or npm installs that run lifecycle scripts or use sudo in a Cloud task."
+      ],
+      paths: ["ci/cloud.sh", "ci/coding-check.sh", "require-toolchain.mjs"]
+    },
+    {
+      id: "check-cache-poisoning",
+      title: "The host check cache cannot carry forged verdicts or escape its root",
+      threat: "Code under check in one revision plants passing target results or links that a later revision's check replays as green, or that overwrite host files.",
+      lookFor: [
+        "copyMissing following a symlink or special file, or writing outside the partition or the export's .flows/cache.",
+        "An existing valid entry replaced by a check's own output.",
+        "SMITHERS_CHECK_CACHE_DIR or the partition marker accepted when relative or pointing outside the cache root."
+      ],
+      paths: ["ci/check-cache.mjs", "bench/rebase-cache.mjs"]
+    },
+    {
+      id: "script-subprocess-args",
+      title: "Scripts spawn processes with argument vectors, never shell strings built from inputs",
+      threat: "A crafted CLI flag, environment value, commit message or git ref makes an operator script run arbitrary shell commands on a maintainer or CI host.",
+      lookFor: [
+        "exec, execSync or spawn with shell:true, or sh -c, interpolating argv, environment variables, file contents or git output.",
+        "A string option split on spaces and executed, like rebase-cache --install.",
+        "An unvalidated positional argument placed into go build -ldflags or a similar command-line flag string."
+      ],
+      paths: ["commit.mjs", "bench/**", "build-backend.sh", "test-backend-consumer.sh", "generate-changelog.mjs", "run-jj-abi-campaign.mjs", "check-mutations.mjs", "bun-coverage/**"]
+    },
+    {
+      id: "credential-scrubbing",
+      title: "Cache and registry tokens never reach child processes that do not need them",
+      threat: "A planner, benchmark or consumer probe subprocess inherits SMITHERS_CACHE_* or registry tokens and leaks them into logs or untrusted package code.",
+      lookFor: [
+        "A spawn passing { ...process.env } to package installs or repository code without deleting SMITHERS_CACHE_TOKEN, SMITHERS_CACHE_READ_TOKEN, SMITHERS_CACHE_WRITE_TOKEN, NPM_TOKEN or GH_TOKEN.",
+        "Environment dumps or error messages that print token-bearing variables."
+      ],
+      paths: ["ci-planner.mjs", "ci-inventory.mjs", "release-consumers.mjs", "smoke-release.mjs", "bench/**"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
   targets: {
     apiBaseline,
@@ -671,6 +790,7 @@ export const Package = Smithers.Package({
     testPinRegister,
     toolchainPins,
     thirdPartyNotices,
-    thirdPartyNoticesUnit
+    thirdPartyNoticesUnit,
+    ...securityReview
   }
 })
