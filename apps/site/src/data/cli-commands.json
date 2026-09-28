@@ -822,6 +822,35 @@
       }
     },
     {
+      "name": "admin user export",
+      "description": "Download a user's data as a tar.gz archive",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "username": {
+              "type": "string",
+              "description": "Username to export"
+            },
+            "out": {
+              "type": "string",
+              "description": "Archive path to write"
+            }
+          },
+          "required": [
+            "username",
+            "out"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "admin user list",
       "description": "List all users",
       "schema": {

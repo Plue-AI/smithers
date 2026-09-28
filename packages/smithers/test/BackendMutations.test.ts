@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -418,6 +419,35 @@ describe("remaining read and update contracts", () => {
     expect(request).toHaveBeenLastCalledWith("POST", "/api/admin/users/a%20b/erase", { request_date: "2026-09-01" })
     expect(await admin["admin user delete"]!(c, { username: "a" }, { yes: true })).toEqual({ status: "suspended", username: "a" })
     expect(request).toHaveBeenLastCalledWith("DELETE", "/api/admin/users/a")
+  })
+  it("downloads a user's export archive to the requested path", async () => {
+    const { c } = await fixture()
+    const dir = await mkdtemp(join(tmpdir(), "smithers-export-"))
+    const out = join(dir, "nested", "alice.tar.gz")
+    const response = vi.spyOn(c, "response").mockImplementation(async () => new Response("archive-bytes"))
+    expect(await admin["admin user export"]!(c, { username: "a b", out }, {}))
+      .toEqual({ username: "a b", path: out, bytes: 13 })
+    expect(response).toHaveBeenLastCalledWith("POST", "/api/admin/users/a%20b/export", undefined, {
+      stream: true,
+      headers: { accept: "application/gzip" }
+    })
+    expect(await readFile(out, "utf8")).toBe("archive-bytes")
+    expect(existsSync(`${out}.partial`)).toBe(false)
+  })
+  it("leaves no archive when the export download fails", async () => {
+    const { c } = await fixture()
+    const dir = await mkdtemp(join(tmpdir(), "smithers-export-"))
+    const out = join(dir, "alice.tar.gz")
+    const failing = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("partial"))
+        controller.error(new Error("connection reset"))
+      }
+    })
+    vi.spyOn(c, "response").mockImplementation(async () => new Response(failing))
+    await expect(admin["admin user export"]!(c, { username: "alice", out }, {})).rejects.toThrow("connection reset")
+    expect(existsSync(out)).toBe(false)
+    expect(existsSync(`${out}.partial`)).toBe(false)
   })
   it.each(["admin user list", "admin runs list", "beta waitlist list"])("reads %s with page controls", async (name) => {
     const { c, request } = await fixture()

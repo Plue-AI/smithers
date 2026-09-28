@@ -3,7 +3,9 @@
  * @since 0.1.0
  */
 
-import { esc, pick, query, str, type Values } from "./Client.ts"
+import { mkdir, rename, rm, writeFile } from "node:fs/promises"
+import { dirname, resolve } from "node:path"
+import { chunksOf, esc, pick, query, str, type Values } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 import { observeOrigin } from "./Session.ts"
 
@@ -304,6 +306,32 @@ admin["admin user delete"] = async (c, a, o) => {
 admin["admin user erase"] = async (c, a, o) => {
   await c.confirm(o.yes, `erase user ${str(a.username)} and all of its data`)
   return c.request("POST", `/api/admin/users/${esc(a.username)}/erase`, { request_date: o["request-date"] })
+}
+admin["admin user export"] = async (c, a) => {
+  const path = resolve(str(a.out)), partial = `${path}.partial`
+  const response = await c.response("POST", `/api/admin/users/${esc(a.username)}/export`, undefined, {
+    stream: true,
+    headers: { accept: "application/gzip" }
+  })
+  await mkdir(dirname(path), { recursive: true })
+  let bytes = 0
+  async function* body() {
+    if (response.body) {
+      for await (const chunk of chunksOf(response.body)) {
+        bytes += chunk.length
+        yield chunk
+      }
+    }
+  }
+  // A dropped connection leaves no file at the requested path.
+  try {
+    await writeFile(partial, body())
+    await rename(partial, path)
+  } catch (error) {
+    await rm(partial, { force: true })
+    throw error
+  }
+  return { username: a.username, path, bytes }
 }
 admin["admin health"] = (c) => c.request("GET", "/api/admin/system/health")
 admin["admin runs list"] = (c, _a, o) =>

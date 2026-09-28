@@ -164,6 +164,14 @@ export const definitions = {
       "yes": z.boolean().describe("Confirm erasing the user").default(false)
     })
   },
+  "admin user export": {
+    description: "Download a user's data as a tar.gz archive",
+    args: z.object({
+      "username": z.string().describe("Username to export"),
+      "out": z.string().describe("Archive path to write")
+    }),
+    options: z.object({})
+  },
   "admin user disable": {
     description: "Suspend a user",
     args: z.object({ "username": z.string().describe("Username to suspend") }),
