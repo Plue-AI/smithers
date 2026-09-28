@@ -23,6 +23,11 @@ export const limit = 200
 /** The most characters of a matched line kept; rg ignores `--max-columns` with `--json`. */
 const maxColumns = 200
 
+const spawnFailure = (error: unknown): Outcome =>
+  error instanceof Error && "code" in error && error.code === "ENOENT"
+    ? { _tag: "failed", reason: "missing-rg", message: "rg not found" }
+    : { _tag: "failed", reason: "rg-error", message: error instanceof Error ? error.message : String(error) }
+
 type Data = { readonly text: string } | { readonly bytes: string }
 
 /** rg's `text`, or its base64 `bytes` when the value is not valid UTF-8; `exact` refuses a lossy decode. */
@@ -79,11 +84,16 @@ export const run = (options: {
     "--",
     "."
   ]
-  const child = spawn(options.command ?? "rg", args, {
-    cwd: options.cwd,
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true
-  })
+  let child
+  try {
+    child = spawn(options.command ?? "rg", args, {
+      cwd: options.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true
+    })
+  } catch (error) {
+    return { done: Promise.resolve(spawnFailure(error)), cancel: () => {} }
+  }
   const hits: Array<Hit> = []
   let pending = ""
   let stderr = ""
@@ -127,13 +137,7 @@ export const run = (options: {
   child.stderr.on("data", (chunk: string) => {
     stderr += chunk
   })
-  child.on("error", (error: NodeJS.ErrnoException) => {
-    finish(
-      error.code === "ENOENT"
-        ? { _tag: "failed", reason: "missing-rg", message: "rg not found" }
-        : { _tag: "failed", reason: "rg-error", message: error.message }
-    )
-  })
+  child.on("error", (error) => finish(spawnFailure(error)))
   child.on("close", (code) => {
     if (settled) return
     if (pending !== "") take(pending)
