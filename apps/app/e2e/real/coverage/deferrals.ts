@@ -1,3 +1,40 @@
+import { admin } from "./deferrals/admin"
+import { agent } from "./deferrals/agent"
+import { app } from "./deferrals/app"
+import { approvals } from "./deferrals/approvals"
+import { billing } from "./deferrals/billing"
+import { box } from "./deferrals/box"
+import { branches } from "./deferrals/branches"
+import { change } from "./deferrals/change"
+import { code } from "./deferrals/code"
+import { commits } from "./deferrals/commits"
+import { connect } from "./deferrals/connect"
+import { desktop } from "./deferrals/desktop"
+import { egress } from "./deferrals/egress"
+import { env } from "./deferrals/env"
+import { feature } from "./deferrals/feature"
+import { files } from "./deferrals/files"
+import { findings } from "./deferrals/findings"
+import { flow } from "./deferrals/flow"
+import { flows } from "./deferrals/flows"
+import { github } from "./deferrals/github"
+import { history } from "./deferrals/history"
+import { integrations } from "./deferrals/integrations"
+import { issues } from "./deferrals/issues"
+import { notifications } from "./deferrals/notifications"
+import { plugins } from "./deferrals/plugins"
+import { prs } from "./deferrals/prs"
+import { repo } from "./deferrals/repo"
+import { repos } from "./deferrals/repos"
+import { review } from "./deferrals/review"
+import { runs } from "./deferrals/runs"
+import { search } from "./deferrals/search"
+import { secrets } from "./deferrals/secrets"
+import { setup } from "./deferrals/setup"
+import { triggers } from "./deferrals/triggers"
+import { wiki } from "./deferrals/wiki"
+import { workspace } from "./deferrals/workspace"
+
 /**
  * The reviewed ledger of built-in actions that have no real scenario.
  *
@@ -16,6 +53,45 @@ export const RELEASE_CRITICAL_ACTIONS: readonly string[] = [
 
 export type Deferral = "browser" | "diagnostics" | "owed"
 
+export const OWED_ACTIONS_BY_FAMILY = {
+  admin,
+  agent,
+  app,
+  approvals,
+  billing,
+  box,
+  branches,
+  change,
+  code,
+  commits,
+  connect,
+  desktop,
+  egress,
+  env,
+  feature,
+  files,
+  findings,
+  flow,
+  flows,
+  github,
+  history,
+  integrations,
+  issues,
+  notifications,
+  plugins,
+  prs,
+  repo,
+  repos,
+  review,
+  runs,
+  search,
+  secrets,
+  setup,
+  triggers,
+  wiki,
+  workspace,
+} as const
+
 export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>> = {
   /** Acts only on this browser's UI or storage; no host contract to break. */
   browser: [
@@ -33,39 +109,5 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "debug.reset", "debug.seams", "debug.snapshot", "debug.verbose", "model.fixture"
   ],
   /** Host-backed; a real scenario is owed. */
-  owed: [
-    "admin.grant.confirm", "admin.queue.approve", "admin.requests", "agent.change", "agent.list",
-    "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop",
-    "agent.session.view", "app.download", "approvals.open", "billing.plans", "billing.portal",
-    "billing.upgrade", "branches.list", "change.checks", "change.pins", "change.request", "change.resolve",
-    "change.revert", "change.split", "change.split-ready", "code.definition",
-    "code.diagnostics", "code.hover", "commits.list", "commits.read", "connect", "desktop", "egress.session",
-    "env.remove-token", "env.set", "env.view", "feature.prototype", "files.list", "files.open-diff",
-    /* Threads, tasks and integrations (smithers-ui-DESIGN.md): the chat backend and the task metadata are still landing. */
-    "integrations.list", "issues.comment.react", "issues.comment.retry", "issues.fix", "issues.verify",
-    "files.read", "findings.not-useful", "findings.please-fix", "flow.plan", "flow.run.retry", "flows",
-    "github.app.choose", "github.app.open", "github.mirror-sync", "github.mirror.retry-ref",
-    "github.reconcile", "history.bootstrap", "issues",
-    /* The app home's doors (PRODUCT.md D-18): the browser spec covers the launch; the real workspace run is owed. */
-    "prs.triage", "wiki.ask",
-    /* The wiki spaces (#1922): the browser spec drives them against stubbed routes; the real backend run is owed. */
-    "wiki.attach", "wiki.cloud.delete", "wiki.cloud.new", "wiki.cloud.rename", "wiki.history", "wiki.space",
-    "notifications.read-update", "notifications.tag", "plugins", "plugins.install",
-    "plugins.list", "plugins.remove", "prs", "repo.choose", "repo.tree", "repo.update",
-    "repos.import.retry", "review.ack", "review.done", "review.reopen", "review.since-mine",
-    "review.unrequest", "runs.seat", "runs.signal", "search.boxes", "search.changes", "search.files",
-    "search.history", "search.issues", "search.open", "search.runs", "search.secrets", "secrets.connect.codex", "secrets.move",
-    "search.targets", "search.wiki", "setup.ask", "setup.discard", "setup.discard.confirm", "setup.guide",
-    "setup.retry", "setup.work",
-    // Main-only secrets (D-24): the seam and backend tests cover it; the real backend run is owed.
-    "secrets.scope",
-    // History writes/readback still need real-host receipts: https://github.com/smithersai/smithers/issues/1921.
-    "history.backfill", "history.parallel", "history.retry", "history.show",
-    // Resume reuses the reviewed registration; authenticated host acceptance remains #1939.
-    "triggers.approve", "triggers.pause", "triggers.resume", "triggers.run",
-    "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop",
-    "box.images", "box.list", "workspace.rename", "box.session.destroy",
-    // Box choice resumes a host-backed act; real-host coverage remains owed in #2327.
-    "box.select"
-  ]
+  owed: Object.values(OWED_ACTIONS_BY_FAMILY).flat()
 }
