@@ -63,7 +63,7 @@ describe("function identity", () => {
     expect(one.operation(2)).toBe(3)
     expect(identity(one.operation)).toEqual(identity(same.operation))
     expect(identity(one.operation)).not.toEqual(identity(two.operation))
-    expect(identity(one.operation).algorithm).toBe("sha256-source-captures/v4")
+    expect(identity(one.operation).algorithm).toBe("sha256-source-captures/v5")
     expect(Object.isFrozen(one.captures)).toBe(false)
     expect(Object.isFrozen(one.captures.nested)).toBe(false)
     expect(() => capture({ value: Number.NaN }, () => undefined)).toThrow(/is not finite/)
@@ -109,7 +109,7 @@ describe("function identity", () => {
     const wrapped = capture(captures, operation)
 
     expect(JSON.parse(wrapped())).toEqual(plain)
-    expect(functionIdentity(wrapped).algorithm).toBe("sha256-source-captures/v4")
+    expect(functionIdentity(wrapped).algorithm).toBe("sha256-source-captures/v5")
     expect(functionIdentity(wrapped)).toEqual(functionIdentity(capture(plain, operation)))
     expect(functionIdentity(capture(captures, operation))).toEqual(functionIdentity(wrapped))
     for (const [original, frozen] of originals) expect(Object.isFrozen(original)).toBe(frozen)
@@ -131,7 +131,64 @@ describe("function identity", () => {
     expect(Reflect.set(item, "value", 6)).toBe(false)
     expect(operation()).toBe(5)
     expect(functionIdentity(operation)).toEqual(identity)
-    expect(functionIdentity(capture({ state }, operation)).algorithm).toBe("sha256-source-captures/v4")
+    expect(functionIdentity(capture({ state }, operation)).algorithm).toBe("sha256-source-captures/v5")
+  })
+
+  it("distinguishes shared records and arrays from equal independent copies", () => {
+    const operation = function(this: { left: object; right: object }) {
+      return this.left === this.right
+    }
+
+    for (const make of [() => ({ value: 1 }), () => [1]]) {
+      const member = make()
+      const shared = capture({ left: member, right: member }, operation)
+      const copied = capture({ left: make(), right: make() }, operation)
+
+      expect(shared()).toBe(true)
+      expect(copied()).toBe(false)
+      expect(functionIdentity(shared)).not.toEqual(functionIdentity(copied))
+    }
+  })
+
+  it("distinguishes which equal nested record an alias targets", () => {
+    const make = (target: "left" | "right") => {
+      const left = { value: 1 }
+      const right = { value: 1 }
+      return { left, right, nested: { alias: target === "left" ? left : right } }
+    }
+    const operation = function(this: ReturnType<typeof make>) {
+      return this.nested.alias === this.left
+    }
+    const left = capture(make("left"), operation)
+    const right = capture(make("right"), operation)
+
+    expect(left()).toBe(true)
+    expect(right()).toBe(false)
+    expect(functionIdentity(left)).not.toEqual(functionIdentity(right))
+  })
+
+  it("keeps independently allocated equivalent sharing stable across record key order", () => {
+    const make = (reversed: boolean) => {
+      const item = { value: 1 }
+      const entries = [item]
+      return reversed
+        ? { entries, nested: { entries, target: item }, selected: item }
+        : { selected: item, nested: { target: item, entries }, entries }
+    }
+    const operation = function(this: ReturnType<typeof make>) {
+      return this.selected === this.nested.target &&
+        this.entries === this.nested.entries &&
+        this.entries[0] === this.selected
+    }
+    const first = capture(make(false), operation)
+    const second = capture(make(true), operation)
+    const third = capture(make(false), operation)
+
+    expect(first()).toBe(true)
+    expect(second()).toBe(true)
+    expect(third()).toBe(true)
+    expect(functionIdentity(second)).toEqual(functionIdentity(first))
+    expect(functionIdentity(third)).toEqual(functionIdentity(first))
   })
 
   it("still refuses frozen Proxies and frozen trees with accessors or custom prototypes", () => {

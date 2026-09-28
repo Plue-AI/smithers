@@ -26,14 +26,14 @@ import { digestSync } from "./Sha256.ts"
 /**
  * The algorithms {@link functionIdentity} names.
  *
- * `sha256-source-captures/v4` digests exact source and declared inert
+ * `sha256-source-captures/v5` digests exact source and declared inert
  * captures. `sha256-source-ephemeral/v4` digests exact source and
  * process-local entropy, because nothing was declared.
  *
  * @since 1.0.0
  * @category models
  */
-export type Algorithm = "sha256-source-ephemeral/v4" | "sha256-source-captures/v4"
+export type Algorithm = "sha256-source-ephemeral/v4" | "sha256-source-captures/v5"
 
 /**
  * The serializable stand-in for a function.
@@ -56,7 +56,7 @@ interface CapturedMetadata {
 /** @private */
 // Bundled hosts and dynamically imported flows can load separate compatible
 // copies. Identity belongs to the function, not to whichever copy inspects it.
-const stateKey = Symbol.for("@smthrs/crypto/Identity/state/v4")
+const stateKey = Symbol.for("@smthrs/crypto/Identity/state/v5")
 interface IdentityState {
   readonly captured: WeakMap<object, CapturedMetadata>
   readonly ephemeral: WeakMap<object, string>
@@ -297,8 +297,8 @@ const freezeCapture = (snapshots: globalThis.Map<object, CaptureSnapshot>): void
   }
 }
 
-/** Encodes only the owned frozen copy. @private */
-const canonicalCapture = (input: unknown): string => {
+/** Encodes only the owned frozen copy, including its sharing topology. @private */
+const canonicalCapture = (input: unknown, references = new Map<object, number>()): string => {
   if (input === null) return "null"
   switch (typeof input) {
     case "boolean":
@@ -307,14 +307,22 @@ const canonicalCapture = (input: unknown): string => {
       return Object.is(input, -0) ? "[\"number\",\"-0\"]" : `["number",${JSON.stringify(input)}]`
     case "string":
       return `["string",${JSON.stringify(input)}]`
-    default:
+    default: {
+      const object = input as object
+      const reference = references.get(object)
+      if (reference !== undefined) return `["reference",${reference}]`
+      // Assign ordinals in canonical traversal order, never allocation or
+      // caller insertion order. Equal values can still be distinct objects.
+      const ordinal = references.size
+      references.set(object, ordinal)
       return Array.isArray(input)
-        ? `["array",[${input.map(canonicalCapture).join(",")}]]`
-        : `["object",{${
+        ? `["array",${ordinal},[${input.map((value) => canonicalCapture(value, references)).join(",")}]]`
+        : `["object",${ordinal},{${
           Object.keys(input as object).sort().map((key) =>
-            `${JSON.stringify(key)}:${canonicalCapture((input as Record<string, unknown>)[key])}`
+            `${JSON.stringify(key)}:${canonicalCapture((input as Record<string, unknown>)[key], references)}`
           ).join(",")
         }}]`
+    }
   }
 }
 
@@ -384,7 +392,7 @@ export const functionIdentity = (operation: unknown): FunctionIdentity => {
   }
   return {
     _tag: "FunctionIdentity",
-    algorithm: metadata === undefined ? "sha256-source-ephemeral/v4" : "sha256-source-captures/v4",
+    algorithm: metadata === undefined ? "sha256-source-ephemeral/v4" : "sha256-source-captures/v5",
     digest: digestSync(metadata === undefined ? `${source}\0${ephemeral}` : `${source}\0${metadata.captures}`)
   }
 }

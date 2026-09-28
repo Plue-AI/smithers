@@ -43,7 +43,7 @@ const guardCrypto = () => {
 /** Evaluates a fresh copy of the module under the guarded global. */
 const importFresh = async () => {
   vi.resetModules()
-  vi.stubGlobal(Symbol.for("@smthrs/crypto/Identity/state/v4"), undefined)
+  vi.stubGlobal(Symbol.for("@smthrs/crypto/Identity/state/v5"), undefined)
   return import("../src/Identity.ts")
 }
 
@@ -101,7 +101,7 @@ describe("ephemeral identity nonce", () => {
     const identity = await importFresh()
 
     const captured = identity.capture({ step: 1 }, (value: number) => value + 1)
-    expect(identity.functionIdentity(captured).algorithm).toBe("sha256-source-captures/v4")
+    expect(identity.functionIdentity(captured).algorithm).toBe("sha256-source-captures/v5")
     expect(crypto.calls()).toBe(0)
   })
 })

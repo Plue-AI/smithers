@@ -82,7 +82,7 @@ Struct schemas, including `Schema.Class`, pass through as the native payload sch
 
 `@smthrs/plan` compiles a built graph's digest-free key material into step keys, so two declarations with equal key material are the same step.
 
-An unannotated mapper, continuation, or flow body receives a process-local `sha256-source-ephemeral/v4` identity, because JavaScript cannot inspect closure state: two processes give the same function two different digests. Only `Node.capture` produces the cross-process-stable `sha256-source-captures/v4` identity, by folding the canonicalized inert values a function closes over into its digest. A step whose result must survive a restart has to declare its captures.
+An unannotated mapper, continuation, or flow body receives a process-local `sha256-source-ephemeral/v4` identity, because JavaScript cannot inspect closure state: two processes give the same function two different digests. Only `Node.capture` produces the cross-process-stable `sha256-source-captures/v5` identity, by folding the canonicalized inert values a function closes over into its digest. A step whose result must survive a restart has to declare its captures.
 
 ```ts
 const scaled = Node.capture({ factor: 3 }, (value: number) => value * 3)

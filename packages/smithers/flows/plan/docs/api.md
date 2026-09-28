@@ -694,7 +694,7 @@ The runtime type identifier carried by every node, and its own type. It is a pub
 ```ts
 type FunctionIdentity = {
   readonly _tag: "FunctionIdentity"
-  readonly algorithm: "sha256-source-ephemeral/v4" | "sha256-source-captures/v4" | "static-node/v1"
+  readonly algorithm: "sha256-source-ephemeral/v4" | "sha256-source-captures/v5" | "static-node/v1"
   readonly digest: string
 }
 ```

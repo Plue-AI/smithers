@@ -75,7 +75,7 @@ const securityReview = Smithers.SecurityReview({
       threat:
         "A flow author changes a body's behavior while keeping its step key, so a cached or approved result from the old body is replayed for the new one.",
       lookFor: [
-        "The non-struct input adapter in build carrying a captured body identity when the body is not captured with sha256-source-captures/v4.",
+        "The non-struct input adapter in build carrying a captured body identity when the body is not captured with sha256-source-captures/v5.",
         "Digest.canonical or Digest.digest diverging from @smthrs/crypto digestSync or RFC 8785 canonical bytes.",
         "KeyMaterial placing nodeId or other graph-local names into hashed material."
       ],

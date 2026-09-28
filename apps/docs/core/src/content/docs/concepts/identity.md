@@ -54,10 +54,10 @@ The package answers honestly rather than guessing:
   stable inside one process and different in the next one. A step keyed on it
   is a cache miss after a restart, which is correct: nothing proved the
   function would behave the same way.
-- **`sha256-source-captures/v4`** is what `Node.capture` produces. The digest
+- **`sha256-source-captures/v5`** is what `Node.capture` produces. The digest
   folds the function's source text with the canonicalized capture data, and no
   nonce, so it is the same in every process that runs the same code with the
-  same captures.
+  same captures, including their shared-reference topology.
 
 A step whose result must survive a restart therefore has to declare what it
 closes over:

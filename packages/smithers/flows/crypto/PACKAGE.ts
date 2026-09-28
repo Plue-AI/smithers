@@ -74,7 +74,7 @@ const securityReview = Smithers.SecurityReview({
       threat:
         "A dependency loaded before this package plants a known nonce or registers fake capture metadata, so ephemeral identities become predictable and forged functions get another function's cached result.",
       lookFor: [
-        "globalThis[Symbol.for(\"@smthrs/crypto/Identity/state/v4\")] adopted without checking its shape, WeakMap brands, or nonce format.",
+        "globalThis[Symbol.for(\"@smthrs/crypto/Identity/state/v5\")] adopted without checking its shape, WeakMap brands, or nonce format.",
         "processNonce or the shared state letting a caller learn or set the nonce in a way that lets a second process reproduce ephemeral digests."
       ],
       paths: ["src/Identity.ts"]

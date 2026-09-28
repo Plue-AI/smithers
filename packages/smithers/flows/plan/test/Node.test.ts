@@ -289,7 +289,7 @@ describe("Node", () => {
       }).ast,
       "Catch"
     )
-    expect(stable.filterIdentity?.algorithm).toBe("sha256-source-captures/v4")
+    expect(stable.filterIdentity?.algorithm).toBe("sha256-source-captures/v5")
   })
 
   it("refuses a catch failure arm that does not return a node", () => {
@@ -695,7 +695,7 @@ describe("internal/node call factories", () => {
     const two = make(2)
 
     expect(one(2)).toBe(3)
-    expect(Node.functionIdentity(one)).toMatchObject({ algorithm: "sha256-source-captures/v4" })
+    expect(Node.functionIdentity(one)).toMatchObject({ algorithm: "sha256-source-captures/v5" })
     expect(Node.functionIdentity(one)).not.toEqual(Node.functionIdentity(two))
     expect(Node.functionIdentity(make(1))).toEqual(Node.functionIdentity(one))
 
@@ -711,6 +711,52 @@ describe("internal/node call factories", () => {
     expect(() => copy.threshold.value++).toThrow(TypeError)
     nested.threshold.value = 99
     expect(read(3)).toBe(true)
+  })
+
+  it("shared versus copied capture changes mapper identity", () => {
+    const mapped = (captures: { left: object; right: object }) =>
+      tagged(
+        Node.map(
+          Node.succeed(1),
+          Node.capture(captures, function(value: number) {
+            return value > 0 && this.left === this.right
+          })
+        ).ast,
+        "Map"
+      )
+
+    for (const make of [() => ({ value: 1 }), () => [1]]) {
+      const member = make()
+      const shared = mapped({ left: member, right: member })
+      const copied = mapped({ left: make(), right: make() })
+
+      expect(Node.mapper(shared)?.(1)).toBe(true)
+      expect(Node.mapper(copied)?.(1)).toBe(false)
+      expect(shared.mapper).not.toEqual(copied.mapper)
+    }
+  })
+
+  it("maps nested capture aliases according to their targets", () => {
+    const mapped = (target: "left" | "right") => {
+      const left = { value: 1 }
+      const right = { value: 1 }
+      const captures = { left, right, nested: { alias: target === "left" ? left : right } }
+      return tagged(
+        Node.map(
+          Node.succeed(1),
+          Node.capture(captures, function(value: number) {
+            return value > 0 && this.nested.alias === this.left
+          })
+        ).ast,
+        "Map"
+      )
+    }
+    const left = mapped("left")
+    const right = mapped("right")
+
+    expect(Node.mapper(left)?.(1)).toBe(true)
+    expect(Node.mapper(right)?.(1)).toBe(false)
+    expect(left.mapper).not.toEqual(right.mapper)
   })
 
   it("preserves inner function identity when captures are nested", () => {

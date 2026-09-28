@@ -14585,7 +14585,7 @@ evade a budget declared for the run.
 ### Budget.Policy, Budget.TokenBudget, Budget.LatencyBudget, Budget.OnExceeded
 
 ```ts
-const OnExceeded = Schema.Literals(["fail", "warn", "skip-remaining"])
+const OnExceeded = Schema.Literals(["fail", "warn", "skip-remaining", "park"])
 
 interface Policy {
   readonly tokens?: TokenBudget | undefined
@@ -14617,6 +14617,11 @@ whole interval again.
 | `fail`           | The step fails with `BudgetExceeded { scope, used, max, next }`.                                       |
 | `warn`           | A `flows.agent.budget-warning.v1` record is written and the call proceeds.                             |
 | `skip-remaining` | The budget latches. Every later model call in the run fails typed `skipped` without asking a provider. |
+| `park`           | The run parks with waiting reason `budget` and an approval request for a raised budget. Approving it resumes the run under the raised ceiling; denying it fails the call as `fail` does. |
+
+A flow sets it in frontmatter as `budget.onExceeded`, and `smthrs flow start`
+sets it for one run with `--on-exceeded`, beside `--budget-tokens` and
+`--budget-ms`. A composition without `Budget.Parking` treats `park` as `fail`.
 
 ### Budget.Budget and Budget.Service
 
@@ -14741,7 +14746,27 @@ const layerFromEnvelope: (
 
 Turns an approved plan envelope into a policy or a layer. A missing field is
 not a zero budget; it is no budget at all, so an envelope that approves neither
-tokens nor milliseconds produces an empty policy.
+tokens nor milliseconds produces an empty policy. The envelope's
+`budget.onExceeded` wins over `options.onExceeded`, which is the composition's
+default.
+
+### Budget.Parking, Budget.raise, Budget.raisedBy
+
+```ts
+class Parking extends Context.Service<Parking, {
+  readonly park: (exceeded: BudgetExceeded) => Effect.Effect<Parked, HarnessError.HarnessError>
+}>()("@smthrs/agent/Budget/Parking")
+
+const raise: (budget: Envelope["budget"], exceeded: BudgetExceeded) => Envelope["budget"]
+const raisedBy: (envelope: Envelope, raises: ReadonlyArray<Envelope["budget"]>) => Envelope
+```
+
+`Parking` is how a host that takes approvals parks a `park` budget.
+`AgentSession` provides it: it registers a `budget/` approval request whose
+envelope carries `raise`'s proposal, which is the exceeded ceiling raised to
+cover what the run spent and holds, the refused call, and one more original
+allowance. A resumed run spends against `raisedBy` of its card and every
+approved raise. Parked time counts against a latency ceiling.
 
 ### Budget.current
 
@@ -22119,7 +22144,7 @@ could make two different functions share an identity.
 
 - Returns `{ _tag: "FunctionIdentity", algorithm, digest }`, where `digest` is
   64 lowercase hexadecimal characters.
-- `algorithm` is `sha256-source-captures/v4` when the operation was declared
+- `algorithm` is `sha256-source-captures/v5` when the operation was declared
   with [`Identity.capture`](#identitycapture), and `sha256-source-ephemeral/v4`
   otherwise. An undeclared closure folds in process-local, per-function
   entropy, because JavaScript cannot inspect what a closure captured and
@@ -22144,7 +22169,8 @@ use a function expression to read it; ordinary arguments keep their positions.
 - Caller objects are left unchanged, and a mutable lexical alias must not
   supply semantic state: only the owned frozen copy enters identity.
 - Sealed, non-extensible, frozen, and Immer-style ordinary data are all
-  supported, and shared references stay shared in the copy.
+  supported, and shared references stay shared in the copy. The identity
+  records this sharing: equal separate objects differ from shared references.
 - Admission walks original descriptors once and never evaluates a getter.
   Built-in brands, non-plain prototypes, accessors, non-enumerable members,
   symbol keys, cycles, non-finite numbers, and nesting beyond 256 levels are
@@ -22174,7 +22200,7 @@ interface FunctionIdentity {
   readonly algorithm: Identity.Algorithm
   readonly digest: string
 }
-type Algorithm = "sha256-source-ephemeral/v4" | "sha256-source-captures/v4"
+type Algorithm = "sha256-source-ephemeral/v4" | "sha256-source-captures/v5"
 ```
 
 The serializable stand-in a node AST stores in place of the function itself. The
@@ -37404,7 +37430,7 @@ The runtime type identifier carried by every node, and its own type. It is a pub
 ```ts
 type FunctionIdentity = {
   readonly _tag: "FunctionIdentity"
-  readonly algorithm: "sha256-source-ephemeral/v4" | "sha256-source-captures/v4" | "static-node/v1"
+  readonly algorithm: "sha256-source-ephemeral/v4" | "sha256-source-captures/v5" | "static-node/v1"
   readonly digest: string
 }
 ```
@@ -42354,7 +42380,7 @@ const provider = ContainerSandbox.make({
 })
 ```
 
-The default CLI is `docker`; set `program: "podman"` for Podman or name a compatible wrapper. Network access is disabled by default with `--network none`; setting `network` to another engine mode is an explicit egress opt-in. `acquire` deterministically names the container, runs `create` then `start`, and reattaches when that name already exists: a refused create is followed by `container inspect`, and the returned configuration and ownership fingerprint must match before reattachment. Commands, reads, and writes all travel through `exec` to the same guest workdir. The scope finalizer runs `rm --force`, ending the container and everything still inside it.
+The default CLI is `docker`; set `program: "podman"` for Podman or name a compatible wrapper. Network access is disabled by default with `--network none`; `network: "none"` says so explicitly, and setting `network` to another engine mode is an explicit egress opt-in. An allowlist `network: { allow }` throws at `make`: an engine network mode is not a host firewall. `acquire` deterministically names the container, runs `create` then `start`, and reattaches when that name already exists: a refused create is followed by `container inspect`, and the returned configuration and ownership fingerprint must match before reattachment. Commands, reads, and writes all travel through `exec` to the same guest workdir. The scope finalizer runs `rm --force`, ending the container and everything still inside it.
 
 Creation environment values travel through `--env-file /dev/stdin`. The host must expose `/dev/stdin`; values containing CR, LF, or NUL fail with `spawn_error` before creation because the CLI env-file format cannot represent them. Per-command environment operands travel as a base64 line on exec stdin, followed by the command's original stdin bytes. The guest shell reads that line before starting the command. The guest image needs `base64` as well as `sh` and `env`. Environment values are absent from local CLI argv.
 
@@ -42419,7 +42445,7 @@ const provider = MicrosandboxSandbox.make({
   cpus: 2,
   memoryMib: 2048,
   idleTimeoutSecs: 600,
-  disableNetwork: true
+  network: "none"
 })
 ```
 
@@ -42431,7 +42457,7 @@ Commands run through `execStreamWith(shell, ["-c", command])` with the workdir a
 
 `kill(process, signal)` signals the command and everything it started. A second guest command walks the process tree below the recorded pid (`pgrep -P`, or `/proc` where there is none), stops the whole collected set, delivers the signal, and continues it, so no shell in the tree runs its next statement between one `kill(2)` and the next; the walk reaches descendants that left the command's process group with `setsid` while their parent is alive. The SDK's `signal(number)` then reaches the command's process group, which covers a guest without the walk's tools and a command whose pid is not known yet. Delivery succeeds when either did, and a command seen to exit is never signalled again. Closing a spawn's scope before its exit was observed, as an interrupted caller does, sends `SIGTERM` the same way, waits two seconds for the exit, and sends `SIGKILL` to whatever ignored it, all inside the five-second teardown bound. A start that the caller abandoned while the SDK was still starting it is killed when its handle arrives.
 
-`image` and `snapshot` are exclusive; naming both fails with `unavailable` before any vendor call. A removed machine is gone with its files. With the default `backend: "local"`, `acquire` refuses before provisioning unless `sdk.defaultBackendKind()` is `local`, and refuses again when the opened machine reports another `backendKind`, so an ambient `MSB_BACKEND`, `MSB_API_KEY`, or `MSB_PROFILE` cannot move guest work off the host; a composition that must stay local also calls `sdk.setDefaultBackend("local")` once at startup. `backend: "any"` accepts the hosted backend. `cpus`, `maxCpus`, `memoryMib`, `maxMemoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `pullPolicy`, `scripts`, and `disableNetwork` go to the builder as named. `networkPolicy` (a `NetworkPolicy`: per-direction defaults and ordered rules, such as deny-by-default egress that allows DNS and listed domains) goes to `network(b => b.policy(...))` unless `disableNetwork` is set, and `rootDiskMib` sets the root disk of an image boot; a snapshot boot keeps the disk it captured.
+`image` and `snapshot` are exclusive; naming both fails with `unavailable` before any vendor call. A removed machine is gone with its files. With the default `backend: "local"`, `acquire` refuses before provisioning unless `sdk.defaultBackendKind()` is `local`, and refuses again when the opened machine reports another `backendKind`, so an ambient `MSB_BACKEND`, `MSB_API_KEY`, or `MSB_PROFILE` cannot move guest work off the host; a composition that must stay local also calls `sdk.setDefaultBackend("local")` once at startup. `backend: "any"` accepts the hosted backend. `cpus`, `maxCpus`, `memoryMib`, `maxMemoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `pullPolicy`, and `scripts` go to the builder as named. `network: "none"` calls `disableNetwork()`; `network: { allow }` goes to `network(b => b.policy(...))` as deny-by-default ingress and egress with egress allowed to DNS on port 53 at the host resolver (the vendor's `Rule.allowDns()` rule) and to each listed host; an empty list sends no rules, so DNS is denied too. A `*.` entry becomes a domain-suffix rule, which the vendor also matches against the apex, so a deny rule for the apex precedes the suffix rules unless another entry admits the apex. `networkPolicy` (a `NetworkPolicy`: per-direction defaults and ordered rules in the vendor's shape) goes to the same builder call for rules the neutral option cannot say; naming both throws at `make`. A machine created under either option carries a `smithers.network` label recording it, and an acquire with a network option refuses to reattach a machine whose label differs, before relabelling or connecting. `rootDiskMib` sets the root disk of an image boot; a snapshot boot keeps the disk it captured.
 
 Snapshots are named `<family>.<member>` (`snapshotName(family, member)`, separator `snapshotSeparator`): the family is the preparation a snapshot repeats, the member tells its captures apart and never contains the separator, so `snapshotFamily(name)` places every name in exactly one family. `captureSnapshot({ sdk, machine, family, member, secrets, stopTimeoutMs? })` scrubs a machine of credentials, stops it, captures its root disk as that snapshot, removes the machine whether or not the capture succeeded, and returns the name; a family and member that cannot name a snapshot fail with `unavailable` before any vendor call and leave the machine. `hasSnapshot(sdk, name)` answers whether one exists (a `SnapshotNotFound` answer is `false`; any other failure is `unavailable`). `pruneSnapshots(sdk, family, keep, retain?)` removes that family's snapshots beyond the `keep` newest, except those named in `retain`, and returns their names; a family whose name extends another's is never touched by the other's prune. `removeSnapshot(sdk, name)` removes one; one already gone is not an error. A machine booted from a snapshot does not depend on it afterwards, so pruning never disturbs a running machine.
 
@@ -42480,6 +42506,8 @@ const provider = VercelSandbox.make({
 
 The machine name is `smthrs-<slug>`, lowercased. `acquire` calls `Sandbox.getOrCreate` with `persistent: true` and `resume: true`, so a name that already exists is resumed with its filesystem, and the scope finalizer calls `stop()`, which leaves the persistent sandbox in place for the next acquire. Credentials resolve in a fixed order: an explicit `oidcToken` or `VERCEL_OIDC_TOKEN` wins; otherwise `token`, `teamId`, and `projectId` are sent together or not at all; the environment consulted is `options.env`, never `process.env`. Vercel limits the timeout accepted by one create request to five minutes, so longer requested lifetimes create at that ceiling and then call `extendTimeout` with only the remaining duration, because that API extends by its argument rather than setting an absolute target. Commands run through `runCommand` as `sh -c` and never `sh -lc`: a login shell sources profile scripts, and anything those print lands ahead of the command's own standard output, which callers parse as data. `commandEnv` sits under the per-spawn environment. A read drains `readFile`'s stream, string or bytes, into one buffer, and `null` is `not_found`; a write runs `mkdir -p` for the parent and calls `writeFiles`.
 
+`network: "none"` sends `networkPolicy: "deny-all"` and `network: { allow }` sends `networkPolicy: { allow }`, Vercel's egress firewall. `getOrCreate` applies a policy only when it creates, so `acquire` also calls `update({ networkPolicy })` before its first guest command; a resumed sandbox never runs under an older policy. Omitting `network` leaves Vercel's default, full internet access. A malformed policy throws at `make`.
+
 `timeoutMs` must be a positive finite number, `maxDurationMs` is a caller-owned cap checked before any vendor request, and `workdir` must be absolute; each refusal is a `spawn_error` raised before anything is acquired. Output arrives after the command finishes, so there is no streaming and no `kill`; `runCommand` has no input channel, so standard input is staged as a workspace file and redirected. There is no real-backend suite; the provider is proven against a fake that keeps the vendor API shapes and runs every command through a real shell against real files.
 
 ### DaytonaSandbox
@@ -42495,6 +42523,8 @@ const provider = DaytonaSandbox.make({
 ```
 
 The machine name is `smthrs-<slug>`, lowercased. `acquire` calls `get(name)` first; a 404 creates a sandbox with that name, and an existing one is started with `startTimeoutSeconds`. Creation or attachment is registered as a scoped resource before start and workspace preparation, so any later failure still runs the blocking delete finalizer, `delete(sandbox, deleteTimeoutSeconds, true)`. The workdir is `options.workdir` or the sandbox's own `getWorkDir()`, and either must be absolute. Commands run through `process.executeCommand(command, cwd, env)`. Daytona's byte-native download and stream-upload operations serve file transfer: `downloadFile` for reads, with `FILE_NOT_FOUND` mapped to `not_found`, and `uploadFileStream` for writes.
+
+`network: "none"` and an empty allowlist create the sandbox with `networkBlockAll: true`; `network: { allow }` creates it with `domainAllowList` set to the hosts joined by commas. The runner enforces both as iptables rules. An attached sandbox keeps the network it was created with, so `acquire` calls `updateNetworkSettings` with the same fields after `start` and before any guest command; a refused update fails with `unavailable` and deletes the sandbox. Omitting `network` leaves Daytona's default network. A malformed policy throws at `make`.
 
 Teardown deletes the sandbox, so nothing survives a normal release; only a crash-left sandbox is found again by name. `executeCommand` returns one `result` string with no stderr field on the wire, so a command's standard error arrives merged into standard output rather than separately, and output arrives after the command finishes; there is no streaming and no `kill`, and standard input is staged as a workspace file and redirected. There is no real-backend suite; the provider is proven against a fake that keeps the documented API and error shapes (unverified live) and runs every command through a real shell against real files.
 
@@ -49714,9 +49744,11 @@ Usage: smthrs admin user <command>
 
 Commands:
   create   Create a user
-  delete   Delete a user
+  delete   Suspend a user and mark it deleted; keeps its data
   disable  Suspend a user
   enable   Lift a user's suspension
+  erase    Erase a user's data; keeps billing records
+  export   Download a user's data as a tar.gz archive
   list     List all users
 
 Custom Global Options:
@@ -49767,7 +49799,7 @@ Global Options:
 ## admin user delete
 
 ```text
-smthrs admin user delete — Delete a user
+smthrs admin user delete — Suspend a user and mark it deleted; keeps its data
 
 Usage: smthrs admin user delete <username> [options]
 
@@ -49830,6 +49862,65 @@ Usage: smthrs admin user enable <username> [options]
 
 Arguments:
   username  Username to unsuspend
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## admin user erase
+
+```text
+smthrs admin user erase — Erase a user's data; keeps billing records
+
+Usage: smthrs admin user erase <username> [options]
+
+Arguments:
+  username  Username to erase
+
+Options:
+  --request-date <string>  Date the user asked for deletion (YYYY-MM-DD)
+  --yes
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## admin user export
+
+```text
+smthrs admin user export — Download a user's data as a tar.gz archive
+
+Usage: smthrs admin user export <username> <out> [options]
+
+Arguments:
+  username  Username to export
+  out       Archive path to write
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

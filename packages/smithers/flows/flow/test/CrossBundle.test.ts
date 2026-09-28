@@ -38,7 +38,7 @@ it("shares live metadata across bundles while serialized ASTs remain inert", asy
       return value + this.suffix
     })
     expect(Node.functionIdentity(mapper)).toEqual(copy.Node.functionIdentity(mapper))
-    expect(Node.functionIdentity(mapper).algorithm).toBe("sha256-source-captures/v4")
+    expect(Node.functionIdentity(mapper).algorithm).toBe("sha256-source-captures/v5")
     const ephemeral = (value: string) => value
     expect(Node.functionIdentity(ephemeral)).toEqual(copy.Node.functionIdentity(ephemeral))
 

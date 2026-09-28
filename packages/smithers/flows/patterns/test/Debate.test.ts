@@ -37,7 +37,7 @@ describe("Debate", () => {
     // `@smthrs/flow` has no such field: a flow's body IS the declaration, and
     // the same fact, that it is digested from its captures rather than minted
     // per instance, is read off the body's function identity.
-    expect(Node.functionIdentity(debate.body).algorithm).toBe("sha256-source-captures/v4")
+    expect(Node.functionIdentity(debate.body).algorithm).toBe("sha256-source-captures/v5")
   })
 
   it("rejects an unbounded round count", () => {

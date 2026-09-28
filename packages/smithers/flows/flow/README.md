@@ -127,9 +127,9 @@ default to `process-local` for compatibility; they make no reproducible callback
 identity guarantee unless `callbackIdentity: "stable"` is selected. An explicit
 `process-local` option is available on the canonical composition for experimentation.
 
-Existing `sha256-source-captures/v4`, `sha256-source-ephemeral/v4`, and step-key
-encodings remain unchanged. Equal source and captures reproduce identity across
-processes. Changed source, captures, or captured implementation version require
+`sha256-source-captures/v5` includes shared-reference topology in capture
+identity. Equal source and captures reproduce identity across processes.
+The v5 encoding re-keys captured callbacks from earlier versions. Changed source, captures, or captured implementation version require
 a newly planned run; this check does not migrate or reapprove existing plans.
 Action implementations use a separate `implementationVersion` contract.
 Canonical `Interpreter.layerWithImplementations` requires it for sealed actions

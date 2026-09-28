@@ -350,7 +350,7 @@ const build = <I extends Schema.Top, O extends Schema.Top, Err extends Schema.To
     // The adapter adds no author behavior. A captured body already names all
     // of its semantics; carry that identity through the wrapping operation.
     // An uncaptured body must keep failing the native stable-callback policy.
-    nativeBody = bodyIdentity.algorithm === "sha256-source-captures/v4"
+    nativeBody = bodyIdentity.algorithm === "sha256-source-captures/v5"
       ? Node.capture({ body: bodyIdentity }, adapter)
       : adapter
   }

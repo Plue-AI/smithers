@@ -550,7 +550,7 @@ describe("Graph.build composition", () => {
     }
     const one = digestOf(({ path }) => Write.call({ path, value: 1 }))
 
-    expect(one).toMatchObject({ _tag: "FunctionIdentity", algorithm: "sha256-source-captures/v4" })
+    expect(one).toMatchObject({ _tag: "FunctionIdentity", algorithm: "sha256-source-captures/v5" })
     expect(digestOf(({ path }) => Write.call({ path, value: 1 }))).toEqual(one)
     expect(digestOf(({ path }) => Write.call({ path, value: 2 }))).not.toEqual(one)
 

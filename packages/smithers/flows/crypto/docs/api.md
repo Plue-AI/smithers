@@ -258,7 +258,7 @@ could make two different functions share an identity.
 
 - Returns `{ _tag: "FunctionIdentity", algorithm, digest }`, where `digest` is
   64 lowercase hexadecimal characters.
-- `algorithm` is `sha256-source-captures/v4` when the operation was declared
+- `algorithm` is `sha256-source-captures/v5` when the operation was declared
   with [`Identity.capture`](#identitycapture), and `sha256-source-ephemeral/v4`
   otherwise. An undeclared closure folds in process-local, per-function
   entropy, because JavaScript cannot inspect what a closure captured and
@@ -283,7 +283,8 @@ use a function expression to read it; ordinary arguments keep their positions.
 - Caller objects are left unchanged, and a mutable lexical alias must not
   supply semantic state: only the owned frozen copy enters identity.
 - Sealed, non-extensible, frozen, and Immer-style ordinary data are all
-  supported, and shared references stay shared in the copy.
+  supported, and shared references stay shared in the copy. The identity
+  records this sharing: equal separate objects differ from shared references.
 - Admission walks original descriptors once and never evaluates a getter.
   Built-in brands, non-plain prototypes, accessors, non-enumerable members,
   symbol keys, cycles, non-finite numbers, and nesting beyond 256 levels are
@@ -313,7 +314,7 @@ interface FunctionIdentity {
   readonly algorithm: Identity.Algorithm
   readonly digest: string
 }
-type Algorithm = "sha256-source-ephemeral/v4" | "sha256-source-captures/v4"
+type Algorithm = "sha256-source-ephemeral/v4" | "sha256-source-captures/v5"
 ```
 
 The serializable stand-in a node AST stores in place of the function itself. The

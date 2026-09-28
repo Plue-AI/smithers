@@ -203,7 +203,7 @@ a package defect.
 
 The step's mapper, continuation, or flow body has process-local identity, which
 is what an unannotated function gets. Declare what the function closes over
-with `Node.capture` and the algorithm becomes `sha256-source-captures/v4`. See
+with `Node.capture` and the algorithm becomes `sha256-source-captures/v5`. See
 [Identity and key material](/concepts/identity/).
 
 ### planned_value_computed

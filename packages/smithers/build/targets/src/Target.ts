@@ -1343,7 +1343,7 @@ const strictMake = { parseOptions: { onExcessProperty: "error" } } as const
 const sourceIdentity = (operation: unknown): Node.FunctionIdentity => {
   if (typeof operation !== "function") throw new TypeError("function identity requires a function")
   const identity = Node.functionIdentity(operation)
-  if (identity.algorithm === "sha256-source-captures/v4") return identity
+  if (identity.algorithm === "sha256-source-captures/v5") return identity
   return {
     _tag: "FunctionIdentity",
     algorithm: "static-node/v1",

@@ -248,7 +248,7 @@ export interface ActionCall extends Scheduled {
  */
 export const IdentityAlgorithm = Schema.Literals([
   "sha256-source-ephemeral/v4",
-  "sha256-source-captures/v4",
+  "sha256-source-captures/v5",
   "static-node/v1"
 ])
 
@@ -674,7 +674,7 @@ const filterIdentity = (filter: Schema.Top): FunctionIdentity => {
     _tag: "FunctionIdentity",
     algorithm: identities.some(([, identity]) => identity.algorithm === "sha256-source-ephemeral/v4")
       ? "sha256-source-ephemeral/v4"
-      : "sha256-source-captures/v4",
+      : "sha256-source-captures/v5",
     digest: digestSync(JSON.stringify(identities))
   }
 }

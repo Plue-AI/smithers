@@ -83,7 +83,7 @@ describe("Node ephemeral nonce", () => {
     const internal = await importFresh()
 
     const captured = internal.capture({ step: 1 }, (value: number) => value + 1)
-    expect(internal.functionIdentity(captured).algorithm).toBe("sha256-source-captures/v4")
+    expect(internal.functionIdentity(captured).algorithm).toBe("sha256-source-captures/v5")
     expect(crypto.calls()).toBe(0)
   })
 })
