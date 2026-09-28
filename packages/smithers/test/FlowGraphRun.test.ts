@@ -34,6 +34,7 @@ import {
   gatePrompt,
   planOf,
   relayPrincipal,
+  runOn,
   stack,
   stackWith
 } from "./BridgedEngineRun.ts"
@@ -151,7 +152,7 @@ const scenario = <E>(
   title: string,
   body: () => Effect.Effect<void, E, Control | Projections | Engine | Scope.Scope>,
   host: typeof stack = stack
-) => it(title, { timeout: 120_000 }, () => Effect.runPromise(Effect.scoped(Effect.provide(body(), host))))
+) => it(title, { timeout: 120_000 }, () => runOn(host, body()))
 
 /**
  * The environment a host would declare about itself, complete by contract.

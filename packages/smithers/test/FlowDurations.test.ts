@@ -14,7 +14,7 @@ import type * as GatewayProjection from "@smthrs/gateway/GatewayProjection"
 import { Projections } from "@smthrs/gateway/Projections"
 import { Effect, type Scope } from "effect"
 import { describe, expect, it } from "vitest"
-import { bridgeSettledKind, Engine, flowId, relayPrincipal, stack } from "./BridgedEngineRun.ts"
+import { bridgeSettledKind, Engine, flowId, relayPrincipal, runOn, stack } from "./BridgedEngineRun.ts"
 
 const approvalOf = (card: PlanCard): ApprovalPayload => ({
   target: { _tag: "Plan", planId: card.planId, digest: card.digest, envelope: card.envelope },
@@ -73,7 +73,7 @@ const finished = (label: string) =>
 const scenario = <E>(
   title: string,
   body: () => Effect.Effect<void, E, Control | Projections | Engine | Scope.Scope>
-) => it(title, { timeout: 120_000 }, () => Effect.runPromise(Effect.scoped(Effect.provide(body(), stack))))
+) => it(title, { timeout: 120_000 }, () => runOn(stack, body()))
 
 describe("flow-durations over a bridged real engine", () => {
   scenario("ranks every tag two finished runs of the flow executed", () =>

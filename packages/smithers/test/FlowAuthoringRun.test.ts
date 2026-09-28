@@ -19,12 +19,13 @@ import { Projections } from "@smthrs/gateway/Projections"
 import { Effect } from "effect"
 import { expect, it } from "vitest"
 import { authoredPath } from "./AuthoringFixture.ts"
-import { Engine, relayPrincipal, stackWith } from "./BridgedEngineRun.ts"
+import { Engine, relayPrincipal, runOn, stackWith } from "./BridgedEngineRun.ts"
 
 it("authors two source versions through engine copy-back, replans from disk, and runs the edited graph", {
   timeout: 120000
 }, async () => {
-  await Effect.runPromise(Effect.scoped(
+  await runOn(
+    stackWith({ authoring: true }),
     Effect.gen(function*() {
       const control = yield* Control
       const engine = yield* Engine
@@ -128,6 +129,6 @@ it("authors two source versions through engine copy-back, replans from disk, and
       expect(actions(oldRun)).toEqual([])
       expect(actions(run)).toContain("authoring/Read")
       expect(actions(run)).toContain("authoring/Validate")
-    }).pipe(Effect.provide(stackWith({ authoring: true })))
-  ))
+    })
+  )
 })
