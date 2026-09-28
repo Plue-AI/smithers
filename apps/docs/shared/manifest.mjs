@@ -76,6 +76,26 @@ const entries = [
   ["smthrs", "smthrs", "packages/smthrs-deprecation"]
 ]
 
+/**
+ * Why a manifest row is malformed, or an empty list. The generator writes
+ * slug, name, and dir into source files (PACKAGE.ts imports, string literals,
+ * JSDoc) and the sync reads from dir, so each must stay inside a strict
+ * shape: a lowercase slug, an npm package name, and a repo-relative path of
+ * plain segments with no `..`.
+ */
+export const siteRowProblems = ([slug, name, dir]) => {
+  const problems = []
+  if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) problems.push(`slug ${JSON.stringify(slug)}`)
+  if (typeof name !== "string" || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(name)) problems.push(`name ${JSON.stringify(name)}`)
+  if (typeof dir !== "string" || !/^[a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*)*$/.test(dir)) problems.push(`dir ${JSON.stringify(dir)}`)
+  return problems
+}
+
+for (const row of entries) {
+  const problems = siteRowProblems(row)
+  if (problems.length > 0) throw new Error(`manifest.mjs: malformed site row: ${problems.join(", ")}`)
+}
+
 /** The package.json description of a source package, read at evaluation time. */
 const readDescription = (dir) => {
   const manifest = JSON.parse(readFileSync(join(repoRoot, dir, "package.json"), "utf8"))

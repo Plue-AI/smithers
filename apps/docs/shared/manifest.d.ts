@@ -20,3 +20,6 @@ export declare const docsRoot: string
 export declare const repoRoot: string
 export declare const sites: ReadonlyArray<DocsSiteEntry>
 export declare const bySlug: ReadonlyMap<string, DocsSiteEntry>
+
+/** Why a manifest row `[slug, npm name, dir]` is malformed, or an empty list. */
+export declare const siteRowProblems: (row: readonly [unknown, unknown, unknown]) => ReadonlyArray<string>

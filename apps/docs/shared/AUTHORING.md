@@ -104,6 +104,29 @@ deterministically when it stitches the site.
 - Images and other assets are not synced. Host them outside the docs tree
   (an absolute URL), or keep them out of the docs.
 
+## What sync refuses
+
+Every site is public, so sync refuses a site, writes nothing for it, and
+exits nonzero (in `--check` too) when a source would publish more than the
+author wrote:
+
+- A symlink anywhere under `docs/`, or on the path from the repository root
+  to it (a symlinked package or `docs` directory). Commit the files
+  themselves.
+- A page whose rendered HTML, parsed by the same Astro Markdown pipeline the
+  site builds with, contains an element outside the allowed set (for
+  example `<script>`, `<style>`, `<iframe>`, `<svg>`, `<form>`, or an
+  unescaped placeholder such as `<method>`), an attribute outside the
+  allowed set (event handlers, `style`, `srcdoc`), or a link or image URL
+  whose scheme is not `http`, `https`, or `mailto`. Write a placeholder as
+  `\<method>` and show markup in code.
+- Frontmatter keys other than `title`, `description`, `editUrl` (an
+  `https` URL), `sidebar` (`order`, `label`, `hidden`), and the scalar
+  `area` and `order`. Starlight's
+  `head`, `banner`, and `hero` keys inject markup, so they are refused.
+- A symlink on the path of the site's `src/content/docs/` tree, so a sync
+  never writes or deletes through a link to a file outside the site.
+
 ## Sidebar
 
 The sidebar is computed from the synced tree; you never configure it.

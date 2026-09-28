@@ -169,7 +169,7 @@ const build = Smithers.ToolBuild({
  * \`smithers-build run //apps/docs/${site.slug}:contentSync\` applies.
  */
 const contentSync = Smithers.Generate({
-  summary: "Sync ${site.name}'s colocated docs into the site content tree; check drift under lint.",
+  summary: ${JSON.stringify(`Sync ${site.name}'s colocated docs into the site content tree; check drift under lint.`)},
   script: Smithers.file("//apps/docs/shared/sync-content.mjs"),
   env: { SMITHERS_DOCS_SLUG: ${JSON.stringify(site.slug)} },
   data: [${bindingFor(site.slug)}.docsFiles],
