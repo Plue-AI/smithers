@@ -14,7 +14,7 @@ The suite declaration is wrong. The suite author fixes it.
 
 | Symptom in the message                                            | Path                                                                                                            | Cause                                                                                    |
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `Suite name must not be empty`, or names a control character      | `name`                                                                                                          | The suite name is blank or holds a character below U+0020, or U+007F                     |
+| `Suite name must not be empty`, or names a control character      | `name`                                                                                                          | The suite name is blank or holds a control character                                     |
 | `Suite must contain at least one case`                            | `cases`                                                                                                         | The `cases` array is empty                                                               |
 | `Suite must contain at most 10000 cases`                          | `cases`                                                                                                         | The suite exceeds `Suite.limits.cases`                                                   |
 | `Suite concurrency must be a positive safe integer`               | `concurrency`                                                                                                   | Zero, negative, fractional, or `NaN` concurrency                                         |
@@ -47,8 +47,12 @@ artifact and its ownership before regenerating it from a green run.
   not a baseline artifact. These two carry no `path`.
 - `Baseline version must be 1`, at `version`: the artifact was written by a
   different version of the format.
+- `Baseline must be at most 16777216 characters`, at `text`: the file exceeds
+  `Baseline.limits.length` and was rejected before parsing.
 - `Baseline field 'suite' must be a string`, at `suite`: a present top-level
   `suite` has the wrong type.
+- `Baseline field 'suite' must not contain the control character U+XXXX`, at
+  `suite`: the top-level `suite` holds a control character.
 - `Cannot infer baseline suite: legacy artifact has no records`, at `suite`:
   the version-1 artifact has neither a top-level `suite` nor records. Add the
   known owning suite explicitly, or regenerate it from that suite's green run.

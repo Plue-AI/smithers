@@ -91,6 +91,42 @@ describe("Baseline", () => {
     expect(del.message).toBe("Baseline record field 'stepKey' must not contain the control character U+007F")
   })
 
+  // The top-level suite reaches CI logs through Regression's ownership error,
+  // so it follows the same rule as record fields.
+  it("rejects a control character in the top-level suite", async () => {
+    for (
+      const [hostile, named] of [
+        ["s\n::warning::forged", "U+000A"],
+        ["s\u001b[2K", "U+001B"],
+        ["s\u009b2K", "U+009B"],
+        ["s\u202egnp.exe", "U+202E"]
+      ] as const
+    ) {
+      const error = await failure(Baseline.load(JSON.stringify({ version: 1, suite: hostile, records: [] })))
+      expect(error.code).toBe("invalid_baseline")
+      expect(error.path).toBe("suite")
+      expect(error.message).toBe(`Baseline field 'suite' must not contain the control character ${named}`)
+    }
+    const made = await failure(Baseline.make({ suite: "s\r", records: [] }))
+    expect(made.path).toBe("suite")
+  })
+
+  it("rejects text over the length limit before parsing it", async () => {
+    const text = " ".repeat(Baseline.limits.length + 1)
+    const parse = vi.spyOn(JSON, "parse")
+    try {
+      const error = await failure(Baseline.load(text))
+      expect(error.code).toBe("invalid_baseline")
+      expect(error.path).toBe("text")
+      expect(error.message).toBe(
+        `Baseline must be at most ${Baseline.limits.length} characters, got ${Baseline.limits.length + 1}`
+      )
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
   it("rejects an empty suite-less legacy artifact", async () => {
     const error = await failure(Baseline.load("{\"version\":1,\"records\":[]}"))
 

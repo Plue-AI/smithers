@@ -79,7 +79,7 @@ describe("Runner", () => {
       suiteCase.name === "one"
         ? Effect.succeed({
           output: suiteCase.input,
-          stepKey: "step\n::warning::forged from stepKey\u001b[2K",
+          stepKey: "step\n::warning::forged from stepKey\u001b[2K\u009b2K\u202e",
           latencyMs: 0,
           target
         })
@@ -87,7 +87,7 @@ describe("Runner", () => {
     )
     const result = await Effect.runPromise(Runner.run(suite, runOptions).pipe(Effect.provide(executor)))
 
-    expect(result.cases[0]?.execution?.stepKey).toBe("step ::warning::forged from stepKey [2K")
+    expect(result.cases[0]?.execution?.stepKey).toBe("step ::warning::forged from stepKey [2K 2K ")
     expect(result.cases[1]?.error?.message).toBe("Target failed for case 'two': boom ::error::forged from target ")
     // The original message stays on the cause for anyone debugging the target.
     expect((result.cases[1]?.error?.cause as EvalError).message).toBe("boom\n::error::forged from target\u007f")

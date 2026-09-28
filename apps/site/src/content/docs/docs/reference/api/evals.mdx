@@ -355,6 +355,8 @@ Committed baselines: what a suite used to score.
   one successful score retained by a baseline.
 - `Baseline`: `{ version, suite, records }`. `suite` records artifact
   ownership even when `records` is empty.
+- `limits`: `{ length: 16777216 }`, the longest baseline JSON text `load`
+  parses, in UTF-16 code units.
 
 ```ts
 const fromRun = (run: RunResult): Effect.Effect<Baseline, EvalError>
@@ -374,8 +376,11 @@ Validates an in-memory baseline. Every known field is read once, records are
 rebuilt from the validated values, and the array is frozen. Fails with
 `invalid_baseline` carrying the record index and field name in `path` for a
 wrong version, a non-array `records`, a record that is not an object, an
-identity field that is not a string or holds a control character (U+0000
-through U+001F, or U+007F), or a score that is not finite in [0, 1].
+identity field that is not a string or holds a control character, or a score
+that is not finite in [0, 1]. A control character is any of the C0 controls (U+0000 through U+001F), DEL (U+007F), C1 controls (U+0080
+through U+009F), and the bidirectional controls U+061C, U+200E, U+200F,
+U+202A through U+202E, and U+2066 through U+2069.
+A top-level `suite` holding a control character fails at `path: "suite"`.
 
 ```ts
 const write = (baseline: Baseline): string
@@ -389,6 +394,8 @@ parses and validates baseline JSON, failing with `invalid_baseline`. For a
 version-1 artifact without a top-level `suite`, it derives ownership only when
 all records name the same suite. Empty or ambiguous legacy artifacts fail at
 `path: "suite"` with an explicit reason. A present non-string `suite` is invalid.
+Text longer than `limits.length` fails at `path: "text"` before any of it is
+parsed.
 Writing the loaded baseline retains its scores and adds the inferred `suite`.
 
 ### Regression
@@ -479,8 +486,8 @@ byte-identical JSON. Nothing redacts the embedded output.
 the summary that is not zero has a section naming its rows: the regressions
 and the nondeterminism a gate reads as red, and the case failures, missing
 observations, and inconclusive observations that leave a gate undecided.
-Every cell and the suite heading value replace C0 controls (U+0000 through
-U+001F) and DEL (U+007F) with spaces. Backslashes, pipes, backticks, asterisks,
+Every cell and the suite heading value replace each control character (see
+[Baseline](#baseline)) with a space. Backslashes, pipes, backticks, asterisks,
 underscores, brackets, angle brackets, exclamation marks, hashes, tildes,
 ampersands, dots, colons, and at signs are backslash-escaped. This preserves
 literal text instead of interpreting table delimiters, inline GFM formatting,
@@ -518,7 +525,7 @@ Maps a gate verdict to the shared CI convention: a finding is exit code 1, an
 undecidable run is exit code 5, and a clean pass is exit code 0. A pass that
 carries unresolved observations exits 5 as well: the gates it met were met
 over fewer observations than the suite declared. The summary is one log line:
-every C0 control and DEL in it is replaced with a space, so a step key or a
+every control character in it is replaced with a space, so a step key or a
 target failure that reached a verdict reason cannot print its own line or a
 terminal escape.
 
@@ -589,6 +596,7 @@ const aggregate = (cases: Readonly<Record<string, ReadonlyArray<boolean>>>, k: n
 | `Baseline.version`              | models        | Current committed baseline artifact version.                                    |
 | `Baseline.BaselineRecord`       | models        | One successful score retained by a baseline.                                    |
 | `Baseline.Baseline`             | models        | Canonical committed evaluation baseline.                                        |
+| `Baseline.limits`               | models        | The declared ceilings a committed baseline is validated against.                |
 | `Baseline.fromRun`              | constructors  | Builds and validates a baseline from a run's successful observations.           |
 | `Baseline.make`                 | constructors  | Validates an in-memory baseline.                                                |
 | `Baseline.write`                | serialization | Serializes a baseline with recursively sorted keys and stable numbers.          |

@@ -113,10 +113,19 @@ format.
 serializes them as canonical JSON to commit beside the suite.
 
 ```ts
-import { Baseline } from "@smthrs/evals"
+import { Baseline, EvalError } from "@smthrs/evals"
 import { writeFile } from "node:fs/promises"
 
 Effect.gen(function*() {
+  const failures = run.cases.filter((result) => result.error !== undefined)
+  if (failures.length > 0) {
+    return yield* Effect.fail(
+      new EvalError.EvalError({
+        code: "executor",
+        message: `Refusing to record a baseline: ${failures.length} case(s) did not finish`
+      })
+    )
+  }
   const baseline = yield* Baseline.fromRun(run)
   yield* Effect.promise(() => writeFile("baseline.json", Baseline.write(baseline)))
 })
@@ -151,7 +160,7 @@ The complete script, `quickstart.ts`:
 
 ```ts
 import { Flow } from "@smthrs/core"
-import { Baseline, CaseExecutor, Gate, Regression, Report, Runner, Suite } from "@smthrs/evals"
+import { Baseline, CaseExecutor, EvalError, Gate, Regression, Report, Runner, Suite } from "@smthrs/evals"
 import { Binding, Scorer } from "@smthrs/scorers"
 import { Effect, Layer } from "effect"
 import { readFile, writeFile } from "node:fs/promises"
@@ -190,6 +199,15 @@ const program = Effect.gen(function*() {
   })
 
   if (process.argv.includes("--update")) {
+    const failures = run.cases.filter((result) => result.error !== undefined)
+    if (failures.length > 0) {
+      return yield* Effect.fail(
+        new EvalError.EvalError({
+          code: "executor",
+          message: `Refusing to record a baseline: ${failures.length} case(s) did not finish`
+        })
+      )
+    }
     const baseline = yield* Baseline.fromRun(run)
     yield* Effect.promise(() => writeFile("baseline.json", Baseline.write(baseline)))
     yield* Effect.sync(() => process.stdout.write("baseline recorded\n"))
@@ -211,7 +229,8 @@ process.exitCode = await Effect.runPromise(program)
 ```
 
 1. Record the baseline with `node quickstart.ts --update`. The script prints
-   `baseline recorded` and exits 0.
+   `baseline recorded` and exits 0. If any case failed, it refuses to record
+   and fails with an `executor` `EvalError` instead.
 2. Gate against it with `node quickstart.ts`. The script prints the Markdown
    report, then `passed`, and exits 0.
 3. Change the executor to answer `Hi` instead of `Hello` and gate again. Both

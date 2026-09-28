@@ -203,6 +203,26 @@ describe("Regression", () => {
     expect(foreign.path).toBe("baseline.suite")
   })
 
+  // An unvalidated baseline object must not carry a newline into an error
+  // message a caller prints to a CI log.
+  it("flattens control characters in suite ownership errors", async () => {
+    const artifact = await failure(
+      Regression.compare({ version: 1, suite: "s\n::warning::forged", records: [] }, run("old", 0.9))
+    )
+    expect(artifact.message).toBe("Baseline belongs to suite 's ::warning::forged', but the run is suite 's'")
+    const records = await failure(
+      Regression.compare(
+        {
+          version: 1,
+          suite: "s",
+          records: [{ suite: "o\u009b2K\n::error::x", case: "c", scorer: "x", stepKey: "old", score: 0.9 }]
+        },
+        run("old", 0.9)
+      )
+    )
+    expect(records.message).toBe("Baseline holds records for suite 'o 2K ::error::x', but the run is suite 's'")
+  })
+
   it("retains observations missing from either side", async () => {
     const missingFromRun = await Effect.runPromise(
       Regression.compare(baseline, { runId: "run", suite: "s", cases: [], observations: [] })

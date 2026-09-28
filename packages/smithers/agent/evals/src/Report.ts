@@ -10,6 +10,7 @@
 
 import type { Baseline } from "./Baseline.ts"
 import { CanonicalJson } from "./internal/CanonicalJson.ts"
+import { isControlCodePoint } from "./internal/controlCharacters.ts"
 import { scorerLabel } from "./internal/scorerLabel.ts"
 import type { MissingObservation, Nondeterminism, Regression, Report as RegressionReport } from "./Regression.ts"
 import type { CaseResult, Observation, RunResult } from "./Runner.ts"
@@ -143,7 +144,7 @@ const cell = (value: unknown): string => {
     const code = character.codePointAt(0)!
     // Escape each input character once, including backslashes before pipes.
     // Ampersands prevent entities; dots, colons, and @ prevent GFM autolinks.
-    const token = code < 0x20 || code === 0x7f
+    const token = isControlCodePoint(code)
       ? " "
       : /[\\|`*_[\]<>!#~&.:@]/u.test(character)
       ? `\\${character}`

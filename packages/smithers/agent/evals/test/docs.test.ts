@@ -70,6 +70,30 @@ describe("documentation", () => {
     }
   })
 
+  // A reader copies a recording snippet verbatim, and a baseline recorded over
+  // a failed case ratifies the missing measurement, so a later gate passes a
+  // regressed flow. Every fence that writes a baseline refuses a failed case.
+  it("guards every baseline recording against failed cases", () => {
+    const pages = [
+      "../README.md",
+      ...readdirSync(new URL("../docs/", import.meta.url), { recursive: true, encoding: "utf8" })
+        .filter((path) => path.endsWith(".md"))
+        .map((path) => `../docs/${path}`)
+    ]
+    let recordings = 0
+    for (const page of pages) {
+      for (const [, fence] of read(page).matchAll(/```ts\n([\s\S]*?)```/g)) {
+        if (!fence!.includes("Baseline.write(")) continue
+        recordings += 1
+        const guard = fence!.indexOf("result.error !== undefined")
+        expect(guard, page).toBeGreaterThanOrEqual(0)
+        expect(fence!.indexOf("Refusing to record a baseline"), page).toBeGreaterThan(guard)
+        expect(fence!.indexOf("Baseline.write("), page).toBeGreaterThan(guard)
+      }
+    }
+    expect(recordings).toBeGreaterThan(0)
+  })
+
   // Runner re-invokes executor and scorer effects on every run, so identical
   // options guarantee stable output only when those callbacks are stable, and
   // an Observation carries `at` but not `runId`.

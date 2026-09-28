@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect"
 import type { Baseline, BaselineRecord } from "./Baseline.ts"
 import { EvalError } from "./EvalError.ts"
 import { CanonicalJson } from "./internal/CanonicalJson.ts"
+import { flattenControlCharacters } from "./internal/controlCharacters.ts"
 import { tupleKey } from "./internal/tupleKey.ts"
 import type { Observation, RunResult } from "./Runner.ts"
 
@@ -216,7 +217,9 @@ export const compare = (
     return Effect.fail(
       new EvalError({
         code: "invalid_baseline",
-        message: `Baseline belongs to suite '${baselineSuite}', but the run is suite '${run.suite}'`,
+        message: flattenControlCharacters(
+          `Baseline belongs to suite '${baselineSuite}', but the run is suite '${run.suite}'`
+        ),
         path: "baseline.suite"
       })
     )
@@ -226,9 +229,11 @@ export const compare = (
     return Effect.fail(
       new EvalError({
         code: "invalid_baseline",
-        message: `Baseline holds records for suite ${
-          foreign.map((suite) => `'${suite}'`).join(", ")
-        }, but the run is suite '${run.suite}'`,
+        message: flattenControlCharacters(
+          `Baseline holds records for suite ${
+            foreign.map((suite) => `'${suite}'`).join(", ")
+          }, but the run is suite '${run.suite}'`
+        ),
         path: "baseline.records"
       })
     )

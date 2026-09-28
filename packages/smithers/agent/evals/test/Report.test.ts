@@ -281,14 +281,14 @@ describe("Report", () => {
         side: "run",
         case: "a|b",
         scorer: "x".repeat(300),
-        stepKey: "line\u0000break"
+        stepKey: "line\u0000break\u009bmid\u2066end"
       }]
     })
     const rendered = Report.markdown(hostile)
     expect(html(hostile)).toContain("<h1>Evaluation report: s &lt;script&gt;| next</h1>")
     expect(rendered).toContain("| run | a\\|b |")
     expect(rendered).toContain(`${"x".repeat(240)}…`)
-    expect(rendered).toContain("line break")
+    expect(rendered).toContain("line break mid end")
   })
 
   it.each([

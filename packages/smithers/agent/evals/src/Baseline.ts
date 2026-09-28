@@ -56,6 +56,20 @@ export interface Baseline {
   readonly records: ReadonlyArray<BaselineRecord>
 }
 
+/**
+ * The declared ceilings a committed baseline is validated against.
+ *
+ * `length` bounds the JSON text `load` will parse, so an oversized committed
+ * file fails with a sentence instead of exhausting a CI runner's memory.
+ *
+ * @category models
+ * @since 0.1.0
+ */
+export const limits = {
+  /** Longest baseline JSON text, in UTF-16 code units. */
+  length: 16 * 1024 * 1024
+} as const
+
 const fail = (message: string, path?: string): Effect.Effect<never, EvalError> =>
   Effect.fail(
     new EvalError({ code: "invalid_baseline", message, ...(path === undefined ? {} : { path }) })
@@ -128,6 +142,10 @@ const validate = (value: unknown): Effect.Effect<Baseline, EvalError> =>
     }
     if (rawSuite !== undefined && typeof rawSuite !== "string") {
       return yield* fail(`Baseline field 'suite' must be a string, got ${typeof rawSuite}`, "suite")
+    }
+    const suiteControl = rawSuite === undefined ? undefined : controlCharacter(rawSuite)
+    if (suiteControl !== undefined) {
+      return yield* fail(`Baseline field 'suite' must not contain the control character ${suiteControl}`, "suite")
     }
     if (!Array.isArray(rawRecords)) {
       return yield* fail("Baseline records must be an array", "records")
@@ -226,13 +244,16 @@ export const write = (baseline: Baseline): string => {
  * A version-1 artifact without a top-level `suite` is accepted only when its
  * nonempty records all name the same suite. That suite becomes the artifact's
  * owner, so writing the result includes it. Empty or ambiguous legacy artifacts
- * fail with `invalid_baseline` at `suite`.
+ * fail with `invalid_baseline` at `suite`. Text longer than `limits.length`
+ * fails with `invalid_baseline` at `text` before any of it is parsed.
  *
  * @category serialization
  * @since 0.1.0
  */
 export const load = (text: string): Effect.Effect<Baseline, EvalError> =>
-  Effect.try({
-    try: () => JSON.parse(text) as unknown,
-    catch: (cause) => new EvalError({ code: "invalid_baseline", message: "Baseline is not valid JSON", cause })
-  }).pipe(Effect.flatMap(validate))
+  text.length > limits.length
+    ? fail(`Baseline must be at most ${limits.length} characters, got ${text.length}`, "text")
+    : Effect.try({
+      try: () => JSON.parse(text) as unknown,
+      catch: (cause) => new EvalError({ code: "invalid_baseline", message: "Baseline is not valid JSON", cause })
+    }).pipe(Effect.flatMap(validate))
