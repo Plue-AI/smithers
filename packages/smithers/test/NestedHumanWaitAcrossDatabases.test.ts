@@ -54,7 +54,7 @@ import * as AttemptStore from "@smthrs/run-store/AttemptStore"
 import * as RunStoreMigrations from "@smthrs/run-store/Migrations"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import * as CacheStore from "@smthrs/step-cache/CacheStore"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema, type Scope } from "effect"
 import { RpcTest } from "effect/unstable/rpc"
 import { describe, expect, it } from "vitest"
 import * as EngineJournalProjection from "../src/internal/EngineJournalProjection.ts"
@@ -187,18 +187,21 @@ const engineLayer = Layer.effect(Engine)(
         Effect.provideContext(
           Effect.asVoid(Request.execute({}, { executionId: runId, discard: true })),
           services
-        ) as Effect.Effect<void>,
+        ).pipe(Effect.orDie),
       observe: (runId: string) =>
         Effect.orDie(
           AgentSession.readExecution(runId).pipe(
             Effect.provideService(RunStore.RunStore, runs),
             Effect.provideService(DurableEngineState.DurableEngineState, state)
           )
-        ) as Effect.Effect<
-          ControlExecutor.ExecutionObservation
-        >,
+        ),
       deliverSignal: (input: ControlExecutor.Signal) =>
-        Effect.orDie(AgentSession.deliverSignal(input)) as Effect.Effect<ControlExecutor.SignalDelivery>,
+        // Signal delivery reads the engine's `DurableEngineState` and `FlowRuntime`.
+        AgentSession.deliverSignal(input).pipe(
+          Effect.provideService(DurableEngineState.DurableEngineState, state),
+          Effect.provideContext(services),
+          Effect.orDie
+        ),
       parkedBelow,
       settled
     }
@@ -273,8 +276,8 @@ const stack = Layer.merge(GatewayServer.layerHandlers, layerNoopAuth({ id: "loca
     Layer.provideMerge(engineLayer)
   )
 
-const run = <A, E, R>(body: Effect.Effect<A, E, R>): Promise<A> =>
-  Effect.runPromise(Effect.provide(body, stack as unknown as Layer.Layer<R>).pipe(Effect.scoped, Effect.orDie))
+const run = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof stack> | Scope.Scope>): Promise<A> =>
+  Effect.runPromise(Effect.provide(body, stack).pipe(Effect.scoped, Effect.orDie))
 
 const approvalOf = (card: PlanCard) => ({
   target: { _tag: "Plan" as const, planId: card.planId, digest: card.digest, envelope: card.envelope },
