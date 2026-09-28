@@ -418,6 +418,9 @@ func ExtractToken(r *http.Request) string {
 
 func isValidTokenFormat(token string) bool {
 	switch {
+	case strings.HasPrefix(token, "smithers_flowhost_"):
+		// Flow host model credentials are not user tokens.
+		return false
 	case strings.HasPrefix(token, "smithers_oat_"):
 		return hasHexTail(strings.TrimPrefix(token, "smithers_oat_"), 64)
 	case strings.HasPrefix(token, "smithers_"):

@@ -155,6 +155,86 @@ func TestModelProxyChargesTheRightPayerPostgres(t *testing.T) {
 	}, got)
 }
 
+func TestFlowhostCredentialRefusedOutsideModelProxy(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "alice", LowerUsername: "alice", DisplayName: "Alice"})
+	require.NoError(t, err)
+	org, err := q.CreateOrganization(ctx, db.CreateOrganizationParams{Name: "acme", LowerName: "acme", Visibility: "private"})
+	require.NoError(t, err)
+	repo, err := q.CreateOrgRepo(ctx, db.CreateOrgRepoParams{OrgID: pgtype.Int8{Int64: org.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	var workspaceID string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id) VALUES ($1, $2) RETURNING id::text`, repo.ID, user.ID).Scan(&workspaceID))
+
+	bindingID := uuid.NewString()
+	control := "flow-host-control-credential"
+	controlHash := sha256.Sum256([]byte(control))
+	_, err = pool.Exec(ctx, `INSERT INTO flow_runtime_host_bindings (id, tenant_id, principal_id, binding_kind, binding_id, repository_id, user_id, workspace_id,
+		catalog_key, service_name, runtime_artifact_digest, source_revision, owner_generation, credential_ciphertext, credential_hash, state)
+		VALUES ($1, 'repository:1', 'user:1', 'agent-session', 's-1', $2, $3, $4, 'coding', 'smithers-coding-host', $5, $6, 1, $7, $8, 'running')`,
+		bindingID, repo.ID, user.ID, workspaceID, strings.Repeat("a", 64), strings.Repeat("b", 40), control, controlHash[:])
+	require.NoError(t, err)
+	hostCredential := flowhost.ModelCredential(bindingID, control)
+	require.True(t, strings.HasPrefix(hostCredential, flowhost.ModelCredentialPrefix))
+
+	userToken := "smithers_" + strings.Repeat("a", 40)
+	userHash := sha256.Sum256([]byte(userToken))
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: user.ID, Name: "user", TokenHash: hex.EncodeToString(userHash[:]),
+		TokenLastEight: hex.EncodeToString(userHash[:])[56:], Scopes: "read:user", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
+	var definitionID, runID int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_definitions (repository_id, name, path, config) VALUES ($1, 'agent', '.smithers/agent.ts', '{}') RETURNING id`, repo.ID).Scan(&definitionID))
+	agentToken := "smithers_agent_" + strings.Repeat("b", 40)
+	agentHash := sha256.Sum256([]byte(agentToken))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_runs (repository_id, workflow_definition_id, status, trigger_event, agent_token_hash, agent_token_expires_at)
+		VALUES ($1, $2, 'running', 'agent', $3, now() + interval '1 hour') RETURNING id`, repo.ID, definitionID, hex.EncodeToString(agentHash[:])).Scan(&runID))
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"usage":{"input_tokens":3,"output_tokens":4}}`))
+	}))
+	defer upstream.Close()
+	ledger := credits.Ledger{DB: pool}
+	account, err := ledger.EnsureAccount(ctx, "org", org.ID)
+	require.NoError(t, err)
+	require.NoError(t, ledger.Grant(ctx, account, "test", 1_000_000_000, nil))
+	proxy := &modelproxy.Handler{Meter: modelproxy.Meter{Ledger: ledger}, Keys: modelproxy.StaticKeys{modelproxy.ProviderAnthropic: "sk-platform"},
+		Callers: services.NewModelProxyCallers(q, pool, webhook.NoopSecretCodec{}), Upstreams: map[string]string{modelproxy.ProviderAnthropic: upstream.URL}}
+	router := chi.NewRouter()
+	mountModelProxy(router, q, testConfigAllFlagsOn(), proxy)
+	router.Route("/api", func(r chi.Router) {
+		r.Use(authLoader(q, testConfigAllFlagsOn().Auth))
+		r.With(middleware.RequireAuth).Get("/user", func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, user.ID, middleware.UserFromContext(r.Context()).ID)
+			w.WriteHeader(http.StatusOK)
+		})
+	})
+	router.Route("/internal", func(r chi.Router) {
+		r.Use(middleware.RequireAgentToken(q))
+		r.Post("/agent/sessions/{session_id}/events", func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, runID, middleware.WorkflowRunFromContext(r.Context()).ID)
+			w.WriteHeader(http.StatusAccepted)
+		})
+	})
+	call := func(method, path, credential, body string) int {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+credential)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	const userPath = "/api/user"
+	const agentPath = "/internal/agent/sessions/s-1/events"
+	const modelPath = "/api/model/anthropic/v1/messages"
+	require.Equal(t, http.StatusOK, call(http.MethodGet, userPath, userToken, ""), "user route must be reachable")
+	require.Equal(t, http.StatusAccepted, call(http.MethodPost, agentPath, agentToken, ""), "agent route must be reachable")
+	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, userPath, hostCredential, ""))
+	require.Equal(t, http.StatusUnauthorized, call(http.MethodPost, agentPath, hostCredential, ""))
+	require.Equal(t, http.StatusOK, call(http.MethodPost, modelPath, hostCredential, `{"model":"claude-haiku-4-5","max_tokens":10,"messages":[]}`))
+}
+
 // Automation on an organization's repository charges the organization only
 // when it has a paid plan, and otherwise the user the run or host acts for
 // (smithersai/plue#528, plue 0511eb46e).

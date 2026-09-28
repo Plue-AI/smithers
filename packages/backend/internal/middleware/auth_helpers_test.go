@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -8,8 +10,35 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
+
+func TestFlowhostModelCredentialNeverExtractedAsUserToken(t *testing.T) {
+	t.Parallel()
+	credential := flowhost.ModelCredential("64e8df81-00a9-41a9-bba8-01e81786c49a", "control-secret")
+	assert.True(t, strings.HasPrefix(credential, flowhost.ModelCredentialPrefix))
+	assert.False(t, isValidTokenFormat(credential), "a valid model credential is not a user token")
+	assert.False(t, isValidTokenFormat("smithers_flowhost_"+strings.Repeat("a", 40)), "a flow host credential with a hex suffix is not a user token")
+
+	userToken := "smithers_" + strings.Repeat("a", 40)
+	for _, scheme := range []string{"Bearer", "token"} {
+		t.Run(scheme, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/user", nil)
+			request.Header.Set("Authorization", scheme+" "+credential)
+			assert.Empty(t, ExtractToken(request))
+			request.Header.Set("Authorization", scheme+" "+userToken)
+			assert.Equal(t, userToken, ExtractToken(request), "control: accepted user token")
+		})
+	}
+	t.Run("Basic", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/api/user", nil)
+		request.SetBasicAuth("alice", credential)
+		assert.Empty(t, ExtractToken(request))
+		request.SetBasicAuth("alice", userToken)
+		assert.Equal(t, userToken, ExtractToken(request), "control: accepted user token")
+	})
+}
 
 func TestIsValidTokenFormat_Matrix(t *testing.T) {
 	t.Parallel()
