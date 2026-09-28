@@ -129,7 +129,12 @@ describe("keyless host startup", processBudget, () => {
     const cwd = mkdtempSync(temporaryDirectoryPrefix)
     const child = spawn(process.execPath, ["--no-warnings", executable, "serve", "--port", "5308"], {
       cwd,
-      env: { HOME: cwd, PATH: process.env.PATH, CI: "1" },
+      env: {
+        HOME: cwd,
+        PATH: process.env.PATH,
+        CI: "1",
+        SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
+      },
       stdio: ["ignore", "pipe", "pipe"]
     })
     const closed = new Promise<void>((resolve) => child.once("close", () => resolve()))
