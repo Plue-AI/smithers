@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 func TestRepo_Cov_ForkRepoPrivateBillingAndHostRollback(t *testing.T) {
@@ -113,7 +114,8 @@ func TestRepo_Cov_StarArchiveAndHelperBranches(t *testing.T) {
 	assert.Equal(t, "main", normalizeDefaultBookmark(" "))
 	assert.Equal(t, "trunk", normalizeDefaultBookmark(" trunk "))
 	assert.Equal(t, []string{"ci", "test"}, normalizeStringList([]string{" ci ", "", "test", "ci"}))
-	assert.True(t, isRepoHostStatus(fmt.Errorf("upstream returned status 404"), 404))
+	assert.True(t, isRepoHostStatus(&repohost.StatusError{StatusCode: 404}, 404))
+	assert.False(t, isRepoHostStatus(&repohost.StatusError{StatusCode: 500, Message: "status 404"}, 404))
 	assert.False(t, isRepoHostStatus(nil, 404))
 
 	actor := &db.User{ID: 7, Username: "alice"}

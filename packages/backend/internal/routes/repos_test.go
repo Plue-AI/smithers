@@ -73,6 +73,30 @@ func TestRepositoryHomeResolution(t *testing.T) {
 	}
 }
 
+func TestRepositoryHomeMissingStorage(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"missing storage", pkgerrors.NotFound("repository storage not found"), http.StatusNotFound},
+		{"upstream failure", pkgerrors.Internal("failed to resolve bookmark"), http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			h := RepoHandler{Service: mockRepoRouteService{getContentsFn: func(context.Context, *db.User, string, string, string, string) (services.RepoContent, error) {
+				calls++
+				return services.RepoContent{}, tc.err
+			}}}
+			req := withRouteParams(httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/home", nil), map[string]string{"owner": "alice", "repo": "demo"})
+			rec := httptest.NewRecorder()
+			h.GetRepositoryHome(rec, req)
+			require.Equal(t, tc.want, rec.Code, rec.Body.String())
+			assert.Equal(t, 1, calls)
+		})
+	}
+}
+
 type pagedRepoRouteService struct{ mockRepoRouteService }
 
 func (pagedRepoRouteService) ListRepoContentsPage(_ context.Context, _ *db.User, _, _, _, path, after string, limit int) ([]services.RepoContent, string, string, error) {

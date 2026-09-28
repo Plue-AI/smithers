@@ -1428,6 +1428,9 @@ func (s *RepoService) resolveChangeRef(ctx context.Context, owner, repoName, ref
 		return true
 	})
 	if err != nil {
+		if isRepoHostStatus(err, 404) {
+			return "", errors.NotFound("repository storage not found")
+		}
 		return "", errors.Internal("failed to resolve bookmark").WithCause(err)
 	}
 	if resolved != "" {
@@ -1470,6 +1473,9 @@ func (s *RepoService) resolveContentsCommit(ctx context.Context, owner, repo, re
 		return true
 	})
 	if err != nil {
+		if isRepoHostStatus(err, 404) {
+			return "", errors.NotFound("repository storage not found")
+		}
 		return "", errors.Internal("failed to resolve bookmark").WithCause(err)
 	}
 	if commit != "" {
@@ -2669,10 +2675,8 @@ func normalizeStringList(values []string) []string {
 }
 
 func isRepoHostStatus(err error, status int) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), fmt.Sprintf("status %d", status))
+	statusErr, ok := repohost.IsStatusError(err)
+	return ok && statusErr.StatusCode == status
 }
 
 func isRepoUniqueViolation(err error) bool {

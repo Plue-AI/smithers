@@ -2144,6 +2144,29 @@ func TestRepoService_ResolveChangeRef(t *testing.T) {
 		assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 	})
 
+	for _, tc := range []struct {
+		name     string
+		upstream int
+		message  string
+		want     int
+	}{
+		{"missing storage", 404, "not found", http.StatusNotFound},
+		{"misleading message", 500, "status 404", http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rh := &mockRepoHostClient{listBookmarksFn: func(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
+				return nil, "", &repohost.StatusError{StatusCode: tc.upstream, Message: tc.message}
+			}}
+			svc := NewRepoService(q, rh, "s1")
+			_, err := svc.GetRepoContents(context.Background(), nil, "alice", "demo", "main", "README.md")
+			require.Error(t, err)
+			assert.Equal(t, tc.want, apiStatus(t, err))
+			if tc.want == http.StatusNotFound {
+				assert.Equal(t, "repository storage not found", err.(*errors.APIError).Message)
+			}
+		})
+	}
+
 	t.Run("passes through when no bookmarks exist", func(t *testing.T) {
 		rh := &mockRepoHostClient{
 			listBookmarksFn: func(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error) {

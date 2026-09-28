@@ -527,7 +527,7 @@ func (h *RepoHandler) GetRepositoryHome(w http.ResponseWriter, r *http.Request) 
 	}
 	missing := func(err error) bool {
 		apiErr, ok := err.(*errors.APIError)
-		return ok && apiErr.Status == http.StatusNotFound
+		return ok && apiErr.Status == http.StatusNotFound && apiErr.Message != "repository storage not found"
 	}
 	document, err := read(".smithers/home.json")
 	if err == nil {
