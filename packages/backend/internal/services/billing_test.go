@@ -1293,6 +1293,75 @@ func TestBillingService_HandleStripeWebhook_DisputeCreatedRecordsLedgerAudit(t *
 	assert.Contains(t, queries.creditEntries[0].Reason, "dp_test_123")
 }
 
+func TestBillingService_HandleStripeWebhook_DisputeCreatedRevokesPaidAccessAndCredit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	queries := newBillingQuerierMock()
+	account := db.BillingAccount{ID: 7, OwnerType: BillingOwnerTypeUser, OwnerID: 42, StripeCustomerID: "cus_disputed"}
+	queries.accountsByCustomer[account.StripeCustomerID] = account
+	queries.accountsByOwner[queries.ownerKey(account.OwnerType, account.OwnerID)] = account
+	subscription := db.BillingSubscription{
+		ID:                   8,
+		BillingAccountID:     account.ID,
+		StripeSubscriptionID: "sub_disputed",
+		PlanKey:              BillingPlanPro,
+		BillingInterval:      BillingIntervalMonthly,
+		Status:               "active",
+	}
+	reversedAt := pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
+	queries.getLatestSubscriptionFn = func(context.Context, int64) (db.BillingSubscription, error) {
+		row := subscription
+		if len(queries.paymentReversals) > 0 {
+			row.PaymentReversedAt = reversedAt
+		}
+		return row, nil
+	}
+	ledger := newFakeCreditLedger()
+	creditAccountID, err := ledger.EnsureAccount(ctx, account.OwnerType, account.OwnerID)
+	require.NoError(t, err)
+	const paidCreditCents int64 = 1000
+	require.NoError(t, ledger.Grant(ctx, creditAccountID, "invoice:in_disputed", paidCreditCents*credits.NanosPerCent, nil))
+	client := &stripeBillingClientMock{
+		getChargeFn: func(_ context.Context, chargeID string) (StripeChargeSnapshot, error) {
+			assert.Equal(t, "ch_disputed", chargeID)
+			return StripeChargeSnapshot{ID: chargeID, CustomerID: account.StripeCustomerID}, nil
+		},
+	}
+	svc := NewBillingService(queries, client, BillingServiceConfig{StripeWebhookSecret: "whsec_test_secret"}, WithBillingCreditLedger(ledger))
+	user := &db.User{ID: account.OwnerID, Username: "alice"}
+	before, err := svc.GetUserOverview(ctx, user)
+	require.NoError(t, err)
+	require.NotNil(t, before.Subscription)
+	assert.Equal(t, "active", before.Subscription.Status)
+	assert.Equal(t, BillingPlanPro, before.PlanKey)
+	assert.Equal(t, paidCreditCents*credits.NanosPerCent, before.CreditBalanceNanos)
+
+	payload, signature := signedStripeEvent(t, "evt_disputed_credit", "charge.dispute.created", map[string]any{
+		"id": "dp_disputed", "charge": "ch_disputed", "amount": 1000, "currency": "usd",
+	})
+	require.NoError(t, svc.HandleStripeWebhook(ctx, payload, signature))
+	after, err := svc.GetUserOverview(ctx, user)
+	require.NoError(t, err)
+	require.NotNil(t, after.Subscription)
+	// Reversals revoke access without overwriting Stripe's subscription status.
+	assert.Equal(t, "active", after.Subscription.Status)
+	assert.Equal(t, BillingPlanFree, after.PlanKey)
+	assert.Zero(t, after.CreditBalanceNanos)
+	assert.Equal(t, []int64{account.ID}, queries.paymentReversals)
+	require.Len(t, queries.creditEntries, 1)
+	assert.Equal(t, "stripe_event:evt_disputed_credit", queries.creditEntries[0].IdempotencyKey)
+
+	require.NoError(t, svc.HandleStripeWebhook(ctx, payload, signature))
+	replayed, err := svc.GetUserOverview(ctx, user)
+	require.NoError(t, err)
+	assert.Equal(t, after.Subscription, replayed.Subscription)
+	assert.Equal(t, after.PlanKey, replayed.PlanKey)
+	assert.Equal(t, after.CreditBalanceNanos, replayed.CreditBalanceNanos)
+	assert.Equal(t, []int64{account.ID}, queries.paymentReversals)
+	assert.Len(t, queries.creditEntries, 1)
+}
+
 func TestBillingService_HandleStripeWebhook_ReplayDoesNotDoubleApply(t *testing.T) {
 	t.Parallel()
 
