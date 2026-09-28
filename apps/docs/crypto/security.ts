@@ -37,7 +37,7 @@ export const security = {
       title: "Site config and deploy stack carry no credentials and inject no raw HTML or scripts",
       threat: "Anyone who reads the public repository or the built site obtains a deploy credential, or a content author injects script into crypto.smithers.sh visitors' browsers.",
       lookFor: [
-        "A token, account id secret, API key, or password literal in astro.config.mjs or alchemy.run.ts instead of an environment-provided binding.",
+        "A token, API key, or password literal in astro.config.mjs or alchemy.run.ts instead of an environment-provided binding.",
         "A head entry, custom component, or markdown with raw <script> or on* handler added to the site config or content.",
         "An alchemy.run.ts slug other than \"crypto\", which would deploy over another site's worker or domain.",
         "An editUrl or install/link target outside github.com/smithersai/smithers, *.smithers.sh, or effect.website, which would send readers to a lookalike repo or package."

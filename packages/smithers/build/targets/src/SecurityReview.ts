@@ -22,10 +22,13 @@
  * @since 1.0.0
  */
 
+import { Minimatch } from "minimatch"
+import * as NodeFs from "node:fs"
+import * as NodePath from "node:path"
 import * as Input from "./Input.ts"
 import { LlmLint } from "./LlmLint.ts"
 import type { Engine } from "./ModelEngine.ts"
-import type * as Target from "./Target.ts"
+import * as Target from "./Target.ts"
 
 /**
  * The model a `claude` security review runs on when the caller names none.
@@ -184,6 +187,13 @@ export const renderRubric = (checks: ReadonlyArray<Check>): string =>
  * audit reviews at most 64 batches, so a package over 512 included files
  * narrows `include` or raises `auditBatchSize`.
  *
+ * `workspaceRoot` is the absolute workspace root the declaration is checked
+ * against. It defaults to the root derived from the declaring `PACKAGE.ts`
+ * and `cwd`. When a root is known, every `context` entry must match at least
+ * one file, and every check path must match at least one file that an
+ * `include` or `context` glob also matches; otherwise the declaration throws.
+ * Outside a `PACKAGE.ts` with no `workspaceRoot`, the paths are not checked.
+ *
  * @category models
  * @since 1.0.0
  */
@@ -199,6 +209,7 @@ export interface Options {
   readonly batchSize?: number | undefined
   readonly auditBatchSize?: number | undefined
   readonly summary?: string | undefined
+  readonly workspaceRoot?: string | undefined
 }
 
 /**
@@ -221,12 +232,131 @@ const anchor = (cwd: string, declaration: Input.Glob | string): Input.Glob => {
   })
 }
 
+/** Directories a plan-time path check never descends into. */
+const skippedDirectories = new Set([".git", ".jj", "node_modules"])
+
+const globMagic = /[*?[\]{}!()|@+]/
+
+/** Workspace-relative directory holding every file a resolved pattern can match. */
+const patternBase = (pattern: string): string => {
+  const segments = pattern.split("/")
+  const literal: Array<string> = []
+  for (const segment of segments) {
+    if (globMagic.test(segment)) break
+    literal.push(segment)
+  }
+  if (literal.length === segments.length) literal.pop()
+  return literal.join("/")
+}
+
+interface Matcher {
+  readonly pattern: string
+  readonly matches: (path: string) => boolean
+}
+
+const matcherOf = (glob: Input.Glob): Matcher => {
+  const pattern = glob.pattern.slice(2)
+  const included = new Minimatch(pattern, { dot: true })
+  const excluded = glob.exclude.map((entry) => new Minimatch(entry.slice(2), { dot: true }))
+  return {
+    pattern,
+    matches: (path) => included.match(path) && !excluded.some((entry) => entry.match(path))
+  }
+}
+
+/**
+ * Finds the first workspace file under `matcher`'s base that satisfies
+ * `accept`, walking real directories only. Returns whether any file matched
+ * the pattern at all, and whether one was also accepted.
+ */
+const probe = (
+  root: string,
+  matcher: Matcher,
+  accept: (path: string) => boolean
+): { readonly matched: boolean; readonly accepted: boolean } => {
+  let matched = false
+  const pending = [patternBase(matcher.pattern)]
+  while (pending.length > 0) {
+    const directory = pending.pop()!
+    let entries: Array<NodeFs.Dirent>
+    try {
+      entries = NodeFs.readdirSync(NodePath.join(root, directory), { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const path = directory === "" ? entry.name : `${directory}/${entry.name}`
+      if (entry.isDirectory()) {
+        if (!skippedDirectories.has(entry.name)) pending.push(path)
+      } else if ((entry.isFile() || entry.isSymbolicLink()) && matcher.matches(path)) {
+        matched = true
+        if (accept(path)) return { matched, accepted: true }
+      }
+    }
+  }
+  return { matched, accepted: false }
+}
+
+/** The absolute workspace root a PACKAGE.ts at `cwd` declares from, if known. */
+const declaredRoot = (cwd: string): string | undefined => {
+  const source = Target.declarationSourceFile()
+  if (source === undefined) return undefined
+  const directory = NodePath.dirname(source)
+  const relative = Input.resolvePath("", cwd)
+  if (relative === ".") return directory
+  const suffix = `${NodePath.sep}${relative.split("/").join(NodePath.sep)}`
+  if (!directory.endsWith(suffix)) {
+    throw new TypeError(
+      `security review cwd ${JSON.stringify(cwd)} does not name the directory of its declaring ${source}`
+    )
+  }
+  return directory.slice(0, -suffix.length)
+}
+
+/**
+ * Throws when a context entry matches no file, or when a check path matches
+ * no file the review reads (an include or context glob).
+ */
+const validatePaths = (
+  root: string,
+  checks: ReadonlyArray<Check>,
+  include: ReadonlyArray<Input.Glob>,
+  context: ReadonlyArray<Input.Glob>
+): void => {
+  for (const glob of context) {
+    const matcher = matcherOf(glob)
+    if (!probe(root, matcher, () => true).matched) {
+      throw new TypeError(
+        `security review context ${JSON.stringify(matcher.pattern)} matches no file; context entries are file ` +
+          "globs, so put descriptions in the check text"
+      )
+    }
+  }
+  const reviewed = [...include, ...context].map(matcherOf)
+  for (const check of checks) {
+    for (const path of check.paths ?? []) {
+      const matcher = matcherOf(Input.Glob.make({ pattern: `//${path}`, exclude: [] }))
+      const found = probe(root, matcher, (file) => reviewed.some((entry) => entry.matches(file)))
+      if (!found.matched) {
+        throw new TypeError(`security check ${check.id} path ${JSON.stringify(path)} matches no file`)
+      }
+      if (!found.accepted) {
+        throw new TypeError(
+          `security check ${check.id} path ${JSON.stringify(path)} matches no file the review reads; ` +
+            "add it to include or context, or drop the path"
+        )
+      }
+    }
+  }
+}
+
 /**
  * Declares a package's security review: the `security` diff review and the
  * manual `securityAudit` full audit, both over the declared checks plus the
  * built-in `general` check. Spread the result into the package's targets.
  *
- * The call validates the checks and returns declarations; it runs no review.
+ * The call validates the checks and their paths against the workspace (see
+ * {@link Options}) and returns declarations; it runs no review.
  * A confirmed finding (severity `error`) fails the target; suspected and
  * hardening findings are reported without failing it.
  *
@@ -256,6 +386,8 @@ export const SecurityReview = (options: Options): SecurityTargets => {
   const checks = withGeneral(cwd, options.checks)
   const include = (options.include ?? ["src/**"]).map((entry) => anchor(cwd, entry))
   const context = (options.context ?? []).map((entry) => anchor(cwd, entry))
+  const root = options.workspaceRoot ?? declaredRoot(cwd)
+  if (root !== undefined) validatePaths(root, checks, include, context)
   const engine = options.engine ?? "claude"
   const model = options.model ?? (engine === "claude" ? defaultClaudeModel : defaultCodexModel)
   const rubric = renderRubric(checks)

@@ -36,7 +36,7 @@ export const security = {
       title: "Published pages and assets carry no credentials, private hosts, or local paths",
       threat: "Anyone browsing database.smithers.sh reads a maintainer's token, database URL, or machine path leaked into public docs.",
       lookFor: [
-        "A connection string with a password, an API key, bearer token, or Cloudflare account id in a page or asset.",
+        "A connection string with a password, an API key or bearer token in a page or asset.",
         "An absolute path under /Users/ or a private hostname copied from a maintainer's machine."
       ],
       paths: ["src/content/docs/**", "public/**"]

@@ -43,9 +43,9 @@ export const security = {
     {
       id: "site-deploy-config",
       title: "Site config and deploy stack hold no credentials and ship only static assets",
-      threat: "Anyone with repo read access takes over the Cloudflare account or canonical.smithers.sh through a token or account id inlined in the site config, or a visitor runs script injected through public/.",
+      threat: "Anyone with repo read access takes over the Cloudflare account or canonical.smithers.sh through an API token or state password inlined in the site config, or a visitor runs script injected through public/.",
       lookFor: [
-        "A Cloudflare API token, account id, or alchemy state password written literally in alchemy.run.ts, astro.config.mjs, or package.json instead of read from the environment.",
+        "A Cloudflare API token or alchemy state password written literally in alchemy.run.ts, astro.config.mjs, or package.json instead of read from the environment.",
         "A package.json script or dependency that fetches and runs remote code during build or deploy, or an unpinned prerelease beyond the declared alchemy beta.",
         "A file in public/ that is executable content (HTML, JS, SVG with script) rather than the favicon."
       ],

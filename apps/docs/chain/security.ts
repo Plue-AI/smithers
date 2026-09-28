@@ -47,7 +47,7 @@ export const security = {
       title: "Site and deploy config commit no credentials or account state",
       threat: "Anyone reading the public repository takes a Cloudflare token or Alchemy state and deploys over or destroys chain.smithers.sh.",
       lookFor: [
-        "A token, account id secret, or password inline in alchemy.run.ts, astro.config.mjs, or package.json scripts.",
+        "A token, API key, or password inline in alchemy.run.ts, astro.config.mjs, or package.json scripts.",
         "A package.json script that deploys or destroys prod without the documented stage flag."
       ],
       paths: ["alchemy.run.ts", "astro.config.mjs", "package.json"]

@@ -39,7 +39,7 @@ export const security = {
       title: "Site build and deploy config ship only static content with no secrets or server-side execution",
       threat: "A change to the generated site config or Alchemy stack exposes deploy credentials or adds worker code that runs attacker-reachable logic on artifacts.smithers.sh.",
       lookFor: [
-        "A literal account id, API token, or secret in alchemy.run.ts, astro.config.mjs, or package.json scripts.",
+        "A literal API token or secret in alchemy.run.ts, astro.config.mjs, or package.json scripts.",
         "A config option that enables SSR, a worker route, or `run_worker_first` beyond the shared makeDocsSiteStack defaults.",
         "A package.json script that pipes a remote download into a shell, or a dependency moved off a pinned registry version to a URL or git source."
       ],

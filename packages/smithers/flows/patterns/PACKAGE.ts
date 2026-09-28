@@ -9,12 +9,12 @@ const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheck
   cwd
 })
 
+// Pure orchestration combinators over @smthrs/flow. Member flows are often
+// model agents, so every decision value (approval, review verdict, plan, task
+// list, item id) is untrusted model output; the checks below say so per threat.
 const securityReview = Smithers.SecurityReview({
   cwd,
   include: ["src/**"],
-  context: [
-    "Pure orchestration combinators over @smthrs/flow. Member flows are often model agents, so every decision value (approval, review verdict, plan, task list, item id) is untrusted model output."
-  ],
   checks: [
     {
       id: "approval-fails-closed",

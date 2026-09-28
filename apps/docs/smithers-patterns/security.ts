@@ -50,7 +50,7 @@ export const security = {
       title: "Build and deploy config hold no credentials and pin the deploy toolchain",
       threat: "Anyone who can change the site's dependencies or config ships code that runs with the deployer's Cloudflare credentials.",
       lookFor: [
-        "An inline token, account id, or secret in alchemy.run.ts, astro.config.mjs, or package.json.",
+        "An inline token or secret in alchemy.run.ts, astro.config.mjs, or package.json.",
         "A deploy or destroy script, or a floating dependency range on alchemy, that runs a tool version not pinned in package.json."
       ],
       paths: ["alchemy.run.ts", "astro.config.mjs", "package.json"]

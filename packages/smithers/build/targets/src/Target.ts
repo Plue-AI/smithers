@@ -1132,6 +1132,17 @@ const sourceSite = (): SourceSite | undefined => {
 }
 
 /**
+ * The absolute path of the `PACKAGE.ts` or `WORKSPACE.ts` file whose
+ * evaluation is calling this function, or undefined when the caller is not
+ * evaluating one (a test, a script). A macro uses it to locate the declaring
+ * package on disk while the declaration is being planned.
+ *
+ * @category introspection
+ * @since 1.0.0
+ */
+export const declarationSourceFile = (): string | undefined => sourceSite()?.path
+
+/**
  * Maximum UTF-16 code units of formatted schema detail admitted into one
  * declaration-rejected message.
  *

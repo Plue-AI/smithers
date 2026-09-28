@@ -73,7 +73,7 @@ export const security = {
       title: "The site deploys as a static bundle with no inlined secrets or dynamic endpoints",
       threat: "A committer or compromised dependency gets account credentials or server-side code into the public gateway.smithers.sh deploy.",
       lookFor: [
-        "A Cloudflare or Alchemy token, account id secret, or password literal in `alchemy.run.ts`, `astro.config.mjs`, or `package.json` scripts.",
+        "A Cloudflare or Alchemy token or password literal in `alchemy.run.ts`, `astro.config.mjs`, or `package.json` scripts.",
         "A `makeDocsSiteStack` or `defineDocsSite` call whose slug or source directory differs from `gateway`, publishing another package's content under this domain.",
         "A new dependency, script hook, or Astro adapter that adds server-side rendering or runs code at install time."
       ],

@@ -57,7 +57,7 @@ export const security = {
       threat:
         "A change to alchemy.run.ts rebinds another smithers.sh hostname or embeds a Cloudflare credential in source.",
       lookFor: [
-        "alchemy.run.ts passing a slug, domain, or zone other than create-app, or an inline API token or account id.",
+        "alchemy.run.ts passing a slug, domain, or zone other than create-app, or an inline API token.",
         "A package.json script that deploys a stage other than prod or runs an unpinned remote script."
       ],
       paths: ["alchemy.run.ts", "package.json"]

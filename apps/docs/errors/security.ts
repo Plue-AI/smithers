@@ -37,7 +37,7 @@ export const security = {
       lookFor: [
         "astro.config.mjs or src/content.config.ts adding head scripts, set:html, or a remote script origin beyond the shared kit.",
         "Raw HTML in a Markdown page (a <script>, <iframe>, on* handler, or javascript: link) that Astro renders into the page unescaped.",
-        "alchemy.run.ts or package.json scripts embedding an account id, API token, or state-store secret instead of the shared kit's environment reads.",
+        "alchemy.run.ts or package.json scripts embedding an API token or state-store secret instead of the shared kit's environment reads.",
         "A fenced code block in src/content/docs holding a string shaped like a real key (a Telegram bot token <digits>:<35 chars>, sk-, ghp_, AKIA)."
       ],
       paths: ["astro.config.mjs", "alchemy.run.ts", "package.json", "src/content.config.ts", "src/content/docs/**"]

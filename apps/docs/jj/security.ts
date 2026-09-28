@@ -52,7 +52,7 @@ export const security = {
       title: "Published site and deploy config carry no credentials or private endpoints",
       threat: "Anyone browsing jj.smithers.sh or the public repository reads a Cloudflare or Alchemy credential, or a private host, that lets them take over the site or reach internal services.",
       lookFor: [
-        "An inline token, account id paired with a key, or state-store secret in alchemy.run.ts, astro.config.mjs, or package.json scripts.",
+        "An inline API token, API key, or state-store secret in alchemy.run.ts, astro.config.mjs, or package.json scripts.",
         "A file under public/ or a docs page that embeds an API key, bearer token, internal hostname, or local absolute path from a maintainer machine.",
         "A package.json deploy or destroy script that targets prod without the stage flag or passes credentials on the command line."
       ],

@@ -58,9 +58,9 @@ export const security = {
     {
       id: "site-deploy-config",
       title: "Site and deploy config hold no account secrets and deploy only the prod docs stack",
-      threat: "Anyone reading the public repository takes a Cloudflare token or account id, or a changed config deploys over another site's worker.",
+      threat: "Anyone reading the public repository takes a Cloudflare API token, or a changed config deploys over another site's worker.",
       lookFor: [
-        "A literal Cloudflare API token, account id, or state-store credential in alchemy.run.ts or astro.config.mjs.",
+        "A literal Cloudflare API token or state-store credential in alchemy.run.ts or astro.config.mjs.",
         "A slug other than \"control\" passed to makeDocsSiteStack or defineDocsSite.",
         "A contentDir or sourceDir that points outside this site or packages/smithers/control."
       ],

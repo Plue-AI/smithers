@@ -163,7 +163,7 @@ const securityReview = Smithers.SecurityReview({
         "`run.ts` returning exit 0 when `Regression.compare` reports regressions, missing observations, or a case error.",
         "`--update` writing `baseline.json` in a CI path, or an unbounded budget used outside the offline scripted seat."
       ],
-      paths: ["run.ts", "subject.ts", "suite.ts", "baseline.json"]
+      paths: ["run.ts", "subject.ts", "suite.ts"]
     },
     {
       id: "example-fixture-secrets",

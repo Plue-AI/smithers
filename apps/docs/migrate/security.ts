@@ -48,7 +48,7 @@ export const security = {
       threat: "An attacker who controls an embedded script or link runs JavaScript in readers' browsers on migrate.smithers.sh, or a committed deploy secret lets anyone repoint the site.",
       lookFor: [
         "A `<script>`, `<iframe>`, `javascript:` URL or inline event handler in Markdown or `public/`.",
-        "A Cloudflare account id, API token or alchemy state secret written into alchemy.run.ts, astro.config.mjs or package.json instead of read from the environment.",
+        "A Cloudflare API token or alchemy state secret written into alchemy.run.ts, astro.config.mjs or package.json instead of read from the environment.",
         "A link or frontmatter `editUrl` whose host is not github.com/smithersai or a smithers.sh domain."
       ]
     }

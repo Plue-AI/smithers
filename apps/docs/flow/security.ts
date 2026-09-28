@@ -52,7 +52,7 @@ export const security = {
       threat: "A contributor who edits the site config injects script into every visitor's browser on flow.smithers.sh, or a committed Cloudflare credential lets anyone redeploy or destroy the site.",
       lookFor: [
         "astro.config.mjs or content.config.ts adding head scripts, set:html, or a remote script origin beyond the shared kit.",
-        "alchemy.run.ts or package.json scripts embedding an account id, API token, or state-store secret instead of the shared kit's environment reads.",
+        "alchemy.run.ts or package.json scripts embedding an API token or state-store secret instead of the shared kit's environment reads.",
         "src/styles CSS pulling a remote @import or url() from an origin outside the site, which lets that origin track or restyle every visitor."
       ],
       paths: ["astro.config.mjs", "alchemy.run.ts", "package.json", "src/content.config.ts", "src/styles/**"]

@@ -45,7 +45,7 @@ export const security = {
       title: "Rendered pages and deploy config carry no secrets, raw script, or off-site redirects",
       threat: "A contributor leaks a credential in an example or deploy file, or injects HTML that runs script or phishes readers of capability.smithers.sh.",
       lookFor: [
-        "An API key, token, account id, or password literal in content, astro.config.mjs, or alchemy.run.ts rather than a placeholder.",
+        "An API key, token, or password literal in content, astro.config.mjs, or alchemy.run.ts rather than a placeholder.",
         "Raw <script>, <iframe>, inline event handlers, or javascript: URLs in markdown content.",
         "An editUrl or link pointing to a domain other than smithers.sh and its subdomains, github.com/smithersai, effect.website, or the reserved example.test."
       ]

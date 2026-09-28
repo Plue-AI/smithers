@@ -51,9 +51,9 @@ export const security = {
     {
       id: "docs-deploy-config",
       title: "Deploy entry points carry no credentials and target only the run-store site",
-      threat: "Anyone reading the public repo takes a Cloudflare token or account id from the site config, or a changed slug deploys over another package's docs domain.",
+      threat: "Anyone reading the public repo takes a Cloudflare API token from the site config, or a changed slug deploys over another package's docs domain.",
       lookFor: [
-        "A token, account id, or state-store secret literal in alchemy.run.ts, astro.config.mjs, or package.json.",
+        "A token or state-store secret literal in alchemy.run.ts, astro.config.mjs, or package.json.",
         "A slug other than run-store passed to makeDocsSiteStack or defineDocsSite.",
         "A deploy or destroy script that runs without --stage prod, or a new lifecycle script (postinstall, prepare) that executes on install."
       ],

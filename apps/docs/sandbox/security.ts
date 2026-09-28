@@ -48,7 +48,7 @@ export const security = {
       title: "The site config and Alchemy stack carry no secrets and deploy only static assets",
       threat: "A repository reader obtains Cloudflare or Alchemy state credentials, or a config change ships a worker that exposes more than the built dist.",
       lookFor: [
-        "A literal account id, API token, or state-store password in alchemy.run.ts or astro.config.mjs rather than in makeDocsSiteStack's environment lookup.",
+        "A literal API token or state-store password in alchemy.run.ts or astro.config.mjs rather than in makeDocsSiteStack's environment lookup.",
         "A config option added here that turns the static site into SSR, adds worker vars, or serves files outside dist."
       ],
       paths: ["alchemy.run.ts", "astro.config.mjs", "package.json"]

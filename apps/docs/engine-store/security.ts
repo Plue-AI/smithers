@@ -66,7 +66,7 @@ export const security = {
       title: "Published pages and assets carry no credentials, private hosts, or local paths",
       threat: "Anyone browsing engine-store.smithers.sh reads a maintainer's token, cache-tier credential, or machine path leaked into public docs.",
       lookFor: [
-        "An API key, bearer token, bucket credential, or Cloudflare account id in a page or asset.",
+        "An API key, bearer token, or bucket credential in a page or asset.",
         "An absolute path under /Users/ or a private hostname copied from a maintainer's machine."
       ],
       paths: ["src/content/docs/**", "public/**"]

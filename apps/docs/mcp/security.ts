@@ -15,7 +15,7 @@ export const security = {
       threat: "Any reader of mcp.smithers.sh uses a GitHub token or API key accidentally pasted into a published guide.",
       lookFor: [
         "A token value in an `env` block or JSON config that is not a placeholder such as `ghp_...` or `process.env.X`.",
-        "An `alchemy.run.ts` that passes an inline account id, API token, or secret binding to `makeDocsSiteStack` instead of only the slug."
+        "An `alchemy.run.ts` that passes an inline API token or secret binding to `makeDocsSiteStack` instead of only the slug."
       ],
       paths: ["src/content/docs/**", "alchemy.run.ts"]
     },
