@@ -87,3 +87,24 @@ Cards, panes, toasts, and lessons carry the fewest words needed to act. No expla
 ## Product words (Will, 2026-09-26)
 
 Docs and visible UI copy use product words, not internal modeling terms such as thread or task; [D-16](docs/mvp/PRODUCT.md) is the rule.
+
+## Testing quality (Will, 2026-09-27)
+
+- Earn 100% coverage with meaningful behavioral assertions. Cover parameter
+  combinations, boundaries, error cases, cancellation, recovery, and ordering;
+  coverage is necessary, never sufficient. Do not lower thresholds or hide
+  production code to make a test gate pass.
+- Prioritize unit tests, then integration, end-to-end, fuzz, and benchmarks.
+  Unit and integration suites must each provide confidence independently.
+  Integration tests use real dependencies; any mock exception needs a concrete
+  justification. Exercise the terminal, browser, HTTP API, and public authoring
+  API through their user-facing boundaries.
+- Retain reproducible fuzz counterexamples and benchmark methods, artifacts,
+  correctness checks, and limitations. Distinguish executed coverage from
+  configured thresholds, skipped cases, and platform-specific evidence.
+- Delegate test work to Sol agents, up to sixteen when the session permits.
+  The orchestrator reviews test quality and results. Every discovered product
+  bug is fixed by an Astra agent and reviewed with `claude -p --model fable`;
+  retain its regression test and the review/validation receipts.
+- Track the campaign and outstanding evidence in
+  [#2290](https://github.com/smithersai/smithers/issues/2290).
