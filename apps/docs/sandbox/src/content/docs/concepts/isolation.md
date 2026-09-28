@@ -80,23 +80,29 @@ Every provider takes the neutral option
 `{ allow }` denies egress except to the listed hosts: exact DNS names such as
 `registry.npmjs.org`, or `*.` and a name, such as `*.npmjs.org`, for every name
 below it. List the apex of a `*.` entry separately when it must be reachable:
-Microsandbox denies it unless listed, and Vercel and Daytona do not document
-whether they admit it. An empty list denies all egress, DNS included. A provider that cannot
-enforce the policy throws when `make` is called, before any machine exists.
+Microsandbox and Vercel deny it unless listed, and Daytona does not document
+whether it admits it. Microsandbox and Vercel answer DNS only for listed names,
+and an empty list denies all egress, DNS included; Daytona does not document
+its DNS handling. A provider that cannot enforce the policy throws when `make`
+is called, before any machine exists.
 
-| Provider              | `"none"`                  | `{ allow }`                                            | Reattaching an existing machine                     |
-| --------------------- | ------------------------- | ------------------------------------------------------ | --------------------------------------------------- |
-| `VercelSandbox`       | `networkPolicy: deny-all` | Vercel's egress firewall `networkPolicy: { allow }`    | the policy is updated before any guest command runs |
-| `DaytonaSandbox`      | `networkBlockAll: true`   | the runner's iptables `domainAllowList`                | the policy is updated before any guest command runs |
-| `MicrosandboxSandbox` | boots without networking  | deny ingress; deny egress but host DNS and the hosts   | refused unless it was created with the same policy  |
-| `ContainerSandbox`    | `--network none`          | refused: an engine network mode is not a host firewall | the network mode is part of the fingerprint         |
-| every other provider  | refused                   | refused                                                | not applicable                                      |
+| Provider              | `"none"`                  | `{ allow }`                                                                      | Reattaching an existing machine                     |
+| --------------------- | ------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `VercelSandbox`       | `networkPolicy: deny-all` | Vercel's egress firewall `networkPolicy: { allow }`; an empty list is `deny-all` | the policy is updated before any guest command runs |
+| `DaytonaSandbox`      | `networkBlockAll: true`   | the runner's iptables `domainAllowList`                                          | the policy is updated before any guest command runs |
+| `MicrosandboxSandbox` | boots without networking  | deny ingress; deny egress, DNS included, but the hosts                           | refused unless it was created with the same policy  |
+| `ContainerSandbox`    | `--network none`          | refused: an engine network mode is not a host firewall                           | the network mode is part of the fingerprint         |
+| every other provider  | refused                   | refused                                                                          | not applicable                                      |
 
 `ContainerSandbox` also accepts a raw engine network mode string, which opts
 into that mode's egress. `MicrosandboxSandbox` also accepts `networkPolicy` in
 the vendor's own rule shape; it and `network` are exclusive. Under `{ allow }`
-the Microsandbox guest sends DNS only to the host resolver on port 53, the
-vendor's own `Rule.allowDns()` rule.
+Microsandbox matches each DNS query's name against the listed hosts and
+answers any other name with `NXDOMAIN`, so an unlisted lookup cannot carry
+data out; the policy carries no `Rule.allowDns()` resolver rule, which would
+admit every name. The denied apex of a `*.` entry matches a connection only
+by a TLS SNI naming the apex or by an apex lookup the same rule refuses, so a
+listed subdomain that shares the apex's address stays reachable.
 
 ## What no provider here prevents
 

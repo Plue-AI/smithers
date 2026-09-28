@@ -11,9 +11,10 @@
  * the listed hosts: each entry is an exact DNS name such as
  * `registry.npmjs.org`, or `*.` followed by one, such as `*.npmjs.org`, which
  * matches every name below that suffix. List the suffix itself separately
- * when it must be reachable: Microsandbox denies it unless listed, and Vercel
- * and Daytona do not document either way. An empty list denies all egress,
- * DNS included.
+ * when it must be reachable: Microsandbox and Vercel deny it unless listed,
+ * and Daytona does not document either way. Microsandbox and Vercel answer
+ * DNS only for listed names, and an empty list denies all egress, DNS
+ * included; Daytona does not document its DNS handling.
  *
  * A provider enforces the policy with its own mechanism or refuses it when
  * `make` is called, before any machine exists; it never accepts a policy it
