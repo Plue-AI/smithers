@@ -145,7 +145,7 @@ its directory path below `root` or from the file's own `name` field.
 every scan. It does not suppress access failures or a non-directory root.
 Sources are required by default; declared pack roots remain required.
 `confinementRoot` bounds directories and selected entry files to that root
-when the host can resolve both real paths. `Pack.sources` sets it to the pack
+when the host can resolve the root's real path. `Pack.sources` sets it to the pack
 root; ordinary project sources leave it unset.
 
 ### Descriptor.Provenance and Descriptor.PackRef
@@ -205,7 +205,8 @@ verifies source bytes before returning a prompt or module locator, and
 or mismatch is `body_unavailable`; refresh the registry before loading it.
 
 `contentDigest` measures the ENTRY FILE. `imports` measures what that entry
-loads from beside itself: every module reached through a relative specifier,
+loads from beside itself: every module reached through a relative specifier
+(`import`, `export … from`, `import()`, `require()` or `import.meta.require()`),
 transitively, as a path relative to the entry's directory plus the digest of
 its bytes. The loader imports the verified entry bytes as a sibling of the
 original so those specifiers resolve to the live files, which makes them code
@@ -215,7 +216,8 @@ loads nothing beside itself, so such a module hashes exactly as it did before
 the field existed. Bare package specifiers are not measured: those resolve into
 installed code, which is the host's own. A `ModuleImport` with no
 `contentDigest` is a specifier discovery could not pin: one that resolves to no
-file, a module it could not read, an `import()` whose target is computed, or a
+file, a module it could not read, an `import()` or `require()` whose target is
+computed, a `createRequire(...)` loader, an absolute or `file:` specifier, or a
 closure past its bound. Its `path` then carries that reason instead of a
 location, and `Executable.fromDescriptor` refuses to run such a module.
 
@@ -392,9 +394,10 @@ visited-directory identity set, keyed on device and inode, stops cycles and
 aliases with a `symlink_cycle` warning, and a depth ceiling bounds hosts that
 cannot supply stable directory identities. When `confinementRoot` is set,
 discovery checks the source root, every descended directory, and every selected
-entry file before reading it. A real path outside the confinement root produces
-`outside_root` and is skipped. Both real paths must be available for this check;
-hosts that cannot answer `realPath` retain lexical manifest validation.
+entry file before reading it. A real path outside the confinement root, or one
+that cannot be resolved once the root resolves, produces `outside_root` and is
+skipped. Hosts that cannot resolve the confinement root retain lexical manifest
+validation.
 
 ### Discovery.make
 
@@ -1267,9 +1270,10 @@ The registry sources one pack contributes, in manifest order. Every `flows` and
 pack root. Discovery uses the same pipeline as project directories. `source`
 carries `pack:<name>`, which is what a warning about a pack file reads back.
 
-Lexical containment is always enforced. When both real paths are available,
-real-path containment also refuses symlink escapes; hosts that cannot answer
-`realPath`, and sources not created yet, use the lexical verdict. The defense
+Lexical containment is always enforced. When the pack root's real path
+resolves, a source must resolve inside it or not exist yet; any other
+`realPath` failure is refused. Hosts that cannot resolve the pack root use the
+lexical verdict. The defense
 is repeated here because callers may construct an `Installed` value without
 decoding a manifest first. Discovery repeats the real-path check for the
 source root, every descended directory, and every selected entry file. Nested

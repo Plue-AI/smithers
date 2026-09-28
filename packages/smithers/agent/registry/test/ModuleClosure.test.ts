@@ -103,6 +103,44 @@ describe("the specifiers a module states", () => {
     // module that asks where it lives.
     expect(ModuleClosure.specifiersOf(`export const here = import.meta.dirname`).opaque).toBe(0)
   })
+
+  it("reads require() like import(), and counts a computed or created require as opaque", () => {
+    expect(ModuleClosure.specifiersOf(`const { a } = require("./impl.ts")`).relative).toEqual(["./impl.ts"])
+    expect(ModuleClosure.specifiersOf(`const { a } = import.meta.require("./impl.ts")`).relative).toEqual([
+      "./impl.ts"
+    ])
+    expect(ModuleClosure.specifiersOf(`const m = require(name)`).opaque).toBe(1)
+    expect(
+      ModuleClosure.specifiersOf(
+        `import { createRequire } from "node:module"\ncreateRequire(import.meta.url)("./impl.ts")`
+      )
+        .opaque
+    ).toBeGreaterThan(0)
+    // `require.resolve` names a path without loading it.
+    expect(ModuleClosure.specifiersOf(`const p = require.resolve("./x.ts")`).opaque).toBe(0)
+  })
+
+  it("lists absolute and file: specifiers, which the pin does not follow", () => {
+    const found = ModuleClosure.specifiersOf(
+      [
+        `import { a } from "/workspace/repo/flows/echo/impl.ts"`,
+        `import "file:///workspace/repo/x.ts"`,
+        `const b = require("/abs/b.ts")`,
+        `export * from "C:/repo/c.ts"`,
+        `import { Effect } from "effect"`
+      ].join("\n")
+    )
+    expect(found.absolute).toEqual([
+      "/workspace/repo/flows/echo/impl.ts",
+      "file:///workspace/repo/x.ts",
+      "/abs/b.ts",
+      "C:/repo/c.ts"
+    ])
+    expect(found.relative).toEqual([])
+    // A specifier with a substitution names nothing the scan can list.
+    expect(ModuleClosure.specifiersOf("export * from `./${name}.ts`").absolute).toEqual([])
+    expect(ModuleClosure.specifiersOf(`import "\\\\host\\share\\x.ts"`).absolute).toHaveLength(1)
+  })
 })
 
 describe("resolving a specifier to a file", () => {
@@ -164,6 +202,20 @@ describe("resolving a specifier to a file", () => {
       // asked for from several places.
       expect(unpinned[0]!.path).toContain("present.ts")
       expect(unpinned[0]!.path).toContain("./absent.ts")
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("refuses to pin an entry that requires or absolutely imports a sibling", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "flow.ts": `const { suffix } = require("./impl.ts")\nimport { other } from "/elsewhere/impl.ts"`,
+        "impl.ts": `export const suffix = "-ok"`
+      })
+      const found = yield* walk(root, "flow.ts")
+      expect(found.find((entry) => entry.path === "impl.ts")?.contentDigest).toBeDefined()
+      const unpinned = found.filter((entry) => entry.contentDigest === undefined).map((entry) => entry.path)
+      expect(unpinned).toEqual([
+        `the entry imports "/elsewhere/impl.ts", an absolute specifier the pin does not follow`
+      ])
     }).pipe(Effect.scoped, Effect.provide(platform)))
 
   it.effect("records a computed import in the entry itself", () =>
@@ -309,7 +361,7 @@ describe("the walk", () => {
 
   it.effect("keeps a computed-import refusal when a real module has the same displayed path", () =>
     Effect.gen(function*() {
-      const collision = "the entry computes the target of 1 import() call(s)"
+      const collision = "the entry computes the target of 1 import() or require() call(s)"
       const source = "export const a = 1"
       const root = yield* tree({
         "flow.ts": `import "./${collision}"\nexport const load = (target) => import(target)`,

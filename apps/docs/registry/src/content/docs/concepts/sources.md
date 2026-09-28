@@ -101,13 +101,14 @@ serving reads.
 
 Discovery follows symbolic links wherever the host `FileSystem.stat` does,
 which is what the ordinary Node file system does. `Pack.sources` sets
-`confinementRoot` to the pack root. When the host can resolve both real paths,
-discovery skips a source root, descended directory, or selected entry file
-outside that root with `outside_root`, before reading its contents. Links
+`confinementRoot` to the pack root. When the host resolves that root's real
+path, discovery skips a source root, descended directory, or selected entry
+file whose real path is outside the root or cannot be resolved (a dangling,
+looping, or unreadable link) with `outside_root`, before reading its contents. Links
 within the pack remain eligible, including links outside the declared source
 directory but inside the pack. Ordinary project sources leave `confinementRoot`
-unset and retain unrestricted symlink traversal. Hosts that cannot answer
-`realPath` retain lexical manifest validation.
+unset and retain unrestricted symlink traversal. Hosts that cannot resolve the
+confinement root retain lexical manifest validation.
 
 Two guards bound the walk:
 

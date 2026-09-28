@@ -143,8 +143,9 @@ The check is repeated in `Pack.sources` because callers may construct an
 `Installed` value without decoding a manifest first. Nested directory links
 and symlinked `flow.ts`, `flow.mdx`, and `SKILL.md` files are checked, so an
 outside target contributes no descriptor for body loading or executable
-catalog import. Links within the pack remain eligible. Both real paths must
-be available; hosts that cannot answer `realPath` retain lexical manifest
+catalog import. Links within the pack remain eligible. Once the pack root's
+real path resolves, a target whose real path cannot be resolved is refused as
+well; hosts that cannot resolve the pack root retain lexical manifest
 validation. These checks apply during discovery. They do not sandbox module
 imports or protect against concurrent filesystem changes.
 

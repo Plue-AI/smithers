@@ -402,12 +402,13 @@ describe("pack discovery confinement", () => {
     expect(result.warnings).toEqual([expect.objectContaining({ code: "outside_root", path: "/pack/flows" })])
   })
 
-  it("allows the confinement root itself and hosts that cannot resolve an entry real path", async () => {
+  it("refuses an entry whose real path fails once the confinement root resolves", async () => {
     const nodes = tree(packTree({ dir: "/pack", manifest: localManifest, flows: { review: "Body" } }))
+    const reads: Array<string> = []
     const result = await Effect.runPromise(
       Effect.gen(function*() {
         const path = yield* Path.Path
-        const fs = virtualFileSystem(nodes)
+        const fs = virtualFileSystem(nodes, { readFile: reads })
         return yield* Discovery.make({
           ...fs,
           realPath: (location) =>
@@ -422,11 +423,86 @@ describe("pack discovery confinement", () => {
         }, path).scan({ source: "confined", root: "/pack", confinementRoot: "/pack", naming: "path" })
       }).pipe(Effect.provide(NodePath.layerPosix))
     )
-    expect(result.entries.map((entry) => entry.name)).toEqual(["flows/review"])
+    expect(result.entries).toEqual([])
     expect(result.warnings).toEqual([
-      expect.objectContaining({ code: "unprojectable_authority", path: "/pack/flows/review/flow.mdx" })
+      expect.objectContaining({ code: "outside_root", path: "/pack/flows/review/flow.mdx" })
     ])
+    expect(reads).not.toContain("/pack/flows/review/flow.mdx")
   })
+
+  it("refuses a descended directory whose real path fails once the confinement root resolves", async () => {
+    const nodes = tree(packTree({ dir: "/pack", manifest: localManifest, flows: { review: "Body" } }))
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const path = yield* Path.Path
+        const fs = virtualFileSystem(nodes)
+        return yield* Discovery.make({
+          ...fs,
+          realPath: (location) =>
+            location === "/pack/flows/review"
+              ? Effect.fail(PlatformError.systemError({
+                _tag: "Unknown",
+                module: "FileSystem",
+                method: "realPath",
+                pathOrDescriptor: location,
+                description: "ELOOP"
+              }))
+              : Effect.succeed(location)
+        }, path).scan({ source: "confined", root: "/pack", confinementRoot: "/pack", naming: "path" })
+      }).pipe(Effect.provide(NodePath.layerPosix))
+    )
+    expect(result.entries).toEqual([])
+    expect(result.warnings).toEqual([expect.objectContaining({ code: "outside_root", path: "/pack/flows/review" })])
+  })
+
+  it("keeps lexical confinement on hosts that cannot resolve the confinement root", async () => {
+    const nodes = tree(packTree({ dir: "/pack", manifest: localManifest, flows: { review: "Body" } }))
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const path = yield* Path.Path
+        return yield* Discovery.make(virtualFileSystem(nodes), path).scan({
+          source: "confined",
+          root: "/pack",
+          confinementRoot: "/pack",
+          naming: "path"
+        })
+      }).pipe(Effect.provide(NodePath.layerPosix))
+    )
+    expect(result.entries.map((entry) => entry.name)).toEqual(["flows/review"])
+  })
+
+  it.each(["NotFound", "Unknown", "PermissionDenied"] as const)(
+    "Pack.sources accepts only a not-yet-created source when its realPath fails with %s under a resolved root",
+    async (tag) => {
+      const nodes = tree(packTree({ dir: "/pack", manifest: localManifest, flows: { review: "Body" } }))
+      const outcome = await Effect.runPromise(
+        Effect.gen(function*() {
+          const path = yield* Path.Path
+          const fs = virtualFileSystem(nodes)
+          return yield* Pack.sources(installed("/pack", localManifest, "installed"), path).pipe(
+            Effect.provideService(FileSystem.FileSystem, {
+              ...fs,
+              realPath: (location) =>
+                location === "/pack"
+                  ? Effect.succeed(location)
+                  : Effect.fail(PlatformError.systemError({
+                    _tag: tag,
+                    module: "FileSystem",
+                    method: "realPath",
+                    pathOrDescriptor: location
+                  }))
+            }),
+            Effect.result
+          )
+        }).pipe(Effect.provide(NodePath.layerPosix))
+      )
+      if (tag === "NotFound") {
+        expect(outcome).toMatchObject({ _tag: "Success" })
+      } else {
+        expect(outcome).toMatchObject({ _tag: "Failure", failure: { code: "invalid_pack" } })
+      }
+    }
+  )
 
   it.each(
     [

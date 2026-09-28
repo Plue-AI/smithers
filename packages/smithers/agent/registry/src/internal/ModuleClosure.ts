@@ -86,9 +86,14 @@ const indexNames = ["index.ts", "index.tsx", "index.mts", "index.js", "index.mjs
 /**
  * What one module's source says it loads from beside itself.
  *
- * `opaque` counts the `import(...)` calls whose argument is not a literal. The
- * target of one is decided at run time, so no static walk can pin it, and a
- * module carrying one is reported as unpinnable rather than as pinned.
+ * `opaque` counts the loads whose target is not a literal: an `import(...)` or
+ * `require(...)` (including `import.meta.require(...)`) whose argument is
+ * computed, and every `createRequire(...)`, which returns a loader whose
+ * calls this scan cannot follow. The target of one is decided at run time, so
+ * no static walk can pin it, and a module carrying one is reported as
+ * unpinnable rather than as pinned. `absolute` lists the literal specifiers
+ * that name a file by absolute path or `file:` URL; the pin records paths
+ * relative to the entry and does not follow them, so they are unpinnable too.
  *
  * @category parsing
  * @since 1.0.0-rc.0
@@ -97,26 +102,37 @@ const indexNames = ["index.ts", "index.tsx", "index.mts", "index.js", "index.mjs
 export const specifiersOf = (source: string): {
   readonly relative: ReadonlyArray<string>
   readonly opaque: number
+  readonly absolute: ReadonlyArray<string>
 } => {
   const tokens = tokenize(source)
   const relative: Array<string> = []
+  const absolute: Array<string> = []
   let opaque = 0
+  const record = (literal: string | undefined) => {
+    if (literal === undefined) return
+    if (literal.startsWith("./") || literal.startsWith("../")) relative.push(literal)
+    else if (isAbsoluteSpecifier(literal)) absolute.push(literal)
+  }
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!
     if (token.kind !== "identifier") continue
-    if (token.value === "import" && tokens[index + 1]?.value === "(") {
+    if (token.value === "createRequire" && tokens[index + 1]?.value === "(") {
+      opaque++
+      continue
+    }
+    if ((token.value === "import" || token.value === "require") && tokens[index + 1]?.value === "(") {
       const argument = tokens[index + 2]
-      // `import("./x.ts")` names its target; `import(name)` does not, and
-      // neither does a template with a substitution in it.
+      // `import("./x.ts")` and `require("./x.ts")` name their target;
+      // `import(name)` does not, and neither does a template with a
+      // substitution in it.
       const literal = argument?.kind === "string" ? stringLiteral(argument.value) : undefined
       if (literal === undefined || tokens[index + 3]?.value !== ")") opaque++
-      else if (literal.startsWith("./") || literal.startsWith("../")) relative.push(literal)
+      else record(literal)
       continue
     }
     // `import "./side-effect.ts"`, which names no bindings and so has no `from`.
     if (token.value === "import" && tokens[index + 1]?.kind === "string") {
-      const literal = stringLiteral(tokens[index + 1]!.value)
-      if (literal !== undefined && (literal.startsWith("./") || literal.startsWith("../"))) relative.push(literal)
+      record(stringLiteral(tokens[index + 1]!.value))
       continue
     }
     // Every other module specifier — `import … from "x"`, `export … from "x"`,
@@ -125,12 +141,16 @@ export const specifiersOf = (source: string): {
     // module: an object key is `from:`, an argument is `from,`, an assignment
     // is `from =`.
     if (token.value === "from" && tokens[index + 1]?.kind === "string") {
-      const literal = stringLiteral(tokens[index + 1]!.value)
-      if (literal !== undefined && (literal.startsWith("./") || literal.startsWith("../"))) relative.push(literal)
+      record(stringLiteral(tokens[index + 1]!.value))
     }
   }
-  return { relative, opaque }
+  return { relative, opaque, absolute }
 }
+
+/** A specifier naming a file by absolute path or URL rather than beside the importer. */
+const isAbsoluteSpecifier = (specifier: string): boolean =>
+  specifier.startsWith("/") || specifier.startsWith("\\") || /^file:/i.test(specifier) ||
+  /^[A-Za-z]:[\\/]/.test(specifier)
 
 /** A POSIX-separated path from `fromDirectory` to `target`, for the record. */
 const relativePath = (path: Path.Path, fromDirectory: string, target: string): string =>
@@ -184,7 +204,12 @@ const resolve = (
  * @private
  */
 export interface Cache {
-  readonly files: Map<string, { readonly contentDigest: string; readonly specifiers: ReadonlyArray<string> }>
+  readonly files: Map<string, {
+    readonly contentDigest: string
+    readonly specifiers: ReadonlyArray<string>
+    readonly opaque: number
+    readonly absolute: ReadonlyArray<string>
+  }>
 }
 
 /**
@@ -238,10 +263,25 @@ export const collect = (
     const enqueue = (from: string, directory: string, specifiers: ReadonlyArray<string>) => {
       for (const specifier of specifiers) pending.push({ from, directory, specifier })
     }
-    const { opaque, relative } = specifiersOf(entrySource)
-    if (opaque > 0) {
-      found.set(normalizedEntryPath, unpinnable(`the entry computes the target of ${opaque} import() call(s)`))
+    const reportOpaque = (importer: string, count: number) => {
+      if (count === 0) return
+      const description = `${importer} computes the target of ${count} import() or require() call(s)`
+      found.set(description, unpinnable(description))
     }
+    const reportAbsolute = (importer: string, specifiers: ReadonlyArray<string>) => {
+      for (const specifier of specifiers) {
+        const description = `${importer} imports "${specifier}", an absolute specifier the pin does not follow`
+        found.set(description, unpinnable(description))
+      }
+    }
+    const { absolute, opaque, relative } = specifiersOf(entrySource)
+    if (opaque > 0) {
+      found.set(
+        normalizedEntryPath,
+        unpinnable(`the entry computes the target of ${opaque} import() or require() call(s)`)
+      )
+    }
+    reportAbsolute("the entry", absolute)
     enqueue(normalizedEntryPath, entryDirectory, relative)
 
     while (pending.length > 0) {
@@ -266,6 +306,8 @@ export const collect = (
       const cached = memo.files.get(resolved)
       if (cached !== undefined) {
         found.set(recorded, { path: recorded, contentDigest: cached.contentDigest })
+        reportOpaque(`"${recorded}"`, cached.opaque)
+        reportAbsolute(`"${recorded}"`, cached.absolute)
         enqueue(resolved, path.dirname(resolved), cached.specifiers)
         continue
       }
@@ -283,11 +325,14 @@ export const collect = (
       }
       const contentDigest = Digest.digest(read.success)
       const specifiers = specifiersOf(new TextDecoder().decode(read.success))
-      if (specifiers.opaque > 0) {
-        const description = `"${recorded}" computes the target of ${specifiers.opaque} import() call(s)`
-        found.set(description, unpinnable(description))
-      }
-      memo.files.set(resolved, { contentDigest, specifiers: specifiers.relative })
+      reportOpaque(`"${recorded}"`, specifiers.opaque)
+      reportAbsolute(`"${recorded}"`, specifiers.absolute)
+      memo.files.set(resolved, {
+        contentDigest,
+        specifiers: specifiers.relative,
+        opaque: specifiers.opaque,
+        absolute: specifiers.absolute
+      })
       found.set(recorded, { path: recorded, contentDigest })
       enqueue(resolved, path.dirname(resolved), specifiers.relative)
     }

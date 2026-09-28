@@ -5,7 +5,7 @@
  * https://smithers.sh/docs/reference/api/registry.
  *
  * Discovery follows symbolic links when the host `FileSystem.stat` does,
- * confined to `Source.confinementRoot` when real paths are available. A
+ * confined to `Source.confinementRoot` when the root's real path resolves. A
  * visited-directory identity set stops cycles and aliases, while a 32-segment
  * depth ceiling bounds hosts that cannot supply stable directory identities.
  *
@@ -224,10 +224,23 @@ export const make = (fs: FileSystem.FileSystem, path: Path.Path): Discovery =>
         const realRoot = source.confinementRoot === undefined
           ? undefined
           : yield* Effect.result(fs.realPath(source.confinementRoot))
+        // A root that will not resolve means the host cannot answer
+        // `realPath`, so the pack keeps its lexical verdict. Once the root
+        // resolves, the host can answer, and a candidate it cannot resolve is
+        // refused: a dangling, looping, or racing link is never confined.
         const withinRoot = Effect.fnUntraced(function*(location: string) {
           if (realRoot === undefined || Result.isFailure(realRoot)) return true
           const realLocation = yield* Effect.result(fs.realPath(location))
-          if (Result.isFailure(realLocation)) return true
+          if (Result.isFailure(realLocation)) {
+            warnings.push(warning(
+              "outside_root",
+              location,
+              `Path "${location}" could not be resolved inside confinement root "${realRoot.success}"`,
+              undefined,
+              realLocation.failure
+            ))
+            return false
+          }
           const root = path.resolve(realRoot.success)
           const candidate = path.resolve(realLocation.success)
           if (candidate !== root && !candidate.startsWith(path.join(root, path.sep))) {
