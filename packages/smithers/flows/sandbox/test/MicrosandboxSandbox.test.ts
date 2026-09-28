@@ -993,8 +993,12 @@ describe("MicrosandboxSandbox", () => {
         defaultEgress: "deny",
         defaultIngress: "deny",
         rules: [
-          { ...allow({ kind: "any" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
+          // DNS reaches only the host resolver, matching the vendor's `Rule.allowDns()`.
+          { ...allow({ kind: "group", group: "host" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
           allow({ kind: "domain", domain: "registry.npmjs.org" }),
+          // A vendor domain-suffix rule matches the apex and every name below
+          // it (microsandbox 0.6.16 typings), so `*.github.com` admits
+          // `github.com` too, as NetworkPolicy documents.
           allow({ kind: "domainSuffix", suffix: "github.com" })
         ]
       }

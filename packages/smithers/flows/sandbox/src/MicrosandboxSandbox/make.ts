@@ -134,8 +134,8 @@ export interface MicrosandboxSandboxOptions {
   readonly detached?: boolean | undefined
   /**
    * The guest network. `"none"` boots without networking; `{ allow }` denies
-   * ingress and all egress but DNS and the listed hosts. Default: the
-   * vendor's own policy. Exclusive with `networkPolicy`.
+   * ingress and all egress but DNS to the host resolver and the listed hosts;
+   * a `*.` entry also admits its apex. Default: the vendor's own policy. Exclusive with `networkPolicy`.
    */
   readonly network?: GuestNetworkPolicy | undefined
   /**
@@ -245,8 +245,10 @@ const guestNetwork = (options: MicrosandboxSandboxOptions): GuestNetwork => {
     defaultEgress: "deny",
     defaultIngress: "deny",
     rules: [
-      // Resolving an allowed name needs DNS.
-      { ...egress({ kind: "any" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
+      // Resolving an allowed name needs DNS, and only the host resolver
+      // answers it: the vendor's own `Rule.allowDns()` shape. DNS to any other
+      // resolver stays denied, so it cannot carry data out.
+      { ...egress({ kind: "group", group: "host" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
       ...network.allow.map((host) =>
         egress(
           host.startsWith("*.")
