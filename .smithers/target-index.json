@@ -15109,6 +15109,35 @@
     }
   },
   {
+    "label": "//apps/site:sameOriginUrlTest",
+    "package": "apps/site",
+    "name": "sameOriginUrlTest",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/same-origin-url.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/lib/sameOriginUrl.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/pages/index.astro"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/site/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/site:security",
     "package": "apps/site",
     "name": "security",
@@ -16877,6 +16906,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/src/WebUrl.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/src/WorkerControls.ts"
       },
       {
@@ -17978,6 +18011,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/src/QuotaPolicy.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/src/RunawayGuard.ts"
       },
       {
         "kind": "file",
@@ -19297,6 +19334,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/create-app/src/http.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/create-app/src/index.ts"
       },
       {
@@ -19550,6 +19591,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/capability/src/internal/displayField.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/capability/src/internal/hasDotSegment.ts"
       },
       {
         "kind": "file",
@@ -23133,6 +23178,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/ui/src/internal/safeImageSrc.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/ui/src/internal/useCopyFeedback.ts"
       },
       {
@@ -24300,6 +24349,10 @@
       },
       {
         "kind": "file",
+        "path": "evals/authoring/validate.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "evals/authoring/tsconfig.json"
       }
     ],
@@ -24348,6 +24401,7 @@
         "base": "origin/main",
         "paths": [
           "evals/authoring/validate.ts",
+          "evals/authoring/validate.test.ts",
           "evals/authoring/PACKAGE.ts",
           "evals/authoring/README.md",
           "evals/authoring/data/**"
@@ -24356,6 +24410,11 @@
       {
         "kind": "glob",
         "pattern": "evals/authoring/validate.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/authoring/validate.test.ts",
         "exclude": []
       },
       {
@@ -24396,6 +24455,7 @@
         "base": "HEAD",
         "paths": [
           "evals/authoring/validate.ts",
+          "evals/authoring/validate.test.ts",
           "evals/authoring/PACKAGE.ts",
           "evals/authoring/README.md",
           "evals/authoring/data/**"
@@ -24404,6 +24464,11 @@
       {
         "kind": "glob",
         "pattern": "evals/authoring/validate.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/authoring/validate.test.ts",
         "exclude": []
       },
       {
@@ -24477,6 +24542,39 @@
       {
         "kind": "file",
         "path": "evals/authoring/validate.ts"
+      },
+      {
+        "kind": "file",
+        "path": "evals/authoring/data/pilot-sft.jsonl"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "evals/authoring/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//evals/authoring:validatorTest",
+    "package": "evals/authoring",
+    "name": "validatorTest",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "evals/authoring/validate.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "evals/authoring/validate.ts"
+      },
+      {
+        "kind": "file",
+        "path": "evals/authoring/validate.test.ts"
       },
       {
         "kind": "file",
@@ -26002,6 +26100,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/coding/wiki-output.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/release-support/runtime.ts"
       }
     ],
@@ -26430,6 +26532,10 @@
       {
         "kind": "file",
         "path": "flows/coding/schema.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/wiki-output.ts"
       },
       {
         "kind": "file",
@@ -26919,6 +27025,10 @@
       {
         "kind": "file",
         "path": "flows/coding/schema.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/wiki-output.ts"
       },
       {
         "kind": "file",
@@ -29177,6 +29287,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/release-redaction.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/publication.test.ts"
       },
       {
@@ -29253,6 +29367,10 @@
         "kind": "glob",
         "pattern": "packages/errors/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/errors/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -29956,6 +30074,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/chain/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -30301,6 +30423,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/evals/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -30620,6 +30746,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/agent/fs/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/fs/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -30984,6 +31114,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/harness-detect/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -31305,6 +31439,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/harness/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -31624,6 +31762,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/agent/integrations/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/integrations/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -31955,6 +32097,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/memory/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -32284,6 +32430,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/model-host/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -32583,6 +32733,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/agent/model/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/model/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -32930,6 +33084,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/plugin/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -33261,6 +33419,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/registry/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -33580,6 +33742,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/agent/scorers/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/scorers/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -33911,6 +34077,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/agent/std/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -34230,6 +34400,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/agent/triggers/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/triggers/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -34559,6 +34733,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/agent/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -36330,6 +36508,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/build/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -36782,6 +36964,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/control/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -37109,6 +37295,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/create-app/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/create-app/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -37550,6 +37740,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/artifacts/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -37924,6 +38118,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/canonical/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/canonical/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -38301,6 +38499,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/capability/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -38620,6 +38822,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/core/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/core/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -38974,6 +39180,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/crypto/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -39317,6 +39527,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/database/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/database/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -39734,6 +39948,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/engine-store/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/engine-store/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -40167,6 +40385,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/engine/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/engine/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -41078,6 +41300,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/jj/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -41437,6 +41663,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/journal/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/journal/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -41810,6 +42040,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/kernel/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -42160,6 +42394,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/keys/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/keys/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -42531,6 +42769,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/observability/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -42876,6 +43118,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/patterns/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -43207,6 +43453,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/plan-store/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -43534,6 +43784,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/plan/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/plan/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -43886,6 +44140,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/platform-browser/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-browser/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -44242,6 +44500,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/platform-bun/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-bun/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -44601,6 +44863,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-node/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -44920,6 +45186,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/run-store/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/run-store/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -45312,6 +45582,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -45631,6 +45905,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/step-cache/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/step-cache/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -46016,6 +46294,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/sync/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -46335,6 +46617,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/time-travel/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/time-travel/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -46696,6 +46982,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/flows/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -47041,6 +47331,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/gateway/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -47372,6 +47666,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/mcp/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/mcp/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -47719,6 +48017,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/migrate/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -48038,6 +48340,10 @@
         "kind": "glob",
         "pattern": "packages/smithers/notifications/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/notifications/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -48834,6 +49140,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smithers/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -49262,6 +49572,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "packages/smthrs-deprecation/tsconfig.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
@@ -49617,6 +49931,10 @@
         "kind": "glob",
         "pattern": "packages/testing/test/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/testing/tsconfig.json"
       },
       {
         "kind": "glob",
@@ -50857,7 +51175,7 @@
     "kinds": [
       "test"
     ],
-    "summary": "GitHub triage publishes only validated labels and useful fallback requests.",
+    "summary": "GitHub triage publishes only validated labels and mention-free comments to the event's own issue, updating only its own comment.",
     "featured": true,
     "cacheable": false,
     "inputs": [
