@@ -2,8 +2,36 @@
  * `parseSmithersCloudRemote` over every remote spelling git writes into
  * `.git/config`: URL forms, and SCP-style forms with and without a username.
  */
-import { describe, expect, it } from "vitest"
-import { parseSmithersCloudRemote, withheldEnvironment } from "../src/Workspace.ts"
+import * as RemoteCache from "@smthrs/targets/RemoteCache"
+import * as Secret from "@smthrs/targets/Secret"
+import * as Fs from "node:fs/promises"
+import * as Os from "node:os"
+import * as NodePath from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+import {
+  discoverSmithersCloudRepository,
+  normalizeOverrideEndpoint,
+  parseSmithersCloudRemote,
+  remoteCacheOf,
+  smithersCloudCacheEndpoint,
+  withheldEnvironment
+} from "../src/Workspace.ts"
+
+const roots: Array<string> = []
+const temporaryRoot = async (): Promise<string> => {
+  const root = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smithers-workspace-remote-"))
+  roots.push(root)
+  return root
+}
+const config = async (root: string, path: string, contents: string): Promise<void> => {
+  const file = NodePath.join(root, path)
+  await Fs.mkdir(NodePath.dirname(file), { recursive: true })
+  await Fs.writeFile(file, contents)
+}
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => Fs.rm(root, { recursive: true, force: true })))
+})
 
 describe("parseSmithersCloudRemote", () => {
   it("reads the same repository from every spelling of one remote", () => {
@@ -47,6 +75,177 @@ describe("parseSmithersCloudRemote", () => {
     expect(parseSmithersCloudRemote("jjhub.tech:alice/team/repo.git")).toBeUndefined()
     expect(parseSmithersCloudRemote("https://jjhub.tech/alice")).toBeUndefined()
     expect(parseSmithersCloudRemote("not a remote")).toBeUndefined()
+  })
+
+  it("rejects lookalike hosts, malformed paths, and non-repository URL forms", () => {
+    for (
+      const remote of [
+        "https://jjhub.tech.evil.example/alice/repo.git",
+        "https://jjhub.tech/alice/repo.git/extra",
+        "https://jjhub.tech//repo.git",
+        "https://jjhub.tech/alice/",
+        "file:///alice/repo.git",
+        "git@jjhub.tech:alice/team/repo.git"
+      ]
+    ) {
+      expect(parseSmithersCloudRemote(remote), remote).toBeUndefined()
+    }
+  })
+})
+
+describe("discoverSmithersCloudRepository", () => {
+  it("prioritizes origin within .git/config and that config over the jj backend", async () => {
+    const root = await temporaryRoot()
+    await config(
+      root,
+      ".git/config",
+      [
+        "[remote \"backup\"]",
+        "  url = git@jjhub.tech:backup/repo.git",
+        "[remote \"origin\"]",
+        "  url = https://jjhub.tech/alice/main.git",
+        "[remote \"other\"]",
+        "  url = git@jjhub.tech:other/repo.git"
+      ].join("\n")
+    )
+    await config(root, ".jj/repo/store/git/config", "[remote \"origin\"]\nurl = git@jjhub.tech:jj/repo.git\n")
+    expect(await discoverSmithersCloudRepository(root, {})).toEqual({ repo: "alice/main", host: "jjhub.tech" })
+  })
+
+  it("falls back from an unrelated origin to another remote and then the jj backend", async () => {
+    const root = await temporaryRoot()
+    const unrelatedOrigin = "[remote \"origin\"]\nurl = https://github.com/alice/elsewhere.git\n"
+    await config(
+      root,
+      ".git/config",
+      `${unrelatedOrigin}[remote "backup"]\nurl = git@jjhub.tech:backup/work.git\n`
+    )
+    await config(
+      root,
+      ".jj/repo/store/git/config",
+      [
+        "[remote \"mirror\"]",
+        "url = git@GIT.EXAMPLE.TEST:team/work.git",
+        "[core]",
+        "repositoryformatversion = 0",
+        "[remote \"broken\"]",
+        "url = not a remote"
+      ].join("\n")
+    )
+    const environment = { SMITHERS_CLOUD_HOSTS: " git.example.test, " }
+    expect(await discoverSmithersCloudRepository(root, environment))
+      .toEqual({ repo: "backup/work", host: "jjhub.tech" })
+    await config(root, ".git/config", unrelatedOrigin)
+    expect(await discoverSmithersCloudRepository(root, environment))
+      .toEqual({ repo: "team/work", host: "git.example.test" })
+  })
+
+  it("ignores missing, non-file, and symlink config inputs", async () => {
+    const root = await temporaryRoot()
+    expect(await discoverSmithersCloudRepository(root, {})).toBeUndefined()
+    await Fs.mkdir(NodePath.join(root, ".git", "config"), { recursive: true })
+    expect(await discoverSmithersCloudRepository(root, {})).toBeUndefined()
+    await Fs.rm(NodePath.join(root, ".git", "config"), { recursive: true })
+    await config(root, "secret-config", "[remote \"origin\"]\nurl = git@jjhub.tech:secret/repo.git\n")
+    await Fs.symlink(NodePath.join(root, "secret-config"), NodePath.join(root, ".git", "config"))
+    expect(await discoverSmithersCloudRepository(root, {})).toBeUndefined()
+  })
+
+  it("accepts a valid config at 256 KiB and rejects the next byte", async () => {
+    const root = await temporaryRoot()
+    const remote = "[remote \"origin\"]\nurl = git@jjhub.tech:exact/cap.git\n"
+    const maximum = 256 * 1024
+    const exact = `${remote}#${"x".repeat(maximum - Buffer.byteLength(remote) - 2)}\n`
+    expect(Buffer.byteLength(exact)).toBe(maximum)
+    await config(root, ".git/config", exact)
+    expect(await discoverSmithersCloudRepository(root, {})).toEqual({ repo: "exact/cap", host: "jjhub.tech" })
+    await config(root, ".git/config", `${exact}x`)
+    expect(await discoverSmithersCloudRepository(root, {})).toBeUndefined()
+  })
+})
+
+describe("remote cache endpoint resolution", () => {
+  it("normalizes local HTTP overrides and preserves declared split credentials", () => {
+    const declaration = RemoteCache.make({
+      endpoint: "https://cache.example.test/base/",
+      read: Secret.Secret("CACHE_READ"),
+      write: Secret.Secret("CACHE_WRITE")
+    })
+    expect(remoteCacheOf(declaration, " http://127.0.0.1:8080/cache/ ")).toEqual({
+      endpoint: "http://127.0.0.1:8080/cache",
+      credentials: { _tag: "split", readTokenEnv: "CACHE_READ", writeTokenEnv: "CACHE_WRITE" }
+    })
+    expect(remoteCacheOf(declaration, "  ")).toEqual({
+      endpoint: "https://cache.example.test/base",
+      credentials: { _tag: "split", readTokenEnv: "CACHE_READ", writeTokenEnv: "CACHE_WRITE" }
+    })
+    expect(remoteCacheOf(undefined, "  ")).toBeUndefined()
+    expect(() => remoteCacheOf(declaration, "http://cache.example.test/override"))
+      .toThrow("remote cache endpoint must use HTTPS")
+  })
+
+  it("keeps shared, public-read, and undeclared credential contracts across endpoint overrides", () => {
+    const shared = RemoteCache.make({
+      endpoint: "https://cache.example.test/shared",
+      token: Secret.Secret("SHARED_TOKEN")
+    })
+    const publicReadToken = `smithers_cachero_${"a".repeat(40)}`
+    const publicWithWrite = RemoteCache.make({
+      endpoint: "https://cache.example.test/public",
+      publicReadToken,
+      write: Secret.Secret("WRITE_TOKEN")
+    })
+    const publicWithDefaultWrite = RemoteCache.make({
+      endpoint: "https://cache.example.test/public-default",
+      publicReadToken
+    })
+    expect(remoteCacheOf(shared, "https://staging.example.test/cache/")).toEqual({
+      endpoint: "https://staging.example.test/cache",
+      credentials: { _tag: "shared", tokenEnv: "SHARED_TOKEN" }
+    })
+    expect(remoteCacheOf(publicWithWrite, "https://staging.example.test/cache")).toEqual({
+      endpoint: "https://staging.example.test/cache",
+      credentials: { _tag: "public", publicReadToken, writeTokenEnv: "WRITE_TOKEN" }
+    })
+    expect(remoteCacheOf(publicWithDefaultWrite)).toEqual({
+      endpoint: "https://cache.example.test/public-default",
+      credentials: { _tag: "public", publicReadToken, writeTokenEnv: "SMITHERS_CACHE_TOKEN" }
+    })
+    expect(remoteCacheOf(undefined, "https://override.example.test/cache")).toEqual({
+      endpoint: "https://override.example.test/cache",
+      credentials: { _tag: "shared", tokenEnv: "SMITHERS_CACHE_TOKEN" }
+    })
+  })
+
+  it("supports IPv6 loopback but refuses network HTTP and secret-bearing overrides without echoing input", () => {
+    expect(normalizeOverrideEndpoint("http://[::1]:8080/cache/")).toBe("http://[::1]:8080/cache")
+    const secret = "never-log-this-credential"
+    for (
+      const [value, message] of [
+        [`not-an-endpoint-${secret}`, "remote cache endpoint must be an absolute HTTPS URL"],
+        ["http://cache.example.test/cache", "remote cache endpoint must use HTTPS"],
+        [`http://user:${secret}@localhost:8080/cache`, "remote cache endpoint must not contain credentials"],
+        [`http://localhost:8080/cache?token=${secret}`, "remote cache endpoint must not contain a query or fragment"],
+        ["http://localhost:8080/cache#fragment", "remote cache endpoint must not contain a query or fragment"]
+      ] as const
+    ) {
+      let error: unknown
+      try {
+        normalizeOverrideEndpoint(value)
+      } catch (cause) {
+        error = cause
+      }
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe(message)
+      expect(String(error)).not.toContain(secret)
+    }
+  })
+
+  it("escapes Cloud repository components and honors an explicit HTTPS API base", () => {
+    expect(smithersCloudCacheEndpoint("a b/repo#1", { SMITHERS_CLOUD_API_URL: "https://api.example.test/base/" }))
+      .toBe("https://api.example.test/base/api/repos/a%20b/repo%231/build-cache")
+    expect(smithersCloudCacheEndpoint("alice/repo", {}))
+      .toBe("https://api.jjhub.tech/api/repos/alice/repo/build-cache")
   })
 })
 

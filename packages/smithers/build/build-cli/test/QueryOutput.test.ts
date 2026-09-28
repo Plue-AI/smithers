@@ -57,6 +57,71 @@ describe("Query.text", () => {
     expect(Query.text({ query: "//nope", targets: [] })).toBe("no targets match //nope")
   })
 
+  it.each(
+    [
+      [[], "//:root is depended on by 0 targets"],
+      [["//:one"], "//:root is depended on by 1 target\n  //:one"],
+      [["//:second", "//:first"], "//:root is depended on by 2 targets\n  //:second\n  //:first"]
+    ] as const
+  )("renders reverse dependencies %j without changing their order", (dependents, expected) => {
+    const result: Query.Dependents = { query: "rdeps(//:root)", root: "//:root", dependents }
+    const before = structuredClone(result)
+    expect(Query.text(result)).toBe(expected)
+    expect(Ansi.strip(Query.text(result, Ansi.colors))).toBe(expected)
+    expect(result).toEqual(before)
+  })
+
+  it.each(
+    [
+      [[], [], "//app agents: inherit\n  no owners"],
+      [[], ["//core", "//ui"], "//app agents: inherit\n  no owners\ndepends on //core //ui"],
+      [
+        [{ owner: "alice", role: "maintainer", reasons: ["declared", "parent"] }],
+        [],
+        "//app agents: inherit\n  alice                     maintainer  declared, parent"
+      ],
+      [
+        [
+          { owner: "alice", role: "maintainer", reasons: ["declared", "parent"] },
+          { owner: "an-owner-name-beyond-width", role: "reviewer", reasons: [] }
+        ],
+        ["//core"],
+        "//app agents: inherit\n  alice                     maintainer  declared, parent\n  an-owner-name-beyond-width  reviewer  \ndepends on //core"
+      ]
+    ] as const
+  )("renders owners %j and upstream %j", (owners, upstream, expected) => {
+    const result: Query.PackageOwners = {
+      query: "owners(//app:build)",
+      package: "//app",
+      agentPolicy: "inherit",
+      owners,
+      upstream
+    }
+    const before = structuredClone(result)
+    expect(Query.text(result)).toBe(expected)
+    expect(Ansi.strip(Query.text(result, Ansi.colors))).toBe(expected)
+    expect(result).toEqual(before)
+  })
+
+  it("applies the selected palette to ownership headings, reasons and upstream", () => {
+    const style: Ansi.Palette = {
+      ...Ansi.none,
+      bold: (value) => `<bold>${value}</bold>`,
+      dim: (value) => `<dim>${value}</dim>`
+    }
+    expect(Query.text({
+      query: "owners(//app:build)",
+      package: "//app",
+      owners: [{ owner: "alice", role: "maintainer", reasons: ["declared"] }],
+      agentPolicy: "restricted",
+      upstream: ["//core"]
+    }, style)).toBe([
+      "<bold>//app</bold> <dim>agents: restricted</dim>",
+      "  alice                     maintainer  <dim>declared</dim>",
+      "<dim>depends on //core</dim>"
+    ].join("\n"))
+  })
+
   it("renders deps() as the root over its closure", () => {
     const rendered = Query.text({
       query: "deps(//src:build)",

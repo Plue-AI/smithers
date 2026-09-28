@@ -117,6 +117,54 @@ describe("Positionals.surplus", () => {
     expect(Positionals.surplus(cli, ["graph", "//a", "//b"], ["graph"])).toEqual(["//b"])
     expect(Positionals.surplus(cli, ["--mcp", "graph", "//a", "//b"], ["graph"])).toBeUndefined()
   })
+
+  it("ignores built-in switches and their values without losing surplus command words", () => {
+    const cli = makeCli({ presentation: executionPresentation })
+    for (
+      const argv of [
+        ["--json", "graph", "//a", "//b"],
+        ["graph", "//a", "--full-output", "//b"],
+        ["--llms", "graph", "//a", "//b"],
+        ["--llms-full", "graph", "//a", "//b"],
+        ["--help", "graph", "//a", "//b"],
+        ["-h", "graph", "//a", "//b"],
+        ["--update", "graph", "//a", "//b"],
+        ["--incur-update-check", "graph", "//a", "//b"],
+        ["--schema", "graph", "//a", "//b"],
+        ["--token-count", "graph", "//a", "//b"],
+        ["--format", "json", "graph", "//a", "//b"],
+        ["graph", "//a", "--filter-output", "payload", "//b"],
+        ["--token-limit", "100", "graph", "//a", "//b"],
+        ["graph", "//a", "--token-offset", "4", "//b"]
+      ]
+    ) {
+      expect(Positionals.surplus(cli, argv, ["graph"]), argv.join(" ")).toEqual(["//b"])
+    }
+    expect(Positionals.surplus(cli, ["graph", "//a", "//b", "--version"], ["graph"]))
+      .toEqual(["//b"])
+    expect(Positionals.surplus(cli, ["graph", "//a", "//b", "--version", "--json"], ["graph"]))
+      .toEqual(["//b"])
+  })
+
+  it("resolves aliases and nested commands and leaves unknown commands to incur", () => {
+    const cli = makeCli({ presentation: executionPresentation })
+    expect(Positionals.surplus(cli, ["gitHooks", "extra"], ["gitHooks"])).toEqual(["extra"])
+    expect(Positionals.surplus(cli, ["show", "target", "//:good", "extra"], ["show", "target"]))
+      .toEqual(["extra"])
+    expect(Positionals.surplus(cli, ["show", "extra"], ["show"])).toBeUndefined()
+    expect(Positionals.surplus(cli, ["missing", "extra"], ["missing"])).toBeUndefined()
+  })
+
+  it("excludes global option values before counting command arguments", () => {
+    const cli = makeCli({ presentation: executionPresentation })
+    const globals = z.object({ audience: z.enum(["human", "agent"]), silent: z.boolean().default(false) })
+    expect(Positionals.surplus(
+      cli,
+      ["--audience", "agent", "graph", "//a", "--silent", "//b"],
+      ["graph"],
+      globals
+    )).toEqual(["//b"])
+  })
 })
 
 describe("Positionals.unconsumed", () => {
@@ -138,6 +186,22 @@ describe("Positionals.unconsumed", () => {
   it("leaves tokens that do not parse to incur", () => {
     expect(Positionals.unconsumed(command, ["//a", "//b", "--unknown"])).toBeUndefined()
   })
+
+  it("treats an optional trailing array as consuming every remaining positional", () => {
+    const many = { args: z.object({ patterns: z.array(z.string()).optional() }) }
+    expect(Positionals.unconsumed(many, ["//a", "//b", "//c"])).toEqual([])
+    expect(Positionals.unconsumed({ args: z.object({}) }, ["//a", "//b"])).toEqual(["//a", "//b"])
+    expect(Positionals.unconsumed({ args: z.object({}) }, [])).toEqual([])
+  })
+
+  it("retains a count option's flag shape while checking for extra positionals", () => {
+    const counted = {
+      args: z.object({ label: z.string() }),
+      options: z.object({ verbosity: z.number().meta({ count: true }) }),
+      alias: { verbosity: "v" }
+    }
+    expect(Positionals.unconsumed(counted, ["//a", "//b", "-v", "-v"])).toEqual(["//b"])
+  })
 })
 
 describe("the served CLI", () => {
@@ -152,5 +216,24 @@ describe("the served CLI", () => {
     const { exitCode, output } = await serve(root, ["--silent", "info", "extra"])
     expect(exitCode).toBe(1)
     expect(output).toContain("Unexpected argument: extra")
+  })
+})
+
+describe("HTTP command requests", () => {
+  it("accepts named parameters without a served argv and runs the guarded command once", async () => {
+    let calls = 0
+    const cli = Positionals.guard(
+      Incur.create("probe").command("ping", {
+        options: z.object({ value: z.string() }),
+        run: (context) => {
+          calls++
+          return { echoed: context.options.value }
+        }
+      })
+    )
+    const response = await cli.fetch(new Request("http://localhost/ping?value=hello"))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, data: { echoed: "hello" } })
+    expect(calls).toBe(1)
   })
 })

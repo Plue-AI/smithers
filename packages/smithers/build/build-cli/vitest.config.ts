@@ -51,6 +51,7 @@ export default defineConfig({
         // 89.62/89.80/72.22/94.74 coverage. Planner and adapters are complete.
         "src/FetchExec.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/internal/CoreRuleSelection.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/Query.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/internal/rules/FetchPlan.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/internal/rules/FetchRule.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/internal/rules/FetchExecutor.ts": { statements: 90, branches: 90, functions: 73, lines: 95 }
