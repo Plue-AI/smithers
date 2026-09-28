@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import type { PlatformError } from "effect/PlatformError"
+import { execFileSync } from "node:child_process"
 import * as fsModule from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -246,6 +247,41 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
         expect(read(host, unicode)).toBe("unicode v2\n")
       }), { timeout })
   })
+
+  it.effect.skipIf(process.platform === "win32")(
+    "emits a git-applicable diff for newline, tab, backslash, and quote filenames",
+    () =>
+      Effect.gen(function*() {
+        const host = freshHost()
+        const applied = fsModule.mkdtempSync(join(tmpdir(), "flows-browser-jj-patch-"))
+        try {
+          const jj = yield* jjFor(host)
+          const { commitId: before } = yield* jj.snapshot("empty tree")
+          const files = [
+            ["line\nbreak.txt", "newline content\n"],
+            ["tab\tname.txt", "tab content\n"],
+            ["slash\\name.txt", "backslash content\n"],
+            ["quote\"name.txt", "quote content\n"]
+          ] as const
+          for (const [name, content] of files) write(host, name, content)
+          const { commitId: after } = yield* jj.snapshot("special filenames")
+          expect(after).not.toBe(before)
+
+          const diff = yield* jj.diff(before, after)
+          expect(diff).toContain("diff --git")
+          expect(fsModule.readdirSync(applied)).toEqual([])
+          execFileSync("git", ["apply", "--check", "-"], { cwd: applied, input: diff })
+          execFileSync("git", ["apply", "-"], { cwd: applied, input: diff })
+          expect(fsModule.readdirSync(applied).sort()).toEqual(files.map(([name]) => name).sort())
+          for (const [name, content] of files) {
+            expect(fsModule.readFileSync(join(applied, name), "utf8")).toBe(content)
+          }
+        } finally {
+          fsModule.rmSync(applied, { recursive: true, force: true })
+        }
+      }),
+    { timeout }
+  )
 
   describe("large file through the shim's chunked reads", () => {
     it.effect("roundtrips a >1MiB file byte-for-byte across snapshot and restore", () =>

@@ -25,7 +25,7 @@ const copyCampaign = async (root) => {
 
 const fixture = () => {
   const before = "seed 0 step 0 value 1013904223\n"
-  const operation = { index: 0, first: { ok: { changeId: "klmnopqrstuv" } }, second: { ok: { changeId: "lmnopqrstuvw" } }, diff: { ok: { diff: expectedDiff(before) } }, failure: { err: { code: "invalid_ref", command: "jj restore --from kkkkkkkkkkkk", message: 'revision "kkkkkkkkkkkk" doesn\'t exist' } }, restore: { ok: {} }, health: { ok: { diff: "" } }, restoredText: before }
+  const operation = { index: 0, first: { ok: { changeId: "klmnopqrstuv", commitId: "a".repeat(128) } }, second: { ok: { changeId: "lmnopqrstuvw", commitId: "b".repeat(128) } }, diff: { ok: { diff: expectedDiff(before) } }, failure: { err: { code: "invalid_ref", command: "jj restore --from kkkkkkkkkkkk", message: 'revision "kkkkkkkkkkkk" doesn\'t exist' } }, restore: { ok: {} }, health: { ok: { diff: "" } }, restoredText: before }
   operation.revisits = Array.from({ length: 3 }, () => ({ target: 0, response: { ok: {} }, restoredText: before, health: { ok: { diff: "" } } }))
   const unicodeLength = Buffer.byteLength('{"op":"snapshot","root":"/repo","message":"文件🚀"}')
   const common = { schemaVersion: 1, status: "passed", seed: 0, requestedCases: 1, executedCases: 1, requestedSteps: 1, executedSteps: 1, healthChecks: 1, requests: [{ index: 0, inputHex: "ff", response: { err: { code: "unknown", command: "jj", message: "jj: malformed request: fixture" } } }], operations: [operation] }
@@ -92,6 +92,14 @@ test("every operation requires its complete seeded result and restored file byte
     (op) => { op.second.ok.changeId = op.first.ok.changeId },
     (op) => { op.second.extra = true },
     (op) => { op.second.ok.changeId = "klmnopqrstuvx" },
+    ...["first", "second"].flatMap((snapshot) => [
+      (op) => { delete op[snapshot].ok.commitId },
+      (op) => { op[snapshot].ok.commitId = "g".repeat(128) },
+      (op) => { op[snapshot].ok.commitId = "A".repeat(128) },
+      (op) => { op[snapshot].ok.commitId = "a".repeat(127) },
+      (op) => { op[snapshot].ok.commitId = "a".repeat(129) },
+      (op) => { op[snapshot].ok.commitId = op[snapshot === "first" ? "second" : "first"].ok.commitId }
+    ]),
     (op) => { op.diff.ok.diff = "+changed\n" },
     (op) => { op.diff.ok.diff = op.diff.ok.diff.replace("@@ -1,1 +1,2 @@", "@@ -1,2 +1,3 @@") },
     (op) => { op.diff.ok.diff = op.diff.ok.diff.replace(/index [a-f0-9]/, "index 0") },

@@ -5,8 +5,8 @@
 //! (`diff_presentation::unified::git_diff_part`), and hunk construction
 //! (`unified_diff_hunks`). This module is only the text renderer the jj CLI
 //! keeps to itself: `diff --git` file headers, `---`/`+++` lines, `@@` hunk
-//! headers, and the standard binary form. The output matches
-//! `jj diff --git` for the cases the `Jj` contract exercises.
+//! headers, and the standard binary form. Ordinary paths match `jj diff --git`;
+//! special paths use Git-compatible quoting even on jj versions that omit it.
 
 use std::fmt::Write as _;
 use std::ops::Range;
@@ -35,6 +35,35 @@ use crate::error::OpError;
 
 /// `diff.git.context` default: three lines of context around every hunk.
 const CONTEXT_LINES: usize = 3;
+
+/// Git C-quotes paths with control bytes, quotes, or backslashes. Include the
+/// a/ or b/ prefix inside the quotes; ordinary UTF-8 paths stay unchanged.
+fn quote_git_path(path: &str) -> String {
+    if !path
+        .bytes()
+        .any(|byte| byte.is_ascii_control() || matches!(byte, b'"' | b'\\'))
+    {
+        return path.to_owned();
+    }
+    let mut quoted = String::from("\"");
+    for character in path.chars() {
+        match character {
+            '\x07' => quoted.push_str("\\a"),
+            '\x08' => quoted.push_str("\\b"),
+            '\t' => quoted.push_str("\\t"),
+            '\n' => quoted.push_str("\\n"),
+            '\x0b' => quoted.push_str("\\v"),
+            '\x0c' => quoted.push_str("\\f"),
+            '\r' => quoted.push_str("\\r"),
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            c if c.is_ascii_control() => write!(quoted, "\\{:03o}", c as u8).unwrap(),
+            c => quoted.push(c),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
 
 /// Renders the differences between two trees as a git-format unified diff.
 /// Identical trees render as the empty string, mirroring `jj diff --git`.
@@ -68,7 +97,9 @@ pub fn git_diff(
             let right_part =
                 git_diff_part(path.target(), values.after, &materialize_options).await?;
 
-            writeln!(output, "diff --git a/{left_path} b/{right_path}").unwrap();
+            let left_label = quote_git_path(&format!("a/{left_path}"));
+            let right_label = quote_git_path(&format!("b/{right_path}"));
+            writeln!(output, "diff --git {left_label} {right_label}").unwrap();
             let left_hash = &left_part.hash;
             let right_hash = &right_part.hash;
             match (left_part.mode, right_part.mode) {
@@ -86,8 +117,9 @@ pub fn git_diff(
                             CopyOperation::Copy => "copy",
                             CopyOperation::Rename => "rename",
                         };
-                        writeln!(output, "{operation} from {left_path}").unwrap();
-                        writeln!(output, "{operation} to {right_path}").unwrap();
+                        writeln!(output, "{operation} from {}", quote_git_path(&left_path))
+                            .unwrap();
+                        writeln!(output, "{operation} to {}", quote_git_path(&right_path)).unwrap();
                     }
                     if left_mode != right_mode {
                         writeln!(output, "old mode {left_mode}").unwrap();
@@ -111,11 +143,11 @@ pub fn git_diff(
             }
 
             let left_label = match left_part.mode {
-                Some(_) => format!("a/{left_path}"),
+                Some(_) => left_label,
                 None => "/dev/null".to_owned(),
             };
             let right_label = match right_part.mode {
-                Some(_) => format!("b/{right_path}"),
+                Some(_) => right_label,
                 None => "/dev/null".to_owned(),
             };
             if left_part.content.is_binary || right_part.content.is_binary {
@@ -337,6 +369,115 @@ operation.username = "flows"
             git_diff(&store, before, after).unwrap(),
             "diff --git a/added 雪.txt b/added 雪.txt\nnew file mode 100644\nindex 0000000000..87085db9d1\n--- /dev/null\n+++ b/added 雪.txt\n@@ -0,0 +1,1 @@\n+fresh\ndiff --git a/old.txt b/old.txt\ndeleted file mode 100644\nindex cfb6327021..0000000000\n--- a/old.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-bye\ndiff --git a/same.txt b/same.txt\nindex 826666ae63..e349b46ad1 100644\n--- a/same.txt\n+++ b/same.txt\n@@ -1,1 +1,1 @@\n-before\n+after\n"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_diff_quotes_newline_tab_and_backslash_paths() {
+        use std::collections::BTreeMap;
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        fn git_apply(root: &Path, patch: &str, check: bool) -> std::process::Output {
+            let mut command = Command::new("git");
+            command.arg("apply");
+            if check {
+                command.arg("--check");
+            }
+            let mut child = command
+                .arg("-")
+                .current_dir(root)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(patch.as_bytes())
+                .unwrap();
+            child.wait_with_output().unwrap()
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        crate::ops::init(&root).unwrap();
+        let empty = crate::ops::snapshot(&root, Some("empty")).unwrap();
+        let empty_files = BTreeMap::new();
+        let mut before: BTreeMap<String, Vec<u8>> = [
+            ("ordinary.txt", "ordinary before\n"),
+            ("space 雪.txt", "space and Unicode\n"),
+            ("back\\slash.txt", "backslash before\n"),
+            ("say\"hello.txt", "quote before\n"),
+            ("mix \"\\\n\t雪.txt", "mixed escapes and Unicode\n"),
+        ]
+        .into_iter()
+        .map(|(name, content)| (name.to_owned(), content.as_bytes().to_vec()))
+        .collect();
+        for byte in (1u8..=31).chain(std::iter::once(127)) {
+            before.insert(
+                format!("control-{byte:02x}-{}-雪.txt", char::from(byte)),
+                format!("control {byte}\n").into_bytes(),
+            );
+        }
+        for (name, content) in &before {
+            std::fs::write(root.join(name), content).unwrap();
+        }
+        let first = crate::ops::snapshot(&root, Some("before")).unwrap();
+
+        let mut after = before.clone();
+        after.remove("back\\slash.txt");
+        after.remove("control-02-\u{2}-雪.txt");
+        after.insert("ordinary.txt".into(), b"ordinary after\n".to_vec());
+        after.insert("say\"hello.txt".into(), b"quote after\n".to_vec());
+        after.insert(
+            "control-01-\u{1}-雪.txt".into(),
+            b"control after\n".to_vec(),
+        );
+        after.insert("added \"\\\r雪.txt".into(), b"added mixed\n".to_vec());
+        after.insert("added space 雪.txt".into(), b"added Unicode\n".to_vec());
+        std::fs::remove_file(root.join("back\\slash.txt")).unwrap();
+        std::fs::remove_file(root.join("control-02-\u{2}-雪.txt")).unwrap();
+        for (name, content) in &after {
+            std::fs::write(root.join(name), content).unwrap();
+        }
+        let second = crate::ops::snapshot(&root, Some("after")).unwrap();
+
+        let states = [
+            (&empty.commit_id, &empty_files),
+            (&first.commit_id, &before),
+            (&second.commit_id, &after),
+        ];
+        for (case, (from, to)) in [(0, 1), (1, 2), (2, 1), (1, 0)].into_iter().enumerate() {
+            let patch = crate::ops::diff(&root, states[from].0, states[to].0).unwrap();
+            let apply_dir = temp.path().join(format!("apply-{case}"));
+            std::fs::create_dir(&apply_dir).unwrap();
+            for (name, content) in states[from].1 {
+                std::fs::write(apply_dir.join(name), content).unwrap();
+            }
+            for check in [true, false] {
+                let output = git_apply(&apply_dir, &patch, check);
+                assert!(
+                    output.status.success(),
+                    "case {case}, git apply check={check} failed: {}\npatch:\n{patch}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            let actual: BTreeMap<_, _> = std::fs::read_dir(&apply_dir)
+                .unwrap()
+                .map(|entry| {
+                    let name = entry.unwrap().file_name().into_string().unwrap();
+                    let content = std::fs::read(apply_dir.join(&name)).unwrap();
+                    (name, content)
+                })
+                .collect();
+            assert_eq!(
+                &actual, states[to].1,
+                "case {case} changed the file set or contents"
+            );
+        }
     }
 
     #[test]
