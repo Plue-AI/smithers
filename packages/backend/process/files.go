@@ -24,7 +24,6 @@ func withinRoot(root, candidate string) bool {
 // symlink before use. For writes, the final path may be absent but its parent
 // must already resolve inside root.
 func resolveWorkspacePath(root, requested string, directory, allowRoot bool) (string, error) {
-	requested = strings.TrimSpace(requested)
 	if requested == "" {
 		requested = "."
 	}
@@ -70,7 +69,6 @@ func resolveWorkspacePath(root, requested string, directory, allowRoot bool) (st
 }
 
 func resolveWorkspaceMutationPath(root, requested string) (string, error) {
-	requested = strings.TrimSpace(requested)
 	if requested == "" || filepath.IsAbs(requested) {
 		return "", errors.New("workspace mutation path must be relative")
 	}
@@ -99,7 +97,7 @@ func resolveWorkspaceMutationPath(root, requested string) (string, error) {
 }
 
 func ensureWorkspaceMutationParent(root, requested string) error {
-	cleaned := filepath.Clean(strings.TrimSpace(requested))
+	cleaned := filepath.Clean(requested)
 	parent := filepath.Dir(cleaned)
 	if parent == "." {
 		return nil
