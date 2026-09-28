@@ -532,7 +532,6 @@ const objectProperties = (
       }
     }
   }
-  return undefined
 }
 
 const effectDeclaration = (

@@ -246,6 +246,60 @@ describe("ModuleMetadata", () => {
   })
 
   it.each([
+    ["a nested effects object", "{ reads: [\".\"], writes: [], mode: \"hermetic\", tier: \"sealed\"", "}})"],
+    [
+      "an effects constructor",
+      "Effects.make({ reads: [\".\"], writes: [], mode: \"hermetic\", tier: \"sealed\"",
+      "})})"
+    ],
+    [
+      "a brace in a quoted value",
+      "{ detail: \"}\", reads: [\".\"], writes: [], mode: \"hermetic\", tier: \"sealed\"",
+      "}})"
+    ],
+    [
+      "a brace in a regular expression",
+      "{ validate: /}/, reads: [\".\"], writes: [], mode: \"hermetic\", tier: \"sealed\"",
+      "}})"
+    ]
+  ])("refuses partial authority from an unclosed declaration containing %s", (_label, effects, closing) => {
+    const source = [
+      "\"use sandbox\"",
+      "export default Flow.make(\"review\", {",
+      "  description: \"Untrusted until complete.\",",
+      "  capabilities: [\"fs:read:.\"],",
+      `  effects: ${effects}`
+    ].join("\n")
+    const complete = ModuleMetadata.parse(source + closing)
+    expect(ModuleMetadata.isComplete(source + closing)).toBe(true)
+    expect(complete.description).toBe("Untrusted until complete.")
+    expect(complete.capabilities).toEqual(["fs:read:."])
+    expect(complete.effects).toEqual({
+      reads: ["."],
+      writes: [],
+      mode: "hermetic",
+      onConflict: "serialize",
+      tier: "sealed"
+    })
+
+    expect(ModuleMetadata.isComplete(source)).toBe(false)
+    expect(ModuleMetadata.parse(source)).toEqual({
+      description: undefined,
+      hasInput: false,
+      hasOutput: false,
+      model: Option.none(),
+      flows: [],
+      capabilities: ["*"],
+      effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+      placement: Option.some("sandbox"),
+      modelInvocable: true,
+      declaresName: false,
+      declaredName: Option.none(),
+      warnings: [{ message: "Could not statically read the default Flow.make declaration" }]
+    })
+  })
+
+  it.each([
     ["\\n", "\n"],
     ["\\r", "\r"],
     ["\\t", "\t"],

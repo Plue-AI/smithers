@@ -272,6 +272,58 @@ describe("the walk", () => {
       expect(found.some((entry) => entry.path.includes("more than 16 bytes"))).toBe(true)
     }).pipe(Effect.scoped, Effect.provide(platform)))
 
+  it.effect("accepts a closure exactly at both bounds", () =>
+    Effect.gen(function*() {
+      const sibling = "export const value = 1"
+      const root = yield* tree({
+        "flow.ts": `import "./sibling.ts"`,
+        "sibling.ts": sibling
+      })
+
+      const found = yield* walk(root, "flow.ts", undefined, {
+        files: 2, // The entry itself counts toward the file limit.
+        bytes: new TextEncoder().encode(sibling).length
+      })
+      expect(found).toEqual([{
+        path: "sibling.ts",
+        contentDigest: Digest.digest(new TextEncoder().encode(sibling))
+      }])
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("sorts pinned modules and distinct refusals into one stable closure", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "flow.ts": `import "./z.ts"\nimport "./missing.ts"\nimport "./a.ts"`,
+        "a.ts": "export const a = 1",
+        "z.ts": "export const z = 1"
+      })
+
+      const found = yield* walk(root, "flow.ts")
+      expect(found.map(({ path }) => path)).toEqual([
+        "a.ts",
+        "the entry imports \"./missing.ts\", which resolves to no file",
+        "z.ts"
+      ])
+      expect(found.map(({ contentDigest }) => contentDigest !== undefined)).toEqual([true, false, true])
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("keeps a computed-import refusal when a real module has the same displayed path", () =>
+    Effect.gen(function*() {
+      const collision = "the entry computes the target of 1 import() call(s)"
+      const source = "export const a = 1"
+      const root = yield* tree({
+        "flow.ts": `import "./${collision}"\nexport const load = (target) => import(target)`,
+        [collision]: source
+      })
+
+      const found = yield* walk(root, "flow.ts")
+      expect(found).toEqual([
+        { path: collision },
+        { path: collision, contentDigest: Digest.digest(new TextEncoder().encode(source)) }
+      ])
+      expect(found.some((entry) => entry.contentDigest === undefined)).toBe(true)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
   it.effect("records a module it cannot read rather than dropping it", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
