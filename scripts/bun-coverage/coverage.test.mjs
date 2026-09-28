@@ -97,9 +97,9 @@ describe("owning coverage manifest", () => {
   it("reuses sealed standard compiler artifacts with byte-identical zero maps and code", (t) => {
     const root = fixture(t), compiled = prepare(root, roster)
     const verified = verifyArtifacts(compiled.manifest, JSON.parse(JSON.stringify(compiled.artifacts)))
-    assert.deepEqual(verified.zero, compiled.zero)
+    assert.deepEqual(verified.zero, JSON.parse(JSON.stringify(compiled.zero)))
     assert.deepEqual([...verified.codes.entries()], [...compiled.codes.entries()].map(([path, entry]) =>
-      [path, { code: entry.code, loader: entry.loader, zero: compiled.zero[entry.zero.path] }]))
+      [path, { code: entry.code, loader: entry.loader, zero: JSON.parse(JSON.stringify(compiled.zero[entry.zero.path])) }]))
     assert.equal(verified.manifest.artifactDigest, digest(compiled.artifacts))
   })
   for (const [name, edit] of [
@@ -395,7 +395,7 @@ describe("real Bun process collection", () => {
       const root = fixture(t), run = join(root, "drift-run")
       const edit = tamper === "artifact"
         ? 'const config=JSON.parse(readFileSync(process.env.SMITHERS_BUN_COVERAGE_CONFIG,"utf8"));const artifact=JSON.parse(readFileSync(config.artifactPath,"utf8"));artifact["source.ts"].code+=" changed";writeFileSync(config.artifactPath,JSON.stringify(artifact))'
-        : 'writeFileSync(new URL("./entry.ts",import.meta.url),"throw new Error(\"changed\")")'
+        : 'writeFileSync(new URL("./entry.ts",import.meta.url),"export const changed = 1")'
       writeFileSync(join(root, "drift.ts"), `import {readFileSync,writeFileSync} from "node:fs";import {choose} from "./source.ts";if(choose(true)!=="positive")throw new Error("bad source");${edit}`)
       await assert.rejects(runCoverage({ root, sources: roster, run,
         args: [join(root, "drift.ts")], timeout: 15_000 }), /artifact|source changed|integrity error/)
