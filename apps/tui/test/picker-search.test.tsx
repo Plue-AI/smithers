@@ -247,12 +247,13 @@ const controlledPeer = () => {
   writeFileSync(
     executable,
     `#!${process.execPath}
-import { existsSync, writeFileSync } from "node:fs"
+import { existsSync, renameSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 const root = ${JSON.stringify(root)}
 const args = process.argv.slice(2)
 const query = args[args.indexOf("-e") + 1]
-writeFileSync(join(root, "started-" + query + ".json"), JSON.stringify({ pid: process.pid, query, args }))
+writeFileSync(join(root, "started-" + query + ".tmp"), JSON.stringify({ pid: process.pid, query, args }))
+renameSync(join(root, "started-" + query + ".tmp"), join(root, "started-" + query + ".json"))
 const timer = setInterval(() => {
   if (!existsSync(join(root, "release-" + query))) return
   clearInterval(timer)
@@ -316,6 +317,22 @@ test("missing rg reports the exact refusal and recovery uses the restored real P
   writeFileSync(join(cwd, "answer.txt"), "needle\n")
   await update(palette("text:answer"))
   await update(palette("text:needle"))
+  await waitFor(() => state?.search?.status === "done")
+  expect(state?.search?.hits).toEqual([{ path: "answer.txt", line: 1, text: "needle" }])
+  expect(statuses).toHaveLength(1)
+})
+
+test("a non-directory search location reports the actual process admission error and changing directories recovers", async () => {
+  const workspace = cwd
+  const invalidDirectory = join(root, "regular-file")
+  writeFileSync(invalidDirectory, "not a directory")
+  cwd = invalidDirectory
+  await mount(palette("text:needle"))
+  await waitFor(() => statuses.length === 1)
+  expect(statuses).toEqual([["rg: spawn rg ENOTDIR", "danger"]])
+  expect(state?.search).toBeUndefined()
+  writeFileSync(join(workspace, "answer.txt"), "needle\n")
+  await update(palette("text:needle"), workspace)
   await waitFor(() => state?.search?.status === "done")
   expect(state?.search?.hits).toEqual([{ path: "answer.txt", line: 1, text: "needle" }])
   expect(statuses).toHaveLength(1)
