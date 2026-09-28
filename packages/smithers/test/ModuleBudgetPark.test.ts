@@ -90,7 +90,13 @@ const task = (body: string): string | undefined => /Report step \d\./.exec(body)
  * Runs `steps` until it parks, answers the park with `decision`, and follows
  * the run until it settles or asks again.
  */
-const parkedModuleRun = async (decision: "approve" | "deny") => {
+const parkedModuleRun = async (
+  decision: "approve" | "deny",
+  ceiling: { readonly budget: ControlSchema.Envelope["budget"]; readonly delayMs: number } = {
+    budget: { tokens: 50, onExceeded: "park" },
+    delayMs: 0
+  }
+) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "smithers-module-budget-park-")))
   const agent = new MockAgent()
   try {
@@ -98,7 +104,7 @@ const parkedModuleRun = async (decision: "approve" | "deny") => {
     await writeFile(join(root, "flows", "steps", "flow.ts"), source)
     const bodies: Array<string> = []
     agent.disableNetConnect()
-    agent.get("https://api.openai.com").intercept({ method: "POST", path: "/v1/responses" }).reply(
+    const reply = agent.get("https://api.openai.com").intercept({ method: "POST", path: "/v1/responses" }).reply(
       200,
       (options) => {
         // Undici hands the mock the encoded body; its text is the request.
@@ -106,7 +112,10 @@ const parkedModuleRun = async (decision: "approve" | "deny") => {
         return sse(`\`\`\`cell\nctx.done(JSON.stringify({ n: ${bodies.length} }))\n\`\`\``)
       },
       { headers: { "content-type": "text/event-stream" } }
-    ).persist()
+    )
+    // Undici refuses a zero delay, so only a slow provider sets one.
+    if (ceiling.delayMs > 0) reply.delay(ceiling.delayMs)
+    reply.persist()
     const client = await Effect.runPromise(
       NodeHttpClient.makeUndici.pipe(Effect.provideService(NodeHttpClient.Dispatcher, agent))
     )
@@ -132,7 +141,7 @@ const parkedModuleRun = async (decision: "approve" | "deny") => {
         const card = yield* control.plan({
           flowId: "steps",
           input: {},
-          budget: { tokens: 50, onExceeded: "park" }
+          budget: ceiling.budget
         })
         yield* control.approve(card.approval)
         const receipt = yield* control.run({
@@ -217,6 +226,24 @@ describe("a module run's parked budget", () => {
     const observed = await parkedModuleRun("deny")
 
     expect(observed.first).toBe("control.approval.requested")
+    expect(observed.last).toBe("control.run.failed")
+    expect(observed.settled?.status).toBe("failed")
+    expect(observed.prompts).toHaveLength(observed.callsWhileParked!)
+  }, 60_000)
+
+  it("fails the run when a latency raise is denied instead of asking again on resume", async () => {
+    // The first response takes 150 ms against a 100 ms ceiling, so the next
+    // call parks. The elapsed time keeps growing while parked, and the denial
+    // must still answer the request it was made on (#2739).
+    const observed = await parkedModuleRun("deny", {
+      budget: { milliseconds: 100, onExceeded: "park" },
+      delayMs: 150
+    })
+
+    expect(observed.first).toBe("control.approval.requested")
+    expect(observed.parked).toMatchObject({ status: "parked", waitingReason: "budget" })
+    expect(observed.stepsWhileParked).toEqual(["Report step 1."])
+    // No replacement request: the run settled on the denial.
     expect(observed.last).toBe("control.run.failed")
     expect(observed.settled?.status).toBe("failed")
     expect(observed.prompts).toHaveLength(observed.callsWhileParked!)
