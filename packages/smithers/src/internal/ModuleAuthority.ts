@@ -202,7 +202,7 @@ export const make = (
               usage: account(budget.usage),
               usageOf: (id) => account(budget.usageOf(id)),
               suspend: account(budget.suspend),
-              resume: account(budget.resume)
+              resume: (at) => account(budget.resume(at))
             }
             return yield* handler(payload, executionId).pipe(
               // A `park` budget parks the owning control run, as a prompt

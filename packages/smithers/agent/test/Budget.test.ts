@@ -1640,7 +1640,7 @@ describe("a durable latency clock", () => {
         yield* TestClock.adjust("10 seconds")
         yield* first.suspend
         yield* TestClock.adjust("10 seconds")
-        yield* first.resume
+        yield* first.resume()
         yield* TestClock.adjust("1 second")
         // 4 s active of 24 s wall.
         const live = yield* first.check("step-b")

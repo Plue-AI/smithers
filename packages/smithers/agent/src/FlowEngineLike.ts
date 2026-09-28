@@ -886,6 +886,7 @@ export const make = (
     ): Stream.Stream<ModelEvent.ModelEvent, Model.ModelFailure | HarnessError.HarnessError> =>
       Stream.unwrap(
         Effect.gen(function*() {
+          yield* accountedResume
           const key = yield* seal(step, options.route)
           // The composition's spending ceiling, applied where every model call
           // in the run passes: a step that assembles its own loop cannot evade
@@ -1058,6 +1059,7 @@ export const make = (
       request: Cell.Call
     ): Effect.Effect<Cell.CallResult, HarnessError.HarnessError> =>
       Effect.gen(function*() {
+        yield* accountedResume
         const decoded = yield* Effect.fromResult(Schema.decodeUnknownResult(Cell.Call)(request)).pipe(
           Effect.mapError((cause) =>
             engineFailed(
@@ -1096,6 +1098,7 @@ export const make = (
       boundary: EngineLike.RecordBoundary<A>
     ): Effect.Effect<A, HarnessError.HarnessError> =>
       Effect.gen(function*() {
+        yield* accountedResume
         const key = yield* boundaryKey(boundary.name, boundary.identity, scope)
         // `irreversible` is the honest tier: the read is not
         // content-addressable and cannot be undone, only recorded — so the
@@ -1125,11 +1128,30 @@ export const make = (
     const quota = yield* QuotaPolicy.current
     const budget = yield* Budget.current
     // A port is built when the run is driven, so a suspension the run recorded
-    // ends here rather than at its next model call. Failing to record it only
-    // leaves the span open until admission closes it, so it is logged.
+    // ends here rather than at its next model call. A replayed model step
+    // never reaches admission, so a resume that was not recorded would leave
+    // the span open over live cell and tool work and subtract that work as
+    // parked time. Accounting fails closed: until the resume is recorded, at
+    // the instant the run actually resumed, the port does no work.
     const logSuspension = (message: string) => (cause: Cause.Cause<Budget.AccountingUnavailable>) =>
       Effect.logWarning(message, cause)
-    yield* budget.resume.pipe(Effect.catchCause(logSuspension("A budget resume could not be recorded")))
+    const resumedAt = yield* Clock.currentTimeMillis
+    let resumed = Exit.isSuccess(
+      yield* budget.resume(resumedAt).pipe(
+        Effect.tapCause(logSuspension("A budget resume could not be recorded")),
+        Effect.exit
+      )
+    )
+    const accountedResume: Effect.Effect<void, HarnessError.HarnessError> = Effect.suspend(() =>
+      resumed ? Effect.void : budget.resume(resumedAt).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            resumed = true
+          })
+        ),
+        Effect.mapError(accountingFailed)
+      )
+    )
     const crypto = yield* Crypto.Crypto
     const observe = Option.match(observer, {
       onNone: (): Effect.Effect<Option.Option<EngineLike.Observation>, HarnessError.HarnessError> =>

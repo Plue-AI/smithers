@@ -366,6 +366,36 @@ const approveInSecondProcess = (
     }).pipe(Effect.provide(host(root, secondOwner, "budget-second")), Effect.scoped, Effect.orDie)
   )
 
+/**
+ * Makes `engine.db` refuse every budget resume record, as a full disk or a
+ * lost writer would, until the file is reopened without the trigger.
+ */
+const refuseResumeRecords = (root: string): void => {
+  const database = new DatabaseSync(join(root, "engine.db"))
+  try {
+    database.exec(
+      `CREATE TRIGGER refuse_budget_resume BEFORE INSERT ON flows_journal_events
+       WHEN NEW.event_type = '${Budget.budgetResumedEvent}'
+       BEGIN SELECT RAISE(ABORT, 'injected: budget resume record refused'); END`
+    )
+  } finally {
+    database.close()
+  }
+}
+
+/** Every engine journal payload of one run that mentions `text`. */
+const engineRecordsMentioning = (root: string, runId: string, text: string): number => {
+  const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
+  try {
+    const row = database.prepare(
+      "SELECT count(*) AS n FROM flows_journal_events WHERE run_id = ? AND payload_json LIKE ?"
+    ).get(runId, `%${text}%`) as { readonly n: number } | undefined
+    return row?.n ?? 0
+  } finally {
+    database.close()
+  }
+}
+
 describe("a durable latency budget when its process exits", () => {
   it("refuses the resumed run's next model call from the original clock zero", async () => {
     const root = makeRoot()
@@ -417,5 +447,29 @@ describe("a durable latency budget when its process exits", () => {
     expect(modelCalls).toEqual(["budget-first", "budget-second"])
     // Excluding the park did not reset the ledger's clock zero.
     expect(readBudgetStarts(root, parked.runId)).toEqual(started)
+  }, 180_000)
+
+  /**
+   * The resumed host cannot record that the run is executing again. Without
+   * that record the suspension span stays open, so everything the run does
+   * until its next fresh model admission is subtracted as parked time. The
+   * approved `ask` call and the rest of its frame are exactly that work: the
+   * first model step replays from the journal and never reaches admission.
+   * Accounting fails closed, so the resumed run must refuse to do that work.
+   */
+  it("refuses resumed work when the resume record cannot be written", async () => {
+    const root = makeRoot()
+    const parked = await parkInFirstProcess(root)
+    expect(modelCalls).toEqual(["budget-first"])
+    refuseResumeRecords(root)
+
+    const settled = await approveInSecondProcess(root, parked, "failed")
+
+    expect(settled.event).toBe("control.run.failed")
+    expect(settled.run.status).toBe("failed")
+    expect(modelCalls).toEqual(["budget-first"])
+    // The approved frame never ran past its park in the second host.
+    expect(engineRecordsMentioning(root, parked.runId, "approved=true")).toBe(0)
+    expect(settled.engineRow?.state_json).toContain("BudgetAccountingUnavailable")
   }, 180_000)
 })

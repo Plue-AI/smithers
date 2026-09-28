@@ -413,10 +413,13 @@ export interface Service {
   readonly suspend: Effect.Effect<void, AccountingUnavailable>
   /**
    * Records that the CURRENT run is executing again, closing its open
-   * suspension. Admission closes one too, because a run making a model call is
-   * executing; a missing resume therefore only charges less time, never more.
+   * suspension at `at` (now when omitted). Admission closes one too, because a
+   * run making a model call is executing. A host that could not record the
+   * resume retries it with the instant the run actually resumed, and does no
+   * work until it succeeds: until then the span stays open, and the work would
+   * be subtracted as parked time.
    */
-  readonly resume: Effect.Effect<void, AccountingUnavailable>
+  readonly resume: (at?: number) => Effect.Effect<void, AccountingUnavailable>
 }
 
 /**
@@ -1504,11 +1507,12 @@ export const make = (
           Effect.flatMap(Clock.currentTimeMillis, (now) => transition(run, runId, "suspend", now))
         )
       ),
-      resume: withRecovered((run, runId) =>
-        run.admission.withPermits(1)(
-          Effect.flatMap(Clock.currentTimeMillis, (now) => transition(run, runId, "resume", now))
-        )
-      ),
+      resume: (at) =>
+        withRecovered((run, runId) =>
+          run.admission.withPermits(1)(
+            Effect.flatMap(Clock.currentTimeMillis, (now) => transition(run, runId, "resume", at ?? now))
+          )
+        ),
       usageOf: (runId) =>
         Effect.suspend(() => {
           const live = runId === looseRunId ? loose : accounts.get(runId)
@@ -1564,7 +1568,7 @@ export const makeUnbounded = (): Service =>
     usage: Effect.succeed({ tokens: 0, calls: 0, largestCall: 0 }),
     usageOf: () => Effect.succeed({ tokens: 0, calls: 0, largestCall: 0 }),
     suspend: Effect.void,
-    resume: Effect.void
+    resume: () => Effect.void
   })
 
 /**
