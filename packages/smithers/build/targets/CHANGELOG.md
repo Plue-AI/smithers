@@ -17,6 +17,15 @@ of it.
   is listed.
 - Added `Input.listOutputFiles` for bounded, confined output inventories without
   source ignore or package-boundary filters.
+- Added the `SecurityReview` macro (`@smthrs/targets/SecurityReview`, also
+  `Smithers.SecurityReview`): declared security checks become a `security`
+  review of changed files and a manual `securityAudit` of every included file.
+- Added `Target.Options.manual` and the resolved `Target.Metadata.manual`. A
+  manual target is skipped by bare wildcards and selected by label or named
+  subtree pattern. Code that builds a `Metadata` object by hand must now set
+  `manual`.
+- Added `scope` (`changed` by default, or `all`) and `manual` (false by
+  default) to the `LlmLint` attrs.
 
 - Added `Target.guard`, so a rule that refuses something its schema cannot
   express keeps its `id`, `attrs` schema, and `kinds` instead of erasing them
