@@ -59,3 +59,21 @@ test("the ordinary PR CLI entrypoint plans both executable examples checks and t
   assert.ok(plan.roots.includes("//examples:check"), "examples CI must typecheck the executable tutorials")
   assert.ok(plan.roots.includes("//examples:suite"), "examples CI must execute the Vitest suite")
 })
+
+test("site CI selects the native bridge typecheck regression", () => {
+  const plan = JSON.parse(execFileSync(process.execPath, [
+    "packages/smithers/build/build-cli/src/main.js",
+    "ci", "//apps/site/...", "--plan", "--json"
+  ], { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 300_000, maxBuffer: 16 * 1024 * 1024 }))
+
+  const label = "//apps/site:siteTypecheckTest"
+  assert.ok(plan.roots.includes(label), "site CI must select the typecheck regression")
+  const target = plan.targets.find((entry) => entry.label === label)
+  assert.equal(target?.target, "Shell.Test")
+  assert.match(target.attrs.shell, /\bnode\s+--test\b/)
+  assert.ok(target.attrs.shell.includes("apps/site/scripts/site-typecheck.test.mjs"),
+    "the selected test must execute the native bridge regression")
+  assert.ok(target.declaredInputs.some((input) => input.files.some((file) =>
+    file.path === "apps/site/scripts/site-typecheck.test.mjs")),
+    "the regression script must key the test target")
+})

@@ -392,6 +392,18 @@ const catalogPublicationTest = Smithers.Shell.Test({
   ]
 })
 
+/** Keep the imported native bridge in the site's TypeScript program and CI checks. */
+const siteTypecheckTest = Smithers.Shell.Test({
+  shell: "node --test apps/site/scripts/site-typecheck.test.mjs",
+  data: [
+    Smithers.file("scripts/site-typecheck.test.mjs"),
+    Smithers.file("tsconfig.json"),
+    Smithers.file("src/env.d.ts"),
+    ...sources,
+    appSources
+  ]
+})
+
 /** Verify the support claims against the release workflow and complete workspace inventory. */
 const supportMatrixTest = Smithers.Shell.Test({
   shell: "node --test --test-concurrency=1 apps/site/scripts/support-matrix.test.mjs",
@@ -631,6 +643,7 @@ export const Package = Smithers.Package({
     recordTapeTest,
     supportMatrixTest,
     catalogPublicationTest,
+    siteTypecheckTest,
     docsRuntimeTests,
     examplesPages,
     llms,

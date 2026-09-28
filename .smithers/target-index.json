@@ -15320,6 +15320,68 @@
     }
   },
   {
+    "label": "//apps/site:siteTypecheckTest",
+    "package": "apps/site",
+    "name": "siteTypecheckTest",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/site-typecheck.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/tsconfig.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/src/env.d.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/site/src/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/site/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/site/public/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/server/src/publicRepoCatalog.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/astro.config.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/tsconfig.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//apps/app:webSources"
+    ],
+    "source": {
+      "file": "apps/site/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/site:supportDocs",
     "package": "apps/site",
     "name": "supportDocs",
