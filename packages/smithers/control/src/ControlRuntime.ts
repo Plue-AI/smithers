@@ -554,14 +554,19 @@ export interface Service {
     runId: RunId,
     options?: {
       readonly scope?: "launched" | "any" | undefined
-      /**
-       * Record the flow's current execution digest and this runtime's engine
-       * version on the claimed run: the operator allowed it to resume on
-       * changed code, so later checks compare against that code.
-       */
-      readonly adoptCode?: boolean | undefined
     } | undefined
   ) => Effect.Effect<RunSummary, RunNotFound | ClaimLost | PersistenceError>
+  /**
+   * `resume`, recording the flow's current execution digest and this
+   * runtime's engine version on the claimed run: the operator allowed it to
+   * resume on changed code, so later checks compare against that code. A flow
+   * that no longer exists, or that this host cannot run, has no code to adopt,
+   * so this fails `CodeDrift` before the claim and the run stays where it was.
+   */
+  readonly resumeAdopting: (
+    runId: RunId,
+    options?: { readonly scope?: "launched" | "any" | undefined } | undefined
+  ) => Effect.Effect<RunSummary, RunNotFound | ClaimLost | CodeDrift | PersistenceError>
   /**
    * The drift between the code the run recorded and the code that would
    * resume it, or `undefined` when there is none. Every path that re-drives a
@@ -569,6 +574,16 @@ export interface Service {
    * only settle a run do not.
    */
   readonly codeDrift: (runId: RunId) => Effect.Effect<CodeDrift | undefined, RunNotFound | PersistenceError>
+  /**
+   * The code identity the run executes under: its own recorded digest and
+   * engine version, or, for a row that recorded none (a trampoline round, or a
+   * fork or child the engine wrote), those of its nearest same-flow ancestor.
+   * `codeDrift` checks this identity, so an executor that enters the identity
+   * read here runs exactly the code the check admitted.
+   */
+  readonly recordedCode: (
+    runId: RunId
+  ) => Effect.Effect<Pick<RunSummary, "executionDigest" | "engineVersion">, RunNotFound | PersistenceError>
   readonly claimFence: (runId: RunId) => Effect.Effect<string, RunNotFound | ClaimLost | PersistenceError>
   /**
    * Releases a launch the configured executor declined without changing its
@@ -808,6 +823,41 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
         run.fence === undefined || run.fence !== fence
           ? Effect.fail(new ClaimLost({ runId }))
           : Effect.void
+
+      /** `resume`, recording the identity `adopt` answers on the claimed run when given. */
+      const resumeRun = <E = never>(
+        runId: RunId,
+        adopt?:
+          | ((run: MutableRun) => Effect.Effect<Pick<RunSummary, "executionDigest" | "engineVersion">, E>)
+          | undefined
+      ): Effect.Effect<RunSummary, RunNotFound | ClaimLost | E> =>
+        Effect.gen(function*() {
+          const run = yield* requireRun(runId)
+          if (
+            run.summary.status === "cancelled" ||
+            run.summary.status === "completed" ||
+            run.summary.status === "failed"
+          ) return snapshot(run.summary)
+          // Accepted claims are owned too; releasePending clears both fences.
+          if (run.fence !== undefined) {
+            /* v8 ignore next 3 -- one process holds this whole runtime, and it writes `fence` and `localFence` together; the peer this refuses exists only over a shared database, which is `SqlControlRuntime`'s fence */
+            if (run.localFence === undefined || run.fence !== run.localFence) {
+              return yield* new ClaimLost({ runId })
+            }
+            return snapshot(run.summary)
+          }
+          const adopted = adopt === undefined ? undefined : yield* adopt(run)
+          const fence = `fence-${++fenceSequence}`
+          run.fence = fence
+          run.localFence = fence
+          // Claiming ends the park, so it ends the record of who wrote it.
+          return updateSummary(run, {
+            ...adopted,
+            status: "accepted",
+            ownerId: "memory-owner",
+            parkedBy: undefined
+          })
+        })
 
       const service = make({
         authorizeApproval,
@@ -1278,34 +1328,20 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           const run = yield* requireRun(runId)
           return codeDriftOf(run.summary, flows.get(run.summary.flowId), options.engineVersion)
         }),
-        resume: Effect.fn("ControlRuntime.resume")(function*(runId, resumeOptions) {
-          const run = yield* requireRun(runId)
-          if (
-            run.summary.status === "cancelled" ||
-            run.summary.status === "completed" ||
-            run.summary.status === "failed"
-          ) return snapshot(run.summary)
-          // Accepted claims are owned too; releasePending clears both fences.
-          if (run.fence !== undefined) {
-            /* v8 ignore next 3 -- one process holds this whole runtime, and it writes `fence` and `localFence` together; the peer this refuses exists only over a shared database, which is `SqlControlRuntime`'s fence */
-            if (run.localFence === undefined || run.fence !== run.localFence) {
-              return yield* new ClaimLost({ runId })
-            }
-            return snapshot(run.summary)
-          }
-          const fence = `fence-${++fenceSequence}`
-          run.fence = fence
-          run.localFence = fence
-          // Claiming ends the park, so it ends the record of who wrote it.
-          return updateSummary(run, {
-            ...(resumeOptions?.adoptCode === true
-              ? adoptedCode(run.summary, flows.get(run.summary.flowId), options.engineVersion)
-              : {}),
-            status: "accepted",
-            ownerId: "memory-owner",
-            parkedBy: undefined
-          })
+        recordedCode: Effect.fn("ControlRuntime.recordedCode")(function*(runId) {
+          const { executionDigest, engineVersion } = (yield* requireRun(runId)).summary
+          return { executionDigest, engineVersion }
         }),
+        resume: Effect.fn("ControlRuntime.resume")((runId) => resumeRun(runId)),
+        resumeAdopting: Effect.fn("ControlRuntime.resumeAdopting")((runId) =>
+          resumeRun(runId, (run) => {
+            const flow = flows.get(run.summary.flowId)
+            const gone = flow === undefined ? codeDriftOf(run.summary, undefined, options.engineVersion) : undefined
+            return gone === undefined
+              ? Effect.succeed(adoptedCode(run.summary, flow, options.engineVersion))
+              : Effect.fail(gone)
+          })
+        ),
         claimFence: Effect.fn("ControlRuntime.claimFence")(function*(runId) {
           const run = yield* requireRun(runId)
           if (run.localFence === undefined) return yield* new ClaimLost({ runId })

@@ -59,6 +59,7 @@ import type { PlanInput } from "./Control.ts"
 import {
   AlreadyResolved,
   ClaimLost,
+  type CodeDrift,
   EnvelopeMismatch,
   FlowNotFound,
   InvalidInput,
@@ -157,6 +158,15 @@ export interface Options {
    * than found by the executor after it. Defaults to `loadFlows`.
    */
   readonly currentFlows?: (() => Effect.Effect<ReadonlyArray<DurableFlow>, PersistenceError>) | undefined
+  /**
+   * Makes one flow's code on disk now the code this host executes, for a
+   * resume the operator allowed to drift, and answers the identity the host
+   * can now run, or `undefined` when it can run none. A host whose executor
+   * serves a loaded snapshot supplies this: recording a digest its executor
+   * does not hold accepted the resume and then failed the run (#2740).
+   * Defaults to the flow's entry in `currentFlows`.
+   */
+  readonly adoptFlow?: ((flowId: string) => Effect.Effect<DurableFlow | undefined, PersistenceError>) | undefined
   readonly owner?: Ownership.OwnerId | undefined
   /**
    * Whether the process a running run's owner names is still working. With
@@ -428,6 +438,10 @@ const makeRuntime = (
       : Effect.suspend(options.currentFlows).pipe(
         Effect.map((entries) => new Map(entries.map((flow) => [flow.flowId, flow] as const)))
       )
+    const readAdoptedFlow = (flowId: string) =>
+      options.adoptFlow === undefined
+        ? readCurrentFlows.pipe(Effect.map((flows) => flows.get(flowId)))
+        : Effect.suspend(() => options.adoptFlow!(flowId))
 
     // Fibers are live continuations, not rows. A restarted process legitimately
     // has none, and interrupting a run it does not own is the other process's
@@ -1148,7 +1162,7 @@ const makeRuntime = (
       runId: RunId,
       row: RunStore.RunRow,
       evidence?: Ownership.LivenessEvidence | undefined,
-      adoptCode = false
+      adopted?: Pick<RunSummary, "executionDigest" | "engineVersion"> | undefined
     ): Effect.Effect<RunSummary, RunNotFound | ClaimLost | PersistenceError> =>
       Effect.gen(function*() {
         const timestamp = evidence?.checkedAtMs ?? (yield* now)
@@ -1161,9 +1175,7 @@ const makeRuntime = (
         const summary = yield* summaryOf(row)
         return yield* transition(runId, claimant, {
           ...summary,
-          ...(adoptCode
-            ? adoptedCode(summary, (yield* readCurrentFlows).get(summary.flowId), options.engineVersion)
-            : {}),
+          ...adopted,
           ownerId: JSON.stringify(claimant)
         }, "accepted")
       })
@@ -1198,6 +1210,59 @@ const makeRuntime = (
           parentId = optional(parentRow.parentRunId).value ?? parent.parentRunId
         }
         return summary
+      })
+
+    /**
+     * The code identity an allowed drift records, read before the claim: a
+     * flow this host cannot run leaves the run where it was rather than
+     * accepted and then failed (#2740).
+     */
+    const adoptable = (
+      row: RunStore.RunRow
+    ): Effect.Effect<Pick<RunSummary, "executionDigest" | "engineVersion">, CodeDrift | PersistenceError> =>
+      Effect.gen(function*() {
+        const summary = yield* summaryOf(row)
+        const flow = yield* readAdoptedFlow(summary.flowId)
+        const gone = flow === undefined
+          ? codeDriftOf(yield* recordedCode(row), undefined, options.engineVersion)
+          : undefined
+        if (gone !== undefined) return yield* gone
+        return adoptedCode(summary, flow, options.engineVersion)
+      })
+
+    /** `resume`, recording the identity `adopt` answers on the claimed run when given. */
+    const resumeRun = <E = never>(
+      runId: RunId,
+      scope: "launched" | "any" | undefined,
+      adopt?:
+        | ((row: RunStore.RunRow) => Effect.Effect<Pick<RunSummary, "executionDigest" | "engineVersion">, E>)
+        | undefined
+    ): Effect.Effect<RunSummary, RunNotFound | ClaimLost | PersistenceError | E> =>
+      Effect.gen(function*() {
+        const row = yield* requireRow(runId)
+        const summary = yield* summaryOf(row)
+        if (terminal(summary.status)) return summary
+        // Start-or-join: owning the run already means resume is a no-op, and a
+        // run owned by a live peer is theirs to drive. A run whose owner is
+        // gone is taken over, with the evidence the run store checks.
+        if (row.status === "running") {
+          if (ownedByUs(row)) return summary
+          const evidence = yield* deadOwner(row)
+          return evidence === undefined
+            ? yield* new ClaimLost({ runId })
+            : yield* claim(runId, row, evidence, adopt === undefined ? undefined : yield* adopt(row))
+        }
+        // Every public Control resume and steer wake uses launched scope.
+        // Engine-created runs keep their continuation and driver. Unrestricted
+        // claims are a trusted low-level capability for hosts that can drive
+        // the execution; node approval delegates through requestResume instead.
+        if (scope === "launched") {
+          const indexed = yield* sql`SELECT run_id FROM control_runs WHERE run_id = ${runId}`.pipe(
+            Effect.mapError(persistence("read the launch index"))
+          )
+          if (indexed.length === 0) return yield* new ClaimLost({ runId })
+        }
+        return yield* claim(runId, row, undefined, adopt === undefined ? undefined : yield* adopt(row))
       })
 
     // Match summaryFrom's durable fields in SQL. Only the selected ids are
@@ -1967,38 +2032,18 @@ const makeRuntime = (
         const summary = yield* recordedCode(yield* requireRow(runId))
         return codeDriftOf(summary, (yield* readCurrentFlows).get(summary.flowId), options.engineVersion)
       }),
-      resume: Effect.fn("SqlControlRuntime.resume")(function*(
-        runId: RunId,
-        resumeOptions?: {
-          readonly scope?: "launched" | "any" | undefined
-          readonly adoptCode?: boolean | undefined
-        } | undefined
-      ) {
-        const row = yield* requireRow(runId)
-        const summary = yield* summaryOf(row)
-        if (terminal(summary.status)) return summary
-        // Start-or-join: owning the run already means resume is a no-op, and a
-        // run owned by a live peer is theirs to drive. A run whose owner is
-        // gone is taken over, with the evidence the run store checks.
-        if (row.status === "running") {
-          if (ownedByUs(row)) return summary
-          const evidence = yield* deadOwner(row)
-          return evidence === undefined
-            ? yield* new ClaimLost({ runId })
-            : yield* claim(runId, row, evidence, resumeOptions?.adoptCode === true)
-        }
-        // Every public Control resume and steer wake uses launched scope.
-        // Engine-created runs keep their continuation and driver. Unrestricted
-        // claims are a trusted low-level capability for hosts that can drive
-        // the execution; node approval delegates through requestResume instead.
-        if (resumeOptions?.scope === "launched") {
-          const indexed = yield* sql`SELECT run_id FROM control_runs WHERE run_id = ${runId}`.pipe(
-            Effect.mapError(persistence("read the launch index"))
-          )
-          if (indexed.length === 0) return yield* new ClaimLost({ runId })
-        }
-        return yield* claim(runId, row, undefined, resumeOptions?.adoptCode === true)
+      recordedCode: Effect.fn("SqlControlRuntime.recordedCode")(function*(runId: RunId) {
+        const { executionDigest, engineVersion } = yield* recordedCode(yield* requireRow(runId))
+        return { executionDigest, engineVersion }
       }),
+      resume: Effect.fn("SqlControlRuntime.resume")((
+        runId: RunId,
+        resumeOptions?: { readonly scope?: "launched" | "any" | undefined } | undefined
+      ) => resumeRun(runId, resumeOptions?.scope)),
+      resumeAdopting: Effect.fn("SqlControlRuntime.resumeAdopting")((
+        runId: RunId,
+        resumeOptions?: { readonly scope?: "launched" | "any" | undefined } | undefined
+      ) => resumeRun(runId, resumeOptions?.scope, adoptable)),
       claimFence: Effect.fn("SqlControlRuntime.claimFence")(function*(runId: RunId) {
         const row = yield* requireRow(runId)
         if (!ownedByUs(row)) return yield* new ClaimLost({ runId })

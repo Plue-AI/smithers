@@ -135,7 +135,7 @@ it("refuses a run whose flow is gone", async () => {
   const drift = failure(resumed)
   expect(drift).toEqual(new CodeDrift({ runId: after.runId, flowId: "drift", recorded: "digest-v1" }))
   expect(drift?.message).toBe(
-    `Run ${after.runId} started on drift digest-v1, which is now gone. Resume with --allow-code-drift to run the changed code.`
+    `Run ${after.runId} started on drift digest-v1, which is now gone. Restore the flow to resume it.`
   )
   expect(after.status).toBe("parked")
 })
@@ -151,6 +151,16 @@ it("resumes drifted code when the operator allows it, and records the code it re
   expect(Exit.isSuccess(resumed)).toBe(true)
   expect(after.status).toBe("accepted")
   expect(after.executionDigest).toBe("digest-v2")
+})
+
+it("an allowed drift to a flow that is gone is refused before the claim", async () => {
+  // There is no code to adopt, so accepting would record none and hand the
+  // executor a run it can only fail (#2740).
+  const { resumed, after } = await resumeAfter(undefined, true)
+  expect(failure(resumed)).toEqual(new CodeDrift({ runId: after.runId, flowId: "drift", recorded: "digest-v1" }))
+  expect(after.status).toBe("parked")
+  expect(after.ownerId).toBeUndefined()
+  expect(after.executionDigest).toBe("digest-v1")
 })
 
 it("resume refuses a run started on a different engine version", async () => {

@@ -167,8 +167,10 @@ digest, is gone, or the engine version changed, `runs show` and `status <run>` r
 `codeDrift`, and every path that would re-drive the run refuses with
 `CodeDrift` and leaves it where it was: `runs resume`, `run --resume`, a node
 approval decision, and a steer wake. Pass `--allow-code-drift` to resume it on
-the changed code; the run then records that code, so later approvals proceed
-and the executor runs it.
+the changed code; the host loads that code before the resume is accepted, and
+the run records it, so later approvals proceed and the executor runs it. A flow
+that is gone, or whose new code the host cannot load, has nothing to adopt:
+the resume refuses with `CodeDrift` and leaves the run where it was.
 
 A fork can resume only after its retained workspace and public run identity
 have both been reconciled. A workspace link left behind by an interrupted or

@@ -773,15 +773,14 @@ export const layer: Layer.Layer<
             // Every claim re-enters the flow's current code, so a changed flow
             // is refused before the claim and the run stays where it was.
             if (input.allowCodeDrift !== true) yield* refuseCodeDrift(input.runId)
-            const claimed = yield* runtime.resume(input.runId, {
-              scope: "launched",
-              adoptCode: input.allowCodeDrift === true
-            }).pipe(
-              Effect.catchTag("/control/ClaimLost", () =>
-                live(current.status)
-                  ? Effect.fail(new ClaimLost({ runId: input.runId }))
-                  : Effect.succeed(undefined))
-            )
+            const claimed = yield* (input.allowCodeDrift === true
+              ? runtime.resumeAdopting(input.runId, { scope: "launched" })
+              : runtime.resume(input.runId, { scope: "launched" })).pipe(
+                Effect.catchTag("/control/ClaimLost", () =>
+                  live(current.status)
+                    ? Effect.fail(new ClaimLost({ runId: input.runId }))
+                    : Effect.succeed(undefined))
+              )
             // The same attribution `cancel` writes, for the same reason: the
             // contract records `reason` on the journal entry the mutation
             // writes and `principal` as stamped by the runtime, and a resume

@@ -139,9 +139,11 @@ export class CodeDrift extends Schema.TaggedError<CodeDrift>()("/control/CodeDri
         ? []
         : [`engine ${this.recordedEngine}, which is now ${this.currentEngine ?? "unknown"}`])
     ]
-    return `Run ${this.runId} started on ${
-      changes.join(" and ")
-    }. Resume with --allow-code-drift to run the changed code.`
+    // A flow that is gone has no code to adopt, so the flag would not help.
+    const next = this.recorded !== undefined && this.current === undefined
+      ? "Restore the flow to resume it."
+      : "Resume with --allow-code-drift to run the changed code."
+    return `Run ${this.runId} started on ${changes.join(" and ")}. ${next}`
   }
 }
 

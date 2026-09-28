@@ -219,6 +219,13 @@ describe("Forensics.renderDiagnosis", () => {
     expect(Forensics.renderDiagnosis({ runId: "run-1" }, d)).not.toContain("Drift")
   })
 
+  it("asks for a gone flow back instead of a resume that would be refused", () => {
+    const d = Forensics.digest([event("control.run.parked", { runId: "run-1", status: "parked" }, 1)])
+    const card = Forensics.renderDiagnosis({ runId: "run-1", codeDrift: { recorded: "sha-a" } }, d)
+    expect(card).toContain("Drift     flow sha-a → gone    # restore the flow to resume")
+    expect(card).not.toContain("--allow-code-drift")
+  })
+
   it("prints the exact unblock command for a parked run", () => {
     const d = Forensics.digest([
       event("control.approval.requested", { question: "Q", payload: { k: 1 } }, 1),

@@ -281,11 +281,11 @@ export const renderDiagnosis = (
         ? []
         : [`engine ${drift.recordedEngine} → ${drift.currentEngine ?? "unknown"}`])
     ]
-    lines.push(
-      `${label("Drift")}${changes.join(", ")}    # resume needs ${
-        shellCommand("smthrs", "runs", "resume", runId, "--allow-code-drift")
-      }`
-    )
+    // A flow that is gone has no code to adopt; the flag would be refused.
+    const next = drift.recorded !== undefined && drift.current === undefined
+      ? "restore the flow to resume"
+      : `resume needs ${shellCommand("smthrs", "runs", "resume", runId, "--allow-code-drift")}`
+    lines.push(`${label("Drift")}${changes.join(", ")}    # ${next}`)
   }
   if (d.parkedApproval !== undefined) {
     lines.push(
