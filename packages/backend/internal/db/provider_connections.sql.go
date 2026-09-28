@@ -101,7 +101,7 @@ SET refresh_lease_until = $1::timestamptz,
     refresh_generation = pc.refresh_generation + 1, updated_at = NOW()
 FROM due
 WHERE pc.id = due.id
-RETURNING pc.id, pc.owner_type, pc.user_id, pc.org_id, pc.provider, pc.kind, pc.label, pc.account_email, pc.account_id, pc.plan, pc.access_token_encrypted, pc.refresh_token_encrypted, pc.access_expires_at, pc.state, pc.last_refresh_at, pc.next_refresh_at, pc.refresh_failures, pc.last_error, pc.created_by, pc.created_at, pc.updated_at, pc.refresh_lease_until, pc.refresh_generation, pc.limited_until, pc.last_used_at, pc.sort_order
+RETURNING pc.id, pc.owner_type, pc.user_id, pc.org_id, pc.provider, pc.kind, pc.label, pc.account_email, pc.account_id, pc.plan, pc.access_token_encrypted, pc.refresh_token_encrypted, pc.access_expires_at, pc.state, pc.last_refresh_at, pc.next_refresh_at, pc.refresh_failures, pc.last_error, pc.created_by, pc.created_at, pc.updated_at, pc.refresh_lease_until, pc.refresh_generation, pc.limited_until, pc.last_used_at, pc.sort_order, pc.used_percent, pc.usage_observed_at
 `
 
 type ClaimProviderConnectionForRefreshParams struct {
@@ -143,6 +143,8 @@ func (q *Queries) ClaimProviderConnectionForRefresh(ctx context.Context, arg Cla
 		&i.LimitedUntil,
 		&i.LastUsedAt,
 		&i.SortOrder,
+		&i.UsedPercent,
+		&i.UsageObservedAt,
 	)
 	return i, err
 }
@@ -158,7 +160,7 @@ VALUES (
     $10, $11, $12,
     $13, $14
 )
-RETURNING id, owner_type, user_id, org_id, provider, kind, label, account_email, account_id, plan, access_token_encrypted, refresh_token_encrypted, access_expires_at, state, last_refresh_at, next_refresh_at, refresh_failures, last_error, created_by, created_at, updated_at, refresh_lease_until, refresh_generation, limited_until, last_used_at, sort_order
+RETURNING id, owner_type, user_id, org_id, provider, kind, label, account_email, account_id, plan, access_token_encrypted, refresh_token_encrypted, access_expires_at, state, last_refresh_at, next_refresh_at, refresh_failures, last_error, created_by, created_at, updated_at, refresh_lease_until, refresh_generation, limited_until, last_used_at, sort_order, used_percent, usage_observed_at
 `
 
 type CreateProviderConnectionParams struct {
@@ -223,6 +225,8 @@ func (q *Queries) CreateProviderConnection(ctx context.Context, arg CreateProvid
 		&i.LimitedUntil,
 		&i.LastUsedAt,
 		&i.SortOrder,
+		&i.UsedPercent,
+		&i.UsageObservedAt,
 	)
 	return i, err
 }
@@ -350,7 +354,7 @@ func (q *Queries) FinishProviderConnectionDeviceLoginPoll(ctx context.Context, a
 }
 
 const getProviderConnection = `-- name: GetProviderConnection :one
-SELECT id, owner_type, user_id, org_id, provider, kind, label, account_email, account_id, plan, access_token_encrypted, refresh_token_encrypted, access_expires_at, state, last_refresh_at, next_refresh_at, refresh_failures, last_error, created_by, created_at, updated_at, refresh_lease_until, refresh_generation, limited_until, last_used_at, sort_order FROM provider_connections WHERE id = $1
+SELECT id, owner_type, user_id, org_id, provider, kind, label, account_email, account_id, plan, access_token_encrypted, refresh_token_encrypted, access_expires_at, state, last_refresh_at, next_refresh_at, refresh_failures, last_error, created_by, created_at, updated_at, refresh_lease_until, refresh_generation, limited_until, last_used_at, sort_order, used_percent, usage_observed_at FROM provider_connections WHERE id = $1
 `
 
 func (q *Queries) GetProviderConnection(ctx context.Context, id string) (ProviderConnection, error) {
@@ -383,6 +387,8 @@ func (q *Queries) GetProviderConnection(ctx context.Context, id string) (Provide
 		&i.LimitedUntil,
 		&i.LastUsedAt,
 		&i.SortOrder,
+		&i.UsedPercent,
+		&i.UsageObservedAt,
 	)
 	return i, err
 }
@@ -430,7 +436,7 @@ func (q *Queries) GetRepositoryProviderConnectionPreference(ctx context.Context,
 }
 
 const listOrgProviderConnections = `-- name: ListOrgProviderConnections :many
-SELECT id, owner_type, user_id, org_id, provider, kind, label, account_email, account_id, plan, access_token_encrypted, refresh_token_encrypted, access_expires_at, state, last_refresh_at, next_refresh_at, refresh_failures, last_error, created_by, created_at, updated_at, refresh_lease_until, refresh_generation, limited_until, last_used_at, sort_order FROM provider_connections
+SELECT id, owner_type, user_id, org_id, provider, kind, label, account_email, account_id, plan, access_token_encrypted, refresh_token_encrypted, access_expires_at, state, last_refresh_at, next_refresh_at, refresh_failures, last_error, created_by, created_at, updated_at, refresh_lease_until, refresh_generation, limited_until, last_used_at, sort_order, used_percent, usage_observed_at FROM provider_connections
 WHERE owner_type = 'org' AND org_id = $1
 ORDER BY provider, sort_order, created_at, id
 `
@@ -471,6 +477,8 @@ func (q *Queries) ListOrgProviderConnections(ctx context.Context, orgID pgtype.I
 			&i.LimitedUntil,
 			&i.LastUsedAt,
 			&i.SortOrder,
+			&i.UsedPercent,
+			&i.UsageObservedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -514,7 +522,7 @@ func (q *Queries) ListProviderConnectionGrants(ctx context.Context, connectionID
 }
 
 const listUserProviderConnections = `-- name: ListUserProviderConnections :many
-SELECT id, owner_type, user_id, org_id, provider, kind, label, account_email, account_id, plan, access_token_encrypted, refresh_token_encrypted, access_expires_at, state, last_refresh_at, next_refresh_at, refresh_failures, last_error, created_by, created_at, updated_at, refresh_lease_until, refresh_generation, limited_until, last_used_at, sort_order FROM provider_connections
+SELECT id, owner_type, user_id, org_id, provider, kind, label, account_email, account_id, plan, access_token_encrypted, refresh_token_encrypted, access_expires_at, state, last_refresh_at, next_refresh_at, refresh_failures, last_error, created_by, created_at, updated_at, refresh_lease_until, refresh_generation, limited_until, last_used_at, sort_order, used_percent, usage_observed_at FROM provider_connections
 WHERE owner_type = 'user' AND user_id = $1
 ORDER BY provider, sort_order, created_at, id
 `
@@ -555,6 +563,8 @@ func (q *Queries) ListUserProviderConnections(ctx context.Context, userID pgtype
 			&i.LimitedUntil,
 			&i.LastUsedAt,
 			&i.SortOrder,
+			&i.UsedPercent,
+			&i.UsageObservedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -668,7 +678,7 @@ UPDATE provider_connections pc
 SET last_used_at = clock_timestamp()
 FROM candidate
 WHERE pc.id = candidate.id
-RETURNING pc.id, pc.owner_type, pc.user_id, pc.org_id, pc.provider, pc.kind, pc.label, pc.account_email, pc.account_id, pc.plan, pc.access_token_encrypted, pc.refresh_token_encrypted, pc.access_expires_at, pc.state, pc.last_refresh_at, pc.next_refresh_at, pc.refresh_failures, pc.last_error, pc.created_by, pc.created_at, pc.updated_at, pc.refresh_lease_until, pc.refresh_generation, pc.limited_until, pc.last_used_at, pc.sort_order
+RETURNING pc.id, pc.owner_type, pc.user_id, pc.org_id, pc.provider, pc.kind, pc.label, pc.account_email, pc.account_id, pc.plan, pc.access_token_encrypted, pc.refresh_token_encrypted, pc.access_expires_at, pc.state, pc.last_refresh_at, pc.next_refresh_at, pc.refresh_failures, pc.last_error, pc.created_by, pc.created_at, pc.updated_at, pc.refresh_lease_until, pc.refresh_generation, pc.limited_until, pc.last_used_at, pc.sort_order, pc.used_percent, pc.usage_observed_at
 `
 
 type PickProviderConnectionParams struct {
@@ -721,6 +731,8 @@ func (q *Queries) PickProviderConnection(ctx context.Context, arg PickProviderCo
 		&i.LimitedUntil,
 		&i.LastUsedAt,
 		&i.SortOrder,
+		&i.UsedPercent,
+		&i.UsageObservedAt,
 	)
 	return i, err
 }
@@ -754,7 +766,7 @@ UPDATE provider_connections pc
 SET last_used_at = clock_timestamp()
 FROM candidate
 WHERE pc.id = candidate.id
-RETURNING pc.id, pc.owner_type, pc.user_id, pc.org_id, pc.provider, pc.kind, pc.label, pc.account_email, pc.account_id, pc.plan, pc.access_token_encrypted, pc.refresh_token_encrypted, pc.access_expires_at, pc.state, pc.last_refresh_at, pc.next_refresh_at, pc.refresh_failures, pc.last_error, pc.created_by, pc.created_at, pc.updated_at, pc.refresh_lease_until, pc.refresh_generation, pc.limited_until, pc.last_used_at, pc.sort_order
+RETURNING pc.id, pc.owner_type, pc.user_id, pc.org_id, pc.provider, pc.kind, pc.label, pc.account_email, pc.account_id, pc.plan, pc.access_token_encrypted, pc.refresh_token_encrypted, pc.access_expires_at, pc.state, pc.last_refresh_at, pc.next_refresh_at, pc.refresh_failures, pc.last_error, pc.created_by, pc.created_at, pc.updated_at, pc.refresh_lease_until, pc.refresh_generation, pc.limited_until, pc.last_used_at, pc.sort_order, pc.used_percent, pc.usage_observed_at
 `
 
 type PickProviderConnectionWaitingParams struct {
@@ -805,6 +817,8 @@ func (q *Queries) PickProviderConnectionWaiting(ctx context.Context, arg PickPro
 		&i.LimitedUntil,
 		&i.LastUsedAt,
 		&i.SortOrder,
+		&i.UsedPercent,
+		&i.UsageObservedAt,
 	)
 	return i, err
 }

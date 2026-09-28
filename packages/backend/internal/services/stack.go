@@ -350,12 +350,12 @@ func applyStackChanges(
 			ChangeID:     change.ChangeID,
 			Position:     int32(change.Position),
 			BranchName:   change.BranchName,
-			PrState:      trimOptionalText(change.PRState),
+			PRState:      trimOptionalText(change.PRState),
 			ReviewStatus: trimOptionalText(change.ReviewStatus),
 			CiStatus:     trimOptionalText(change.CIStatus),
 		}
 		if change.PRNumber != nil {
-			arg.PrNumber = pgtype.Int8{Int64: *change.PRNumber, Valid: true}
+			arg.PRNumber = pgtype.Int8{Int64: *change.PRNumber, Valid: true}
 		}
 
 		if _, err := q.UpsertStackChange(ctx, arg); err != nil {
@@ -613,12 +613,12 @@ func mapStackResponse(stack db.Stack, changes []db.StackChange) StackResponse {
 			ChangeID:   row.ChangeID,
 			Position:   int(row.Position),
 		}
-		if row.PrNumber.Valid {
-			prNumber := row.PrNumber.Int64
+		if row.PRNumber.Valid {
+			prNumber := row.PRNumber.Int64
 			change.PRNumber = &prNumber
 		}
-		if row.PrState.Valid {
-			change.PRState = normalizeStackPRState(row.PrState.String)
+		if row.PRState.Valid {
+			change.PRState = normalizeStackPRState(row.PRState.String)
 		}
 		if row.ReviewStatus.Valid {
 			change.ReviewStatus = normalizeStackReviewStatus(row.ReviewStatus.String)

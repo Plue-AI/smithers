@@ -241,7 +241,7 @@ const nativeFfi = Smithers.Shell.Build({
   timeout: "30m"
 })
 
-// The only networked Go step fills a declared module cache on a clean runner.
+// Fill a declared module cache on a clean runner.
 const backendGoModules = Smithers.Go.ModDownload({
   mod: Smithers.file("//go.mod"),
   sum: Smithers.file("//go.sum"),
@@ -249,10 +249,19 @@ const backendGoModules = Smithers.Go.ModDownload({
   sandbox: { network: true }
 })
 
+// sqlc owns product row models; the backend suite regenerates and compiles them.
+const backendSQLC = Smithers.Shell.Build({
+  shell: "GOBIN=\"$PWD/.backend-sqlc\" go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0",
+  outDirs: ["//.backend-sqlc"],
+  data: [Smithers.file("//go.mod")],
+  sandbox: { network: true },
+  timeout: "15m"
+})
+
 // `go test` streams megabytes of logs, so its failures rarely reach the
 // output tail a failed target reports; they are repeated on stderr.
 const backendGo = Smithers.Shell.Test({
-  shell: "export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 ./packages/backend/... ./apps/backend/... ./distribution/... >\"$log\" 2>&1; status=$?; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; fi; rm -f \"$log\"; exit $status",
+  shell: "export PATH=\"$PWD/.backend-sqlc:$PATH\"; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 ./packages/backend/... ./apps/backend/... ./distribution/... >\"$log\" 2>&1; status=$?; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; fi; rm -f \"$log\"; exit $status",
   env: {
     GOFLAGS: "-buildvcs=false -mod=readonly",
     GOMAXPROCS: "2",
@@ -263,6 +272,7 @@ const backendGo = Smithers.Shell.Test({
   },
   data: [
     backendGoModules,
+    backendSQLC,
     Smithers.file("//scripts/check-go-boundaries.py"),
     Smithers.file("//scripts/check-public-backend-boundary.sh"),
     Smithers.file("//scripts/test_check_go_boundaries.py"),
@@ -1085,6 +1095,7 @@ export const Package = Smithers.Package({
   targets: {
     ...securityReview,
     backendGoModules,
+    backendSQLC,
     backendGo,
     nativeFfi,
     commit,

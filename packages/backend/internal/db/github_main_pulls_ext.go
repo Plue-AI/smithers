@@ -3,33 +3,7 @@ package db
 import (
 	"context"
 	"strings"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
-
-// GithubMainPull is one repository's GitHub -> Smithers main pull state.
-type GithubMainPull struct {
-	RepositoryID        int64              `json:"repository_id"`
-	RequestedGeneration int64              `json:"requested_generation"`
-	SyncedGeneration    int64              `json:"synced_generation"`
-	ClaimedGeneration   int64              `json:"claimed_generation"`
-	Claim               int64              `json:"claim"`
-	State               string             `json:"state"`
-	Attempts            int32              `json:"attempts"`
-	LeaseExpiresAt      pgtype.Timestamptz `json:"lease_expires_at"`
-	NextAttemptAt       pgtype.Timestamptz `json:"next_attempt_at"`
-	GithubRepository    string             `json:"github_repository"`
-	Branch              string             `json:"branch"`
-	Policy              string             `json:"policy"`
-	PolicyCommit        string             `json:"policy_commit"`
-	GithubHead          string             `json:"github_head"`
-	SmithersHead        string             `json:"smithers_head"`
-	LastError           string             `json:"last_error"`
-	LastCheckedAt       pgtype.Timestamptz `json:"last_checked_at"`
-	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
-}
 
 const githubMainPullColumns = `p.repository_id, p.requested_generation, p.synced_generation, p.claimed_generation, p.claim, p.state,
 p.attempts, p.lease_expires_at, p.next_attempt_at, p.github_repository, p.branch, p.policy, p.policy_commit, p.github_head,

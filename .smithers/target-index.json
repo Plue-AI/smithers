@@ -61,6 +61,7 @@
     "outputs": [],
     "dependencies": [
       "//:backendGoModules",
+      "//:backendSQLC",
       "//:nativeFfi",
       "//packages/smithers/agent/integrations:lib",
       "//packages/smithers/agent/model-host:lib",
@@ -87,6 +88,27 @@
       {
         "kind": "file",
         "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//:backendSQLC",
+    "package": "",
+    "name": "backendSQLC",
+    "rule": "Shell.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "go.mod"
       }
     ],
     "outputs": [],

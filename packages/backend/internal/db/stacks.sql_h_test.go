@@ -43,8 +43,8 @@ func TestStacksSQL_H_RoundTripAndDeletePaths(t *testing.T) {
 		ChangeID:     "change-one-" + randSlug(t),
 		Position:     1,
 		BranchName:   "branch-one",
-		PrNumber:     pgtype.Int8{Int64: 11, Valid: true},
-		PrState:      pgtype.Text{String: "open", Valid: true},
+		PRNumber:     pgtype.Int8{Int64: 11, Valid: true},
+		PRState:      pgtype.Text{String: "open", Valid: true},
 		ReviewStatus: pgtype.Text{String: "approved", Valid: true},
 		CiStatus:     pgtype.Text{String: "success", Valid: true},
 	})

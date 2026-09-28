@@ -22,6 +22,7 @@ app/.electrobun/
 .cache/
 .pnpm-store/
 .backend-go-modcache/
+.backend-sqlc/
 .native-ffi/
 .nyc_output/
 coverage/

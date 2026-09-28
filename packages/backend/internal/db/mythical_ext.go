@@ -12,34 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// MythicalStack is one repository's mythical stack worker state.
-type MythicalStack struct {
-	RepositoryID        int64              `json:"repository_id"`
-	ActorUserID         pgtype.Int8        `json:"actor_user_id"`
-	State               string             `json:"state"`
-	Reason              string             `json:"reason"`
-	ResetGeneration     int64              `json:"reset_generation"`
-	BootstrapDepth      int32              `json:"bootstrap_depth"`
-	MaxParallel         int32              `json:"max_parallel"`
-	TipCommit           string             `json:"tip_commit"`
-	TipChange           string             `json:"tip_change"`
-	NotesCommit         string             `json:"notes_commit"`
-	LandedMain          string             `json:"landed_main"`
-	Generation          int64              `json:"generation"`
-	RequestedGeneration int64              `json:"requested_generation"`
-	ProcessedGeneration int64              `json:"processed_generation"`
-	ClaimedGeneration   int64              `json:"claimed_generation"`
-	Claim               int64              `json:"claim"`
-	Running             bool               `json:"running"`
-	LeaseExpiresAt      pgtype.Timestamptz `json:"lease_expires_at"`
-	NextAttemptAt       pgtype.Timestamptz `json:"next_attempt_at"`
-	Attempts            int32              `json:"attempts"`
-	PendingOp           json.RawMessage    `json:"pending_op"`
-	LastError           string             `json:"last_error"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
-}
-
 const mythicalStackColumns = `s.repository_id, s.actor_user_id, s.state, s.reason, s.reset_generation, s.bootstrap_depth, s.max_parallel, s.tip_commit,
 s.tip_change, s.notes_commit, s.landed_main, s.generation, s.requested_generation, s.processed_generation, s.claimed_generation,
 s.claim, s.running, s.lease_expires_at, s.next_attempt_at, s.attempts, s.pending_op, s.last_error, s.created_at, s.updated_at`
@@ -248,20 +220,6 @@ func (q *Queries) FinishMythicalStack(ctx context.Context, arg FinishMythicalSta
 	return generation, err
 }
 
-// MythicalChange is one change of a stack, root first by position.
-type MythicalChange struct {
-	RepositoryID int64       `json:"repository_id"`
-	Position     int32       `json:"position"`
-	ChangeID     string      `json:"change_id"`
-	CommitID     string      `json:"commit_id"`
-	Title        string      `json:"title"`
-	Kind         string      `json:"kind"`
-	ItemID       pgtype.UUID `json:"item_id"`
-	IssueNumber  pgtype.Int8 `json:"issue_number"`
-	Predecessor  string      `json:"predecessor"`
-	FoldedFrom   string      `json:"folded_from"`
-}
-
 // ReplaceMythicalChanges removes a stack's changes from position on and
 // inserts rows (whose positions start there).
 func (q *Queries) ReplaceMythicalChanges(ctx context.Context, repositoryID int64, from int32, rows []MythicalChange) error {
@@ -313,54 +271,6 @@ func (q *Queries) ListRecentMythicalChanges(ctx context.Context, repositoryID in
 		return nil, err
 	}
 	return scanMythicalChanges(rows)
-}
-
-// MythicalItem is one issue (or chat request) moving through a stack.
-type MythicalItem struct {
-	ID             pgtype.UUID `json:"id"`
-	RepositoryID   int64       `json:"repository_id"`
-	IssueNumber    pgtype.Int8 `json:"issue_number"`
-	IssueTitle     string      `json:"issue_title"`
-	IssueURL       string      `json:"issue_url"`
-	IssueDigest    string      `json:"issue_digest"`
-	IssueBody      string      `json:"issue_body"`
-	ApprovedDigest string      `json:"approved_digest"`
-	// Outsider is text from a non-maintainer, approved by a maintainer's label.
-	Outsider          bool               `json:"outsider"`
-	ProposalRound     int32              `json:"proposal_round"`
-	Source            string             `json:"source"`
-	Version           int64              `json:"version"`
-	State             string             `json:"state"`
-	Reason            string             `json:"reason"`
-	Attempt           int32              `json:"attempt"`
-	Generation        int64              `json:"generation"`
-	Lane              pgtype.Int4        `json:"lane"`
-	WorkspaceID       string             `json:"workspace_id"`
-	BaseCommit        string             `json:"base_commit"`
-	CandidateBase     string             `json:"candidate_base"`
-	CandidateHead     string             `json:"candidate_head"`
-	CandidateVerified bool               `json:"candidate_verified"`
-	RequestRunID      string             `json:"request_run_id"`
-	VibeRunID         string             `json:"vibe_run_id"`
-	VerifyRunID       string             `json:"verify_run_id"`
-	RequestOutcome    string             `json:"request_outcome"`
-	VibeOutcome       string             `json:"vibe_outcome"`
-	VerifyOutcome     string             `json:"verify_outcome"`
-	Summary           string             `json:"summary"`
-	Plan              json.RawMessage    `json:"plan"`
-	Integration       json.RawMessage    `json:"integration"`
-	Checks            json.RawMessage    `json:"checks"`
-	PRNumber          pgtype.Int8        `json:"pr_number"`
-	PRURL             string             `json:"pr_url"`
-	PRState           string             `json:"pr_state"`
-	PRHead            string             `json:"pr_head"`
-	PRMergeCommit     string             `json:"pr_merge_commit"`
-	PendingOp         json.RawMessage    `json:"pending_op"`
-	NextAttemptAt     pgtype.Timestamptz `json:"next_attempt_at"`
-	// LaneStartedAt is when the current attempt's lane launched.
-	LaneStartedAt pgtype.Timestamptz `json:"lane_started_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 const mythicalItemColumns = `id, repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, proposal_round,
@@ -478,6 +388,8 @@ func (q *Queries) InsertMythicalChatItem(ctx context.Context, item MythicalItem)
 // SaveMythicalItem writes every mutable field of item when its version is
 // still item.Version, and answers the saved row (version + 1). A concurrent
 // writer makes it answer pgx.ErrNoRows; the caller rereads and decides again.
+// Outsider marks text from a non-maintainer approved by a maintainer's label.
+// LaneStartedAt records when the current attempt's lane launched.
 func (q *Queries) SaveMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, error) {
 	return scanMythicalItem(q.db.QueryRow(ctx, `UPDATE mythical_items SET
 		issue_body = $33, approved_digest = $34, proposal_round = $35, lane_started_at = $36, outsider = $37,
@@ -510,16 +422,6 @@ func (q *Queries) SetMythicalMaxParallel(ctx context.Context, repositoryID int64
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
-}
-
-// MythicalLane is one lane workspace the stack provisioned for an item.
-type MythicalLane struct {
-	WorkspaceID  string             `json:"workspace_id"`
-	RepositoryID int64              `json:"repository_id"`
-	ItemID       pgtype.UUID        `json:"item_id"`
-	Name         string             `json:"name"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	RetiredAt    pgtype.Timestamptz `json:"retired_at"`
 }
 
 const mythicalLaneColumns = `workspace_id, repository_id, item_id, name, created_at, retired_at`

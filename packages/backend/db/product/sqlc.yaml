@@ -12,6 +12,18 @@ sql:
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_empty_slices: true
+        # Keep row models distinct from handwritten projections and joins.
+        rename:
+          landing_github_merge: "LandingGitHubMerge"
+          issue_sync_channel: "IssueSyncChannelRow"
+          issue_sync_delivery: "IssueSyncDeliveryRow"
+          workspace_provider_use: "WorkspaceProviderUseRow"
+          issue_url: "IssueURL"
+          pr_number: "PRNumber"
+          pr_url: "PRURL"
+          pr_state: "PRState"
+          pr_head: "PRHead"
+          pr_merge_commit: "PRMergeCommit"
         overrides:
           - db_type: "uuid"
             go_type: "string"
@@ -36,3 +48,93 @@ sql:
             go_struct_tag: 'json:"-"'
           - column: "issue_state_facts.audience_user_id"
             go_struct_tag: 'json:"-"'
+          # Preserve the handwritten stores' public field types as sqlc takes
+          # ownership of their row models. Scope overrides to these columns.
+          - column: "github_main_pulls.next_attempt_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "github_main_pulls.created_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "github_main_pulls.updated_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_stacks.next_attempt_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_stacks.pending_op"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "mythical_stacks.created_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_stacks.updated_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_items.id"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "UUID"
+          - column: "mythical_items.plan"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "mythical_items.integration"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "mythical_items.checks"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "mythical_items.pending_op"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "mythical_items.next_attempt_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_items.created_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_items.updated_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_lanes.item_id"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "UUID"
+          - column: "mythical_lanes.created_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_wikis.result"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "mythical_wikis.next_attempt_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"
+          - column: "mythical_wikis.receipt"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "mythical_wikis.pool"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "mythical_wikis.updated_at"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Timestamptz"

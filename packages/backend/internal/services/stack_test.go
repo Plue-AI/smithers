@@ -180,8 +180,8 @@ func TestStackService_UpsertActiveStack_PersistsAndReturnsChanges(t *testing.T) 
 				ChangeID:     arg.ChangeID,
 				Position:     arg.Position,
 				BranchName:   arg.BranchName,
-				PrNumber:     arg.PrNumber,
-				PrState:      arg.PrState,
+				PRNumber:     arg.PRNumber,
+				PRState:      arg.PRState,
 				ReviewStatus: arg.ReviewStatus,
 				CiStatus:     arg.CiStatus,
 				CreatedAt:    now,
@@ -196,8 +196,8 @@ func TestStackService_UpsertActiveStack_PersistsAndReturnsChanges(t *testing.T) 
 					ChangeID:     "qabc1234",
 					Position:     0,
 					BranchName:   "smithers/qabc1234",
-					PrNumber:     pgtype.Int8{Int64: 41, Valid: true},
-					PrState:      pgtype.Text{String: "open", Valid: true},
+					PRNumber:     pgtype.Int8{Int64: 41, Valid: true},
+					PRState:      pgtype.Text{String: "open", Valid: true},
 					ReviewStatus: pgtype.Text{String: "pending", Valid: true},
 					CiStatus:     pgtype.Text{String: "pending", Valid: true},
 					CreatedAt:    now,
@@ -209,8 +209,8 @@ func TestStackService_UpsertActiveStack_PersistsAndReturnsChanges(t *testing.T) 
 					ChangeID:     "qdef5678",
 					Position:     1,
 					BranchName:   "smithers/qdef5678",
-					PrNumber:     pgtype.Int8{Int64: 42, Valid: true},
-					PrState:      pgtype.Text{String: "open", Valid: true},
+					PRNumber:     pgtype.Int8{Int64: 42, Valid: true},
+					PRState:      pgtype.Text{String: "open", Valid: true},
 					ReviewStatus: pgtype.Text{String: "pending", Valid: true},
 					CiStatus:     pgtype.Text{String: "pending", Valid: true},
 					CreatedAt:    now,
@@ -251,8 +251,8 @@ func TestStackService_UpsertActiveStack_PersistsAndReturnsChanges(t *testing.T) 
 	require.Len(t, q.upsertStackChangeArgs, 2)
 	assert.Equal(t, "qabc1234", q.upsertStackChangeArgs[0].ChangeID)
 	assert.Equal(t, int32(0), q.upsertStackChangeArgs[0].Position)
-	assert.True(t, q.upsertStackChangeArgs[0].PrNumber.Valid)
-	assert.Equal(t, int64(41), q.upsertStackChangeArgs[0].PrNumber.Int64)
+	assert.True(t, q.upsertStackChangeArgs[0].PRNumber.Valid)
+	assert.Equal(t, int64(41), q.upsertStackChangeArgs[0].PRNumber.Int64)
 	assert.Equal(t, []string{"qabc1234", "qdef5678"}, q.lastDeleteStackChangesNotInSetArg.ChangeIds)
 
 	assert.Equal(t, int64(7), result.ID)
@@ -599,8 +599,8 @@ func TestStackService_GetActiveStack_EnrichesGitHubState(t *testing.T) {
 					ChangeID:     "qabc1234",
 					Position:     0,
 					BranchName:   "smithers/qabc1234",
-					PrNumber:     pgtype.Int8{Int64: 41, Valid: true},
-					PrState:      pgtype.Text{String: "open", Valid: true},
+					PRNumber:     pgtype.Int8{Int64: 41, Valid: true},
+					PRState:      pgtype.Text{String: "open", Valid: true},
 					ReviewStatus: pgtype.Text{String: "pending", Valid: true},
 					CiStatus:     pgtype.Text{String: "pending", Valid: true},
 					CreatedAt:    now,
@@ -612,8 +612,8 @@ func TestStackService_GetActiveStack_EnrichesGitHubState(t *testing.T) {
 					ChangeID:     "qdef5678",
 					Position:     1,
 					BranchName:   "smithers/qdef5678",
-					PrNumber:     pgtype.Int8{Int64: 42, Valid: true},
-					PrState:      pgtype.Text{String: "open", Valid: true},
+					PRNumber:     pgtype.Int8{Int64: 42, Valid: true},
+					PRState:      pgtype.Text{String: "open", Valid: true},
 					ReviewStatus: pgtype.Text{String: "pending", Valid: true},
 					CiStatus:     pgtype.Text{String: "pending", Valid: true},
 					CreatedAt:    now,
@@ -674,8 +674,8 @@ func TestStackService_GetActiveStack_FallsBackWithoutGitHubInstallation(t *testi
 					ChangeID:     "qabc1234",
 					Position:     0,
 					BranchName:   "smithers/qabc1234",
-					PrNumber:     pgtype.Int8{Int64: 41, Valid: true},
-					PrState:      pgtype.Text{String: "open", Valid: true},
+					PRNumber:     pgtype.Int8{Int64: 41, Valid: true},
+					PRState:      pgtype.Text{String: "open", Valid: true},
 					ReviewStatus: pgtype.Text{String: "pending", Valid: true},
 					CiStatus:     pgtype.Text{String: "pending", Valid: true},
 					CreatedAt:    now,

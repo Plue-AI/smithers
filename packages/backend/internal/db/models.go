@@ -349,10 +349,19 @@ type BuildCacheReadToken struct {
 	Name            string             `json:"name"`
 	TokenHash       string             `json:"token_hash"`
 	TokenLastEight  string             `json:"token_last_eight"`
-	NamespacePrefix string             `json:"namespace_prefix"`
 	LastUsedAt      pgtype.Timestamptz `json:"last_used_at"`
 	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt       time.Time          `json:"created_at"`
+	NamespacePrefix string             `json:"namespace_prefix"`
+}
+
+type CanonicalImportReceipt struct {
+	SourceKind  string          `json:"source_kind"`
+	SourceID    string          `json:"source_id"`
+	TargetTable string          `json:"target_table"`
+	PrimaryKey  json.RawMessage `json:"primary_key"`
+	Checksum    string          `json:"checksum"`
+	ImportedAt  time.Time       `json:"imported_at"`
 }
 
 type Change struct {
@@ -533,6 +542,73 @@ type Conflict struct {
 	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
+type CreditAccount struct {
+	ID          int64       `json:"id"`
+	OwnerType   pgtype.Text `json:"owner_type"`
+	OwnerID     pgtype.Int8 `json:"owner_id"`
+	DebtNanos   int64       `json:"debt_nanos"`
+	Disposition string      `json:"disposition"`
+	MergedInto  pgtype.Int8 `json:"merged_into"`
+	CreatedAt   time.Time   `json:"created_at"`
+}
+
+type CreditEvent struct {
+	ID                  int64       `json:"id"`
+	AccountID           int64       `json:"account_id"`
+	GrantID             pgtype.Int8 `json:"grant_id"`
+	ReservationID       pgtype.Int8 `json:"reservation_id"`
+	Kind                string      `json:"kind"`
+	AvailableDeltaNanos int64       `json:"available_delta_nanos"`
+	SpentNanos          int64       `json:"spent_nanos"`
+	DebtDeltaNanos      int64       `json:"debt_delta_nanos"`
+	CreatedAt           time.Time   `json:"created_at"`
+}
+
+type CreditGrant struct {
+	ID             int64              `json:"id"`
+	AccountID      int64              `json:"account_id"`
+	SourceKey      string             `json:"source_key"`
+	OriginalNanos  int64              `json:"original_nanos"`
+	AvailableNanos int64              `json:"available_nanos"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt      time.Time          `json:"created_at"`
+}
+
+type CreditLegacyImport struct {
+	SourceID         string    `json:"source_id"`
+	AccountID        int64     `json:"account_id"`
+	Checksum         string    `json:"checksum"`
+	RawAccount       string    `json:"raw_account"`
+	OpeningDebtNanos int64     `json:"opening_debt_nanos"`
+	Disposition      string    `json:"disposition"`
+	ImportedAt       time.Time `json:"imported_at"`
+}
+
+type CreditReservation struct {
+	ID            int64              `json:"id"`
+	AccountID     int64              `json:"account_id"`
+	RequestKey    string             `json:"request_key"`
+	ReservedNanos int64              `json:"reserved_nanos"`
+	ChargedNanos  pgtype.Int8        `json:"charged_nanos"`
+	Status        string             `json:"status"`
+	CreatedAt     time.Time          `json:"created_at"`
+	SettledAt     pgtype.Timestamptz `json:"settled_at"`
+	Abandoned     bool               `json:"abandoned"`
+}
+
+type CreditReservationGrant struct {
+	ReservationID int64       `json:"reservation_id"`
+	GrantID       int64       `json:"grant_id"`
+	ReservedNanos int64       `json:"reserved_nanos"`
+	ChargedNanos  pgtype.Int8 `json:"charged_nanos"`
+}
+
+type CreditSignupIdentity struct {
+	Identity  string    `json:"identity"`
+	AccountID int64     `json:"account_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type DeployKey struct {
 	ID             int64              `json:"id"`
 	RepositoryID   int64              `json:"repository_id"`
@@ -656,6 +732,29 @@ type GithubAppInstallationRepository struct {
 	IsPrivate          bool      `json:"is_private"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+type GithubMainPull struct {
+	RepositoryID        int64              `json:"repository_id"`
+	RequestedGeneration int64              `json:"requested_generation"`
+	SyncedGeneration    int64              `json:"synced_generation"`
+	ClaimedGeneration   int64              `json:"claimed_generation"`
+	Claim               int64              `json:"claim"`
+	State               string             `json:"state"`
+	Attempts            int32              `json:"attempts"`
+	LeaseExpiresAt      pgtype.Timestamptz `json:"lease_expires_at"`
+	NextAttemptAt       pgtype.Timestamptz `json:"next_attempt_at"`
+	GithubRepository    string             `json:"github_repository"`
+	Branch              string             `json:"branch"`
+	Policy              string             `json:"policy"`
+	PolicyCommit        string             `json:"policy_commit"`
+	GithubHead          string             `json:"github_head"`
+	SmithersHead        string             `json:"smithers_head"`
+	LastError           string             `json:"last_error"`
+	LastCheckedAt       pgtype.Timestamptz `json:"last_checked_at"`
+	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
 type GithubMirrorSyncRefResult struct {
@@ -871,6 +970,14 @@ type IssueComment struct {
 	BodyEditorID   pgtype.Int8     `json:"body_editor_id"`
 }
 
+type IssueCommentKey struct {
+	IssueID     int64  `json:"issue_id"`
+	UserID      int64  `json:"user_id"`
+	Key         string `json:"key"`
+	CommentID   int64  `json:"comment_id"`
+	RequestHash []byte `json:"request_hash"`
+}
+
 type IssueDependency struct {
 	IssueID          int64     `json:"issue_id"`
 	DependsOnIssueID int64     `json:"depends_on_issue_id"`
@@ -884,6 +991,24 @@ type IssueEvent struct {
 	EventType string          `json:"event_type"`
 	Payload   json.RawMessage `json:"payload"`
 	CreatedAt time.Time       `json:"created_at"`
+}
+
+type IssueExternalMessage struct {
+	IssueID         int64          `json:"issue_id"`
+	CommentID       pgtype.Int8    `json:"comment_id"`
+	MessageID       string         `json:"message_id"`
+	ProviderVersion pgtype.Numeric `json:"provider_version"`
+	Deleted         bool           `json:"deleted"`
+}
+
+type IssueExternalReaction struct {
+	ID         int64          `json:"id"`
+	ReactionID pgtype.Int8    `json:"reaction_id"`
+	IssueID    int64          `json:"issue_id"`
+	CommentID  int64          `json:"comment_id"`
+	Actor      string         `json:"actor"`
+	Name       string         `json:"name"`
+	Version    pgtype.Numeric `json:"version"`
 }
 
 type IssueLabel struct {
@@ -914,6 +1039,50 @@ type IssueStateJournal struct {
 	CoverageStartedAt time.Time `json:"coverage_started_at"`
 }
 
+type IssueSyncChannelRow struct {
+	OwnerID        int64           `json:"owner_id"`
+	RepositoryID   int64           `json:"repository_id"`
+	Provider       string          `json:"provider"`
+	ConnectionID   string          `json:"connection_id"`
+	ScopeID        string          `json:"scope_id"`
+	ConversationID string          `json:"conversation_id"`
+	ExternalUserID string          `json:"external_user_id"`
+	ThreadID       string          `json:"thread_id"`
+	DocumentState  json.RawMessage `json:"document_state"`
+}
+
+type IssueSyncDeliveryRow struct {
+	ID                   int64       `json:"id"`
+	IssueID              pgtype.Int8 `json:"issue_id"`
+	EventID              pgtype.Int8 `json:"event_id"`
+	ReconcileKey         string      `json:"reconcile_key"`
+	State                string      `json:"state"`
+	ClaimToken           string      `json:"claim_token"`
+	MessageID            string      `json:"message_id"`
+	Error                string      `json:"error"`
+	UpdatedAt            time.Time   `json:"updated_at"`
+	DocumentScope        pgtype.Text `json:"document_scope"`
+	DocumentPayload      []byte      `json:"document_payload"`
+	DocumentOwnerID      pgtype.Int8 `json:"document_owner_id"`
+	DocumentRepositoryID pgtype.Int8 `json:"document_repository_id"`
+}
+
+type IssueSyncReceipt struct {
+	OwnerID     int64       `json:"owner_id"`
+	DeliveryKey string      `json:"delivery_key"`
+	IssueID     pgtype.Int8 `json:"issue_id"`
+}
+
+type IssueSyncThread struct {
+	IssueID        int64  `json:"issue_id"`
+	OwnerID        int64  `json:"owner_id"`
+	Provider       string `json:"provider"`
+	ConnectionID   string `json:"connection_id"`
+	ScopeID        string `json:"scope_id"`
+	ConversationID string `json:"conversation_id"`
+	ThreadID       string `json:"thread_id"`
+}
+
 type JjOperation struct {
 	ID                int64       `json:"id"`
 	RepositoryID      int64       `json:"repository_id"`
@@ -935,6 +1104,15 @@ type Label struct {
 	Description  string    `json:"description"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type LandingGitHubMerge struct {
+	LandingRequestID int64     `json:"landing_request_id"`
+	GithubRepository string    `json:"github_repository"`
+	PullNumber       int64     `json:"pull_number"`
+	HeadSha          string    `json:"head_sha"`
+	MergeCommit      string    `json:"merge_commit"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 type LandingRequest struct {
@@ -1026,6 +1204,11 @@ type LandingReviewRequest struct {
 	AgentName        pgtype.Text `json:"agent_name"`
 	State            string      `json:"state"`
 	CreatedAt        time.Time   `json:"created_at"`
+}
+
+type LandingSourceWorkspace struct {
+	LandingRequestID int64  `json:"landing_request_id"`
+	WorkspaceID      string `json:"workspace_id"`
 }
 
 type LandingTask struct {
@@ -1195,6 +1378,153 @@ type Milestone struct {
 	UpdatedAt    time.Time          `json:"updated_at"`
 }
 
+type ModelUsage struct {
+	ID               int64              `json:"id"`
+	RequestKey       string             `json:"request_key"`
+	CreditAccountID  int64              `json:"credit_account_id"`
+	ReservationID    int64              `json:"reservation_id"`
+	OwnerType        string             `json:"owner_type"`
+	OwnerID          int64              `json:"owner_id"`
+	Source           string             `json:"source"`
+	UserID           pgtype.Int8        `json:"user_id"`
+	RepositoryID     pgtype.Int8        `json:"repository_id"`
+	WorkspaceID      pgtype.Text        `json:"workspace_id"`
+	WorkflowRunID    pgtype.Int8        `json:"workflow_run_id"`
+	Reference        string             `json:"reference"`
+	Provider         string             `json:"provider"`
+	Model            string             `json:"model"`
+	Stream           bool               `json:"stream"`
+	Outcome          string             `json:"outcome"`
+	InputTokens      int64              `json:"input_tokens"`
+	OutputTokens     int64              `json:"output_tokens"`
+	CacheReadTokens  int64              `json:"cache_read_tokens"`
+	CacheWriteTokens int64              `json:"cache_write_tokens"`
+	CostNanos        pgtype.Int8        `json:"cost_nanos"`
+	UpstreamStatus   pgtype.Int4        `json:"upstream_status"`
+	CreatedAt        time.Time          `json:"created_at"`
+	SettledAt        pgtype.Timestamptz `json:"settled_at"`
+}
+
+type MythicalChange struct {
+	RepositoryID int64       `json:"repository_id"`
+	Position     int32       `json:"position"`
+	ChangeID     string      `json:"change_id"`
+	CommitID     string      `json:"commit_id"`
+	Title        string      `json:"title"`
+	Kind         string      `json:"kind"`
+	ItemID       pgtype.UUID `json:"item_id"`
+	IssueNumber  pgtype.Int8 `json:"issue_number"`
+	Predecessor  string      `json:"predecessor"`
+	FoldedFrom   string      `json:"folded_from"`
+}
+
+type MythicalItem struct {
+	ID                pgtype.UUID        `json:"id"`
+	RepositoryID      int64              `json:"repository_id"`
+	IssueNumber       pgtype.Int8        `json:"issue_number"`
+	IssueTitle        string             `json:"issue_title"`
+	IssueURL          string             `json:"issue_url"`
+	IssueDigest       string             `json:"issue_digest"`
+	IssueBody         string             `json:"issue_body"`
+	ApprovedDigest    string             `json:"approved_digest"`
+	ProposalRound     int32              `json:"proposal_round"`
+	Source            string             `json:"source"`
+	Version           int64              `json:"version"`
+	State             string             `json:"state"`
+	Reason            string             `json:"reason"`
+	Attempt           int32              `json:"attempt"`
+	Generation        int64              `json:"generation"`
+	Lane              pgtype.Int4        `json:"lane"`
+	WorkspaceID       string             `json:"workspace_id"`
+	BaseCommit        string             `json:"base_commit"`
+	CandidateBase     string             `json:"candidate_base"`
+	CandidateHead     string             `json:"candidate_head"`
+	CandidateVerified bool               `json:"candidate_verified"`
+	RequestRunID      string             `json:"request_run_id"`
+	VibeRunID         string             `json:"vibe_run_id"`
+	VerifyRunID       string             `json:"verify_run_id"`
+	RequestOutcome    string             `json:"request_outcome"`
+	VibeOutcome       string             `json:"vibe_outcome"`
+	VerifyOutcome     string             `json:"verify_outcome"`
+	Summary           string             `json:"summary"`
+	Plan              json.RawMessage    `json:"plan"`
+	Integration       json.RawMessage    `json:"integration"`
+	Checks            json.RawMessage    `json:"checks"`
+	PRNumber          pgtype.Int8        `json:"pr_number"`
+	PRURL             string             `json:"pr_url"`
+	PRState           string             `json:"pr_state"`
+	PRHead            string             `json:"pr_head"`
+	PRMergeCommit     string             `json:"pr_merge_commit"`
+	PendingOp         json.RawMessage    `json:"pending_op"`
+	NextAttemptAt     pgtype.Timestamptz `json:"next_attempt_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	LaneStartedAt     pgtype.Timestamptz `json:"lane_started_at"`
+	Outsider          bool               `json:"outsider"`
+}
+
+type MythicalLane struct {
+	WorkspaceID  string             `json:"workspace_id"`
+	RepositoryID int64              `json:"repository_id"`
+	ItemID       pgtype.UUID        `json:"item_id"`
+	Name         string             `json:"name"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	RetiredAt    pgtype.Timestamptz `json:"retired_at"`
+}
+
+type MythicalStack struct {
+	RepositoryID        int64              `json:"repository_id"`
+	ActorUserID         pgtype.Int8        `json:"actor_user_id"`
+	State               string             `json:"state"`
+	Reason              string             `json:"reason"`
+	ResetGeneration     int64              `json:"reset_generation"`
+	BootstrapDepth      int32              `json:"bootstrap_depth"`
+	MaxParallel         int32              `json:"max_parallel"`
+	TipCommit           string             `json:"tip_commit"`
+	TipChange           string             `json:"tip_change"`
+	NotesCommit         string             `json:"notes_commit"`
+	LandedMain          string             `json:"landed_main"`
+	Generation          int64              `json:"generation"`
+	RequestedGeneration int64              `json:"requested_generation"`
+	ProcessedGeneration int64              `json:"processed_generation"`
+	ClaimedGeneration   int64              `json:"claimed_generation"`
+	Claim               int64              `json:"claim"`
+	Running             bool               `json:"running"`
+	LeaseExpiresAt      pgtype.Timestamptz `json:"lease_expires_at"`
+	NextAttemptAt       pgtype.Timestamptz `json:"next_attempt_at"`
+	Attempts            int32              `json:"attempts"`
+	PendingOp           json.RawMessage    `json:"pending_op"`
+	LastError           string             `json:"last_error"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MythicalWiki struct {
+	RepositoryID       int64              `json:"repository_id"`
+	Version            int64              `json:"version"`
+	Generation         int64              `json:"generation"`
+	State              string             `json:"state"`
+	Requested          bool               `json:"requested"`
+	CommitID           string             `json:"commit_id"`
+	BaseCommit         string             `json:"base_commit"`
+	WorkspaceID        string             `json:"workspace_id"`
+	RunID              string             `json:"run_id"`
+	Outcome            string             `json:"outcome"`
+	Result             json.RawMessage    `json:"result"`
+	Attempt            int32              `json:"attempt"`
+	StartedAt          pgtype.Timestamptz `json:"started_at"`
+	NextAttemptAt      pgtype.Timestamptz `json:"next_attempt_at"`
+	PublishedCommit    string             `json:"published_commit"`
+	PublishedBase      string             `json:"published_base"`
+	PublishedAt        pgtype.Timestamptz `json:"published_at"`
+	Receipt            json.RawMessage    `json:"receipt"`
+	Pages              json.RawMessage    `json:"pages"`
+	Pool               json.RawMessage    `json:"pool"`
+	Error              string             `json:"error"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	LegacyPagesRemoved int32              `json:"legacy_pages_removed"`
+}
+
 type Notification struct {
 	ID         int64              `json:"id"`
 	UserID     int64              `json:"user_id"`
@@ -1342,6 +1672,13 @@ type OrganizationVariable struct {
 	Value          string    `json:"value"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type OutsiderWorkspace struct {
+	WorkspaceID    string             `json:"workspace_id"`
+	RepositoryID   int64              `json:"repository_id"`
+	CreatedAt      time.Time          `json:"created_at"`
+	EgressSealedAt pgtype.Timestamptz `json:"egress_sealed_at"`
 }
 
 type OwnerModelCredential struct {
@@ -1570,6 +1907,8 @@ type ProviderConnection struct {
 	LimitedUntil          pgtype.Timestamptz `json:"limited_until"`
 	LastUsedAt            pgtype.Timestamptz `json:"last_used_at"`
 	SortOrder             int32              `json:"sort_order"`
+	UsedPercent           pgtype.Float8      `json:"used_percent"`
+	UsageObservedAt       pgtype.Timestamptz `json:"usage_observed_at"`
 }
 
 type ProviderConnectionDeviceLogin struct {
@@ -2059,8 +2398,8 @@ type StackChange struct {
 	ChangeID     string      `json:"change_id"`
 	Position     int32       `json:"position"`
 	BranchName   string      `json:"branch_name"`
-	PrNumber     pgtype.Int8 `json:"pr_number"`
-	PrState      pgtype.Text `json:"pr_state"`
+	PRNumber     pgtype.Int8 `json:"pr_number"`
+	PRState      pgtype.Text `json:"pr_state"`
 	ReviewStatus pgtype.Text `json:"review_status"`
 	CiStatus     pgtype.Text `json:"ci_status"`
 	CreatedAt    time.Time   `json:"created_at"`
@@ -2244,6 +2583,12 @@ type WikiPageRevision struct {
 	CrdtVector      []byte      `json:"crdt_vector"`
 }
 
+type WikiSpace struct {
+	RepositoryID int64  `json:"repository_id"`
+	Visibility   string `json:"visibility"`
+	Head         int64  `json:"head"`
+}
+
 type WorkflowArtifact struct {
 	ID                int64              `json:"id"`
 	RepositoryID      int64              `json:"repository_id"`
@@ -2422,6 +2767,13 @@ type WorkflowTask struct {
 	UpdatedAt      time.Time          `json:"updated_at"`
 }
 
+type WorkflowTaskGuestToken struct {
+	WorkflowTaskID int64     `json:"workflow_task_id"`
+	TokenHash      string    `json:"token_hash"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type WorkflowTrigger struct {
 	ID                   int64     `json:"id"`
 	RepositoryID         int64     `json:"repository_id"`
@@ -2473,6 +2825,14 @@ type Workspace struct {
 	CreatedAt               time.Time          `json:"created_at"`
 	UpdatedAt               time.Time          `json:"updated_at"`
 	RebuildRequiredAt       pgtype.Timestamptz `json:"rebuild_required_at"`
+}
+
+type WorkspaceProviderUseRow struct {
+	WorkspaceID  string    `json:"workspace_id"`
+	ConnectionID string    `json:"connection_id"`
+	Model        string    `json:"model"`
+	Calls        int64     `json:"calls"`
+	LastUsedAt   time.Time `json:"last_used_at"`
 }
 
 type WorkspaceSession struct {

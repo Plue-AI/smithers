@@ -7,35 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// MythicalWiki is one repository's wiki refresh state (migrations 0036, 0037).
-type MythicalWiki struct {
-	RepositoryID    int64              `json:"repository_id"`
-	Version         int64              `json:"version"`
-	Generation      int64              `json:"generation"`
-	State           string             `json:"state"`
-	Requested       bool               `json:"requested"`
-	CommitID        string             `json:"commit_id"`
-	BaseCommit      string             `json:"base_commit"`
-	WorkspaceID     string             `json:"workspace_id"`
-	RunID           string             `json:"run_id"`
-	Outcome         string             `json:"outcome"`
-	Result          json.RawMessage    `json:"result"`
-	Attempt         int32              `json:"attempt"`
-	StartedAt       pgtype.Timestamptz `json:"started_at"`
-	NextAttemptAt   pgtype.Timestamptz `json:"next_attempt_at"`
-	PublishedCommit string             `json:"published_commit"`
-	PublishedBase   string             `json:"published_base"`
-	PublishedAt     pgtype.Timestamptz `json:"published_at"`
-	Receipt         json.RawMessage    `json:"receipt"`
-	Pages           json.RawMessage    `json:"pages"`
-	Pool            json.RawMessage    `json:"pool"`
-	Error           string             `json:"error"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	// LegacyPagesRemoved counts the retired per-folder source-index pages
-	// migration 0037 deleted from this repository's wiki. Written only there.
-	LegacyPagesRemoved int32 `json:"legacy_pages_removed"`
-}
-
+// Wiki state from migrations 0036 and 0037. LegacyPagesRemoved counts the
+// retired source-index pages deleted by migration 0037; only that migration writes it.
 const mythicalWikiColumns = `repository_id, version, generation, state, requested, commit_id, base_commit, workspace_id, run_id, outcome,
 result, attempt, started_at, next_attempt_at, published_commit, published_base, published_at, receipt, pages, pool, error, updated_at,
 legacy_pages_removed`

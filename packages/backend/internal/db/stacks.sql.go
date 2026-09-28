@@ -127,8 +127,8 @@ func (q *Queries) ListStackChangesByStack(ctx context.Context, stackID int64) ([
 			&i.ChangeID,
 			&i.Position,
 			&i.BranchName,
-			&i.PrNumber,
-			&i.PrState,
+			&i.PRNumber,
+			&i.PRState,
 			&i.ReviewStatus,
 			&i.CiStatus,
 			&i.CreatedAt,
@@ -247,8 +247,8 @@ type UpsertStackChangeParams struct {
 	ChangeID     string      `json:"change_id"`
 	Position     int32       `json:"position"`
 	BranchName   string      `json:"branch_name"`
-	PrNumber     pgtype.Int8 `json:"pr_number"`
-	PrState      pgtype.Text `json:"pr_state"`
+	PRNumber     pgtype.Int8 `json:"pr_number"`
+	PRState      pgtype.Text `json:"pr_state"`
 	ReviewStatus pgtype.Text `json:"review_status"`
 	CiStatus     pgtype.Text `json:"ci_status"`
 }
@@ -259,8 +259,8 @@ func (q *Queries) UpsertStackChange(ctx context.Context, arg UpsertStackChangePa
 		arg.ChangeID,
 		arg.Position,
 		arg.BranchName,
-		arg.PrNumber,
-		arg.PrState,
+		arg.PRNumber,
+		arg.PRState,
 		arg.ReviewStatus,
 		arg.CiStatus,
 	)
@@ -271,8 +271,8 @@ func (q *Queries) UpsertStackChange(ctx context.Context, arg UpsertStackChangePa
 		&i.ChangeID,
 		&i.Position,
 		&i.BranchName,
-		&i.PrNumber,
-		&i.PrState,
+		&i.PRNumber,
+		&i.PRState,
 		&i.ReviewStatus,
 		&i.CiStatus,
 		&i.CreatedAt,

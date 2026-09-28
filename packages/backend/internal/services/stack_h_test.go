@@ -177,8 +177,8 @@ func TestStack_H_AccessMappingAndAggregationBranches(t *testing.T) {
 		BranchName:   "branch",
 		ChangeID:     "change",
 		Position:     4,
-		PrNumber:     pgtype.Int8{Int64: 12, Valid: true},
-		PrState:      pgtype.Text{String: " CLOSED ", Valid: true},
+		PRNumber:     pgtype.Int8{Int64: 12, Valid: true},
+		PRState:      pgtype.Text{String: " CLOSED ", Valid: true},
 		ReviewStatus: pgtype.Text{String: "changes requested", Valid: true},
 		CiStatus:     pgtype.Text{String: "cancelled", Valid: true},
 	}

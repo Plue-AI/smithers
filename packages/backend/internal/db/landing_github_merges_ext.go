@@ -1,21 +1,8 @@
 package db
 
-import (
-	"context"
-	"time"
-)
+import "context"
 
-// LandingGitHubMerge is the receipt of a landing merged by its GitHub pull
-// request (migration 0035).
-type LandingGitHubMerge struct {
-	LandingRequestID int64     `json:"landing_request_id"`
-	GithubRepository string    `json:"github_repository"`
-	PullNumber       int64     `json:"pull_number"`
-	HeadSha          string    `json:"head_sha"`
-	MergeCommit      string    `json:"merge_commit"`
-	CreatedAt        time.Time `json:"created_at"`
-}
-
+// Columns of a landing merged by its GitHub pull request (migration 0035).
 const landingGitHubMergeColumns = `landing_request_id, github_repository, pull_number, head_sha, merge_commit, created_at`
 
 func scanLandingGitHubMerge(row interface{ Scan(...any) error }) (LandingGitHubMerge, error) {

@@ -205,7 +205,7 @@ func TestStack_Cov_ServiceFailureBranches(t *testing.T) {
 	stackCovAssertAPIStatus(t, err, http.StatusInternalServerError)
 
 	q.listStackChangesByStackFn = func(context.Context, int64) ([]db.StackChange, error) {
-		return []db.StackChange{{StackID: 5, ChangeID: "c1", BranchName: "b1", Position: 0, PrNumber: pgtype.Int8{Int64: 1, Valid: true}}}, nil
+		return []db.StackChange{{StackID: 5, ChangeID: "c1", BranchName: "b1", Position: 0, PRNumber: pgtype.Int8{Int64: 1, Valid: true}}}, nil
 	}
 	// An installation lookup failure degrades GitHub fields to defaults.
 	stack, err := svc.GetActiveStack(ctx, actor, "alice", "demo", "main")
