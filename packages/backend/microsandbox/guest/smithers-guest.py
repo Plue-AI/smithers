@@ -282,12 +282,12 @@ def fs_remove(root, path):
     except (FileNotFoundError, NotADirectoryError):
         fail(2, "no such file or directory")
     try:
-        if stat.S_ISLNK(mode) or stat.S_ISREG(mode):
-            os.unlink(target)
-        elif stat.S_ISDIR(mode):
+        if stat.S_ISDIR(mode):
             import shutil
 
             shutil.rmtree(target)
+        else:
+            os.unlink(target)
     except FileNotFoundError:
         fail(2, "no such file or directory")
 

@@ -3,9 +3,11 @@ package microsandbox
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -54,6 +56,52 @@ func TestGuestFSRemoveCLI(t *testing.T) {
 		require.NoError(t, os.Mkdir(filepath.Join(root, "directory"), 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(root, "directory", "child"), []byte("data"), 0o600))
 		assertRemoved(t, "directory")
+	})
+	t.Run("FIFO", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("FIFO is unsupported on Windows")
+		}
+		path := filepath.Join(root, "fifo")
+		output, err := exec.Command(python, "-c", "import os, sys; os.mkfifo(sys.argv[1])", path).CombinedOutput()
+		require.NoError(t, err, string(output))
+		info, err := os.Lstat(path)
+		require.NoError(t, err)
+		require.NotZero(t, info.Mode()&os.ModeNamedPipe)
+		assertRemoved(t, "fifo")
+	})
+	t.Run("UNIX socket", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("UNIX socket is unsupported on Windows")
+		}
+		// macOS socket paths can exceed sun_path's limit under t.TempDir.
+		shortRoot, err := os.MkdirTemp("/tmp", "gfs-")
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, os.RemoveAll(shortRoot)) })
+		path := filepath.Join(shortRoot, "socket")
+		listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+		require.NoError(t, err)
+		listener.SetUnlinkOnClose(false)
+		require.NoError(t, listener.Close())
+		info, err := os.Lstat(path)
+		require.NoError(t, err)
+		require.NotZero(t, info.Mode()&os.ModeSocket)
+		cmd := exec.Command(python, "-B", filepath.Join("guest", "smithers-guest.py"), "fs", "remove", shortRoot, "socket")
+		cmd.Env = append(os.Environ(), "SMITHERS_GUEST_USER=")
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+		_, err = os.Lstat(path)
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("symlink to outside nonempty directory", func(t *testing.T) {
+		outside := t.TempDir()
+		child := filepath.Join(outside, "child")
+		require.NoError(t, os.WriteFile(child, []byte("outside data"), 0o600))
+		link := filepath.Join(root, "outside-link")
+		require.NoError(t, os.Symlink(outside, link))
+		assertRemoved(t, "outside-link")
+		contents, err := os.ReadFile(child)
+		require.NoError(t, err)
+		require.Equal(t, "outside data", string(contents))
 	})
 }
 
