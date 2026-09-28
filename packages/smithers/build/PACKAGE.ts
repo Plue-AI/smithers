@@ -276,6 +276,130 @@ const newPackage = Smithers.NewPackage({
   tsconfigExtends: "../../../tsconfig.json"
 })
 
+/**
+ * The security review over this package's own trees: the pnpm install seam in
+ * `src/` and the self-hosted cache service and module under `terraform/`.
+ * `infra/`, `targets/`, and `build-cli/` are nested packages with their own
+ * reviews.
+ */
+const securityReview = Smithers.SecurityReview({
+  cwd: "packages/smithers/build",
+  include: ["src/**", "terraform/**", "scripts/**"],
+  checks: [
+    {
+      id: "cache-bearer-authz",
+      title: "Only the write credential can publish or delete cache entries",
+      threat: "A holder of the read token or no token poisons or deletes action-cache entries every later build trusts.",
+      lookFor: [
+        "A PUT or DELETE route reachable when presentedCredential answers read or none.",
+        "A non-constant-time comparison of the presented bearer digest against the configured hashes.",
+        "Development mode (both token hashes null) reachable with the listener bound to anything but 127.0.0.1.",
+        "readConfig accepting equal read and write tokens, a lone token, or the legacy SMITHERS_CACHE_TOKEN."
+      ],
+      paths: ["terraform/modules/cache/service/protocol.js", "terraform/modules/cache/service/config.js"]
+    },
+    {
+      id: "cache-read-namespace",
+      title: "A namespaced read token reads only keys under its prefix",
+      threat: "A CI job holding a namespaced read token reads another namespace's action results or CAS artifacts.",
+      lookFor: [
+        "A /ac key whose decodeURIComponent form passes startsWith(readNamespacePrefix) but addresses another namespace in storage.",
+        "A /cas or /cas/findMissing route that a read credential reaches while readNamespacePrefix is set."
+      ],
+      paths: ["terraform/modules/cache/service/protocol.js", "terraform/modules/cache/service/storage.js"]
+    },
+    {
+      id: "cache-content-integrity",
+      title: "Stored bytes always match the digest they are served under",
+      threat: "A write-token holder or a corrupted row serves artifact bytes whose hash differs from the requested digest to every consumer.",
+      lookFor: [
+        "A CAS PUT stored without recomputing SHA-256 over the full body and comparing it to the path digest.",
+        "An action-cache GET that returns a stored body without validateStoredActionBody.",
+        "An action-cache publication whose referenced output digests are not checked present in the content store."
+      ],
+      paths: ["terraform/modules/cache/service/protocol.js", "terraform/modules/cache/service/storage.js"]
+    },
+    {
+      id: "cache-sql-parameters",
+      title: "Every cache SQL statement binds request values as parameters",
+      threat: "An authenticated cache client injects SQL through a key digest, fence, or digest list and reads or drops the cache database.",
+      lookFor: [
+        "A request-derived value concatenated into SQL text or passed to sql.unsafe instead of a tagged-template parameter.",
+        "A migration or storage statement granting the service role more than the cache tables need."
+      ],
+      paths: ["terraform/modules/cache/service/storage.js", "terraform/modules/cache/migrations/**"]
+    },
+    {
+      id: "cache-resource-bounds",
+      title: "An unauthenticated or authenticated client cannot exhaust the cache process",
+      threat: "Any network client stalls or crashes the shared build cache for every team by oversized bodies or concurrent slow requests.",
+      lookFor: [
+        "A body read that is not capped by maxArtifactBytes or maxActionCacheBodyBytes before buffering.",
+        "An admission counter (activeCacheRequests, activeArtifactTransfers) not decremented on an error or aborted stream.",
+        "Unauthenticated /healthz or 401 paths that read an unbounded request body."
+      ],
+      paths: ["terraform/modules/cache/service/protocol.js", "terraform/modules/cache/service/server.js"]
+    },
+    {
+      id: "cache-secret-leaks",
+      title: "Tokens and the database password never reach logs, responses, or images",
+      threat: "Anyone reading container logs, error bodies, or the image layers learns the write token or the Postgres password.",
+      lookFor: [
+        "A logger or error response that prints a raw cause, the request headers, or DATABASE_URL instead of describeFailure.",
+        "A token or password written into the Dockerfile, a Terraform output, or a default variable value.",
+        "A published port bound to 0.0.0.0 on the host instead of 127.0.0.1 in main.tf."
+      ],
+      paths: ["terraform/**"]
+    },
+    {
+      id: "install-child-environment",
+      title: "The package-manager child receives only bootstrap names and .npmrc-referenced credentials",
+      threat: "A repository's .npmrc or pnpm config exfiltrates host secrets (cloud keys, CI tokens) to a registry it names.",
+      lookFor: [
+        "A child spawned with extendEnv true or without the managerEnvironment allowlist.",
+        "A ${VAR} placeholder in .npmrc forwarded when VAR is not a registry credential, e.g. in a registry URL path to an attacker host.",
+        "unsafeReferencedEnvironmentName missing a process-control name such as NODE_OPTIONS or LD_PRELOAD variants.",
+        "NPM_CONFIG_USERCONFIG or GLOBALCONFIG not forced to /dev/null or NUL."
+      ],
+      paths: ["src/PackageManager.ts", "src/Runtime.ts"]
+    },
+    {
+      id: "install-no-code-exec",
+      title: "fetch and link never run package lifecycle scripts or a shell",
+      threat: "A malicious dependency in the lockfile runs code on the developer or CI host during install.",
+      lookFor: [
+        "A pnpm fetch or install argument list missing --ignore-scripts or --frozen-lockfile.",
+        "A Windows pnpm.cmd shim executed through cmd.exe or with arguments parsed from the batch file.",
+        "A .pnpmfile.cjs hook admitted into the install without being declared as executed repository code.",
+        "pnpmInvocation resolving a relative Windows PATH component against projectRoot, so a repository-planted pnpm.cmd picks the JavaScript entry the runtime executes."
+      ],
+      paths: ["src/PackageManager.ts", "src/Install.ts"]
+    },
+    {
+      id: "install-file-confinement",
+      title: "Install reads only regular files inside the project root",
+      threat: "A repository symlinks .npmrc or the lockfile to a host file and leaks it into install key material or errors.",
+      lookFor: [
+        "A read of .npmrc, the lockfile, or .modules.yaml that skips boundedBytes realPath and insideRoot checks.",
+        "An error message that embeds file contents rather than only the path.",
+        "A literal credential in .npmrc (userinfo URL or credential-named key) digested instead of refused."
+      ],
+      paths: ["src/PackageManager.ts", "src/Install.ts"]
+    },
+    {
+      id: "install-store-attestation",
+      title: "link refuses a store fetched for different content",
+      threat: "A poisoned shared store or cached fetch result from another lockfile gets linked into node_modules and executed.",
+      lookFor: [
+        "executeLink proceeding when the StoreManifest digest differs from the measured lockfile, .npmrc, pnpmfile, and workspace digests.",
+        "A pnpm or Node version mismatch that warns instead of failing with environment_mismatch.",
+        "An .npmrc or pnpm-workspace.yaml key (pnpmfile, global-pnpmfile, hooks) that loads a hook file other than .pnpmfile.cjs, whose bytes are then outside the store digest."
+      ],
+      paths: ["src/Install.ts", "src/PackageManager.ts", "src/Runtime.ts"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
   targets: {
     cacheService,
@@ -289,6 +413,7 @@ export const Package = Smithers.Package({
     lib,
     lint,
     newPackage,
-    test
+    test,
+    ...securityReview
   }
 })

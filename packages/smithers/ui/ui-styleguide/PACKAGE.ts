@@ -106,6 +106,60 @@ const docsFiles = Smithers.Filegroup({
   cwd
 })
 
+/**
+ * Security review: `security` reviews the diff against origin/main and
+ * `securityAudit` audits every reviewed file. The package emits CSS that hosts
+ * interpolate into `<style>` elements, so the checks focus on that sink.
+ */
+const securityReview = Smithers.SecurityReview({
+  cwd,
+  include: ["src/**", "scripts/**", "docs/**", "README.md"],
+  checks: [
+    {
+      id: "css-token-injection",
+      title: "Every token interpolated into emitted CSS is validated before it reaches the stylesheet",
+      threat: "A caller or theme source that controls a token value injects CSS rules or closes the host's <style> element to run markup in the page of every viewer.",
+      lookFor: [
+        "A declaration in serializeThemeVariant, paletteThemeCss, standaloneThemeCss, or themeTokens built from a value that bypasses checkedValue.",
+        "A delimiter CSS_UNSAFE does not reject that ends a declaration or element, such as an escaped newline, `</style`, or a non-ASCII lookalike.",
+        "A token value such as `url(//host/x)` or `image-set(...)` that passes CSS_UNSAFE and makes the viewer's browser fetch an attacker-chosen URL."
+      ],
+      paths: ["src/serializeThemeVariant.ts", "src/paletteThemeCss.ts", "src/standaloneThemeCss.ts", "src/themeTokens.ts"]
+    },
+    {
+      id: "palette-key-selector-injection",
+      title: "Palette keys reach attribute selectors only after a registry own-property lookup",
+      threat: "A palette key read from localStorage, a query parameter, or a server response breaks out of a `[data-palette=...]` selector or resolves a prototype property.",
+      lookFor: [
+        "A key interpolated into `attr(\"palette\", key)` that was not checked by findTheme or taken from Object.entries(themeRegistry).",
+        "findTheme or themeRegistry indexed with `in` or bracket access instead of Object.hasOwn, so `__proto__` or `constructor` resolves."
+      ],
+      paths: ["src/paletteThemeCss.ts", "src/themeRegistry.ts"]
+    },
+    {
+      id: "generated-theme-provenance",
+      title: "Generated theme files contain only validated colors from the pinned @shikijs/themes",
+      threat: "A compromised or unpinned @shikijs/themes release writes code or unvalidated values into src/themes/*.ts, which every Smithers UI imports.",
+      lookFor: [
+        "An upstream color copied into the generated record without `opaque` or a hex check, such as `terminal.selectionBackground`.",
+        "A generated string emitted without JSON.stringify, or a key emitted unquoted without the identifier regex.",
+        "A path in writeFileSync or import() derived from theme data instead of the fixed specs table and outputDir."
+      ],
+      paths: ["scripts/generate-theme-registry.ts", "src/themes/*.ts"]
+    },
+    {
+      id: "docs-unsafe-snippets",
+      title: "Copyable doc snippets never interpolate untrusted input into HTML or CSS",
+      threat: "A developer who copies a documented snippet ships a page where a user-supplied palette key or token injects markup or CSS.",
+      lookFor: [
+        "A snippet that writes a localStorage, query, or server value into data-palette, innerHTML, or a style string without checking it with findTheme.",
+        "A snippet that interpolates caller data next to standaloneThemeCss() in a server-rendered template without escaping."
+      ],
+      paths: ["docs/**/*.md", "README.md"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
-  targets: { check, docsFiles, shikiThemes, unitTests }
+  targets: { check, docsFiles, shikiThemes, unitTests, ...securityReview }
 })
