@@ -62,9 +62,11 @@ const containment = async (recovery) => {
   const environment = {
     NODE_OPTIONS: `--import=${preload}`,
     SMITHERS_TEST_RECORDING: recording,
-    SMITHERS_OPENAI_AUTH: "api-key",
-    OPENAI_API_KEY: "recorded-fixture-not-a-real-key",
-    AI_GATEWAY_API_KEY: "recorded-fixture-not-a-real-key"
+    // The recorded model proxy serves the ChatGPT seat and its judge, as in
+    // packages/smithers/test/faults/case31-cli-process-containment.test.ts.
+    SMITHERS_OPENAI_AUTH: "chatgpt",
+    SMITHERS_MODEL_PROXY_URL: "https://model-proxy.recorded.invalid",
+    OPENAI_API_KEY: "recorded-fixture-not-a-real-key"
   }
   for (const key of ["PATH", "TMPDIR", "SystemRoot", "WINDIR", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]) {
     if (process.env[key] !== undefined) environment[key] = process.env[key]
