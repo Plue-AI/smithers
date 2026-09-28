@@ -9,6 +9,15 @@ const files = (directory) => readdirSync(directory, { withFileTypes: true }).fla
   return entry.isDirectory() ? files(path) : [path]
 })
 
+/** Input declarations are shipped beside generated declarations in every release. */
+export const copyInputDeclarations = (source, destination) => {
+  for (const file of files(source).filter((file) => file.endsWith(".d.ts"))) {
+    const target = join(destination, relative(source, file))
+    mkdirSync(dirname(target), { recursive: true })
+    cpSync(file, target)
+  }
+}
+
 /** Each runtime branch needs declarations with the corresponding module kind. */
 export const copyCommonJsDeclarations = (packageRoot) => {
   const esm = join(packageRoot, "dist/esm")
@@ -34,6 +43,7 @@ export const buildLibrary = async (packageRoot, { esmOnly = [], declarationTimeo
   if (result.status !== 0) throw new Error(`package compiler exited ${result.status ?? result.signal}`)
   const src = join(packageRoot, "src")
   const cjs = join(packageRoot, "dist/cjs")
+  copyInputDeclarations(src, join(packageRoot, "dist/esm"))
   const excluded = new Set(esmOnly.map((path) => resolve(src, path)))
   await build({
     entryPoints: files(src).filter((file) => file.endsWith(".ts") && !file.endsWith(".d.ts") && !excluded.has(file)),

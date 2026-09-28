@@ -226,8 +226,8 @@ const webBundleContract = Smithers.NodeTest({
  * Every public package's declarations hash to the reviewed
  * `scripts/fixtures/public-api-baseline.json`.
  *
- * Emits only declarations into an isolated temporary tree. Packing and runtime
- * bundles are unnecessary for drift, and must not race this gate's outputs.
+ * Compiles with each package's release compiler into an isolated temporary
+ * tree. Packing and runtime bundles are unnecessary for declaration drift.
  *
  * @since 1.0.0
  * @category build

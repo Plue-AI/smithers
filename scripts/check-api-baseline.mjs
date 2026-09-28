@@ -1,8 +1,11 @@
 /** Declaration drift is a review gate, not a semantic compatibility verdict. */
+import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { copyInputDeclarations } from "../packages/repo-targets/scripts/build-library.mjs"
 import { libraryPackages, repoRoot } from "./workspace-packages.mjs"
 
 const declarations = (directory, prefix = "") => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -38,40 +41,28 @@ export const assertApiBaseline = (expected, actual) => {
   )
 }
 
-/** Emit the same .d.ts surface as a release, without JS, packing or shared outputs. */
+/** Compile the release declarations without bundling, packing or shared outputs. */
 export const withDeclarationBuild = async (root, check) => {
-  const ts = await import("typescript")
   const output = mkdtempSync(join(tmpdir(), "smithers-api-declarations-"))
   try {
     for (const { dir, name, manifest } of libraryPackages(root)) {
       if (manifest.private) continue
-      const config = ts.getParsedCommandLineOfConfigFile(join(root, dir, "tsconfig.json"), {
-        noEmit: false,
-        declaration: true,
-        emitDeclarationOnly: true,
-        declarationMap: false,
-        incremental: false,
-        composite: false,
-        outDir: join(output, dir, "dist/esm")
-      }, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
-        throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
-      } })
-      if (config.errors.length > 0) {
-        throw new Error(`${name}: ${ts.formatDiagnostics(config.errors, {
-          getCanonicalFileName: (file) => file,
-          getCurrentDirectory: () => root,
-          getNewLine: () => "\n"
-        })}`)
+      const packageRoot = join(root, dir)
+      const directory = join(output, dir, "dist/esm")
+      const require = createRequire(join(packageRoot, "package.json"))
+      const compiler = join(dirname(require.resolve("typescript/package.json")), "bin/tsc")
+      // Packages may pin different TypeScript versions; use the release
+      // compiler and its own configuration.
+      const result = spawnSync(process.execPath, [compiler, "-p", "tsconfig.json", "--outDir", directory], {
+        cwd: packageRoot,
+        encoding: "utf8"
+      })
+      if (result.error || result.status !== 0) {
+        throw new Error(`${name}: declaration emit failed: ${result.error?.message ?? result.signal ?? result.status}
+${result.stderr ?? ""}
+${result.stdout ?? ""}`)
       }
-      const program = ts.createProgram(config.fileNames, config.options)
-      // Match tsc: checking before emit determines inferred union/member ordering.
-      const diagnostics = ts.getPreEmitDiagnostics(program)
-      const result = program.emit()
-      const errors = [...diagnostics, ...result.diagnostics]
-      if (result.emitSkipped || errors.length > 0) {
-        throw new Error(`${name}: declaration emit failed: ${errors.map((diagnostic) =>
-          ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")).join("\n")}`)
-      }
+      copyInputDeclarations(join(packageRoot, "src"), directory)
     }
     return await check(output)
   } finally {
