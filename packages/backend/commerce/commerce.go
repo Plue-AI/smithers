@@ -5,6 +5,7 @@ package commerce
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,12 +102,19 @@ func New(pool *pgxpool.Pool, client Client, cfg Config) (Service, error) {
 	if cfg.MonthlyCreditGrantCents < 0 || cfg.SignupCreditGrantCents < 0 {
 		return nil, errors.New("commerce: credit grants must be non-negative")
 	}
+	signupNanos, err := credits.NanosFromCents(cfg.SignupCreditGrantCents)
+	if err != nil {
+		return nil, fmt.Errorf("commerce: signup credit grant: %w", err)
+	}
+	if _, err := credits.NanosFromCents(cfg.MonthlyCreditGrantCents); err != nil {
+		return nil, fmt.Errorf("commerce: monthly credit grant: %w", err)
+	}
 	queries, err := billingstore.Bind(pool, cfg.Usage)
 	if err != nil {
 		return nil, err
 	}
 	p := cfg.Prices
-	ledger := credits.Ledger{DB: pool, SignupGrantNanos: cfg.SignupCreditGrantCents * credits.NanosPerCent}
+	ledger := credits.Ledger{DB: pool, SignupGrantNanos: signupNanos}
 	service := services.NewBillingService(queries, client, services.BillingServiceConfig{
 		BaseURL: cfg.BaseURL, PortalReturnURL: cfg.PortalReturnURL,
 		CheckoutSuccessURL: cfg.CheckoutSuccessURL, CheckoutCancelURL: cfg.CheckoutCancelURL,

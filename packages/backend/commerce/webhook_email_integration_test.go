@@ -3,6 +3,7 @@ package commerce_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,66 @@ import (
 	"github.com/smithersai/smithers/packages/backend/commerce"
 	"github.com/smithersai/smithers/packages/backend/credits"
 )
+
+type recordedBillingEmail struct {
+	mu       sync.Mutex
+	messages []string
+}
+
+func (e *recordedBillingEmail) SendBillingNotification(_ context.Context, to, subject, _ string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.messages = append(e.messages, to+"|"+subject)
+}
+
+func (e *recordedBillingEmail) snapshot() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.messages...)
+}
+
+func TestFallbackEmailSenderOnlyFillsAbsentDeploymentSender(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		name := "fallback"
+		if explicit {
+			name = "deployment sender"
+		}
+		t.Run(name, func(t *testing.T) {
+			pool := database(t)
+			ctx := context.Background()
+			owner := user(t, pool)
+			transport := &subscriptionTransport{owner: owner, status: "active", end: time.Now().Add(30 * 24 * time.Hour)}
+			deployment := &recordedBillingEmail{}
+			fallback := &recordedBillingEmail{}
+			laterFallback := &recordedBillingEmail{}
+			const secret = "test-only-fallback-email-secret"
+			cfg := commerce.Config{Usage: admission.ProductUsage, Prices: admission.Prices{ProMonthly: "price_pro"}, WebhookSecret: secret}
+			if explicit {
+				cfg.EmailSender = deployment
+			}
+			api, err := commerce.New(pool, transport, cfg)
+			require.NoError(t, err)
+			api.SetFallbackEmailSender(fallback)
+			api.SetFallbackEmailSender(laterFallback)
+			deliver := func(payload []byte) {
+				t.Helper()
+				require.NoError(t, api.HandleStripeWebhook(ctx, payload, signedWebhook(secret, payload)))
+			}
+			deliver([]byte(fmt.Sprintf(`{"id":"evt_fallback_paid","type":"invoice.paid","data":{"object":{"id":"in_fallback","customer":"cus_plan","amount_paid":5000,"currency":"usd","parent":{"subscription_details":{"subscription":"sub_plan"}},"lines":{"data":[{"period":{"start":%d,"end":%d}}]}}}}`, time.Now().Unix(), transport.end.Unix())))
+			transport.status = "unpaid"
+			deliver([]byte(`{"id":"evt_fallback_failed","type":"invoice.payment_failed","data":{"object":{"id":"in_failed","customer":"cus_plan","customer_email":"payer@example.test","amount_due":5000,"currency":"usd","parent":{"subscription_details":{"subscription":"sub_plan"}}}}}`))
+			want := []string{"payer@example.test|Payment failed for your Smithers subscription"}
+			if explicit {
+				require.Equal(t, want, deployment.snapshot())
+				require.Empty(t, fallback.snapshot())
+			} else {
+				require.Equal(t, want, fallback.snapshot())
+				require.Empty(t, deployment.snapshot())
+			}
+			require.Empty(t, laterFallback.snapshot())
+		})
+	}
+}
 
 // slowEmail blocks each billing notice until released.
 type slowEmail struct {

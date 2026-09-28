@@ -295,11 +295,15 @@ func (s *BillingService) grantInvoiceCredit(ctx context.Context, account db.Bill
 		slog.Warn("paid invoice period already ended; no plan credit granted", "invoice_id", invoice.ID, "period_end", periodEnd)
 		return nil
 	}
+	nanos, err := credits.NanosFromCents(cents)
+	if err != nil {
+		return pkgerrors.Internal("invalid plan credit grant").WithCause(err)
+	}
 	accountID, err := s.credits.EnsureAccount(ctx, account.OwnerType, account.OwnerID)
 	if err != nil {
 		return pkgerrors.Internal("failed to open credit account").WithCause(err)
 	}
-	err = s.credits.Grant(ctx, accountID, planCreditKeyPrefix+strings.TrimSpace(invoice.ID), cents*credits.NanosPerCent, &periodEnd)
+	err = s.credits.Grant(ctx, accountID, planCreditKeyPrefix+strings.TrimSpace(invoice.ID), nanos, &periodEnd)
 	if err != nil && !stdErrors.Is(err, credits.ErrConflict) {
 		// ErrConflict: this invoice was granted before (and since forfeited).
 		return pkgerrors.Internal("failed to record plan credit grant").WithCause(err)
