@@ -34,6 +34,20 @@ smthrs --version
 Target declarations and the CLI must resolve the same physical Effect and Smithers packages. A second, separately installed CLI fails with `declaration_dependency_mismatch` even when its versions match. Use one CLI.
 :::
 
+## Start the TUI
+
+Interactive startup in compiled builds loads the OpenTUI shared library from a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, loading it can fail with `Operation not permitted`.
+
+Choose a directory on a filesystem that allows execution. If your home filesystem allows it:
+
+```bash
+mkdir -p "$HOME/.cache/smithers/tmp"
+export TMPDIR="$HOME/.cache/smithers/tmp"
+smthrs tui /path/to/project
+```
+
+`--help` and `--print` do not load OpenTUI, so their success does not verify interactive startup. Launch without either flag in a terminal to check it.
+
 ## Use the libraries
 
 The `@smthrs/*` libraries are not on npm either. Link a project directory to the checkout's `examples` workspace, which carries the packages the tutorials and guides import, and the one pinned Effect (<code>{versions.effect}</code>):

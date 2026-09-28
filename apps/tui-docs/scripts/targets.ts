@@ -18,6 +18,12 @@ const sitePages = Smithers.Filegroup({
   srcs: [
     Smithers.file("//apps/site/src/content/docs/docs/tui/commands.mdx"),
     Smithers.file("//apps/site/src/content/docs/docs/tui/keys.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/installation.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/tui/cli.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/reference/cli/tui.mdx"),
+    Smithers.file("//apps/site/src/data/versions.json"),
+    Smithers.file("//apps/site/src/data/help/tui.txt"),
+    Smithers.file("//apps/site/scripts/docs-text.mjs"),
     Smithers.file("//apps/site/scripts/journeys/journeys.mjs")
   ],
   cwd

@@ -43,6 +43,18 @@ jj 0.39.0 or later on PATH; text search uses `rg`.
 On Alpine, install the C++ runtime with `apk add libstdc++` before launching
 a compiled musl binary.
 
+Interactive startup in compiled builds loads the OpenTUI shared library from a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, loading it can fail with `Operation not permitted`.
+
+Choose a directory on a filesystem that allows execution. If your home filesystem allows it:
+
+```bash
+mkdir -p "$HOME/.cache/smithers/tmp"
+export TMPDIR="$HOME/.cache/smithers/tmp"
+smthrs tui /path/to/project
+```
+
+`--help` and `--print` do not load OpenTUI, so their success does not verify interactive startup. Launch without either flag in a terminal to check it.
+
 Interactive chat prefers `cerebras:qwen-3.8-27b` with low reasoning effort
 when `CEREBRAS_API_KEY` is configured, falling back to an available provider.
 `--model` or `SMITHERS_TUI_SEAT` overrides chat. Background workers use the

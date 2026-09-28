@@ -34,6 +34,7 @@ Start with the error on the card, row, or output. It names what failed and what 
 
 | You see | Do |
 | --- | --- |
+| OpenTUI fails to load with `Operation not permitted` | If `/tmp` is mounted `noexec`, [set a writable, executable `TMPDIR`](/docs/tui/cli/#startup-on-a-noexec-temporary-filesystem) and retry interactive startup. |
 | No model available | Set a provider key and restart. See [Configuration](/docs/tui/configuration/). |
 | Worker parked | Wait for its reset, or press `r` to retry now. A failed worker offers `m` to choose another model. |
 | Worker failed | Press `r` to retry. |

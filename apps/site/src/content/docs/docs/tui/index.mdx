@@ -27,6 +27,8 @@ bun run tui /path/to/project
 
 Set a provider key first, such as `OPENAI_API_KEY`. `smthrs tui` takes the same arguments once installed. On Alpine, the compiled binary also needs `apk add libstdc++`.
 
+Interactive compiled builds also need a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, [set an executable temporary directory](/docs/tui/cli/#startup-on-a-noexec-temporary-filesystem) before launching. `--help` and `--print` do not load OpenTUI and cannot verify interactive startup.
+
 ## Make a first change
 
 Give it a check it can run:

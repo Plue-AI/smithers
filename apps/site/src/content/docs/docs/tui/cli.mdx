@@ -40,7 +40,7 @@ Exits 0 on an answer and 1 on failure or cancellation. `--approve ask` is refuse
 
 ## Runtime
 
-`smthrs tui` tries `SMITHERS_TUI_BIN`, an installed binary, Bun, then Node 26.4 or later. Interactive compiled builds need a writable, executable `TMPDIR`.
+`smthrs tui` tries `SMITHERS_TUI_BIN`, an installed binary, Bun, then Node 26.4 or later.
 
 ```bash
 cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
@@ -48,6 +48,20 @@ node packages/smithers/scripts/build-tui.mjs
 SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$PWD/target/release/smithers-jj-export" \
   node --experimental-ffi --disable-warning=ExperimentalWarning packages/smithers/dist/tui/main.js /path/to/project
 ```
+
+### Startup on a noexec temporary filesystem
+
+Interactive startup in compiled builds loads the OpenTUI shared library from a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, loading it can fail with `Operation not permitted`.
+
+Choose a directory on a filesystem that allows execution. If your home filesystem allows it:
+
+```bash
+mkdir -p "$HOME/.cache/smithers/tmp"
+export TMPDIR="$HOME/.cache/smithers/tmp"
+smthrs tui /path/to/project
+```
+
+`--help` and `--print` do not load OpenTUI, so their success does not verify interactive startup. Launch without either flag in a terminal to check it.
 
 ## Exit
 

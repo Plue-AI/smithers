@@ -254,6 +254,20 @@ smthrs --version
 Target declarations and the CLI must resolve the same physical Effect and Smithers packages. A second, separately installed CLI fails with `declaration_dependency_mismatch` even when its versions match. Use one CLI.
 :::
 
+## Start the TUI
+
+Interactive startup in compiled builds loads the OpenTUI shared library from a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, loading it can fail with `Operation not permitted`.
+
+Choose a directory on a filesystem that allows execution. If your home filesystem allows it:
+
+```bash
+mkdir -p "$HOME/.cache/smithers/tmp"
+export TMPDIR="$HOME/.cache/smithers/tmp"
+smthrs tui /path/to/project
+```
+
+`--help` and `--print` do not load OpenTUI, so their success does not verify interactive startup. Launch without either flag in a terminal to check it.
+
 ## Use the libraries
 
 The `@smthrs/*` libraries are not on npm either. Link a project directory to the checkout's `examples` workspace, which carries the packages the tutorials and guides import, and the one pinned Effect (<code>4.0.0-rc.115</code>):
@@ -2345,6 +2359,7 @@ Start with the error on the card, row, or output. It names what failed and what 
 
 | You see | Do |
 | --- | --- |
+| OpenTUI fails to load with `Operation not permitted` | If `/tmp` is mounted `noexec`, [set a writable, executable `TMPDIR`](/docs/tui/cli/#startup-on-a-noexec-temporary-filesystem) and retry interactive startup. |
 | No model available | Set a provider key and restart. See [Configuration](/docs/tui/configuration/). |
 | Worker parked | Wait for its reset, or press `r` to retry now. A failed worker offers `m` to choose another model. |
 | Worker failed | Press `r` to retry. |
@@ -2422,6 +2437,8 @@ bun run tui /path/to/project
 ```
 
 Set a provider key first, such as `OPENAI_API_KEY`. `smthrs tui` takes the same arguments once installed. On Alpine, the compiled binary also needs `apk add libstdc++`.
+
+Interactive compiled builds also need a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, [set an executable temporary directory](/docs/tui/cli/#startup-on-a-noexec-temporary-filesystem) before launching. `--help` and `--print` do not load OpenTUI and cannot verify interactive startup.
 
 ## Make a first change
 
@@ -2672,7 +2689,7 @@ Print mode with a scripted test model.
 
 ## Runtime
 
-`smthrs tui` tries `SMITHERS_TUI_BIN`, an installed binary, Bun, then Node 26.4 or later. Interactive compiled builds need a writable, executable `TMPDIR`.
+`smthrs tui` tries `SMITHERS_TUI_BIN`, an installed binary, Bun, then Node 26.4 or later.
 
 ```bash
 cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
@@ -2680,6 +2697,20 @@ node packages/smithers/scripts/build-tui.mjs
 SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$PWD/target/release/smithers-jj-export" \
   node --experimental-ffi --disable-warning=ExperimentalWarning packages/smithers/dist/tui/main.js /path/to/project
 ```
+
+### Startup on a noexec temporary filesystem
+
+Interactive startup in compiled builds loads the OpenTUI shared library from a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, loading it can fail with `Operation not permitted`.
+
+Choose a directory on a filesystem that allows execution. If your home filesystem allows it:
+
+```bash
+mkdir -p "$HOME/.cache/smithers/tmp"
+export TMPDIR="$HOME/.cache/smithers/tmp"
+smthrs tui /path/to/project
+```
+
+`--help` and `--print` do not load OpenTUI, so their success does not verify interactive startup. Launch without either flag in a terminal to check it.
 
 ## Exit
 
