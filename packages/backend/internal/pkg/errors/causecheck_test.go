@@ -28,8 +28,9 @@ import (
 //
 //	return pkgerrors.Internal("failed to set secret").WithCause(err)
 //
-// This test parses every non-test .go file in the module and fails on an
-// Internal("literal") that sits directly in the body of `if <err> != nil`
+// This test parses non-test .go files in the module outside archived reviews
+// and fails on an Internal("literal") that sits directly in the body of
+// `if <err> != nil`
 // without attaching <err>.
 //
 // SCOPE, and why it is drawn here:
@@ -60,6 +61,10 @@ func TestInternalErrorsAttachTheErrorTheyStandOn(t *testing.T) {
 			return err
 		}
 		if entry.IsDir() {
+			// Review captures are historical evidence, not product Go sources.
+			if path == filepath.Join(root, "docs", "reviews") {
+				return fs.SkipDir
+			}
 			switch entry.Name() {
 			case ".git", ".jj", "node_modules", "vendor", "testdata", "zig-out", ".zig-cache", "target":
 				return fs.SkipDir
