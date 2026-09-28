@@ -1,9 +1,12 @@
 package repohostserver
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -92,33 +95,56 @@ func TestTricklingPushIsStoppedAtThePushLimit(t *testing.T) {
 	})
 	push := f.pushBody(f.base, tip, "refs/heads/main")
 
-	body, writer := io.Pipe()
+	addr := server.Listener.Addr().String()
+	conn, err := net.DialTimeout("tcp", addr, time.Second)
+	require.NoError(t, err)
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
 	stop := make(chan struct{})
-	t.Cleanup(func() { close(stop) })
+	writerDone := make(chan struct{})
 	go func() {
+		defer close(writerDone)
+		if _, err := fmt.Fprintf(conn, "POST /repos/alice/demo/git/receive-pack HTTP/1.1\r\nHost: %s\r\nAuthorization: %s\r\nContent-Type: application/x-git-receive-pack-request\r\nTransfer-Encoding: chunked\r\n\r\n", addr, validAuth()); err != nil {
+			return
+		}
+		writeChunk := func(chunk []byte) error {
+			if _, err := fmt.Fprintf(conn, "%x\r\n", len(chunk)); err != nil {
+				return err
+			}
+			if _, err := conn.Write(chunk); err != nil {
+				return err
+			}
+			_, err := io.WriteString(conn, "\r\n")
+			return err
+		}
 		// The command list, then one byte of the pack every 100ms: never done.
-		_, _ = writer.Write(push[:len(push)-len(push)/2])
+		if err := writeChunk(push[:len(push)-len(push)/2]); err != nil {
+			return
+		}
 		for i := len(push) - len(push)/2; ; i = (i + 1) % len(push) {
 			select {
 			case <-stop:
-				_ = writer.Close()
 				return
 			case <-time.After(100 * time.Millisecond):
 			}
-			if _, err := writer.Write(push[i : i+1]); err != nil {
+			if err := writeChunk(push[i : i+1]); err != nil {
 				return
 			}
 		}
 	}()
-	req, err := http.NewRequest(http.MethodPost, server.URL+"/repos/alice/demo/git/receive-pack", body)
-	require.NoError(t, err)
-	req.Header.Set("Authorization", validAuth())
-	req.Header.Set("Content-Type", "application/x-git-receive-pack-request")
+	t.Cleanup(func() {
+		close(stop)
+		_ = conn.Close()
+		<-writerDone
+	})
 	start := time.Now()
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodPost})
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	text, _ := io.ReadAll(resp.Body)
+	text, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	require.NoError(t, err)
 	require.Equal(t, http.StatusRequestTimeout, resp.StatusCode, string(text))
 	require.Contains(t, string(text), "push took longer than 500ms")
 	require.Less(t, time.Since(start), 5*time.Second)
