@@ -137,6 +137,13 @@ export const makeCommand = (options?: { readonly program?: string | undefined })
             path: request.container
           })
         )
+        : Array.from(request.args).some((arg) => typeof arg !== "string")
+        ? Effect.fail(
+          new StdError.StdError({
+            code: "invalid_input",
+            message: "Container arguments must be a dense array of strings."
+          })
+        )
         : Effect.succeed({
           file: program,
           args: [
