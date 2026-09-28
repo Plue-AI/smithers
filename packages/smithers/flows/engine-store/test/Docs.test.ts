@@ -18,6 +18,13 @@ const sourceFiles = (directory: URL, extensions: ReadonlyArray<string>): Array<U
   )
 
 describe("documentation contracts", () => {
+  it("guide describes actual transaction ordering", () => {
+    const guide = readDoc("concepts/execution-facts.md").replace(/\s+/g, " ")
+    expect(guide).toContain("Engine-state is the outer transaction and the journal write transaction is inside it")
+    expect(guide).toContain("The memory state gate is released at SQL commit before post-commit journal work")
+    expect(guide).not.toContain("Journal/SQL is the outer transaction")
+  })
+
   it("cites only documentation pages that exist", () => {
     // A cited page is where a reader goes next. The retired docs/pages tree
     // left twenty citations pointing at nothing, including the operator
