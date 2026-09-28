@@ -223,6 +223,146 @@ const solidCodegenInputs = Smithers.Filegroup({
   cwd
 })
 
+/**
+ * Security review of the desktop host, the renderer and the packaging scripts.
+ * `security` reviews the diff against origin/main; `securityAudit` reviews all
+ * of `include`. The e2e tree (with its nested fixture packages) is left out.
+ *
+ * @since 1.0.0
+ * @category lint
+ */
+const securityReview = Smithers.SecurityReview({
+  cwd,
+  include: ["src/**", "scripts/**", "electrobun.config.ts"],
+  checks: [
+    {
+      id: "loopback-origin-gate",
+      title: "Every loopback server refuses foreign Host and Origin before relaying or acting",
+      threat: "A web page the user visits (cross-origin or via DNS rebinding) drives the local app's API with the user's session cookie, bearer or cloud token.",
+      lookFor: [
+        "A Bun.serve handler that relays /api/* without comparing the Host header to its own 127.0.0.1:<port>.",
+        "A state-changing /api/* route that runs without the local session header or an Origin match.",
+        "A renderer relay that exposes a readable __csrf cookie to any origin that reaches the port.",
+        "A WebSocket upgrade accepted when Origin is absent or differs from the served origin."
+      ],
+      paths: ["src/bun/server.ts", "src/bun/NativeRendererServer.ts", "src/bun/CloudAuth.ts", "src/bun/PackagedE2EBridge.ts"]
+    },
+    {
+      id: "relay-credential-scope",
+      title: "Relayed requests carry only the selected backend's credential to that backend",
+      threat: "A renderer path or a switched backend target receives another backend's bearer, cookie jar or CSRF token.",
+      lookFor: [
+        "A proxied request whose target URL can leave the selected upstream origin (dot segments, encoded slashes, absolute paths).",
+        "An Authorization, Cookie or x-csrf-token header forwarded without being rebuilt for the current target.",
+        "A cookie jar, bearer or in-flight stream that survives setTarget or a backend generation change.",
+        "A redirect followed by fetch that resends the bearer to another origin."
+      ],
+      paths: ["src/bun/NativeRendererServer.ts", "src/bun/server.ts"]
+    },
+    {
+      id: "native-rpc-authority",
+      title: "Native RPC requests the renderer can call are validated in the Bun process",
+      threat: "Script running in the WebView (an XSS or a loaded remote page) reads tokens, re-points the backend at an attacker host, or opens non-http schemes.",
+      lookFor: [
+        "switchApplicationTarget accepting an origin that is not an allowlisted or user-confirmed backend.",
+        "applicationToken or applicationBootstrapToken answered to a page whose URL is not the local renderer origin.",
+        "openExternal passing a scheme other than http(s) to the OS.",
+        "The window or a deep link navigating to a URL outside the renderer origin while the RPC bridge stays attached."
+      ],
+      paths: ["src/bun/NativeApp.ts", "src/bun/DeepLink.ts", "src/mainview/native/**"]
+    },
+    {
+      id: "cloud-login-callback",
+      title: "The CLI sign-in callback accepts exactly one credential bound to its callback_state",
+      threat: "A local process or web page injects its own Smithers Cloud token so the user's work lands in an attacker account, or steals the token.",
+      lookFor: [
+        "A /callback POST accepted without a timing-safe callback_state match or with a foreign Origin.",
+        "A second callback able to replace the first accepted token.",
+        "The token written to logs, argv of `security`, or the renderer session answer.",
+        "A keychain command built by string interpolation of an unchecked service or account."
+      ],
+      paths: ["src/bun/CloudAuth.ts", "src/bun/ModelCredentials.ts"]
+    },
+    {
+      id: "backend-child-env",
+      title: "The owned backend child gets an allowlisted environment and verified binaries",
+      threat: "A shell's provider keys or cloud tokens leak into the backend and its agents, or a swapped binary runs with the owner's bootstrap token.",
+      lookFor: [
+        "A spawn env built from Bun.env or process.env instead of LAUNCHER_PASSTHROUGH plus explicit keys.",
+        "An executable path taken from an env override that skips the checksum check.",
+        "The bootstrap-token secrets file read when it is group/world readable or not a regular file.",
+        "The owned backend origin allowed to be non-loopback."
+      ],
+      paths: ["src/bun/NativeBackendProcess.ts", "src/bun/serve.ts", "scripts/build-native.ts", "scripts/bundle-postgres.ts", "scripts/validate-git-bundle.ts"]
+    },
+    {
+      id: "browser-fetch-ssrf",
+      title: "Agent browser fetches reach only public https destinations pinned after the check",
+      threat: "A prompt-injected agent turn reads loopback services, cloud metadata or the LAN through the host's fetch route.",
+      lookFor: [
+        "A fetch whose socket address is not the address the shared guard validated (DNS rebinding between check and connect).",
+        "A redirect or decompression path with no size or destination bound.",
+        "A browser.* flow that sends a non-http(s) or loopback URL to the host route instead of refusing it."
+      ],
+      paths: ["src/bun/BrowserFetch.ts", "src/mainview/state/controller/presentation.ts"]
+    },
+    {
+      id: "agent-command-authority",
+      title: "A model tool call executes only model-invocable commands with validated arguments",
+      threat: "A prompt-injected model turn signs the user in or out, resets state, sends chat, or launches runs and writes on the user's repositories without a human gesture.",
+      lookFor: [
+        "A tool_call name dispatched through a path that skips the modelInvocable check in executeForAgent or the registry.",
+        "A user-only flow (auth.sign-in, cloud.sign-in, admin.reset, chat.send) reachable by an alias, canonicalized name or slash payload from the agent invoker.",
+        "Tool-call arguments parsed with JSON.parse and passed on without the flow's argument schema.",
+        "A tool result that returns secrets, tokens or unredacted flow output to the model."
+      ],
+      paths: ["src/mainview/flows/agentTools.ts", "src/mainview/flows/Commands.ts", "src/mainview/flows/registry.ts", "src/mainview/state/controller/turns.ts", "src/mainview/state/HttpTurn.ts"]
+    },
+    {
+      id: "upstream-card-frames",
+      title: "Card frames from the chat upstream cannot replace owned cards or embed the app origin",
+      threat: "A compromised or prompt-injected chat upstream overwrites approval or runtime cards, or plants a browser card whose frame runs script in the app origin.",
+      lookFor: [
+        "A card or card.update frame that upserts over an existing card id the upstream did not create.",
+        "A browser card whose url or finalUrl is relative, same-origin or non-http(s) and still renders as an iframe with allow-scripts allow-same-origin.",
+        "A card.update patch that changes a browser card's url or frameable flag after the host's fetch set them."
+      ],
+      paths: ["src/bun/CloudAgent.ts", "src/mainview/state/controller/turns.ts", "src/mainview/cards/ConversationCards.tsx"]
+    },
+    {
+      id: "renderer-untrusted-markup",
+      title: "Repository, wiki, issue and model content never becomes script or a navigable dangerous URL",
+      threat: "A repository author, issue commenter or model output runs script in the app origin and steals the local session capability or cloud session.",
+      lookFor: [
+        "dangerouslySetInnerHTML or innerHTML fed by anything other than a static constant.",
+        "href, src or window.open taking a repo, wiki, issue or card URL without an http(s) scheme check.",
+        "A markdown renderer configured to pass raw HTML through."
+      ],
+      paths: ["src/mainview/**/*.tsx", "src/mainview/wiki/**", "src/mainview/state/seams/**"]
+    },
+    {
+      id: "static-path-containment",
+      title: "Static file serving stays inside the dist directory",
+      threat: "A local page or process reads arbitrary files from the user's disk through the loopback server.",
+      lookFor: [
+        "A decoded path joined to distDir without a resolve plus prefix check against distDir + '/'.",
+        "A symlink inside dist followed out of it."
+      ],
+      paths: ["src/bun/server.ts", "src/bun/NativeRendererServer.ts"]
+    },
+    {
+      id: "journal-and-log-redaction",
+      title: "Turn journals, client-error ingest and logs never persist tokens",
+      threat: "Anyone with read access to the state directory or logs recovers the user's cloud or model credentials.",
+      lookFor: [
+        "A log line or journal record that writes a request header, env value or error text without the redactor.",
+        "Journal files created without owner-only permissions."
+      ],
+      paths: ["src/bun/NativeTurnJournal.ts", "src/bun/TurnJournalLease.ts", "src/bun/server.ts", "src/bun/NativeBackendProcess.ts"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
-  targets: { solidCodegenInputs, devkit, check, unitTests, conformance, browserE2e, webSources }
+  targets: { solidCodegenInputs, devkit, check, unitTests, conformance, browserE2e, webSources, ...securityReview }
 })

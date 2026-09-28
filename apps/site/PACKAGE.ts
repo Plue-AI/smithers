@@ -493,6 +493,123 @@ const tutorialCodeBlocks = Object.fromEntries(
 )
 
 /**
+ * Security review for the public site: the /demo intake form, the GitHub
+ * sign-in and app-install links, the catalog stats fetch, the app island's
+ * page shell, the Cloudflare _headers/_redirects, the recording scripts that
+ * run the CLI with provider credentials, and the install and tutorial pages
+ * visitors copy into a shell. Nested apps (apps/app, apps/server) review
+ * their own sources.
+ */
+const securityReview = Smithers.SecurityReview({
+  cwd,
+  include: [
+    "src/*.ts",
+    "src/*.tsx",
+    "src/components/**",
+    "src/layouts/**",
+    "src/lib/**",
+    "src/pages/**",
+    "scripts/**",
+    "tapes/**",
+    "public/_headers",
+    "public/_redirects",
+    "astro.config.mjs",
+    "docs/installation.mdx",
+    "src/content/docs/docs/installation.mdx",
+    "src/content/docs/docs/tutorials/*.mdx"
+  ],
+  checks: [
+    {
+      id: "catalog-dom-injection",
+      title: "Catalog and route data reach the DOM only as text or escaped attributes",
+      threat: "Whoever controls the public repo catalog response or a catalog entry runs script in every smithers.sh visitor's origin, next to the app's session.",
+      lookFor: [
+        "A catalog field (stats.language, stats.license, repo name, url) written through innerHTML, set:html, or insertAdjacentHTML instead of textContent.",
+        "A catalog `url` rendered into an href without restricting the scheme to https, allowing a javascript: link.",
+        "A `data-repo` value interpolated into a querySelector string or a URL path without encoding."
+      ],
+      paths: ["src/components/**", "src/pages/**", "src/layouts/**"]
+    },
+    {
+      id: "sign-in-return-to",
+      title: "The GitHub sign-in link carries only a same-origin path as return_to",
+      threat: "An attacker crafts a smithers.sh link whose sign-in bounces the victim, after OAuth, to an attacker origin with the session or code.",
+      lookFor: [
+        "A return_to built from anything other than Astro.url.pathname, such as a query parameter or the full URL.",
+        "A return_to value that can start with `//` or a scheme and is not encodeURIComponent-encoded."
+      ],
+      paths: ["src/components/RegisterRepo.astro", "src/pages/**"]
+    },
+    {
+      id: "demo-intake-form",
+      title: "The demo form sends only the typed fields to the fixed intake endpoint",
+      threat: "A visitor's name, work email and message reach a third party, or a script on the page rewrites where the form posts.",
+      lookFor: [
+        "An intake endpoint taken from a query parameter, env var, or page data instead of the literal bug.smithers.sh URL.",
+        "Error handling that renders the server's response body into the page with innerHTML.",
+        "The fetch sending credentials or extra headers (cookies, tokens) to the cross-origin intake worker."
+      ],
+      paths: ["src/pages/demo/**", "scripts/demo-form.test.mjs"]
+    },
+    {
+      id: "isolation-headers-and-redirects",
+      title: "Static headers keep the app's isolation and redirects stay on smithers.sh",
+      threat: "An attacker frames the app, reads its cross-origin resources, or uses a smithers.sh URL as an open redirect to a phishing origin.",
+      lookFor: [
+        "A _redirects rule whose destination is an absolute off-site URL or a splat that forwards a user-controlled host.",
+        "A _headers rule that removes or weakens Cross-Origin-Embedder-Policy or Cross-Origin-Resource-Policy on /_astro/*.",
+        "The app shell's inline script reading localStorage into an attribute or DOM sink without the existing allowlist regex."
+      ],
+      paths: ["public/_headers", "public/_redirects", "src/layouts/AppShell.astro", "scripts/check-built-site.mjs"]
+    },
+    {
+      id: "home-app-chunk-import",
+      title: "The home page imports app code only from same-origin URLs of the prerendered app page",
+      threat: "Whoever can alter the HTML served at the first catalog repo's path runs arbitrary script in every smithers.sh home-page visitor's origin through the dynamic import.",
+      lookFor: [
+        "importApp resolving component-url or before-hydration-url with new URL(..., start.href) and importing it without checking the result's origin equals location.origin.",
+        "Stylesheet hrefs or inline style text copied from the fetched page into document.head from a cross-origin source.",
+        "start.href or appHref built from a query parameter, hash, or catalog response instead of the build-time AVAILABLE_REPOS entry."
+      ],
+      paths: ["src/pages/index.astro", "src/lib/appHistory.ts"]
+    },
+    {
+      id: "build-time-secret-exposure",
+      title: "No secret or server-only env var is inlined into the built client bundle",
+      threat: "Anyone who loads smithers.sh reads a provider key, deploy token, or dev API origin baked into static HTML or JS.",
+      lookFor: [
+        "import.meta.env reads of a non-PUBLIC_ variable in a component or client script.",
+        "A vite `define` or build-stamp meta tag that embeds process.env values other than the commit sha.",
+        "A dev-only proxy (SMITHERS_DEV_API_ORIGIN) or fixture flag that stays active in a production build."
+      ],
+      paths: ["astro.config.mjs", "scripts/build-stamp-integration.ts", "src/**"]
+    },
+    {
+      id: "recording-scripts-credentials",
+      title: "Recording scripts keep provider credentials and git state on the operator's machine",
+      threat: "Running record-tape or record-ui leaks the operator's ChatGPT or API key into a committed recording, or removes a worktree it does not own.",
+      lookFor: [
+        "A tape or script that echoes env, prints auth files, or types a key that lands in public/media output.",
+        "A cleanup trap that runs `rm -rf` or `git worktree remove` on a path not created by mktemp in the same script.",
+        "An unquoted variable in a shell command that splits or globs a path with spaces."
+      ],
+      paths: ["scripts/record-tape.sh", "scripts/record-ui.mjs", "tapes/**"]
+    },
+    {
+      id: "copyable-install-snippets",
+      title: "Install and tutorial snippets that visitors run are safe to paste",
+      threat: "A visitor who copies a docs command runs an unpinned remote script or leaks a key into shell history or a committed file.",
+      lookFor: [
+        "A `curl | sh` or `npx` command fetching from a host other than the project's own domains or npm.",
+        "A snippet with a real-looking API key or token rather than a placeholder.",
+        "A tutorial that writes a key into a source file instead of reading it from the environment."
+      ],
+      paths: ["docs/installation.mdx", "src/content/docs/docs/installation.mdx", "src/content/docs/docs/tutorials/*.mdx"]
+    }
+  ]
+})
+
+/**
  * Build and documentation targets for the public site.
  *
  * @since 1.0.0
@@ -517,6 +634,7 @@ export const Package = Smithers.Package({
     docsRuntimeTests,
     examplesPages,
     llms,
-    ...tutorialCodeBlocks
+    ...tutorialCodeBlocks,
+    ...securityReview
   }
 })
