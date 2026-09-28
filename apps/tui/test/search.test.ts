@@ -97,16 +97,46 @@ describe("rg search", () => {
     expect(outcome.truncated).toBe(true)
   })
 
-  it("types a bad pattern and a missing rg", async () => {
+  it("types a bad pattern", async () => {
     expect(await Search.run({ cwd, query: "/(/", regex: "(" }).done).toMatchObject({
       _tag: "failed",
       reason: "bad-pattern",
       message: "unclosed group"
     })
+  })
+
+  it("reports a missing rg executable from a valid working directory", async () => {
     expect(await Search.run({ cwd, query: "x", command: "rg-does-not-exist" }).done).toMatchObject({
       _tag: "failed",
       reason: "missing-rg"
     })
+  })
+
+  it("reports a missing working directory and can retry after it is created", async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), "tui-search-missing-cwd-")), "later")
+    expect(existsSync(dir)).toBe(false)
+    const outcome = await Search.run({ cwd: dir, query: "needle" }).done
+    expect(outcome).toMatchObject({ _tag: "failed", reason: "rg-error" })
+    if (outcome._tag !== "failed") return
+    expect(outcome.message).toContain(dir)
+
+    mkdirSync(dir)
+    writeFileSync(join(dir, "found.txt"), "needle\n")
+    expect(await Search.run({ cwd: dir, query: "needle" }).done).toEqual({
+      _tag: "done",
+      hits: [{ path: "found.txt", line: 1, text: "needle" }],
+      truncated: false
+    })
+  })
+
+  it("reports a regular file used as the working directory", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui-search-file-cwd-"))
+    const file = join(dir, "not-a-directory")
+    writeFileSync(file, "needle\n")
+    const outcome = await Search.run({ cwd: file, query: "needle" }).done
+    expect(outcome).toMatchObject({ _tag: "failed", reason: "rg-error" })
+    if (outcome._tag !== "failed") return
+    expect(outcome.message).toContain(file)
   })
 
   it("resolves cancelled once when cancelled before rg finishes", async () => {

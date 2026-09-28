@@ -5,6 +5,7 @@
  * The spawn and process-group kill follow `shell.ts`.
  */
 import { spawn } from "node:child_process"
+import { statSync } from "node:fs"
 
 export interface Hit {
   readonly path: string
@@ -23,10 +24,24 @@ export const limit = 200
 /** The most characters of a matched line kept; rg ignores `--max-columns` with `--json`. */
 const maxColumns = 200
 
-const spawnFailure = (error: unknown): Outcome =>
-  error instanceof Error && "code" in error && error.code === "ENOENT"
-    ? { _tag: "failed", reason: "missing-rg", message: "rg not found" }
-    : { _tag: "failed", reason: "rg-error", message: error instanceof Error ? error.message : String(error) }
+const spawnFailure = (error: unknown, cwd: string): Outcome => {
+  if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+    // Spawn uses ENOENT for both a missing executable and a missing cwd.
+    try {
+      if (!statSync(cwd).isDirectory()) {
+        return { _tag: "failed", reason: "rg-error", message: `ENOTDIR: working directory is not a directory: ${cwd}` }
+      }
+    } catch {
+      return {
+        _tag: "failed",
+        reason: "rg-error",
+        message: `Working directory unavailable: ${cwd}`
+      }
+    }
+    if (error.code === "ENOENT") return { _tag: "failed", reason: "missing-rg", message: "rg not found" }
+  }
+  return { _tag: "failed", reason: "rg-error", message: error instanceof Error ? error.message : String(error) }
+}
 
 type Data = { readonly text: string } | { readonly bytes: string }
 
@@ -92,7 +107,7 @@ export const run = (options: {
       detached: true
     })
   } catch (error) {
-    return { done: Promise.resolve(spawnFailure(error)), cancel: () => {} }
+    return { done: Promise.resolve(spawnFailure(error, options.cwd)), cancel: () => {} }
   }
   const hits: Array<Hit> = []
   let pending = ""
@@ -137,7 +152,7 @@ export const run = (options: {
   child.stderr.on("data", (chunk: string) => {
     stderr += chunk
   })
-  child.on("error", (error) => finish(spawnFailure(error)))
+  child.on("error", (error) => finish(spawnFailure(error, options.cwd)))
   child.on("close", (code) => {
     if (settled) return
     if (pending !== "") take(pending)
