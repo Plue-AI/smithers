@@ -273,12 +273,10 @@ try {
     assert.equal(refused.status, 2, `run-instance.sh refuses SWB_FLOWS_HOST_SHELL=${JSON.stringify(hostShell)}`)
     assert.match(refused.stdout, /SWB_FLOWS_HOST_SHELL must be 'allowed'/u)
   }
-  // The codex arm's `on` and `sealed` bypass codex's sandbox on this host, so
-  // it has the same rule: no default, and no agent until the lane names one.
-  for (const network of [undefined, "", "bypass", "ON"]) {
-    const env = { ...process.env, SWB_DATASET: dataset, SWB_TRANSPORT: "docker" }
-    delete env.SWB_CODEX_NETWORK
-    if (network !== undefined) env.SWB_CODEX_NETWORK = network
+  // The codex arm defaults to `sealed` and refuses any condition it does not
+  // know; `on` needs SWB_CODEX_UNCONFINED=allowed (`check-codex-lanes.mjs`).
+  for (const network of ["bypass", "ON", "unconfined"]) {
+    const env = { ...process.env, SWB_DATASET: dataset, SWB_TRANSPORT: "docker", SWB_CODEX_NETWORK: network }
     const refused = spawnSync("bash", [join(root, "run-instance-codex.sh"), instance.instance_id], {
       env,
       encoding: "utf8"

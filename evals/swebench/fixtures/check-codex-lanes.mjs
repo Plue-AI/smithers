@@ -232,7 +232,16 @@ function runnerFixture(harness, scenario, check, overrideEnvironment = {}) {
       mkdirSync(join(dir, path), { recursive: true })
     }
     const script = harness === "codex" ? "run-instance-codex.sh" : "run-instance.sh"
-    for (const path of [script, "lib/run-paths.sh", "lib/lock.sh", "lib/codex-auth.sh", "lib/transport.sh", "lib/run-with-timeout.py"]) {
+    for (
+      const path of [
+        script,
+        "lib/run-paths.sh",
+        "lib/lock.sh",
+        "lib/codex-auth.sh",
+        "lib/transport.sh",
+        "lib/run-with-timeout.py"
+      ]
+    ) {
       copyFileSync(join(root, path), join(dir, path))
     }
     put("swb-verified.json", "[]")
@@ -269,6 +278,7 @@ esac
       `#!/bin/bash
 if [ "$1" = login ] && [ "$2" = status ]; then echo 'Logged in using an API key'; exit 0; fi
 if [ "$1" = login ]; then exit 0; fi
+printf '%s\\n' "$@" > "$FIXTURE_DIR/codex.args"
 while [ "$#" -gt 0 ]; do
   if [ "$1" = -C ]; then printf 'paid edits\\n' > "$2/edited.txt"; break; fi
   shift
@@ -311,6 +321,29 @@ switch (args[0]) {
 }
 `
     )
+    const env = {
+      ...process.env,
+      PATH: `${join(dir, "bin")}:${process.env.PATH}`,
+      SWB_DATASET: join(dir, "swb-verified.json"),
+      SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(dir, "bin/smithers-jj-export"),
+      SWB_CODEX_NETWORK: "sealed",
+      SWB_CODEX_EFFORT: "high",
+      SWB_FLOWS_OPENAI_AUTH: "api-key",
+      // The flows arm refuses to start an agent until its lane opts into the
+      // unconfined host shell (`run-instance.sh`). This fixture IS a lane, and
+      // its agent is a stub, so it opts in like the real ones do; the refusal
+      // itself is covered by `check-prompts.mjs`. Without this every `flows`
+      // scenario below exits 2 before the runner does anything it asserts on.
+      SWB_FLOWS_HOST_SHELL: "allowed",
+      FIXTURE_DIR: dir,
+      FIXTURE_SCENARIO: scenario,
+      ...overrideEnvironment
+    }
+    // An override of `undefined` unsets the variable; spawnSync would otherwise
+    // pass the string "undefined".
+    for (const [name, value] of Object.entries(env)) {
+      if (value === undefined) delete env[name]
+    }
     const result = spawnSync("bash", [
       "-c",
       "export FIXTURE_RUNNER_PID=$$; exec bash \"$@\"",
@@ -324,24 +357,7 @@ switch (args[0]) {
       cwd: dir,
       encoding: "utf8",
       timeout: 15_000,
-      env: {
-        ...process.env,
-        PATH: `${join(dir, "bin")}:${process.env.PATH}`,
-        SWB_DATASET: join(dir, "swb-verified.json"),
-        SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(dir, "bin/smithers-jj-export"),
-        SWB_CODEX_NETWORK: "on",
-        SWB_CODEX_EFFORT: "high",
-        SWB_FLOWS_OPENAI_AUTH: "api-key",
-        // The flows arm refuses to start an agent until its lane opts into the
-        // unconfined host shell (`run-instance.sh`). This fixture IS a lane, and
-        // its agent is a stub, so it opts in like the real ones do; the refusal
-        // itself is covered by `check-prompts.mjs`. Without this every `flows`
-        // scenario below exits 2 before the runner does anything it asserts on.
-        SWB_FLOWS_HOST_SHELL: "allowed",
-        FIXTURE_DIR: dir,
-        FIXTURE_SCENARIO: scenario,
-        ...overrideEnvironment
-      }
+      env
     })
     assert.ifError(result.error)
     const work = join(dir, harness === "codex" ? "work-codex" : "work", "a__a-1-r1")
@@ -359,6 +375,44 @@ test("flows refuses a missing native helper before pulling an image", () => {
     assert.match(result.stderr, /no executable workspace helper/u)
     assert.ok(!existsSync(join(dir, "docker.log")), "no image operation started")
   }, { SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: "/no-such-video-benchmark-helper" })
+})
+
+// GHSA-6gr2-7qgm-27qh: the prompt is a public tracker's problem statement, so
+// the unconfined condition is never what a lane gets by leaving a knob unset.
+test("codex defaults to the sealed network condition", () => {
+  runnerFixture("codex", "success", ({ dir, result }) => {
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    assert.equal(JSON.parse(readFileSync(join(dir, "timings-codex/a__a-1-r1.json"))).network, "sealed")
+    const args = readFileSync(join(dir, "codex.args"), "utf8").split("\n")
+    assert.ok(args.includes("web_search=disabled"), "the default run disables codex's web search")
+    assert.ok(
+      args.includes("shell_environment_policy.set.HTTPS_PROXY=http://127.0.0.1:1"),
+      "the default run points every child command's proxy at a dead port"
+    )
+    assert.doesNotMatch(result.stderr, /WARNING/u)
+  }, { SWB_CODEX_NETWORK: undefined, SWB_CODEX_UNCONFINED: undefined })
+})
+
+for (const optIn of [undefined, "", "yes", "1", "ALLOWED"]) {
+  test(`codex refuses network=on without SWB_CODEX_UNCONFINED=allowed (${JSON.stringify(optIn)})`, () => {
+    runnerFixture("codex", "success", ({ dir, result }) => {
+      assert.equal(result.status, 2, result.stdout + result.stderr)
+      assert.match(result.stderr, /set SWB_CODEX_UNCONFINED=allowed to opt in/u)
+      assert.ok(!existsSync(join(dir, "docker.log")), "no image operation started")
+      assert.ok(!existsSync(join(dir, "codex.args")), "codex never started")
+    }, { SWB_CODEX_NETWORK: "on", SWB_CODEX_UNCONFINED: optIn })
+  })
+}
+
+test("codex network=on with the explicit opt-in warns and runs unconfined", () => {
+  runnerFixture("codex", "success", ({ dir, result }) => {
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    assert.match(result.stderr, /WARNING: SWB_CODEX_NETWORK=on runs codex unconfined/u)
+    assert.equal(JSON.parse(readFileSync(join(dir, "timings-codex/a__a-1-r1.json"))).network, "on")
+    const args = readFileSync(join(dir, "codex.args"), "utf8").split("\n")
+    assert.ok(args.includes("--dangerously-bypass-approvals-and-sandbox"))
+    assert.ok(!args.includes("web_search=disabled"))
+  }, { SWB_CODEX_NETWORK: "on", SWB_CODEX_UNCONFINED: "allowed" })
 })
 
 for (const scenario of ["capture-failure", "missing-patch"]) {

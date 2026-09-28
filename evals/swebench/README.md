@@ -181,10 +181,14 @@ same prompt content — including the repository's own test runner, which
 SWB_CODEX_NETWORK=sealed ./run-instance-codex.sh django__django-16612 1500
 ```
 
-`SWB_CODEX_NETWORK` has no default. `on` and `sealed` run codex with
-`--dangerously-bypass-approvals-and-sandbox`, a model-authored shell on this
-host with the docker socket and `CODEX_HOME` in reach, so the runner refuses to
-start until the lane names its condition. See [Lanes, and the sealed one](#lanes-and-the-sealed-one).
+`SWB_CODEX_NETWORK` defaults to `sealed`. The problem statement comes from a
+public issue tracker, so the prompt is untrusted. `on` runs codex with
+`--dangerously-bypass-approvals-and-sandbox` and the network open: a
+prompt-steered shell on this host with the docker socket, `CODEX_HOME` and the
+web in reach. The runner refuses `on` unless `SWB_CODEX_UNCONFINED=allowed` is
+also set, and prints a warning when it is. `sealed` keeps the same bypass so
+codex can reach the docker socket, with child proxies dead and web search off.
+See [Lanes, and the sealed one](#lanes-and-the-sealed-one).
 
 For a ChatGPT-subscription control, set `SWB_CODEX_AUTH=chatgpt` and
 `SWB_CODEX_HOME=$HOME/.codex`. The runner checks that `codex login status`
@@ -243,7 +247,7 @@ in the rig that starts a testbed:
 
 ```sh
 SWB_TESTBED_NETWORK=none   ./run-instance.sh django__django-16612   # the default
-SWB_TESTBED_NETWORK=bridge SWB_CODEX_NETWORK=on ./run-instance-codex.sh django__django-16612 1500
+SWB_TESTBED_NETWORK=bridge SWB_CODEX_NETWORK=on SWB_CODEX_UNCONFINED=allowed ./run-instance-codex.sh django__django-16612 1500
 ```
 
 The knob exists because the seal the codex lanes claimed was a seal on the
@@ -1963,6 +1967,7 @@ split, and the bundle says so instead of printing one.
 | `SWB_CODEX_BACKFILL_SLOT_TIMEOUT` | 21600 | how long an invocation waits for a slot |
 | `SWB_CODEX_LANE` | `net` | the lane, and with it the five rows below it |
 | `SWB_CODEX_NETWORK` | the lane's | `on`, `sealed` or `off`; see the sealed lane |
+| `SWB_CODEX_UNCONFINED` | unset | `allowed` opts a `net` lane into `SWB_CODEX_NETWORK=on`; nothing else is accepted |
 | `SWB_CODEX_EFFORT` | the lane's | `minimal`, `low`, `medium`, `high` or `xhigh`; see [Reasoning effort](#reasoning-effort) |
 | `SWB_CODEX_MODEL` | `gpt-6-sol` | the model, which must be the one the flows side ran |
 

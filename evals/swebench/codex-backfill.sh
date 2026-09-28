@@ -223,6 +223,17 @@ require_auth() {
   exit 1
 }
 
+# The `net` lane runs codex with SWB_CODEX_NETWORK=on, which the runner refuses
+# without SWB_CODEX_UNCONFINED=allowed (GHSA-6gr2-7qgm-27qh). Checked once up
+# front for the same reason as auth; a stub run command starts no codex.
+require_network_opt_in() {
+  if [ "$SWB_CODEX_NETWORK" = "on" ] && [ -z "${SWB_CODEX_RUN_CMD:-}" ] \
+    && [ "${SWB_CODEX_UNCONFINED:-}" != "allowed" ]; then
+    echo "codex-backfill.sh: lane $LANE runs codex unconfined with network on; set SWB_CODEX_UNCONFINED=allowed to opt in" >&2
+    exit 2
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # The two-slot semaphore. Every docker-heavy span takes one; a slot whose holder
 # is gone is taken back by the next waiter on its next poll.
@@ -610,7 +621,7 @@ case "$MODE" in
     # this backfill has no business running, needs no login at all.
     BACKFILL_STATE=""
     eval "$(queue --row "$ONE")"
-    if [ "$BACKFILL_STATE" = "todo" ]; then require_auth; fi
+    if [ "$BACKFILL_STATE" = "todo" ]; then require_network_opt_in; require_auth; fi
     run_one "$ONE"
     exit $? ;;
   all)
@@ -619,6 +630,7 @@ case "$MODE" in
       log backfill "nothing left: every instance the full benchmark graded already has a codex verdict"
       exit 0
     fi
+    require_network_opt_in
     require_auth
     COUNT="$(printf '%s\n' "$REMAINING" | wc -l | tr -d ' ')"
     log backfill "lane $LANE ($SWB_CODEX_NETWORK network, $SWB_CODEX_EFFORT effort, $SWB_TESTBED_NETWORK testbed, index $INDEX, run id $EVAL_RUN_ID)"

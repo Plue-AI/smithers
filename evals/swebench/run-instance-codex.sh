@@ -28,16 +28,25 @@ if [ "$TRANSPORT" != "docker" ]; then
   echo "run-instance-codex.sh: the codex arm runs on SWB_TRANSPORT=docker only, got '$TRANSPORT'" >&2
   exit 2
 fi
-# `on` and `sealed` give codex `--dangerously-bypass-approvals-and-sandbox`: a
-# model-authored shell on this host with the docker socket and CODEX_HOME in
-# reach, steered by a problem statement taken from a public issue tracker. That
-# is a lane decision like the flows arm's SWB_FLOWS_HOST_SHELL=allowed, so there
-# is no default and no agent starts until the lane names its condition.
-NETWORK="${SWB_CODEX_NETWORK:-}"
+# The problem statement comes from a public issue tracker, so the prompt is
+# untrusted input. `sealed` is the default: codex still gets
+# `--dangerously-bypass-approvals-and-sandbox` (it must reach the docker socket
+# to run the project's tests), but every child command's proxy points at a dead
+# port and the web-search tool is off. `on` lifts that seal and hands a
+# prompt-steered shell this host, the docker socket, CODEX_HOME and the network,
+# so it is never implicit: the lane must also set SWB_CODEX_UNCONFINED=allowed,
+# the same opt-in shape as the flows arm's SWB_FLOWS_HOST_SHELL=allowed.
+NETWORK="${SWB_CODEX_NETWORK:-sealed}"
 case "$NETWORK" in
-  on|sealed|off) ;;
+  sealed|off) ;;
+  on)
+    if [ "${SWB_CODEX_UNCONFINED:-}" != "allowed" ]; then
+      echo "run-instance-codex.sh: SWB_CODEX_NETWORK=on runs codex unconfined with network on this host; set SWB_CODEX_UNCONFINED=allowed to opt in" >&2
+      exit 2
+    fi
+    echo "run-instance-codex.sh: WARNING: SWB_CODEX_NETWORK=on runs codex unconfined: a shell steered by an untrusted problem statement gets this host, the docker socket, CODEX_HOME and the network" >&2 ;;
   *)
-    echo "run-instance-codex.sh: SWB_CODEX_NETWORK must be on, sealed or off, got '$NETWORK': on and sealed run codex unconfined on this host" >&2
+    echo "run-instance-codex.sh: SWB_CODEX_NETWORK must be on, sealed or off, got '$NETWORK'" >&2
     exit 2 ;;
 esac
 INSTANCE="$1"
