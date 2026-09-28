@@ -44,18 +44,16 @@ func assertWorkspaceClaudeBootstrap(t *testing.T, req sandbox.CreateRequest) {
 	assert.Contains(t, scriptFile.Content, workspaceLocalNodeDir)
 	assert.Contains(t, scriptFile.Content, "runuser -u "+defaultWorkspaceUser)
 	assert.Contains(t, scriptFile.Content, `cat "`+workspaceCLIPackageB64Path+`".part* | base64 -d | tar -xzf -`)
-	assert.Contains(t, scriptFile.Content, "smithers workspace bootstrap: failed to decode/decompress smithers cli payload")
-	assert.Contains(t, scriptFile.Content, "smithers workspace bootstrap: smithers cli payload absent")
+	assert.Contains(t, scriptFile.Content, "smithers workspace bootstrap: npm CLI package extraction failed")
+	assert.Contains(t, scriptFile.Content, "smithers workspace bootstrap: npm CLI package absent")
 
-	// Bun runtime + global smithers workflow pack (~/.smithers), both
-	// best-effort so network failures cannot fail provisioning.
+	// Bun stays best-effort so network failures cannot fail provisioning. The
+	// npm CLI is the only smithers binary; there is no global pack to init.
 	assert.Contains(t, scriptFile.Content, "npm install -g --prefix /usr/local bun@"+workspaceBunVersion)
 	assert.Contains(t, scriptFile.Content, "continuing without bun")
-	assert.Contains(t, scriptFile.Content, "smithers-cli/bin/smithers.mjs")
-	// SMITHERS_YES=1 is the non-interactive switch for `smithers init`.
-	assert.Contains(t, scriptFile.Content, "SMITHERS_YES=1")
-	assert.NotContains(t, scriptFile.Content, "--yes")
-	assert.Contains(t, scriptFile.Content, "smithers workspace bootstrap: global smithers pack init failed; continuing")
+	assert.Contains(t, scriptFile.Content, workspaceCLIPackageDir+"/node_modules/@smthrs/cli/bin/smithers.mjs")
+	assert.NotContains(t, scriptFile.Content, "SMITHERS_YES")
+	assert.NotContains(t, scriptFile.Content, "init --global")
 
 	require.NotNil(t, req.Init)
 	assert.True(t, req.Init.Enabled)
@@ -681,22 +679,19 @@ func TestBuildWorkspaceClaudeBootstrapScript_InstallRendersAsSingleRunnableLine(
 
 	script := buildWorkspaceClaudeBootstrapScript()
 
-	// Regression: the pack-init and claude-install scripts are rendered into
-	// `bash -lc {{printf "%q" .Script}}`. If they are newline-joined, %q escapes
+	// Regression: the claude-install script is rendered into
+	// `bash -lc {{printf "%q" .Script}}`. If it is newline-joined, %q escapes
 	// each newline into the literal two-character sequence \n, which bash does
 	// NOT re-interpret inside a double-quoted -lc argument — collapsing the whole
 	// script into one broken command ("set: pipefailnexport: invalid option
-	// name") so the global pack (and claude) install silently never runs. They
-	// must be "; "-joined single lines.
+	// name") so the claude install silently never runs. It must be a
+	// "; "-joined single line.
 	assert.NotContains(t, script, `pipefail\nexport`,
-		"pack/claude scripts must not carry %q-escaped newlines into bash -lc")
-
-	// The pack init survives as a single runnable command.
+		"the claude script must not carry %q-escaped newlines into bash -lc")
 	assert.Contains(t, script, "set -euo pipefail; export")
-	assert.NotContains(t, script, "init --global")
-	assert.Contains(t, script, "smithers-cli/bin/smithers.mjs")
-	// The claude installer likewise stays single-line.
 	assert.Contains(t, script, "export NPM_CONFIG_PREFIX=")
+	assert.NotContains(t, script, "init --global")
+	assert.Contains(t, script, workspaceCLIPackageDir+"/node_modules/@smthrs/cli/bin/smithers.mjs")
 }
 
 func TestWorkspaceService_CreateWorkspace_ReplacesStalePendingWorkspaceWithoutVM(t *testing.T) {
