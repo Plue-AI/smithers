@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { test } from "node:test"
+import { describe, fingerprint } from "../../packages/smithers/build/build-cli/src/KnownRed.ts"
 import { failedTargets, uncovered } from "./check-known-red-coverage.mjs"
 
 const script = resolve(import.meta.dirname, "check-known-red-coverage.mjs")
@@ -14,6 +15,7 @@ const entry = (label, fields = {}) => ({
   reason: "fixture",
   issue: "https://github.com/smithersai/smithers/issues/1",
   expires: "2026-10-24",
+  failureDigest: fingerprint("reviewed failure"),
   ...fields
 })
 const judge = (failed, fields = {}) =>
@@ -21,12 +23,12 @@ const judge = (failed, fields = {}) =>
 
 test("reads every failed target the known-red verdict printed, once each", () => {
   const log = [
-    "2026-09-28T04:06:04.0933674Z newly red, not in .github/ci-known-red.json: //packages/smithers/build:fmt",
+    "2026-09-28T04:06:04.0933674Z newly red, no matching failure in .github/ci-known-red.json: //packages/smithers/build:fmt",
     "2026-09-28T04:06:04.0937106Z known red (.github/ci-known-red.json): //packages/smithers:test",
     "//packages/smithers/agent/integrations:test: WARN Telegram poll failed; retrying",
     "not run, a dependency is red: //scripts:consumer",
     "green again, remove from .github/ci-known-red.json: //scripts:ok",
-    "newly red, not in .github/ci-known-red.json: //packages/smithers/build:fmt"
+    "newly red, no matching failure in .github/ci-known-red.json: //packages/smithers/build:fmt"
   ].join("\n")
   assert.deepEqual(failedTargets(log), ["//packages/smithers/build:fmt", "//packages/smithers:test"])
 })
@@ -81,7 +83,7 @@ const cli = (log, issues, args = []) => {
 }
 
 test("the command fails on an unowned red and passes when every red has an owner", () => {
-  const log = "known red (x): //a:test\nnewly red, not in x: //b:test\n"
+  const log = "known red (x): //a:test\nnewly red, no matching failure in x: //b:test\n"
   const red = cli(log, "[]")
   assert.equal(red.status, 1, red.stderr)
   assert.match(red.stderr, /no owner: \/\/b:test/)
@@ -90,7 +92,23 @@ test("the command fails on an unowned red and passes when every red has an owner
   assert.equal(green.status, 0, green.stderr)
 })
 
+test("the command rejects an unowned red from KnownRed.describe output", () => {
+  const label = "//b:test"
+  const log = `${describe({
+    source: "x",
+    known: [],
+    newlyRed: [label],
+    observed: [{ label, failureDigest: fingerprint("different failure") }],
+    unrun: [],
+    expired: [],
+    recovered: []
+  }).join("\n")}\n`
+  const result = cli(log, "[]")
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /no owner: \/\/b:test/)
+})
+
 test("the command exits 2 when the issue list cannot be read", () => {
-  const result = cli("newly red, not in x: //b:test\n", "{not json")
+  const result = cli("newly red, no matching failure in x: //b:test\n", "{not json")
   assert.equal(result.status, 2, result.stderr)
 })

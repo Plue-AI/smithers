@@ -17,7 +17,7 @@ import { parseArgs } from "node:util"
 import { pathToFileURL } from "node:url"
 import { parse } from "../../packages/smithers/build/build-cli/src/KnownRed.ts"
 
-const verdictLine = /(?:newly red, not in [^:]+|known red \([^)]*\)): (\/\/\S+)\s*$/
+const verdictLine = /(?:newly red, no matching failure in [^:]+|known red \([^)]*\)): (\/\/\S+)\s*$/
 const labelCharacter = /[\w./@+:-]/
 
 export const failedTargets = (log) => [
