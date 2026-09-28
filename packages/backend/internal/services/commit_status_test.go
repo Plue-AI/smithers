@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -37,7 +38,7 @@ func (m *mockCommitStatusDispatcher) DispatchOrgEvent(_ context.Context, _ int64
 }
 
 type mockCommitStatusQuerier struct {
-	getRepoByIDFn                  func(ctx context.Context, id int64) (db.Repository, error)
+	getRepoOwnerFn                 func(ctx context.Context, id int64) (db.GetRepoOwnerSlugAndNameByIDRow, error)
 	getWorkspaceIncludingDeletedFn func(ctx context.Context, id string) (db.Workspace, error)
 	getWorkflowRunFn               func(ctx context.Context, arg db.GetWorkflowRunParams) (db.WorkflowRun, error)
 	createCommitStatusFn           func(ctx context.Context, arg db.CreateCommitStatusParams) (db.CommitStatus, error)
@@ -62,11 +63,11 @@ func (m *mockCommitStatusQuerier) GetWorkspaceIncludingDeleted(ctx context.Conte
 	return db.Workspace{}, pgx.ErrNoRows
 }
 
-func (m *mockCommitStatusQuerier) GetRepoByID(ctx context.Context, id int64) (db.Repository, error) {
-	if m.getRepoByIDFn != nil {
-		return m.getRepoByIDFn(ctx, id)
+func (m *mockCommitStatusQuerier) GetRepoOwnerSlugAndNameByID(ctx context.Context, id int64) (db.GetRepoOwnerSlugAndNameByIDRow, error) {
+	if m.getRepoOwnerFn != nil {
+		return m.getRepoOwnerFn(ctx, id)
 	}
-	return sampleRepo(), nil
+	return db.GetRepoOwnerSlugAndNameByIDRow{OwnerSlug: "alice", RepoName: "demo"}, nil
 }
 
 func (m *mockCommitStatusQuerier) GetWorkflowRun(ctx context.Context, arg db.GetWorkflowRunParams) (db.WorkflowRun, error) {
@@ -138,16 +139,6 @@ func sampleCommitStatus() db.CommitStatus {
 		WorkflowRunID: pgtype.Int8{Int64: 99, Valid: true},
 		CreatedAt:     now,
 		UpdatedAt:     now,
-	}
-}
-
-func sampleRepo() db.Repository {
-	return db.Repository{
-		ID:        10,
-		Name:      "demo",
-		LowerName: "demo",
-		UserID:    pgtype.Int8{Int64: 1, Valid: true},
-		IsPublic:  true,
 	}
 }
 
@@ -790,7 +781,6 @@ func TestCommitStatusService_DispatchesStatusWebhookOnCreate(t *testing.T) {
 	_, err := svc.CreateCommitStatus(context.Background(), 10, "deadbeef", CreateCommitStatusInput{
 		Context:   "ci/test",
 		Status:    "success",
-		RepoName:  "demo",
 		ChangeID:  &changeID,
 		TargetURL: "https://ci.example.com/run/99",
 		Actor:     &db.User{ID: 7, Username: "alice"},
@@ -812,6 +802,7 @@ func TestCommitStatusService_DispatchesStatusWebhookOnCreate(t *testing.T) {
 	assert.Equal(t, "https://ci.example.com/run/99", payload.CommitStatus.TargetURL)
 	assert.Equal(t, int64(10), payload.Repository.ID)
 	assert.Equal(t, "demo", payload.Repository.Name)
+	assert.Equal(t, "alice/demo", payload.Repository.FullName)
 	assert.Equal(t, int64(7), payload.Sender.ID)
 	assert.Equal(t, "alice", payload.Sender.Login)
 }
@@ -829,13 +820,16 @@ func TestCommitStatusService_NoDispatchWithoutDispatcher(t *testing.T) {
 	assert.Equal(t, 1, mock.createCallCount)
 }
 
-func TestCommitStatusService_CreateCommitStatus_ResolvesRepoNameWhenMissing(t *testing.T) {
+// github-sync matches a status event to its mirror by full_name, so the
+// payload names the repository owner resolved from the repository row.
+func TestCommitStatusService_CreateCommitStatus_NamesRepositoryByFullName(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := &mockCommitStatusDispatcher{}
 	mock := &mockCommitStatusQuerier{
-		getRepoByIDFn: func(ctx context.Context, id int64) (db.Repository, error) {
-			return db.Repository{ID: id, Name: "resolved-repo"}, nil
+		getRepoOwnerFn: func(ctx context.Context, id int64) (db.GetRepoOwnerSlugAndNameByIDRow, error) {
+			require.Equal(t, int64(10), id)
+			return db.GetRepoOwnerSlugAndNameByIDRow{OwnerSlug: "acme", RepoName: "resolved-repo"}, nil
 		},
 	}
 	svc := NewCommitStatusService(mock, WithCommitStatusWebhookDispatcher(dispatcher))
@@ -848,6 +842,26 @@ func TestCommitStatusService_CreateCommitStatus_ResolvesRepoNameWhenMissing(t *t
 	require.Len(t, dispatcher.calls, 1)
 	payload := dispatcher.calls[0].payload.(webhooks.CommitStatusEventPayload)
 	assert.Equal(t, "resolved-repo", payload.Repository.Name)
+	assert.Equal(t, "acme/resolved-repo", payload.Repository.FullName)
+}
+
+func TestCommitStatusService_CreateCommitStatus_SkipsWebhookWhenRepositoryLookupFails(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &mockCommitStatusDispatcher{}
+	mock := &mockCommitStatusQuerier{
+		getRepoOwnerFn: func(context.Context, int64) (db.GetRepoOwnerSlugAndNameByIDRow, error) {
+			return db.GetRepoOwnerSlugAndNameByIDRow{}, errors.New("repo failed")
+		},
+	}
+	svc := NewCommitStatusService(mock, WithCommitStatusWebhookDispatcher(dispatcher))
+
+	_, err := svc.CreateCommitStatus(context.Background(), 10, "abc123", CreateCommitStatusInput{
+		Context: "ci/build",
+		Status:  "pending",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, dispatcher.calls)
 }
 
 func TestCommitStatusService_UpdateCommitStatusForWorkflowRun_DispatchesWebhook(t *testing.T) {
@@ -855,9 +869,6 @@ func TestCommitStatusService_UpdateCommitStatusForWorkflowRun_DispatchesWebhook(
 
 	dispatcher := &mockCommitStatusDispatcher{}
 	mock := &mockCommitStatusQuerier{
-		getRepoByIDFn: func(ctx context.Context, id int64) (db.Repository, error) {
-			return db.Repository{ID: id, Name: "demo"}, nil
-		},
 		updateByWorkflowRunFn: func(ctx context.Context, arg db.UpdateLatestCommitStatusByWorkflowRunIDParams) (db.CommitStatus, error) {
 			return db.CommitStatus{
 				ID:           55,

@@ -480,11 +480,12 @@ func TestLanding_Cov_DispatchPayloadsAndFailures(t *testing.T) {
 		WithLandingWebhookDispatcher(dispatcher),
 		WithLandingWorkflowRunService(workflowRuns),
 	)
-	require.NoError(t, svc.dispatchLandingRequestEvent(context.Background(), repo, actor, "opened", row))
+	require.NoError(t, svc.dispatchLandingRequestEvent(context.Background(), repo, "alice", actor, "opened", row))
 	require.Len(t, dispatcher.calls, 1)
 	payload, ok := dispatcher.calls[0].payload.(webhooks.LandingRequestEventPayload)
 	require.True(t, ok)
 	assert.Equal(t, "opened", payload.Action)
+	assert.Equal(t, "alice/"+repo.Name, payload.Repository.FullName)
 	assert.Equal(t, "sender", payload.Sender.Login)
 	assert.Len(t, workflowRuns.dispatchCalls, 1)
 
@@ -495,6 +496,6 @@ func TestLanding_Cov_DispatchPayloadsAndFailures(t *testing.T) {
 	}
 	failingSvc := NewLandingService(&mockLandingQuerier{}, &mockLandingRepoHostClient{}, WithLandingWebhookDispatcher(failingDispatcher))
 	assert.Equal(t, http.StatusInternalServerError, landingAPIStatus(t,
-		failingSvc.dispatchLandingRequestEvent(context.Background(), repo, actor, "opened", row),
+		failingSvc.dispatchLandingRequestEvent(context.Background(), repo, "alice", actor, "opened", row),
 	))
 }

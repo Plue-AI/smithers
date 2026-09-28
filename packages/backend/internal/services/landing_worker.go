@@ -930,13 +930,24 @@ func (w *LandingWorker) handleFailure(ctx context.Context, task db.LandingTask, 
 
 // dispatchLandedEvent fires the "landed" webhook event after a successful merge.
 func (w *LandingWorker) dispatchLandedEvent(ctx context.Context, repo db.Repository, lr db.LandingRequest, changeIDs []string) {
-	dispatchLandingLandedEvent(ctx, w.dispatcher, w.queries, w.logger, repo, lr, changeIDs)
+	if w.dispatcher == nil {
+		return
+	}
+	owner, err := w.resolveRepoOwner(ctx, repo)
+	if err != nil {
+		w.logger.Error("failed to load repository owner for landed webhook",
+			"landing_request_id", lr.ID,
+			"error", err,
+		)
+		return
+	}
+	dispatchLandingLandedEvent(ctx, w.dispatcher, w.queries, w.logger, repo, owner, lr, changeIDs)
 }
 
 // dispatchLandingLandedEvent fires the "landed" webhook after a landing merged.
 func dispatchLandingLandedEvent(ctx context.Context, dispatcher webhooks.Dispatcher, users interface {
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
-}, logger *slog.Logger, repo db.Repository, lr db.LandingRequest, changeIDs []string) {
+}, logger *slog.Logger, repo db.Repository, owner string, lr db.LandingRequest, changeIDs []string) {
 	if dispatcher == nil {
 		return
 	}
@@ -965,11 +976,8 @@ func dispatchLandingLandedEvent(ctx context.Context, dispatcher webhooks.Dispatc
 			CreatedAt:      lr.CreatedAt,
 			UpdatedAt:      lr.UpdatedAt,
 		},
-		Repository: webhooks.RepositoryPayload{
-			ID:   repo.ID,
-			Name: repo.Name,
-		},
-		Sender: webhooks.UserPayload{ID: author.ID, Login: author.Username},
+		Repository: webhookRepositoryPayload(owner, repo),
+		Sender:     webhooks.UserPayload{ID: author.ID, Login: author.Username},
 	}
 
 	if err := dispatcher.DispatchEvent(ctx, repo.ID, webhooks.EventTypeLandingRequest, payload); err != nil {
@@ -1002,6 +1010,15 @@ func (w *LandingWorker) dispatchFailedEvent(ctx context.Context, task db.Landing
 	repo, err := w.queries.GetRepoByID(ctx, task.RepositoryID)
 	if err != nil {
 		w.logger.Error("failed to load repository for failed webhook",
+			"task_id", task.ID,
+			"error", err,
+		)
+		return
+	}
+
+	owner, err := w.resolveRepoOwner(ctx, repo)
+	if err != nil {
+		w.logger.Error("failed to load repository owner for failed webhook",
 			"task_id", task.ID,
 			"error", err,
 		)
@@ -1050,11 +1067,8 @@ func (w *LandingWorker) dispatchFailedEvent(ctx context.Context, task db.Landing
 			CreatedAt:      lr.CreatedAt,
 			UpdatedAt:      lr.UpdatedAt,
 		},
-		Repository: webhooks.RepositoryPayload{
-			ID:   repo.ID,
-			Name: repo.Name,
-		},
-		Sender: webhooks.UserPayload{ID: author.ID, Login: author.Username},
+		Repository: webhookRepositoryPayload(owner, repo),
+		Sender:     webhooks.UserPayload{ID: author.ID, Login: author.Username},
 	}
 
 	if err := w.dispatcher.DispatchEvent(ctx, repo.ID, webhooks.EventTypeLandingRequest, payload); err != nil {

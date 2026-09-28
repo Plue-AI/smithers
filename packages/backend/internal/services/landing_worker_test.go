@@ -662,6 +662,7 @@ func TestLandingWorker_DispatchesLandedWebhookAfterMerge(t *testing.T) {
 	assert.Equal(t, "main", payload.LandingRequest.TargetBookmark)
 	assert.Equal(t, []string{"k-a", "k-b"}, payload.LandingRequest.ChangeIDs)
 	assert.Equal(t, "demo", payload.Repository.Name)
+	assert.Equal(t, "alice/demo", payload.Repository.FullName)
 	assert.Equal(t, "alice", payload.Sender.Login)
 }
 
@@ -719,6 +720,7 @@ func TestLandingWorker_DispatchesFailedWebhookOnMergeFailure(t *testing.T) {
 	assert.Equal(t, "failed", payload.LandingRequest.State)
 	assert.Equal(t, int64(5), payload.LandingRequest.Number)
 	assert.Equal(t, []string{"k-a"}, payload.LandingRequest.ChangeIDs)
+	assert.Equal(t, "alice/demo", payload.Repository.FullName)
 }
 
 func TestLandingWorker_NoWebhookFiredWithoutDispatcher(t *testing.T) {

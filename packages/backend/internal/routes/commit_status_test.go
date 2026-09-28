@@ -494,7 +494,6 @@ func TestCommitStatusHandler_CreateCommitStatus_ForwardsSHAAndPayload(t *testing
 			assert.Equal(t, int64(9_500), input.DurationMS)
 			require.NotNil(t, input.WorkspaceID)
 			assert.Equal(t, "33333333-3333-4333-8333-333333333333", *input.WorkspaceID)
-			assert.Equal(t, "demo", input.RepoName)
 			require.NotNil(t, input.Actor)
 			assert.Equal(t, int64(1), input.Actor.ID)
 			assert.Equal(t, "alice", input.Actor.Username)

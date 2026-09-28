@@ -183,7 +183,6 @@ func (h *CommitStatusHandler) CreateCommitStatus(w http.ResponseWriter, r *http.
 		TargetsCached:   req.TargetsCached,
 		DurationMS:      req.DurationMS,
 		WorkspaceID:     req.WorkspaceID,
-		RepoName:        repoCtx.Repository.Name,
 		Actor:           user,
 	})
 	if err != nil {

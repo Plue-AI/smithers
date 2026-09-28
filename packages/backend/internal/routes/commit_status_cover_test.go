@@ -68,7 +68,6 @@ func TestCommitStatus_Cov_ErrorBranches(t *testing.T) {
 			createCommitStatusFn: func(ctx context.Context, repositoryID int64, sha string, input services.CreateCommitStatusInput) (db.CommitStatus, error) {
 				assert.Equal(t, int64(101), repositoryID)
 				assert.Equal(t, "deadbeef", sha)
-				assert.Equal(t, "demo", input.RepoName)
 				assert.Equal(t, int64(7), input.Actor.ID)
 				return db.CommitStatus{}, pkgerrors.BadRequest("invalid status")
 			},

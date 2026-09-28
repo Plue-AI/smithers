@@ -179,7 +179,7 @@ func (s *LandingGitHubMergeService) reconcileLanding(ctx context.Context, reposi
 		return fmt.Errorf("merge: %w", err)
 	}
 	log.Info("github.landing_merge.recorded", "merge_commit", receipt.MergeCommit)
-	dispatchLandingLandedEvent(ctx, s.dispatcher, s.store, s.logger, repository, db.LandingRequest{ID: landing.ID, Number: landing.Number,
+	dispatchLandingLandedEvent(ctx, s.dispatcher, s.store, s.logger, repository, owner, db.LandingRequest{ID: landing.ID, Number: landing.Number,
 		Title: landing.Title, Body: landing.Body, State: landingStateMerged, AuthorID: landing.AuthorID, TargetBookmark: landing.TargetBookmark,
 		ConflictStatus: landing.ConflictStatus, StackSize: landing.StackSize, CreatedAt: landing.CreatedAt, UpdatedAt: landing.UpdatedAt},
 		landing.ChangeIds)

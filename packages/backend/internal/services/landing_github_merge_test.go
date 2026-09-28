@@ -153,6 +153,7 @@ func TestLandingGitHubMergeMergesTheLandingWithItsReceiptOnce(t *testing.T) {
 	require.Len(t, f.dispatcher.events, 1)
 	assert.Equal(t, "landed", f.dispatcher.events[0].Action)
 	assert.Equal(t, "merged", f.dispatcher.events[0].LandingRequest.State)
+	assert.Equal(t, "smithers-canary/smithers", f.dispatcher.events[0].Repository.FullName)
 
 	// The next synced pull finds no open landing: nothing merges twice.
 	require.NoError(t, f.reconcile(t))

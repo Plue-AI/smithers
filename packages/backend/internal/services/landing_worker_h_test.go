@@ -181,10 +181,18 @@ func TestLandingWorker_H_WebhookAndOwnerErrorBranches(t *testing.T) {
 			},
 		},
 		{
-			name: "author",
+			name: "owner",
 			q: &mockLandingWorkerQuerier{
 				getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
 					return db.Repository{ID: task.RepositoryID, Name: "demo"}, nil
+				},
+			},
+		},
+		{
+			name: "author",
+			q: &mockLandingWorkerQuerier{
+				getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
+					return db.Repository{ID: task.RepositoryID, Name: "demo", UserID: pgtype.Int8{Int64: 1, Valid: true}}, nil
 				},
 				getUserByIDFn: func(context.Context, int64) (db.User, error) {
 					return db.User{}, errors.New("author failed")
@@ -195,7 +203,7 @@ func TestLandingWorker_H_WebhookAndOwnerErrorBranches(t *testing.T) {
 			name: "changes",
 			q: &mockLandingWorkerQuerier{
 				getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
-					return db.Repository{ID: task.RepositoryID, Name: "demo"}, nil
+					return db.Repository{ID: task.RepositoryID, Name: "demo", UserID: pgtype.Int8{Int64: 1, Valid: true}}, nil
 				},
 				listLandingRequestChangesFn: func(context.Context, db.ListLandingRequestChangesParams) ([]db.LandingRequestChange, error) {
 					return nil, errors.New("changes failed")
@@ -218,7 +226,7 @@ func TestLandingWorker_H_WebhookAndOwnerErrorBranches(t *testing.T) {
 	d := &landingWorkerHDispatcher{err: errors.New("dispatch failed")}
 	w = NewLandingWorker(&mockLandingWorkerQuerier{
 		getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
-			return db.Repository{ID: task.RepositoryID, Name: "demo"}, nil
+			return db.Repository{ID: task.RepositoryID, Name: "demo", UserID: pgtype.Int8{Int64: 1, Valid: true}}, nil
 		},
 		listLandingRequestChangesFn: func(context.Context, db.ListLandingRequestChangesParams) ([]db.LandingRequestChange, error) {
 			return []db.LandingRequestChange{{ChangeID: "c1"}}, nil

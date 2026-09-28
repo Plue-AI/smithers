@@ -26,8 +26,6 @@ type CreateCommitStatusInput struct {
 	TargetsCached   int64   `json:"targets_cached"`
 	DurationMS      int64   `json:"duration_ms"`
 	WorkspaceID     *string `json:"workspace_id,omitempty"`
-	// RepoName is used for webhook event payloads; not persisted.
-	RepoName string `json:"-"`
 	// Actor is used for webhook sender payload; not persisted.
 	Actor *db.User `json:"-"`
 }
@@ -37,7 +35,7 @@ type commitStatusWorkspaceQuerier interface {
 }
 
 type CommitStatusQuerier interface {
-	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
+	GetRepoOwnerSlugAndNameByID(ctx context.Context, repositoryID int64) (db.GetRepoOwnerSlugAndNameByIDRow, error)
 	GetWorkflowRun(ctx context.Context, arg db.GetWorkflowRunParams) (db.WorkflowRun, error)
 	CreateCommitStatus(ctx context.Context, arg db.CreateCommitStatusParams) (db.CommitStatus, error)
 	UpdateLatestCommitStatusByWorkflowRunID(ctx context.Context, arg db.UpdateLatestCommitStatusByWorkflowRunIDParams) (db.CommitStatus, error)
@@ -74,7 +72,7 @@ func NewCommitStatusService(q CommitStatusQuerier, opts ...CommitStatusServiceOp
 // run/status/task transaction commits so observers never see rolled-back
 // pending statuses and runners never see a run without its linked status row.
 func (s *CommitStatusService) PublishCommitStatus(ctx context.Context, status db.CommitStatus) {
-	_ = s.dispatchCommitStatusEvent(ctx, status.RepositoryID, s.resolveRepoName(ctx, status.RepositoryID, ""), status, nil)
+	_ = s.dispatchCommitStatusEvent(ctx, status, nil)
 }
 
 var validCommitStatuses = map[string]struct{}{
@@ -266,14 +264,18 @@ func (s *CommitStatusService) CreateCommitStatus(
 	}
 
 	// Dispatch "status" webhook event (non-fatal).
-	_ = s.dispatchCommitStatusEvent(ctx, repositoryID, s.resolveRepoName(ctx, repositoryID, input.RepoName), created, input.Actor)
+	_ = s.dispatchCommitStatusEvent(ctx, created, input.Actor)
 
 	return created, nil
 }
 
-func (s *CommitStatusService) dispatchCommitStatusEvent(ctx context.Context, repositoryID int64, repoName string, cs db.CommitStatus, actor *db.User) error {
+func (s *CommitStatusService) dispatchCommitStatusEvent(ctx context.Context, cs db.CommitStatus, actor *db.User) error {
 	if s.dispatcher == nil {
 		return nil
+	}
+	repository, err := s.queries.GetRepoOwnerSlugAndNameByID(ctx, cs.RepositoryID)
+	if err != nil {
+		return pkgerrors.Internal("failed to load commit status repository").WithCause(err)
 	}
 
 	changeIDStr := ""
@@ -303,13 +305,10 @@ func (s *CommitStatusService) dispatchCommitStatusEvent(ctx context.Context, rep
 			Description: cs.Description,
 			TargetURL:   cs.TargetUrl,
 		},
-		Repository: webhooks.RepositoryPayload{
-			ID:   repositoryID,
-			Name: repoName,
-		},
-		Sender: sender,
+		Repository: webhookRepositoryPayload(repository.OwnerSlug, db.Repository{ID: cs.RepositoryID, Name: repository.RepoName}),
+		Sender:     sender,
 	}
-	if err := s.dispatcher.DispatchEvent(ctx, repositoryID, webhooks.EventTypeStatus, payload); err != nil {
+	if err := s.dispatcher.DispatchEvent(ctx, cs.RepositoryID, webhooks.EventTypeStatus, payload); err != nil {
 		return pkgerrors.Internal("failed to enqueue commit status webhook delivery").WithCause(err)
 	}
 	return nil
@@ -386,17 +385,6 @@ func (s *CommitStatusService) UpdateCommitStatusForWorkflowRun(
 		return db.CommitStatus{}, pkgerrors.Internal("failed to update commit status").WithCause(err)
 	}
 
-	_ = s.dispatchCommitStatusEvent(ctx, updated.RepositoryID, s.resolveRepoName(ctx, updated.RepositoryID, ""), updated, nil)
+	_ = s.dispatchCommitStatusEvent(ctx, updated, nil)
 	return updated, nil
-}
-
-func (s *CommitStatusService) resolveRepoName(ctx context.Context, repositoryID int64, fallback string) string {
-	if strings.TrimSpace(fallback) != "" || s.queries == nil {
-		return fallback
-	}
-	repo, err := s.queries.GetRepoByID(ctx, repositoryID)
-	if err != nil {
-		return fallback
-	}
-	return repo.Name
 }

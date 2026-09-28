@@ -65,11 +65,4 @@ func TestCommitStatus_Z_UpdateAndResolveFallbackBranches(t *testing.T) {
 	})
 	_, err = svc.UpdateCommitStatusForWorkflowRun(ctx, 1, "success", "ok", "")
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	svc = NewCommitStatusService(&mockCommitStatusQuerier{
-		getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
-			return db.Repository{}, errors.New("repo failed")
-		},
-	})
-	assert.Equal(t, "", svc.resolveRepoName(ctx, 10, ""))
 }

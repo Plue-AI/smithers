@@ -311,6 +311,7 @@ type landingAutoLandQuerier interface {
 	EnqueueAutoLandRequest(ctx context.Context, arg db.EnqueueAutoLandRequestParams) (db.LandingRequest, error)
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
 	GetOrgByID(ctx context.Context, id int64) (db.Organization, error)
+	GetUserByID(ctx context.Context, id int64) (db.User, error)
 }
 
 type LandingRepoHostClient interface {
@@ -759,7 +760,7 @@ func (s *LandingService) afterCreate(ctx context.Context, repository db.Reposito
 	if err != nil {
 		return LandingRequestResponse{}, err
 	}
-	if err := s.dispatchLandingRequestEvent(ctx, repository, actor, "opened", mapped); err != nil {
+	if err := s.dispatchLandingRequestEvent(ctx, repository, owner, actor, "opened", mapped); err != nil {
 		return LandingRequestResponse{}, err
 	}
 	// Process @mentions in the landing request body. Errors are non-fatal.
@@ -1121,11 +1122,11 @@ func (s *LandingService) UpdateLandingRequest(ctx context.Context, actor *db.Use
 			action = "reopened"
 		}
 	}
-	if err := s.dispatchLandingRequestEvent(ctx, repository, actor, action, mapped); err != nil {
+	if err := s.dispatchLandingRequestEvent(ctx, repository, owner, actor, action, mapped); err != nil {
 		return LandingRequestResponse{}, err
 	}
 	if req.ConflictStatus != nil && current.ConflictStatus != mapped.ConflictStatus {
-		if err := s.dispatchLandingConflictEvent(ctx, repository, actor, current.ConflictStatus, mapped); err != nil {
+		if err := s.dispatchLandingConflictEvent(ctx, repository, owner, actor, current.ConflictStatus, mapped); err != nil {
 			return LandingRequestResponse{}, err
 		}
 	}
@@ -1254,7 +1255,7 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 	if err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
-	if err := s.dispatchLandingRequestEvent(ctx, repository, actor, "queued", resp); err != nil {
+	if err := s.dispatchLandingRequestEvent(ctx, repository, owner, actor, "queued", resp); err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
 
@@ -1386,7 +1387,7 @@ func (s *LandingService) ProcessNextAutoLand(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load auto-land repository: %w", err)
 	}
-	owner, err := s.autoLandRepositoryOwner(ctx, q, repository)
+	owner, err := repositoryOwnerName(ctx, q, repository)
 	if err != nil {
 		return err
 	}
@@ -1433,25 +1434,7 @@ func (s *LandingService) ProcessNextAutoLand(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.dispatchLandingRequestEvent(ctx, repository, &actor, "queued", response)
-}
-
-func (s *LandingService) autoLandRepositoryOwner(ctx context.Context, q landingAutoLandQuerier, repository db.Repository) (string, error) {
-	if repository.UserID.Valid {
-		user, err := s.queries.GetUserByID(ctx, repository.UserID.Int64)
-		if err != nil {
-			return "", fmt.Errorf("load auto-land repository owner: %w", err)
-		}
-		return user.Username, nil
-	}
-	if repository.OrgID.Valid {
-		org, err := q.GetOrgByID(ctx, repository.OrgID.Int64)
-		if err != nil {
-			return "", fmt.Errorf("load auto-land organization owner: %w", err)
-		}
-		return org.Name, nil
-	}
-	return "", fmt.Errorf("auto-land repository %d has no owner", repository.ID)
+	return s.dispatchLandingRequestEvent(ctx, repository, owner, &actor, "queued", response)
 }
 
 type LandingOwnerBlock = LandingBlock
@@ -2301,7 +2284,7 @@ func (s *LandingService) CreateLandingReviewRequest(ctx context.Context, actor *
 	if err != nil {
 		return LandingReviewRequestResponse{}, err
 	}
-	if err := s.dispatchLandingRequestEvent(ctx, repository, actor, "review_requested", landingResponse); err != nil {
+	if err := s.dispatchLandingRequestEvent(ctx, repository, owner, actor, "review_requested", landingResponse); err != nil {
 		return LandingReviewRequestResponse{}, err
 	}
 
@@ -2539,7 +2522,7 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 			return db.LandingRequestReview{}, err
 		}
 	}
-	if err := s.dispatchLandingReviewEvent(ctx, repository, landingRow, actor, review); err != nil {
+	if err := s.dispatchLandingReviewEvent(ctx, repository, owner, landingRow, actor, review); err != nil {
 		return db.LandingRequestReview{}, err
 	}
 	return review, nil
@@ -2645,7 +2628,7 @@ func (s *LandingService) CreateLandingComment(ctx context.Context, actor *db.Use
 			return LandingCommentResponse{}, err
 		}
 	}
-	if err := s.dispatchLandingCommentEvent(ctx, repository, landingRow, actor, comment); err != nil {
+	if err := s.dispatchLandingCommentEvent(ctx, repository, owner, landingRow, actor, comment); err != nil {
 		return LandingCommentResponse{}, err
 	}
 	// Process @mentions in the comment body. Errors are non-fatal.
@@ -2935,7 +2918,7 @@ func (s *LandingService) MarkLandingThreadDone(ctx context.Context, actor *db.Us
 		}
 		return db.LandingRequestComment{}, pkgerrors.Internal("failed to mark review comment done").WithCause(err)
 	}
-	if err := s.dispatchLandingCommentEventAction(ctx, repository, landingRow, actor, updated, "done"); err != nil {
+	if err := s.dispatchLandingCommentEventAction(ctx, repository, owner, landingRow, actor, updated, "done"); err != nil {
 		return db.LandingRequestComment{}, err
 	}
 	return updated, nil
@@ -2967,7 +2950,7 @@ func (s *LandingService) AckLandingThread(ctx context.Context, actor *db.User, o
 		}
 		return db.LandingRequestComment{}, pkgerrors.Internal("failed to acknowledge review comment").WithCause(err)
 	}
-	if err := s.dispatchLandingCommentEventAction(ctx, repository, landingRow, actor, updated, "resolved"); err != nil {
+	if err := s.dispatchLandingCommentEventAction(ctx, repository, owner, landingRow, actor, updated, "resolved"); err != nil {
 		return db.LandingRequestComment{}, err
 	}
 	return updated, nil
@@ -2995,7 +2978,7 @@ func (s *LandingService) ReopenLandingThread(ctx context.Context, actor *db.User
 		}
 		return db.LandingRequestComment{}, pkgerrors.Internal("failed to reopen review comment").WithCause(err)
 	}
-	if err := s.dispatchLandingCommentEventAction(ctx, repository, landingRow, actor, updated, "reopened"); err != nil {
+	if err := s.dispatchLandingCommentEventAction(ctx, repository, owner, landingRow, actor, updated, "reopened"); err != nil {
 		return db.LandingRequestComment{}, err
 	}
 	return updated, nil
@@ -3641,16 +3624,13 @@ func (s *LandingService) resolveLandingAuthor(ctx context.Context, cache map[int
 	return author, nil
 }
 
-func (s *LandingService) dispatchLandingRequestEvent(ctx context.Context, repository db.Repository, actor *db.User, action string, row LandingRequestResponse) error {
+func (s *LandingService) dispatchLandingRequestEvent(ctx context.Context, repository db.Repository, owner string, actor *db.User, action string, row LandingRequestResponse) error {
 	if s.dispatcher != nil {
 		payload := webhooks.LandingRequestEventPayload{
 			Action:         action,
 			LandingRequest: landingResponseToWebhookPayload(row),
-			Repository: webhooks.RepositoryPayload{
-				ID:   repository.ID,
-				Name: repository.Name,
-			},
-			Sender: webhookSender(actor),
+			Repository:     webhookRepositoryPayload(owner, repository),
+			Sender:         webhookSender(actor),
 		}
 
 		if err := s.dispatcher.DispatchEvent(ctx, repository.ID, webhooks.EventTypeLandingRequest, payload); err != nil {
@@ -3686,6 +3666,7 @@ func (s *LandingService) dispatchLandingRequestEvent(ctx context.Context, reposi
 func (s *LandingService) dispatchLandingConflictEvent(
 	ctx context.Context,
 	repository db.Repository,
+	owner string,
 	actor *db.User,
 	previousStatus string,
 	row LandingRequestResponse,
@@ -3703,11 +3684,8 @@ func (s *LandingService) dispatchLandingConflictEvent(
 		Action:         action,
 		PreviousStatus: previousStatus,
 		LandingRequest: landingResponseToWebhookPayload(row),
-		Repository: webhooks.RepositoryPayload{
-			ID:   repository.ID,
-			Name: repository.Name,
-		},
-		Sender: webhookSender(actor),
+		Repository:     webhookRepositoryPayload(owner, repository),
+		Sender:         webhookSender(actor),
 	}
 
 	if err := s.dispatcher.DispatchEvent(ctx, repository.ID, webhooks.EventTypeLandingConflict, payload); err != nil {
@@ -3719,6 +3697,7 @@ func (s *LandingService) dispatchLandingConflictEvent(
 func (s *LandingService) dispatchLandingReviewEvent(
 	ctx context.Context,
 	repository db.Repository,
+	owner string,
 	landingRow db.GetLandingRequestWithChangeIDsByNumberRow,
 	actor *db.User,
 	review db.LandingRequestReview,
@@ -3760,11 +3739,8 @@ func (s *LandingService) dispatchLandingReviewEvent(
 			CreatedAt:      landingRow.CreatedAt,
 			UpdatedAt:      landingRow.UpdatedAt,
 		},
-		Repository: webhooks.RepositoryPayload{
-			ID:   repository.ID,
-			Name: repository.Name,
-		},
-		Sender: webhookSender(actor),
+		Repository: webhookRepositoryPayload(owner, repository),
+		Sender:     webhookSender(actor),
 	}
 
 	if err := s.dispatcher.DispatchEvent(ctx, repository.ID, webhooks.EventTypeLandingRequestReview, payload); err != nil {
@@ -3776,16 +3752,18 @@ func (s *LandingService) dispatchLandingReviewEvent(
 func (s *LandingService) dispatchLandingCommentEvent(
 	ctx context.Context,
 	repository db.Repository,
+	owner string,
 	landingRow db.GetLandingRequestWithChangeIDsByNumberRow,
 	actor *db.User,
 	comment db.LandingRequestComment,
 ) error {
-	return s.dispatchLandingCommentEventAction(ctx, repository, landingRow, actor, comment, "created")
+	return s.dispatchLandingCommentEventAction(ctx, repository, owner, landingRow, actor, comment, "created")
 }
 
 func (s *LandingService) dispatchLandingCommentEventAction(
 	ctx context.Context,
 	repository db.Repository,
+	owner string,
 	landingRow db.GetLandingRequestWithChangeIDsByNumberRow,
 	actor *db.User,
 	comment db.LandingRequestComment,
@@ -3828,11 +3806,8 @@ func (s *LandingService) dispatchLandingCommentEventAction(
 			CreatedAt:      landingRow.CreatedAt,
 			UpdatedAt:      landingRow.UpdatedAt,
 		},
-		Repository: webhooks.RepositoryPayload{
-			ID:   repository.ID,
-			Name: repository.Name,
-		},
-		Sender: webhookSender(actor),
+		Repository: webhookRepositoryPayload(owner, repository),
+		Sender:     webhookSender(actor),
 	}
 
 	if err := s.dispatcher.DispatchEvent(ctx, repository.ID, webhooks.EventTypeLandingRequestComment, payload); err != nil {

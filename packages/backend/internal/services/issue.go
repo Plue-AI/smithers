@@ -1197,7 +1197,7 @@ func (s *IssueService) dispatchIssueEvent(ctx context.Context, owner string, rep
 		return nil
 	}
 	sender := issueSenderPayload(actor)
-	repositoryPayload := issueRepositoryPayload(owner, repository)
+	repositoryPayload := webhookRepositoryPayload(owner, repository)
 
 	payload := webhooks.IssueEventPayload{
 		Action:     action,
@@ -1222,7 +1222,7 @@ func (s *IssueService) dispatchIssueEvent(ctx context.Context, owner string, rep
 }
 
 func issueWorkflowInputs(owner string, repository db.Repository, issue webhooks.IssuePayload, sender webhooks.UserPayload, action string) map[string]any {
-	repositoryPayload := issueRepositoryPayload(owner, repository)
+	repositoryPayload := webhookRepositoryPayload(owner, repository)
 	inputs := map[string]any{
 		"action":      action,
 		"issue":       issue,
@@ -1276,7 +1276,7 @@ func (s *IssueService) dispatchIssueCommentEvent(ctx context.Context, owner stri
 		return nil
 	}
 	sender := issueSenderPayload(actor)
-	repositoryPayload := issueRepositoryPayload(owner, repository)
+	repositoryPayload := webhookRepositoryPayload(owner, repository)
 	issuePayload := s.issuePayloadForDispatch(ctx, issue)
 
 	payload := webhooks.IssueCommentEventPayload{
@@ -1329,17 +1329,6 @@ func issueSenderPayload(actor *db.User) webhooks.UserPayload {
 		ID:    actor.ID,
 		Login: actor.Username,
 	}
-}
-
-func issueRepositoryPayload(owner string, repository db.Repository) webhooks.RepositoryPayload {
-	payload := webhooks.RepositoryPayload{
-		ID:   repository.ID,
-		Name: repository.Name,
-	}
-	if owner != "" {
-		payload.FullName = owner + "/" + repository.Name
-	}
-	return payload
 }
 
 func issuePayloadFromResponse(issue IssueResponse) webhooks.IssuePayload {

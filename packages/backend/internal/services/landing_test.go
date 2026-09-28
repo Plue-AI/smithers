@@ -2399,6 +2399,7 @@ func TestLandingService_UpdateLandingRequest_DispatchesConflictEvent(t *testing.
 		assert.Equal(t, "clean", payload.PreviousStatus)
 		assert.Equal(t, "conflicted", payload.LandingRequest.ConflictStatus)
 		assert.Equal(t, repo.ID, payload.Repository.ID)
+		assert.Equal(t, "alice/"+repo.Name, payload.Repository.FullName)
 		assert.Equal(t, actor.ID, payload.Sender.ID)
 	})
 
@@ -2552,6 +2553,7 @@ func TestLandingService_DispatchesReviewAndCommentWebhookEvents(t *testing.T) {
 	assert.Equal(t, "submitted", reviewPayload.Action)
 	assert.Equal(t, "approve", reviewPayload.Review.Type)
 	assert.Equal(t, "commit-1", reviewPayload.Review.CommitID)
+	assert.Equal(t, "alice/"+repo.Name, reviewPayload.Repository.FullName)
 
 	commentPayload, ok := dispatcher.calls[1].payload.(webhooks.LandingRequestCommentEventPayload)
 	require.True(t, ok)
@@ -2559,6 +2561,7 @@ func TestLandingService_DispatchesReviewAndCommentWebhookEvents(t *testing.T) {
 	assert.Equal(t, "README.md", commentPayload.Comment.Path)
 	assert.Equal(t, "commit-1", commentPayload.Comment.CommitID)
 	assert.Len(t, commentPayload.Comment.AnchorHash, 64)
+	assert.Equal(t, "alice/"+repo.Name, commentPayload.Repository.FullName)
 }
 
 func TestLandingService_DismissLandingReview_UpdatesStateAndRequiresAuth(t *testing.T) {

@@ -23,39 +23,32 @@ func (commitStatusCovFailDispatcher) DispatchOrgEvent(context.Context, int64, we
 	return nil
 }
 
-func TestCommitStatus_Cov_DispatchAndResolveRepoNameBranches(t *testing.T) {
+func TestCommitStatus_Cov_DispatchLoadsRepository(t *testing.T) {
 	q := &mockCommitStatusQuerier{
-		getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
-			return db.Repository{Name: "loaded-name"}, nil
+		getRepoOwnerFn: func(context.Context, int64) (db.GetRepoOwnerSlugAndNameByIDRow, error) {
+			return db.GetRepoOwnerSlugAndNameByIDRow{OwnerSlug: "acme", RepoName: "loaded-name"}, nil
 		},
 	}
 	dispatcher := &mockCommitStatusDispatcher{}
 	svc := NewCommitStatusService(q, WithCommitStatusWebhookDispatcher(dispatcher))
 
 	status := sampleCommitStatus()
-	if err := svc.dispatchCommitStatusEvent(context.Background(), status.RepositoryID, svc.resolveRepoName(context.Background(), status.RepositoryID, ""), status, &db.User{ID: 5, Username: "alice"}); err != nil {
+	if err := svc.dispatchCommitStatusEvent(context.Background(), status, &db.User{ID: 5, Username: "alice"}); err != nil {
 		t.Fatalf("dispatchCommitStatusEvent returned error: %v", err)
 	}
 	if len(dispatcher.calls) != 1 || dispatcher.calls[0].repoID != status.RepositoryID || dispatcher.calls[0].eventType != webhooks.EventTypeStatus {
 		t.Fatalf("dispatch calls = %+v", dispatcher.calls)
 	}
 	payload := dispatcher.calls[0].payload.(webhooks.CommitStatusEventPayload)
-	if payload.Repository.Name != "loaded-name" || payload.Sender.Login != "alice" || payload.CommitStatus.ChangeID == "" || payload.CommitStatus.SHA == "" {
+	if payload.Repository.Name != "loaded-name" || payload.Repository.FullName != "acme/loaded-name" || payload.Sender.Login != "alice" || payload.CommitStatus.ChangeID == "" || payload.CommitStatus.SHA == "" {
 		t.Fatalf("payload = %+v", payload)
-	}
-
-	if got := NewCommitStatusService(nil).resolveRepoName(context.Background(), 1, "fallback"); got != "fallback" {
-		t.Fatalf("fallback repo name = %q", got)
-	}
-	if got := NewCommitStatusService(q).resolveRepoName(context.Background(), 1, "explicit"); got != "explicit" {
-		t.Fatalf("explicit repo name = %q", got)
 	}
 }
 
 func TestCommitStatus_Cov_ErrorBranches(t *testing.T) {
 	t.Run("dispatch error maps internal", func(t *testing.T) {
 		err := NewCommitStatusService(&mockCommitStatusQuerier{}, WithCommitStatusWebhookDispatcher(commitStatusCovFailDispatcher{})).
-			dispatchCommitStatusEvent(context.Background(), 10, "demo", sampleCommitStatus(), nil)
+			dispatchCommitStatusEvent(context.Background(), sampleCommitStatus(), nil)
 		apiErr, ok := err.(*pkgerrors.APIError)
 		if !ok || apiErr.Status != http.StatusInternalServerError {
 			t.Fatalf("err = %#v, want internal", err)
