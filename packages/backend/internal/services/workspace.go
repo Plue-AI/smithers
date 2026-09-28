@@ -824,6 +824,16 @@ func (s *WorkspaceService) loadOwnedWorkspace(ctx context.Context, workspaceID s
 	return s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
 }
 
+// CheckWorkspaceDesktopAccess checks the same write grant used by desktop
+// observe and input before their request is charged to a rate bucket.
+func (s *WorkspaceService) CheckWorkspaceDesktopAccess(ctx context.Context, workspaceID string, repositoryID, userID int64) error {
+	if s == nil || s.q == nil {
+		return pkgerrors.Internal("workspace store unavailable")
+	}
+	_, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
+	return err
+}
+
 // loadWorkspaceWithAccess loads a workspace by ID + repo, then enforces that
 // the requester either owns the workspace or holds an explicit share grant at
 // or above minLevel. Returns 404 if the workspace does not exist in the repo,

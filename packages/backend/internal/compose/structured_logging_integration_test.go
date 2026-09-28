@@ -245,6 +245,10 @@ type stubDesktopRelayService struct {
 	authorize func(ctx context.Context, workspaceID, token string) (services.WorkspaceDesktopRelayTarget, error)
 }
 
+func (s *stubDesktopRelayService) CheckWorkspaceDesktopAccess(context.Context, string, int64, int64) error {
+	return nil
+}
+
 func (s *stubDesktopRelayService) CreateDesktopSession(context.Context, string, int64, int64) (services.WorkspaceDesktopSessionResponse, error) {
 	return services.WorkspaceDesktopSessionResponse{}, pkgerrors.Internal("not under test")
 }

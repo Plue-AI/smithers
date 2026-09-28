@@ -1564,7 +1564,9 @@ func buildRouter(
 						if queries != nil {
 							desktopControl = append(desktopControl, middleware.RequireRepoPermission(middleware.PermissionWrite))
 						}
-						desktopControl = append(desktopControl, middleware.PerWorkspaceDesktopControl(quotaStore), gateWorkspaces)
+						desktopControl = append(desktopControl,
+							middleware.RequireWorkspaceDesktopAccess(workspaceHandler.Desktop.Service.CheckWorkspaceDesktopAccess),
+							middleware.PerWorkspaceDesktopControl(quotaStore), gateWorkspaces)
 						r.With(desktopControl...).Post("/workspaces/{id}/desktop/observe", workspaceHandler.Desktop.PostDesktopObserve)
 						r.With(desktopControl...).Post("/workspaces/{id}/desktop/input", workspaceHandler.Desktop.PostDesktopInput)
 					}

@@ -28,6 +28,10 @@ type recordingDesktopService struct {
 	err            error
 }
 
+func (s *recordingDesktopService) CheckWorkspaceDesktopAccess(context.Context, string, int64, int64) error {
+	return nil
+}
+
 func (s *recordingDesktopService) CreateDesktopSession(context.Context, string, int64, int64) (services.WorkspaceDesktopSessionResponse, error) {
 	return services.WorkspaceDesktopSessionResponse{}, pkgerrors.Internal("unused")
 }

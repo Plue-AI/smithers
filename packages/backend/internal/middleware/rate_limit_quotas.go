@@ -209,10 +209,35 @@ func PerRepoAPIRequests(store *TokenBucketStore) func(http.Handler) http.Handler
 	})
 }
 
+// RequireWorkspaceDesktopAccess checks write access before the desktop rate
+// bucket is charged. The checker uses the same workspace access rule as the
+// desktop service, including explicit write shares.
+func RequireWorkspaceDesktopAccess(check func(context.Context, string, int64, int64) error) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := UserFromContext(r.Context())
+			repo := RepoContextFromContext(r.Context())
+			if check == nil || user == nil || repo == nil || repo.Repository == nil {
+				errors.WriteError(w, errors.Internal("workspace access check unavailable"))
+				return
+			}
+			if err := check(r.Context(), chi.URLParam(r, "id"), repo.Repository.ID, user.ID); err != nil {
+				var apiErr *errors.APIError
+				if stderrors.As(err, &apiErr) {
+					errors.WriteError(w, apiErr)
+				} else {
+					errors.WriteError(w, errors.Internal("check workspace access: "+err.Error()))
+				}
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // PerWorkspaceDesktopControl enforces 1800 desktop observe/input requests per
-// hour per workspace — an agent driving a box at roughly one action every two
-// seconds, sustained. It is keyed by the workspace id rather than the repo
-// because one box is the contended resource, and it deliberately replaces (not
+// hour per caller and workspace — an agent driving a box at roughly one action
+// every two seconds, sustained. It deliberately replaces (not
 // supplements) the 1000/hr PerRepoAPIRequests bucket on these two routes: a
 // single drive session would otherwise exhaust a repo's whole API budget.
 // Per API pod, like every bucket in this file; the global 5000/hr per-user
@@ -231,9 +256,9 @@ func PerWorkspaceDesktopControl(store *TokenBucketStore) func(http.Handler) http
 			}
 			// workspaces.id is UUID-typed. PostgreSQL accepts case differences,
 			// optional braces and omitted/additional hyphens for the same UUID.
-			// Account against that identity before the handler resolves the row.
+			// Access has already been checked by RequireWorkspaceDesktopAccess.
 			id := strings.Trim(strings.ToLower(strings.TrimSpace(chi.URLParam(r, "id"))), "{}")
-			key := scope + "|workspace:" + strings.ReplaceAll(id, "-", "")
+			key := scope + "|workspace:" + strings.ReplaceAll(id, "-", "") + "|" + searchRateLimitKey(r)
 			allowed, retryAfter := store.Take(r.Context(), key, capacity, window)
 			if !allowed {
 				rateLimitExceededResponse(w, retryAfter)

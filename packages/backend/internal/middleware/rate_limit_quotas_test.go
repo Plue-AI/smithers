@@ -176,6 +176,74 @@ func TestPerRepoRateLimit_BucketsAreScopedPerRepo(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec2.Code)
 }
 
+func TestPerWorkspaceDesktopControl_UnauthorizedCallerDoesNotDrainOwnerBucket(t *testing.T) {
+	t.Parallel()
+
+	clock := NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	store := NewTokenBucketStoreWithClock(clock)
+	const path = "/api/repos/alice/demo/workspaces/ws-1/desktop/observe"
+	router := chi.NewRouter()
+	router.With(PerWorkspaceDesktopControl(store)).Post(
+		"/api/repos/{owner}/{repo}/workspaces/{id}/desktop/observe",
+		func(w http.ResponseWriter, r *http.Request) {
+			if UserFromContext(r.Context()).ID != 1 {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		},
+	)
+	request := func(userID int64) int {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req = req.WithContext(ContextWithAuthInfo(req.Context(), &AuthInfo{User: &db.User{ID: userID}}))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	for i := 0; i < 1800; i++ {
+		require.Equalf(t, http.StatusForbidden, request(2), "foreign request %d", i+1)
+	}
+	for i := 0; i < 1800; i++ {
+		require.Equalf(t, http.StatusNoContent, request(1), "owner request %d", i+1)
+	}
+	require.Equal(t, http.StatusTooManyRequests, request(1))
+}
+
+func TestRequireWorkspaceDesktopAccess_RejectsBeforeCharging(t *testing.T) {
+	t.Parallel()
+
+	store := NewTokenBucketStoreWithClock(NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+	check := func(_ context.Context, workspaceID string, repositoryID, userID int64) error {
+		require.Equal(t, "ws-1", workspaceID)
+		require.Equal(t, int64(9), repositoryID)
+		if userID != 1 {
+			return pkgerrors.Forbidden("access denied")
+		}
+		return nil
+	}
+	router := chi.NewRouter()
+	router.With(RequireWorkspaceDesktopAccess(check), PerWorkspaceDesktopControl(store)).Post(
+		"/api/repos/{owner}/{repo}/workspaces/{id}/desktop/input",
+		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) },
+	)
+	request := func(userID int64) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/workspaces/ws-1/desktop/input", nil)
+		ctx := ContextWithAuthInfo(req.Context(), &AuthInfo{User: &db.User{ID: userID}})
+		ctx = ContextWithRepoContext(ctx, &RepoContext{Repository: &db.Repository{ID: 9}}, PermissionWrite)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req.WithContext(ctx))
+		return rec.Code
+	}
+
+	for i := 0; i < 3; i++ {
+		require.Equal(t, http.StatusForbidden, request(2))
+	}
+	require.Empty(t, store.buckets, "denied calls must not create a rate bucket")
+	require.Equal(t, http.StatusNoContent, request(1))
+	require.Len(t, store.buckets, 1)
+}
+
 // --- Per-user count caps. ----------------------------------------
 
 type stubRepoCounter struct {

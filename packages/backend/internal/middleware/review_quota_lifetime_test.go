@@ -69,7 +69,9 @@ func TestReviewDesktopQuotaUsesWorkspaceUUIDIdentity(t *testing.T) {
 	} {
 		t.Run(spelling, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/workspaces/"+spelling+"/desktop/input", nil))
+			req := httptest.NewRequest(http.MethodPost, "/workspaces/"+spelling+"/desktop/input", nil)
+			req.RemoteAddr = "10.0.0.1:1"
+			handler.ServeHTTP(rec, req)
 			assert.Equal(t, http.StatusTooManyRequests, rec.Code, "an alternate UUID spelling must not restore capacity")
 		})
 	}

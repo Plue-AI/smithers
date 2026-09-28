@@ -20,6 +20,7 @@ import (
 // workspaces: session minting, relay authorization, and the observe/input
 // control pair an agent drives the box with.
 type WorkspaceDesktopRouteService interface {
+	CheckWorkspaceDesktopAccess(ctx context.Context, workspaceID string, repositoryID, userID int64) error
 	CreateDesktopSession(ctx context.Context, workspaceID string, repositoryID, userID int64) (services.WorkspaceDesktopSessionResponse, error)
 	AuthorizeDesktopRelay(ctx context.Context, workspaceID, token string) (services.WorkspaceDesktopRelayTarget, error)
 	ObserveDesktop(ctx context.Context, workspaceID string, repositoryID, userID int64, request services.DesktopObserveRequest) (services.DesktopObservation, error)

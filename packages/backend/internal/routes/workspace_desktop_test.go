@@ -24,6 +24,10 @@ type stubDesktopService struct {
 	target services.WorkspaceDesktopRelayTarget
 }
 
+func (s *stubDesktopService) CheckWorkspaceDesktopAccess(context.Context, string, int64, int64) error {
+	return nil
+}
+
 func (s *stubDesktopService) CreateDesktopSession(context.Context, string, int64, int64) (services.WorkspaceDesktopSessionResponse, error) {
 	return services.WorkspaceDesktopSessionResponse{}, pkgerrors.Internal("unused")
 }
@@ -183,6 +187,10 @@ func TestWorkspaceDesktopSessionInternalErrorMessageIsSanitized(t *testing.T) {
 }
 
 type erroringDesktopService struct{ err error }
+
+func (s *erroringDesktopService) CheckWorkspaceDesktopAccess(context.Context, string, int64, int64) error {
+	return s.err
+}
 
 func (s *erroringDesktopService) CreateDesktopSession(context.Context, string, int64, int64) (services.WorkspaceDesktopSessionResponse, error) {
 	return services.WorkspaceDesktopSessionResponse{}, s.err
