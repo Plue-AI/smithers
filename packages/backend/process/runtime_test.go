@@ -88,7 +88,12 @@ func TestRuntimePersistentLifecycleControlledEnvironmentAndFiles(t *testing.T) {
 	assert.Equal(t, "outside", string(outsideContents))
 	require.NoError(t, os.Symlink(filepath.Join(workspace.Root, "src", "main.txt"), filepath.Join(workspace.Root, "inside-link")))
 	require.Error(t, runtime.WriteFile(context.Background(), workspace.ID, "inside-link", []byte("overwrite"), 0o600))
-	require.Error(t, runtime.RemoveFile(context.Background(), workspace.ID, "inside-link"))
+	require.NoError(t, runtime.RemoveFile(context.Background(), workspace.ID, "inside-link"))
+	_, err = os.Lstat(filepath.Join(workspace.Root, "inside-link"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	contents, err = runtime.ReadFile(context.Background(), workspace.ID, "src/main.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "persistent", string(contents))
 
 	runtime.fileReadLimit = 4
 	_, err = runtime.ReadFile(context.Background(), workspace.ID, "src/main.txt")

@@ -33,18 +33,18 @@ type CoreHarness struct {
 func RunCore(t *testing.T, harness CoreHarness) {
 	t.Helper()
 	if harness.Runtime == nil || harness.Context == nil {
-		t.Fatal("workspace conformance requires a runtime and context factory")
+		t.Fatalf("%T: workspace conformance requires a runtime and context factory", harness.Runtime)
 	}
 	if got := harness.Runtime.Isolation(); got != harness.WantIsolation {
-		t.Fatalf("Isolation() = %q; want %q", got, harness.WantIsolation)
+		t.Fatalf("%T: Isolation() = %q; want %q", harness.Runtime, got, harness.WantIsolation)
 	}
 	if got := harness.Runtime.Capabilities(); got != harness.WantCapabilities {
-		t.Fatalf("Capabilities() = %#v; want %#v", got, harness.WantCapabilities)
+		t.Fatalf("%T: Capabilities() = %#v; want %#v", harness.Runtime, got, harness.WantCapabilities)
 	}
 
 	createdWorkspace, err := harness.Runtime.CreateWorkspace(harness.Context("create"), harness.Spec)
 	if err != nil {
-		t.Fatalf("CreateWorkspace: %v", err)
+		t.Fatalf("%T: CreateWorkspace: %v", harness.Runtime, err)
 	}
 	created := true
 	defer func() {
@@ -53,39 +53,42 @@ func RunCore(t *testing.T, harness CoreHarness) {
 		}
 	}()
 	if createdWorkspace.ID != harness.Spec.ID {
-		t.Fatalf("created workspace id = %q; want %q", createdWorkspace.ID, harness.Spec.ID)
+		t.Fatalf("%T: created workspace id = %q; want %q", harness.Runtime, createdWorkspace.ID, harness.Spec.ID)
 	}
 	if !containsState(harness.CreateStates, createdWorkspace.State) {
-		t.Fatalf("created workspace state = %q; want one of %v", createdWorkspace.State, harness.CreateStates)
+		t.Fatalf("%T: created workspace state = %q; want one of %v", harness.Runtime, createdWorkspace.State, harness.CreateStates)
 	}
 	if createdWorkspace.State == workspace.WorkspaceStopped {
 		createdWorkspace, err = harness.Runtime.StartWorkspace(harness.Context("start-created"), harness.Spec.ID)
 		if err != nil {
-			t.Fatalf("StartWorkspace(created): %v", err)
+			t.Fatalf("%T: StartWorkspace(created): %v", harness.Runtime, err)
 		}
 	}
 	if createdWorkspace.State != workspace.WorkspaceRunning {
-		t.Fatalf("workspace state before execution = %q; want %q", createdWorkspace.State, workspace.WorkspaceRunning)
+		t.Fatalf("%T: workspace state before execution = %q; want %q", harness.Runtime, createdWorkspace.State, workspace.WorkspaceRunning)
+	}
+	if harness.WantCapabilities.FileOperations {
+		t.Run("paths", func(t *testing.T) { runPaths(t, harness, createdWorkspace) })
 	}
 
 	result, err := harness.Runtime.ExecuteCommand(harness.Context("execute"), harness.Spec.ID, harness.Command)
 	if err != nil {
-		t.Fatalf("ExecuteCommand: %v", err)
+		t.Fatalf("%T: ExecuteCommand: %v", harness.Runtime, err)
 	}
 	if result.ExitCode != 0 || result.Stdout != harness.WantStdout {
-		t.Fatalf("command result = %#v; want exit 0 stdout %q", result, harness.WantStdout)
+		t.Fatalf("%T: command result = %#v; want exit 0 stdout %q", harness.Runtime, result, harness.WantStdout)
 	}
 
 	if harness.WantCapabilities.FileOperations {
 		if err := harness.Runtime.WriteFile(harness.Context("write-file"), harness.Spec.ID, harness.FilePath, harness.FileContent, harness.FileMode); err != nil {
-			t.Fatalf("WriteFile: %v", err)
+			t.Fatalf("%T: WriteFile: %v", harness.Runtime, err)
 		}
 		content, err := harness.Runtime.ReadFile(harness.Context("read-file"), harness.Spec.ID, harness.FilePath)
 		if err != nil {
-			t.Fatalf("ReadFile: %v", err)
+			t.Fatalf("%T: ReadFile: %v", harness.Runtime, err)
 		}
 		if string(content) != string(harness.FileContent) {
-			t.Fatalf("ReadFile content = %q; want %q", content, harness.FileContent)
+			t.Fatalf("%T: ReadFile content = %q; want %q", harness.Runtime, content, harness.FileContent)
 		}
 		// Repository code can plant a predictable temporary symlink before an
 		// admitted write. The file outside the workspace must remain untouched.
@@ -94,18 +97,18 @@ func RunCore(t *testing.T, harness CoreHarness) {
 			"symlink-fixture", createdWorkspace.Root, harness.FilePath,
 		}})
 		if err != nil || fixture.ExitCode != 0 {
-			t.Fatalf("plant temporary symlink: %#v, %v", fixture, err)
+			t.Fatalf("%T: plant temporary symlink: %#v, %v", harness.Runtime, fixture, err)
 		}
 		outside := fixture.Stdout
 		if err := harness.Runtime.WriteFile(harness.Context("write-over-temp-symlink"), harness.Spec.ID, harness.FilePath, harness.FileContent, harness.FileMode); err != nil {
-			t.Fatalf("WriteFile with planted temporary symlink: %v", err)
+			t.Fatalf("%T: WriteFile with planted temporary symlink: %v", harness.Runtime, err)
 		}
 		check, err := harness.Runtime.ExecuteCommand(harness.Context("check-temp-symlink"), harness.Spec.ID, workspace.Command{Args: []string{
 			"/bin/sh", "-c", `cat -- "$1"; rm -f -- "$1" "$2/$3.tmp"`,
 			"symlink-check", outside, createdWorkspace.Root, harness.FilePath,
 		}})
 		if err != nil || check.ExitCode != 0 || check.Stdout != "outside-sentinel" {
-			t.Fatalf("temporary symlink wrote outside workspace: %#v, %v", check, err)
+			t.Fatalf("%T: temporary symlink wrote outside workspace: %#v, %v", harness.Runtime, check, err)
 		}
 		parallel := []struct {
 			path    string
@@ -122,46 +125,46 @@ func RunCore(t *testing.T, harness CoreHarness) {
 		}
 		for range parallel {
 			if err := <-writeResults; err != nil {
-				t.Fatalf("parallel WriteFile: %v", err)
+				t.Fatalf("%T: parallel WriteFile: %v", harness.Runtime, err)
 			}
 		}
 		for _, file := range parallel {
 			got, err := harness.Runtime.ReadFile(harness.Context("parallel-read-"+file.content), harness.Spec.ID, file.path)
 			if err != nil || string(got) != file.content {
-				t.Errorf("parallel ReadFile(%q) = %q, %v; want %q", file.path, got, err, file.content)
+				t.Errorf("%T: parallel ReadFile(%q) = %q, %v; want %q", harness.Runtime, file.path, got, err, file.content)
 			}
 		}
 	}
 
 	if err := harness.Runtime.StopWorkspace(harness.Context("stop"), harness.Spec.ID); err != nil {
-		t.Fatalf("StopWorkspace: %v", err)
+		t.Fatalf("%T: StopWorkspace: %v", harness.Runtime, err)
 	}
 	observed, err := harness.Runtime.InspectWorkspace(harness.Context("inspect-stopped"), harness.Spec.ID)
 	if err != nil {
-		t.Fatalf("InspectWorkspace(stopped): %v", err)
+		t.Fatalf("%T: InspectWorkspace(stopped): %v", harness.Runtime, err)
 	}
 	if observed.State != workspace.WorkspaceStopped {
-		t.Fatalf("stopped workspace state = %q; want %q", observed.State, workspace.WorkspaceStopped)
+		t.Fatalf("%T: stopped workspace state = %q; want %q", harness.Runtime, observed.State, workspace.WorkspaceStopped)
 	}
 	observed, err = harness.Runtime.StartWorkspace(harness.Context("restart"), harness.Spec.ID)
 	if err != nil {
-		t.Fatalf("StartWorkspace(restart): %v", err)
+		t.Fatalf("%T: StartWorkspace(restart): %v", harness.Runtime, err)
 	}
 	if observed.State != workspace.WorkspaceRunning {
-		t.Fatalf("restarted workspace state = %q; want %q", observed.State, workspace.WorkspaceRunning)
+		t.Fatalf("%T: restarted workspace state = %q; want %q", harness.Runtime, observed.State, workspace.WorkspaceRunning)
 	}
 	if harness.WantCapabilities.FileOperations && harness.WantCapabilities.PersistentFiles {
 		content, err := harness.Runtime.ReadFile(harness.Context("read-after-restart"), harness.Spec.ID, harness.FilePath)
 		if err != nil || string(content) != string(harness.FileContent) {
-			t.Fatalf("persistent ReadFile = %q, %v; want %q", content, err, harness.FileContent)
+			t.Fatalf("%T: persistent ReadFile = %q, %v; want %q", harness.Runtime, content, err, harness.FileContent)
 		}
 		if err := harness.Runtime.RemoveFile(harness.Context("remove-file"), harness.Spec.ID, harness.FilePath); err != nil {
-			t.Fatalf("RemoveFile: %v", err)
+			t.Fatalf("%T: RemoveFile: %v", harness.Runtime, err)
 		}
 	}
 
 	if err := harness.Runtime.DeleteWorkspace(harness.Context("delete"), harness.Spec.ID); err != nil {
-		t.Fatalf("DeleteWorkspace: %v", err)
+		t.Fatalf("%T: DeleteWorkspace: %v", harness.Runtime, err)
 	}
 	created = false
 }
@@ -185,15 +188,15 @@ type SnapshotHarness struct {
 func RunColdSnapshots(t *testing.T, harness SnapshotHarness) {
 	t.Helper()
 	if harness.Runtime == nil || harness.Snapshots == nil || harness.Context == nil {
-		t.Fatal("snapshot conformance requires runtime, snapshots, and context factory")
+		t.Fatalf("%T: snapshot conformance requires runtime, snapshots, and context factory", harness.Runtime)
 	}
 	if !harness.Runtime.Capabilities().ColdSnapshots {
-		t.Fatal("snapshot facet is present while ColdSnapshots is false")
+		t.Fatalf("%T: snapshot facet is present while ColdSnapshots is false", harness.Runtime)
 	}
 
 	source, err := harness.Runtime.CreateWorkspace(harness.Context("snapshot-source-create"), harness.Source)
 	if err != nil {
-		t.Fatalf("create snapshot source: %v", err)
+		t.Fatalf("%T: create snapshot source: %v", harness.Runtime, err)
 	}
 	sourceCreated := true
 	defer func() {
@@ -203,19 +206,19 @@ func RunColdSnapshots(t *testing.T, harness SnapshotHarness) {
 	}()
 	if source.State == workspace.WorkspaceStopped {
 		if _, err := harness.Runtime.StartWorkspace(harness.Context("snapshot-source-start"), harness.Source.ID); err != nil {
-			t.Fatalf("start snapshot source: %v", err)
+			t.Fatalf("%T: start snapshot source: %v", harness.Runtime, err)
 		}
 	}
 	if err := harness.Runtime.WriteFile(harness.Context("snapshot-write"), harness.Source.ID, harness.FilePath, harness.FileContent, harness.FileMode); err != nil {
-		t.Fatalf("write snapshot fixture: %v", err)
+		t.Fatalf("%T: write snapshot fixture: %v", harness.Runtime, err)
 	}
 	if err := harness.Runtime.StopWorkspace(harness.Context("snapshot-source-stop"), harness.Source.ID); err != nil {
-		t.Fatalf("stop snapshot source: %v", err)
+		t.Fatalf("%T: stop snapshot source: %v", harness.Runtime, err)
 	}
 
 	snapshot, err := harness.Snapshots.CreateColdSnapshot(harness.Context("snapshot-create"), harness.Source.ID, harness.Snapshot)
 	if err != nil {
-		t.Fatalf("CreateColdSnapshot: %v", err)
+		t.Fatalf("%T: CreateColdSnapshot: %v", harness.Runtime, err)
 	}
 	snapshotCreated := true
 	defer func() {
@@ -224,12 +227,12 @@ func RunColdSnapshots(t *testing.T, harness SnapshotHarness) {
 		}
 	}()
 	if snapshot.ID != harness.Snapshot.ID || snapshot.SourceWorkspaceID != harness.Source.ID {
-		t.Fatalf("cold snapshot = %#v", snapshot)
+		t.Fatalf("%T: cold snapshot = %#v", harness.Runtime, snapshot)
 	}
 
 	fork, err := harness.Snapshots.ForkColdSnapshot(harness.Context("snapshot-fork"), harness.Snapshot.ID, harness.Fork)
 	if err != nil {
-		t.Fatalf("ForkColdSnapshot: %v", err)
+		t.Fatalf("%T: ForkColdSnapshot: %v", harness.Runtime, err)
 	}
 	forkCreated := true
 	defer func() {
@@ -238,28 +241,28 @@ func RunColdSnapshots(t *testing.T, harness SnapshotHarness) {
 		}
 	}()
 	if fork.ID != harness.Fork.ID {
-		t.Fatalf("fork workspace id = %q; want %q", fork.ID, harness.Fork.ID)
+		t.Fatalf("%T: fork workspace id = %q; want %q", harness.Runtime, fork.ID, harness.Fork.ID)
 	}
 	if fork.State == workspace.WorkspaceStopped {
 		if _, err := harness.Runtime.StartWorkspace(harness.Context("snapshot-fork-start"), harness.Fork.ID); err != nil {
-			t.Fatalf("start snapshot fork: %v", err)
+			t.Fatalf("%T: start snapshot fork: %v", harness.Runtime, err)
 		}
 	}
 	content, err := harness.Runtime.ReadFile(harness.Context("snapshot-fork-read"), harness.Fork.ID, harness.FilePath)
 	if err != nil || string(content) != string(harness.FileContent) {
-		t.Fatalf("fork fixture = %q, %v; want %q", content, err, harness.FileContent)
+		t.Fatalf("%T: fork fixture = %q, %v; want %q", harness.Runtime, content, err, harness.FileContent)
 	}
 
 	if err := harness.Runtime.DeleteWorkspace(harness.Context("snapshot-fork-delete"), harness.Fork.ID); err != nil {
-		t.Fatalf("delete snapshot fork: %v", err)
+		t.Fatalf("%T: delete snapshot fork: %v", harness.Runtime, err)
 	}
 	forkCreated = false
 	if err := harness.Snapshots.DeleteColdSnapshot(harness.Context("snapshot-delete"), harness.Snapshot.ID); err != nil {
-		t.Fatalf("DeleteColdSnapshot: %v", err)
+		t.Fatalf("%T: DeleteColdSnapshot: %v", harness.Runtime, err)
 	}
 	snapshotCreated = false
 	if err := harness.Runtime.DeleteWorkspace(harness.Context("snapshot-source-delete"), harness.Source.ID); err != nil {
-		t.Fatalf("delete snapshot source: %v", err)
+		t.Fatalf("%T: delete snapshot source: %v", harness.Runtime, err)
 	}
 	sourceCreated = false
 }

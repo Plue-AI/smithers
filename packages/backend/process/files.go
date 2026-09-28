@@ -68,6 +68,8 @@ func resolveWorkspacePath(root, requested string, directory, allowRoot bool) (st
 	return resolved, nil
 }
 
+// resolveWorkspaceMutationPath validates traversal and resolves the parent
+// inside root, leaving the final component unresolved for the caller.
 func resolveWorkspaceMutationPath(root, requested string) (string, error) {
 	if requested == "" || filepath.IsAbs(requested) {
 		return "", errors.New("workspace mutation path must be relative")
@@ -86,12 +88,6 @@ func resolveWorkspaceMutationPath(root, requested string) (string, error) {
 	}
 	if !withinRoot(canonicalRoot, parent) {
 		return "", errors.New("workspace mutation path resolves outside root")
-	}
-	lexical := filepath.Join(root, cleaned)
-	if info, err := os.Lstat(lexical); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return "", errors.New("workspace mutation target is a symlink")
-	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
 	}
 	return filepath.Join(parent, filepath.Base(cleaned)), nil
 }
@@ -196,6 +192,11 @@ func (r *Runtime) WriteFile(ctx context.Context, workspaceID, path string, conte
 	if err != nil {
 		return fmt.Errorf("resolve workspace file: %w", err)
 	}
+	if info, err := os.Lstat(resolved); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("resolve workspace file: workspace mutation target is a symlink")
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("resolve workspace file: %w", err)
+	}
 	if mode == 0 {
 		mode = 0o600
 	}
@@ -271,6 +272,11 @@ func (r *Runtime) RemoveFile(ctx context.Context, workspaceID, path string) erro
 	if err != nil {
 		return fmt.Errorf("resolve workspace file: %w", err)
 	}
+	// Preserve not-found errors and inspect the link itself, even if dangling.
+	if _, err := os.Lstat(resolved); err != nil {
+		return fmt.Errorf("inspect workspace file: %w", err)
+	}
+	// RemoveAll unlinks final symlinks and recursively removes directories.
 	if err := os.RemoveAll(resolved); err != nil {
 		return fmt.Errorf("remove workspace file: %w", err)
 	}

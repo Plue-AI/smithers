@@ -367,11 +367,18 @@ type WorkspacePreview interface {
 }
 
 // WorkspaceFiles provides path-scoped file operations. Implementations must
-// reject traversal and symlink escapes from the workspace root.
+// preserve exact names, including leading and trailing whitespace, and reject
+// traversal and parent symlink escapes from the workspace root.
 type WorkspaceFiles interface {
+	// ReadFile rejects symlink escapes and returns an error matching
+	// fs.ErrNotExist via errors.Is when the path is missing.
 	ReadFile(ctx context.Context, workspaceID, path string) ([]byte, error)
+	// WriteFile must not modify a symlink target outside the workspace root.
 	WriteFile(ctx context.Context, workspaceID, path string, content []byte, mode fs.FileMode) error
 	ListFiles(ctx context.Context, workspaceID, path string) ([]FileEntry, error)
+	// RemoveFile unlinks a final symlink without following its target, including
+	// outside, dangling, and directory links, and recursively removes directories.
+	// A missing path returns an error matching fs.ErrNotExist via errors.Is.
 	RemoveFile(ctx context.Context, workspaceID, path string) error
 }
 
