@@ -25,11 +25,12 @@ function fixture() {
   assert.deepEqual(JSON.parse(JSON.stringify(context.result)), ["fallback", "ok"])
   const run = join(root, "run")
   directories(run)
-  const identity = { id: "root", runId: "regression", manifest: prepared.manifest.digest }
+  const identity = { id: "root", parent: null, runId: "regression", manifest: prepared.manifest.digest }
   receipt(run, "expected", "root", identity)
   receipt(run, "started", "root", identity)
+  receipt(run, "loads", "root", { ...identity, source: "nested/source.ts" })
   receipt(run, "coverage", "root", {
-    ...identity,
+    ...identity, phase: "exit", code: 0,
     coverage: { ...JSON.parse(JSON.stringify(context.__coverage__)), "types.d.ts": prepared.zero["types.d.ts"] }
   })
   return { root, run, prepared, identity }

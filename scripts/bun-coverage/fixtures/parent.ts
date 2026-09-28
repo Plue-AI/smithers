@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { spawn, spawnSync } from "node:child_process"
+import { execFile, spawn, spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { choose, optional } from "./source.ts"
 assert.equal(choose(false), "negative")
@@ -36,5 +36,14 @@ if (mode === "node-sync") {
   assert.equal(code, 0, code === 0 ? undefined : await new Response(result.stderr).text())
   assert.equal((await new Response(result.stdout).text()).trim(), "child:positive:kept")
   assert.equal((await new Response(result.stderr).text()).trim(), "child-stderr")
+} else if (mode === "exec-file") {
+  const result = await new Promise<{ stdout: string, stderr: string }>((resolve, reject) => {
+    execFile(process.execPath, [child], { env: options.env }, (error, stdout, stderr) => {
+      if (error) reject(error)
+      else resolve({ stdout, stderr })
+    })
+  })
+  assert.equal(result.stdout.trim(), "child:positive:kept")
+  assert.equal(result.stderr.trim(), "child-stderr")
 } else throw new Error("Unknown controlled process case")
 console.log("parent completed")

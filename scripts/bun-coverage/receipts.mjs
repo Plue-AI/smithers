@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { join, relative, resolve, sep } from "node:path"
+import { constants } from "node:os"
 import { randomUUID } from "node:crypto"
 import coverageLibrary from "istanbul-lib-coverage"
 import sourceMapLibrary from "istanbul-lib-source-maps"
@@ -20,7 +21,7 @@ export function atomicJSON(path, value) {
   }
 }
 export function directories(run) {
-  for (const kind of ["expected", "started", "coverage", "exits", "errors"]) mkdirSync(join(run, kind), { recursive: true, mode: 0o700 })
+  for (const kind of ["expected", "started", "coverage", "exits", "loads", "errors"]) mkdirSync(join(run, kind), { recursive: true, mode: 0o700 })
 }
 export function receipt(run, kind, id, value) {
   assert.match(id, /^[a-zA-Z0-9-]+$/, "Invalid process receipt identity")
@@ -48,6 +49,7 @@ export async function collect(run, prepared, runId, rootId) {
   const started = read(run, "started")
   const complete = read(run, "coverage")
   const exits = read(run, "exits")
+  const loads = read(run, "loads")
   const index = (rows) => {
     const result = new Map()
     for (const row of rows) {
@@ -58,11 +60,16 @@ export async function collect(run, prepared, runId, rootId) {
     }
     return result
   }
-  const expectedMap = index(expected), startMap = index(started), completeMap = index(complete), exitMap = index(exits)
+  const expectedMap = index(expected), startMap = index(started), completeMap = index(complete), exitMap = index(exits), loadMap = index(loads)
   assert.ok(expectedMap.has(rootId), "Missing root process registration")
   assert.equal(expectedMap.get(rootId).parent, null, "Root process cannot have a parent")
   for (const id of expectedMap.keys()) assert.ok(startMap.has(id), `Missing child startup receipt: ${id}`)
-  assert.equal(startMap.size, completeMap.size, "Missing or extra completed process coverage")
+  for (const row of loads) {
+    assert.ok(startMap.has(row.id), "Unregistered owning-source load")
+    assert.equal(row.parent, startMap.get(row.id).parent, "Owning-source load parent changed")
+    assert.ok(Object.hasOwn(prepared.zero, row.source), "Loaded source is outside owning roster")
+  }
+  for (const id of completeMap.keys()) assert.ok(startMap.has(id), "Unregistered completed process coverage")
   for (const row of started) {
     assert.equal(row.parent, expectedMap.get(row.id)?.parent, "Process parent differs from registration")
     const ancestors = new Set([row.id])
@@ -74,15 +81,27 @@ export async function collect(run, prepared, runId, rootId) {
       ancestor = startMap.get(ancestor.parent)
     }
     assert.ok(expectedMap.has(row.id), "Unregistered Bun process; use a qualified spawn boundary")
-    assert.ok(completeMap.has(row.id), `Missing child coverage: ${row.id}`)
+    assert.ok(completeMap.has(row.id) || !loadMap.has(row.id), `Missing completed owning-source coverage: ${row.id}`)
     assert.ok(exitMap.has(row.id), `Missing actual process exit: ${row.id}`)
   }
   assert.equal(exitMap.size, startMap.size, "Missing or extra process exit receipts")
+  const validExit = (exit) => {
+    assert.ok(exit, "Missing actual exit status")
+    if (exit.signal == null) {
+      assert.ok(Number.isSafeInteger(exit.code) && exit.code >= 0, "Invalid actual exit status")
+    } else {
+      const signal = constants.signals[exit.signal]
+      assert.ok(Number.isSafeInteger(signal), "Unknown actual exit signal")
+      // Bun reports both 128+signal and signalCode; Node reports null+signal.
+      // Preserve the actual API receipt, admitting neither a false success nor
+      // an arbitrary contradictory numeric code.
+      assert.ok(exit.code === null || exit.code === 128 + signal, "Invalid actual exit status")
+    }
+  }
+  for (const exit of exits) validExit(exit)
   const merged = coverageLibrary.createCoverageMap(structuredClone(prepared.zero))
   for (const row of complete) {
     const exit = exitMap.get(row.id)
-    assert.ok(exit && ((Number.isSafeInteger(exit.code) && exit.code >= 0 && exit.signal == null)
-      || (exit.code === null && typeof exit.signal === "string" && exit.signal.length > 0)), "Invalid actual exit status")
     assert.equal(row.parent, startMap.get(row.id).parent, "Completed process parent changed")
     assert.ok(row.phase === "exit" || row.phase === "globalAfterAll", "Invalid collection phase")
     if (row.phase === "exit") assert.equal(row.code, exit.code, "Collected exit status differs from actual exit")
@@ -90,6 +109,8 @@ export async function collect(run, prepared, runId, rootId) {
     for (const [path, file] of Object.entries(row.coverage)) {
       assert.equal(mapDigest(file), prepared.manifest.sources.find((source) => source.path === path).mapDigest, "Coverage source map changed")
       for (const kind of ["s", "f", "b"]) validCounts(file[kind], prepared.zero[path][kind])
+      const hits = [...Object.values(file.s), ...Object.values(file.f), ...Object.values(file.b).flat()]
+      assert.ok(loadMap.has(row.id) || hits.every((hit) => hit === 0), "Coverage hits lack an owning-source load receipt")
     }
     merged.merge(row.coverage)
   }
@@ -112,11 +133,13 @@ export async function collect(run, prepared, runId, rootId) {
     remapped.addFileCoverage({ path, statementMap: {}, fnMap: {}, branchMap: {}, s: {}, f: {}, b: {} })
   }
   assert.deepEqual(remapped.files().sort(), Object.keys(prepared.zero).sort(), "Remapping escaped owning sources")
-  return { coverage: remapped, summary: remapped.getCoverageSummary().toJSON(), exits }
+  return { coverage: remapped, summary: remapped.getCoverageSummary().toJSON(), exits,
+    processes: started.map((row) => ({ id: row.id, measurement: completeMap.has(row.id)
+      ? "completed-snapshot" : "zero-no-owning-load", owningSource: loadMap.get(row.id)?.source ?? null })) }
 }
 export function report(result, directory) {
   mkdirSync(directory)
   const context = reportLibrary.createContext({ dir: directory, coverageMap: result.coverage })
   for (const name of ["json", "lcovonly", "json-summary"]) reports.create(name).execute(context)
-  atomicJSON(join(directory, "receipt.json"), { summary: result.summary, exits: result.exits })
+  atomicJSON(join(directory, "receipt.json"), { summary: result.summary, exits: result.exits, processes: result.processes })
 }

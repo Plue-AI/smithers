@@ -3,14 +3,15 @@ import { randomUUID } from "node:crypto"
 import { readFileSync, realpathSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { observeChildren } from "./children.mjs"
-import { verifyManifest } from "./manifest.mjs"
+import { verifyArtifacts } from "./manifest.mjs"
 import { receipt } from "./receipts.mjs"
 
 const prefix = "SMITHERS_BUN_COVERAGE_"
 const configuration = process.env[`${prefix}CONFIG`]
 if (!configuration) throw new Error("Missing Bun coverage run configuration")
 const config = JSON.parse(readFileSync(configuration, "utf8"))
-const prepared = verifyManifest(JSON.parse(readFileSync(config.manifestPath, "utf8")))
+const sealedManifest = JSON.parse(readFileSync(config.manifestPath, "utf8"))
+const prepared = verifyArtifacts(sealedManifest, JSON.parse(readFileSync(config.artifactPath, "utf8")))
 const id = process.env[`${prefix}NEXT_ID`]
 if (!id) throw new Error("Unregistered Bun child: use a qualified direct spawn boundary")
 const parent = process.env[`${prefix}PARENT`] ?? null
@@ -25,11 +26,19 @@ const recordError = (error) => {
 }
 // A second preload of this module uses ESM's module cache; it cannot reset hits.
 globalThis.__coverage__ = prepared.zero
+let owningSourceLoaded = false
 plugin({ name: "smithers-owning-source-coverage", setup(builder) {
   const escaped = [...prepared.codes.keys()].map((path) => path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
   builder.onLoad({ filter: new RegExp(`^(?:${escaped.join("|")})$`) }, ({ path }) => {
     const compiled = prepared.codes.get(realpathSync(path))
     if (!compiled) throw new Error(`JavaScript source missing from owning roster: ${path}`)
+    if (!owningSourceLoaded) {
+      // Publish before returning executable owner code. A hard-killed process
+      // can contribute sealed zero only when no owning onLoad ever completed.
+      try { receipt(config.run, "loads", id, { ...envelope, source: compiled.zero.path }) }
+      catch (error) { recordError(error); throw error }
+      owningSourceLoaded = true
+    }
     return { contents: compiled.code, loader: compiled.loader }
   })
 } })
@@ -39,7 +48,9 @@ let completed = false
 function flush(phase, code = null) {
   if (completed) return
   // Refuse source drift even when the original module wasn't imported.
-  verifyManifest(prepared.manifest)
+  const currentManifest = JSON.parse(readFileSync(config.manifestPath, "utf8"))
+  if (JSON.stringify(currentManifest) !== JSON.stringify(sealedManifest)) throw new Error("Coverage manifest changed")
+  verifyArtifacts(sealedManifest, JSON.parse(readFileSync(config.artifactPath, "utf8")))
   receipt(config.run, "coverage", id, { ...envelope, phase, code, coverage: globalThis.__coverage__ })
   completed = true
 }
