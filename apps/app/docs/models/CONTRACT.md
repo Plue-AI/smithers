@@ -1,13 +1,8 @@
 # Models surface: CONTRACT
 
-Amended for in-app enrollment on 2026-09-19 and account-scoped Worker enrollment on 2026-09-20. Section 8 supersedes the earlier
-environment-only and two-route restrictions. This workspace copy is the updated
-contract; the externally supplied original remains untouched.
+Updated 2026-09-23 after credential enrollment was removed. Sections 1–7 and 9 describe the surviving model-call contracts; section 8 is retired historical design, not implementation guidance. Smithers Cloud uses platform credentials, not account-supplied keys. The local host still reads operator environment credentials and previously enrolled keychain entries; it does not offer enrollment, rotation or removal.
 
-Authoritative. Code against THIS file and `RULINGS.md`; where a seam design (`0-` to `3-`) spells
-something differently, this file wins. Every name below EXISTS in the workspace
-(`the repository root`) and is green under `packages/rpc` check, lint and test.
-Use names VERBATIM. Never redefine one. If you need a shared name that is not here, report a blocker.
+Authoritative for the surviving contracts. Code against this file and `RULINGS.md`; where a seam design (`0-` to `3-`) spells something differently, this file wins. Names in retired section 8 are NOT current exports, routes, flows or controls. For surviving names, use the workspace implementations; do not implement retired enrollment from this document.
 
 Names from the seam designs that DO NOT EXIST: `@smthrs/rpc/ModelConfig`, `@smthrs/rpc/Models`,
 `MODELS_PATH`, `MODELS_TEST_PATH`, `MODEL_CREDENTIALS_PATH`, `/api/models`, `/api/model/credentials`,
@@ -43,10 +38,10 @@ Both hosts answer both routes themselves. Neither is proxied: no `PLATFORM_PROXY
 - Request: no body.
 - 200 body: `ModelCatalog` = `{ models: ConfiguredModel[], credentials: ModelCredentialListing[], seats: SeatId[] }` (strict).
   - `models`: built-in rows this host can serve, each with `builtin: true`. List a row only when a Test of it on this host would plan ok (credential `present` AND endpoint reachable under this host's egress): `servableModels(rows, table, options)` with the SAME options the host's Test plans with. An offline Bun host therefore lists no non-loopback row.
-  - `credentials`: Bun host = environment credentials plus the keychain listing (section 8). Worker = two deployment rows, `CEREBRAS_API_KEY` and `AI_GATEWAY_API_KEY`, `present` from `ServerConfig`, `origins` copied from `MODEL_CREDENTIALS`. A valid allowlisted session additionally sees only its account's managed names, pins and presence. Signed-out visitors see deployment rows only. The Worker never scans env.
+  - `credentials`: Bun host = operator environment credentials plus previously enrolled keychain entries (read-only). Worker = deployment rows only, `CEREBRAS_API_KEY` and `AI_GATEWAY_API_KEY`, `present` from `ServerConfig`, `origins` copied from `MODEL_CREDENTIALS`. The Worker never scans env or reads an account credential vault.
   - `seats`: `modelSeatsOf("local")` = `["explainer"]`; `modelSeatsOf("cloud")` = `["explainer", "front-door", "recommend"]`.
 - Never a value anywhere in the body.
-- Non-200: the host's existing refusal envelope. Worker: PUBLIC and `no-store` — listing what the deployment holds spends nothing, so a signed-out caller reads it (R8); a valid session adds only that account's own credential metadata. Local: behind the existing local session header and Origin gate; no sign-in.
+- Non-200: the host's existing refusal envelope. Worker: PUBLIC and `no-store` — listing deployment credentials spends nothing, so a signed-out caller reads them too. Local: behind the existing local session header and Origin gate; no sign-in.
 
 ### POST /api/model/test
 - Request body: `ModelTestRequest` = `{ model: ConfiguredModel, input?: ModelCallInput }` (strict, max `MODEL_TEST_BODY_MAX_BYTES`). The client MUST strip app-only fields (`lastTest`) before sending; an extra key is `request_invalid`. With no `input` the host runs the fixed Test of the model's kind (`modelCallDefault(kind)`); with one it runs that composed request (section 9). An input of the other kind than the record's is `{ code: "invalid", field: "protocol" }`.
@@ -57,7 +52,7 @@ Both hosts answer both routes themselves. Neither is proxied: no `PLATFORM_PROXY
 - Host procedure, identical on both hosts:
   1. `const table = <this host's ModelCredentialListing[]>`
   2. `const planned = planModelBinding(bindingOf(model), table, { egress })`; `!planned.ok` -> `failedModelTest(planned.failure, ...)`, NO network call.
-  3. Read the secret by name from the refreshed keychain/environment snapshot (Bun) or the deployment map plus the authenticated login's AES-GCM vault (Worker). Wrap in `Redacted` at the read.
+  3. Read the secret by name from the refreshed keychain/environment snapshot (Bun) or the deployment map (Worker). Wrap in `Redacted` at the read.
   4. One request to `planned.plan.url`, `redirect: "manual"`, no retries, deadline `MODEL_TEST_DEADLINE_MS`.
   5. Map the outcome (the ONLY mapping; no message is ever read):
 
@@ -66,7 +61,7 @@ Both hosts answer both routes themselves. Neither is proxied: no `PLATFORM_PROXY
 | HTTP 300 to 599 (a 3xx is never followed) | `{ code: "refused", status }` |
 | no response, connection error | `{ code: "unreachable" }` |
 | deadline ran out | `{ code: "timeout", deadlineMs: MODEL_TEST_DEADLINE_MS }` |
-| 2xx that does not decode as the protocol; a protocol this credential cannot speak (deployment keys retain their existing wires; account keys support all four protocols) | `{ code: "invalid", field: "protocol" }` |
+| 2xx that does not decode as the protocol; a protocol this credential cannot speak (deployment keys retain their existing wires) | `{ code: "invalid", field: "protocol" }` |
 
   - Fixed generation prompt: `MODEL_TEST_PROMPT`, max tokens `MODEL_TEST_MAX_TOKENS`. Fixed decision question: `MODEL_TEST_DECISION`; sample = `` `${probability >= 0.5} ${probability.toFixed(2)}` ``. A composed request replaces exactly these: system + prompt + `maxTokens` (+ `temperature`) on the generation wire, `modelStateOf(state)` + `questions` on the evaluation wire.
   - `egress: false` when the Bun host runs `cloudMode: "offline"`; otherwise omit.
@@ -393,10 +388,11 @@ Option values are model ids; the first option has value `default` (`MODEL_SEAT_D
 `model.assign` with `{ seat, recordId: value }`. e2e selects `"default"`, never `""`.
 
 
-## 8. Enrollment amendment (2026-09-19)
+## 8. Retired: enrollment amendment (2026-09-19; removed 2026-09-23)
 
-Supersedes the environment-only parts of R2/R4 and sections 2, 3 and 5 above.
-All existing record, planner, failure, seat, and DOM spellings remain.
+**Historical design only — do not implement this section.** In-app enrollment and account-scoped Worker BYOK were removed on 2026-09-23 (see [ENROLLMENT.md](ENROLLMENT.md) and [MODELS.md](../MODELS.md#r11-in-app-credential-enrollment-removed)). The `/api/model/credential` and receipt routes, `model.credential.*` flows, account vault, and Add credential / Rotate / Remove controls below are not current contracts. There is no hosted BYOK; cloud calls use platform keys. The local host continues to read operator environment credentials and previously enrolled keychain entries without allowing new enrollment. Sections 1–7 and 9 remain the model-call reference, subject to the post-removal credential behavior described above.
+
+The remainder of this section records the retired proposal and MUST NOT supersede the surviving route, credential, flow or DOM contracts.
 
 `AgentApiRoutes.ts` exports `MODEL_CREDENTIAL_PATH = "/api/model/credential"`
 and `MODEL_CREDENTIAL_RECEIPT_PATH = "/api/model/credential/receipt"`.
@@ -502,9 +498,7 @@ recheck its session before spending and publishing a result. Front-door and
 Recommend continue using only the deployment decision allowlist. Account changes
 clear browser models, seats and catalog caches; pending values are never replayed.
 
-The pre-implementation design and explicit limitations are in ENROLLMENT.md.
-The initial external CONTRACT path was read-only under this run's workspace
-constraint; this complete copy is its requested update.
+The pre-implementation historical design is in ENROLLMENT.md. None of the routes, controls or flows in this retired section should be added back based on this text.
 
 ## 9. Composed calls (2026-09-19)
 
