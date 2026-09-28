@@ -8,8 +8,8 @@ import * as ModelEvent from "@smthrs/model/ModelEvent"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema, Stream } from "effect"
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { execFileSync, spawnSync } from "node:child_process"
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
@@ -23,6 +23,80 @@ import { makeHostJudge } from "./fixtures/scripted-judge.ts"
 
 /** One evidence judge dispatches citation and completion questions for this host. */
 const citationsSupported = makeHostJudge().layer
+
+/** Exercise main.ts's actual admission rules before any model review is needed. */
+test(
+  "wiki CLI admits bounded reuse policy reads and retains normal preview containment",
+  { timeout: 120_000 },
+  async (t) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "smithers-wiki-cli-policy-")))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    await mkdir(join(root, ".smithers"))
+    const spec: PageSpec = {
+      id: "answer",
+      title: "Answer",
+      purpose: "Find the answer.",
+      kind: "current",
+      document: "page.md",
+      inputs: ["answer.ts"],
+      related: []
+    }
+    await writeFile(join(root, ".smithers/coding-project.json"), JSON.stringify({ pages: [spec] }))
+    await writeFile(join(root, "page.md"), "# Answer\n\nThe answer is 42.\n")
+    await writeFile(join(root, "answer.ts"), "export const answer = 42\n")
+    const cli = fileURLToPath(new URL("../wiki/main.ts", import.meta.url))
+    const invoke = (run: string, reuse = true) => {
+      const result = spawnSync("node", [
+        cli,
+        "--root",
+        root,
+        "--run",
+        run,
+        ...(reuse ? ["--verified", "--reuse-run", "wiki-missing-prior"] : [])
+      ], {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 25_000,
+        maxBuffer: 2_000_000
+      })
+      assert.equal(result.error, undefined, "CLI must finish through its real host boundary")
+      return { ...result, output: `${result.stdout}\n${result.stderr}` }
+    }
+    // Normal mode needs only declared page evidence, even when reuse policy files
+    // do not exist. This does not script an approval or manufacture a verified page.
+    const preview = invoke("wiki-cli-preview", false)
+    assert.equal(preview.status, 0, preview.output)
+    assert.match(preview.stdout, /"verification":\s*"unreviewed"/)
+    const sourceRoot = fileURLToPath(new URL("../../", import.meta.url))
+    for (const file of policySources) {
+      await mkdir(dirname(join(root, file)), { recursive: true })
+      await writeFile(join(root, file), await readFile(join(sourceRoot, file)))
+    }
+    const admitted = invoke("wiki-cli-missing-prior")
+    assert.equal(admitted.status, 1)
+    assert.match(admitted.output, /run wiki-missing-prior was not found/)
+    assert.doesNotMatch(admitted.output, /readPermissionDenied|native helper|executable.*not found/i)
+    assert.doesNotMatch(admitted.stdout, /"verification":\s*"verified"/)
+    // A permitted source still passes deterministic size validation before any
+    // prior-run lookup or model review.
+    const policy = join(root, policySources[0])
+    await writeFile(policy, "x".repeat(512_001))
+    const oversized = invoke("wiki-cli-policy-oversized")
+    assert.equal(oversized.status, 1)
+    assert.match(oversized.output, /Review policy source is too large: flows\/wiki\/flow.ts/)
+    assert.doesNotMatch(oversized.output, /wiki-missing-prior was not found|readPermissionDenied/)
+    // The exact public source permission must not authorize another target. Both
+    // the link and the target are harmless files inside this private fixture.
+    await rm(policy)
+    await writeFile(join(root, "unlisted-policy.txt"), "private fixture only\n")
+    await symlink(join(root, "unlisted-policy.txt"), policy)
+    const unrelated = invoke("wiki-cli-policy-unrelated")
+    assert.equal(unrelated.status, 1)
+    assert.match(unrelated.output, /readPermissionDenied|symlink|symbolic link|ELOOP|Too many levels/i)
+    assert.doesNotMatch(unrelated.output, /wiki-missing-prior was not found|Review policy source is too large/)
+    assert.doesNotMatch(unrelated.stdout, /"verification":\s*"verified"/)
+  }
+)
 
 // Simulate a section parser change that preserves ids, source and body hashes.
 const SectionsProbe = Flow.make("wiki/test/changed-sections", {
