@@ -42,6 +42,7 @@ type AdminUserService struct {
 	tokenCreator TokenCreator
 	auditor      AdminAuditor
 	erasure      *AccountErasure
+	export       *AccountExport
 }
 
 type adminAuditActorContextKey struct{}

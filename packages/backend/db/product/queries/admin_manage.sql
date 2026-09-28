@@ -173,3 +173,92 @@ WHERE pusher_id = sqlc.arg(user_id)::bigint AND pusher_login <> sqlc.arg(tombsto
 -- name: AdminScrubUserWikiRevisions :execrows
 UPDATE wiki_page_revisions SET author_username = sqlc.arg(tombstone)::text
 WHERE author_id = sqlc.arg(user_id)::bigint AND author_username <> sqlc.arg(tombstone)::text;
+
+
+-- name: AdminExportProfile :one
+-- Account export: the profile the user entered and the keys it signs in with.
+SELECT to_jsonb(p)::jsonb AS item FROM (
+  SELECT u.id, u.username, u.email, u.display_name, u.bio, u.avatar_url, u.wallet_address, u.created_at,
+    COALESCE((SELECT jsonb_agg(jsonb_build_object('name', k.name, 'fingerprint', k.fingerprint, 'public_key', k.public_key, 'created_at', k.created_at) ORDER BY k.id)
+      FROM ssh_keys k WHERE k.user_id = u.id), '[]'::jsonb) AS ssh_keys
+  FROM users u WHERE u.id = sqlc.arg(user_id)::bigint
+) p;
+
+
+-- name: AdminExportRepositories :one
+SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.name), '[]'::jsonb)::jsonb AS items FROM (
+  SELECT r.id, r.name, r.description, r.is_public, r.default_bookmark, r.created_at, r.updated_at
+  FROM repositories r WHERE r.user_id = sqlc.arg(user_id)::bigint
+) x;
+
+
+-- name: AdminExportIssues :one
+-- Issues the user wrote anywhere, and every issue in the user's repositories.
+SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.id), '[]'::jsonb)::jsonb AS items FROM (
+  SELECT i.id, COALESCE(ou.username, o.name) || '/' || r.name AS repository, i.number, i.title, i.body, i.state,
+    i.author_id = sqlc.arg(user_id)::bigint AS authored, i.created_at, i.updated_at, i.closed_at
+  FROM issues i
+  JOIN repositories r ON r.id = i.repository_id
+  LEFT JOIN users ou ON ou.id = r.user_id
+  LEFT JOIN organizations o ON o.id = r.org_id
+  WHERE i.author_id = sqlc.arg(user_id)::bigint OR r.user_id = sqlc.arg(user_id)::bigint
+) x;
+
+
+-- name: AdminExportComments :one
+-- Comments the user wrote on issues and landing requests.
+SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at, x.id), '[]'::jsonb)::jsonb AS items FROM (
+  SELECT c.id, 'issue' AS parent, COALESCE(ou.username, o.name) || '/' || r.name AS repository, i.number,
+    '' AS path, 0::bigint AS line, c.body, c.created_at, c.updated_at
+  FROM issue_comments c
+  JOIN issues i ON i.id = c.issue_id
+  JOIN repositories r ON r.id = i.repository_id
+  LEFT JOIN users ou ON ou.id = r.user_id
+  LEFT JOIN organizations o ON o.id = r.org_id
+  WHERE c.user_id = sqlc.arg(user_id)::bigint
+  UNION ALL
+  SELECT c.id, 'landing_request', COALESCE(ou.username, o.name) || '/' || r.name, l.number,
+    c.path, c.line, c.body, c.created_at, c.updated_at
+  FROM landing_request_comments c
+  JOIN landing_requests l ON l.id = c.landing_request_id
+  JOIN repositories r ON r.id = l.repository_id
+  LEFT JOIN users ou ON ou.id = r.user_id
+  LEFT JOIN organizations o ON o.id = r.org_id
+  WHERE c.user_id = sqlc.arg(user_id)::bigint
+) x;
+
+
+-- name: AdminExportLandingRequests :one
+-- Landing requests the user opened anywhere, and every one in the user's repositories.
+SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.id), '[]'::jsonb)::jsonb AS items FROM (
+  SELECT l.id, COALESCE(ou.username, o.name) || '/' || r.name AS repository, l.number, l.title, l.body, l.state,
+    l.target_bookmark, l.source_bookmark, l.author_id = sqlc.arg(user_id)::bigint AS authored,
+    l.created_at, l.updated_at, l.closed_at, l.merged_at
+  FROM landing_requests l
+  JOIN repositories r ON r.id = l.repository_id
+  LEFT JOIN users ou ON ou.id = r.user_id
+  LEFT JOIN organizations o ON o.id = r.org_id
+  WHERE l.author_id = sqlc.arg(user_id)::bigint OR r.user_id = sqlc.arg(user_id)::bigint
+) x;
+
+
+-- name: AdminExportRuns :one
+-- Run metadata: workflow runs in the user's repositories and the user's
+-- agent sessions. Logs and tokens are not part of the metadata.
+SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at, x.id), '[]'::jsonb)::jsonb AS items FROM (
+  SELECT w.id::text AS id, 'workflow_run' AS kind, r.name AS repository, d.name AS title, w.status::text AS status,
+    w.trigger_event::text AS trigger_event, w.trigger_ref::text AS trigger_ref, w.trigger_commit_sha::text AS commit_sha,
+    w.created_at, w.started_at, w.completed_at AS finished_at
+  FROM workflow_runs w
+  JOIN repositories r ON r.id = w.repository_id
+  JOIN workflow_definitions d ON d.id = w.workflow_definition_id
+  WHERE r.user_id = sqlc.arg(user_id)::bigint
+  UNION ALL
+  SELECT s.id::text, 'agent_session', COALESCE(ou.username, o.name) || '/' || r.name, s.title::text, s.status::text,
+    '', '', '', s.created_at, s.started_at, s.finished_at
+  FROM agent_sessions s
+  JOIN repositories r ON r.id = s.repository_id
+  LEFT JOIN users ou ON ou.id = r.user_id
+  LEFT JOIN organizations o ON o.id = r.org_id
+  WHERE s.user_id = sqlc.arg(user_id)::bigint AND s.deleted_at IS NULL
+) x;
