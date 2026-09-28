@@ -72,21 +72,23 @@ const cacheEntries = async (root: string): Promise<ReadonlyArray<string>> => {
   return paths
 }
 
-const processAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ESRCH") return false
-    throw cause
-  }
-}
-
-const waitForProcessExit = async (pid: number): Promise<void> => {
+/**
+ * Waits until a heartbeat file stops growing.
+ *
+ * A sandboxed command runs in its own PID namespace on Linux, so any PID it
+ * reports names a different host process. Liveness is observed through the
+ * command's own writes instead.
+ */
+const waitForQuiet = async (path: string): Promise<number> => {
+  const size = () => Fs.stat(path).then((stat) => stat.size, () => 0)
   const deadline = Date.now() + 5_000
-  while (processAlive(pid)) {
-    if (Date.now() >= deadline) throw new Error(`fixture child ${pid} is still running`)
-    await new Promise((resolve) => setTimeout(resolve, 10))
+  let previous = await size()
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    const current = await size()
+    if (current === previous) return current
+    if (Date.now() >= deadline) throw new Error(`fixture command is still writing ${path}`)
+    previous = current
   }
 }
 
@@ -297,12 +299,12 @@ export const Package = S.Package({ targets: {
   it("interrupts a running command after its first live output", async () => {
     const root = await fixture(`import { Smithers as S } from "@smthrs/targets"
 export const Package = S.Package({ targets: {
-  slow: S.Shell.Test({ shell: "mkdir -p .flows/tmp; printf '%s' $$ > .flows/tmp/owned.pid; printf 'started:%s\\n' $$; exec sleep 30" })
+  slow: S.Shell.Test({ shell: "mkdir -p .flows/tmp; i=0; (while [ $i -lt 600 ]; do printf . >> .flows/tmp/beat; [ $i -eq 0 ] && printf 'started\\n'; i=$((i+1)); sleep 0.05; done) & wait" })
 } })
 `)
+    const beat = NodePath.join(root, ".flows", "tmp", "beat")
     const controller = new AbortController()
     const output: Array<string> = []
-    let pid: number | undefined
     const reporter: Reporter.Reporter = {
       renderer: "plain",
       begin: () => undefined,
@@ -310,11 +312,7 @@ export const Package = S.Package({ targets: {
       targetFinished: () => undefined,
       toolOutput: (_label, _stream, chunk) => {
         output.push(chunk)
-        const match = /started:(\d+)\n/.exec(output.join(""))
-        if (match !== null && pid === undefined) {
-          pid = Number(match[1])
-          controller.abort(new Error("stop slow test"))
-        }
+        if (output.join("").includes("started\n")) controller.abort(new Error("stop slow test"))
       },
       note: () => undefined,
       warn: () => undefined,
@@ -339,34 +337,14 @@ export const Package = S.Package({ targets: {
         })
       ])
       await expect(bounded).rejects.toThrow("All fibers interrupted without error")
-      expect(pid).toBeGreaterThan(0)
-      await waitForProcessExit(pid!)
-      expect(processAlive(pid!)).toBe(false)
+      expect(controller.signal.aborted).toBe(true)
+      const settled = await waitForQuiet(beat)
+      expect(settled).toBeGreaterThan(0)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect((await Fs.stat(beat).catch(() => undefined))?.size ?? 0).toBe(settled)
     } finally {
       if (timeout !== undefined) clearTimeout(timeout)
       controller.abort()
-      const recorded = await Fs.readFile(NodePath.join(root, ".flows", "tmp", "owned.pid"), "utf8")
-        .catch(() => undefined)
-      const owned = pid ?? (recorded === undefined ? undefined : Number(recorded))
-      if (owned !== undefined && Number.isSafeInteger(owned) && owned > 0) {
-        try {
-          process.kill(owned, "SIGKILL")
-        } catch (cause) {
-          if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause
-        }
-        await waitForProcessExit(owned)
-      }
-      let joinTimeout: ReturnType<typeof setTimeout> | undefined
-      try {
-        await Promise.race([
-          running.catch(() => undefined),
-          new Promise<never>((_resolve, reject) => {
-            joinTimeout = setTimeout(() => reject(new Error("fixture execution cleanup did not settle")), 5_000)
-          })
-        ])
-      } finally {
-        if (joinTimeout !== undefined) clearTimeout(joinTimeout)
-      }
     }
   }, 20_000)
 })
