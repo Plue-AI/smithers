@@ -630,6 +630,7 @@ export interface EngineLike {
   readonly splice: (batch: Plan.Batch) => Stream.Stream<Plan.SpliceEvent, HarnessError>
   readonly call: (call: Cell.Call) => Effect.Effect<Cell.CallResult, HarnessError>
   readonly admit?: (call: Cell.Call) => Effect.Effect<Cell.CallResult | undefined, HarnessError>
+  readonly guard?: Guard
   readonly record: <A>(boundary: RecordBoundary<A>) => Effect.Effect<A, HarnessError>
   readonly observe: Effect.Effect<Option.Option<Observation>, HarnessError>
   readonly capture: (request: CaptureRequest) => Effect.Effect<Option.Option<Snapshot>, HarnessError>
@@ -659,6 +660,16 @@ export interface EngineLike {
   approval is not charged to the flow. `undefined` admits the call; a result
   is the refusal the cell reads instead, and `call` is never issued. An
   implementation does not ask again when an admitted call is issued.
+- `guard`, when present, is the host's runaway guard for timeouts (`Guard`:
+  `{ admit(subject), trip(timeout) }`). The controller calls `admit` before it
+  issues a call or evaluates a fresh cell frame, and `trip` with a `TimedOut`
+  (`{ source: "tool-call" | "cell", subject, limitMillis?, message }`) when a
+  call settles as a `timeout` failure or a frame overruns its wall-clock
+  limit. `trip` succeeds when the run's timeouts are not guarded, and the
+  cell reads the timeout as before; a guarded host fails it with a park, and
+  the controller records nothing for the operation, so Continue runs it again
+  and Stop fails the run at `admit`. `subject` is the replay-stable call or
+  frame identity, as JSON.
 - `record` journals one nondeterministic controller read, keyed on `(name,
   identity)` together. `RecordBoundary` is `{ name, identity, success,
   execute }`, where `success` is a `DurableSchema`, a schema that decodes
@@ -1034,9 +1045,11 @@ interrupt cause unchanged. A failed projection is a
 `Schema.Defect` so a live `Error` attached as cause still encodes to JSON for
 the durable exit schema. `FlowBinding.make` passes existing `HarnessError`
 values through unchanged; only permission requirements and denials are
-converted to code `suspended`. Other handler errors become opaque
-`flow_failed` call results unless the binding supplies safe `publicError`
-text.
+converted to code `suspended`. A handler error the binding's `timedOut`
+classifies becomes a `timeout` call result: `bash` and `test` classify a
+command past its limit, and `agent/await` a child still running. Other handler
+errors become opaque `flow_failed` call results. Either carries only the safe
+`publicError` text the binding supplies.
 
 ## StructuredOutput
 

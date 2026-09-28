@@ -57,7 +57,7 @@ const render = (notification: Notification): ModelRequest.Message => {
  * something the run should be told about.
  */
 const steerItem = (notification: Notification): Steering.Item => {
-  const item = notification._tag === "system-event" ? undefined : SteerPayload.decode(notification.payload)
+  const item = SteerPayload.decode(notification)
   // Zero, and not a timestamp: `admittedAt` orders items inside a queue this
   // adapter does not keep. The durable queue already decided which
   // notifications this boundary may deliver, so every item it handed back is

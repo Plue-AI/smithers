@@ -315,6 +315,54 @@ ctx.done({ names: Object.keys(ctx.flows), original: Object.keys(originalCatalog)
     expect(await attempt()).toEqual(original)
     expect(reads).toBe(2)
   })
+
+  it.each([
+    ["fs:read:.", "ran"],
+    ["fs:read:./src/./out", "ran"],
+    ["fs:read:../outside", "capability_refused"],
+    ["fs:read:/w/../etc/passwd", "capability_refused"]
+  ])("checks the declared scope %s against the envelope as %s", async (declared, expected) => {
+    // A relative dot scope is ordinary flow grammar; only one that climbs out
+    // of its start, or an absolute one that skipped canonicalization, is refused.
+    const root = descriptor("fs/root", { capabilities: [declared] })
+    const result = await run({
+      state: state({ maxFrames: 1 }),
+      flows: [root],
+      script: [
+        emits(
+          `const r = await ctx.call("fs/root", {})
+           ctx.done(r.ok ? "ran" : r.error.code)`
+        )
+      ],
+      calls: [{ _tag: "Success", value: [] }]
+    })
+
+    // A call that reaches the engine was admitted; a done after it in the
+    // same frame is held for evidence, so the admitted case asserts the call.
+    expect(result.engine.recorder.calls).toHaveLength(expected === "ran" ? 1 : 0)
+    if (expected !== "ran") {
+      expect(resolvedText(result.events)).toBe(expected)
+    }
+  })
+
+  it("refuses a flow that is not model-invocable even when the host put it in the frame catalog", async () => {
+    // A host that hands the frame its whole registry rather than the visible
+    // set must still not let the model run a host-only flow.
+    const hidden = new Descriptor.FlowDescriptor({ ...descriptor("fs/write"), modelInvocable: false })
+    const result = await run({
+      state: state({ maxFrames: 1 }),
+      flows: [lister, hidden],
+      script: [
+        emits(
+          `const refused = await ctx.call("fs/write", { path: "a" })
+           ctx.done(refused.error.code)`
+        )
+      ]
+    })
+
+    expect(resolvedText(result.events)).toBe("capability_refused")
+    expect(result.engine.recorder.calls).toEqual([])
+  })
 })
 
 describe("CellTurn seat and placement", () => {

@@ -2210,8 +2210,8 @@ const budgetMessage = (state: State): string =>
  * Resolves one cell call into a durable engine boundary.
  *
  * Resolution happens here, at the boundary, and not inside the sandbox: the
- * flow must exist in the catalog this frame was given, and every capability it
- * declares must still be inside the run's narrowed envelope. Both denials are
+ * flow must exist in the catalog this frame was given, be model-invocable, and
+ * every capability it declares must still be inside the run's narrowed envelope. Both denials are
  * ordinary call failures the cell can catch, which is what lets an agent
  * discover the shape of its authority without crashing the run.
  *
@@ -2279,6 +2279,12 @@ const callHandler = (
     const descriptor = descriptors.get(invocation.flow)
     if (descriptor === undefined) {
       return refusal("unknown_flow", `Unknown flow ${invocation.flow}. Only the flows in ctx.flows are callable.`)
+    }
+    // Checked here as well as in catalog filtering and `CellCalls`, so a host
+    // that hands the frame more than the visible set still cannot let the
+    // model run a host-only flow.
+    if (!descriptor.modelInvocable) {
+      return refusal("capability_refused", `Flow ${invocation.flow} is not model-invocable.`)
     }
     const envelope = CapabilitySet.fromPatterns(state.capabilityEnvelope)
     const refused = descriptor.capabilities.filter((declared) =>

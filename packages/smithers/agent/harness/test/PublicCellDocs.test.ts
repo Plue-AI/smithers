@@ -103,3 +103,26 @@ it.each([
   expect(commands).toHaveLength(calls)
   if (calls === 2) expect(commands[1]).toContain("find src")
 })
+
+it("keeps copyable guide flow declarations free of filesystem-root grants", () => {
+  // A host author copies these declarations verbatim; a root-wide read grant on a
+  // handler that reads no files would reach every model-written cell calling it.
+  // Both the package source and the published site mirror are checked, and both
+  // the `/**` and slash-less `**` spellings count as root-wide.
+  const guides = ["bind-flows", "run-cells", "drive-the-loop", "workerd"]
+  const roots = ["../docs/guides/", "../../../../../apps/docs/harness/src/content/docs/guides/"]
+  // The workerd `fs/list` projection lists a directory, so its read grant matches its purpose.
+  const allowed = /name: "fs\/list",\n\s*description: "List a directory\.",\n\s*capabilities: \["fs:read:\*\*"\]/
+  for (const root of roots) {
+    for (const guide of guides) {
+      const where = `${root}${guide}.md`
+      const text = readFileSync(new URL(where, import.meta.url), "utf8").replace(allowed, "")
+      expect(text, where).not.toMatch(/"fs:(?:read|write):\/?\*\*"/)
+      expect(text, where).not.toMatch(/(?:reads|writes): \[[^\]]*"\/?\*\*"/)
+    }
+    const bind = readFileSync(new URL(`${root}bind-flows.md`, import.meta.url), "utf8")
+    const echo = bind.match(/const echo = FlowBinding\.make\(\{[\s\S]*?\n\}\)/)![0]
+    expect(echo, root).toContain("capabilities: [],")
+    expect(echo, root).toContain("effects: { reads: [], writes: []")
+  }
+})

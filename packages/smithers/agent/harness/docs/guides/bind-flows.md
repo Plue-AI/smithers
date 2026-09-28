@@ -26,8 +26,8 @@ const echo = FlowBinding.make({
     description: "Echo one string back.",
     input: Schema.Struct({ text: Schema.String }),
     output: Schema.Struct({ text: Schema.String, length: Schema.Number }),
-    capabilities: ["fs:read:/**"],
-    effects: { reads: ["/**"], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
+    capabilities: [],
+    effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
   },
   handler: (input) => Effect.succeed({ text: input.text, length: input.text.length })
 })
