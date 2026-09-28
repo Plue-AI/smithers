@@ -336,16 +336,17 @@ describe("ControlLive listings", () => {
   })
 
   it("uses the direct run lookup for a runId filter, including a missing run", async () => {
-    let listRunsCalls = 0
+    let pageRunIdsCalls = 0
     let queryRunsCalls = 0
     const guardedRuntime = Layer.effect(ControlRuntime)(
       Effect.map(ControlRuntime, (runtime) =>
         ControlRuntime.of({
           ...runtime,
-          listRuns: Effect.sync(() => {
-            listRunsCalls += 1
-            throw new Error("listRuns must not serve an exact run lookup")
-          }),
+          pageRunIds: () =>
+            Effect.sync(() => {
+              pageRunIdsCalls += 1
+              throw new Error("pageRunIds must not serve an exact run lookup")
+            }),
           queryRuns: () =>
             Effect.sync(() => {
               queryRunsCalls += 1
@@ -369,7 +370,7 @@ describe("ControlLive listings", () => {
 
     expect(items(observed.found)).toEqual([observed.runId])
     expect(observed.missing).toEqual({ _tag: "runs", items: [] })
-    expect(listRunsCalls).toBe(0)
+    expect(pageRunIdsCalls).toBe(0)
     expect(queryRunsCalls).toBe(0)
   })
 })

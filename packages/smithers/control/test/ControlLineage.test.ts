@@ -43,7 +43,7 @@ describe("control run lineage over a database that cannot answer", () => {
         return yield* Effect.all({
           solo: runtime.getRun("solo"),
           spawn: runtime.getRun("spawn"),
-          listed: runtime.listRuns
+          listed: Effect.map(runtime.queryRuns({ limit: 500 }), (page) => page.items)
         })
       }).pipe(Effect.provide(database), Effect.scoped, Effect.orDie)
     )

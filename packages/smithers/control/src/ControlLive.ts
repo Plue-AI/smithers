@@ -11,7 +11,7 @@ import { NotificationQueue } from "@smthrs/notifications"
 import * as SteerPayload from "@smthrs/notifications/SteerPayload"
 import { Registry } from "@smthrs/registry"
 import { inputDocument } from "@smthrs/registry/Descriptor"
-import { Cause, Effect, Exit, Layer, Option, Schema, Semaphore, Stream } from "effect"
+import { Cause, Deferred, Effect, Exit, Layer, Option, Schema, Semaphore, Stream } from "effect"
 import * as Cancellation from "./Cancellation.ts"
 import {
   type ApprovalInput,
@@ -39,7 +39,7 @@ import {
 import type { CancelRecord, Launch } from "./ControlExecutor.ts"
 import { ControlExecutor } from "./ControlExecutor.ts"
 import * as ControlFacts from "./ControlFacts.ts"
-import { ControlRuntime, type RunPage } from "./ControlRuntime.ts"
+import { ControlRuntime, type RunCursor, type RunPage } from "./ControlRuntime.ts"
 import type {
   ControlEvent,
   FireSummary,
@@ -76,6 +76,8 @@ const sourceId = JournalEvent.SourceId.make("/control")
 
 const snapshotPageSize = 1024
 const snapshotPartitionConcurrency = 8
+/** Partition ids a global watch reads per keyed inventory page. */
+const partitionPageSize = 100
 
 const unavailable = (feature: string): Unavailable =>
   new Unavailable({ feature, ticket: "control-runtime-engine-integration" })
@@ -1214,24 +1216,34 @@ export const layer: Layer.Layer<
         )
       )
 
-    const journalPartitions = Effect.gen(function*() {
-      const [planIds, runs] = yield* Effect.all([runtime.listPlanIds, runtime.listRuns])
-      return [
-        ...planIds.map((planId) => `plan:${planId}`),
-        ...runs.map((run) => run.runId)
-      ]
-    })
+    /**
+     * Every journal partition, plans first, one keyed id page at a time.
+     *
+     * The walk reads keys only and pulls the next page when the consumer asks
+     * for it, so a global watch holds one page of ids rather than the whole
+     * run table. Keys are immutable, so a partition that exists before the
+     * walk starts is listed exactly once; one created during the walk may be
+     * listed or not, and the follow tail covers it either way.
+     */
+    const journalPartitions: Stream.Stream<string, ControlError> = Stream.concat(
+      Stream.paginate(undefined as string | undefined, (after) =>
+        Effect.map(
+          runtime.pagePlanIds({ after, limit: partitionPageSize }),
+          (page) => [page.ids.map((planId) => `plan:${planId}`), Option.fromNullishOr(page.next)] as const
+        )),
+      Stream.paginate(undefined as RunCursor | undefined, (after) =>
+        Effect.map(
+          runtime.pageRunIds({ after, limit: partitionPageSize }),
+          (page) => [page.ids, Option.fromNullishOr(page.next)] as const
+        ))
+    )
 
     const snapshot = (filter: WatchFilter): Stream.Stream<ControlEvent, ControlError> =>
       filter.runId !== undefined
         ? snapshotForRun(filter.runId, filter)
-        : Stream.unwrap(
-          Effect.map(journalPartitions, (partitions) =>
-            Stream.mergeAll(
-              partitions.map((partition) => snapshotForRun(partition, filter)),
-              { concurrency: snapshotPartitionConcurrency }
-            ))
-        )
+        : Stream.flatMap(journalPartitions, (partition) => snapshotForRun(partition, filter), {
+          concurrency: snapshotPartitionConcurrency
+        })
 
     const entries = (filter: WatchFilter): Stream.Stream<ControlEvent, ControlError> =>
       filter.follow === false
@@ -1241,22 +1253,52 @@ export const layer: Layer.Layer<
         : Stream.unwrap(
           Effect.gen(function*() {
             const subscription = yield* journal.changes
-            const partitions = yield* journalPartitions
-            // Subscribe first, then pin each known partition's cutoff. A row
-            // committed before its cutoff is read from the finite snapshot;
-            // one committed after it is read from the buffered tail. This is
-            // a handoff, not a bounded duplicate cache, so an arbitrarily long
-            // history cannot make an old overlap reappear.
-            const cutoffs = yield* Effect.forEach(
-              partitions,
-              (partition) =>
-                Effect.map(
-                  snapshotHighWater(JournalEvent.RunId.make(partition)),
-                  (highWater) => [partition, highWater] as const
-                ),
-              { concurrency: snapshotPartitionConcurrency }
+            // Subscribe first, then pin each partition's cutoff. A row
+            // committed at or before its cutoff is read from the finite
+            // snapshot; one committed after it is read from the buffered tail.
+            // This is a handoff, not a bounded duplicate cache, so an
+            // arbitrarily long history cannot make an old overlap reappear.
+            //
+            // A cutoff is pinned by whichever side reaches its partition
+            // first: the paged walk, or the tail when an entry arrives for a
+            // partition the walk has not reached or never lists (one created
+            // after the walk passed its key). That side reads the partition's
+            // snapshot; the other reuses the cutoff. The map keeps one cutoff
+            // per partition seen for the life of the stream.
+            const cutoffs = new Map<string, Deferred.Deferred<JournalEvent.Seq | undefined, ControlError>>()
+            const pin = (partition: string): Effect.Effect<JournalEvent.Seq | undefined, ControlError> => {
+              const pinned = Deferred.makeUnsafe<JournalEvent.Seq | undefined, ControlError>()
+              cutoffs.set(partition, pinned)
+              return snapshotHighWater(JournalEvent.RunId.make(partition)).pipe(
+                Effect.onExit((exit) => Deferred.done(pinned, exit))
+              )
+            }
+            const walk = journalPartitions.pipe(
+              Stream.mapEffect(
+                (partition) =>
+                  Effect.suspend(() =>
+                    cutoffs.has(partition)
+                      ? Effect.succeed(Option.none())
+                      : Effect.map(pin(partition), (highWater) => Option.some([partition, highWater] as const))
+                  ),
+                { concurrency: snapshotPartitionConcurrency }
+              ),
+              Stream.filter(Option.isSome),
+              Stream.map((pinned) => pinned.value),
+              Stream.flatMap(([partition, highWater]) => snapshotForRunAt(partition, filter, highWater), {
+                concurrency: snapshotPartitionConcurrency
+              })
             )
-            const highWaterByPartition = new Map(cutoffs)
+            /** The partition's cutoff, pinning it when the walk has not. */
+            type Cutoff = { readonly highWater: JournalEvent.Seq | undefined; readonly claimed: boolean }
+            const cutoffFor = (partition: string): Effect.Effect<Cutoff, ControlError> =>
+              Effect.suspend((): Effect.Effect<Cutoff, ControlError> => {
+                const known = cutoffs.get(partition)
+                if (known !== undefined) {
+                  return Effect.map(Deferred.await(known), (highWater) => ({ highWater, claimed: false }))
+                }
+                return Effect.map(pin(partition), (highWater) => ({ highWater, claimed: true }))
+              })
             /**
              * Detects a live tail that silently lost entries.
              *
@@ -1304,10 +1346,11 @@ export const layer: Layer.Layer<
                 })
               )
             const trackTail = (
-              entry: JournalEvent.Entry
+              entry: JournalEvent.Entry,
+              cutoff: JournalEvent.Seq | undefined
             ): Effect.Effect<Option.Option<JournalEvent.Entry>, ControlError> => {
               const partition = String(entry.runId)
-              const expected = seenByPartition.get(partition) ?? highWaterByPartition.get(partition)
+              const expected = seenByPartition.get(partition) ?? cutoff
               // A committed entry at or below the cursor was already delivered
               // (or is covered by the snapshot); passing it on teaches nothing.
               if (expected !== undefined && entry.seq <= expected) return Effect.succeed(Option.none())
@@ -1317,28 +1360,28 @@ export const layer: Layer.Layer<
                 : Effect.map(gapCheck(partition, expected, entry.seq), () => Option.some(entry))
             }
             const tail = Stream.fromSubscription(subscription).pipe(
-              // Every committed entry names its partition, so an entry from one
-              // this snapshot never read has no cutoff and passes through.
-              Stream.filter((entry) => {
-                const highWater = highWaterByPartition.get(String(entry.runId))
-                return highWater === undefined || entry.seq > highWater
-              }),
-              Stream.mapEffect(trackTail),
-              Stream.filter(Option.isSome),
-              Stream.map((entry) => entry.value),
-              Stream.map(eventFromEntry)
+              // Every committed entry names its partition. The first one from a
+              // partition nobody pinned yet pins it here and is preceded by that
+              // partition's snapshot, which also recovers any earlier notice the
+              // sliding buffer dropped.
+              Stream.flatMap((entry) =>
+                Stream.unwrap(Effect.gen(function*() {
+                  const partition = String(entry.runId)
+                  const { highWater, claimed } = yield* cutoffFor(partition)
+                  const history = claimed ? snapshotForRunAt(partition, filter, highWater) : Stream.empty
+                  if (highWater !== undefined && entry.seq <= highWater) return history
+                  const tracked = yield* trackTail(entry, highWater)
+                  return Option.isSome(tracked)
+                    ? Stream.concat(history, Stream.succeed(eventFromEntry(tracked.value)))
+                    : history
+                }))
+              )
             )
-            return Stream.mergeAll(
-              [
-                ...cutoffs.map(([partition, highWater]) => snapshotForRunAt(partition, filter, highWater)),
-                tail
-              ],
-              // Same bound the cutoff reads above use, plus one reserved slot
-              // so the live tail is never starved behind snapshot work. An
-              // unbounded merge read every partition of an unbounded database
-              // at once, which is the allocation a remote watcher could force.
-              { concurrency: snapshotPartitionConcurrency + 1 }
-            )
+            // The walk already bounds its own reads, and the tail is its own
+            // fiber, so snapshot work never starves the live tail. An unbounded
+            // merge read every partition of an unbounded database at once,
+            // which is the allocation a remote watcher could force.
+            return Stream.merge(walk, tail)
           })
         )
 

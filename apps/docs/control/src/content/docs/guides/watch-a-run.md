@@ -86,8 +86,22 @@ Raw `Lineage` and `Steering` projections and older providers can omit `cursor`.
 
 Omit `runId` and the stream merges every partition the plane knows: each run,
 and each plan under `plan:<planId>`. Eight partition snapshots are read at a
-time, with one slot reserved so the live tail is never starved behind snapshot
-work.
+time, and the live tail runs beside them so snapshot work never starves it.
+
+The plane lists partitions by key, 100 ids per inventory query, and reads the
+next page only when the snapshot needs it:
+
+| Resource                 | Bound                                              |
+| ------------------------ | -------------------------------------------------- |
+| Rows per inventory query | 101 (one page plus the continuation key)           |
+| Inventory queries        | `ceil(plans / 100) + ceil(runs / 100)`             |
+| Run summaries decoded    | 0                                                  |
+| Follow-mode state        | one pinned sequence per partition seen             |
+
+A partition that exists when the watch starts is read exactly once. One created
+during the walk may or may not be listed; a followed watch delivers its entries
+either way, because the first tail entry for a partition that nothing has
+pinned pins it and reads its history first.
 
 An unscoped watch is the right shape for a dashboard. For a run you can name,
 scope it: the scoped watch is one partition read and it is the only form that

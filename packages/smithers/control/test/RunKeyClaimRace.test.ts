@@ -61,7 +61,12 @@ describe("two SqlControlRuntime instances claiming one run key", () => {
 
         yield* winner.recordMutation("run:race", "fingerprint", receipt)
         const raced = yield* loser.claimRunKey("run:race", "fingerprint")
-        return { collided, raced, runs: yield* loser.listRuns, unsettled }
+        return {
+          collided,
+          raced,
+          runs: yield* Effect.map(loser.queryRuns({ limit: 500 }), (page) => page.items),
+          unsettled
+        }
       }).pipe(Effect.scoped)
     )
 

@@ -73,6 +73,7 @@ import * as ControlExecutor from "./ControlExecutor.ts"
 import type {
   ApprovalToken,
   BulkGrant,
+  IdPageRequest,
   LaunchResult,
   MemoryFlow,
   RunCursor,
@@ -80,7 +81,7 @@ import type {
   Service,
   StoredPlan
 } from "./ControlRuntime.ts"
-import { ApprovalDecision, ControlRuntime, make } from "./ControlRuntime.ts"
+import { ApprovalDecision, ControlRuntime, idPageLimit, make } from "./ControlRuntime.ts"
 import {
   ApprovalTarget,
   type Cancellation,
@@ -559,16 +560,14 @@ const makeRuntime = (
     /**
      * How much of the database one projection needs to read.
      *
-     * `undefined` is the full inventory used for recovery. A page needs only
-     * its selected runs and their ancestor chains. Cascade attribution walks
-     * ancestors and stops, so a page or a single-run mutation does not project
-     * unrelated runs.
+     * A page needs only its selected runs and their ancestor chains. Cascade
+     * attribution walks ancestors and stops, so a page or a single-run
+     * mutation does not project unrelated runs, and no read projects them all.
      */
-    type IndexScope = ReadonlyArray<string> | undefined
+    type IndexScope = ReadonlyArray<string>
 
-    /** `WHERE` material narrowing a column to a scope, or nothing at all. */
-    const within = (column: string, scope: IndexScope) =>
-      scope === undefined ? sql.literal("1 = 1") : sql.in(column, scope as Array<string>)
+    /** `WHERE` material narrowing a column to a scope. */
+    const within = (column: string, scope: IndexScope) => sql.in(column, scope as Array<string>)
 
     /**
      * The two facts a run row cannot tell about itself.
@@ -1161,7 +1160,9 @@ const makeRuntime = (
         const summary = yield* summaryOf(row)
         return yield* transition(runId, claimant, {
           ...summary,
-          ...(adoptCode ? adoptedCode(summary, (yield* readCurrentFlows).get(summary.flowId), options.engineVersion) : {}),
+          ...(adoptCode
+            ? adoptedCode(summary, (yield* readCurrentFlows).get(summary.flowId), options.engineVersion)
+            : {}),
           ownerId: JSON.stringify(claimant)
         }, "accepted")
       })
@@ -1197,24 +1198,6 @@ const makeRuntime = (
         }
         return summary
       })
-
-    /**
-     * Every durable run, this plane's own first.
-     *
-     * `control_runs` indexes only the runs this plane launched. A control
-     * plane that listed nothing else could not answer "what did that run
-     * spawn?", because a child, a fork, and a later trampoline round are all
-     * created by the engine straight into `flows_runs`. The left join keeps
-     * launch order for the runs that have one and falls back to creation order
-     * for the rest.
-     */
-    const listRunIds: Effect.Effect<ReadonlyArray<string>, PersistenceError> = sql<{ readonly runId: string }>`
-      SELECT runs.run_id AS "runId"
-      FROM flows_runs AS runs
-      LEFT JOIN control_runs AS indexed ON indexed.run_id = runs.run_id
-      ORDER BY CASE WHEN indexed.created_seq IS NULL THEN 1 ELSE 0 END,
-               indexed.created_seq, runs.created_at_ms, runs.run_id
-    `.pipe(query("list runs"), Effect.map((rows) => rows.map((row) => row.runId)))
 
     // Match summaryFrom's durable fields in SQL. Only the selected ids are
     // decoded or expanded into ancestry; one extra key determines continuation.
@@ -1322,9 +1305,16 @@ const makeRuntime = (
       )
     }
 
-    const listPlanIds: Effect.Effect<ReadonlyArray<string>, PersistenceError> = sql<{ readonly planId: string }>`
-      SELECT plan_id AS "planId" FROM control_plans ORDER BY rowid
-    `.pipe(query("list plans"), Effect.map((rows) => rows.map((row) => row.planId)))
+    const pagePlanIds = Effect.fn("SqlControlRuntime.pagePlanIds")(function*(request: IdPageRequest<string>) {
+      yield* idPageLimit(request.limit)
+      const rows = yield* sql<{ readonly planId: string }>`
+        SELECT plan_id AS "planId" FROM control_plans
+        WHERE ${request.after === undefined ? sql.literal("1 = 1") : sql`plan_id > ${request.after}`}
+        ORDER BY plan_id LIMIT ${request.limit + 1}
+      `.pipe(query("page plans"))
+      const ids = rows.slice(0, request.limit).map((row) => row.planId)
+      return rows.length > request.limit ? { ids, next: ids.at(-1)! } : { ids }
+    })
 
     const messages = <S extends Schema.Top>(
       runId: RunId,
@@ -1468,7 +1458,7 @@ const makeRuntime = (
       getPlan: Effect.fn("SqlControlRuntime.getPlan")((planId: string) =>
         Effect.flatMap(requirePlan(planId), storedPlan)
       ),
-      listPlanIds,
+      pagePlanIds,
       lookupApproval: Effect.fn("SqlControlRuntime.lookupApproval")(function*(target: ApprovalTarget) {
         const tokenId = target._tag === "Plan" ? target.planId : target.requestId
         const identity = approvalIdentity(target)
@@ -1721,24 +1711,22 @@ const makeRuntime = (
           return yield* summaryFrom(row, yield* ancestryIndex(yield* ancestorChain(runId)))
         })
       ),
-      listRuns: Effect.fn("SqlControlRuntime.listRuns")(() =>
-        Effect.gen(function*() {
-          const ancestry = yield* ancestryIndex(undefined)
-          const runIds = yield* listRunIds
-          // The id index and the rows are two statements, so retention or
-          // `smithers gc` can delete a row between them. A vanished row is one
-          // row missing from the answer, not a failed listing: catching
-          // `RunNotFound` around the whole `forEach` collapsed the ENTIRE
-          // listing to `[]`, so `smithers ps` on a busy project intermittently
-          // reported no runs at all.
-          const summaries = yield* Effect.forEach(runIds, (runId) =>
-            requireRow(runId).pipe(
-              Effect.flatMap((row) => Effect.map(summaryFrom(row, ancestry), Option.some)),
-              Effect.catchTag("/control/RunNotFound", () => Effect.succeed(Option.none<RunSummary>()))
-            ))
-          return summaries.filter(Option.isSome).map((summary) => summary.value)
-        })
-      )(),
+      /**
+       * Every durable run, this plane's own first: `control_runs` indexes only
+       * the runs this plane launched, while a child, a fork, and a later
+       * trampoline round are created by the engine straight into `flows_runs`.
+       * One keyset statement per page, with no row decoded, so a caller that
+       * walks every run holds one page of ids at a time.
+       */
+      pageRunIds: Effect.fn("SqlControlRuntime.pageRunIds")(function*(request) {
+        yield* idPageLimit(request.limit)
+        const keys = yield* runPageKeys({ cursor: request.after, limit: request.limit }, false, false)
+        const selected = keys.slice(0, request.limit)
+        return {
+          ids: selected.map((key) => key.runId),
+          ...(keys.length > request.limit ? { next: selected[selected.length - 1]! } : {})
+        }
+      }),
       queryRuns: Effect.fn("SqlControlRuntime.queryRuns")(function*(request) {
         if (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 500) {
           return yield* new InvalidInput({ issue: "limit: must be an integer between 1 and 500" })

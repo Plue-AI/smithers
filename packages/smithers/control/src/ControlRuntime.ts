@@ -106,6 +106,29 @@ export interface RunPage {
 }
 
 /**
+ * One key-ordered page of ids. `next` is the key to pass as `after` for the
+ * following page; it is absent on the last page.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface IdPage<Key> {
+  readonly ids: ReadonlyArray<string>
+  readonly next?: Key | undefined
+}
+
+/**
+ * A keyed id page request. `limit` must be an integer from 1 through 500.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface IdPageRequest<Key> {
+  readonly after?: Key | undefined
+  readonly limit: number
+}
+
+/**
  * A durably admitted signal, bound at most once to one concrete wait token.
  *
  * @since 1.0.0
@@ -382,7 +405,10 @@ export interface Service {
   readonly authorizeApproval: ApprovalAuthority.Service["authorize"]
   readonly plan: (input: PlanInput) => Effect.Effect<PlanOutcome, FlowNotFound | InvalidInput | PersistenceError>
   readonly getPlan: (planId: string) => Effect.Effect<StoredPlan, PlanNotFound | PersistenceError>
-  readonly listPlanIds: Effect.Effect<ReadonlyArray<string>, PersistenceError>
+  /** Plan ids in key order, one bounded page at a time. */
+  readonly pagePlanIds: (
+    request: IdPageRequest<string>
+  ) => Effect.Effect<IdPage<string>, InvalidInput | PersistenceError>
   readonly lookupApproval: (
     target: ApprovalTarget
   ) => Effect.Effect<
@@ -430,8 +456,14 @@ export interface Service {
     PlanNotFound | PlanDenied | PlanDigestMismatch | EnvelopeMismatch | ClaimLost | PersistenceError
   >
   readonly getRun: (runId: RunId) => Effect.Effect<RunSummary, RunNotFound | PersistenceError>
-  /** Full inventory for recovery and journal partition discovery. Use queryRuns for listings. */
-  readonly listRuns: Effect.Effect<ReadonlyArray<RunSummary>, PersistenceError>
+  /**
+   * Every durable run id in listing order, one bounded page at a time, for
+   * recovery and journal partition discovery. Reads keys only; use queryRuns
+   * for summaries.
+   */
+  readonly pageRunIds: (
+    request: IdPageRequest<RunCursor>
+  ) => Effect.Effect<IdPage<RunCursor>, InvalidInput | PersistenceError>
   readonly queryRuns: (request: RunQuery) => Effect.Effect<RunPage, InvalidInput | PersistenceError>
   readonly listFlows: Effect.Effect<
     ReadonlyArray<{ readonly flowId: FlowId; readonly description: string }>,
@@ -611,6 +643,17 @@ export class ControlRuntime extends Context.Service<ControlRuntime, Service>()(
  * @since 0.1.0
  */
 export const make = (implementation: Service): Service => ControlRuntime.of(implementation)
+
+/**
+ * Refuses an id page size outside 1 through 500, the `queryRuns` bound.
+ *
+ * @category validation
+ * @since 1.0.0
+ */
+export const idPageLimit = (limit: number): Effect.Effect<void, InvalidInput> =>
+  Number.isSafeInteger(limit) && limit >= 1 && limit <= 500
+    ? Effect.void
+    : Effect.fail(new InvalidInput({ issue: "limit: must be an integer between 1 and 500" }))
 
 interface MutablePlan {
   readonly card: PlanCard
@@ -820,7 +863,13 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             Effect.map(asStored)
           )
         ),
-        listPlanIds: Effect.fn("ControlRuntime.listPlanIds")(() => Effect.sync(() => Array.from(plans.keys())))(),
+        pagePlanIds: Effect.fn("ControlRuntime.pagePlanIds")(function*(request) {
+          yield* idPageLimit(request.limit)
+          const after = request.after
+          const keys = Array.from(plans.keys()).filter((planId) => after === undefined || planId > after).sort()
+          const ids = keys.slice(0, request.limit)
+          return keys.length > request.limit ? { ids, next: ids.at(-1)! } : { ids }
+        }),
         lookupApproval: Effect.fn("ControlRuntime.lookupApproval")(function*(target) {
           const requested = snapshot(target)
           const tokenId = requested._tag === "Plan" ? requested.planId : requested.requestId
@@ -1005,9 +1054,29 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
         getRun: Effect.fn("ControlRuntime.getRun")((runId) =>
           Effect.map(requireRun(runId), (run) => snapshot(run.summary))
         ),
-        listRuns: Effect.fn("ControlRuntime.listRuns")(() =>
-          Effect.sync(() => Array.from(runs.values(), (run) => snapshot(run.summary)))
-        )(),
+        pageRunIds: Effect.fn("ControlRuntime.pageRunIds")(function*(request) {
+          yield* idPageLimit(request.limit)
+          const after = request.after
+          const selected: Array<MutableRun> = []
+          for (const run of runs.values()) {
+            if (after !== undefined && (after.source !== 0 || run.sequence <= after.sequence)) continue
+            selected.push(run)
+            if (selected.length > request.limit) break
+          }
+          const page = selected.slice(0, request.limit)
+          const last = page.at(-1)
+          return {
+            ids: page.map((run) => run.summary.runId),
+            ...(selected.length <= request.limit || last === undefined ? {} : {
+              next: {
+                source: 0 as const,
+                sequence: last.sequence,
+                createdAt: last.summary.createdAt,
+                runId: last.summary.runId
+              }
+            })
+          }
+        }),
         queryRuns: Effect.fn("ControlRuntime.queryRuns")(function*(request) {
           if (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 500) {
             return yield* new InvalidInput({ issue: "limit: must be an integer between 1 and 500" })

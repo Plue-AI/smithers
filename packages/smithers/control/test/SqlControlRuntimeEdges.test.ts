@@ -922,7 +922,7 @@ describe("SqlControlRuntime layers and stores", () => {
     const listed = await Effect.runPromise(
       Effect.gen(function*() {
         const runtime = yield* ControlRuntime
-        return yield* runtime.listRuns
+        return yield* Effect.map(runtime.queryRuns({ limit: 500 }), (page) => page.items)
       }).pipe(
         Effect.provide(
           SqlControlRuntime.layerWithStore().pipe(
@@ -955,7 +955,7 @@ describe("SqlControlRuntime layers and stores", () => {
         const runtime = yield* SqlControlRuntime.make({ flows, approvalAuthority: delegateApproval(principal) })
         const kept = yield* start(runtime, "kept")
         const collected = yield* start(runtime, "collected")
-        const listed = yield* runtime.listRuns
+        const listed = yield* Effect.map(runtime.queryRuns({ limit: 500 }), (page) => page.items)
         return { collected: collected.runId, kept: kept.runId, listed }
       }).pipe(
         Effect.provide(

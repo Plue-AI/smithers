@@ -32,13 +32,13 @@ const setup = Effect.gen(function*() {
   const runs = Context.get(native, RunStore.RunStore)
   const sql = Context.get(native, SqlClient.SqlClient)
   const controls = new Map<string, RunSummary>([["root", summary()]])
-  const control: Pick<ControlRuntime, "getRun" | "listRuns"> = {
+  const control: Pick<ControlRuntime, "getRun" | "pageRunIds"> = {
     getRun: (id) =>
       Effect.suspend(() => {
         const run = controls.get(id)
         return run === undefined ? Effect.fail(new RunNotFound({ runId: id })) : Effect.succeed(run)
       }),
-    listRuns: Effect.sync(() => [...controls.values()])
+    pageRunIds: () => Effect.sync(() => ({ ids: [...controls.keys()] }))
   }
   const options = { engineJournal, controlJournal, engineState, runs, control }
   const lifetime = yield* Scope.Scope

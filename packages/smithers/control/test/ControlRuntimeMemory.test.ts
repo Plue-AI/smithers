@@ -119,7 +119,7 @@ describe("ControlRuntime.layerMemory", () => {
         const reused = yield* Effect.flip(
           runtime.plan({ flowId: "system/test", input: { a: 2 }, idempotencyKey: "plan:key" })
         )
-        const listed = yield* runtime.listPlanIds
+        const listed = yield* Effect.map(runtime.pagePlanIds({ limit: 500 }), (page) => page.ids)
         return { first, replay, reused, listed }
       })
     )
@@ -143,7 +143,7 @@ describe("ControlRuntime.layerMemory", () => {
           ),
           { concurrency: 2 }
         )
-        return { outcomes, ids: yield* runtime.listPlanIds }
+        return { outcomes, ids: yield* Effect.map(runtime.pagePlanIds({ limit: 500 }), (page) => page.ids) }
       }), {
       flows: [{
         flowId: "race",

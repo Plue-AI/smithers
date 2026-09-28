@@ -21,7 +21,10 @@ const result = operation === "write"
   : await Effect.runPromise(
     Effect.gen(function*() {
       const control = yield* ControlRuntime.ControlRuntime
-      return { flows: yield* control.listFlows, plans: yield* control.listPlanIds }
+      return {
+        flows: yield* control.listFlows,
+        plans: yield* Effect.map(control.pagePlanIds({ limit: 500 }), (page) => page.ids)
+      }
     }).pipe(Effect.provide(NodeControl.engineDurable(root).runtime))
   )
 process.stdout.write(JSON.stringify(result))

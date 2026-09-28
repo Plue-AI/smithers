@@ -246,6 +246,68 @@ describe("ControlLive.watch snapshots", () => {
 })
 
 describe("ControlLive.watch following", () => {
+  it("delivers every event once when runs start and signal while the walk is between pages", async () => {
+    const secondPage = Deferred.makeUnsafe<void>()
+    const resume = Deferred.makeUnsafe<void>()
+    let pages = 0
+    // One run id per page, and the walk parks before its second page.
+    const paged = Layer.effect(ControlRuntime)(Effect.map(ControlRuntime, (runtime) =>
+      ControlRuntime.of({
+        ...runtime,
+        pageRunIds: (request) =>
+          Effect.gen(function*() {
+            if (++pages === 2) {
+              yield* Deferred.succeed(secondPage, undefined)
+              yield* Deferred.await(resume)
+            }
+            return yield* runtime.pageRunIds({ ...request, limit: 1 })
+          })
+      }))).pipe(Layer.provide(memoryRuntime({ flows })))
+
+    const observed = await run(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const journal = yield* Journal.Journal
+        const before = [yield* start("walk-a"), yield* start("walk-b"), yield* start("walk-c")]
+        const followed: Array<ControlEvent> = []
+        const fiber = yield* control.watch({}).pipe(
+          Stream.runForEach((event) => Effect.sync(() => followed.push(event))),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* Deferred.await(secondPage)
+        // walk-c is not walked yet, so the tail sees its new entry first;
+        // walk-d did not exist when the walk started.
+        yield* control.signal({
+          runId: before[2]!.runId,
+          signal: { name: "mid-walk", payload: null },
+          idempotencyKey: "signal:mid-walk"
+        })
+        const late = yield* start("walk-d")
+        yield* journal.flush
+        yield* Deferred.succeed(resume, undefined)
+        const expected = yield* Stream.runCollect(control.watch({ follow: false }))
+        for (let attempt = 0; attempt < 500 && followed.length < expected.length; attempt++) {
+          yield* Effect.sleep("10 millis")
+        }
+        // Long enough for a duplicate to arrive after the last expected event.
+        yield* Effect.sleep("100 millis")
+        yield* Fiber.interrupt(fiber)
+        return { expected, followed, late, signalled: before[2]!.runId }
+      }),
+      live({ runtime: paged })
+    )
+
+    const key = (event: ControlEvent) => `${String(event.runId)}:${event.sequence}`
+    const followedKeys = observed.followed.map(key)
+    expect(pages).toBeGreaterThan(2)
+    expect(new Set(followedKeys).size).toBe(followedKeys.length)
+    expect(new Set(followedKeys)).toEqual(new Set(observed.expected.map(key)))
+    expect(observed.followed.some((event) => event.runId === observed.late.runId)).toBe(true)
+    expect(observed.followed.find((event) => event.kind === "control.signal.admitted")?.runId).toBe(
+      observed.signalled
+    )
+  })
+
   it("merges every partition with the committed tail and reports each event once", async () => {
     const observed = await run(Effect.gen(function*() {
       const control = yield* Control
@@ -424,8 +486,17 @@ describe("ControlLive.watch durable gap checks", () => {
     const scenario of [
       { name: "an empty durable gap", notices: [2], durable: [] as number[], expected: [2] },
       { name: "an unused sequence and duplicate tail notice", notices: [0, 0, 3], durable: [0, 3], expected: [0, 3] },
-      { name: "a dropped initial committed notice", notices: [2], durable: [1, 2], error: "PersistenceError" },
-      { name: "a dropped later committed notice", notices: [0, 3], durable: [0, 1, 3], error: "PersistenceError" },
+      // The first notice pins the partition and reads its durable history,
+      // so a notice the sliding buffer dropped before the pin is recovered.
+      { name: "a dropped initial committed notice", notices: [2], durable: [1, 2], expected: [1, 2] },
+      // After the pin, a dropped notice is a real loss and fails the stream.
+      {
+        name: "a dropped later committed notice",
+        notices: [0],
+        durable: [0],
+        later: { notices: [3], durable: [0, 1, 3] },
+        error: "PersistenceError"
+      },
       { name: "a failed durable gap read", notices: [2], durable: [], error: "PersistenceError", fail: true }
     ]
   ) {
@@ -434,6 +505,7 @@ describe("ControlLive.watch durable gap checks", () => {
         Effect.gen(function*() {
           const subscribed = Deferred.makeUnsafe<void>()
           const published = yield* PubSub.unbounded<JournalEvent.Entry>()
+          let durable: ReadonlyArray<number> = scenario.durable
           const scripted = Layer.succeed(
             Journal.Journal,
             Journal.makeNoop({
@@ -442,7 +514,7 @@ describe("ControlLive.watch durable gap checks", () => {
                 scenario.fail
                   ? Effect.fail(new Journal.JournalError({ code: "unknown", message: "gap read failed" }))
                   : Effect.succeed({
-                    entries: scenario.durable.filter((seq) => seq > (options.after ?? -1)).slice(0, options.limit).map((
+                    entries: durable.filter((seq) => seq > (options.after ?? -1)).slice(0, options.limit).map((
                       seq
                     ) => entry(seq, "new-partition")),
                     hasMore: false
@@ -452,17 +524,27 @@ describe("ControlLive.watch durable gap checks", () => {
           return yield* Effect.gen(function*() {
             const control = yield* Control
             const allSeen = Deferred.makeUnsafe<void>()
+            const pinnedSeen = Deferred.makeUnsafe<void>()
             let delivered = 0
             const collected = yield* control.watch({}).pipe(
-              Stream.tap(() =>
-                ++delivered === scenario.expected?.length ? Deferred.succeed(allSeen, undefined) : Effect.void
-              ),
+              Stream.tap(() => {
+                ++delivered
+                return Effect.all([
+                  delivered === scenario.notices.length ? Deferred.succeed(pinnedSeen, undefined) : Effect.void,
+                  delivered === scenario.expected?.length ? Deferred.succeed(allSeen, undefined) : Effect.void
+                ])
+              }),
               Stream.runCollect,
               Effect.result,
               Effect.forkChild({ startImmediately: true })
             )
             yield* Deferred.await(subscribed)
             for (const seq of scenario.notices) yield* PubSub.publish(published, entry(seq, "new-partition"))
+            if ("later" in scenario) {
+              yield* Deferred.await(pinnedSeen)
+              durable = scenario.later.durable
+              for (const seq of scenario.later.notices) yield* PubSub.publish(published, entry(seq, "new-partition"))
+            }
             if (!("error" in scenario)) {
               yield* Deferred.await(allSeen)
               yield* PubSub.shutdown(published)

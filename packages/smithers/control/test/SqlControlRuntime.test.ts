@@ -15,6 +15,7 @@ import { Registry } from "@smthrs/registry"
 import { Migrations as RunStoreMigrations, Ownership, RunStore } from "@smthrs/run-store"
 import { Context, type Crypto, Deferred, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as Statement from "effect/unstable/sql/Statement"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -246,7 +247,7 @@ it("keeps SQL query filters consistent with durable summary projections", async 
       yield* sql`INSERT INTO flows_run_parents (seq, child_id, parent_id)
       VALUES (1, 'spawn', 'root'), (2, 'spawn', 'other'), (3, 'round', 'other')`
       yield* sql`UPDATE flows_runs SET parent_run_id = 'spawn', lineage_id = 'lineage' WHERE run_id = 'round'`
-      const all = yield* runtime.listRuns
+      const all = yield* Effect.map(runtime.queryRuns({ limit: 500 }), (page) => page.items)
       const cases: ReadonlyArray<RunQuery["filters"]> = [
         { parentRunId: "root" },
         { parentRunId: "spawn" },
@@ -532,7 +533,7 @@ describe("SqlControlRuntime", () => {
         }).pipe(Effect.orDie)
         const run = yield* restarted.getRun(runId)
         const plan = yield* restarted.getPlan(card.planId)
-        const runs = yield* restarted.listRuns
+        const runs = yield* Effect.map(restarted.queryRuns({ limit: 500 }), (page) => page.items)
         const grants = yield* restarted.grants
         const replay = yield* restarted.lookupMutation(`run:${`run:${card.planId}`}`, "x")
         const resumed = yield* restarted.resume(runId)
@@ -832,7 +833,7 @@ describe("SqlControlRuntime", () => {
           yield* peer`BEGIN IMMEDIATE`
           const reads = yield* Effect.all([
             Effect.exit(Effect.asVoid(runtime.getRun(runId))),
-            Effect.exit(Effect.asVoid(runtime.listRuns)),
+            Effect.exit(Effect.asVoid(runtime.pageRunIds({ limit: 10 }))),
             Effect.exit(Effect.asVoid(
               runtime.queryRuns({ limit: 10, order: "newest", filters: { parentRunId: runId } })
             ))
@@ -1211,4 +1212,85 @@ it("commits the run and its idempotency receipt before handing it to the executo
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+describe("global watch bounds SQL inventory", () => {
+  const partitionPage = 100
+  const runCount = 250
+  const planCount = 120
+
+  /**
+   * Records every run or plan inventory SELECT the watch issues, with the
+   * number of rows it returned. The transformer re-reads each matching
+   * statement once on the same connection, outside itself, so the count is
+   * the real row count SQLite hands back.
+   */
+  const inventoryReads =
+    (reads: Array<{ readonly text: string; readonly rows: number }>): Statement.Transformer => (self, sql) =>
+      Effect.gen(function*() {
+        const [text, params] = self.compile()
+        if (/^\s*(SELECT|WITH)\b/i.test(text) && /\bFROM (flows_runs|control_plans)\b/i.test(text)) {
+          const rows = yield* sql.unsafe(text, params).pipe(
+            Effect.provideService(Statement.CurrentTransformer, undefined),
+            Effect.orDie
+          )
+          reads.push({ text, rows: rows.length })
+        }
+        return self
+      })
+
+  it.each([false, true])(
+    "with N real SQLite runs, no inventory query returns over one page of keys; main SELECT returns all N (follow: %s)",
+    async (follow) => {
+      const reads: Array<{ readonly text: string; readonly rows: number }> = []
+      const observed = await Effect.runPromise(
+        Effect.gen(function*() {
+          const control = yield* Control
+          const journal = yield* Journal.Journal
+          const sql = yield* SqlClient.SqlClient
+          const partitions: Array<string> = []
+          for (let index = 0; index < runCount; index++) {
+            const runId = `inventory-run-${String(index).padStart(3, "0")}`
+            yield* sql`INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
+            VALUES (${runId}, 'pending', ${index}, ${
+              JSON.stringify({ version: 1, flowName: "page/test", payload: {} })
+            })`
+            partitions.push(runId)
+          }
+          for (let index = 0; index < planCount; index++) {
+            const planId = `inventory-plan-${String(index).padStart(3, "0")}`
+            yield* sql`INSERT INTO control_plans (plan_id, card_json, decoded_input_json, decision)
+            VALUES (${planId}, '{}', '{}', 'pending')`
+            partitions.push(`plan:${planId}`)
+          }
+          for (const partition of partitions) {
+            yield* journal.emitDurableUnfenced(
+              new JournalEvent.Input({
+                runId: JournalEvent.RunId.make(partition),
+                sourceId: JournalEvent.SourceId.make("/test"),
+                eventType: "test.seeded",
+                payload: { partition }
+              })
+            )
+          }
+          yield* journal.flush
+          const events = yield* control.watch({ follow }).pipe(
+            Stream.take(partitions.length),
+            Stream.runCollect,
+            Effect.provideService(Statement.CurrentTransformer, inventoryReads(reads))
+          )
+          return { partitions, events }
+        }).pipe(Effect.provide(durable()), Effect.scoped, Effect.orDie)
+      )
+
+      expect(observed.events.map((event) => event.runId).sort()).toEqual([...observed.partitions].sort())
+      expect(reads.length).toBeGreaterThan(0)
+      // One keyed page plus the continuation key, never the whole table.
+      for (const read of reads) expect(read.rows, read.text).toBeLessThanOrEqual(partitionPage + 1)
+      const runPages = reads.filter((read) => /\bFROM flows_runs\b/i.test(read.text))
+      const planPages = reads.filter((read) => /\bFROM control_plans\b/i.test(read.text))
+      expect(runPages).toHaveLength(Math.ceil(runCount / partitionPage))
+      expect(planPages).toHaveLength(Math.ceil(planCount / partitionPage))
+    }
+  )
 })

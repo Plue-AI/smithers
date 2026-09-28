@@ -137,7 +137,7 @@ const accepted = { _tag: "Accepted" as const, seq: JournalEvent.Seq.make(1), sou
  */
 interface RuntimeStub {
   readonly pendingSignals: ControlRuntime["Service"]["pendingSignals"]
-  readonly listRuns: ControlRuntime["Service"]["listRuns"]
+  readonly pageRunIds: ControlRuntime["Service"]["pageRunIds"]
   readonly deliveredSignals: ControlRuntime["Service"]["deliveredSignals"]
   readonly getRun: ControlRuntime["Service"]["getRun"]
   readonly getPlan: ControlRuntime["Service"]["getPlan"]
@@ -175,7 +175,7 @@ const runtimeLayer = (
 ): Layer.Layer<ControlRuntime> => {
   const stub: RuntimeStub = {
     pendingSignals: Effect.succeed([]),
-    listRuns: Effect.succeed([]),
+    pageRunIds: () => Effect.succeed({ ids: [] }),
     deliveredSignals: () => Effect.succeed([]),
     getRun: () => Effect.succeed(launchInput.run),
     getPlan: () => Effect.succeed(launchInput.plan),

@@ -12,7 +12,7 @@ import { RunState } from "@smthrs/engine-store/RunState"
 import * as Journal from "@smthrs/journal/Journal"
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as RunStore from "@smthrs/run-store/RunStore"
-import { Cause, Deferred, Duration, Effect, Fiber, Option, Schema, Scope, Semaphore } from "effect"
+import { Cause, Deferred, Duration, Effect, Fiber, Option, Schema, Scope, Semaphore, Stream } from "effect"
 import * as AuthoredSources from "./AuthoredSources.ts"
 import * as Projection from "./EngineJournalProjection.ts"
 
@@ -26,7 +26,7 @@ export interface Options {
   readonly controlJournal: Journal.Service
   readonly engineState: Pick<DurableEngineState.Service, "runChildren" | "runParents">
   readonly runs: Pick<RunStore.Service, "get"> & Partial<Pick<RunStore.Service, "lineage">>
-  readonly control: Pick<ControlRuntime.Service, "getRun" | "listRuns">
+  readonly control: Pick<ControlRuntime.Service, "getRun" | "pageRunIds">
   /** Overrides {@link orderingGrace}; a suite with no follower to wait for shortens it. */
   readonly orderingGrace?: Duration.Duration | undefined
   /**
@@ -67,6 +67,8 @@ const decodeMarker = Schema.decodeUnknownOption(Schema.Struct({
 const producer = (identity: ReadonlyArray<unknown>): JournalEvent.SourceId =>
   `engine-observation:${Sha256.digestSync(JSON.stringify(identity))}` as JournalEvent.SourceId
 const terminalControl = new Set(["completed", "failed", "cancelled"])
+/** Run ids recovery reads per keyed page. */
+const recoveryPageSize = 100
 
 /**
  * How long a terminal control write waits for this run's projection before it
@@ -467,12 +469,19 @@ export const make = (options: Options) =>
           return uptake
         })
     })
-    const recover = options.control.listRuns.pipe(
-      // Native validation happens before paging history. This includes terminal
-      // control/native rows whose observation was interrupted before settlement.
-      Effect.flatMap((runs) =>
-        Effect.forEach(runs, (run) => admit(run.runId, false), { concurrency: 8, discard: true })
+    // Native validation happens before paging history. This includes terminal
+    // control/native rows whose observation was interrupted before settlement.
+    // Run ids arrive one keyed page at a time, so recovery never holds the
+    // whole run table.
+    const recover = Stream.paginate(undefined as ControlRuntime.RunCursor | undefined, (after) =>
+      options.control.pageRunIds({ after, limit: recoveryPageSize }).pipe(
+        Effect.catchTag("/control/InvalidInput", Effect.die),
+        Effect.map((page) =>
+          [page.ids, Option.fromNullishOr(page.next)] as const
+        )
+      )).pipe(
+        Stream.mapEffect((runId) => admit(runId, false), { concurrency: 8 }),
+        Stream.runDrain
       )
-    )
     return { start, wrap, recover, awaitSettled }
   })
