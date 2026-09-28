@@ -72,7 +72,7 @@ const securityReview = Smithers.SecurityReview({
       threat:
         "A second Smithers workspace or user sharing SMITHERS_POSTGRES_URL reads or overwrites another store's runs because two filenames resolve to the same schema.",
       lookFor: [
-        "SMITHERS_POSTGRES_SCHEMA combined with basename(filename) only, so two stores named smithers.db in different directories map to one schema.",
+        "The unprefixed schema derived from anything other than a digest of resolve(filename), or docs that stop warning that SMITHERS_POSTGRES_SCHEMA plus basename is path-independent by design and needs a distinct prefix per workspace.",
         "A ?schema= query parameter or SMITHERS_POSTGRES_SCHEMA value accepted without restricting it to a safe identifier or rejecting system schemas such as public or pg_catalog.",
         "DATABASE_URL or SMITHERS_POSTGRES_URL silently redirecting a :memory:, file: URI, or explicit SQLite path to a shared PostgreSQL server."
       ],

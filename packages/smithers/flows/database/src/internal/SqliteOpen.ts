@@ -5,6 +5,7 @@
 import { Cause, Context, Duration, Effect, Exit, Layer, Schedule, Schema, Scope } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type * as SqlConnection from "effect/unstable/sql/SqlConnection"
+import { closeSync, openSync } from "node:fs"
 import * as ReleasePolicy from "./ReleasePolicy.ts"
 
 /**
@@ -26,6 +27,29 @@ import * as ReleasePolicy from "./ReleasePolicy.ts"
  * states without condition.
  */
 type InspectTables = (filename: string) => ReadonlyArray<string> | undefined
+
+/**
+ * Creates a plain-path database before SQLite does, so WAL and SHM sidecars
+ * inherit restrictive permissions from the main file on every native driver.
+ * Exclusive creation preserves existing files, including a file another opener
+ * just created, and never follows a planted symlink. SQLite retains ownership
+ * of URI, memory and temporary opens, and of any open whose driver settings
+ * forbid creation (`create` is false).
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const createDatabaseFile = (filename: string, create: boolean, mode = 0o600): void => {
+  if (!create || filename === "" || filename === ":memory:" || filename.startsWith("file:")) return
+  let descriptor: number
+  try {
+    descriptor = openSync(filename, "wx", mode)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return
+    throw error
+  }
+  closeSync(descriptor)
+}
 
 /**
  * The three stable codes covering the rc.0 exclusions this driver enforces.

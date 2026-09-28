@@ -62,7 +62,9 @@ therefore selects another schema.
 
 For stable deployment identity, set `SMITHERS_POSTGRES_SCHEMA`. The adapter
 appends the sanitized filename basename, so `control.db` and `engine.db`
-remain separate stores. Use a distinct prefix per workspace. PostgreSQL stores
+remain separate stores. The directory is not part of the name, so two
+workspaces with the same prefix and a `smithers.db` each share one schema. Use a
+distinct prefix per workspace. PostgreSQL stores
 SQL records; artifacts, native process state, and workspaces still need durable
 host storage.
 

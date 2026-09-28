@@ -5,7 +5,7 @@
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
 import { type Duration, Effect, Layer } from "effect"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
-import { closeSync, openSync, statSync } from "node:fs"
+import { statSync } from "node:fs"
 import { DatabaseSync } from "node:sqlite"
 import * as PostgresSelection from "../internal/PostgresSelection.ts"
 import * as ReleasePolicy from "../internal/ReleasePolicy.ts"
@@ -44,32 +44,13 @@ const readTableNames = (filename: string): ReadonlyArray<string> | undefined => 
 }
 
 /**
- * Create plain-path databases before SQLite does, so WAL and SHM sidecars
- * inherit restrictive permissions from the main file. Exclusive creation
- * preserves existing files, including a file another opener just created.
- * SQLite retains ownership of URI, memory, temporary and read-only opens.
- */
-const createDatabaseFile = (options: NodeDatabaseOptions): void => {
-  const { filename } = options
-  if (filename === "" || filename === ":memory:" || filename.startsWith("file:") || options.sqlite?.readonly) return
-  let descriptor: number
-  try {
-    descriptor = openSync(filename, "wx", options.mode ?? 0o600)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return
-    throw error
-  }
-  closeSync(descriptor)
-}
-
-/**
  * Creates the file as part of building the client, so it happens after the
  * guard has inspected an existing database and never for an open the guard or
  * the runtime check refused.
  */
 const client = (options: NodeDatabaseOptions): Layer.Layer<SqlClient.SqlClient> =>
   Layer.unwrap(Effect.sync(() => {
-    createDatabaseFile(options)
+    SqliteOpen.createDatabaseFile(options.filename, !options.sqlite?.readonly, options.mode)
     return SqliteClient.layer({
       ...options.sqlite,
       busyTimeout: options.busyTimeout ?? options.sqlite?.busyTimeout ?? 0,

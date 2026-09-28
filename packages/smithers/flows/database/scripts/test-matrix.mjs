@@ -1,6 +1,7 @@
 /** Run an owning package's existing suite on SQLite and a real PostgreSQL server. */
 import { spawn, spawnSync } from "node:child_process"
-import { mkdtemp, rm } from "node:fs/promises"
+import { randomBytes } from "node:crypto"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir, userInfo } from "node:os"
 import { join } from "node:path"
@@ -19,6 +20,7 @@ const port = () => new Promise((resolve, reject) => {
   })
 })
 let directory
+let data
 let started = false
 let reports
 const bin = process.env.PG_BIN ?? (process.platform === "darwin" ? "/opt/homebrew/opt/postgresql@18/bin" : "")
@@ -27,13 +29,19 @@ try {
   let url = process.env.SMITHERS_TEST_PG_URL
   if (!url) {
     directory = await mkdtemp(join(tmpdir(), "smithers-sql-matrix-"))
+    data = join(directory, "data")
     const listeningPort = await port()
-    await run(pg("initdb"), ["-D", directory, "-A", "trust", "--encoding=UTF8", "--locale=C"])
+    // The TCP listener is reachable by every local user, so the superuser needs a password.
+    const password = randomBytes(24).toString("hex")
+    const pwfile = join(directory, "pwfile")
+    await writeFile(pwfile, password, { mode: 0o600 })
+    await run(pg("initdb"), ["-D", data, "-A", "scram-sha-256", `--pwfile=${pwfile}`, "--encoding=UTF8", "--locale=C"])
+    await rm(pwfile)
     // Debian builds default the socket to /var/run/postgresql, which only the postgres group may write.
     const socket = process.platform === "win32" ? "" : ` -k ${directory}`
-    await run(pg("pg_ctl"), ["-D", directory, "-l", join(directory, "server.log"), "-o", `-h 127.0.0.1 -p ${listeningPort}${socket}`, "-w", "start"])
+    await run(pg("pg_ctl"), ["-D", data, "-l", join(directory, "server.log"), "-o", `-h 127.0.0.1 -p ${listeningPort}${socket}`, "-w", "start"])
     started = true
-    url = `postgres://${encodeURIComponent(userInfo().username)}@127.0.0.1:${listeningPort}/postgres?sslmode=disable`
+    url = `postgres://${encodeURIComponent(userInfo().username)}:${password}@127.0.0.1:${listeningPort}/postgres?sslmode=disable`
   }
   const { SMITHERS_TEST_PG_URL: ignored, SMITHERS_POSTGRES_URL: ignoredUrl, DATABASE_URL: ignoredDatabase, ...environment } = process.env
   const args = [join(process.cwd(), "node_modules/vitest/vitest.mjs"), "run", ...process.argv.slice(2)]
@@ -63,7 +71,7 @@ try {
   }
   if (failures.length) throw new AggregateError(failures, "Storage matrix failed")
 } finally {
-  if (started) spawnSync(pg("pg_ctl"), ["-D", directory, "-m", "immediate", "-w", "stop"], { stdio: "inherit" })
+  if (started) spawnSync(pg("pg_ctl"), ["-D", data, "-m", "immediate", "-w", "stop"], { stdio: "inherit" })
   if (directory) await rm(directory, { recursive: true, force: true })
   if (reports) await rm(reports, { recursive: true, force: true })
 }

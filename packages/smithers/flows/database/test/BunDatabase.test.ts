@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Cause, Effect, Exit } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -80,6 +80,59 @@ describe("Bun database adapter", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it("creates the database and its WAL sidecars owner-only under a permissive umask", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flows-bun-mode-"))
+    const filename = join(root, "private.sqlite")
+    const previousMask = process.umask(0o022)
+    try {
+      const exit = await Effect.runPromiseExit(
+        Effect.scoped(
+          Effect.gen(function*() {
+            const sql = yield* SqlClient.SqlClient
+            yield* sql`CREATE TABLE flows_migrations (migration_id INTEGER PRIMARY KEY)`
+            return [filename, `${filename}-wal`, `${filename}-shm`].map((path) => statSync(path).mode & 0o777)
+          }).pipe(Effect.provide(BunDatabase.layer({ filename })))
+        )
+      )
+      expect(exit).toEqual(Exit.succeed([0o600, 0o600, 0o600]))
+    } finally {
+      process.umask(previousMask)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves a missing file uncreated for a read-only open", async () => {
+    const root = mkdtempSync(join(tmpdir(), "flows-bun-readonly-"))
+    const filename = join(root, "missing.sqlite")
+    try {
+      const exit = await Effect.runPromiseExit(
+        Effect.scoped(Effect.provide(Effect.void, BunDatabase.layer({ filename, sqlite: { readonly: true } })))
+      )
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(existsSync(filename)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  // The Node shim ignores Bun's create and readwrite flags and creates the file
+  // under the umask, which shows the adapter left creation to the driver.
+  it.each([{ create: false }, { readwrite: false }])(
+    "does not pre-create the file when $0 disables creation",
+    async (sqlite) => {
+      const root = mkdtempSync(join(tmpdir(), "flows-bun-nocreate-"))
+      const filename = join(root, "driver.sqlite")
+      const previousMask = process.umask(0o022)
+      try {
+        await Effect.runPromiseExit(Effect.scoped(Effect.provide(Effect.void, BunDatabase.layer({ filename, sqlite }))))
+        expect(statSync(filename).mode & 0o777).toBe(0o644)
+      } finally {
+        process.umask(previousMask)
+        rmSync(root, { recursive: true, force: true })
+      }
+    }
+  )
 
   it("preserves the driver's refusal of a corrupt file", async () => {
     const root = mkdtempSync(join(tmpdir(), "flows-bun-corrupt-"))

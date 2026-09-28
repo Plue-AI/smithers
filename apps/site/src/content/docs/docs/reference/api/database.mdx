@@ -488,7 +488,10 @@ failed-commit recovery as NodeDatabase. As on Node, `.raw` on a write without
 result columns returns `{ changes, lastInsertRowid }`, so `affectedRows` reads
 its count; the upstream `@effect/sql-sqlite-bun` client returns `[]` there.
 Options contain `filename` and optional
-`sqlite` settings from that Bun driver. Install its matching optional peer;
+`sqlite` settings from that Bun driver. A new plain-path database is created
+with mode `0o600`, masked by the process umask, and its WAL and SHM sidecars
+inherit that mode. Existing files, `file:` URIs, temporary databases and opens
+whose settings disable creation are left to SQLite. Install its matching optional peer;
 consumers using only Node do not need it. Both subpaths re-export the same
 `UnsupportedDatabase` constructor and refinement.
 

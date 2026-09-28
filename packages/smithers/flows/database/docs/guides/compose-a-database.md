@@ -72,9 +72,9 @@ const databaseLayer = (filename: string) =>
   )
 ```
 
-New plain-path databases are created with mode `0o600`, masked by the process
-umask. WAL and SHM sidecars inherit the main file's mode. Set `mode: 0o640`
-when group-readable state is required. Existing files keep their permissions;
+NodeDatabase and BunDatabase create new plain-path databases with mode `0o600`,
+masked by the process umask. WAL and SHM sidecars inherit the main file's mode.
+On Node, set `mode: 0o640` when group-readable state is required. Existing files keep their permissions;
 `file:` URIs, temporary databases and read-only opens are left to SQLite.
 
 The default `busyTimeout` is `0`: the open ladder and `DurableWriter` wait
