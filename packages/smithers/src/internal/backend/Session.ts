@@ -43,6 +43,7 @@ export const observeOrigin = (raw: string): string => {
   }
   return origin
 }
+const tokenPattern = /^[A-Za-z0-9._~+/=-]+$/
 /**
  * @private
  * @since 1.0.0
@@ -220,7 +221,8 @@ export class Session {
     return resolved
   }
   async save(origin: string, token: string, metadata: RecordValue = {}) {
-    if (!token.trim() || /[\r\n\s]/.test(token.trim())) throw new Error("Invalid login token")
+    // Tokens reach `security -i` and the auth file; admit only token characters, never quotes or whitespace.
+    if (!tokenPattern.test(token)) throw new Error("Invalid login token")
     const target = this.target(origin)
     const stored = await this.keyring("set", target.host, token)
     this.write(

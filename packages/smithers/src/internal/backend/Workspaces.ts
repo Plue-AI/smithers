@@ -12,7 +12,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { APIError, type Client, esc, list, object, pick, positive, query, str, type Values } from "./Client.ts"
 import { lines } from "./Local.ts"
 import type { Handler } from "./Resources.ts"
-import { durable, quote, remote } from "./SSH.ts"
+import { durable, type Endpoint, hostKeys, quote, remote } from "./SSH.ts"
 
 const base = (c: Client, o: Values) => c.repoPath(o.repo) + "/workspaces"
 /**
@@ -29,14 +29,16 @@ export const resolveID = async (c: Client, a: Values, o: Values) => {
   if (!id) throw new Error("Workspace response omitted id")
   return id
 }
-const sshInfo = async (c: Client, path: string, user: unknown) => {
+const sshInfo = async (c: Client, path: string, user: unknown): Promise<Endpoint> => {
   const deadline = Date.now() + (Number(c.env.SMITHERS_WORKSPACE_SSH_POLL_TIMEOUT_MS) || 120_000)
   do {
     try {
       const info = object(
         await c.request("GET", path + "/ssh" + query({ user: user && user !== "developer" ? user : undefined }))
       )
-      if (info.ssh_command || info.command) return str(info.ssh_command || info.command)
+      if (info.ssh_command || info.command) {
+        return { command: str(info.ssh_command || info.command), hostKeys: hostKeys(info.host_keys) }
+      }
     } catch (error) {
       if (error instanceof APIError && ![404, 409, 423, 425, 429, 502, 503, 504].includes(error.status)) throw error
     }
@@ -162,7 +164,7 @@ workspaces["workspace ssh"] = async (c, a, o) => {
   c.runtime.exit?.(result.code)
   return { connected: result.code === 0, workspace_id: id }
 }
-const seed = async (c: Client, ssh: string, agents: Array<string>) => {
+const seed = async (c: Client, ssh: Endpoint, agents: Array<string>) => {
   for (const agent of [...new Set(agents.map((value) => value.toLowerCase()))]) {
     let path: string, data: string
     if (agent === "codex") {

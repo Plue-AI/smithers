@@ -9,11 +9,13 @@
  *
  * 1. macOS with Smithers.app installed: `smithers://open/<owner>/<repo>`
  *    (apps/app/src/bun/DeepLink.ts) through LaunchServices.
- * 2. The smithers checkout itself (its remote names smithersai/smithers and
- *    it carries apps/app): the dev build, `pnpm --dir apps/app dev`, handed
- *    the same link as `SMITHERS_OPEN_URL`, with the terminal inherited. The
- *    remote check keeps `smthrs .` in any other checkout from running that
- *    checkout's package scripts.
+ * 2. The smithers checkout itself (its remote is smithersai/smithers on
+ *    github.com or smithers.sh and it carries apps/app): the dev build,
+ *    `pnpm --dir apps/app dev`, handed the same link as `SMITHERS_OPEN_URL`,
+ *    with the terminal inherited. The remote check, host included, keeps
+ *    `smthrs .` in any other checkout, such as a clone of
+ *    `https://evil.example/smithersai/smithers`, from running that checkout's
+ *    package scripts.
  * 3. Otherwise the web page, `https://smithers.sh/<owner>/<repo>`, printed.
  *
  * @since 1.0.0
@@ -40,6 +42,14 @@ export const webOrigin = "https://smithers.sh"
  * @since 1.0.0
  */
 export const smithersRepo = "smithersai/smithers"
+
+/**
+ * The hosts whose smithersai/smithers remote runs the dev build.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const smithersHosts: ReadonlySet<string> = new Set(["github.com", "smithers.sh", "ssh.smithers.sh"])
 
 const SEGMENT = /^[\w.-]+$/
 
@@ -211,8 +221,9 @@ const installedApp = (host: Host): string | undefined =>
     : undefined
 
 /** The checkout root when it is the smithers repository, whose app the dev build runs. */
-const smithersCheckout = (host: Host, directory: string, repo: string): string | null => {
-  if (repo.toLowerCase() !== smithersRepo) return null
+const smithersCheckout = (host: Host, directory: string): string | null => {
+  const remote = firstRemote(host, directory)
+  if (remote === null || repoFromRemote(remote, smithersHosts)?.toLowerCase() !== smithersRepo) return null
   const root = host.read("git", ["rev-parse", "--show-toplevel"], directory)?.trim() ||
     host.read("jj", ["root"], directory)?.trim()
   return root && host.exists(join(root, "apps", "app", "electrobun.config.ts")) ? root : null
@@ -234,7 +245,7 @@ export const open = async (host: Host, directory: string | undefined): Promise<O
     const status = await host.launch("open", ["-a", app, link], { cwd })
     if (status === 0) return { repo, opened: "app", url: link }
   }
-  const checkout = smithersCheckout(host, cwd, repo)
+  const checkout = smithersCheckout(host, cwd)
   if (checkout !== null) {
     const status = await host.launch("pnpm", ["--dir", join(checkout, "apps", "app"), "dev"], {
       cwd: checkout,

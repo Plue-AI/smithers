@@ -4,7 +4,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto"
-import { mkdir } from "node:fs/promises"
+import { mkdir, rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Readable } from "node:stream"
 import { finished } from "node:stream/promises"
@@ -17,10 +17,41 @@ import { spawn } from "./Process.ts"
  */
 export const quote = (text: string): string => `'${text.replaceAll("'", `'"'"'`)}'`
 /**
+ * A workspace SSH endpoint as the authenticated API answers it: the command and
+ * the gateway host keys (`algorithm base64`) it advertises.
+ *
  * @private
  * @since 1.0.0
  */
-export const sshArgs = async (c: Client, command: string, tty = false): Promise<Array<string>> => {
+export interface Endpoint {
+  readonly command: string
+  readonly hostKeys: ReadonlyArray<string>
+}
+const hostKeyAlias = "smithers-workspace"
+/**
+ * The advertised host keys of an API `/ssh` response, validated as
+ * `algorithm base64` pairs.
+ *
+ * @private
+ * @since 1.0.0
+ */
+export const hostKeys = (value: unknown): Array<string> =>
+  (Array.isArray(value) ? value : []).map((entry) => {
+    const key = entry !== null && typeof entry === "object" ? entry as Record<string, unknown> : {}
+    const line = typeof key.known_hosts_line === "string" && key.known_hosts_line.trim()
+      ? key.known_hosts_line.trim()
+      : `${String(key.algorithm ?? "")} ${String(key.public_key ?? "")}`
+    if (!/^[a-z0-9@.-]+ [A-Za-z0-9+/]+={0,2}$/.test(line)) throw new Error("Invalid workspace SSH host key")
+    return line
+  })
+/**
+ * @private
+ * @since 1.0.0
+ */
+export const sshArgs = async (c: Client, endpoint: Endpoint, tty = false): Promise<Array<string>> => {
+  const command = endpoint.command
+  // The gateway must prove a key the authenticated API advertised; never trust on first use.
+  if (endpoint.hostKeys.length === 0) throw new Error("Workspace SSH host keys unavailable; refusing to connect")
   const words: Array<string> = []
   let token = "", quoting = "", escaped = false
   for (const char of command) {
@@ -76,6 +107,14 @@ export const sshArgs = async (c: Client, command: string, tty = false): Promise<
   if (!destination) throw new Error("SSH destination required")
   const directory = join(c.env.XDG_STATE_HOME || join(c.home, ".local", "state"), "smithers")
   await mkdir(directory, { recursive: true, mode: 0o700 })
+  const lines = endpoint.hostKeys.map((key) => `${hostKeyAlias} ${key}\n`).join("")
+  const knownHosts = join(
+    directory,
+    `workspace-known-hosts-${createHash("sha256").update(lines).digest("hex").slice(0, 16)}`
+  )
+  const temporary = `${knownHosts}.${randomUUID()}.tmp`
+  await writeFile(temporary, lines, { mode: 0o600 })
+  await rename(temporary, knownHosts)
   return [
     ...(tty ? ["-tt"] : []),
     "-o",
@@ -83,9 +122,13 @@ export const sshArgs = async (c: Client, command: string, tty = false): Promise<
     "-o",
     `ConnectTimeout=${Number(c.env.SMITHERS_WORKSPACE_SSH_CONNECT_TIMEOUT_SECONDS) || 15}`,
     "-o",
-    "StrictHostKeyChecking=accept-new",
+    "StrictHostKeyChecking=yes",
     "-o",
-    `UserKnownHostsFile=${join(directory, "known_hosts")}`,
+    `HostKeyAlias=${hostKeyAlias}`,
+    "-o",
+    `UserKnownHostsFile=${knownHosts}`,
+    "-o",
+    "GlobalKnownHostsFile=/dev/null",
     "-o",
     "LogLevel=ERROR",
     "-o",
@@ -101,14 +144,14 @@ export const sshArgs = async (c: Client, command: string, tty = false): Promise<
  */
 export const remote = async (
   c: Client,
-  command: string,
+  endpoint: Endpoint,
   script: string | undefined,
   timeout = 120_000,
   input?: Readable,
   interactive = false,
   stream = false
 ): Promise<{ code: number; stdout: Buffer; stderr: Buffer }> => {
-  const args = await sshArgs(c, command, interactive)
+  const args = await sshArgs(c, endpoint, interactive)
   if (script !== undefined) args.push(script)
   const child = spawn("ssh", args, {
     env: c.env,

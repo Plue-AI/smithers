@@ -8,7 +8,8 @@ import * as tar from "tar"
 import { afterEach, describe, expect, it } from "vitest"
 import { Client } from "../src/internal/backend/Client.ts"
 import { archiveFilter, copyEndpoint, copyScript } from "../src/internal/backend/Copy.ts"
-import { durable, quote, sshArgs } from "../src/internal/backend/SSH.ts"
+import { durable, hostKeys, quote, sshArgs } from "../src/internal/backend/SSH.ts"
+const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 import { workspaceBody } from "../src/internal/backend/Workspaces.ts"
 const run = promisify(execFile)
 const dirs: string[] = []
@@ -41,14 +42,37 @@ describe("workspace SSH boundary", () => {
     "ssh -i 'unterminated"
   ])("refuses backend command injection: %s", async (command) => {
     const { client } = await fixture()
-    await expect(sshArgs(client, command)).rejects.toThrow()
+    await expect(sshArgs(client, { command, hostKeys: [hostKey] })).rejects.toThrow()
   })
-  it("preserves allowed connection options and selects its own host-key store", async () => {
-    const { home, client } = await fixture(),
-      args = await sshArgs(client, "ssh -p 2222 -i \"/tmp/key file\" -o ConnectTimeout=3 developer@guest")
-    expect(args).toContain("StrictHostKeyChecking=accept-new")
-    expect(args).toContain(`UserKnownHostsFile=${home}/smithers/known_hosts`)
+  it("preserves allowed connection options and pins the advertised host keys", async () => {
+    const { client } = await fixture(),
+      args = await sshArgs(client, {
+        command: "ssh -p 2222 -i \"/tmp/key file\" -o ConnectTimeout=3 developer@guest",
+        hostKeys: [hostKey]
+      })
+    expect(args).toContain("StrictHostKeyChecking=yes")
+    expect(args).toContain("HostKeyAlias=smithers-workspace")
+    expect(args).toContain("GlobalKnownHostsFile=/dev/null")
+    const knownHosts = args.find((arg) => arg.startsWith("UserKnownHostsFile="))!.slice("UserKnownHostsFile=".length)
+    expect(await readFile(knownHosts, "utf8")).toBe(`smithers-workspace ${hostKey}\n`)
     expect(args.slice(-7)).toEqual(["-p", "2222", "-i", "/tmp/key file", "-o", "ConnectTimeout=3", "developer@guest"])
+  })
+  it("never trusts a workspace host on first use", async () => {
+    const { client } = await fixture()
+    await expect(sshArgs(client, { command: "ssh developer@guest", hostKeys: [] })).rejects.toThrow("host keys")
+  })
+  it("reads advertised host keys and refuses malformed ones", () => {
+    expect(hostKeys([{ algorithm: "ssh-ed25519", public_key: hostKey.split(" ")[1] }, { known_hosts_line: hostKey }]))
+      .toEqual([hostKey, hostKey])
+    expect(hostKeys(undefined)).toEqual([])
+    for (
+      const bad of [{}, { known_hosts_line: "guest ssh-ed25519 AAAA" }, {
+        algorithm: "ssh-ed25519",
+        public_key: "a\nb"
+      }]
+    ) {
+      expect(() => hostKeys([bad])).toThrow("host key")
+    }
   })
   it("quotes metacharacters as data", async () => {
     const input = "a'$(echo nope); b\nhello"

@@ -9,6 +9,7 @@ import { APIError, Client, object } from "../src/internal/backend/Client.ts"
 import { handlers } from "../src/internal/backend/Commands.ts"
 import { repositories } from "../src/internal/backend/Repositories.ts"
 import { durable, sshArgs } from "../src/internal/backend/SSH.ts"
+const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 import { workspaces } from "../src/internal/backend/Workspaces.ts"
 const dirs: string[] = [], cwd = process.cwd()
 afterEach(async () => {
@@ -239,11 +240,14 @@ describe("SSH validation and durable receipt errors", () => {
     "ssh host\\"
   ])("rejects malformed SSH command %j", async (command) => {
     const { c } = await fixture()
-    await expect(sshArgs(c, command)).rejects.toThrow()
+    await expect(sshArgs(c, { command, hostKeys: [hostKey] })).rejects.toThrow()
   })
   it("preserves escaped identity paths, booleans and address-family flags", async () => {
     const { c } = await fixture()
-    const args = await sshArgs(c, " ssh  -4 -6 -t -tt -T -i /tmp/key\\ file -oCompression=yes host ", true)
+    const args = await sshArgs(c, {
+      command: " ssh  -4 -6 -t -tt -T -i /tmp/key\\ file -oCompression=yes host ",
+      hostKeys: [hostKey]
+    }, true)
     expect(args).toContain("/tmp/key file")
     expect(args[0]).toBe("-tt")
   })

@@ -505,7 +505,7 @@ describe("migrated command dispatch", () => {
         const post = (state: string) =>
           fetch(callback, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", origin: new URL(callback).origin },
             body: JSON.stringify({ callback_state: state, token: "browser-secret" })
           })
         expect((await post("wrong")).status).toBe(403)

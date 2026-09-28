@@ -51,13 +51,20 @@ export const browserLogin = async (
   timeout = 300_000
 ): Promise<Values> => {
   const state = randomBytes(32).toString("base64url")
-  let finish!: (value: Values) => void, fail!: (error: Error) => void, finished = false
+  let finish!: (value: Values) => void, fail!: (error: Error) => void, finished = false, loopback = ""
   const result = new Promise<Values>((resolve, reject) => {
     finish = resolve
     fail = reject
   })
   const server = createServer(async (req, res) => {
     res.setHeader("cache-control", "no-store")
+    res.setHeader("referrer-policy", "no-referrer")
+    res.setHeader("x-frame-options", "DENY")
+    // A DNS-rebinding page reaches this port under its own Host and Origin.
+    if (`http://${req.headers.host}` !== loopback) {
+      res.writeHead(403).end()
+      return
+    }
     if (req.url?.split("?")[0] !== "/callback") {
       res.writeHead(404).end()
       return
@@ -69,6 +76,10 @@ export const browserLogin = async (
     }
     if (req.method !== "POST") {
       res.writeHead(405).end()
+      return
+    }
+    if (req.headers.origin !== loopback) {
+      res.writeHead(403).end()
       return
     }
     if (!req.headers["content-type"]?.toLowerCase().startsWith("application/json")) {
@@ -104,6 +115,7 @@ export const browserLogin = async (
     server.listen(0, "127.0.0.1", resolve)
   })
   const port = (server.address() as { port: number }).port
+  loopback = `http://127.0.0.1:${port}`
   const url = `${origin}/api/auth/github/cli?${new URLSearchParams({
     callback_port: String(port),
     callback_state: state,

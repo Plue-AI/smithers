@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Client } from "../src/internal/backend/Client.ts"
 import { copy } from "../src/internal/backend/Copy.ts"
 import { remote } from "../src/internal/backend/SSH.ts"
+const guest = {
+  command: "ssh guest",
+  hostKeys: ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"]
+}
 const dirs: string[] = []
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -29,7 +33,13 @@ const fixture = async (script = "for last do :; done\nexec /bin/bash -c \"$last\
     },
     exit
   })
-  vi.spyOn(c, "request").mockResolvedValue({ ssh_command: "ssh guest" })
+  vi.spyOn(c, "request").mockResolvedValue({
+    ssh_command: "ssh guest",
+    host_keys: [{
+      algorithm: "ssh-ed25519",
+      public_key: "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+    }]
+  })
   return { c, home, exit }
 }
 const options = { repo: "owner/repo" }
@@ -106,7 +116,7 @@ describe("actual copy transport", () => {
 describe("SSH process receipts", () => {
   it("preserves stdout, stderr, stdin, and nonzero status", async () => {
     const { c } = await fixture()
-    const result = await remote(c, "ssh guest", "cat; printf error >&2; exit 7", 1000, Readable.from(["input"]))
+    const result = await remote(c, guest, "cat; printf error >&2; exit 7", 1000, Readable.from(["input"]))
     expect(result.code).toBe(7)
     expect(result.stdout.toString()).toBe("input")
     expect(result.stderr.toString()).toBe("error")
@@ -117,7 +127,7 @@ describe("SSH process receipts", () => {
       yield Buffer.from("partial")
       throw new Error("stdin source broke")
     })())
-    await expect(remote(c, "ssh guest", "cat >/dev/null", 5000, broken)).rejects.toThrow("stdin source broke")
+    await expect(remote(c, guest, "cat >/dev/null", 5000, broken)).rejects.toThrow("stdin source broke")
   })
   it("returns the guest's status when it exits without reading its stdin", async () => {
     const { c } = await fixture()
@@ -127,16 +137,16 @@ describe("SSH process receipts", () => {
         await new Promise((resolve) => setImmediate(resolve))
       }
     })())
-    expect((await remote(c, "ssh guest", "exit 0", 5000, endless)).code).toBe(0)
+    expect((await remote(c, guest, "exit 0", 5000, endless)).code).toBe(0)
   })
   it("times out an unresolved remote process", async () => {
     const { c } = await fixture("exec sleep 10\n")
-    await expect(remote(c, "ssh guest", "command", 10)).rejects.toThrow("timed out")
+    await expect(remote(c, guest, "command", 10)).rejects.toThrow("timed out")
   })
   it("streams output without losing the completion receipt", async () => {
     const { c } = await fixture()
     const output = vi.spyOn(c, "output")
-    expect((await remote(c, "ssh guest", "printf hello; printf error >&2", 1000, undefined, false, true)).code).toBe(0)
+    expect((await remote(c, guest, "printf hello; printf error >&2", 1000, undefined, false, true)).code).toBe(0)
     expect(output).toHaveBeenCalled()
   })
 })

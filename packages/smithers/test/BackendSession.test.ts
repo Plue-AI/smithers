@@ -105,11 +105,15 @@ describe("native login stores", () => {
     expect(await readFile(session.configPath, "utf8")).not.toContain("legacy-secret")
     expect(await session.resolve()).toBeUndefined()
   })
-  it.each(["", "a b", "a\nb"])("rejects invalid stored tokens %j", async (token) => {
-    const { session } = await fixture()
-    await expect(session.save("https://api.example.test", token)).rejects.toThrow("token")
-    expect(spawn).not.toHaveBeenCalled()
-  })
+  it.each(["", "a b", "a\nb", " padded", "x' -w y' ; delete-keychain", "x\"y", "x\\y", "x$(id)"])(
+    "rejects invalid stored tokens %j before any keychain command",
+    async (token) => {
+      Object.defineProperty(process, "platform", { value: "darwin" })
+      const { session } = await fixture()
+      await expect(session.save("https://api.example.test", token)).rejects.toThrow("token")
+      expect(spawn).not.toHaveBeenCalled()
+    }
+  )
   it.each([
     "ftp://example.test",
     "https://user:password@example.test",

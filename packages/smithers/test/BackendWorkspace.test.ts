@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { APIError, Client } from "../src/internal/backend/Client.ts"
 import { durable, remote } from "../src/internal/backend/SSH.ts"
 import { claudeScript, workspaces, workspaceSSH } from "../src/internal/backend/Workspaces.ts"
+const key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+const hostKey = { algorithm: "ssh-ed25519", public_key: key.split(" ")[1], known_hosts_line: key }
+const guest = { command: "ssh guest", hostKeys: [key] }
 const state = vi.hoisted(() => ({
   terminal: "stopped",
   sent: [] as unknown[],
@@ -82,7 +85,7 @@ const fixture = async (environment: Record<string, string> = {}) => {
     exit,
     signal: controller.signal
   })
-  const request = vi.spyOn(c, "request").mockResolvedValue({ ssh_command: "ssh guest" })
+  const request = vi.spyOn(c, "request").mockResolvedValue({ ssh_command: "ssh guest", host_keys: [hostKey] })
   vi.mocked(remote).mockResolvedValue(success())
   vi.mocked(durable).mockResolvedValue(success())
   return { c, home, exit, request, controller }
@@ -92,9 +95,13 @@ describe("box remote execution", () => {
   it("polls transient SSH errors and preserves requested user", async () => {
     const { c, request } = await fixture({ SMITHERS_WORKSPACE_SSH_POLL_TIMEOUT_MS: "1000" })
     request.mockRejectedValueOnce(new APIError(503, {}, "GET", "/ssh", new Headers())).mockResolvedValueOnce({
-      command: "ssh ready"
+      command: "ssh ready",
+      host_keys: [hostKey]
     })
-    expect(await workspaceSSH(c, "box", { ...options, user: "root" })).toBe("ssh ready")
+    expect(await workspaceSSH(c, "box", { ...options, user: "root" })).toEqual({
+      command: "ssh ready",
+      hostKeys: [key]
+    })
     expect(request.mock.calls[0]![1]).toEqual(expect.stringContaining("/ssh?user=root"))
   })
   it("stops immediately for denied SSH access", async () => {
@@ -118,7 +125,7 @@ describe("box remote execution", () => {
     const { c, exit } = await fixture()
     vi.mocked(remote).mockResolvedValue(success("", 7))
     expect(await workspaces["workspace ssh"]!(c, { id: "box" }, options)).toMatchObject({ connected: false })
-    expect(remote).toHaveBeenCalledWith(c, "ssh guest", undefined, 0, undefined, true)
+    expect(remote).toHaveBeenCalledWith(c, guest, undefined, 0, undefined, true)
     expect(exit).toHaveBeenCalledWith(7)
   })
   it("uses a durable command receipt and passes shell inputs as data", async () => {
@@ -157,7 +164,7 @@ describe("box remote execution", () => {
     expect(await workspaces["workspace exec"]!(c, { id: "box" }, { ...options, command: "cat", timeout: 0 }))
       .toMatchObject({ exit_code: 0 })
     expect(durable).not.toHaveBeenCalled()
-    expect(remote).toHaveBeenCalledWith(c, "ssh guest", expect.stringContaining("cat"), 0, process.stdin, false, true)
+    expect(remote).toHaveBeenCalledWith(c, guest, expect.stringContaining("cat"), 0, process.stdin, false, true)
   })
   it.each([{ command: "" }, { command: "true", timeout: -1 }, { command: "true", env: ["bad-key=value"] }])(
     "rejects invalid exec options %j",
@@ -222,7 +229,7 @@ describe("issue to landing", () => {
       path.endsWith("/issues/7")
         ? { title: "Fix $quoting", body: "Details", labels: [{ name: "bug" }] }
         : path.endsWith("/ssh")
-        ? { ssh_command: "ssh guest" }
+        ? { ssh_command: "ssh guest", host_keys: [hostKey] }
         : path.endsWith("/landings")
         ? { number: 12 }
         : method === "POST"

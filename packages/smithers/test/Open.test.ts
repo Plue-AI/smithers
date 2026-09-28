@@ -135,6 +135,24 @@ describe("open", () => {
     expect(launches).toEqual([])
   })
 
+  it("never runs the dev build for smithersai/smithers on a foreign host", async () => {
+    for (
+      const remote of [
+        "https://evil.example/smithersai/smithers.git",
+        "git@evil.example:smithersai/smithers.git",
+        "https://github.com@evil.example/smithersai/smithers.git"
+      ]
+    ) {
+      const { host: h, launches } = host({ remote, files: ["/work/checkout/apps/app/electrobun.config.ts"] })
+      expect(await Open.open(h, "/work/checkout")).toEqual({
+        repo: "smithersai/smithers",
+        opened: "web",
+        url: "https://smithers.sh/smithersai/smithers"
+      })
+      expect(launches).toEqual([])
+    }
+  })
+
   it("prefers the installed app inside the smithers checkout", async () => {
     const { host: h, launches } = host({
       remote: "git@github.com:smithersai/smithers.git",

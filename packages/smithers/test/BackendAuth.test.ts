@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
@@ -39,7 +40,7 @@ const callback = (url: string) => {
 const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
   fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json", origin: new URL(url).origin, ...headers },
     body: JSON.stringify(body)
   })
 
@@ -66,6 +67,42 @@ describe("browser consent", () => {
       })()
     })
     expect(await login).toMatchObject({ token: "admin-secret" })
+    await complete
+  })
+  it("refuses a DNS-rebinding page's Host or Origin even with the callback state", async () => {
+    const { c } = await fixture()
+    let complete!: Promise<void>
+    const login = browserLogin(c, "https://api.example.test", false, "", (url) => {
+      complete = (async () => {
+        const { url: destination, params } = callback(url), state = params.get("callback_state")!
+        const port = Number(new URL(destination).port)
+        const rebound = (method: string, body?: string) =>
+          new Promise<number>((resolve, reject) => {
+            const req = httpRequest({
+              host: "127.0.0.1",
+              port,
+              path: "/callback",
+              method,
+              headers: { host: `evil.example:${port}`, "content-type": "application/json" }
+            }, (res) => {
+              res.resume()
+              resolve(res.statusCode ?? 0)
+            })
+            req.once("error", reject)
+            req.end(body)
+          })
+        expect(await rebound("GET")).toBe(403)
+        expect(await rebound("POST", JSON.stringify({ callback_state: state, token: "stolen" }))).toBe(403)
+        expect(
+          (await post(destination, { callback_state: state, token: "stolen" }, {
+            origin: `http://evil.example:${port}`
+          }))
+            .status
+        ).toBe(403)
+        expect((await post(destination, { callback_state: state, token: "browser-secret" })).status).toBe(200)
+      })()
+    })
+    expect(await login).toMatchObject({ token: "browser-secret" })
     await complete
   })
   it.each([{ token: " " }, { token: "a b" }, { token: "secret", expires_at: "2000-01-01" }])(
