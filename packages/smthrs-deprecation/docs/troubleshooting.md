@@ -87,11 +87,12 @@ command. Not on npm yet; see [Installation](/docs/installation/#use-the-librarie
 
 **Symptom.** The package installed, and no `smthrs` executable appeared.
 
-**Cause.** This package ships no `bin`. That is deliberate: a binary here would
-shadow the real one on every machine that installs both.
+**Cause.** A local install puts this package's `smthrs` and `smithers`
+executables in `node_modules/.bin`, not on `PATH`. An install that resolved the
+`latest` dist-tag got `smthrs@0.35.0` instead of this package.
 
-**Fix.** Install the command line, which owns both spellings of the
-executable. Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
+**Fix.** Run `npx smthrs@next <verb>`, or install the command line, which owns
+both spellings of the executable. Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
 
 ## The build succeeded and the notice never printed
 

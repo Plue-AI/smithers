@@ -54,6 +54,31 @@ describe("the published manifest", () => {
     expect(manifest.publishConfig?.tag).toBe("next")
   })
 
+  it("is the manifest the notice page's publication table describes", () => {
+    // A reader decides what `npm install smthrs` runs and puts on PATH from
+    // this table, so it must name every bin and every dependency the manifest
+    // ships, and never claim the package has none.
+    const page = readFileSync(url("../docs/notice.md"), "utf8")
+    const rows = page.split("\n").filter((line) => line.startsWith("| "))
+    const bins = Object.keys(manifest.bin as Record<string, string>)
+    const dependencies = Object.keys(manifest.dependencies as Record<string, string>)
+
+    // Anchor on the row that states the manifest's `bin` field, not any row
+    // that happens to mention the names, so a row saying the executables come
+    // from elsewhere cannot satisfy this.
+    const binRow = rows.find((row) => /^\| `bin` is /.test(row))
+    expect(binRow).toBeDefined()
+    for (const bin of bins) expect(binRow).toContain(`\`${bin}\``)
+    // npm never replaces another package's global bin without --force, so the
+    // row must not claim a plain global install overwrites it.
+    expect(binRow).not.toMatch(/replaces any other package/)
+    expect(binRow).toMatch(/EEXIST/)
+    expect(rows.find((row) => dependencies.every((name) => row.includes(`\`${name}\``)) && row.includes("exact")))
+      .toBeDefined()
+    expect(page).not.toMatch(/No `bin`|No dependencies|ships no `bin`/)
+    expect(readFileSync(url("../docs/troubleshooting.md"), "utf8")).not.toMatch(/ships no `bin`/)
+  })
+
   it("declares the repository's supported Node versions", () => {
     // This command runs the CLI directly, so the compatibility entry must
     // carry the CLI's supported versions, including its Node 26.4 floor.

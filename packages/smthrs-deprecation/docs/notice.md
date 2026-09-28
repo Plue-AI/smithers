@@ -48,17 +48,17 @@ no explanation attached.
 
 ## How the package is published
 
-Six manifest decisions carry the notice to a person rather than to a log
-nobody sees.
+Six manifest decisions decide what an install gets and carry the notice to a
+person rather than to a log nobody sees.
 
-| Decision                          | Why it is that way                                                                                                                                           |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sideEffects: true`               | A bundler told this module is side-effect free may drop the import, and dropping the import drops the notice.                                                |
-| `exports` is `.` and nothing else | Every 0.x subpath fails to resolve instead of resolving to something new. See [Troubleshooting](./troubleshooting.md).                                       |
-| No `bin`                          | The `smthrs` and `smithers` executables come from `@smthrs/cli`. A binary here would shadow them on every machine that installs both.                        |
-| No dependencies                   | Installing the notice installs nothing else.                                                                                                                 |
-| Both entry points throw           | `dist/esm/index.js` throws on `import`, and `dist/cjs/index.js` throws on `require`.                                                                         |
-| `engines.node` is `>=26.4.0`      | Matches the [Node version Smithers 1.0 requires](/migration/compatibility). Lowering it would let the notice install where the packages it names cannot run. |
+| Decision                          | Why it is that way                                                                                                                                                                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sideEffects: true`               | A bundler told this module is side-effect free may drop the import, and dropping the import drops the notice.                                                                                                                                     |
+| `exports` is `.` and nothing else | Every 0.x subpath fails to resolve instead of resolving to something new. See [Troubleshooting](./troubleshooting.md).                                                                                                                            |
+| `bin` is `smthrs` and `smithers`  | Both names run `@smthrs/cli`'s own executable, so `npx smthrs <verb>` works. A global install links both names onto `PATH`. If another package already owns a global `smithers`, npm refuses with `EEXIST`; `npm install -g --force` replaces it. |
+| One dependency, exact-pinned      | `@smthrs/cli` at this package's own version, never a range, so an install cannot pull a later or squatted CLI. Installing the notice installs the CLI and its dependencies.                                                                       |
+| Both entry points throw           | `dist/esm/index.js` throws on `import`, and `dist/cjs/index.js` throws on `require`.                                                                                                                                                              |
+| `engines.node` is `>=26.4.0`      | Matches the [Node version Smithers 1.0 requires](/migration/compatibility). Lowering it would let the notice install where the packages it names cannot run.                                                                                      |
 
 A dynamic `import()` rejects with the error rather than throwing at the call
 site, because the throw happens while the module evaluates. A `require` of the
