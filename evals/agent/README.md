@@ -187,8 +187,10 @@ node evals/agent/character/run.ts --suite <dir> --calibrate        # judge agree
 Offline runs spend nothing and work under Bun or Node. `--live` needs Node (the
 egress HTTP client uses Undici's dispatcher, which Bun lacks) and runs on the
 owner's subscription login (`SMITHERS_OPENAI_AUTH=chatgpt`, the codex login in
-`$CODEX_HOME/auth.json`); API key variables are removed. At most
-`--concurrency` (default 2) conversations run at once.
+`$CODEX_HOME/auth.json`); every `*_API_KEY` variable and the metered account
+pool and model proxy variables are removed. At most `--concurrency` (default 2)
+conversations run at once. `--label` names the results file, so it is one path
+segment of letters, digits, `.`, `_` and `-`.
 
 | File | What it is |
 | --- | --- |
@@ -223,7 +225,10 @@ rolled back, or that it didn't; `pr_open`,
 priority, `duplicateOf`) change the turn's copy of the issue list, which
 `issues_search` and `issue_read` then see. A world grants them per role like
 any other tool. A case patch applies `set`, then `remove`, then `add`, then
-`pages`, so removing and re-adding an issue replaces it.
+`pages`, so removing and re-adding an issue replaces it. A private wiki page is
+the `personal-assistant` role's alone: other roles can neither read, list nor
+overwrite it. Symlinks under `wiki/` and `repo/`, and those two directories
+themselves when they are symlinks, are skipped.
 
 `--rescore <results.json>` scores an earlier live run again with the current
 cases and checks without calling the role's model; with `--judge` it judges a

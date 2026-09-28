@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as World from "./world.ts"
 
@@ -121,5 +123,64 @@ describe("work tools", () => {
     expect(World.call(world, role, state, "issue_read", { number: 10 })).toMatchObject({ kind: "pr", closes: 9, author: role })
     expect((World.call(world, role, state, "issues_search", { kind: "pr", state: "open" }) as Array<unknown>).length).toBe(2)
     expect(world.data.issues.map((issue) => issue.number)).toEqual([7, 8])
+  })
+})
+
+describe("wiki privacy", () => {
+  const secret = { slug: "will-health", title: "Health", text: "Clinic on Tuesday", private: true, owner: "personal-assistant" }
+
+  test("a role that cannot read a private page cannot overwrite it into a team page", () => {
+    const world = World.load(example, { pages: [secret] })
+    const state = World.initialState(world)
+    expect(World.call(world, "assistant", state, "wiki_write", { page: "will-health", text: "public now" }))
+      .toMatchObject({ error: expect.any(String) })
+    expect(world.pages.get("will-health")).toMatchObject({ private: true, text: "Clinic on Tuesday" })
+    expect(World.call(world, "personal-assistant", state, "wiki_read", { page: "will-health" }))
+      .toMatchObject({ text: "Clinic on Tuesday" })
+  })
+
+  test("the page list a role sees on a miss names only the pages it can read", () => {
+    const world = World.load(example, { pages: [secret] })
+    const miss = World.call(world, "assistant", World.initialState(world), "wiki_read", { page: "nope" }) as {
+      error: string
+    }
+    expect(miss.error).not.toContain("will-health")
+    const owner = World.call(world, "personal-assistant", World.initialState(world), "wiki_read", { page: "nope" }) as {
+      error: string
+    }
+    expect(owner.error).toContain("will-health")
+  })
+})
+
+describe("fixture walk", () => {
+  test("a symlink under repo/ is never followed into repo_read", () => {
+    const dir = mkdtempSync(join(tmpdir(), "character-world-"))
+    cpSync(example, dir, { recursive: true })
+    const outside = mkdtempSync(join(tmpdir(), "character-secret-"))
+    writeFileSync(join(outside, "auth.json"), "SECRET-TOKEN")
+    mkdirSync(join(dir, "repo"), { recursive: true })
+    symlinkSync(join(outside, "auth.json"), join(dir, "repo", "auth.json"))
+    symlinkSync(outside, join(dir, "repo", "linked"))
+    const world = World.load(dir)
+    const state = World.initialState(world)
+    expect(JSON.stringify(World.call(world, "assistant", state, "repo_read", { path: "auth.json" })))
+      .not.toContain("SECRET-TOKEN")
+    expect(JSON.stringify(World.call(world, "assistant", state, "repo_read", { path: "linked/auth.json" })))
+      .not.toContain("SECRET-TOKEN")
+  })
+
+  test("a symlinked repo/ or wiki/ root is never followed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "character-world-"))
+    cpSync(example, dir, { recursive: true })
+    const outside = mkdtempSync(join(tmpdir(), "character-secret-"))
+    writeFileSync(join(outside, "auth.json"), "SECRET-TOKEN")
+    writeFileSync(join(outside, "leak.md"), "---\ntitle: Leak\n---\nSECRET-TOKEN\n")
+    rmSync(join(dir, "repo"), { recursive: true, force: true })
+    rmSync(join(dir, "wiki"), { recursive: true, force: true })
+    symlinkSync(outside, join(dir, "repo"))
+    symlinkSync(outside, join(dir, "wiki"))
+    const world = World.load(dir)
+    expect(JSON.stringify(world.repo)).not.toContain("SECRET-TOKEN")
+    expect(JSON.stringify([...world.pages.values()])).not.toContain("SECRET-TOKEN")
   })
 })

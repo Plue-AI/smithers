@@ -26,7 +26,7 @@
  */
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { FlowBinding } from "../../../packages/smithers/agent/harness/src/index.ts"
@@ -158,11 +158,16 @@ const frontmatter = (text: string): { readonly meta: Record<string, unknown>; re
     : { meta: (parseYaml(match[1]!) ?? {}) as Record<string, unknown>, body: match[2]! }
 }
 
+/**
+ * Every regular file under `dir`. A symlink is skipped, `dir` itself
+ * included, so `wiki/` and `repo/` never follow a symlink out of the world.
+ */
 const walk = (dir: string): Array<string> =>
-  existsSync(dir)
+  existsSync(dir) && lstatSync(dir).isDirectory()
     ? readdirSync(dir).flatMap((name) => {
       const path = join(dir, name)
-      return statSync(path).isDirectory() ? walk(path) : [path]
+      const stat = lstatSync(path)
+      return stat.isDirectory() ? walk(path) : stat.isFile() ? [path] : []
     })
     : []
 
@@ -347,6 +352,12 @@ const opsFor = (world: World, action: string, target: string): OpsResult | undef
 
 const strings = (value: unknown): Array<string> | undefined =>
   Array.isArray(value) ? value.map(String) : undefined
+
+/** Whether a role may read a page: team pages, and private pages for the personal assistant alone. */
+const readable = (page: Page, role: string): boolean => !page.private || role === "personal-assistant"
+
+const readableSlugs = (world: World, role: string): string =>
+  [...world.pages.values()].filter((page) => readable(page, role)).map((page) => page.slug).join(", ")
 
 /** Every simulated tool. A role sees the subset its grant names. */
 export const tools: ReadonlyArray<ToolSpec> = [
@@ -567,7 +578,7 @@ export const tools: ReadonlyArray<ToolSpec> = [
     input: Schema.Struct({ query: S }),
     writes: false,
     handler: (world, role) => (input) =>
-      [...world.pages.values()].filter((page) => role === "personal-assistant" || !page.private)
+      [...world.pages.values()].filter((page) => readable(page, role))
         .filter((page) => anyTerm(`${page.slug} ${page.title} ${page.text}`, text(input.query)))
         .map((page) => ({
           page: page.slug,
@@ -584,8 +595,8 @@ export const tools: ReadonlyArray<ToolSpec> = [
     writes: false,
     handler: (world, role) => (input) => {
       const page = world.pages.get(text(input.page))
-      return page === undefined || (page.private && role !== "personal-assistant")
-        ? { error: `No page "${text(input.page)}". Pages: ${[...world.pages.keys()].join(", ")}` }
+      return page === undefined || !readable(page, role)
+        ? { error: `No page "${text(input.page)}". Pages: ${readableSlugs(world, role)}` }
         : { ...page, url: urlOf.page(world, page.slug) }
     }
   },
@@ -596,6 +607,12 @@ export const tools: ReadonlyArray<ToolSpec> = [
     writes: true,
     handler: (world, role) => (input) => {
       const slug = text(input.page)
+      const existing = world.pages.get(slug)
+      // A private page is the personal assistant's alone: another role can
+      // neither read it nor replace it with a team page.
+      if (existing !== undefined && !readable(existing, role)) {
+        return { error: `Page "${slug}" is not yours to write. Pages: ${readableSlugs(world, role)}` }
+      }
       world.pages.set(slug, {
         slug,
         title: slug,

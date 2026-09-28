@@ -224,5 +224,16 @@ export const load = (dir: string, only?: ReadonlyArray<string>): Suite => {
   }
 }
 
+/**
+ * A run label (`--label`), checked: it names a file in the suite's `results/`,
+ * so it is one path segment of letters, digits, `.`, `_` and `-`.
+ */
+export const runLabel = (value: string): string => {
+  if (!/^[\w.-]+$/.test(value) || value === "." || value === "..") {
+    throw new Error(`--label must be letters, digits, ".", "_" or "-", not ${JSON.stringify(value)}`)
+  }
+  return value
+}
+
 /** The directory a suite file lives in, for resolving siblings. */
 export const dirOf = (file: string): string => dirname(file)

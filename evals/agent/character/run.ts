@@ -88,7 +88,7 @@ const concurrency = Number(option("concurrency") ?? 2)
 const trace = flag("trace")
 const only = option("cases")?.split(",").map((name) => name.trim()).filter((name) => name.length > 0)
 const profileFile = option("profile")
-const label = option("label") ?? (live ? "live" : "offline")
+const label = CharacterSuite.runLabel(option("label") ?? (live ? "live" : "offline"))
 // `--reply-from summary`: a profile written for the old organization host
 // answers with a RoleResult JSON object, and that host posted its `summary`.
 // Taking the summary (untruncated) scores the old profile's words, not its

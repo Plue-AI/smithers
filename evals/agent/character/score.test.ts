@@ -116,7 +116,7 @@ describe("Score.score voice rules", () => {
       { tool: "pr_open", input: { title: "x", body: "dentist" } }
     ])
     const leakage = score(owner, leaked).find((check) => check.id === "leakage")
-    expect(leakage).toMatchObject({ pass: false, detail: "leaked: post in team: \"dentist\", pull request: \"dentist\"" })
+    expect(leakage).toMatchObject({ pass: false, detail: "leaked: post in team: marker 1, pull request: marker 1" })
   })
 
   test("call expectations see the work tools by field", () => {

@@ -136,11 +136,28 @@ export const replaySeat = (transcript: Transcript): Seat.Seat =>
     contextWindowTokens: 200_000
   })
 
-/** The environment a live seat resolves against: subscriptions, never API keys. */
+/**
+ * The metered routes a seat resolver can take besides an API key: the
+ * Smithers account pool and model proxy.
+ */
+const meteredVariables = new Set([
+  "SMITHERS_ACCOUNT_POOL_URL",
+  "SMITHERS_ACCOUNT_POOL_KEY",
+  "SMITHERS_ACCOUNT_POOL_PROVIDERS",
+  "SMITHERS_MODEL_PROXY_URL",
+  "SMITHERS_MODEL_PROXY_PROVIDERS"
+])
+
+/**
+ * The environment a live seat resolves against: this machine's subscription
+ * logins, never an API key (every `*_API_KEY` variable) or a metered route.
+ */
 export const subscriptionEnvironment = (env: Readonly<Record<string, string | undefined>>) => {
-  const kept: Record<string, string | undefined> = { ...env, SMITHERS_OPENAI_AUTH: "chatgpt" }
-  delete kept.OPENAI_API_KEY
-  delete kept.ANTHROPIC_API_KEY
+  const kept: Record<string, string | undefined> = {}
+  for (const [name, value] of Object.entries(env)) {
+    if (!name.endsWith("_API_KEY") && !meteredVariables.has(name)) kept[name] = value
+  }
+  kept.SMITHERS_OPENAI_AUTH = "chatgpt"
   return kept
 }
 
