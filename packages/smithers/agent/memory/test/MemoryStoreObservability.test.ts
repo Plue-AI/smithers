@@ -19,6 +19,33 @@ const recordingTracer = () => {
 }
 
 describe("MemoryStore observability", () => {
+  it.each([undefined, null, 42, false, ["flow"], { label: "flow" }])(
+    "refuses a nonstring namespace kind %j without recording private values",
+    async (kind) => {
+      const { spans, tracer } = recordingTracer()
+      const result = await Effect.runPromise(
+        Effect.gen(function*() {
+          const store = yield* MemoryStore.MemoryStore
+          const error = yield* Effect.flip(store.putFact({
+            namespace: { kind, id: "private-id" } as unknown as Parameters<
+              MemoryStore.Service["putFact"]
+            >[0]["namespace"],
+            key: "private-key",
+            value: "private-value",
+            provenance: {}
+          }))
+          return { error, rows: yield* store.listFacts({ namespace }) }
+        }).pipe(Effect.provide(TestMemory.layer), Effect.provideService(Tracer.Tracer, tracer))
+      )
+      expect(result.error.code).toBe("invalid_namespace")
+      expect(result.rows).toEqual([])
+      const put = spans.find((span) => span.name === "MemoryStore.putFact")
+      expect(put).toBeDefined()
+      expect(put!.attributes.has("memory.namespace_kind")).toBe(false)
+      expect(JSON.stringify([...put!.attributes.entries()])).not.toContain("private")
+    }
+  )
+
   it("traces each operation with shape attributes and never values", async () => {
     const { spans, tracer } = recordingTracer()
     await Effect.runPromise(

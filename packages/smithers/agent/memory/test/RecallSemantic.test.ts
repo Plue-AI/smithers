@@ -688,6 +688,48 @@ describe("RecallSemantic", () => {
     )
   })
 
+  it.each([0, 1])(
+    "rejects a sparse vector component at index %i without replacing its SQL projection",
+    async (hole) => {
+      const sparse = new Array<number>(2)
+      sparse[1 - hole] = 9
+      expect(Object.hasOwn(sparse, hole)).toBe(false)
+      const result = await Effect.runPromise(
+        Effect.gen(function*() {
+          const sql = yield* Effect.service(SqlClient.SqlClient)
+          const writer = yield* DurableWriter
+          const vectors = Semantic.makeSqlVectorStore({ sql, write: writer.write })
+          const original: Semantic.Vector = {
+            bank: "flow-one",
+            recordKind: "note",
+            recordId: "key",
+            model: "test",
+            contentDigest: "original",
+            dimensions: 2,
+            vector: [1, 2],
+            updatedAtMs: 1
+          }
+          yield* vectors.upsert(original)
+          const failure = yield* Effect.flip(vectors.upsert({
+            ...original,
+            vector: sparse,
+            contentDigest: "invalid",
+            updatedAtMs: 2
+          }))
+          return { failure, rows: yield* collectVectors(vectors, ["flow-one"], "test") }
+        }).pipe(Effect.provide(TestMemory.layerWithDatabase))
+      )
+      expect(result.failure).toMatchObject({
+        code: "invalid_argument",
+        message: "vector components must be finite",
+        path: ["vector", String(hole)]
+      })
+      expect(result.rows).toHaveLength(1)
+      expect(result.rows[0]).toMatchObject({ contentDigest: "original", updatedAtMs: 1 })
+      expect(Array.from(result.rows[0]!.vector)).toEqual([1, 2])
+    }
+  )
+
   it("validates a malformed upsert before constructing or running SQL", async () => {
     let statements = 0
     let writes = 0
@@ -869,6 +911,36 @@ describe("RecallSemantic", () => {
         provenance: {}
       })
     )).resolves.toBeUndefined()
+    expect({ writes, projections }).toEqual({ writes: 1, projections: 0 })
+  })
+
+  it("skips projection when a committed fact disappears before readback", async () => {
+    let writes = 0
+    let projections = 0
+    const decorated = Semantic.decorateStore(
+      MemoryStore.makeNoop({
+        putFact: () =>
+          Effect.sync(() => {
+            writes += 1
+          }),
+        getFact: () => Effect.succeed(undefined)
+      }),
+      {
+        project: () =>
+          Effect.sync(() => {
+            projections += 1
+          }),
+        activeKeys: () => 0
+      },
+      Embedding.makeInProcess()
+    )
+
+    await Effect.runPromise(decorated.putFact({
+      namespace: { kind: "flow", id: "one" },
+      key: "removed",
+      value: "old value",
+      provenance: {}
+    }))
     expect({ writes, projections }).toEqual({ writes: 1, projections: 0 })
   })
 

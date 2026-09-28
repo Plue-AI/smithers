@@ -5,6 +5,7 @@ import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describe, expect, it } from "vitest"
 import * as Maintenance from "../src/Maintenance.ts"
+import { MemoryError } from "../src/MemoryError.ts"
 import * as MemoryStore from "../src/MemoryStore.ts"
 import * as TestMemory from "../src/test/TestMemory.ts"
 
@@ -32,6 +33,55 @@ const append = (store: MemoryStore.Service, threadId: string, count: number) =>
   )
 
 describe("Maintenance", () => {
+  it("uses the documented ten-minute default collector interval", async () => {
+    const result = await runWithDatabase(Effect.gen(function*() {
+      const store = yield* MemoryStore.MemoryStore
+      const sql = yield* Effect.service(SqlClient.SqlClient)
+      const physicalKeys = sql<{ readonly fact_key: string }>`SELECT fact_key FROM memory_facts ORDER BY fact_key`.pipe(
+        Effect.map((rows) => rows.map((row) => row.fact_key))
+      )
+      return yield* Effect.scoped(Effect.gen(function*() {
+        yield* Layer.build(Maintenance.layerTtlGc())
+        yield* store.putFact({ namespace, key: "short-lived", value: "value", ttlMs: 1, provenance: {} })
+        yield* store.putFact({ namespace, key: "permanent", value: "value", provenance: {} })
+        yield* TestClock.adjust("9 minutes")
+        const beforeDefaultInterval = yield* physicalKeys
+        const visibleBeforeCollection = yield* store.listFacts({ namespace })
+        yield* TestClock.adjust("1 minute")
+        yield* TestDatabase.until(physicalKeys.pipe(Effect.map((keys) => keys.length === 1)))
+        return { beforeDefaultInterval, visibleBeforeCollection, afterDefaultInterval: yield* physicalKeys }
+      }))
+    }))
+    expect(result.beforeDefaultInterval).toEqual(["permanent", "short-lived"])
+    expect(result.visibleBeforeCollection.map((fact) => fact.key)).toEqual(["permanent"])
+    expect(result.afterDefaultInterval).toEqual(["permanent"])
+  })
+
+  it("keeps the scheduled collector alive after a failed pass", async () => {
+    let passes = 0
+    const store = MemoryStore.MemoryStore.of({
+      deleteExpiredFacts: Effect.suspend(() => {
+        passes++
+        return passes === 1
+          ? Effect.fail(new MemoryError({ code: "store", message: "database temporarily unavailable" }))
+          : Effect.succeed(2)
+      })
+    } as unknown as MemoryStore.Service)
+    const observed = await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        yield* Layer.build(Maintenance.layerTtlGc({ interval: "1 minute" }))
+        const afterFailure = passes
+        yield* TestClock.adjust("1 minute")
+        yield* TestDatabase.until(Effect.sync(() => passes === 2))
+        return { afterFailure, passes }
+      })).pipe(
+        Effect.provideService(MemoryStore.MemoryStore, store),
+        Effect.provide(TestClock.layer())
+      )
+    )
+    expect(observed).toEqual({ afterFailure: 1, passes: 2 })
+  })
+
   it("collects expired facts and their search projections in one finite TTL pass", async () => {
     const result = await runWithDatabase(Effect.gen(function*() {
       const store = yield* MemoryStore.MemoryStore

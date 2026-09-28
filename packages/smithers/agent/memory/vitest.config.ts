@@ -17,13 +17,12 @@ export default defineConfig({
       // each other's coverage scratch state (issues #115/#121).
       reportsDirectory: join(tmpdir(), `flows-memory-coverage-${process.pid}`),
       include: ["src/**/*.ts"],
-      // An honest measured floor: every value is at or below what the suite
-      // actually reaches (99.31 statements / 95.00 branches / 99.14 functions /
-      // 99.57 lines), so a change that drops coverage fails here. The package is
-      // still listed in `coverageFloorDeferred` in
-      // packages/smithers/flows/test/vitestCoverageIsolation.test.ts, which requires at
-      // least one value below 100; raising the last of these to 100 has to
-      // remove the package from that set in the same commit.
+      // These floors also apply to a single-adapter developer run. The declared
+      // SQLite/PostgreSQL matrix measures their combined coverage; neither
+      // adapter alone exercises every adapter-specific path. Remaining branch
+      // gaps keep this package in `coverageFloorDeferred` in
+      // scripts/test/coverage.test.ts. Raising the last floor to 100 must remove
+      // that deferral in the same change.
       thresholds: {
         branches: 95,
         functions: 99,

@@ -7,10 +7,28 @@ import * as FactProjection from "../src/internal/FactProjection.ts"
 import * as FtsQuery from "../src/internal/FtsQuery.ts"
 import * as Ranking from "../src/internal/Ranking.ts"
 import * as Bank from "../src/internal/ResolveNamespace.ts"
+import * as Store from "../src/internal/Store.ts"
 import * as VectorBytes from "../src/internal/VectorBytes.ts"
 import * as Namespace from "../src/Namespace.ts"
 
 describe("memory internal helpers", () => {
+  it("reads affected-row counts from SQLite and PostgreSQL results", () => {
+    expect(Store.changed({ changes: 2 })).toBe(2)
+    expect(Store.changed({ rowCount: 3 })).toBe(3)
+    expect(Store.changed({ rowsAffected: 4 })).toBe(4)
+    expect(Store.changed({ changes: undefined, rowCount: 5 })).toBe(5)
+    expect(Store.changed({ changes: "2", rowsAffected: "4" })).toBe(0)
+    expect(Store.changed(null)).toBe(0)
+    expect(Store.changed(undefined)).toBe(0)
+  })
+
+  it("retains structured failures and bounds unstructured store causes", () => {
+    const underlying = new Error("database unavailable")
+    expect(Store.storeError("read failed")(underlying).cause).toBe(underlying)
+    expect(Store.error("store", "null cause", null).cause).toEqual({ type: "null" })
+    expect(Store.error("store", "long cause", "x".repeat(2_000)).cause).toHaveLength(1_024)
+  })
+
   it("normalizes text and hashes every JavaScript string with SHA-256", () => {
     expect(Canonical.compareText("a", "b")).toBe(-1)
     expect(Canonical.compareText("b", "a")).toBe(1)
@@ -47,7 +65,9 @@ describe("memory internal helpers", () => {
   })
 
   it("scores cosine similarity and recency decay at their boundaries", () => {
-    const withHole = JSON.parse("[null, 1]") as ReadonlyArray<number>
+    const withHole = new Array<number>(2)
+    withHole[1] = 1
+    expect(Object.hasOwn(withHole, 0)).toBe(false)
     expect(Ranking.cosine([], [])).toBe(0)
     expect(Ranking.cosine([1, 0], [1])).toBe(0)
     expect(Ranking.cosine([0, 0], [1, 0])).toBe(0)

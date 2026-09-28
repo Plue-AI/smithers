@@ -26,6 +26,9 @@ describe("Recall", () => {
     ])
     expect(Recall.requestedRows(undefined)).toBe(Recall.DEFAULT_MAX_TOKENS / 256)
     expect([0, 1, 256, 257].map(Recall.requestedRows)).toEqual([1, 1, 1, 2])
+    const undated = { bank: "b", key: "k", text: "t", score: 1 }
+    expect(Recall.compareResults(row, undated)).toBe(-5)
+    expect(Recall.compareResults(undated, row)).toBe(5)
   })
 
   it("caps whole results and truncates only the first overflowing result", () => {

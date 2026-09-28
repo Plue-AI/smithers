@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Crypto, Effect } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describe, expect, it } from "vitest"
 import * as MemoryStore from "../src/MemoryStore.ts"
@@ -6,6 +6,72 @@ import * as TestMemory from "../src/test/TestMemory.ts"
 import { namespace, other, run } from "./fixtures/MemoryStoreHarness.ts"
 
 describe("MemoryStore threads and messages", () => {
+  it("reports generated thread id failure without writing a thread", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const crypto = yield* Crypto.Crypto
+        const unavailable = new Error("random source unavailable")
+        const failingCrypto = Object.assign(Object.create(crypto) as Crypto.Crypto, {
+          randomUUIDv4: Effect.fail(unavailable)
+        })
+        const store = yield* MemoryStore.make.pipe(Effect.provideService(Crypto.Crypto, failingCrypto))
+        const failure = yield* Effect.flip(store.createThread({ namespace }))
+        const threads = yield* store.listThreads({ namespace })
+        return { failure, threads }
+      }).pipe(Effect.provide(TestMemory.layerWithDatabase))
+    )
+    expect(result.failure).toMatchObject({
+      code: "store",
+      message: "could not generate memory thread id",
+      cause: expect.any(Error)
+    })
+    expect(result.threads).toEqual([])
+  })
+
+  it("rolls back an append when an unconfirmed duplicate cannot be read back", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const inconsistentSql = new Proxy(sql, {
+          apply(target, thisArg, argumentsList) {
+            const statement = Array.isArray(argumentsList[0]) ? argumentsList[0].join(" ") : ""
+            if (statement.includes("INSERT INTO memory_messages")) {
+              const query = Reflect.apply(target, thisArg, argumentsList)
+              return new Proxy(query, {
+                get(queryTarget, property, receiver) {
+                  return property === "raw"
+                    ? Effect.succeed({ changes: 0 })
+                    : Reflect.get(queryTarget, property, receiver)
+                }
+              })
+            }
+            if (statement.includes("FROM memory_messages") && statement.includes("WHERE thread_id")) {
+              return Effect.succeed([])
+            }
+            return Reflect.apply(target, thisArg, argumentsList)
+          }
+        })
+        const store = yield* MemoryStore.make.pipe(Effect.provideService(SqlClient.SqlClient, inconsistentSql))
+        const failure = yield* Effect.flip(store.appendMessage({
+          threadId: "unconfirmed",
+          id: "message",
+          role: "user",
+          text: "cannot confirm",
+          at: 1
+        }))
+        const authoritative = yield* MemoryStore.MemoryStore
+        return {
+          failure,
+          thread: yield* authoritative.getThread({ threadId: "unconfirmed" }),
+          messages: yield* authoritative.listMessages({ threadId: "unconfirmed" })
+        }
+      }).pipe(Effect.provide(TestMemory.layerWithDatabase))
+    )
+    expect(result.failure).toMatchObject({ code: "store", message: "existing memory message could not be read back" })
+    expect(result.thread).toBeUndefined()
+    expect(result.messages).toEqual([])
+  })
+
   it("paginates messages by the stable at-and-id cursor", async () => {
     const pages = await run(Effect.gen(function*() {
       const store = yield* MemoryStore.MemoryStore

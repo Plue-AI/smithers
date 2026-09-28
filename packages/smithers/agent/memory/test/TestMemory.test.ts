@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Crypto, Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import * as MemoryStore from "../src/MemoryStore.ts"
 import * as TestMemory from "../src/test/TestMemory.ts"
@@ -17,6 +17,17 @@ const createThreads = (count: number) =>
   })
 
 describe("TestMemory", () => {
+  it("provides deterministic digest bytes to tests", async () => {
+    const input = new Uint8Array([0, 1, 255])
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const crypto = yield* Crypto.Crypto
+        return yield* crypto.digest("SHA-256", input)
+      }).pipe(Effect.provide(TestMemory.layerWithDatabase))
+    )
+    expect(result).toEqual(input)
+  })
+
   it("generates a distinct thread id past the 256th request", async () => {
     const ids = await Effect.runPromise(createThreads(257).pipe(Effect.provide(TestMemory.layer)))
 

@@ -9,6 +9,41 @@ import * as TestMemory from "../src/test/TestMemory.ts"
 import { namespace, other, run, runWithDatabase } from "./fixtures/MemoryStoreHarness.ts"
 
 describe("MemoryStore search and FTS", () => {
+  it("can retrieve superseded notes from an unfiltered FTS history query", async () => {
+    const result = await run(Effect.gen(function*() {
+      const store = yield* MemoryStore.MemoryStore
+      yield* store.putNote({ namespace, id: "old", text: "durable old guidance", tags: [], provenance: {} })
+      yield* store.putNote({
+        namespace,
+        id: "new",
+        text: "durable revised guidance",
+        tags: [],
+        provenance: {},
+        supersedes: ["old"]
+      })
+      yield* store.enableFts("flow")
+      const current = yield* store.searchFts({ namespace, query: "durable" })
+      const history = yield* store.searchFts({ namespace, query: "durable", includeSuperseded: true })
+      return { current, history }
+    }))
+    expect(result.current.map((row) => row.key)).toEqual(["new"])
+    expect(result.history.map((row) => row.key).sort()).toEqual(["new", "old"])
+  })
+
+  it("filters note matches by prefix after FTS ranking", async () => {
+    const rows = await run(Effect.gen(function*() {
+      const store = yield* MemoryStore.MemoryStore
+      for (const id of ["note-runbook", "other-runbook"]) {
+        yield* store.putNote({ namespace, id, text: "durable recovery", tags: [], provenance: {} })
+      }
+      yield* store.enableFts("flow")
+      return yield* store.searchFts({ namespace, query: "durable", prefix: "note-", limit: 1 })
+    }))
+    expect(rows.map((row) => [row.kind, row.key, row.text])).toEqual([
+      ["note", "note-runbook", "durable recovery"]
+    ])
+  })
+
   it("filters authoritative raw rows by tags, status, and supersession", async () => {
     const rows = await run(Effect.gen(function*() {
       const store = yield* MemoryStore.MemoryStore
