@@ -9,6 +9,7 @@
  * variable to set.
  */
 import { Seat } from "@smthrs/agent"
+import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as ModelError from "@smthrs/model/ModelError"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { Effect } from "effect"
@@ -310,32 +311,80 @@ describe("NodeControl.seatResolver OpenAI-compatible providers", () => {
   })
 })
 
-describe("NodeControl.seatResolver Claude subscription tokens", () => {
-  it.each(["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] as const)(
-    "routes an anthropic seat on %s as a Claude Code bearer when no API key is set",
-    async (variable) => {
-      const resolved = await Effect.runPromise(
-        resolve({ [variable]: "sk-ant-oat01-subscription" }, "anthropic:claude-sonnet-4-6")
-      )
-      const request = await prepared(resolved, resolved.modelId)
+describe("NodeControl.seatResolver Claude subscriptions", () => {
+  // A stand-in `claude` that prints the status `claude auth status` would.
+  const claudeOnPath = (status: object): { readonly PATH: string; readonly cleanup: () => void } => {
+    const directory = mkdtempSync(join(tmpdir(), "claude-code-seat-"))
+    writeFileSync(join(directory, "claude"), `#!/bin/sh\necho '${JSON.stringify(status)}'\n`, { mode: 0o755 })
+    return { PATH: directory, cleanup: () => rmSync(directory, { recursive: true, force: true }) }
+  }
+  const signedIn = { loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" }
+  let cleanup = () => {}
+  afterEach(() => cleanup())
 
-      expect(request.url).toBe("https://api.anthropic.com/v1/messages")
-      expect(request.publicHeaders["anthropic-beta"]).toBe("oauth-2025-04-20")
-      expect(JSON.parse(request.bodyText).system[0].text).toBe(
-        "You are Claude Code, Anthropic's official CLI for Claude."
+  // Anthropic lets only Claude Code sign with a subscription credential, so
+  // the direct Messages route never takes one, whatever variable holds it.
+  it.each(["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"] as const)(
+    "refuses an anthropic seat that has only %s, asking for ANTHROPIC_API_KEY",
+    async (variable) => {
+      const error = await Effect.runPromise(
+        Effect.flip(resolve({ [variable]: "sk-ant-oat01-subscription" }, "anthropic:claude-sonnet-4-6"))
       )
-      expect(JSON.stringify(request)).not.toContain("sk-ant-oat01-subscription")
+      expect(error.message).toBe("Set ANTHROPIC_API_KEY to run the anthropic:claude-sonnet-4-6 seat")
     }
   )
 
-  it("uses the Claude subscription even when an API key is present", async () => {
-    const resolved = await Effect.runPromise(
-      resolve({ ANTHROPIC_API_KEY: "api-key", ANTHROPIC_AUTH_TOKEN: "sk-ant-oat01-x" }, "anthropic:claude-sonnet-4-6")
-    )
-    const request = await prepared(resolved, resolved.modelId)
+  it("runs a claude-code seat on the signed-in Claude Code, as the model its alias names", async () => {
+    const claude = claudeOnPath(signedIn)
+    cleanup = claude.cleanup
+    const resolved = await Effect.runPromise(resolve({ PATH: claude.PATH }, "claude-code:opus"))
 
-    expect(request.publicHeaders["anthropic-beta"]).toBe("oauth-2025-04-20")
-    expect(JSON.parse(request.bodyText).system[0].text).toContain("Claude Code")
+    expect(resolved.id).toBe("claude-code:opus")
+    expect(resolved.modelId).toBe("claude-opus-5-5")
+    expect(resolved.contextWindowTokens).toBe(SeatResolver.contextWindowTokensFor("claude-opus-5-5"))
+    const request = await prepared(resolved, resolved.modelId)
+    expect(request).toMatchObject({ routeId: "claude-code", url: "claude-code:claude-opus-5-5" })
+    expect(JSON.parse(request.bodyText).messages).toEqual([{
+      role: "user",
+      content: [{ type: "text", text: "hello" }]
+    }])
+  })
+
+  it.each(
+    [
+      [
+        "an API key is set",
+        { ANTHROPIC_API_KEY: "api-key" },
+        signedIn,
+        "$ANTHROPIC_API_KEY is set, so Claude seats run on the API, so the claude-code:opus seat cannot run: use an anthropic:<model> seat, or unset ANTHROPIC_API_KEY to use your Claude subscription"
+      ],
+      [
+        "Claude Code is signed out",
+        {},
+        { loggedIn: false, authMethod: "none" },
+        "Claude Code is not signed in with a Claude subscription, so the claude-code:opus seat cannot run: run `claude auth login`"
+      ],
+      [
+        "Claude Code is signed in with an API key",
+        {},
+        { loggedIn: true, authMethod: "api_key" },
+        "Claude Code is not signed in with a Claude subscription, so the claude-code:opus seat cannot run: run `claude auth login`"
+      ]
+    ] as const
+  )("refuses a claude-code seat when %s", async (_case, environment, status, message) => {
+    const claude = claudeOnPath(status)
+    cleanup = claude.cleanup
+    const error = await Effect.runPromise(
+      Effect.flip(resolve({ ...environment, PATH: claude.PATH }, "claude-code:opus"))
+    )
+    expect(error.message).toBe(message)
+  })
+
+  it("refuses a claude-code seat when Claude Code is not installed", async () => {
+    const error = await Effect.runPromise(Effect.flip(resolve({ PATH: "/nonexistent" }, "claude-code:opus")))
+    expect(error.message).toBe(
+      "Claude Code is not installed, so the claude-code:opus seat cannot run: install Claude Code (https://code.claude.com), then run `claude auth login`"
+    )
   })
 })
 
@@ -371,7 +420,7 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
     seat: string
   ) => Effect.scoped(NodeControl.seatResolver(environment, executor).resolve(seat))
 
-  it("sends the anthropic seat and ChatGPT-mode openai seats to the pool, other providers direct", async () => {
+  it("sends ChatGPT-mode openai seats to the pool and every other provider, anthropic included, direct", async () => {
     const { asked, executor } = poolExecutor(() => ["anthropic", "chatgpt"])
     const resolver = NodeControl.seatResolver(pooled, executor)
     const anthropic = await Effect.runPromise(Effect.scoped(resolver.resolve("anthropic:claude-sonnet-4-6")))
@@ -379,7 +428,7 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
     const cerebras = await Effect.runPromise(Effect.scoped(resolver.resolve("cerebras:qwen-3.8-27b")))
 
     expect((await prepared(anthropic, anthropic.modelId)).url).toBe(
-      "https://cloud.example.test/provider-pool/anthropic/v1/messages"
+      "https://cloud.example.test/model-proxy/anthropic/v1/messages"
     )
     const chatgpt = await prepared(openai, openai.modelId)
     expect(chatgpt.url).toBe("https://cloud.example.test/provider-pool/chatgpt/codex/responses")
@@ -410,26 +459,23 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
     expect(asked).toHaveLength(2)
   })
 
-  it("never takes a route the host did not offer, and never asks without the pool key", async () => {
+  it("keeps anthropic seats on their key beside a pool, and never asks without the pool key", async () => {
     const { asked, executor } = poolExecutor(() => ["anthropic", "chatgpt"])
-    await expect(Effect.runPromise(resolveWith(
+    const anthropic = await Effect.runPromise(resolveWith(
       {
         SMITHERS_ACCOUNT_POOL_URL: pool,
-        SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+        SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic,chatgpt",
         SMITHERS_ACCOUNT_POOL_KEY: "pool-token",
         ANTHROPIC_API_KEY: "repository-key"
       },
       executor,
       "anthropic:claude-sonnet-4-6"
-    ))).rejects.toMatchObject({ _tag: "@smthrs/agent/Seat/SeatUnresolved" })
+    ))
+    expect((await prepared(anthropic, anthropic.modelId)).url).toBe("https://api.anthropic.com/v1/messages")
     await expect(Effect.runPromise(resolveWith(
-      {
-        SMITHERS_ACCOUNT_POOL_URL: pool,
-        SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic",
-        ANTHROPIC_API_KEY: "repository-key"
-      },
+      { SMITHERS_ACCOUNT_POOL_URL: pool, SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt", OPENAI_API_KEY: "repository-key" },
       executor,
-      "anthropic:claude-sonnet-4-6"
+      "openai:gpt-6-luna"
     ))).rejects.toMatchObject({ _tag: "@smthrs/agent/Seat/SeatUnresolved" })
     expect(asked).toEqual([])
   })
@@ -443,7 +489,7 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
       }
     })
     const resolver = NodeControl.seatResolver(pooled, unreachable)
-    for (const id of ["anthropic:claude-sonnet-4-6", "openai:gpt-6-luna"]) {
+    for (const id of ["openai:gpt-6-sol", "openai:gpt-6-luna"]) {
       await expect(Effect.runPromise(Effect.scoped(resolver.resolve(id)))).rejects.toMatchObject({
         _tag: "@smthrs/agent/Seat/SeatUnresolved"
       })

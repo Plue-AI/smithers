@@ -42,7 +42,10 @@ downgrade to a 0.x `latest`.
   [The project and its state](./concepts/project-and-state.md).
 - A configured subscription seat for model flows and their completion judge.
   For Codex, run `codex login` and set `SMITHERS_OPENAI_AUTH=chatgpt`.
-  Claude uses `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`.
+  For Claude, install Claude Code and run `claude auth login`; with no
+  `ANTHROPIC_API_KEY` set, the `claude-code:opus`, `claude-code:sonnet` and
+  `claude-code:fable` seats run on your own Claude Code, which signs its own
+  requests. They run flows only; the completion judge needs a Codex seat.
   Team hosts use connected accounts through the existing account pool.
   No provider API key or gateway key is required; a failed subscription never
   falls back to an API key.

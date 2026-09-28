@@ -1,6 +1,9 @@
 import * as Providers from "@smthrs/cli/Providers"
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import * as Models from "../src/models.ts"
 
 describe("seatOf", () => {
@@ -76,5 +79,41 @@ describe("delegable", () => {
     expect(Models.delegable([{ seat: Models.delegateModels.cerebras, label: "Qwen 3.8", provider: "Cerebras" }]))
       .toEqual(["cerebras"])
     expect(Models.delegable([])).toEqual([])
+  })
+})
+
+describe("Claude Code seats", () => {
+  const claudeOnPath = (status: object) => {
+    const directory = mkdtempSync(join(tmpdir(), "tui-claude-"))
+    writeFileSync(join(directory, "claude"), `#!/bin/sh\necho '${JSON.stringify(status)}'\n`, { mode: 0o755 })
+    return directory
+  }
+
+  test("offers claude-code seats for a Claude Code subscription, and Anthropic seats instead for a key", () => {
+    const directory = claudeOnPath({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" })
+    try {
+      const claude = (models: ReadonlyArray<Models.Model>) =>
+        models.filter((model) => model.seat.startsWith("claude-code:") || model.seat.startsWith("anthropic:"))
+      expect(claude(Models.detect({ PATH: directory }).models)).toEqual([
+        { seat: "claude-code:opus", label: "Claude Opus 5.5", provider: "Claude Code" },
+        { seat: "claude-code:sonnet", label: "Claude Sonnet 5.5", provider: "Claude Code" },
+        { seat: "claude-code:fable", label: "Claude Fable 5.1", provider: "Claude Code" }
+      ])
+      const keyed = claude(Models.detect({ PATH: directory, ANTHROPIC_API_KEY: "k" }).models).map((model) => model.seat)
+      expect(keyed).toEqual(["anthropic:claude-opus-5-5", "anthropic:claude-sonnet-5-5", "anthropic:claude-fable-5-1"])
+      expect(Models.seatOf("claude-code:opus", [])).toBe("claude-code:opus")
+      expect(Models.labelOf("claude-code:fable", [])).toBe("Claude Fable 5.1")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("offers none when Claude Code is signed out", () => {
+    const directory = claudeOnPath({ loggedIn: false, authMethod: "none" })
+    try {
+      expect(Models.detect({ PATH: directory }).models.filter((model) => model.provider === "Claude Code")).toEqual([])
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

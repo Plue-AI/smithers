@@ -3,6 +3,9 @@
  * reader: the documented order, every way a candidate is or is not available,
  * the choice, and the two refusals.
  */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { delimiter, join } from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Providers from "../src/Providers.ts"
 
@@ -232,5 +235,121 @@ describe("Providers seat aliases", () => {
     const message = Providers.seatRefusal(seat)
     if (refusal === undefined) expect(message).toBeUndefined()
     else expect(message).toContain(refusal)
+  })
+})
+
+describe("Providers.claudeCode", () => {
+  const login = (overrides: Partial<Providers.ClaudeCodeLogin> = {}): Providers.ClaudeCodeLogin => ({
+    executable: "/opt/bin/claude",
+    loggedIn: true,
+    authMethod: "claude.ai",
+    subscriptionType: "max",
+    ...overrides
+  })
+  const detected = (
+    environment: Readonly<Record<string, string | undefined>>,
+    found: Providers.ClaudeCodeLogin | undefined
+  ) => Providers.claudeCode({ ...host(environment), claudeCode: () => found })
+
+  it.each(["claude.ai", "oauth_token"])(
+    "offers the seats for a subscription Claude Code signed in with %s",
+    (method) => {
+      expect(detected({}, login({ authMethod: method }))).toEqual({
+        available: true,
+        reason: "Claude Code is signed in with a Claude max",
+        setupHint: "run `claude auth login`",
+        executable: "/opt/bin/claude"
+      })
+    }
+  )
+
+  it("keeps Claude on the API when ANTHROPIC_API_KEY is set, without asking Claude Code", () => {
+    let asked = false
+    const result = Providers.claudeCode({
+      ...host({ ANTHROPIC_API_KEY: "sk-ant" }),
+      claudeCode: () => {
+        asked = true
+        return login()
+      }
+    })
+    expect(result.available).toBe(false)
+    expect(result.reason).toBe("$ANTHROPIC_API_KEY is set, so Claude seats run on the API")
+    expect(asked).toBe(false)
+    // An exported-but-empty key is unset.
+    expect(detected({ ANTHROPIC_API_KEY: "" }, login()).available).toBe(true)
+  })
+
+  it.each(
+    [
+      ["not installed", undefined, "Claude Code is not installed", "install Claude Code"],
+      ["signed out", login({ loggedIn: false, authMethod: "none" }), "not signed in", "`claude auth login`"],
+      ["signed in with an API key", login({ authMethod: "api_key" }), "not signed in", "`claude auth login`"]
+    ] as const
+  )("refuses when Claude Code is %s, naming the fix", (_case, found, reason, hint) => {
+    const result = detected({}, found)
+    expect(result.available).toBe(false)
+    expect(result.reason).toContain(reason)
+    expect(result.setupHint).toContain(hint)
+    expect(result.executable).toBeUndefined()
+  })
+
+  it("treats a host that cannot look for Claude Code as one without it", () => {
+    expect(Providers.claudeCode(host({})).reason).toBe("Claude Code is not installed")
+  })
+
+  it("names one seat per Anthropic alias, each running the model its alias names", () => {
+    expect(Providers.claudeCodeSeats).toEqual(["claude-code:opus", "claude-code:sonnet", "claude-code:fable"])
+    expect(Providers.claudeCodeSeats.map((seat) => Providers.claudeCodeModel(seat.slice("claude-code:".length))))
+      .toEqual(["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"])
+    expect(Providers.claudeCodeModel("sol")).toBe("sol")
+    expect(Providers.claudeCodeModel("claude-haiku-4-5")).toBe("claude-haiku-4-5")
+  })
+})
+
+describe("Providers.claudeCodeLogin", () => {
+  const onPath = (script: string) => {
+    const directory = mkdtempSync(join(tmpdir(), "claude-login-"))
+    writeFileSync(join(directory, "claude"), `#!/bin/sh\n${script}\n`, { mode: 0o755 })
+    return directory
+  }
+
+  it("reads only the status `claude auth status` prints, from the claude on PATH", () => {
+    const directory = onPath(
+      `[ "$1 $2" = "auth status" ] || exit 9\necho '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro","email":"a@b.c"}'`
+    )
+    try {
+      expect(Providers.claudeCodeLogin({ PATH: `/nonexistent${delimiter}${directory}` })).toEqual({
+        executable: join(directory, "claude"),
+        loggedIn: true,
+        authMethod: "claude.ai",
+        subscriptionType: "pro"
+      })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("reads a signed-out status from a non-zero exit", () => {
+    const directory = onPath(`echo '{"loggedIn":false,"authMethod":"none"}'\nexit 1`)
+    try {
+      expect(Providers.claudeCodeLogin({ PATH: directory })).toEqual({
+        executable: join(directory, "claude"),
+        loggedIn: false,
+        authMethod: "none",
+        subscriptionType: undefined
+      })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("finds nothing without a claude on PATH, or with one that prints no status", () => {
+    expect(Providers.claudeCodeLogin({})).toBeUndefined()
+    const directory = onPath("echo not json")
+    try {
+      expect(Providers.claudeCodeLogin({ PATH: directory })).toBeUndefined()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

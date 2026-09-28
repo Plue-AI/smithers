@@ -714,6 +714,7 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.283",
     "@clack/prompts": "1.7.0",
     "@effect/platform-bun": "4.0.0-rc.115",
     "@effect/platform-node": "4.0.0-rc.115",

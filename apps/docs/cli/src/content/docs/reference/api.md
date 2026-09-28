@@ -139,9 +139,9 @@ The Node composition for the command tree.
 | `executionDatabasePath` | `(root: string) => string` | `<root>/.flows/engine.db`. |
 | `EngineDurable` | `Application.Engine & { stores }` | The durable engine plus the shared database seam other stores hang off. |
 | `engineDurable` | `(root: string, registry?, authority?) => EngineDurable` | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects. |
-| `layerSeatEvaluator` | layer | The native subscription judge, backed by the existing seat resolver and `RequestExecutor`. Resolves connected ChatGPT or Claude subscriptions at judgment time, including account pools. Missing seats and invalid verdicts fail closed; provider API keys are never a fallback. |
-| `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. |
-| `seatCandidates`, `layerSeatCatalog` | constructor, layer | The seats Jev routes an undeclared or `auto` run to: each alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with, once per model, never Jev. |
+| `layerSeatEvaluator` | layer | The native subscription judge, backed by the existing seat resolver and `RequestExecutor`. Resolves a connected ChatGPT subscription at judgment time, including account pools; a `claude-code` seat never judges. Missing seats and invalid verdicts fail closed; provider API keys are never a fallback. |
+| `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. A `claude-code:<model>` seat runs on the user's signed-in Claude Code through the Claude Agent SDK, one locked-down, tool-less session per conversation whose turns are the frames' new messages; it resolves only without `ANTHROPIC_API_KEY`, and this process never reads a Claude credential. |
+| `seatCandidates`, `layerSeatCatalog` | constructor, layer | The seats Jev routes an undeclared or `auto` run to: each alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with, once per model, then the `claude-code` seats when Claude Code serves a subscription, never Jev. |
 | `supervisorStance` | `(environment) => "careful" \| "paranoid"` | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`. |
 | `testRunner`, `testFlows`, `checkpointStore` | constructors | The `test` flow's runner, the flows it registers, and the checkpoint store. `testRunner(environment, root, workspaceRoot?)` declares the runner for `workspaceRoot`, named inside the mount `SMITHERS_TEST_CWD` gives `root`. |
 | `rebuildableTransport` | constructor | The replaceable HTTP dispatcher a model captures and uses after seat resolution returns. |
@@ -425,6 +425,9 @@ Which seats this machine can run.
 | --- | --- | --- |
 | `Candidate`, `order` | | The seats considered, in preference order. |
 | `Detection`, `detect` | `(host) => ReadonlyArray<Detection>` | What this machine has, from host facts passed in. |
+| `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => ClaudeCodeLogin \| undefined` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. |
+| `claudeCode` | `(host) => { available, reason, setupHint, executable? }` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
+| `claudeCodeSeats`, `claudeCodeModel` | | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one. |
 | `Chosen`, `chooseSeat` | | The seat picked, and why. |
 | `compatible`, `compatibleKey` | | The provider compatibility table and its lookup. |
 | `defaultSeat` | `Record<Candidate, string>` | The seat string each candidate resolves to. |

@@ -24,6 +24,9 @@
 import * as Endpoint from "@smthrs/model/Endpoint"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as ModelCatalog from "@smthrs/model/ModelCatalog"
+import { execFileSync } from "node:child_process"
+import { accessSync, constants } from "node:fs"
+import { delimiter, join } from "node:path"
 import * as CodexAuth from "./CodexAuth.ts"
 import * as Environment from "./Environment.ts"
 
@@ -95,6 +98,11 @@ export interface Host {
   readonly homeDirectory: string
   /** The text of a file, or `undefined` when it cannot be read. */
   readonly readFile: (path: string) => string | undefined
+  /**
+   * This machine's Claude Code login, usually {@link claudeCodeLogin}. Absent,
+   * or answering `undefined`, means Claude Code is not installed.
+   */
+  readonly claudeCode?: (() => ClaudeCodeLogin | undefined) | undefined
 }
 
 /**
@@ -368,6 +376,129 @@ export const detect = (host: Host): ReadonlyArray<Detection> =>
         return keyed(id, compatible["cerebras"]!.variables, host.environment)
     }
   })
+
+/**
+ * What `claude auth status` says about this machine's Claude Code login, and
+ * where the binary is. It is everything Smithers reads about a Claude login:
+ * never a token or a credentials file, because Anthropic's terms let only
+ * Claude Code hold those.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface ClaudeCodeLogin {
+  readonly executable: string
+  readonly loggedIn: boolean
+  /** `claude.ai` for `claude auth login`, `oauth_token` for `claude setup-token`, `api_key` for a key. */
+  readonly authMethod: string
+  readonly subscriptionType?: string | undefined
+}
+
+/**
+ * The `claude` on `environment`'s `PATH` and what `claude auth status`
+ * reports, or `undefined` when there is no `claude` or it prints no status.
+ * It runs the binary, so it is the one impure reading a {@link Host} makes.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const claudeCodeLogin = (environment: Environment.Source): ClaudeCodeLogin | undefined => {
+  const executable = (Environment.read(environment, "PATH") ?? "").split(delimiter).filter((dir) => dir !== "")
+    .map((dir) => join(dir, "claude")).find((file) => {
+      try {
+        accessSync(file, constants.X_OK)
+        return true
+      } catch {
+        return false
+      }
+    })
+  if (executable === undefined) return undefined
+  let text: string
+  try {
+    text = execFileSync(executable, ["auth", "status"], { env: { ...environment }, encoding: "utf8", timeout: 15_000 })
+  } catch (error) {
+    // A signed-out Claude Code exits 1 and still prints its status.
+    text = String((error as { readonly stdout?: unknown }).stdout ?? "")
+  }
+  try {
+    const status = JSON.parse(text) as { loggedIn?: unknown; authMethod?: unknown; subscriptionType?: unknown }
+    return {
+      executable,
+      loggedIn: status.loggedIn === true,
+      authMethod: typeof status.authMethod === "string" ? status.authMethod : "none",
+      subscriptionType: typeof status.subscriptionType === "string" ? status.subscriptionType : undefined
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The seats a Claude subscription serves through Claude Code, one per
+ * Anthropic {@link seatAliases} entry: `claude-code:opus` runs what `opus`
+ * names, on the user's own Claude Code.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const claudeCodeSeats: ReadonlyArray<string> = Object.entries(seatAliases)
+  .filter(([, seat]) => seat.startsWith("anthropic:")).map(([alias]) => `claude-code:${alias}`)
+
+/**
+ * The model Claude Code runs for the model half of a `claude-code:` seat: the
+ * Anthropic model an alias names, or the name unchanged.
+ *
+ * @category getters
+ * @since 1.0.0
+ */
+export const claudeCodeModel = (model: string): string => {
+  const seat = Object.hasOwn(seatAliases, model) ? seatAliases[model]! : ""
+  return seat.startsWith("anthropic:") ? seat.slice("anthropic:".length) : model
+}
+
+/**
+ * Whether {@link claudeCodeSeats} run here: only on a Claude subscription,
+ * signed in through Claude Code's own flow, and never beside
+ * `ANTHROPIC_API_KEY`, which keeps Claude seats on the API.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const claudeCode = (host: Host): {
+  readonly available: boolean
+  readonly reason: string
+  readonly setupHint: string
+  readonly executable?: string | undefined
+} => {
+  if (Environment.read(host.environment, "ANTHROPIC_API_KEY") !== undefined) {
+    return {
+      available: false,
+      reason: "$ANTHROPIC_API_KEY is set, so Claude seats run on the API",
+      setupHint: "use an anthropic:<model> seat, or unset ANTHROPIC_API_KEY to use your Claude subscription"
+    }
+  }
+  const login = host.claudeCode?.()
+  if (login === undefined) {
+    return {
+      available: false,
+      reason: "Claude Code is not installed",
+      setupHint: "install Claude Code (https://code.claude.com), then run `claude auth login`"
+    }
+  }
+  if (!login.loggedIn || (login.authMethod !== "claude.ai" && login.authMethod !== "oauth_token")) {
+    return {
+      available: false,
+      reason: "Claude Code is not signed in with a Claude subscription",
+      setupHint: "run `claude auth login`"
+    }
+  }
+  return {
+    available: true,
+    reason: `Claude Code is signed in with a Claude ${login.subscriptionType ?? "subscription"}`,
+    setupHint: "run `claude auth login`",
+    executable: login.executable
+  }
+}
 
 /**
  * No candidate is available. The message lists every seat looked for, why it

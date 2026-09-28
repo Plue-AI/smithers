@@ -1104,35 +1104,3 @@ export const protocol: Protocol<Body, string, AnthropicEvent, State> = makeProto
   },
   classifyError
 })
-
-/**
- * The system text a Claude subscription credential (a `claude setup-token`
- * or Claude Code OAuth token) must lead with: Anthropic accepts those bearer
- * tokens only for requests that identify as Claude Code.
- *
- * @category constants
- * @since 1.0.0
- */
-export const claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
-
-/**
- * {@link protocol} for a Claude subscription credential: the same wire, with
- * {@link claudeCodeIdentity} as the first system segment unless the request
- * already leads with it.
- *
- * @category protocols
- * @since 1.0.0
- */
-export const subscriptionProtocol: Protocol<Body, string, AnthropicEvent, State> = makeProtocol({
-  ...protocol,
-  body: {
-    schema: Body,
-    from: (request, options) =>
-      fromRequest(
-        request.system[0]?.text.startsWith(claudeCodeIdentity) === true
-          ? request
-          : { ...request, system: [{ type: "text", text: claudeCodeIdentity }, ...request.system] },
-        options
-      )
-  }
-})

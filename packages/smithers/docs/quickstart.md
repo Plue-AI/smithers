@@ -72,9 +72,10 @@ codex login
 export SMITHERS_OPENAI_AUTH=chatgpt
 ```
 
-For Codex, use `model: openai:gpt-6-astra`. Claude subscription seats use
-`ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`. Team hosts use their
-connected accounts. The completion judge uses the same subscription resolver;
+For Codex, use `model: openai:gpt-6-astra`. For a Claude subscription, run
+`claude auth login` and use `model: claude-code:opus`; the seat runs on your
+own Claude Code, and only when `ANTHROPIC_API_KEY` is unset. Team hosts use
+their connected accounts. The completion judge uses the same subscription resolver;
 no provider API key or gateway key is required. Missing seats and invalid
 judgments fail the run without an API-key fallback.
 

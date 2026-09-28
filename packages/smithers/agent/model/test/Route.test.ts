@@ -544,28 +544,6 @@ describe("Route.prepare", () => {
     expect(await Effect.runPromise(openai.auth.sign({}))).toEqual({ Authorization: "Bearer openai-secret" })
   })
 
-  it("signs a Claude subscription token as a Claude Code bearer on the OAuth beta", async () => {
-    const route = Result.getOrThrow(Route.anthropic({ authToken: Redacted.make("sk-ant-oat01-secret") }))
-
-    expect(route.headers).toEqual({ "anthropic-version": "2023-06-01", "anthropic-beta": "oauth-2025-04-20" })
-    const prepared = await Effect.runPromise(Route.prepare(route, request))
-    expect(JSON.parse(prepared.bodyText).system).toEqual([
-      {
-        type: "text",
-        text: "You are Claude Code, Anthropic's official CLI for Claude.",
-        cache_control: { type: "ephemeral" }
-      }
-    ])
-    expect(JSON.stringify(prepared)).not.toContain("sk-ant-oat01-secret")
-    expect(await Effect.runPromise(route.auth.sign({}))).toEqual({ Authorization: "Bearer sk-ant-oat01-secret" })
-
-    const led = await Effect.runPromise(Route.prepare(route, {
-      ...request,
-      system: [{ type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude. Extra." }]
-    }))
-    expect(JSON.parse(led.bodyText).system).toHaveLength(1)
-  })
-
   it.each(
     [
       ["empty", { apiKey: Redacted.make("") }],

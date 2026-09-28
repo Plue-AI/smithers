@@ -397,15 +397,6 @@ export const layer = <Body, Frame, Event, State>(
 ): Layer.Layer<Model.Model, never, RequestExecutor.RequestExecutor> => Layer.effect(Model.Model, toModel(config))
 
 /**
- * The beta Anthropic requires on requests authenticated by a Claude
- * subscription OAuth bearer token.
- *
- * @since 1.0.0
- * @category constants
- */
-export const anthropicOAuthBeta = "oauth-2025-04-20"
-
-/**
  * Creates Anthropic's Messages deployment configuration.
  *
  * @since 0.1.0
@@ -415,12 +406,6 @@ export const anthropicOAuthBeta = "oauth-2025-04-20"
 export const anthropic = (
   input: {
     readonly apiKey?: Auth.Redacted<string> | undefined
-    /**
-     * A Claude subscription bearer token (`claude setup-token`, or the Claude
-     * Code OAuth token) used instead of `apiKey`: sent as `Authorization:
-     * Bearer` with the OAuth beta, on {@link AnthropicMessages.subscriptionProtocol}.
-     */
-    readonly authToken?: Auth.Redacted<string> | undefined
     /** The origin, `Endpoint.providerOrigins` by default; see `Endpoint.providerOrigin`. */
     readonly baseUrl?: string | undefined
   }
@@ -436,23 +421,14 @@ export const anthropic = (
   Result.map(
     Endpoint.make({ url: input.baseUrl ?? Endpoint.providerOrigins.anthropic, path: "/v1/messages" }),
     (endpoint) =>
-      input.authToken !== undefined
-        ? make({
-          id: "anthropic",
-          protocol: AnthropicMessages.subscriptionProtocol,
-          endpoint,
-          auth: Auth.bearer(input.authToken),
-          framing: Framing.sse,
-          headers: { "anthropic-version": "2023-06-01", "anthropic-beta": anthropicOAuthBeta }
-        })
-        : make({
-          id: "anthropic",
-          protocol: AnthropicMessages.protocol,
-          endpoint,
-          auth: Auth.apiKeyHeader("x-api-key", input.apiKey ?? Redacted.make("")),
-          framing: Framing.sse,
-          headers: { "anthropic-version": "2023-06-01" }
-        })
+      make({
+        id: "anthropic",
+        protocol: AnthropicMessages.protocol,
+        endpoint,
+        auth: Auth.apiKeyHeader("x-api-key", input.apiKey ?? Redacted.make("")),
+        framing: Framing.sse,
+        headers: { "anthropic-version": "2023-06-01" }
+      })
   )
 
 /**

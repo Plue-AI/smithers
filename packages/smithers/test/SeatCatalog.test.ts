@@ -54,9 +54,24 @@ describe("NodeControl.seatCandidates", () => {
     ])
   })
 
-  it("offers the Anthropic aliases for a Claude subscription", () => {
-    expect(ids({ CLAUDE_CODE_OAUTH_TOKEN: "oauth" })).toEqual(["opus", "sonnet", "fable"])
-    expect(ids({ ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "token" })).toEqual(["opus", "sonnet", "fable"])
+  it("offers the claude-code seats for a Claude subscription signed in to Claude Code, and never beside a key", () => {
+    const login = { executable: "/bin/claude", loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" }
+    const candidates = (environment: Readonly<Record<string, string | undefined>>, signedIn = login) =>
+      NodeControl.seatCandidates({
+        environment,
+        homeDirectory: "/home/op",
+        readFile: () => undefined,
+        claudeCode: () => signedIn
+      })
+    expect(candidates({}).map((candidate) => candidate.id)).toEqual(Providers.claudeCodeSeats)
+    expect(candidates({})[0]).toEqual({
+      id: "claude-code:opus",
+      description: `${Providers.seatDescriptions.opus}, on Claude Code`
+    })
+    expect(candidates({ ANTHROPIC_API_KEY: "a" }).map((candidate) => candidate.id)).not.toContain("claude-code:opus")
+    expect(candidates({}, { ...login, authMethod: "api_key" })).toEqual([])
+    // A subscription token in the environment is Claude Code's, never a route of ours.
+    expect(ids({ CLAUDE_CODE_OAUTH_TOKEN: "oauth", ANTHROPIC_AUTH_TOKEN: "token" })).toEqual([])
   })
 
   it("offers the OpenAI aliases for the Codex subscription the resolver signs with", () => {
@@ -77,24 +92,15 @@ describe("NodeControl.seatCandidates", () => {
     }
     // The pool is asked which routes have accounts when a seat resolves, so a
     // configured route is offered without a key of the provider's own.
-    expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential" })).toEqual([
-      "sol",
-      "astra",
-      "luna",
-      "opus",
-      "sonnet",
-      "fable"
-    ])
+    // A Claude subscription has no pool route: only Claude Code signs with it.
+    expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential" })).toEqual(["sol", "astra", "luna"])
     expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt" }))
       .toEqual(["sol", "astra", "luna"])
     // The configured subscription pool takes precedence over stale API-key mode.
     expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_OPENAI_AUTH: "api-key" })).toEqual([
       "sol",
       "astra",
-      "luna",
-      "opus",
-      "sonnet",
-      "fable"
+      "luna"
     ])
     expect(ids(pool)).toEqual([])
   })

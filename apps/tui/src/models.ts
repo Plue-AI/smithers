@@ -3,8 +3,9 @@
  *
  * A seat is `provider:modelId`, resolved by the Smithers native seat resolver.
  * Detection is `smithers`' own (`@smthrs/cli/Providers`): a codex login makes
- * `openai:*` seats run on the ChatGPT subscription, and a provider key makes
- * that provider's seats available.
+ * `openai:*` seats run on the ChatGPT subscription, a Claude subscription
+ * signed in to Claude Code adds `claude-code:*` seats when no Anthropic key is
+ * set, and a provider key makes that provider's seats available.
  */
 import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Providers from "@smthrs/cli/Providers"
@@ -46,8 +47,18 @@ const anthropic: ReadonlyArray<Omit<Model, "provider">> = [
   { seat: "anthropic:claude-fable-5-1", label: "Claude Fable 5.1" }
 ]
 
+const claudeCode: ReadonlyArray<Omit<Model, "provider">> = Providers.claudeCodeSeats.map((seat) => ({
+  seat,
+  label: anthropic.find((model) => model.seat === Providers.expandSeat(seat.slice("claude-code:".length)))?.label ??
+    seat
+}))
+
 /** Every seat the picker can offer, whichever providers are detected. */
-export const offered: ReadonlyArray<Omit<Model, "provider">> = [...Object.values(byProvider).flat(), ...anthropic]
+export const offered: ReadonlyArray<Omit<Model, "provider">> = [
+  ...Object.values(byProvider).flat(),
+  ...anthropic,
+  ...claudeCode
+]
 
 export interface Available {
   readonly models: ReadonlyArray<Model>
@@ -58,7 +69,7 @@ export interface Available {
 }
 
 export const detect = (environment: NodeJS.ProcessEnv): Available => {
-  const detections = Providers.detect({
+  const host: Providers.Host = {
     environment,
     homeDirectory: homedir(),
     readFile: (path) => {
@@ -67,8 +78,10 @@ export const detect = (environment: NodeJS.ProcessEnv): Available => {
       } catch {
         return undefined
       }
-    }
-  }).filter((detection) => detection.available)
+    },
+    claudeCode: () => Providers.claudeCodeLogin(environment)
+  }
+  const detections = Providers.detect(host).filter((detection) => detection.available)
   const subscribed = detections.some((detection) => detection.id === "codex-subscription")
   const models: Array<Model> = []
   for (const detection of detections) {
@@ -78,6 +91,8 @@ export const detect = (environment: NodeJS.ProcessEnv): Available => {
   }
   if ((environment.ANTHROPIC_API_KEY ?? "") !== "") {
     for (const model of anthropic) models.push({ ...model, provider: "Anthropic" })
+  } else if (Providers.claudeCode(host).available) {
+    for (const model of claudeCode) models.push({ ...model, provider: "Claude Code" })
   }
   return {
     models,
@@ -138,7 +153,8 @@ const knownProviders = new Set([
     ...Object.values(delegateModels),
     ...Object.values(aliases),
     ...Object.values(byProvider).flat().map((model) => model.seat),
-    ...anthropic.map((model) => model.seat)
+    ...anthropic.map((model) => model.seat),
+    ...claudeCode.map((model) => model.seat)
   ].map(providerOf)
 ])
 
@@ -173,5 +189,5 @@ export const delegable = (available: ReadonlyArray<Model>): ReadonlyArray<Delega
 /** A seat's display name: an available model's label, a known model's, or the seat itself. */
 export const labelOf = (seat: string, available: ReadonlyArray<Model>): string =>
   available.find((model) => model.seat === seat)?.label ??
-    [...Object.values(byProvider).flat(), ...anthropic].find((model) => model.seat === seat)?.label ??
+    offered.find((model) => model.seat === seat)?.label ??
     seat

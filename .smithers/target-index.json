@@ -17699,6 +17699,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/model/src/EvaluatorBackup.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/model/src/FailureCopy.ts"
       },
       {
@@ -19328,6 +19332,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/control/src/migrations/0004_approval_decisions.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/control/src/migrations/0005_signal_principals.ts"
       },
       {
         "kind": "file",
@@ -22560,6 +22568,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/BunControl.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/ClaudeCode.ts"
       },
       {
         "kind": "file",
@@ -43389,11 +43401,6 @@
         "kind": "glob",
         "pattern": "packages/smithers/flows/patterns/src/**",
         "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/patterns/Pure orchestration combinators over @smthrs/flow. Member flows are often model agents, so every decision value (approval, review verdict, plan, task list, item id) is untrusted model output.",
-        "exclude": []
       }
     ],
     "outputs": [],
@@ -43423,11 +43430,6 @@
       {
         "kind": "glob",
         "pattern": "packages/smithers/flows/patterns/src/**",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/patterns/Pure orchestration combinators over @smthrs/flow. Member flows are often model agents, so every decision value (approval, review verdict, plan, task list, item id) is untrusted model output.",
         "exclude": []
       }
     ],

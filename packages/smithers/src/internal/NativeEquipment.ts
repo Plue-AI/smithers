@@ -29,6 +29,7 @@ import * as CliError from "../CliError.ts"
 import * as CodexAuth from "../CodexAuth.ts"
 import * as Environment_ from "../Environment.ts"
 import * as Providers from "../Providers.ts"
+import * as ClaudeCode from "./ClaudeCode.ts"
 import { readText } from "./HostFiles.ts"
 
 const apiKeyVariable: Readonly<Record<string, string>> = {
@@ -47,27 +48,21 @@ const apiKeyVariable: Readonly<Record<string, string>> = {
 const openaiAuthVariable = "SMITHERS_OPENAI_AUTH"
 
 /**
- * The Claude subscription bearer variables, read before any API key:
- * the SDK's name, then the Claude Code CLI's.
- */
-const anthropicSubscriptionVariables = ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] as const
-
-/**
  * A Smithers account pool (`SMITHERS_ACCOUNT_POOL_URL`, `{base}/provider-pool`)
- * holding connected Claude and Codex accounts. `SMITHERS_ACCOUNT_POOL_PROVIDERS`
- * lists the routes (`anthropic`, `chatgpt`) the host may take to it and
- * `SMITHERS_ACCOUNT_POOL_KEY` holds the pool credential. Which routes have
- * accounts the pool answers at `GET {pool}/routes`, asked when a seat resolves
- * and remembered briefly, so an account connected after boot serves the next
- * seat: the anthropic seat then calls `${pool}/anthropic`, and the openai seat
- * runs in ChatGPT mode against `${pool}/chatgpt`. The pool picks the account
- * per request.
+ * holding connected Codex accounts. `SMITHERS_ACCOUNT_POOL_PROVIDERS` lists the
+ * routes (`chatgpt`) the host may take to it and `SMITHERS_ACCOUNT_POOL_KEY`
+ * holds the pool credential. Which routes have accounts the pool answers at
+ * `GET {pool}/routes`, asked when a seat resolves and remembered briefly, so an
+ * account connected after boot serves the next seat: the openai seat then runs
+ * in ChatGPT mode against `${pool}/chatgpt`. The pool picks the account per
+ * request. A Claude subscription has no pool route: Anthropic lets only Claude
+ * Code sign with it, so it is the `claude-code` provider's alone.
  */
 const accountPoolVariable = "SMITHERS_ACCOUNT_POOL_URL"
 const accountPoolKeyVariable = "SMITHERS_ACCOUNT_POOL_KEY"
 const accountPoolRoutesTtlMillis = 30_000
 
-type AccountPoolRoute = "anthropic" | "chatgpt"
+type AccountPoolRoute = "chatgpt"
 
 interface AccountPool {
   readonly origin: string
@@ -96,7 +91,8 @@ const accountPoolOf = (environment: Readonly<Record<string, string | undefined>>
  * the process directly.
  *
  * A seat with no separator is a bare model id on the Anthropic route, which is
- * the one provider convention this host assumes.
+ * the one provider convention this host assumes. A `claude-code:<model>` seat
+ * runs on the user's own signed-in Claude Code (see `ClaudeCode`).
  *
  * `SMITHERS_OPENAI_AUTH=chatgpt` swaps the `openai` provider's credential source
  * from `OPENAI_API_KEY` to the codex CLI's ChatGPT session
@@ -135,20 +131,29 @@ const withAliases = (base: SeatResolver.Service): SeatResolver.Service =>
  * routes by and {@link seatCandidates} offers by.
  *
  * `openai` runs in the mode `SMITHERS_OPENAI_AUTH` selects: a key, or the
- * ChatGPT session behind the model proxy or on this machine. A Claude
- * subscription takes precedence over an ambient Anthropic key. An empty
- * variable is an unset one. An account pool with accounts for the provider's
- * route signs ahead of all of these; see {@link poolRouteOf}.
+ * ChatGPT session behind the model proxy or on this machine. `anthropic`
+ * takes only a key; a Claude subscription runs as `claude-code`, on Claude
+ * Code, which signs its own requests. An empty variable is an unset one. An
+ * account pool with accounts for the provider's route signs ahead of all of
+ * these; see {@link poolRouteOf}.
  */
 type Credential =
   | { readonly _tag: "Compatible"; readonly key: string }
   | { readonly _tag: "Pooled"; readonly key: string; readonly origin: string }
   | { readonly _tag: "Session"; readonly file: string }
-  | { readonly _tag: "Subscription"; readonly token: string }
+  | { readonly _tag: "ClaudeCode"; readonly executable: string }
   | { readonly _tag: "Key"; readonly key: string }
   | { readonly _tag: "Refused"; readonly refusal: (seat: string) => string }
 
 const refused = (refusal: (seat: string) => string): Credential => ({ _tag: "Refused", refusal })
+
+/** This machine, as the seat scan reads it. */
+const hostOf = (environment: Readonly<Record<string, string | undefined>>): Providers.Host => ({
+  environment,
+  homeDirectory: homedir(),
+  readFile: readText,
+  claudeCode: () => Providers.claudeCodeLogin(environment)
+})
 
 const credential = (provider: string, host: Providers.Host): Credential => {
   const environment = host.environment
@@ -160,6 +165,12 @@ const credential = (provider: string, host: Providers.Host): Credential => {
     return found === undefined
       ? refused((seat) => `Set ${Providers.compatible[provider]!.variables.join(" or ")} to run the ${seat} seat`)
       : { _tag: "Compatible", key: found.key }
+  }
+  if (provider === "claude-code") {
+    const found = Providers.claudeCode(host)
+    return found.executable === undefined
+      ? refused((seat) => `${found.reason}, so the ${seat} seat cannot run: ${found.setupHint}`)
+      : { _tag: "ClaudeCode", executable: found.executable }
   }
   const variable = apiKeyVariable[provider]
   if (variable === undefined) return refused(() => `No route is configured for the ${provider} provider`)
@@ -186,25 +197,17 @@ const credential = (provider: string, host: Providers.Host): Credential => {
       ? refused((seat) => `Sign in with \`codex login\` to run the ${seat} seat: no ChatGPT credentials at ${file}`)
       : { _tag: "Session", file }
   }
-  const subscription = provider === "anthropic"
-    ? anthropicSubscriptionVariables.map((name) => environment[name]).find((token) =>
-      token !== undefined && token.length > 0
-    )
-    : undefined
-  if (subscription !== undefined) return { _tag: "Subscription", token: subscription }
   return key === undefined ? refused((seat) => `Set ${variable} to run the ${seat} seat`) : { _tag: "Key", key }
 }
 
 /**
- * The account pool route a provider's seats may take: `anthropic` for the
- * anthropic seat, and `chatgpt` for the openai seat unless
- * `SMITHERS_OPENAI_AUTH` pins it to its key or names no valid mode.
+ * The account pool route a provider's seats may take: `chatgpt` for the openai
+ * seat unless `SMITHERS_OPENAI_AUTH` pins it to its key or names no valid mode.
  */
 const poolRouteOf = (
   provider: string,
   environment: Readonly<Record<string, string | undefined>>
 ): AccountPoolRoute | undefined => {
-  if (provider === "anthropic") return "anthropic"
   if (provider !== "openai") return undefined
   if (origin(Environment_.read(environment, accountPoolVariable)) !== undefined) return "chatgpt"
   const configured = Environment_.read(environment, openaiAuthVariable)
@@ -243,7 +246,7 @@ const providerSeats = (
     }
     return store
   }
-  const host: Providers.Host = { environment, homeDirectory: homedir(), readFile: readText }
+  const host = hostOf(environment)
   return SeatResolver.make({
     resolve: (seat) =>
       Effect.gen(function*() {
@@ -262,22 +265,15 @@ const providerSeats = (
         }
         const accounts = poolRoute === undefined ? undefined : yield* pooled(poolRoute, modelId)
         if (accounts !== undefined) {
-          return yield* poolRoute === "anthropic"
-            ? seatOf(
-              Route.anthropic({ apiKey: Redacted.make(accounts.key), baseUrl: `${accounts.origin}/anthropic` }),
-              executor,
-              seat,
-              modelId
-            )
-            : seatOf(
-              OpenAIChatGPT.make({
-                auth: Auth.bearer(Redacted.make(accounts.key)),
-                baseUrl: `${accounts.origin}/chatgpt`
-              }),
-              executor,
-              seat,
-              modelId
-            )
+          return yield* seatOf(
+            OpenAIChatGPT.make({
+              auth: Auth.bearer(Redacted.make(accounts.key)),
+              baseUrl: `${accounts.origin}/chatgpt`
+            }),
+            executor,
+            seat,
+            modelId
+          )
         }
         const platformFallback = environment.SMITHERS_CODING_FALLBACK_MODEL === seat &&
           Endpoint.proxyOrigin(provider, environment) !== undefined
@@ -320,16 +316,16 @@ const providerSeats = (
               seat,
               modelId
             )
-          case "Subscription":
-            return yield* seatOf(
-              Route.anthropic({
-                authToken: Redacted.make(signed.token),
-                baseUrl: Endpoint.providerOrigin("anthropic", environment)
-              }),
-              executor,
-              seat,
-              modelId
-            )
+          case "ClaudeCode": {
+            const model = Providers.claudeCodeModel(modelId)
+            return Seat.make({
+              id: seat,
+              modelId: model,
+              model: ClaudeCode.make({ model, executable: signed.executable, environment }),
+              route: ClaudeCode.route(model),
+              contextWindowTokens: SeatResolver.contextWindowTokensFor(model)
+            })
+          }
         }
         const key = signed.key
         // The provider routes have distinct body types, so each branch is
@@ -415,10 +411,7 @@ export const accountPoolDefaultModel = (environment: Readonly<Record<string, str
     const routes = yield* accountPoolRoutes(pool, executor, "coding/implement").pipe(
       Effect.orElseSucceed((): ReadonlyArray<string> => [])
     )
-    const defaults = [
-      ["chatgpt", "openai:gpt-6-luna"],
-      ["anthropic", "anthropic:claude-sonnet-4-6"]
-    ] as const
+    const defaults = [["chatgpt", "openai:gpt-6-luna"]] as const
     return defaults.find(([route]) => pool.routes.includes(route) && routes.includes(route))?.[1]
   })
 
@@ -462,13 +455,23 @@ export const layerSeatResolver = (
 
 /**
  * The seats Jev may route an `auto` run to on this host: every alias whose
- * provider {@link seatResolver} holds a credential for, once per model, and
+ * provider {@link seatResolver} holds a credential for, once per model, then
+ * the `claude-code` seats when Claude Code serves a subscription here, and
  * never Jev. A description names the model, never a credential.
  *
  * @category constructors
  * @since 1.0.0
  */
-export const seatCandidates = (host: Providers.Host): ReadonlyArray<SeatRouter.Candidate> => {
+export const seatCandidates = (host: Providers.Host): ReadonlyArray<SeatRouter.Candidate> => [
+  ...aliasCandidates(host),
+  ...(credential("claude-code", host)._tag === "Refused" ? [] : Providers.claudeCodeSeats).map((id) => ({
+    id,
+    description: `${Providers.seatDescriptions[Seat.modelIdOf(id)] ?? Seat.modelIdOf(id)}, on Claude Code`
+  }))
+]
+
+/** The alias half of {@link seatCandidates}, which never runs Claude Code to ask. */
+const aliasCandidates = (host: Providers.Host): ReadonlyArray<SeatRouter.Candidate> => {
   const pool = accountPoolOf(host.environment)
   const offered = Object.entries(Providers.seatAliases).filter(([, seat]) => {
     if (Providers.isDecisionSeat(seat)) return false
@@ -496,7 +499,7 @@ export const layerSeatCatalog = (
   environment: Readonly<Record<string, string | undefined>>
 ): Layer.Layer<SeatRouter.Catalog> =>
   SeatRouter.layer({
-    candidates: Effect.sync(() => seatCandidates({ environment, homeDirectory: homedir(), readFile: readText })),
+    candidates: Effect.sync(() => seatCandidates(hostOf(environment))),
     variants: SeatRouter.defaultVariants
   })
 
@@ -513,7 +516,7 @@ export const layerSeatEvaluator = (
   Layer.effect(Evaluator.Evaluator)(Effect.gen(function*() {
     const executor = yield* RequestExecutor.RequestExecutor
     const resolver = seatResolver(environment, executor)
-    const host = { environment, homeDirectory: homedir(), readFile: readText }
+    const host = hostOf(environment)
     return Evaluator.Evaluator.of({
       evaluate: (request) =>
         Effect.gen(function*() {
@@ -523,12 +526,13 @@ export const layerSeatEvaluator = (
               new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
             )
           )
-          const candidate = seatCandidates(host).find(({ id }) => {
+          // A claude-code seat answers cells only, never a judgment.
+          const candidate = aliasCandidates(host).find(({ id }) => {
             const provider = Providers.expandSeat(id).split(":")[0]!
             const route = poolRouteOf(provider, environment)
             if (pool !== undefined && route !== undefined && pool.routes.includes(route)) return routes.includes(route)
             const signed = credential(provider, host)
-            return signed._tag === "Session" || signed._tag === "Subscription" || signed._tag === "Pooled"
+            return signed._tag === "Session" || signed._tag === "Pooled"
           })
           if (candidate === undefined) {
             return yield* Effect.fail(

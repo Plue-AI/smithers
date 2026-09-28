@@ -44,62 +44,46 @@ it("does not demand local credentials from a remote control client", () => {
   expect(() => NodeControl.layerControl({ remote: "http://127.0.0.1:5300" })).not.toThrow()
 })
 
-it.each(["chatgpt", "anthropic"] as const)(
-  "judges through a %s provider_connections pool seat without provider keys",
-  async (route) => {
-    const sent: string[] = []
-    const answer = JSON.stringify({ answers: { complete: { type: "boolean", probability: 0.95 } } })
-    const executor = RequestExecutor.RequestExecutor.of({
-      execute: (request) => {
-        sent.push(request.url)
-        if (request.url.endsWith("/routes")) {
-          return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ routes: [route] })))
-        }
-        const events = route === "chatgpt" ?
-          [
-            { type: "response.output_text.delta", item_id: "answer", output_index: 0, content_index: 0, delta: answer },
-            { type: "response.completed", response: { id: "response", status: "completed", usage: {} } }
-          ] :
-          [
-            { type: "message_start", message: { id: "response", role: "assistant", content: [], usage: {} } },
-            { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-            { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: answer } },
-            { type: "content_block_stop", index: 0 },
-            { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: {} },
-            { type: "message_stop" }
-          ]
-        return Effect.succeed(HttpClientResponse.fromWeb(
-          request,
-          new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
-            headers: { "content-type": "text/event-stream" }
-          })
-        ))
+it("judges through a chatgpt provider_connections pool seat without provider keys", async () => {
+  const sent: string[] = []
+  const answer = JSON.stringify({ answers: { complete: { type: "boolean", probability: 0.95 } } })
+  const executor = RequestExecutor.RequestExecutor.of({
+    execute: (request) => {
+      sent.push(request.url)
+      if (request.url.endsWith("/routes")) {
+        return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ routes: ["chatgpt"] })))
       }
-    })
-    const result = await Effect.runPromise(
-      Effect.flatMap(Evaluator.Evaluator, (judge) =>
-        judge.evaluate({
-          state: "proof",
-          questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
-        })).pipe(
-          Effect.provide(
-            layerSeatEvaluator({
-              SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
-              SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
-              SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic,chatgpt"
-            }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
-          )
+      const events = [
+        { type: "response.output_text.delta", item_id: "answer", output_index: 0, content_index: 0, delta: answer },
+        { type: "response.completed", response: { id: "response", status: "completed", usage: {} } }
+      ]
+      return Effect.succeed(HttpClientResponse.fromWeb(
+        request,
+        new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+          headers: { "content-type": "text/event-stream" }
+        })
+      ))
+    }
+  })
+  const result = await Effect.runPromise(
+    Effect.flatMap(Evaluator.Evaluator, (judge) =>
+      judge.evaluate({
+        state: "proof",
+        questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
+      })).pipe(
+        Effect.provide(
+          layerSeatEvaluator({
+            SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
+            SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
+            SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt"
+          }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
         )
-    )
-    expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
-    expect(sent.at(-1)).toBe(
-      route === "chatgpt"
-        ? "https://pool.example/chatgpt/codex/responses"
-        : "https://pool.example/anthropic/v1/messages"
-    )
-    expect(sent.every((url) => url.startsWith("https://pool.example/"))).toBe(true)
-  }
-)
+      )
+  )
+  expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
+  expect(sent.at(-1)).toBe("https://pool.example/chatgpt/codex/responses")
+  expect(sent.every((url) => url.startsWith("https://pool.example/"))).toBe(true)
+})
 
 it("does not use ambient API keys for a native judgment", async () => {
   const executor = RequestExecutor.RequestExecutor.of({
