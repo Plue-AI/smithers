@@ -111,9 +111,19 @@ export const scan = (config: ScanConfig): Effect.Effect<ScanResult, FsError, Fil
     const path = yield* Path.Path
     const root = yield* snapshotRoot(config, path)
     const discovery = Discovery.make(fileSystem, path)
-    const result = yield* discovery.scan({ source: "flows", root, naming: "path" }).pipe(
+    // Confinement makes discovery refuse any entry or directory whose real
+    // path leaves the root, so a symlink in a cloned repository cannot route
+    // a module that lives elsewhere on the host.
+    const result = yield* discovery.scan({ source: "flows", root, naming: "path", confinementRoot: root }).pipe(
       Effect.mapError(discoveryFailure)
     )
+    // Discovery confines entries, not companions: a UI module is recorded only
+    // when its real path stays inside the root's real path.
+    const withinRoot = (location: string): Effect.Effect<boolean, FsError> =>
+      Effect.all([fileSystem.realPath(root), fileSystem.realPath(location)]).pipe(
+        Effect.map(([realRoot, real]) => real.startsWith(path.join(realRoot, path.sep))),
+        Effect.mapError(readFailure)
+      )
 
     if (result.entries.length > CommandTree.maximumRoutes) {
       return yield* Effect.fail(
@@ -139,7 +149,8 @@ export const scan = (config: ScanConfig): Effect.Effect<ScanResult, FsError, Fil
       }
       const directory = path.dirname(sourcePath)
       const uiPath = path.join(directory, "ui.tsx")
-      const hasUi = yield* fileSystem.exists(uiPath).pipe(Effect.mapError(readFailure))
+      const hasUi = (yield* fileSystem.exists(uiPath).pipe(Effect.mapError(readFailure))) &&
+        (yield* withinRoot(uiPath))
       const route = yield* Route.snapshot({
         name,
         segments,

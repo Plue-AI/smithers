@@ -117,4 +117,22 @@ describe("FileRouter failure projection", () => {
     expect(error.code).toBe("read_failed")
     expect(JSON.stringify(error)).not.toContain("TOP-SECRET")
   })
+
+  it("refuses a UI companion whose real path cannot be resolved", async () => {
+    discovery.scan = () => Effect.succeed(result([descriptor("/flows/route/flow.ts")]))
+    const unresolvable = {
+      exists: () => Effect.succeed(true),
+      realPath: () => Effect.fail(new Error("TOP-SECRET"))
+    } as unknown as FileSystem.FileSystem
+    const exit = await Effect.runPromise(Effect.exit(
+      FileRouter.scan({ root: "/flows" }).pipe(
+        Effect.provide(Layer.merge(Layer.succeed(FileSystem.FileSystem, unresolvable), NodePath.layer))
+      )
+    ))
+    expect(exit._tag).toBe("Failure")
+    if (exit._tag !== "Failure") return
+    const error = Option.getOrThrow(Cause.findErrorOption(exit.cause))
+    expect(error.code).toBe("read_failed")
+    expect(JSON.stringify(error)).not.toContain("TOP-SECRET")
+  })
 })

@@ -90,6 +90,38 @@ percent-decoded, so an encoded slash (`%2F`) decodes inside one segment and
 can never invent a path boundary. A malformed percent escape returns status
 400 with the `parse_failed` envelope.
 
+## Authenticate before you listen
+
+`fetch` and the `/mcp` surface perform no authentication and no origin
+check. Any client that reaches them can invoke every mounted route with that
+flow's capabilities, against your repository and credentials. Before you wire
+`cli.fetch` into a listening server, bind it to `127.0.0.1` or put an
+authenticating layer in front that rejects a request before it reaches
+`cli.fetch`:
+
+```ts
+import { createHash, timingSafeEqual } from "node:crypto"
+
+const token = process.env.FLOWS_TOKEN
+if (token === undefined || token.length === 0) {
+  throw new Error("FLOWS_TOKEN must be set before serving flows")
+}
+const digest = (value: string) => createHash("sha256").update(value).digest()
+const expected = digest(`Bearer ${token}`)
+
+Bun.serve({
+  hostname: "127.0.0.1",
+  fetch: (request) =>
+    timingSafeEqual(digest(request.headers.get("authorization") ?? ""), expected)
+      ? cli.fetch(request)
+      : new Response("Unauthorized", { status: 401 })
+})
+```
+
+The server refuses to start without a token, so a missing variable never
+turns into a guessable `Bearer undefined` credential. Hashing both sides
+gives `timingSafeEqual` equal-length buffers.
+
 ## Publish the discovery surfaces
 
 Discovery requests get a metadata surface that projects every command once

@@ -267,8 +267,11 @@ and the root is resolved to an absolute path once for the whole operation.
 Root-level entries produce no route. Two source paths collapsing to one
 command name fail with `duplicate_route`. A scan returning more than
 `CommandTree.maximumRoutes` entries fails with `resource_limit` before any
-companion is inspected. A `ui.tsx` beside a flow is recorded on the route's
-`ui` field; companions and colocated tests never become routes. A module body
+companion is inspected. Discovery is confined to the root's real path: a
+directory or entry whose symbolic link resolves outside the root produces an
+`outside_root` warning and no route. A `ui.tsx` beside a flow is recorded on
+the route's `ui` field only when its real path stays inside the root;
+companions and colocated tests never become routes. A module body
 yields kind `module`, a `SKILL.md` body yields kind `skill`, and every other
 body yields kind `markdown`.
 

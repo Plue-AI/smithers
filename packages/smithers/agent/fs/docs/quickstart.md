@@ -143,6 +143,10 @@ const response = await cli.fetch(new Request("http://localhost/review?number=42"
 console.log(await response.json())
 ```
 
+`cli.fetch` performs no authentication: any client that reaches it can run
+every mounted flow. Before you serve it on a socket, follow
+[Authenticate before you listen](./guides/serve-over-cli-http-and-mcp.md#authenticate-before-you-listen).
+
 The CLI run prints the encoded output as JSON, and the HTTP response body
 carries the same encoded output under `data`. Discovery stays metadata-aware:
 `--help`, `--llms`, `--schema`, `/openapi.json`, and `/mcp` all describe the

@@ -1,7 +1,7 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
 import { Cause, Effect, Layer, Option } from "effect"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, isAbsolute, join, relative, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -122,5 +122,39 @@ describe("FileRouter", () => {
     ))
     expect(hostile._tag).toBe("Failure")
     expect(called).toBe(false)
+  })
+  it("never routes a flow or UI companion whose real path leaves the root", async () => {
+    const temporary = await mkdtemp(join(tmpdir(), "smithers-fs-escape-"))
+    try {
+      const source =
+        `import { Flow } from "@smthrs/core"\nexport default Flow.make({ name: "fixture", description: "fixture" })\n`
+      const flows = join(temporary, "flows")
+      const outside = join(temporary, "outside")
+      await mkdir(join(flows, "inside"), { recursive: true })
+      await mkdir(join(flows, "linkedui"), { recursive: true })
+      await mkdir(join(outside, "escape"), { recursive: true })
+      await writeFile(join(flows, "inside", "flow.ts"), source)
+      await writeFile(join(outside, "escape", "flow.ts"), source)
+      await writeFile(join(outside, "loose.ts"), source)
+      await writeFile(join(outside, "ui.tsx"), "export default null\n")
+      await symlink(join(outside, "escape"), join(flows, "dir"))
+      await mkdir(join(flows, "file"))
+      await symlink(join(outside, "loose.ts"), join(flows, "file", "flow.ts"))
+      await writeFile(join(flows, "linkedui", "flow.ts"), source)
+      await symlink(join(outside, "ui.tsx"), join(flows, "linkedui", "ui.tsx"))
+
+      const result = await Effect.runPromise(
+        FileRouter.scan({ root: flows }).pipe(Effect.provide(platformLayer))
+      )
+
+      expect(result.routes.map((route) => route.name)).toEqual(["inside", "linkedui"])
+      expect(Option.isNone(result.routes.find((route) => route.name === "linkedui")!.ui)).toBe(true)
+      expect(result.warnings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "outside_root", path: join(flows, "dir") }),
+        expect.objectContaining({ code: "outside_root", path: join(flows, "file", "flow.ts") })
+      ]))
+    } finally {
+      await rm(temporary, { recursive: true, force: true })
+    }
   })
 })

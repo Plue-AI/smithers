@@ -31,7 +31,8 @@ with a bounded, well-formed `root` string.
 
 Discovery or companion inspection could not read the filesystem. The scan
 read the root but a later read failed, for example while checking for a
-`ui.tsx` companion. Check permissions on the flows tree.
+`ui.tsx` companion or resolving its real path. Check permissions on the flows
+tree.
 
 ### `discovery_failed`
 
