@@ -64,3 +64,5 @@ branch's file (`issue_comment`, `push`, `schedule`, `workflow_dispatch`);
 trusting it fits a `comment`-mode registration, where every other event is
 refused. Apply migration
 `0003_allowed_workflow_refs.sql` before the Worker update.
+
+<!-- Temporary pull request review verification for #2079. -->
