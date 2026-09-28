@@ -92,7 +92,8 @@ package. Three properties of how it is started are load-bearing:
   the pinned root descriptor.
 - **Outside the workspace.** The resolved executable must be an executable
   regular file outside the confined root. A packaged helper is copied out of
-  the workspace before any flow runs.
+  the workspace when the first host layer in the process is built, before any
+  flow runs; later layer builds copy nothing.
 - **Inert process.** It starts with an empty environment and the filesystem
   root as its working directory.
 

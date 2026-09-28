@@ -56,11 +56,14 @@ a file that is no longer there. A host with no helper builds cleanly and then
 fails every guarded filesystem call with `PermissionDenied`.
 
 The packaged helper and the source-checkout builds (steps 3 and 4) are copied
-to a private `0700` directory when the layer is built, before any flow runs.
-Requests execute that copy, so a flow that rewrites one of those files later
-changes nothing that runs. A default helper that lies inside the confined
-workspace and was not present at layer build is refused with
-`PermissionDenied`: its bytes could only have come from a flow.
+to a private `0700` directory when the first layer in the process is built,
+before any flow runs. Later layer builds copy nothing, because a flow of an
+earlier run may already have written those paths. Requests execute that copy,
+so a flow that rewrites one of those files later changes nothing that runs. A
+default helper not present at that first build is refused with
+`PermissionDenied` when its path, or the file the path links to, lies inside the
+confined workspace: its bytes, or the choice of binary, could only have come
+from a flow.
 
 ## Set the byte ceilings
 

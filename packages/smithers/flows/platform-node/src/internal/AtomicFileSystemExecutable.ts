@@ -16,7 +16,7 @@ import {
 } from "node:fs"
 import { createRequire } from "node:module"
 import { homedir, tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { inside, usableExecutable } from "./AtomicFileSystemTransport.ts"
 
@@ -61,6 +61,13 @@ export const packageRoot = installedPackageRoot(
 )
 
 const staged = new Map<string, string>()
+/**
+ * Package roots already staged, and the sources that staging copied. Staging
+ * happens once per root per process: a later layer build runs after flows may
+ * have planted a helper, so only what existed at the FIRST build is trusted.
+ */
+const stagedRoots = new Set<string>()
+const trusted = new Set<string>()
 const installHint = "install @smthrs/platform-node with its native helper, " +
   "run cargo build --locked --release -p smithers-ffi --bin smithers-jj-export in a source checkout, " +
   "or set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to its absolute path"
@@ -124,25 +131,36 @@ const checkoutHelpers = (root: string): ReadonlyArray<string> => {
 }
 
 /**
- * Stages the packaged helper and any source-checkout build now, when the host
- * layer is built, so the bytes later requests execute are the ones present
- * before any flow ran. A flow that rewrites a workspace-local install or
- * build afterwards changes nothing that is executed. A missing or unusable
- * helper is left for the first request to report.
+ * Stages the packaged helper and any source-checkout build the first time a
+ * host layer over `root` is built in this process, so the bytes later requests
+ * execute are the ones present before any flow ran. Later builds stage
+ * nothing: a flow of an earlier run may already have planted a helper by then.
+ * A flow that rewrites a workspace-local install or build afterwards changes
+ * nothing that is executed. A missing or unusable helper is left for the first
+ * request to report.
  * @private
  * @since 1.0.0
  */
 export const stagePackaged = (root: string): void => {
+  if (stagedRoots.has(root)) return
+  stagedRoots.add(root)
   const candidate = embeddedHelper ?? packagedHelper(root)
   try {
-    if (existsSync(candidate) && statSync(candidate).isFile()) outsideWorkspace(candidate, undefined)
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
+      outsideWorkspace(candidate, undefined)
+      trusted.add(candidate)
+    }
   } catch {
     // The request path resolves again and reports the refusal it meets.
   }
   if (embeddedHelper !== undefined) return
   for (const build of checkoutHelpers(root)) {
     try {
-      if (existsSync(build)) outsideWorkspace(usableExecutable(build, undefined), undefined)
+      if (existsSync(build)) {
+        const executable = usableExecutable(build, undefined)
+        outsideWorkspace(executable, undefined)
+        trusted.add(executable)
+      }
     } catch {
       // As above: the request path reports it.
     }
@@ -150,17 +168,27 @@ export const stagePackaged = (root: string): void => {
 }
 
 /**
- * Copies `source` to a private directory only when the workspace cannot have
- * supplied its bytes: it lies outside the confined workspace, or it was
- * staged when the host was built, before any flow ran. A helper that appeared
- * inside the workspace later is exactly what a flow would plant.
+ * Whether a flow confined to `boundaryRoot` could have supplied what
+ * `candidate` runs: the name itself lies inside the workspace (so a flow could
+ * have replaced it with a link to any host binary), its directory resolves
+ * inside it, or the file it resolves to does.
  */
-const pinned = (source: string, boundaryRoot: string | undefined): string => {
-  if (
-    boundaryRoot !== undefined && !staged.has(source) && inside(boundaryRoot, realpathSync.native(source))
-  ) {
+const workspaceSupplied = (candidate: string, source: string, boundaryRoot: string): boolean =>
+  inside(boundaryRoot, resolve(candidate)) ||
+  inside(boundaryRoot, join(realpathSync.native(dirname(candidate)), basename(candidate))) ||
+  inside(boundaryRoot, realpathSync.native(source))
+
+/**
+ * Copies `source` to a private directory only when the workspace cannot have
+ * supplied its bytes: neither `candidate` nor what it resolves to lies inside
+ * the confined workspace, or `source` was staged at the first host build,
+ * before any flow ran. A helper, or a link to one, that appeared inside the
+ * workspace later is exactly what a flow would plant.
+ */
+const pinned = (candidate: string, source: string, boundaryRoot: string | undefined): string => {
+  if (boundaryRoot !== undefined && !trusted.has(source) && workspaceSupplied(candidate, source, boundaryRoot)) {
     throw new Error(
-      `atomic helper executable must live outside the confined workspace: ${source} ` +
+      `atomic helper executable must live outside the confined workspace: ${candidate} ` +
         "was not present when the host was built"
     )
   }
@@ -184,11 +212,11 @@ export const resolveDefaultExecutable = (
     if (index === 0) {
       if (!statSync(candidate).isFile()) throw new Error(`packaged atomic helper is not a regular file: ${candidate}`)
       // npm/pnpm tarballs may store package files without executable bits.
-      return pinned(candidate, boundaryRoot)
+      return pinned(candidate, candidate, boundaryRoot)
     }
     const executable = usableExecutable(candidate, undefined)
-    return boundaryRoot !== undefined && inside(boundaryRoot, executable)
-      ? pinned(executable, boundaryRoot)
+    return boundaryRoot !== undefined && workspaceSupplied(candidate, executable, boundaryRoot)
+      ? pinned(candidate, executable, boundaryRoot)
       : executable
   }
   throw new Error(`smithers-jj-export is missing; ${installHint} (searched ${candidates.join(", ")})`)

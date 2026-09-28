@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join, sep } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -257,6 +257,47 @@ describe("default atomic helper resolution", () => {
     expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
       .toThrow(/not present when the host was built/)
   })
+
+  it("stages once per process, so a helper planted before a later layer build stays refused", async () => {
+    const { packageRoot, root } = await fixture()
+    // The first host layer finds no packaged helper.
+    stagePackaged(packageRoot)
+    // A flow plants one, then a second host layer is built in this process.
+    await helper(join(packageRoot, "bin", `${process.platform}-${process.arch}`, helperName))
+    stagePackaged(packageRoot)
+    expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
+      .toThrow(/not present when the host was built/)
+  })
+
+  it("stages a checkout build once per process the same way", async () => {
+    const { packageRoot, root } = await fixture()
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n")
+    stagePackaged(packageRoot)
+    await helper(join(root, "target/release", helperName))
+    stagePackaged(packageRoot)
+    expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
+      .toThrow(/not present when the host was built/)
+  })
+
+  it.each(["packaged", "checkout"])(
+    "refuses a %s helper path a flow made a link to a binary outside the workspace",
+    async (kind) => {
+      const { packageRoot, root } = await fixture()
+      const outside = await realpath(await mkdtemp(join(tmpdir(), "atomic-outside-")))
+      roots.push(outside)
+      const hostBinary = join(outside, "host-binary")
+      await helper(hostBinary)
+      await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n")
+      const planted = kind === "packaged"
+        ? join(packageRoot, "bin", `${process.platform}-${process.arch}`, helperName)
+        : join(root, "target/release", helperName)
+      stagePackaged(packageRoot)
+      await mkdir(dirname(planted), { recursive: true })
+      await symlink(hostBinary, planted)
+      expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
+        .toThrow(/not present when the host was built/)
+    }
+  )
 
   it("names the build and configuration fix when no helper exists", async () => {
     const { packageRoot, root } = await fixture()
