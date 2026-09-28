@@ -69,6 +69,14 @@ type boxHostLauncher struct {
 	flowhost.SourceResolver
 	stopper flowhost.RetirementStopper
 	boxes   boxHostPreparer
+	// targets adds a target's own start environment over the box's
+	// (services.InvokedFlowService: an invoked run's workflow variables and
+	// secrets).
+	targets flowHostEnvironment
+}
+
+type flowHostEnvironment interface {
+	FlowHostEnvironment(context.Context, flowhost.Authority) (map[string]string, error)
 }
 
 // boxHostBase is the workspace runtime's host launcher.
@@ -78,8 +86,8 @@ type boxHostBase interface {
 	flowhost.RetirementStopper
 }
 
-func newBoxHostLauncher(launcher boxHostBase, boxes boxHostPreparer) *boxHostLauncher {
-	return &boxHostLauncher{Launcher: launcher, SourceResolver: launcher, stopper: launcher, boxes: boxes}
+func newBoxHostLauncher(launcher boxHostBase, boxes boxHostPreparer, targets flowHostEnvironment) *boxHostLauncher {
+	return &boxHostLauncher{Launcher: launcher, SourceResolver: launcher, stopper: launcher, boxes: boxes, targets: targets}
 }
 
 // InspectFlowHost keeps the box awake while its host is in use: every call to
@@ -102,9 +110,23 @@ func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.H
 }
 
 func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	var targetEnvironment map[string]string
+	if l.targets != nil {
+		var err error
+		if targetEnvironment, err = l.targets.FlowHostEnvironment(ctx, launch.Authority); err != nil {
+			return flowhost.Connection{}, err
+		}
+	}
 	environment, err := l.boxes.PrepareBoxHost(ctx, launch.Binding.ID, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID)
 	if err != nil {
 		return flowhost.Connection{}, err
+	}
+	// The target's variables win over the box's agent variables; a name the
+	// catalog, host or Smithers owns stays theirs.
+	for name, value := range targetEnvironment {
+		if _, configured := launch.Catalog.Environment[name]; !configured && flowhost.RepositoryVariable(name) {
+			environment[name] = value
+		}
 	}
 	launch.Environment = environment
 	connection, err := l.Launcher.StartFlowHost(ctx, launch)

@@ -201,17 +201,9 @@ func (s *workflowAPIService) CancelWorkflowRun(ctx context.Context, repositoryID
 	if s.runner == nil {
 		return pkgerrors.Internal("workflow run service unavailable")
 	}
-	if err := s.runner.CancelRun(ctx, repositoryID, runID); err != nil {
-		return err
-	}
-	// The run row is cancelled first; an invoked run's Flow launch then
-	// receives the cancel through its durable request.
-	if s.invoker != nil {
-		if err := s.invoker.CancelInvokedRun(ctx, repositoryID, runID); err != nil {
-			return pkgerrors.Internal("failed to cancel the Flow run").WithCause(err)
-		}
-	}
-	return nil
+	// An invoked run's Flow launch is cancelled in the same transaction
+	// (WorkflowRunCancelParticipant).
+	return s.runner.CancelRun(ctx, repositoryID, runID)
 }
 
 func (s *workflowAPIService) RerunRun(ctx context.Context, input RerunInput) (*WorkflowRunResult, error) {

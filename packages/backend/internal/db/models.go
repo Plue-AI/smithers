@@ -2688,12 +2688,14 @@ type WorkflowRunCodingHost struct {
 }
 
 type WorkflowRunFlowInvocation struct {
-	WorkflowRunID int64       `json:"workflow_run_id"`
-	UserID        int64       `json:"user_id"`
-	FlowID        string      `json:"flow_id"`
-	OperationID   string      `json:"operation_id"`
-	WorkspaceID   pgtype.UUID `json:"workspace_id"`
-	CreatedAt     time.Time   `json:"created_at"`
+	WorkflowRunID  int64       `json:"workflow_run_id"`
+	UserID         int64       `json:"user_id"`
+	FlowID         string      `json:"flow_id"`
+	OperationID    string      `json:"operation_id"`
+	WorkspaceID    pgtype.UUID `json:"workspace_id"`
+	CreatedAt      time.Time   `json:"created_at"`
+	WorkflowStepID pgtype.Int8 `json:"workflow_step_id"`
+	LogCursor      string      `json:"log_cursor"`
 }
 
 type WorkflowRunLog struct {

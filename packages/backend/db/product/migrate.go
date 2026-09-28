@@ -100,6 +100,7 @@ var migrationRegistry = []migrationSpec{
 	{62, "migrations/0062_build_cache_read_token_namespace.sql"},
 	{63, "migrations/0063_user_erasure_tombstone.sql"},
 	{64, "migrations/0064_invoked_flow_plane.sql"},
+	{65, "migrations/0065_invoked_flow_run_log.sql"},
 }
 
 type migration struct {

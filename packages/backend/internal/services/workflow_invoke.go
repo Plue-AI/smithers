@@ -55,7 +55,6 @@ func invokeFlowID(identifier string) (string, bool) {
 // (InvokedFlowService).
 type InvokedFlowInvoker interface {
 	Invoke(context.Context, InvokedFlowLaunch) (db.WorkflowRun, db.WorkflowDefinition, error)
-	CancelInvokedRun(ctx context.Context, repositoryID, runID int64) error
 }
 
 // InvokeWorkflow creates one queued flow-plane run and admits its Flow

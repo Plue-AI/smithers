@@ -310,6 +310,7 @@ type WorkflowCacheDescriptor struct {
 
 type workflowRunService struct {
 	queries              WorkflowRunQuerier
+	cancelParticipant    WorkflowRunCancelParticipant
 	dispatcher           webhooks.Dispatcher
 	commitStatusWriter   WorkflowRunCommitStatusWriter
 	checkRunService      GitHubCheckRunService
@@ -337,6 +338,17 @@ type WorkflowBookmarkCommitResolver interface {
 }
 
 // WorkflowRunServiceOption applies optional configuration to a workflowRunService.
+// WorkflowRunCancelParticipant cancels what a run owns beyond its own rows in
+// the transaction that cancels the run, so both commit or neither does.
+type WorkflowRunCancelParticipant interface {
+	CancelWorkflowRunInTx(ctx context.Context, tx pgx.Tx, run db.WorkflowRun) error
+}
+
+// SetCancelParticipant joins a participant to every run cancellation.
+func (s *workflowRunService) SetCancelParticipant(participant WorkflowRunCancelParticipant) {
+	s.cancelParticipant = participant
+}
+
 type WorkflowRunServiceOption func(*workflowRunService)
 
 // WithWorkflowRunWebhookDispatcher wires a webhook dispatcher into WorkflowRunService.
@@ -1220,6 +1232,11 @@ func (s *workflowRunService) CancelRun(ctx context.Context, repositoryID, runID 
 		if err := txQueries.CancelWorkflowRun(ctx, run.ID); err != nil {
 			return pkgerrors.Internal("failed to cancel workflow run").WithCause(err)
 		}
+		if s.cancelParticipant != nil {
+			if err := s.cancelParticipant.CancelWorkflowRunInTx(ctx, tx, run); err != nil {
+				return pkgerrors.Internal("failed to cancel the Flow run").WithCause(err)
+			}
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return pkgerrors.Internal("failed to commit workflow run transaction").WithCause(err)
 		}
@@ -1240,6 +1257,10 @@ func (s *workflowRunService) CancelRun(ctx context.Context, repositoryID, runID 
 	}
 	if IsTerminalWorkflowRunStatus(run.Status) {
 		return nil
+	}
+	if s.cancelParticipant != nil && run.ExecutionPlane == WorkflowRunPlaneFlow {
+		// A flow-plane run's cancel must commit with its Flow launch's.
+		return pkgerrors.Internal("workflow run store cannot cancel a Flow run atomically")
 	}
 
 	if err := s.queries.CancelWorkflowRun(ctx, run.ID); err != nil {

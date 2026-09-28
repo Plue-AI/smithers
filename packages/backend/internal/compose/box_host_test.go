@@ -54,7 +54,7 @@ func (r *recordingHostTransport) StartFlowHost(_ context.Context, launch flowhos
 func TestBoxHostLauncherMintsPerStartAndRevokes(t *testing.T) {
 	boxes := &recordingBoxes{env: map[string]string{"SMITHERS_JJHUB_TOKEN": "landing"}}
 	transport := &recordingHostTransport{}
-	launcher := newBoxHostLauncher(transport, boxes)
+	launcher := newBoxHostLauncher(transport, boxes, nil)
 	launch := flowhost.HostLaunch{Binding: flowhost.Binding{ID: "host-1", UserID: 9}, Authority: flowhost.Authority{WorkspaceID: "box", UserID: 9}}
 	_, err := launcher.StartFlowHost(context.Background(), launch)
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestBoxHostLauncherMintsPerStartAndRevokes(t *testing.T) {
 	admitted.AbandonFlowHostStart(context.Background(), launch.Binding)
 	require.Equal(t, []string{"host-1", "host-1", "host-1"}, boxes.retired)
 	// A stop that fails (the box is gone) still revokes first.
-	failing := newBoxHostLauncher(stopFailingTransport{}, boxes)
+	failing := newBoxHostLauncher(stopFailingTransport{}, boxes, nil)
 	require.Error(t, failing.StopFlowHost(context.Background(), launch.Binding))
 	require.Len(t, boxes.retired, 4)
 	boxes.retired = []string{"host-1", "host-1"}
@@ -84,7 +84,7 @@ func TestBoxHostLauncherMintsPerStartAndRevokes(t *testing.T) {
 	_, err = launcher.InspectFlowHost(context.Background(), launch)
 	require.ErrorIs(t, err, flowhost.ErrHostNotRunning)
 	require.Empty(t, boxes.awake)
-	live := newBoxHostLauncher(liveHostTransport{}, boxes)
+	live := newBoxHostLauncher(liveHostTransport{}, boxes, nil)
 	launch.Binding.WorkspaceID = "box"
 	_, err = live.InspectFlowHost(context.Background(), launch)
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func (stoppedBoxTransport) InspectFlowHost(context.Context, flowhost.HostLaunch)
 // carries on; a box stopped on purpose keeps its refusal (#2131).
 func TestBoxHostLauncherRestartsALostBox(t *testing.T) {
 	boxes := &recordingBoxes{}
-	launcher := newBoxHostLauncher(stoppedBoxTransport{}, boxes)
+	launcher := newBoxHostLauncher(stoppedBoxTransport{}, boxes, nil)
 	launch := flowhost.HostLaunch{Binding: flowhost.Binding{ID: "host-1", UserID: 9, WorkspaceID: "box"}, Authority: flowhost.Authority{WorkspaceID: "box", RepositoryID: 3, UserID: 9}}
 	_, err := launcher.InspectFlowHost(context.Background(), launch)
 	require.ErrorIs(t, err, flowhost.ErrHostNotRunning)
@@ -126,4 +126,47 @@ func TestBoxHostLauncherRestartsALostBox(t *testing.T) {
 	require.ErrorIs(t, err, workspaceapi.ErrWorkspaceStopped)
 	require.NotErrorIs(t, err, flowhost.ErrHostNotRunning)
 	require.Empty(t, boxes.awake)
+}
+
+type recordingTargetEnvironment struct {
+	environment map[string]string
+	err         error
+	asked       []flowhost.Authority
+}
+
+func (r *recordingTargetEnvironment) FlowHostEnvironment(_ context.Context, authority flowhost.Authority) (map[string]string, error) {
+	r.asked = append(r.asked, authority)
+	return r.environment, r.err
+}
+
+// An invoked run's host starts with its workflow variables and secrets over
+// the box's agent variables, while every name the catalog, host or Smithers
+// owns stays theirs; a refused workflow environment refuses the start before
+// the box mints a credential.
+func TestBoxHostLauncherAddsTheTargetEnvironment(t *testing.T) {
+	boxes := &recordingBoxes{env: map[string]string{"SMITHERS_JJHUB_TOKEN": "landing", "REGION": "agent-region", "AGENT_ONLY": "agent"}}
+	targets := &recordingTargetEnvironment{environment: map[string]string{
+		"REGION": "workflow-region", "DEPLOY_TOKEN": "secret", "SMITHERS_JJHUB_TOKEN": "forged", "PATH": "/evil", "CATALOG_SET": "forged",
+	}}
+	transport := &recordingHostTransport{}
+	launcher := newBoxHostLauncher(transport, boxes, targets)
+	launch := flowhost.HostLaunch{
+		Binding:   flowhost.Binding{ID: "host-1", UserID: 9},
+		Authority: flowhost.Authority{WorkspaceID: "box", UserID: 9},
+		Catalog:   flowhost.Catalog{Environment: map[string]string{"CATALOG_SET": "catalog"}},
+	}
+	launch.Authority.Target.BindingKind = "workflow-invoke"
+	_, err := launcher.StartFlowHost(context.Background(), launch)
+	require.NoError(t, err)
+	require.Len(t, targets.asked, 1)
+	require.Equal(t, "workflow-invoke", targets.asked[0].Target.BindingKind)
+	require.Equal(t, map[string]string{
+		"SMITHERS_JJHUB_TOKEN": "landing", "REGION": "workflow-region", "AGENT_ONLY": "agent", "DEPLOY_TOKEN": "secret",
+	}, transport.started[0].Environment)
+
+	targets.err = errors.New("runtime_workspace_shared")
+	_, err = launcher.StartFlowHost(context.Background(), launch)
+	require.ErrorIs(t, err, targets.err)
+	require.Len(t, boxes.prepared, 1, "a refused environment never prepares the box")
+	require.Len(t, transport.started, 1)
 }

@@ -1148,6 +1148,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
 	// InvokeWorkflow runs a file flow through the same Flow dispatcher.
 	invokedFlowService := services.NewInvokedFlowService(pool, repositoryJobService, workspaceService)
+	invokedFlowService.SetSecretInjector(secretInjector)
+	invokedFlowService.SetTerminalPublisher(workflowRunTerminalPublisher)
+	if participant, ok := workflowRunService.(interface {
+		SetCancelParticipant(services.WorkflowRunCancelParticipant)
+	}); ok {
+		participant.SetCancelParticipant(invokedFlowService)
+	} else {
+		return errors.New("workflow run service cannot cancel invoked Flow runs")
+	}
 	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, repositorySetupService)
 	if err != nil {
 		return err
