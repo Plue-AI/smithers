@@ -25,3 +25,4 @@ if (typeof metadata.version !== "string") {
  * @since 0.1.0
  */
 export const packageVersion = metadata.version
+// Temporary review-action verification for #2079; no behavior change.
