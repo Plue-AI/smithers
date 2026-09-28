@@ -45,6 +45,12 @@ reconciles the two: it asks for replacement whenever `env` is supplied and
 `extendEnv` is not `true`, and it drops `undefined` values, which just-bash has
 no way to represent.
 
+A command without `env` runs with the interpreter's own environment, the one the
+page passed when it constructed just-bash. That environment is ambient to every
+command, as `process.env` is on Node, so any command a flow runs can read it.
+Never seed credentials into the interpreter's environment; pass a secret in the
+`env` of the one command that needs it.
+
 ## Output arrives after the command finishes
 
 just-bash is a buffered, run-to-completion API. The handle replays what it

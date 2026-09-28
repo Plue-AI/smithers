@@ -23,6 +23,10 @@
  * than being abandoned mid-write. Rejecting with `signal.reason` is the
  * expected answer.
  *
+ * **The interpreter's own environment is ambient.** A command without `env`
+ * runs with whatever environment the page constructed the interpreter with,
+ * so every command can read it. Never seed credentials into it.
+ *
  * We take an instance rather than the package so the browser bundle owns
  * construction — mounting the interpreter on the *same* virtual filesystem
  * `BrowserFileSystem` adapts — and so tests can hand us a stub.

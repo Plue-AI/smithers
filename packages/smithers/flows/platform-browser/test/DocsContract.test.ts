@@ -74,3 +74,18 @@ describe("documented filesystem refusal contract", () => {
     }
   )
 })
+
+describe("documented isolation and environment boundaries", () => {
+  it("states that BrowserHost attests the whole mount and jj.root never narrows it", () => {
+    const doc = readDoc("docs/concepts/isolation-attestation.md")
+    expect(doc).not.toContain("checks `jj.root`")
+    expect(doc).toContain("`BrowserHost.layer` always attests the whole mount `/`")
+    expect(doc).toContain("never narrows the isolation boundary")
+  })
+
+  it("warns that the interpreter environment is ambient to every command", () => {
+    expect(readDoc("docs/guides/run-a-command.md")).toContain(
+      "Never seed credentials into the interpreter's environment"
+    )
+  })
+})

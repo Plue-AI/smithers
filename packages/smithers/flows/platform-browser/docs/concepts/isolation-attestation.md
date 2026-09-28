@@ -26,9 +26,11 @@ The precondition is **one workspace per mount**, or a backend without symlinks.
 This adapter conservatively requires the workspace root to be the namespace's
 mount root `/`, even for backends without links. `layer(fs, { workspaceRoot })`
 fails with a typed `PermissionDenied` at layer construction for any other root.
-`BrowserHost.layer` checks `jj.root` (default `/`); `BrowserServices.layer`
-accepts `workspaceRoot`. The caller still owns genuine mount isolation and must
-not apply the attestation to narrower workspace grants later.
+`BrowserHost.layer` always attests the whole mount `/`: `jj.root` only locates
+the repository inside that namespace and never narrows the isolation boundary.
+`BrowserServices.layer` accepts `workspaceRoot`. The caller still owns genuine
+mount isolation and must not apply the attestation to narrower workspace grants
+later.
 
 ## `layer` attests, `make` does not
 
