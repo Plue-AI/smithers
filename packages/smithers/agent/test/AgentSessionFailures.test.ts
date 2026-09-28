@@ -140,6 +140,7 @@ interface RuntimeStub {
   readonly pageRunIds: ControlRuntime["Service"]["pageRunIds"]
   readonly deliveredSignals: ControlRuntime["Service"]["deliveredSignals"]
   readonly getRun: ControlRuntime["Service"]["getRun"]
+  readonly recordedCode: ControlRuntime["Service"]["recordedCode"]
   readonly getPlan: ControlRuntime["Service"]["getPlan"]
   readonly registerFiber: ControlRuntime["Service"]["registerFiber"]
   readonly registerApproval: ControlRuntime["Service"]["registerApproval"]
@@ -178,6 +179,12 @@ const runtimeLayer = (
     pageRunIds: () => Effect.succeed({ ids: [], through: 0 }),
     deliveredSignals: () => Effect.succeed([]),
     getRun: () => Effect.succeed(launchInput.run),
+    // The run's own identity unless a case says the row inherits one.
+    recordedCode: (runId) =>
+      Effect.map(stub.getRun(runId), (run) => ({
+        executionDigest: run.executionDigest,
+        engineVersion: run.engineVersion
+      })),
     getPlan: () => Effect.succeed(launchInput.plan),
     registerFiber: () => Effect.void,
     registerApproval: (target) => Effect.succeed({ tokenId: target.requestId, target, _tag: "Pending" }),
@@ -719,6 +726,30 @@ describe("the executor's registry seam", () => {
     const refused = await run(launchInput.run)
     expect(refused.status).toBe("failed")
     expect(refused.cause).toContain("changed or has no approved executable identity")
+  })
+
+  /**
+   * A round or fork the engine wrote records no identity of its own and runs
+   * under its same-flow ancestor's. The drift check reads that inherited
+   * identity; the body read the row's own, found none, fell back to the
+   * plan's digest, and failed a round the check had admitted on the code its
+   * parent adopted (#2740).
+   */
+  it("runs a round that inherits the code its parent adopted", async () => {
+    const edited = new Descriptor.FlowDescriptor({
+      ...seated,
+      body: new Descriptor.BodyRefMarkdown({ ...seated.body, contentDigest: "e".repeat(64) } as never)
+    })
+    const record = recorder()
+    const result = await launched(record, {
+      registry: { get: () => Effect.succeed(edited) },
+      runtime: {
+        getRun: () => Effect.succeed({ ...launchInput.run, executionDigest: undefined }),
+        recordedCode: () =>
+          Effect.succeed({ executionDigest: Descriptor.executionDigest(edited), engineVersion: undefined })
+      }
+    })
+    expect(result.status).toBe("completed")
   })
 
   /**

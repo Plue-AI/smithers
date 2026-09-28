@@ -2775,10 +2775,12 @@ export const make = (
         const descriptor = yield* registry.get(card.flowId)
         // The run records the plan's digest at launch. Only `runs resume
         // --allow-code-drift` moves it, to the code the operator accepted, so
-        // that is the identity this execution may enter (#1807). A control row
-        // that cannot be read leaves the plan's digest binding.
-        const recorded = yield* runtime.getRun(payload.runId).pipe(
-          Effect.map((run) => run.executionDigest),
+        // that is the identity this execution may enter (#1807). A round or
+        // fork that recorded none runs under its ancestor's, which is the one
+        // the drift check admitted it on (#2740). A control row that cannot be
+        // read leaves the plan's digest binding.
+        const recorded = yield* runtime.recordedCode(payload.runId).pipe(
+          Effect.map((code) => code.executionDigest),
           Effect.orElseSucceed(() => undefined)
         )
         const executionDigest = yield* approvedExecution(payload.runId, card, descriptor, recorded)
