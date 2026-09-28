@@ -30,6 +30,9 @@ the only thing `msb exec` runs:
   escapee. Cancellation kills the `msb exec` client (the guest ends the
   session) and then the cgroup. The helper ends stderr with an exit trailer; a
   missing trailer is reported as `ErrUnavailable`, never as a command exit.
+  Completed stderr snapshots exclude the trailer from diagnostics and their
+  output limit; repeated observations preserve the same captured bytes. Stdout
+  and live output remain literal.
 - `fs` confines paths to the root in the guest with the process adapter's
   rules; `relay` carries a byte stream to a guest loopback port (managed-host
   HTTP clients, `DialWorkspacePort`, previews); `bridge` exposes the backend's

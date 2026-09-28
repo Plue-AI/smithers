@@ -30,28 +30,29 @@ import (
 // is reported as an error rather than as a command exit.
 var exitTrailer = regexp.MustCompile("\x00SMITHERS-EXIT (-?[0-9]+)\x00$")
 
+const outputTailLimit = 64
+
 type limitedBuffer struct {
 	mu        sync.Mutex
 	bytes     []byte
 	limit     int
-	truncated bool
+	discarded int // Saturates above the longest trailer retained in tail.
 	tail      []byte
 }
 
 func (b *limitedBuffer) Write(value []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if remaining := b.limit - len(b.bytes); remaining > 0 {
-		b.bytes = append(b.bytes, value[:min(len(value), remaining)]...)
-		if len(value) > remaining {
-			b.truncated = true
+	kept := min(len(value), max(0, b.limit-len(b.bytes)))
+	b.bytes = append(b.bytes, value[:kept]...)
+	b.discarded += min(len(value)-kept, outputTailLimit+1-b.discarded)
+	if len(value) >= outputTailLimit {
+		b.tail = append(b.tail[:0], value[len(value)-outputTailLimit:]...)
+	} else {
+		b.tail = append(b.tail, value...)
+		if len(b.tail) > outputTailLimit {
+			b.tail = b.tail[len(b.tail)-outputTailLimit:]
 		}
-	} else if len(value) > 0 {
-		b.truncated = true
-	}
-	b.tail = append(b.tail, value...)
-	if len(b.tail) > 64 {
-		b.tail = b.tail[len(b.tail)-64:]
 	}
 	return len(value), nil
 }
@@ -59,27 +60,40 @@ func (b *limitedBuffer) Write(value []byte) (int, error) {
 func (b *limitedBuffer) text() (string, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return string(b.bytes), b.truncated
+	return string(b.bytes), b.discarded > 0
 }
 
-// exit removes the helper trailer from the captured stream and returns the
-// command's exit code.
-func (b *limitedBuffer) exit() (int, bool) {
+type stderrSnapshot struct {
+	text      string
+	truncated bool
+	exitCode  int
+	hasExit   bool
+}
+
+// completedStderr projects the guest protocol out of a completed stream without
+// consuming it. The output limit applies to diagnostics, not the exit trailer.
+func (b *limitedBuffer) completedStderr() stderrSnapshot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	result := stderrSnapshot{text: string(b.bytes), truncated: b.discarded > 0}
 	match := exitTrailer.FindSubmatchIndex(b.tail)
 	if match == nil {
-		return 0, false
+		return result
 	}
 	code, err := strconv.Atoi(string(b.tail[match[2]:match[3]]))
 	if err != nil {
-		return 0, false
+		return result
 	}
+	result.exitCode, result.hasExit = code, true
 	trailer := len(b.tail) - match[0]
-	if !b.truncated && len(b.bytes) >= trailer {
-		b.bytes = b.bytes[:len(b.bytes)-trailer]
+	// Once more than a tail's worth was discarded, the payload alone exceeds
+	// the limit. Otherwise the exact discarded count identifies how much of
+	// the trailer remains in the captured prefix, including a partial marker.
+	if b.discarded <= trailer {
+		result.text = string(b.bytes[:len(b.bytes)-(trailer-b.discarded)])
+		result.truncated = false
 	}
-	return code, true
+	return result
 }
 
 type execRequest struct {
@@ -132,12 +146,11 @@ func (c *guestCommand) cancel() {
 
 // result is the command's evidence after it finished.
 func (c *guestCommand) result() (workspaceapi.CommandResult, error) {
-	code, ok := c.stderr.exit()
+	stderr := c.stderr.completedStderr()
 	stdout, stdoutTruncated := c.stdout.text()
-	stderr, stderrTruncated := c.stderr.text()
-	result := workspaceapi.CommandResult{ExitCode: code, Stdout: stdout, Stderr: stderr, OutputTruncated: stdoutTruncated || stderrTruncated}
-	if !ok {
-		message := strings.TrimSpace(stderr)
+	result := workspaceapi.CommandResult{ExitCode: stderr.exitCode, Stdout: stdout, Stderr: stderr.text, OutputTruncated: stdoutTruncated || stderr.truncated}
+	if !stderr.hasExit {
+		message := strings.TrimSpace(stderr.text)
 		if len(message) > 600 {
 			message = message[len(message)-600:]
 		}
@@ -414,20 +427,24 @@ func (r *Runtime) waitForService(ctx context.Context, ws *workspace, spec worksp
 
 func observe(service *managedService) workspaceapi.ServiceObservation {
 	result := workspaceapi.ServiceObservation{Service: workspaceapi.Service{Name: service.spec.Name, Address: service.spec.ReadyAddress}, State: workspaceapi.ServiceRunning}
+	var stderr string
+	var stderrTruncated bool
 	if service.command.finished() {
-		code, ok := service.command.stderr.exit()
+		snapshot := service.command.stderr.completedStderr()
+		stderr, stderrTruncated = snapshot.text, snapshot.truncated
 		switch {
 		case service.stopped:
 			result.State = workspaceapi.ServiceStopped
-		case !ok || code != 0:
+		case !snapshot.hasExit || snapshot.exitCode != 0:
 			result.State = workspaceapi.ServiceFailed
 		default:
 			result.State = workspaceapi.ServiceExited
 		}
-		result.ExitCode = code
+		result.ExitCode = snapshot.exitCode
+	} else {
+		stderr, stderrTruncated = service.command.stderr.text()
 	}
 	stdout, stdoutTruncated := service.command.stdout.text()
-	stderr, stderrTruncated := service.command.stderr.text()
 	result.Stdout, result.Stderr, result.OutputTruncated = stdout, stderr, stdoutTruncated || stderrTruncated
 	return result
 }

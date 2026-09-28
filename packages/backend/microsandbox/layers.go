@@ -437,14 +437,14 @@ func (e *environments) runRoot(ctx context.Context, machine, script string) (str
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("%w: prepare exceeded its runaway guard: %v", ErrCommandRunaway, ctx.Err())
 	}
-	code, ok := stderr.exit()
+	snapshot := stderr.completedStderr()
 	out, _ := stdout.text()
-	errText, _ := stderr.text()
-	if !ok {
+	errText := snapshot.text
+	if !snapshot.hasExit {
 		return "", fmt.Errorf("%w: prepare command lost (%v): %s", ErrUnavailable, waitErr, tail(errText))
 	}
-	if code != 0 {
-		return "", fmt.Errorf("exited %d: %s", code, tail(out+errText))
+	if snapshot.exitCode != 0 {
+		return "", fmt.Errorf("exited %d: %s", snapshot.exitCode, tail(out+errText))
 	}
 	return out, nil
 }
