@@ -213,12 +213,17 @@ original so those specifiers resolve to the live files, which makes them code
 the flow runs, so they ride `Descriptor.executionDigest` and are re-measured
 before anything is imported. The field is ABSENT, not empty, when the entry
 loads nothing beside itself, so such a module hashes exactly as it did before
-the field existed. Bare package specifiers are not measured: those resolve into
-installed code, which is the host's own. A `ModuleImport` with no
-`contentDigest` is a specifier discovery could not pin: one that resolves to no
-file, a module it could not read, an `import()` or `require()` whose target is
-computed, a `createRequire(...)` loader, an absolute or `file:` specifier, or a
-closure past its bound. Its `path` then carries that reason instead of a
+the field existed. A bare specifier that a loader maps onto project files is
+measured too: a package.json `imports` entry (`#impl`), and a tsconfig or
+jsconfig `paths` alias or `baseUrl` in any directory above the entry, followed
+through `extends`. The files they name are pinned like relative imports. Other
+bare specifiers resolve into installed packages and are not measured. A
+`ModuleImport` with no `contentDigest` is a specifier discovery could not pin:
+one that resolves to no file, a module it could not read, an `import()` or
+`require()` whose target is computed, any `createRequire` or `module` import,
+`require` used as a value rather than called, an absolute or `file:`
+specifier, a `#` specifier with no relative `imports` target, a self-import of
+the flow's own package through `exports`, or a closure past its bound. Its `path` then carries that reason instead of a
 location, and `Executable.fromDescriptor` refuses to run such a module.
 
 ### Descriptor.FlowBody, FlowBodyPrompt, FlowBodyModule

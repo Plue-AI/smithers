@@ -120,6 +120,41 @@ describe("the specifiers a module states", () => {
     expect(ModuleClosure.specifiersOf(`const p = require.resolve("./x.ts")`).opaque).toBe(0)
   })
 
+  it("counts a loader reached under another name as opaque", () => {
+    // Each of these loads `./impl.ts` at run time without a literal call the
+    // scan can read, so each must be refused rather than silently unpinned.
+    const aliased = [
+      `import { createRequire as cr } from "node:module"\ncr(import.meta.url)("./impl.ts")`,
+      `import * as M from "node:module"\nM["create" + "Require"](import.meta.url)("./impl.ts")`,
+      `import M from "module"\nnew M.Module("x")`,
+      `const r = require\nr("./impl.ts")`,
+      `const r = import.meta.require\nr("./impl.ts")`,
+      `const [r] = [require]\nr("./impl.ts")`
+    ]
+    for (const source of aliased) {
+      expect(ModuleClosure.specifiersOf(source).opaque, source).toBeGreaterThan(0)
+    }
+    // Not loaders: an object key named `require`, and an identifier that
+    // merely starts with the word.
+    expect(ModuleClosure.specifiersOf(`const o = { require: true, x: 1 }`).opaque).toBe(0)
+    expect(ModuleClosure.specifiersOf(`const o = { x: 1, require: true }`).opaque).toBe(0)
+    expect(ModuleClosure.specifiersOf(`const requireAuth = 1`).opaque).toBe(0)
+  })
+
+  it("lists every other literal specifier as bare, except node: and bun: builtins", () => {
+    const found = ModuleClosure.specifiersOf(
+      [
+        `import { suffix } from "#impl"`,
+        `import { other } from "@x/other.ts"`,
+        `import { Effect } from "effect"`,
+        `import * as fs from "node:fs"`,
+        `import { test } from "bun:test"`
+      ].join("\n")
+    )
+    expect(found.bare).toEqual(["#impl", "@x/other.ts", "effect"])
+    expect(found.relative).toEqual([])
+  })
+
   it("lists absolute and file: specifiers, which the pin does not follow", () => {
     const found = ModuleClosure.specifiersOf(
       [
@@ -239,6 +274,102 @@ describe("resolving a specifier to a file", () => {
       expect(found.find((entry) => entry.path === "deep.ts")?.contentDigest).toBeDefined()
       expect(found.some((entry) => entry.contentDigest === undefined && entry.path.includes("deep.ts")))
         .toBe(true)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+})
+
+describe("bare specifiers a loader maps onto project files", () => {
+  it.effect("pins the file a package.json imports entry names", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "package.json": JSON.stringify({ imports: { "#impl": "./impl.ts", "#lib/*": { bun: "./lib/*.ts" } } }),
+        "flow.ts": `import { suffix } from "#impl"\nimport { x } from "#lib/x"`,
+        "impl.ts": `export const suffix = "impl"`,
+        "lib/x.ts": `export const x = 1`
+      })
+      const before = yield* walk(root, "flow.ts")
+      expect(before).toEqual([
+        { path: "impl.ts", contentDigest: Digest.digest(new TextEncoder().encode(`export const suffix = "impl"`)) },
+        { path: "lib/x.ts", contentDigest: Digest.digest(new TextEncoder().encode(`export const x = 1`)) }
+      ])
+
+      // The edit an approval must not survive.
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.writeFileString(`${root}/impl.ts`, `export const suffix = "edited"`)
+      const after = yield* walk(root, "flow.ts")
+      expect(after.find((entry) => entry.path === "impl.ts")!.contentDigest)
+        .not.toBe(before.find((entry) => entry.path === "impl.ts")!.contentDigest)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("refuses a # specifier it cannot map to a relative file", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "package.json": JSON.stringify({ imports: { "#dep": "some-package" } }),
+        "flow.ts": `import "#dep"\nimport "#missing"`,
+        // The nearest package.json decides, even one that declares no imports.
+        "sub/package.json": "{}",
+        "sub/flow.ts": `import "#dep"`
+      })
+      const found = yield* walk(root, "flow.ts")
+      expect(found).toHaveLength(2)
+      expect(found.every((entry) => entry.contentDigest === undefined)).toBe(true)
+      const nested = yield* walk(root, "sub/flow.ts")
+      expect(nested).toHaveLength(1)
+      expect(nested[0]!.contentDigest).toBeUndefined()
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("pins the file a tsconfig paths alias or baseUrl names, through extends and comments", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "base.json": `{\n  // shared\n  "compilerOptions": { "paths": { "@x/*": ["./src/*"], }, },\n}`,
+        "tsconfig.json": JSON.stringify({ extends: "./base.json" }),
+        "flows/echo/jsconfig.json": JSON.stringify({ compilerOptions: { baseUrl: "." } }),
+        "flows/echo/flow.ts":
+          `import { a } from "@x/other.ts"\nimport { b } from "helper"\nimport { Effect } from "effect"`,
+        "src/other.ts": `export const a = 1`,
+        "flows/echo/helper.ts": `export const b = 2`
+      })
+      expect((yield* walk(root, "flows/echo/flow.ts")).map((entry) => [entry.path, entry.contentDigest !== undefined]))
+        .toEqual([["../../src/other.ts", true], ["helper.ts", true]])
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("reads configs the way the loaders do: shared extends, cycles, arrays, and junk skipped", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        // The nearest package.json is not JSON, so the next one up decides `#`.
+        "package.json": JSON.stringify({
+          imports: { "#arr": ["./arr.ts"], "#none": null, "#cond": { node: { default: "./cond.ts" } } }
+        }),
+        "flows/package.json": "{ not json",
+        // A shared config from node_modules, a missing parent, a non-string
+        // entry, and a cycle back to itself, all of which a loader tolerates.
+        "node_modules/shared-config/tsconfig.json":
+          `/* shared */ { "compilerOptions": { "paths": { "@s/*": [1, "./lib/*"] } }, "extends": "../../tsconfig.json" }`,
+        "tsconfig.json": `{ "extends": [42, "./missing.json", "shared-config"], "x": "a \\" // b" }`,
+        "flows/tsconfig.json": "[]",
+        "flows/echo/flow.ts": [`import "#arr"`, `import "#none"`, `import "#cond"`, `import "@s/lib.ts"`].join("\n"),
+        "arr.ts": "export const a = 1",
+        "cond.ts": "export const c = 1",
+        "node_modules/shared-config/lib/lib.ts": "export const l = 1"
+      })
+      const found = yield* walk(root, "flows/echo/flow.ts")
+      expect(found.map((entry) => [entry.path, entry.contentDigest !== undefined])).toEqual([
+        ["../../arr.ts", true],
+        ["../../cond.ts", true],
+        ["../../node_modules/shared-config/lib/lib.ts", true]
+      ])
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("refuses a self-import through the flow package's exports", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "package.json": JSON.stringify({ name: "my-flows", exports: { "./*": "./*.ts" } }),
+        "flow.ts": `import { a } from "my-flows/impl"`,
+        "impl.ts": `export const a = 1`
+      })
+      const found = yield* walk(root, "flow.ts")
+      expect(found).toHaveLength(1)
+      expect(found[0]!.contentDigest).toBeUndefined()
+      expect(found[0]!.path).toContain("my-flows/impl")
     }).pipe(Effect.scoped, Effect.provide(platform)))
 })
 

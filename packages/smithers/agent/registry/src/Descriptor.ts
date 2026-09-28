@@ -205,8 +205,9 @@ export class BodyRefMarkdown
  *
  * `contentDigest` is absent for a specifier discovery could not pin, and `path`
  * then carries the reason instead of a location: a specifier that resolves to
- * no file, a module that could not be read, an `import()` whose target is
- * computed, or a closure past its bound. Such an entry is not a location and
+ * no file, a module that could not be read, a load whose target is computed
+ * or made through a renamed loader, a mapping the walk does not follow, or a
+ * closure past its bound. Such an entry is not a location and
  * must not be treated as one; it exists so the refusal can say what stopped it.
  *
  * @category models
@@ -247,7 +248,9 @@ export class BodyRefModule extends Schema.TaggedClass<BodyRefModule>("flows/regi
     )
   ),
   /**
-   * Every module the entry reaches through relative specifiers, sorted by path.
+   * Every module the entry reaches through relative specifiers, and through
+   * bare specifiers a loader maps onto project files (package.json `imports`,
+   * tsconfig `paths` or `baseUrl`), sorted by path.
    *
    * ABSENT means the entry loads nothing from beside itself, which is why it is
    * optional rather than an empty array: a module with no relative imports

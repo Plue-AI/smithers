@@ -16,11 +16,15 @@
  * so it rides `Descriptor.executionDigest` through the existing schema
  * encoding, and the loader recomputes it before importing anything.
  *
- * BARE SPECIFIERS ARE OUT OF SCOPE. `@smthrs/flow`, `effect`, and every other
- * package specifier resolve into installed code, which is the host's own code
- * and carries the host's trust; a flow that can name a package can already name
- * the package the host itself runs on. Only the project's own files — the ones
- * an author edits beside the flow — are pinned here.
+ * A BARE SPECIFIER IS NOT ALWAYS A PACKAGE. `@smthrs/flow` and `effect`
+ * resolve into installed code, which is the host's own code and carries the
+ * host's trust. But a loader can map a bare specifier onto the project's own
+ * files: a package.json `imports` entry (`#impl` → `./impl.ts`), a tsconfig
+ * or jsconfig `paths` alias or `baseUrl` (which Bun honours), and a package
+ * importing itself by name through its `exports`. The walk follows the first
+ * two to the files they name and pins those, and reports a `#` specifier it
+ * cannot map and a self-import as unpinnable. What is left resolves into
+ * installed packages and is not measured.
  *
  * TYPE-ONLY IMPORTS ARE PINNED TOO. `import type ... from "./x.ts"` is erased
  * before anything runs, so pinning it is conservative rather than necessary. It
@@ -88,12 +92,16 @@ const indexNames = ["index.ts", "index.tsx", "index.mts", "index.js", "index.mjs
  *
  * `opaque` counts the loads whose target is not a literal: an `import(...)` or
  * `require(...)` (including `import.meta.require(...)`) whose argument is
- * computed, and every `createRequire(...)`, which returns a loader whose
- * calls this scan cannot follow. The target of one is decided at run time, so
+ * computed, every mention of `createRequire` (called, imported, or renamed),
+ * every `require` used as a value rather than called (`const r = require`),
+ * and every import of `module` or `node:module`, since each yields a loader
+ * whose calls this scan cannot follow. The target of one is decided at run time, so
  * no static walk can pin it, and a module carrying one is reported as
  * unpinnable rather than as pinned. `absolute` lists the literal specifiers
  * that name a file by absolute path or `file:` URL; the pin records paths
  * relative to the entry and does not follow them, so they are unpinnable too.
+ * `bare` lists every other literal specifier except `node:` and `bun:`
+ * builtins; {@link collect} decides which of them name project files.
  *
  * @category parsing
  * @since 1.0.0-rc.0
@@ -103,21 +111,40 @@ export const specifiersOf = (source: string): {
   readonly relative: ReadonlyArray<string>
   readonly opaque: number
   readonly absolute: ReadonlyArray<string>
+  readonly bare: ReadonlyArray<string>
 } => {
   const tokens = tokenize(source)
   const relative: Array<string> = []
   const absolute: Array<string> = []
+  const bare: Array<string> = []
   let opaque = 0
   const record = (literal: string | undefined) => {
     if (literal === undefined) return
     if (literal.startsWith("./") || literal.startsWith("../")) relative.push(literal)
     else if (isAbsoluteSpecifier(literal)) absolute.push(literal)
+    else if (literal === "module" || literal === "node:module") opaque++
+    else if (!literal.startsWith("node:") && !literal.startsWith("bun:")) bare.push(literal)
   }
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!
     if (token.kind !== "identifier") continue
-    if (token.value === "createRequire" && tokens[index + 1]?.value === "(") {
+    // `createRequire` in any position: `createRequire(...)`, and the renames
+    // `import { createRequire as load }` and `const load = createRequire`
+    // that would otherwise hide the call behind another name.
+    if (token.value === "createRequire") {
       opaque++
+      continue
+    }
+    // `require` used as a value — `const load = require`, `[require][0]`,
+    // `fn(require)` — is a loader under another name. `require.resolve`
+    // names a path without loading it, and an object key `{ require: … }` is
+    // not the binding.
+    if (token.value === "require" && tokens[index + 1]?.value !== "(") {
+      const next = tokens[index + 1]?.value
+      const previous = tokens[index - 1]?.value
+      const resolveOnly = next === "." && tokens[index + 2]?.value === "resolve"
+      const objectKey = next === ":" && (previous === "{" || previous === ",")
+      if (!resolveOnly && !objectKey) opaque++
       continue
     }
     if ((token.value === "import" || token.value === "require") && tokens[index + 1]?.value === "(") {
@@ -144,7 +171,7 @@ export const specifiersOf = (source: string): {
       record(stringLiteral(tokens[index + 1]!.value))
     }
   }
-  return { relative, opaque, absolute }
+  return { relative, opaque, absolute, bare }
 }
 
 /** A specifier naming a file by absolute path or URL rather than beside the importer. */
@@ -193,6 +220,215 @@ const resolve = (
   })
 
 /**
+ * A JSON document that may carry comments and trailing commas, as tsconfig and
+ * jsconfig files do. `undefined` when it is not an object even then.
+ */
+const parseJsonc = (text: string): Record<string, unknown> | undefined => {
+  let out = ""
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index]!
+    if (character === "\"") {
+      let end = index + 1
+      while (end < text.length && text[end] !== "\"") end += text[end] === "\\" ? 2 : 1
+      out += text.slice(index, end + 1)
+      index = end
+    } else if (character === "/" && text[index + 1] === "/") {
+      while (index < text.length && text[index] !== "\n") index++
+    } else if (character === "/" && text[index + 1] === "*") {
+      index += 2
+      while (index < text.length && !(text[index] === "*" && text[index + 1] === "/")) index++
+      index++
+    } else {
+      out += character
+    }
+  }
+  try {
+    const parsed: unknown = JSON.parse(out.replace(/,(\s*[}\]])/g, "$1"))
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** A record field that is itself a plain object. */
+const objectField = (value: unknown, key: string): Record<string, unknown> | undefined => {
+  const field = typeof value === "object" && value !== null ? (value as Record<string, unknown>)[key] : undefined
+  return typeof field === "object" && field !== null && !Array.isArray(field)
+    ? field as Record<string, unknown>
+    : undefined
+}
+
+/**
+ * What a `paths`/`imports`-style pattern key makes of a specifier: the text
+ * its one `*` stands for, `""` for an exact key, or `undefined` for no match.
+ */
+const matchPattern = (key: string, specifier: string): string | undefined => {
+  const star = key.indexOf("*")
+  if (star === -1) return key === specifier ? "" : undefined
+  const prefix = key.slice(0, star)
+  const suffix = key.slice(star + 1)
+  return specifier.length >= prefix.length + suffix.length && specifier.startsWith(prefix) &&
+      specifier.endsWith(suffix)
+    ? specifier.slice(prefix.length, specifier.length - suffix.length)
+    : undefined
+}
+
+/** Every string a package.json `imports` target can stand for, across its conditions. */
+const targetLeaves = (target: unknown): ReadonlyArray<string> =>
+  typeof target === "string"
+    ? [target]
+    : Array.isArray(target)
+    ? target.flatMap(targetLeaves)
+    : typeof target === "object" && target !== null
+    ? Object.values(target).flatMap(targetLeaves)
+    : []
+
+/** The package a bare specifier names: `@scope/name` or `name`. */
+const packageName = (specifier: string): string => {
+  const parts = specifier.split("/")
+  return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!
+}
+
+/** The files, and the refusals, one bare specifier comes to from one directory. */
+interface BareTargets {
+  readonly files: ReadonlyArray<string>
+  readonly unpinnable: ReadonlyArray<string>
+}
+
+/**
+ * The project files a bare specifier can load from `directory`, by every
+ * mapping a loader honours, and what could not be followed.
+ *
+ * A `#` specifier is a package.json `imports` key, resolved against the
+ * nearest package.json the way Node and Bun do. Any other bare specifier is
+ * checked against the `paths` and `baseUrl` of EVERY tsconfig.json and
+ * jsconfig.json above the importer, followed through `extends`: which one a
+ * loader consults differs between loaders, and pinning a file a loader would
+ * not have picked costs an approval, never a hole. A candidate that is not a
+ * file is dropped, which is how `"*": ["./*"]` leaves `effect` to the
+ * installed package. A specifier naming the nearest package.json's own `name`
+ * is a self-import through `exports`, which this walk does not follow.
+ */
+const bareTargets = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  directory: string,
+  specifier: string,
+  configs: Map<string, Record<string, unknown> | undefined>
+): Effect.Effect<BareTargets> =>
+  Effect.gen(function*() {
+    // A config that is missing, unreadable or not a JSON object is no config.
+    const readConfig = (file: string) =>
+      Effect.gen(function*() {
+        if (configs.has(file)) return configs.get(file)
+        const bytes = yield* Effect.result(fs.readFile(file))
+        const parsed = bytes._tag === "Success" ? parseJsonc(new TextDecoder().decode(bytes.success)) : undefined
+        configs.set(file, parsed)
+        return parsed
+      })
+    const ancestors: Array<string> = []
+    for (let current = path.resolve(directory);;) {
+      ancestors.push(current)
+      const parent = path.dirname(current)
+      if (parent === current) break
+      current = parent
+    }
+    let nearestPackage: { readonly directory: string; readonly json: Record<string, unknown> } | undefined
+    for (const candidate of ancestors) {
+      const json = yield* readConfig(path.join(candidate, "package.json"))
+      if (json === undefined) continue
+      nearestPackage = { directory: candidate, json }
+      break
+    }
+    const files: Array<string> = []
+    const unpinnable: Array<string> = []
+
+    if (specifier.startsWith("#")) {
+      let matched = false
+      for (const [key, target] of Object.entries(objectField(nearestPackage?.json, "imports") ?? {})) {
+        const star = matchPattern(key, specifier)
+        if (star === undefined) continue
+        matched = true
+        for (const leaf of targetLeaves(target)) {
+          if (leaf.startsWith("./")) files.push(path.resolve(nearestPackage!.directory, leaf.replaceAll("*", star)))
+          else unpinnable.push(`"${specifier}" maps to "${leaf}", which the pin does not follow`)
+        }
+      }
+      if (!matched) unpinnable.push(`"${specifier}" names no package.json "imports" entry the pin can follow`)
+      return { files, unpinnable }
+    }
+
+    const name = nearestPackage?.json["name"]
+    if (name === packageName(specifier) && nearestPackage?.json["exports"] !== undefined) {
+      unpinnable.push(
+        `"${specifier}" imports the flow's own package through its "exports", which the pin does not follow`
+      )
+    }
+
+    // One config's effective `paths` and `baseUrl`, through `extends`. A
+    // config that extends itself, however indirectly, stops at `seen`.
+    interface Effective {
+      readonly paths?: { readonly map: Record<string, unknown>; readonly base: string }
+      readonly baseUrl?: string
+    }
+    const effective = (
+      file: string,
+      json: Record<string, unknown>,
+      seen: ReadonlySet<string>
+    ): Effect.Effect<Effective> =>
+      Effect.gen(function*() {
+        const here = path.dirname(file)
+        let inherited: Effective = {}
+        const extended = json["extends"]
+        for (const parent of Array.isArray(extended) ? extended : [extended]) {
+          if (typeof parent !== "string") continue
+          const bases = parent.startsWith(".") || path.isAbsolute(parent)
+            ? [path.resolve(here, parent)]
+            : ancestors.map((dir) => path.join(dir, "node_modules", parent))
+          const candidates = bases.flatMap((base) => [base, `${base}.json`, path.join(base, "tsconfig.json")])
+          for (const candidate of candidates) {
+            const parentJson = yield* readConfig(candidate)
+            if (parentJson === undefined || seen.has(candidate)) continue
+            inherited = { ...inherited, ...(yield* effective(candidate, parentJson, new Set([...seen, candidate]))) }
+            break
+          }
+        }
+        const options = objectField(json, "compilerOptions")
+        const map = objectField(options, "paths")
+        const baseUrl = options?.["baseUrl"]
+        return {
+          ...inherited,
+          ...(typeof baseUrl === "string" ? { baseUrl: path.resolve(here, baseUrl) } : {}),
+          ...(map === undefined ? {} : { paths: { map, base: here } })
+        }
+      })
+
+    for (const candidate of ancestors) {
+      for (const configName of ["tsconfig.json", "jsconfig.json"]) {
+        const file = path.join(candidate, configName)
+        const json = yield* readConfig(file)
+        if (json === undefined) continue
+        const { baseUrl, paths } = yield* effective(file, json, new Set([file]))
+        if (paths !== undefined) {
+          for (const [key, targets] of Object.entries(paths.map)) {
+            const star = matchPattern(key, specifier)
+            if (star === undefined || !Array.isArray(targets)) continue
+            for (const target of targets) {
+              if (typeof target === "string") {
+                files.push(path.resolve(baseUrl ?? paths.base, target.replaceAll("*", star)))
+              }
+            }
+          }
+        }
+        if (baseUrl !== undefined) files.push(path.resolve(baseUrl, specifier))
+      }
+    }
+    return { files, unpinnable }
+  })
+
+/**
  * One module's digest and what it loads, read once per scan.
  *
  * Sibling flows in one project share most of their imports, so a scan that
@@ -209,7 +445,12 @@ export interface Cache {
     readonly specifiers: ReadonlyArray<string>
     readonly opaque: number
     readonly absolute: ReadonlyArray<string>
+    readonly bare: ReadonlyArray<string>
   }>
+  /** Parsed package.json, tsconfig.json and jsconfig.json files, by path. */
+  readonly configs: Map<string, Record<string, unknown> | undefined>
+  /** What each bare specifier came to, keyed by importer directory and specifier. */
+  readonly bare: Map<string, BareTargets>
 }
 
 /**
@@ -219,13 +460,14 @@ export interface Cache {
  * @since 1.0.0-rc.0
  * @private
  */
-export const cache = (): Cache => ({ files: new Map() })
+export const cache = (): Cache => ({ files: new Map(), configs: new Map(), bare: new Map() })
 
 /** The record for a specifier nothing could be pinned for. */
 const unpinnable = (description: string): ModuleImport => ({ path: description })
 
 /**
- * Every module one entry reaches through relative specifiers, sorted by path.
+ * Every module one entry reaches through relative specifiers and through the
+ * loader mappings of bare ones ({@link bareTargets}), sorted by path.
  *
  * Never fails: a file that cannot be read, a specifier that resolves to
  * nothing, a computed `import()`, and a closure past its bound are all RECORDED
@@ -274,7 +516,28 @@ export const collect = (
         found.set(description, unpinnable(description))
       }
     }
-    const { absolute, opaque, relative } = specifiersOf(entrySource)
+    // A bare specifier is followed only when a loader maps it onto a project
+    // file; the files it maps to are walked like relative ones, so a later
+    // edit to the mapping or to the file is a changed closure.
+    const followBare = (importer: string, from: string, specifiers: ReadonlyArray<string>) =>
+      Effect.gen(function*() {
+        const directory = path.dirname(from)
+        for (const specifier of specifiers) {
+          const key = `${directory}\0${specifier}`
+          const targets = memo.bare.get(key) ?? (yield* bareTargets(fs, path, directory, specifier, memo.configs))
+          memo.bare.set(key, targets)
+          for (const reason of targets.unpinnable) {
+            const description = `${importer} imports ${reason}`
+            found.set(description, unpinnable(description))
+          }
+          for (const file of targets.files) {
+            if ((yield* resolve(fs, path, directory, file)) !== undefined) {
+              pending.push({ from, directory, specifier: file })
+            }
+          }
+        }
+      })
+    const { absolute, bare, opaque, relative } = specifiersOf(entrySource)
     if (opaque > 0) {
       found.set(
         normalizedEntryPath,
@@ -283,6 +546,7 @@ export const collect = (
     }
     reportAbsolute("the entry", absolute)
     enqueue(normalizedEntryPath, entryDirectory, relative)
+    yield* followBare("the entry", normalizedEntryPath, bare)
 
     while (pending.length > 0) {
       const { directory, from, specifier } = pending.shift()!
@@ -309,6 +573,7 @@ export const collect = (
         reportOpaque(`"${recorded}"`, cached.opaque)
         reportAbsolute(`"${recorded}"`, cached.absolute)
         enqueue(resolved, path.dirname(resolved), cached.specifiers)
+        yield* followBare(`"${recorded}"`, resolved, cached.bare)
         continue
       }
       const read = yield* Effect.result(fs.readFile(resolved))
@@ -331,10 +596,12 @@ export const collect = (
         contentDigest,
         specifiers: specifiers.relative,
         opaque: specifiers.opaque,
-        absolute: specifiers.absolute
+        absolute: specifiers.absolute,
+        bare: specifiers.bare
       })
       found.set(recorded, { path: recorded, contentDigest })
       enqueue(resolved, path.dirname(resolved), specifiers.relative)
+      yield* followBare(`"${recorded}"`, resolved, specifiers.bare)
     }
 
     return [...found.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)

@@ -339,8 +339,9 @@ export interface Executable {
    * digest of every module that entry loads from beside itself
    * ({@link module:Descriptor.BodyRefModule.imports}), and
    * {@link module:Executable.fromDescriptor} re-measures that closure before
-   * importing anything. Packages it imports are not measured and are not meant
-   * to be: those resolve into the host's own installed code.
+   * importing anything. Installed packages it imports are not measured and are
+   * not meant to be; a bare specifier a loader maps onto project files (a
+   * package.json `imports` entry, a tsconfig `paths` alias) is measured.
    */
   readonly delegate: string | undefined
   /**
