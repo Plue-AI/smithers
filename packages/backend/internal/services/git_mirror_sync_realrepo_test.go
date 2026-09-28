@@ -284,3 +284,28 @@ func TestMirrorRetryPruneLeasesThePlannedRevision(t *testing.T) {
 	assert.Equal(t, gitMirrorRunFailed, run.State)
 	assert.Equal(t, moved, r.refs(r.target)["refs/heads/feature"], "a GitHub commit pushed after planning survives")
 }
+
+func TestMirrorSyncPrunesAfterAFailedUpdate(t *testing.T) {
+	r := newRealMirrorRepos(t)
+	svc := r.service(newFakeGitMirrorSyncStore())
+	r.commit("main")
+	r.push(r.source, "HEAD:refs/heads/main")
+	written := r.commit("feature")
+	r.push(r.source, "HEAD:refs/heads/feature")
+	require.Equal(t, gitMirrorRunSucceeded, r.sync(svc).State)
+
+	r.commit("feature update")
+	r.push(r.source, "HEAD:refs/heads/feature")
+	svc.runGitSync = func(context.Context, string, string, []gitMirrorRefChange) error {
+		return errors.New("github rejected the update")
+	}
+	require.Equal(t, gitMirrorRunFailed, r.sync(svc).State)
+	require.Equal(t, written, r.refs(r.target)["refs/heads/feature"])
+	svc.runGitSync = defaultRunGitMirrorPush
+
+	r.git(r.work, "push", r.source, ":refs/heads/feature")
+	run := r.sync(svc)
+
+	assert.Equal(t, gitMirrorRunSucceeded, run.State)
+	assert.NotContains(t, r.refs(r.target), "refs/heads/feature", "a failed update does not revoke the earlier verified write")
+}
