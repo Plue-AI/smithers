@@ -79,8 +79,10 @@ export interface TurnInput {
   readonly onPatch?: (receipt: Changes.Receipt) => void
   /** `Seat.auto` asks Jev for the seat when the run starts; see `Host.routes`. */
   readonly seat: string
-  /** The seat Jev routed an `auto` run to, before it resolves. */
-  readonly onSeat?: (seat: string) => void
+  /** The seat and system-prompt variant Jev routed an `auto` run to, before it resolves. */
+  readonly onSeat?: (routed: { readonly seat: string; readonly variant: string | null }) => void
+  /** The variant a retried or resumed run was routed to; the catalog must still offer it. */
+  readonly variant?: string
   readonly fallbackSeats?: ReadonlyArray<string>
   /** A worker's remaining capacity parks; `QuotaPolicy.defaultMaxParks` when absent. Zero fails on the next refusal. */
   readonly maxParks?: number
@@ -312,7 +314,7 @@ export const make = (options: {
     const callMs = options.callMs ?? Sandbox.defaultLimits.callMs
     const session = `tui-${process.pid}-${index}`
     const program = Effect.gen(function*() {
-      // Each worker routes on its own; a retry or resume is handed the seat it was routed to.
+      // Each worker routes on its own; a retry or resume is handed the seat and variant it was routed to.
       const decision = input.seat !== Seat.auto
         ? undefined
         : catalog === undefined
@@ -326,15 +328,16 @@ export const make = (options: {
             capabilities: []
           }
         }).pipe(Effect.provideService(SeatRouter.Catalog, SeatRouter.Catalog.of(catalog)))
-      if (decision !== undefined) input.onSeat?.(decision.seat)
-      const variant = decision === undefined ? [] : SeatRouter.variantText(catalog!.variants, decision.variant)
+      const picked = decision === undefined ? input.variant ?? null : decision.variant
+      const variant = SeatRouter.variantText(catalog?.variants ?? [], picked)
       if (variant === undefined) {
         return yield* new Seat.SeatUnrouted({
           seat: Seat.auto,
           reason: "unconfigured",
-          message: `The seat catalog no longer offers the variant ${decision!.variant}`
+          message: `The seat catalog no longer offers the variant ${picked}`
         })
       }
+      if (decision !== undefined) input.onSeat?.({ seat: decision.seat, variant: decision.variant })
       const chosen = decision?.seat ?? input.seat
       const seat = chosen.startsWith("replay:")
         ? Replay.seat({

@@ -1004,10 +1004,11 @@ describe("Host.run instructions", () => {
 })
 
 describe("Host.run seat routing", () => {
-  const environment = { OPENAI_API_KEY: "sk-test" }
   const make = (judged: boolean, extra: Readonly<Record<string, string>> = {}) => {
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-route-"))
     roots.push(cwd)
+    // An empty codex home: the candidates come from this key alone, never the machine's login.
+    const environment = { OPENAI_API_KEY: "sk-test", CODEX_HOME: join(cwd, "codex") }
     return {
       cwd,
       host: Host.make({
@@ -1017,11 +1018,29 @@ describe("Host.run seat routing", () => {
       })
     }
   }
+  const systemOf = async (host: Host.Host, cwd: string, variant: string) => {
+    const systems: Array<string> = []
+    try {
+      const outcome = await host.run({
+        prompt: "answer",
+        role: "worker",
+        seat: `replay:${doneReplay(cwd)}`,
+        variant,
+        history: [],
+        onEvent: (event) => {
+          if (event._tag === "model-requested") systems.push(event.request.system.map((part) => part.text).join("\n"))
+        }
+      }).done
+      return { outcome, systems }
+    } finally {
+      await host.dispose()
+    }
+  }
 
   test("an auto worker journals seat-routed and decision-settled through onEvent and reports the seat", async () => {
     const { host } = make(true)
     const events: Array<AgentEvent.AgentEvent> = []
-    const seats: Array<string> = []
+    const seats: Array<{ seat: string; variant: string | null }> = []
     try {
       expect(host.routes).toBe(true)
       const turn: Host.Turn = host.run({
@@ -1048,12 +1067,29 @@ describe("Host.run seat routing", () => {
     expect(routed?._tag === "seat-routed" && routed.variant).toBe("investigate")
     const decision = events.find((event) => event._tag === "decision-settled")
     expect(decision?._tag === "decision-settled" && decision.classifier).toBe("seat/route")
-    expect(seats).toEqual(["astra"])
+    expect(seats).toEqual([{ seat: "astra", variant: "investigate" }])
+  })
+
+  test("a retried or resumed worker is given its routed variant on its routed seat", async () => {
+    const { cwd, host } = make(true)
+    const { outcome, systems } = await systemOf(host, cwd, "investigate")
+    expect(outcome._tag).toBe("done")
+    expect(systems[0]).toContain("Change nothing.")
+  })
+
+  test("a carried variant the catalog does not offer fails typed, before any model call", async () => {
+    // A pinned worker seat leaves the host with no catalog, so no variant is offered.
+    for (const routed of [true, false]) {
+      const { cwd, host } = make(routed, routed ? {} : { SMITHERS_TUI_WORKER_SEAT: "sol" })
+      const { outcome, systems } = await systemOf(host, cwd, routed ? "retired" : "investigate")
+      expect(outcome._tag === "failed" && outcome.error).toBeInstanceOf(Seat.SeatUnrouted)
+      expect(systems).toEqual([])
+    }
   })
 
   test("an auto worker on a host that does not route fails typed, never on a default seat", async () => {
     const { host } = make(false, { SMITHERS_TUI_WORKER_SEAT: "sol" })
-    const seats: Array<string> = []
+    const seats: Array<{ seat: string; variant: string | null }> = []
     try {
       expect(host.routes).toBe(false)
       const outcome = await host.run({

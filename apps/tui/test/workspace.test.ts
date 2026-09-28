@@ -40,6 +40,8 @@ const setup = (
     readonly known?: boolean
     readonly routes?: boolean
     readonly delegable?: ReadonlyArray<Models.DelegateModel>
+    readonly restored?: Workspace["snapshot"] extends () => infer S ? S : never
+    readonly cwd?: string
   } = {}
 ) => {
   const inputs: Array<Host.TurnInput> = []
@@ -47,20 +49,27 @@ const setup = (
   const loads: Array<{ name: string; resolve: (body: Flows.Body) => void; reject: (error: unknown) => void }> = []
   const records: Array<Session.Record> = []
   /** A pending Jev pick per `auto` launch; the fake host reports it as `Host.run` does. */
-  const routers: Array<{ resolve: (seat: string) => void; reject: (error: Seat.SeatUnrouted) => void }> = []
+  const routers: Array<
+    { resolve: (routed: { seat: string; variant: string | null }) => void; reject: (error: Seat.SeatUnrouted) => void }
+  > = []
+  /** A pending description per ask, with the seat it was asked of. */
+  const descriptions: Array<{ seat: string; resolve: (text: string) => void }> = []
   const host: Host.Host = {
-    cwd: mkdtempSync(join(tmpdir(), "tui-agents-")),
+    cwd: options.cwd ?? mkdtempSync(join(tmpdir(), "tui-agents-")),
     judged: options.routes === true,
     ...(options.routes === undefined ? {} : { routes: options.routes }),
     compaction: async () => undefined,
     dispose: async () => {},
+    describe: ({ seat }) => new Promise((resolve) => descriptions.push({ seat, resolve })),
     run: (input) => {
       inputs.push(input)
       const done = new Promise<Host.Outcome>((resolve) => finishes.push(resolve))
       const finish = finishes.at(-1)!
       if (input.seat === Seat.auto) {
-        void new Promise<string>((resolve, reject) => routers.push({ resolve, reject })).then(
-          (seat) => input.onSeat?.(seat),
+        void new Promise<{ seat: string; variant: string | null }>((resolve, reject) =>
+          routers.push({ resolve, reject })
+        ).then(
+          (routed) => input.onSeat?.(routed),
           (error: Seat.SeatUnrouted) => finish({ _tag: "failed", message: error.message, detail: "", error })
         )
       }
@@ -90,17 +99,20 @@ const setup = (
     workerSeat: "worker:test",
     history: () => [],
     persist: (record) => records.push(record),
+    ...(options.restored === undefined ? {} : { restored: options.restored }),
     agents,
     seatOf: (declared) => Models.seatOf(declared, []),
     ...(options.delegable === undefined ? {} : { delegable: options.delegable })
   })
   return {
     workspace,
+    host,
     inputs,
     finishes,
     loads,
     records,
     routers,
+    descriptions,
     relist: (next: ReadonlyArray<Extension.Descriptor>) => {
       current = next
     }
@@ -302,7 +314,7 @@ describe("routed workers", () => {
     const f = setup({ routes: true })
     f.workspace.request(plain)
     await tick()
-    f.routers[0]!.resolve("sol")
+    f.routers[0]!.resolve({ seat: "sol", variant: null })
     await tick()
     expect(f.workspace.snapshot().tabs[0]?.seat).toBe("sol")
     expect(f.workspace.request(plain)).toEqual({ id: "fix", status: "running" })
@@ -366,8 +378,91 @@ describe("routed workers", () => {
     f.workspace.retry("fix")
     await tick()
     expect(f.routers).toHaveLength(2)
-    f.routers[1]!.resolve("astra")
+    f.routers[1]!.resolve({ seat: "astra", variant: null })
     await tick()
     expect(f.workspace.snapshot().tabs[0]).toMatchObject({ status: "running", seat: "astra" })
+  })
+  it("keeps the routed variant, and a retry hands it back with the routed seat", async () => {
+    const f = setup({ routes: true })
+    f.workspace.request(plain)
+    await tick()
+    f.routers[0]!.resolve({ seat: "sol", variant: "investigate" })
+    await tick()
+    expect(f.workspace.snapshot().tabs[0]).toMatchObject({ seat: "sol", variant: "investigate" })
+    f.finishes[0]!({ _tag: "failed", message: "Provider down", detail: "" })
+    await tick()
+    f.workspace.retry("fix")
+    await tick()
+    expect(f.inputs.map(({ seat, variant }) => ({ seat, variant }))).toEqual([
+      { seat: Seat.auto, variant: undefined },
+      { seat: "sol", variant: "investigate" }
+    ])
+    expect(f.routers).toHaveLength(1)
+  })
+
+  it("a routed tab restored after restart resumes with its seat and variant", async () => {
+    const first = setup({ routes: true })
+    first.workspace.request(plain)
+    await tick()
+    first.routers[0]!.resolve({ seat: "astra", variant: "change" })
+    await tick()
+    const saved = first.records.flatMap((record) => record.type === "tab" ? [record.tab] : []).at(-1)!
+    expect(saved).toMatchObject({ status: "running", seat: "astra", variant: "change" })
+    const second = setup({ routes: true, cwd: first.host.cwd, restored: { tabs: [saved], panels: [] } })
+    await tick()
+    await tick()
+    expect(second.inputs.map(({ seat, variant }) => ({ seat, variant }))).toEqual([{
+      seat: "astra",
+      variant: "change"
+    }])
+    expect(second.routers).toHaveLength(0)
+  })
+
+  it("a retry on a seat the user picks drops the routed variant", async () => {
+    const f = setup({ routes: true })
+    f.workspace.request(plain)
+    await tick()
+    f.routers[0]!.resolve({ seat: "sol", variant: "investigate" })
+    await tick()
+    f.finishes[0]!({ _tag: "failed", message: "Provider down", detail: "" })
+    await tick()
+    f.workspace.retry("fix", Models.delegateModels.astra)
+    await tick()
+    expect(f.inputs[1]).toMatchObject({ seat: Models.delegateModels.astra })
+    expect(f.inputs[1]?.variant).toBeUndefined()
+    expect(f.workspace.snapshot().tabs[0]?.variant).toBeUndefined()
+  })
+
+  it("a routed worker is described by its routed seat", async () => {
+    const f = setup({ routes: true })
+    f.workspace.request(plain)
+    await tick()
+    // Nothing is asked of `auto`; the title stands in until the seat is known.
+    expect(f.descriptions).toHaveLength(0)
+    expect(f.workspace.snapshot().tabs[0]?.description).toBe(plain.title)
+    f.routers[0]!.resolve({ seat: "sol", variant: "change" })
+    await tick()
+    expect(f.descriptions.map(({ seat }) => seat)).toEqual(["sol"])
+    f.descriptions[0]!.resolve("Fixes the bug")
+    await tick()
+    expect(f.workspace.snapshot().tabs[0]?.description).toBe("Fixes the bug")
+  })
+
+  it("a stale description from an earlier attempt never overwrites the retry's", async () => {
+    const f = setup({ routes: true })
+    f.workspace.request(plain)
+    await tick()
+    f.routers[0]!.resolve({ seat: "sol", variant: null })
+    await tick()
+    f.finishes[0]!({ _tag: "failed", message: "Provider down", detail: "" })
+    await tick()
+    f.workspace.retry("fix")
+    await tick()
+    expect(f.descriptions.map(({ seat }) => seat)).toEqual(["sol", "sol"])
+    f.descriptions[1]!.resolve("Newer attempt")
+    await tick()
+    f.descriptions[0]!.resolve("Earlier attempt")
+    await tick()
+    expect(f.workspace.snapshot().tabs[0]?.description).toBe("Newer attempt")
   })
 })

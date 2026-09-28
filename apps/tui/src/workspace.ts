@@ -26,6 +26,8 @@ export interface Tab {
   readonly seat: string
   /** Seat currently answering; `seat` remains the original resume choice. */
   readonly activeSeat?: string
+  /** The system-prompt variant Jev routed this tab to; retry and resume keep it with `seat`. */
+  readonly variant?: string
   readonly file: string
   readonly status: "queued" | "requested" | "running" | "waiting" | "parked" | "done" | "failed" | "cancelled"
   readonly wakeAt?: number
@@ -332,12 +334,12 @@ export class Workspace {
   }
   /**
    * Persists a request and returns its receipt. `kept` is a resumed or retried
-   * tab's own seat; otherwise the seat is the request's model, then the agent's
+   * tab's own seat and routed variant; otherwise the seat is the request's model, then the agent's
    * declared `model:`, then `Seat.auto` when the host routes, else the worker seat.
    */
   private open(
     request: Request,
-    kept?: string,
+    kept?: Pick<Tab, "seat" | "variant">,
     parent?: string,
     depth = 0,
     prior?: Tab,
@@ -395,7 +397,8 @@ export class Workspace {
       prompt: request.prompt,
       ...(parent === undefined ? {} : { parent }),
       depth,
-      seat: kept ?? (request.model === undefined ? declared ?? this.unchosen() : delegateModels[request.model]),
+      seat: kept?.seat ?? (request.model === undefined ? declared ?? this.unchosen() : delegateModels[request.model]),
+      ...(kept?.variant === undefined ? {} : { variant: kept.variant }),
       history,
       file: writer.file,
       startedAt: prior?.startedAt ?? Date.now(),
@@ -477,7 +480,7 @@ export class Workspace {
     this.tabs.forget(tab.id)
     this.open(
       { id: tab.id, title: tab.title, prompt: tab.prompt, model: tab.model, agent: tab.agent?.name, by: "user" },
-      tab.seat,
+      tab,
       tab.parent,
       tab.depth,
       tab,
@@ -526,12 +529,15 @@ export class Workspace {
     }
     const now = current()
     if (now === undefined) return
+    const { variant, ...rest } = now
+    // A routed tab keeps `auto`, or the seat and variant a retry carries.
+    const seat = now.model === undefined
+      ? profile.seat ?? (this.routes ? now.seat : this.options.workerSeat)
+      : delegateModels[now.model]
     const ready: Tab = {
-      ...now,
-      // A routed tab keeps `auto`, or the seat a retry carries.
-      seat: now.model === undefined
-        ? profile.seat ?? (this.routes ? now.seat : this.options.workerSeat)
-        : delegateModels[now.model],
+      ...rest,
+      seat,
+      ...(variant === undefined || seat !== now.seat ? {} : { variant }),
       agent: { name: profile.name, digest: profile.digest }
     }
     this.tabs.put(ready)
@@ -565,6 +571,7 @@ export class Workspace {
       const handle = this.options.host.run({
         prompt: tab.prompt,
         seat: tab.seat,
+        ...(tab.variant === undefined ? {} : { variant: tab.variant }),
         ...(tab.model === undefined && agent?.fallbackSeats !== undefined
           ? { fallbackSeats: agent.fallbackSeats }
           : {}),
@@ -585,10 +592,13 @@ export class Workspace {
           list: () => this.snapshot().tabs.filter((child) => child.parent === tab.id),
           wait: (ids, signal) => this.wait(tab.id, ids, signal)
         },
-        onSeat: (seat) => {
+        onSeat: ({ seat, variant }) => {
           const current = this.tabs.get(tab.id)
-          // Retry and resume keep it, so the tab is never routed twice.
-          if (current?.file === writer.file) this.tabs.put({ ...current, seat })
+          if (current?.file !== writer.file) return
+          // Retry and resume keep both, so the tab is never routed twice.
+          const routed: Tab = { ...current, seat, ...(variant === null ? {} : { variant }) }
+          this.tabs.put(routed)
+          void this.describe(routed)
         },
         onCaption: (prose) => {
           writer.append({ type: "caption", prose })
@@ -844,10 +854,11 @@ export class Workspace {
     }
     this.tabs.forget(id)
     try {
-      // Keeps the agent, the model and the seat; the agent's file is read again, so edits apply.
+      // Keeps the agent, the model, the seat and its routed variant; the agent's file is read again, so edits apply.
+      // A seat the user picks is not routed, so it runs without the variant.
       return this.open(
         { id, title: tab.title, prompt: tab.prompt, model: tab.model, agent: tab.agent?.name, by: "user" },
-        seat ?? tab.seat,
+        seat === undefined ? tab : { seat },
         tab.parent,
         tab.depth,
         tab
