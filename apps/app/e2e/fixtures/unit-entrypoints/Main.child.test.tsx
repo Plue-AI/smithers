@@ -9,7 +9,7 @@ let renders = 0
 mock.module('../../../src/mainview/AppIsland', () => ({
   default: () => {
     renders++
-    return <main data-app-entry="ready">Smithers entry</main>
+    return <main>Smithers entry</main>
   }
 }))
 
@@ -19,7 +19,7 @@ test('browser main mounts the app into the root element', async () => {
   document.body.append(host)
   try {
     await act(async () => { await import('../../../src/mainview/main') })
-    expect(host.querySelector('main[data-app-entry]')?.textContent).toBe('Smithers entry')
+    expect(host.querySelector('main')?.textContent).toBe('Smithers entry')
     expect(renders).toBe(1)
   } finally {
     host.remove()

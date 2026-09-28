@@ -23,7 +23,7 @@ mock.module('../../../src/mainview/ControllerProvider', () => ({
 mock.module('../../../src/mainview/AppRoot', () => ({
   AppRoot: ({ watchdog }: { watchdog: unknown }) => {
     roots.push(watchdog)
-    return <div data-app-root="ready">Smithers</div>
+    return <div>Smithers</div>
   }
 }))
 mock.module('../../../src/mainview/AppMount', () => ({ mountApp, warmApp }))
@@ -43,7 +43,7 @@ test('AppIsland wires one reporter into boot and watchdog across renders', async
   const root = createRoot(host)
   try {
     act(() => root.render(<AppIsland />))
-    expect(host.querySelector('[data-app-root]')?.textContent).toBe('Smithers')
+    expect(host.querySelector('div')?.textContent).toBe('Smithers')
     expect(bootOptions).toHaveLength(1)
     expect(roots).toHaveLength(1)
     expect(roots[0]).toBe(browserStartupWatchdog())

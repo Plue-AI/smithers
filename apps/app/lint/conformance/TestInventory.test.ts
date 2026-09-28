@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
 import type { PlaywrightTestConfig } from "@playwright/test"
@@ -103,9 +103,90 @@ const playwrightOwns = (path: string, config: PlaywrightTestConfig): boolean =>
     matches(path, project.testMatch ?? config.testMatch ?? /\.(spec|test)\.[cm]?[jt]sx?$/) &&
     !matches(path, project.testIgnore ?? config.testIgnore ?? []))
 
+// Registration names the selected wrapper, but ownership also requires its
+// executable Bun test argv to reach the exact child. Module mocks need this
+// process isolation; the child results are asserted by the unit wrappers.
+const isolatedWrappers: Readonly<Record<string, string>> = {
+  "e2e/fixtures/unit-entrypoints/AppIsland.child.test.tsx": "src/mainview/AppEntrypoints.test.ts",
+  "e2e/fixtures/unit-entrypoints/Main.child.test.tsx": "src/mainview/AppEntrypoints.test.ts",
+  "e2e/fixtures/unit-entrypoints/Serve.child.test.ts": "src/bun/ServeEntrypoint.test.ts",
+  "e2e/fixtures/unit-entrypoints/NativeProduction.child.test.ts": "src/bun/NativeProductionEntrypoint.test.ts",
+  "e2e/fixtures/unit-entrypoints/NativeBridge.child.test.ts": "src/bun/NativeBridgeEntrypoint.test.ts"
+}
+
+// Only two declared wrapper shapes are admitted: a literal child URL, or a
+// relative URL drawn from literal test.each(cases) rows. No general evaluation.
+const isolatedTestPaths = (text: string): string[] => {
+  const source = ts.createSourceFile("wrapper.ts", text, ts.ScriptTarget.Latest, true)
+  const nodes: ts.Node[] = []
+  const visit = (node: ts.Node) => { nodes.push(node); ts.forEachChild(node, visit) }
+  visit(source)
+  const unassert = (node: ts.Expression): ts.Expression => ts.isAsExpression(node) ? unassert(node.expression) : node
+  const enclosingFunction = (node: ts.Node): ts.Node | undefined => {
+    for (let parent = node.parent; parent; parent = parent.parent)
+      if (ts.isFunctionLike(parent)) return parent
+    return undefined
+  }
+  const declarations = nodes.filter(ts.isVariableDeclaration)
+  const tableRows = (expression: ts.Expression | undefined): ts.ArrayLiteralExpression | undefined => {
+    if (!expression) return undefined
+    if (ts.isIdentifier(expression)) {
+      const name = expression.text
+      expression = declarations.find(node => ts.isIdentifier(node.name) && node.name.text === name && !enclosingFunction(node))?.initializer
+      if (!expression) return undefined
+    }
+    const rows = unassert(expression)
+    return ts.isArrayLiteralExpression(rows) ? rows : undefined
+  }
+  const paths: string[] = []
+  for (const call of nodes.filter(ts.isCallExpression)) {
+    if (call.expression.getText(source) !== "spawnSync" || call.arguments[0]?.getText(source) !== "process.execPath") continue
+    const callback = enclosingFunction(call)
+    if (!callback || !ts.isArrowFunction(callback) || !ts.isCallExpression(callback.parent)) continue
+    const testCall = callback.parent.expression
+    if (testCall.getText(source) !== "test" &&
+      !(ts.isCallExpression(testCall) && testCall.expression.getText(source) === "test.each")) continue
+    if (ts.isCallExpression(testCall) && !tableRows(testCall.arguments[0])?.elements.length) continue
+    const args = call.arguments[1]
+    if (!args || !ts.isArrayLiteralExpression(args) || args.elements.length !== 2) continue
+    const [mode, child] = args.elements
+    if (!mode || !ts.isStringLiteral(mode) || mode.text !== "test" || !child || !ts.isIdentifier(child)) continue
+    for (const declaration of declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== child.text || !declaration.initializer) continue
+      const scope = enclosingFunction(declaration)
+      if (scope && scope !== enclosingFunction(call)) continue
+      const initializer = declaration.initializer
+      if (!ts.isCallExpression(initializer) || initializer.expression.getText(source) !== "fileURLToPath" || initializer.arguments.length !== 1) continue
+      const url = initializer.arguments[0]!
+      if (!ts.isNewExpression(url) || url.expression.getText(source) !== "URL" || url.arguments?.length !== 2 ||
+        url.arguments[1]!.getText(source) !== "import.meta.url") continue
+      const input = url.arguments[0]!
+      if (ts.isStringLiteral(input)) { paths.push(input.text); continue }
+      if (!ts.isIdentifier(input) || !scope || !ts.isArrowFunction(scope)) continue
+      const index = scope.parameters.findIndex(parameter => ts.isIdentifier(parameter.name) && parameter.name.text === input.text)
+      const invocation = scope.parent
+      if (index < 0 || !ts.isCallExpression(invocation) || !ts.isCallExpression(invocation.expression) ||
+        invocation.expression.expression.getText(source) !== "test.each") continue
+      const rows = tableRows(invocation.expression.arguments[0])
+      if (!rows) continue
+      for (const row of rows.elements) {
+        if (!ts.isArrayLiteralExpression(row)) continue
+        const value = row.elements[index]
+        if (value && ts.isStringLiteral(value)) paths.push(value.text)
+      }
+    }
+  }
+  return paths
+}
+const isolatedUnitOwns = (child: string, wrapper: string, source: string): boolean =>
+  selected(wrapper, bunPaths(scripts.test)) && isolatedTestPaths(source).some(path =>
+    relative(app, resolve(app, dirname(wrapper), path)).replaceAll("\\", "/") === child)
+
 const owners = (path: string): string[] => {
   const result: string[] = []
   if (selected(path, bunPaths(scripts.test))) result.push("unit")
+  const wrapper = isolatedWrappers[path]
+  if (wrapper && isolatedUnitOwns(path, wrapper, read(wrapper))) result.push("isolated unit child")
   if (selected(path, bunPaths(scripts["lint:conformance"]))) result.push("conformance lint")
   if (selected(path, bunPaths(scripts["test:e2e:auth"]))) result.push("browser OAuth")
   if (selected(path, bunPaths(scripts["test:e2e:probes"]))) result.push("probe helpers")
@@ -145,6 +226,24 @@ test("every app test belongs to an executable runner", () => {
   expect(owners("e2e/native/Unassigned.test.ts")).toEqual([])
   expect(owners("e2e/packaged/Unassigned.test.ts")).toEqual([])
   expect(owners("e2e/playwright/native/Unassigned.spec.ts")).toEqual([])
+})
+
+test("isolated child ownership follows executable selected wrappers", () => {
+  for (const [child, wrapper] of Object.entries(isolatedWrappers)) {
+    const source = read(wrapper)
+    expect(owners(child)).toEqual(["isolated unit child"])
+    expect(isolatedUnitOwns(child, "e2e/unselected.test.ts", source)).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("['test', child]", "['run', child]"))).toBe(false)
+    const name = child.slice(child.lastIndexOf("/") + 1)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll(name, "Unregistered.child.test.ts"))).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, `// ${source.replaceAll("\n", "\n// ")}`)).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, `const unused = ${JSON.stringify(name)}`)).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("spawnSync(", "unused("))).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("test.each(", "test.skip.each("))).toBe(false)
+    expect(isolatedUnitOwns(child, wrapper, source.replaceAll("test.each(cases)", "test.each([])")
+      .replace("test.each([['visible'], ['hidden']] as const)", "test.each([])"))).toBe(false)
+  }
+  expect(owners("e2e/fixtures/unit-entrypoints/Unregistered.child.test.ts")).toEqual([])
 })
 
 // A Bun test that boots the flow-graph host or gateway runs for minutes, binds
