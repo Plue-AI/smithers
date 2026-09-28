@@ -4,13 +4,13 @@
  */
 
 import * as Redaction from "@smthrs/journal/Redaction"
-import { spawnSync } from "node:child_process"
 import { homedir } from "node:os"
 import { createInterface } from "node:readline/promises"
 import { StringDecoder } from "node:string_decoder"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import { processHost, repoFromRemote, resolveRepo } from "../../commands/Open.ts"
 import { packageVersion } from "../../Version.ts"
+import { run } from "./Process.ts"
 import { Session } from "./Session.ts"
 
 /**
@@ -139,17 +139,16 @@ export class Client {
     this.outputChunk("stdout")
     this.outputChunk("stderr")
   }
-  exec(command: string, args: Array<string>, extra: NodeJS.ProcessEnv = {}, input?: string): string {
-    const result = spawnSync(command, args, {
+  async exec(command: string, args: Array<string>, extra: NodeJS.ProcessEnv = {}, input?: string): Promise<string> {
+    const result = await run(command, args, {
       env: { ...this.env, ...extra },
       input,
-      encoding: "utf8",
-      timeout: 120_000,
-      maxBuffer: 16 * 1024 * 1024
+      timeoutMs: 120_000,
+      signal: this.runtime.signal
+    }).catch((error: Error) => {
+      throw new Error(error.message.endsWith("timed out") ? `${command} failed (timed out)` : `${command} failed`)
     })
-    if (result.error || result.status !== 0) {
-      throw new Error(`${command} failed${result.signal ? ` (${result.signal})` : ""}`)
-    }
+    if (result.code !== 0) throw new Error(`${command} failed`)
     return result.stdout.trim()
   }
   /**
@@ -220,7 +219,7 @@ export class Client {
   ): Promise<Response> {
     if (!path.startsWith("/") || path.startsWith("//")) throw new Error("API path must start with /")
     const origin = options.origin ?? this.session.target().api_url
-    const token = options.anonymous ? undefined : options.token ?? this.session.require(origin).token
+    const token = options.anonymous ? undefined : options.token ?? (await this.session.require(origin)).token
     if (token) this.secrets.add(token)
     const remember = (value: unknown) => {
       for (const [key, item] of Object.entries(object(value))) {

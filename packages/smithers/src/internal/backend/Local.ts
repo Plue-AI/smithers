@@ -14,15 +14,15 @@ export const lines = (text: string): Array<string> => text.split("\n").filter((l
  * @private
  * @since 1.0.0
  */
-export const revision = (c: Client, rev: string) => {
-  const [change_id, commit_id, ...description] = c.exec("jj", [
+export const revision = async (c: Client, rev: string) => {
+  const [change_id, commit_id, ...description] = (await c.exec("jj", [
     "log",
     "-r",
     rev,
     "--no-graph",
     "-T",
     "change_id ++ \"\\t\" ++ commit_id ++ \"\\t\" ++ description.first_line() ++ \"\\n\""
-  ]).split("\t")
+  ])).split("\t")
   if (!change_id) throw new Error(`Unable to resolve revision ${rev}`)
   return { change_id, commit_id, description: description.join("\t") }
 }
@@ -30,21 +30,24 @@ export const revision = (c: Client, rev: string) => {
  * @private
  * @since 1.0.0
  */
-export const stackChanges = (c: Client, target: string) => {
+export const stackChanges = async (c: Client, target: string) => {
   const revset = `(::@ ~ ::present(bookmarks(exact:${JSON.stringify(target)}))) ~ empty()`
-  return lines(
-    c.exec("jj", [
-      "--ignore-working-copy",
-      "log",
-      "-r",
-      revset,
-      "--no-graph",
-      "-T",
-      "change_id ++ \"\\t\" ++ commit_id ++ \"\\n\""
-    ])
-  ).map((line) => {
+  const changes = []
+  for (
+    const line of lines(
+      await c.exec("jj", [
+        "--ignore-working-copy",
+        "log",
+        "-r",
+        revset,
+        "--no-graph",
+        "-T",
+        "change_id ++ \"\\t\" ++ commit_id ++ \"\\n\""
+      ])
+    )
+  ) {
     const [change_id, commit_id] = line.split("\t")
-    const description = c.exec("jj", [
+    const description = await c.exec("jj", [
       "--ignore-working-copy",
       "log",
       "-r",
@@ -53,12 +56,13 @@ export const stackChanges = (c: Client, target: string) => {
       "-T",
       "description ++ \"\\n\""
     ])
-    return { change_id: change_id!, commit_id: commit_id!, description }
-  }).filter((change) => change.description.trim())
+    if (description.trim()) changes.push({ change_id: change_id!, commit_id: commit_id!, description })
+  }
+  return changes
 }
-const bookmarks = (c: Client, names: Array<string> = []) =>
+const bookmarks = async (c: Client, names: Array<string> = []) =>
   lines(
-    c.exec("jj", [
+    await c.exec("jj", [
       "bookmark",
       "list",
       "-T",
@@ -69,8 +73,8 @@ const bookmarks = (c: Client, names: Array<string> = []) =>
     const [name, change, commit] = line.split("\t")
     return { name, target_change_id: change || null, ...(commit ? { target_commit_id: commit } : {}) }
   })
-const files = (c: Client, id: string) =>
-  lines(c.exec("jj", ["diff", "--summary", "-r", id])).flatMap((line) => {
+const files = async (c: Client, id: string) =>
+  lines(await c.exec("jj", ["diff", "--summary", "-r", id])).flatMap((line) => {
     const match = /^([A-Z!?~]+)\s+(.*)$/.exec(line)
     return match ? [{ status: match[1]!, path: match[2]!.trim() }] : []
   })
@@ -79,22 +83,26 @@ const files = (c: Client, id: string) =>
  * @since 1.0.0
  */
 export const local: Record<string, Handler> = {}
-local.status = async (c) => ({ working_copy: revision(c, "@"), parent: revision(c, "@-"), files: files(c, "@") })
+local.status = async (c) => ({
+  working_copy: await revision(c, "@"),
+  parent: await revision(c, "@-"),
+  files: await files(c, "@")
+})
 local["bookmark list"] = async (c) => bookmarks(c)
 local["bookmark create"] = async (c, a, o) => {
-  c.exec("jj", ["bookmark", "create", str(a.name), ...(o.change ? ["-r", str(o.change)] : [])])
-  return bookmarks(c, [str(a.name)])[0] ?? { name: a.name, target_change_id: o.change || null }
+  await c.exec("jj", ["bookmark", "create", str(a.name), ...(o.change ? ["-r", str(o.change)] : [])])
+  return (await bookmarks(c, [str(a.name)]))[0] ?? { name: a.name, target_change_id: o.change || null }
 }
 local["bookmark delete"] = async (c, a) => {
-  if (!bookmarks(c, [str(a.name)]).some((bookmark) => bookmark.name === a.name)) {
+  if (!(await bookmarks(c, [str(a.name)])).some((bookmark) => bookmark.name === a.name)) {
     throw new Error(`Bookmark ${str(a.name)} was not found`)
   }
-  c.exec("jj", ["bookmark", "delete", str(a.name)])
+  await c.exec("jj", ["bookmark", "delete", str(a.name)])
   return { status: "deleted", name: a.name }
 }
 local["change list"] = async (c, _a, o) =>
   lines(
-    c.exec("jj", [
+    await c.exec("jj", [
       "log",
       "-n",
       str(o.limit || 10),
@@ -109,20 +117,22 @@ local["change list"] = async (c, _a, o) =>
 local["change show"] = async (c, a) => revision(c, str(a.id))
 local["change diff"] = async (c, a) => ({
   change_id: a.id || "@",
-  diff: c.exec("jj", ["diff", "-r", str(a.id || "@")])
+  diff: await c.exec("jj", ["diff", "-r", str(a.id || "@")])
 })
 for (const name of ["files", "conflicts"]) {
   local[`change ${name}`] = async (c, a) => ({
     change_id: a.id,
-    [name]: files(c, str(a.id)).filter((file) => name === "files" || file.status.includes("C")).map((file) => file.path)
+    [name]: (await files(c, str(a.id))).filter((file) => name === "files" || file.status.includes("C")).map((file) =>
+      file.path
+    )
   })
 }
-local["land create"] = (c, _a, o) => {
+local["land create"] = async (c, _a, o) => {
   const change_ids = o.change || o["change-id"]
     ? [str(o["change-id"] || o.change)]
     : o.stack
-    ? stackChanges(c, str(o.target)).map((change) => change.change_id)
-    : [revision(c, "@").change_id]
+    ? (await stackChanges(c, str(o.target))).map((change) => change.change_id)
+    : [(await revision(c, "@")).change_id]
   return c.request("POST", c.repoPath(o.repo) + "/landings", {
     title: o.title,
     body: str(o.body),

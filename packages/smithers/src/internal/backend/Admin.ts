@@ -282,7 +282,7 @@ for (const op of operations) {
     const options = op.observe
       ? {
         origin: observeOrigin(str(c.session.config().observe_url)),
-        token: c.session.require().token,
+        token: (await c.session.require()).token,
         headers: op.method === "GET" ? {} : { "X-Confirm": target || str(o["display-name"]) }
       }
       : undefined

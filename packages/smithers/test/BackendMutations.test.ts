@@ -30,7 +30,7 @@ const fixture = async () => {
     },
     stderr: { write: () => {}, isTTY: false, columns: 80 }
   })
-  const request = vi.spyOn(c, "request").mockResolvedValue({}), exec = vi.spyOn(c, "exec").mockReturnValue("")
+  const request = vi.spyOn(c, "request").mockResolvedValue({}), exec = vi.spyOn(c, "exec").mockResolvedValue("")
   return { c, request, exec, home }
 }
 const options = { repo: "owner/repo" }
@@ -221,7 +221,7 @@ describe("raw API and backend flows", () => {
   })
   it("creates a landing from the local stack", async () => {
     const { c, request, exec } = await fixture()
-    exec.mockImplementation((_cmd, args) => args.at(-1)!.startsWith("change_id") ? "abc\tcommit" : "Description")
+    exec.mockImplementation(async (_cmd, args) => args.at(-1)!.startsWith("change_id") ? "abc\tcommit" : "Description")
     await local["land create"]!(c, {}, { ...options, stack: true, title: "Land", target: "main" })
     expect(request).toHaveBeenCalledWith("POST", "/api/repos/owner/repo/landings", {
       title: "Land",
@@ -373,14 +373,14 @@ describe("remaining read and update contracts", () => {
       name: "new",
       target_change_id: "change" in o ? o.change : null
     })
-    exec.mockReturnValue("new\tchange\tcommit")
+    exec.mockResolvedValue("new\tchange\tcommit")
     expect(await local["bookmark create"]!(c, { name: "new" }, o)).toMatchObject({ target_commit_id: "commit" })
-    exec.mockReturnValue("empty\t\t")
+    exec.mockResolvedValue("empty\t\t")
     expect(await local["bookmark list"]!(c, {}, {})).toEqual([{ name: "empty", target_change_id: null }])
   })
   it("parses local change descriptions and file summaries", async () => {
     const { c, exec } = await fixture()
-    exec.mockReturnValue("abc\tDescription\tcontinued")
+    exec.mockResolvedValue("abc\tDescription\tcontinued")
     expect(await local["change list"]!(c, {}, { limit: 2 })).toEqual([{
       change_id: "abc",
       description: "Description\tcontinued"
@@ -388,14 +388,14 @@ describe("remaining read and update contracts", () => {
     await local["change list"]!(c, {}, {})
     expect(await local["change diff"]!(c, {}, {})).toHaveProperty("change_id", "@")
     expect(await local["change diff"]!(c, { id: "abc" }, {})).toHaveProperty("change_id", "abc")
-    exec.mockReturnValue("ignored\nM file")
+    exec.mockResolvedValue("ignored\nM file")
     expect(await local["change files"]!(c, { id: "abc" }, {})).toEqual({ change_id: "abc", files: ["file"] })
-    exec.mockReturnValue("")
+    exec.mockResolvedValue("")
     await expect(local["change show"]!(c, { id: "missing" }, {})).rejects.toThrow("resolve revision")
   })
   it("defaults a landing to the working copy and supports explicit change aliases", async () => {
     const { c, request, exec } = await fixture()
-    exec.mockReturnValue("current\tcommit\tTitle")
+    exec.mockResolvedValue("current\tcommit\tTitle")
     for (const selection of [{}, { change: "chosen" }, { "change-id": "chosen" }]) {
       await local["land create"]!(c, {}, { ...options, ...selection })
       expect(object(request.mock.calls.at(-1)![2]).change_ids).toEqual([

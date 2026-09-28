@@ -96,7 +96,7 @@ describe("browser consent", () => {
     c.session.saveConfig({ observe_url: "https://observe.example.test" })
     const request = vi.spyOn(c, "request").mockResolvedValue({ ticket: badTicket ? "invalid" : "t".repeat(43) })
     const actions: Promise<void>[] = []
-    vi.spyOn(c, "exec").mockImplementation((_command, args) => {
+    vi.spyOn(c, "exec").mockImplementation(async (_command, args) => {
       const url = args.at(-1)!
       actions.push((async () => {
         if (url.includes("/api/auth/github/cli")) {
@@ -140,12 +140,12 @@ describe("subscription storage and owner input", () => {
   it("stores a Claude subscription in the native store and publishes it only when requested", async () => {
     const { c } = await fixture()
     vi.spyOn(c, "stdin").mockResolvedValue("sk-ant-oat01-test")
-    const keyring = vi.spyOn(c.session, "keyring").mockReturnValue("")
+    const keyring = vi.spyOn(c.session, "keyring").mockResolvedValue("")
     expect(await auth["auth claude login"]!(c, {}, {})).toEqual({ status: "logged_in", stored_token: true })
-    keyring.mockReturnValue("sk-ant-oat01-test")
+    keyring.mockResolvedValue("sk-ant-oat01-test")
     expect(await auth["auth claude token"]!(c, {}, {})).toMatchObject({ configured: true, stored_token_set: true })
     expect(await auth["auth claude logout"]!(c, {}, {})).toEqual({ status: "logged_out", cleared: true })
-    keyring.mockReturnValue(undefined)
+    keyring.mockResolvedValue(undefined)
     await expect(auth["auth claude login"]!(c, {}, {})).rejects.toThrow("storage is unavailable")
     await expect(auth["auth claude push"]!(c, {}, { repo: "owner/repo" })).rejects.toThrow("No Claude")
   })
@@ -164,7 +164,7 @@ describe("subscription storage and owner input", () => {
   it("reads Claude keychain metadata when the local file is missing", async () => {
     Object.defineProperty(process, "platform", { value: "darwin" })
     const { c, home } = await fixture()
-    vi.spyOn(c, "exec").mockReturnValue("{\"claudeAiOauth\":{\"accessToken\":\"oauth\"}}")
+    vi.spyOn(c, "exec").mockResolvedValue("{\"claudeAiOauth\":{\"accessToken\":\"oauth\"}}")
     const request = vi.spyOn(c, "request").mockResolvedValue({})
     await writeFile(join(home, ".claude.json"), "{\"oauthAccount\":{\"emailAddress\":\"owner@example.test\"}}")
     await auth["auth connect"]!(c, { provider: "claude" }, { "config-dir": home })

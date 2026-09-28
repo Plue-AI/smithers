@@ -3,11 +3,11 @@
  * @since 0.1.0
  */
 
-import { spawnSync } from "node:child_process"
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { parse, stringify } from "yaml"
+import { NotFound, type Result, run } from "./Process.ts"
 
 type RecordValue = Record<string, unknown>
 const text = (value: unknown) => typeof value === "string" ? value : ""
@@ -128,7 +128,7 @@ export class Session {
     }
     return record
   }
-  keyring(action: "get" | "set" | "delete", host: string, token?: string): string | undefined {
+  async keyring(action: "get" | "set" | "delete", host: string, token?: string): Promise<string | undefined> {
     if (this.env.SMITHERS_DISABLE_SYSTEM_KEYRING === "1") return
     let command: string, args: Array<string>, input: string | undefined
     if (process.platform === "darwin") {
@@ -167,25 +167,30 @@ export class Session {
         : "try{$v.Remove($v.Retrieve('smithers-cli',$env:SMITHERS_CRED_HOST))}catch{};$c=New-Object Windows.Security.Credentials.PasswordCredential('smithers-cli',$env:SMITHERS_CRED_HOST,$env:SMITHERS_CRED_TOKEN);$v.Add($c)"
       args = ["-NoProfile", "-NonInteractive", "-Command", prefix + script]
     } else return
-    const spawnOptions = {
+    const options = {
       env: { ...this.env, SMITHERS_CRED_HOST: host, ...(token ? { SMITHERS_CRED_TOKEN: token } : {}) },
       input,
-      encoding: "utf8" as const,
-      timeout: 10_000
+      timeoutMs: 10_000
     }
-    let result = spawnSync(command, args, spawnOptions)
-    if (process.platform === "win32" && (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      result = spawnSync("powershell", args, spawnOptions)
+    let result: Result
+    try {
+      result = await run(command, args, options).catch((error) =>
+        process.platform === "win32" && error instanceof NotFound
+          ? run("powershell", args, options)
+          : Promise.reject(error)
+      )
+    } catch (error) {
+      if (error instanceof NotFound) return
+      throw new Error(`Secure credential storage ${action} failed`)
     }
-    if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return
-    if (result.status === 0) return result.stdout.trim() || ""
+    if (result.code === 0) return result.stdout.trim() || ""
     if (
-      result.status === 44 || /not found|could not be found|cannot find/i.test(result.stderr || "") ||
-      (process.platform === "linux" && result.status === 1 && !result.stderr)
+      result.code === 44 || /not found|could not be found|cannot find/i.test(result.stderr || "") ||
+      (process.platform === "linux" && result.code === 1 && !result.stderr)
     ) return ""
     throw new Error(`Secure credential storage ${action} failed`)
   }
-  resolve(origin?: string) {
+  async resolve(origin?: string) {
     const target = this.target(origin)
     const env = this.env.SMITHERS_TOKEN?.trim()
     if (env) return { ...target, token: env, source: "env" }
@@ -196,7 +201,7 @@ export class Session {
     let storageError: unknown
     if (bound) {
       try {
-        const token = this.keyring("get", target.host)
+        const token = await this.keyring("get", target.host)
         if (token) return { ...target, token, source: "keyring" }
       } catch (error) {
         storageError = error
@@ -209,15 +214,15 @@ export class Session {
     if (storageError) throw storageError
     return undefined
   }
-  require(origin?: string) {
-    const resolved = this.resolve(origin)
+  async require(origin?: string) {
+    const resolved = await this.resolve(origin)
     if (!resolved) throw new Error("No Smithers login. Run smithers auth login or set SMITHERS_TOKEN")
     return resolved
   }
-  save(origin: string, token: string, metadata: RecordValue = {}) {
+  async save(origin: string, token: string, metadata: RecordValue = {}) {
     if (!token.trim() || /[\r\n\s]/.test(token.trim())) throw new Error("Invalid login token")
     const target = this.target(origin)
-    const stored = this.keyring("set", target.host, token)
+    const stored = await this.keyring("set", target.host, token)
     this.write(
       this.authPath,
       JSON.stringify({
@@ -230,11 +235,11 @@ export class Session {
     this.saveConfig({ api_origin: target.api_url })
     return { ...target, source: stored === undefined ? "smithers_auth_file" : "keyring" }
   }
-  clear(origin?: string) {
+  async clear(origin?: string) {
     const target = this.target(origin), record = this.record(target.api_url)
     const config = this.config(false)
     const bound = config.api_origin && normalizeOrigin(text(config.api_origin)) === target.api_url
-    if (record || bound) this.keyring("delete", target.host)
+    if (record || bound) await this.keyring("delete", target.host)
     if (record) rmSync(this.authPath, { force: true })
     if (config.token && text(config.api_origin) === target.api_url) this.saveConfig({})
     return { status: "logged_out", host: target.host, cleared: !!record, env_active: !!this.env.SMITHERS_TOKEN }

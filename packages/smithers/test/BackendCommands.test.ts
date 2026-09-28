@@ -38,7 +38,7 @@ const fixture = async (env: Record<string, string> = {}) => {
     exit
   })
   const request = vi.spyOn(c, "request").mockResolvedValue({})
-  const exec = vi.spyOn(c, "exec").mockReturnValue("")
+  const exec = vi.spyOn(c, "exec").mockResolvedValue("")
   return { c, home, request, exec, exit }
 }
 const apiError = (status: number) => new APIError(status, { message: "failed" }, "GET", "/test", new Headers())
@@ -70,7 +70,7 @@ describe("repository selection and transfer", () => {
     "clones %s without interpreting it as an API slug",
     async (repo) => {
       const { c, exec, request } = await fixture()
-      exec.mockImplementation((command) => {
+      exec.mockImplementation(async (command) => {
         if (command === "jj") throw new Error("no jj")
         return ""
       })
@@ -100,7 +100,7 @@ describe("repository selection and transfer", () => {
   )
   it.each([false, true])("uses a lease and scoped environment for a git push (delete=%s)", async (del) => {
     const { c, exec, request } = await fixture()
-    exec.mockImplementation((command, args) => {
+    exec.mockImplementation(async (command, args) => {
       if (command === "jj") throw new Error("not jj")
       if (args.includes("--absolute-git-dir")) return "/tmp/repo/.git"
       if (args.includes("HEAD^{commit}")) return "newcommit"
@@ -121,7 +121,7 @@ describe("repository selection and transfer", () => {
   })
   it("refuses publishing a jj working copy into a public repository", async () => {
     const { c, exec, request } = await fixture()
-    exec.mockReturnValue("commit")
+    exec.mockResolvedValue("commit")
     request.mockResolvedValue({ is_public: true })
     await expect(repositories["repo push"]!(c, {}, { ...options, "working-copy": true })).rejects.toThrow("public")
     expect(exec.mock.calls.some(([, args]) => args.includes("push"))).toBe(false)
@@ -164,10 +164,10 @@ describe("one-login authentication", () => {
     const { c } = await fixture({ SMITHERS_TOKEN: "" })
     vi.spyOn(c, "stdin").mockResolvedValue("new-secret")
     expect(await auth["auth login"]!(c, {}, { "with-token": true })).toMatchObject({ status: "logged_in" })
-    expect(c.session.require().token).toBe("new-secret")
+    expect((await c.session.require())?.token).toBe("new-secret")
     expect(JSON.stringify(await auth["auth token"]!(c, {}, {}))).not.toContain("new-secret")
     await auth["auth logout"]!(c, {}, {})
-    expect(c.session.resolve()).toBeUndefined()
+    expect(await c.session.resolve()).toBeUndefined()
   })
   it.each([
     { ttl: "1h" },
@@ -196,7 +196,7 @@ describe("one-login authentication", () => {
     })
     request.mockResolvedValue({ token: "owner-token", user: { username: "owner" }, token_id: 7 })
     expect(await auth[`auth local ${action}`]!(c, {}, {})).toMatchObject({ user: "owner", token_id: 7 })
-    expect(c.session.require().token).toBe("owner-token")
+    expect((await c.session.require())?.token).toBe("owner-token")
     expect(request).toHaveBeenCalledWith(
       "POST",
       "/api/auth/local/token",
@@ -265,8 +265,8 @@ describe("one-login authentication", () => {
     const { c, home } = await fixture({ SMITHERS_TOKEN: "" })
     c.session.saveConfig({ api_origin: "https://api.example.test" })
     await writeFile(join(home, "auth.json"), JSON.stringify({ host: "example.test", token: "legacy-secret" }))
-    expect(c.session.resolve()?.token).toBe("legacy-secret")
-    expect(c.session.resolve("https://api.example.test:8443")).toBeUndefined()
+    expect((await c.session.resolve())?.token).toBe("legacy-secret")
+    expect(await c.session.resolve("https://api.example.test:8443")).toBeUndefined()
   })
 })
 
@@ -299,7 +299,7 @@ describe("configuration and agent conversations", () => {
   })
   it("refreshes, conditionally reuses, and falls back to cached docs", async () => {
     const { c, exec, request } = await fixture({ SMITHERS_AGENT_DOCS_URL: "https://docs.example.test/reference" })
-    exec.mockReturnValue("checkout")
+    exec.mockResolvedValue("checkout")
     request.mockResolvedValue({ login: "owner" })
     const fetch = vi.fn().mockResolvedValueOnce(
       new Response("# Issues\nUse smithers issue list to find issues.\n# Login\nSign in with smithers auth login.", {
@@ -368,7 +368,7 @@ describe("workspace selection and local changes", () => {
   })
   it("parses jj revisions, changes, bookmarks, and conflicts", async () => {
     const { c, exec } = await fixture()
-    exec.mockImplementation((_command, args) =>
+    exec.mockImplementation(async (_command, args) =>
       args[0] === "diff"
         ? "M changed.ts\nC conflict.ts\n"
         : args[0] === "bookmark"
@@ -404,7 +404,7 @@ describe("stack lifecycle", () => {
   })
   it("submits local changes and persists the resulting PR mapping", async () => {
     const { c, exec, request } = await fixture()
-    exec.mockImplementation((_command, args) =>
+    exec.mockImplementation(async (_command, args) =>
       args.includes("log") ? args.at(-1)!.startsWith("change_id") ? "abcdefgh\tcommit" : "Fix bug\n\nDetails" : ""
     )
     request.mockImplementation(async (_method, path, body) =>

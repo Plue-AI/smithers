@@ -3,13 +3,14 @@
  * @since 0.1.0
  */
 
-import { spawn } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import type { Readable } from "node:stream"
+import { finished } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 import type { Client } from "./Client.ts"
+import { spawn } from "./Process.ts"
 /**
  * @private
  * @since 1.0.0
@@ -109,40 +110,43 @@ export const remote = async (
 ): Promise<{ code: number; stdout: Buffer; stderr: Buffer }> => {
   const args = await sshArgs(c, command, interactive)
   if (script !== undefined) args.push(script)
-  return new Promise((resolve, reject) => {
-    const child = spawn("ssh", args, {
-      env: { ...c.env },
-      stdio: interactive ? "inherit" : ["pipe", "pipe", "pipe"],
-      ...(c.runtime.signal ? { signal: c.runtime.signal } : {})
-    })
-    const stdout: Array<Buffer> = [], stderr: Array<Buffer> = []
-    child.stdout?.on("data", (chunk) => {
-      stdout.push(chunk)
-      if (stream) c.output(chunk, Buffer.alloc(0))
-    })
-    child.stderr?.on("data", (chunk) => {
-      stderr.push(chunk)
-      if (stream) c.output(Buffer.alloc(0), chunk)
-    })
-    if (input) input.pipe(child.stdin!)
-    else child.stdin?.end()
-    child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
-      if (error.code !== "EPIPE") reject(error)
-    })
-    let expired = false
-    const timer = timeout > 0
-      ? setTimeout(() => {
-        expired = true
-        child.kill("SIGKILL")
-      }, timeout)
-      : undefined
-    child.once("error", reject)
-    child.once("close", (code) => {
-      clearTimeout(timer)
-      if (expired) reject(new Error("Workspace exec timed out"))
-      else resolve({ code: code ?? 1, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) })
-    })
+  const child = spawn("ssh", args, {
+    env: c.env,
+    stdio: interactive ? "inherit" : "pipe",
+    signal: c.runtime.signal
   })
+  const stdout: Array<Buffer> = [], stderr: Array<Buffer> = []
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdout.push(chunk)
+    if (stream) c.output(chunk, Buffer.alloc(0))
+  })
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderr.push(chunk)
+    if (stream) c.output(Buffer.alloc(0), chunk)
+  })
+  if (input) input.pipe(child.stdin!)
+  else child.stdin?.end()
+  let expired = false
+  const timer = timeout > 0
+    ? setTimeout(() => {
+      expired = true
+      child.kill()
+    }, timeout)
+    : undefined
+  try {
+    // Output is complete once both streams end, not when the exit arrives.
+    const [code] = await Promise.all([
+      child.exited.catch((error: unknown) => {
+        if (expired) throw new Error("Workspace exec timed out")
+        throw error
+      }),
+      child.stdout && finished(child.stdout),
+      child.stderr && finished(child.stderr)
+    ])
+    return { code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 const workspaceExecLoginHome =

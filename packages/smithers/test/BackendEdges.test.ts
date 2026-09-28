@@ -40,14 +40,14 @@ describe("repository edge contracts", () => {
   it.each([401, 403, 404])("handles clone preflight HTTP %s", async (status) => {
     const { c } = await fixture()
     vi.spyOn(c, "request").mockRejectedValue(apiError(status))
-    const exec = vi.spyOn(c, "exec").mockReturnValue("")
+    const exec = vi.spyOn(c, "exec").mockResolvedValue("")
     if (status === 404) await expect(repositories["repo clone"]!(c, { repo: "owner/repo" }, {})).rejects.toThrow("404")
     else expect(await repositories["repo clone"]!(c, { repo: "owner/repo" }, {})).toMatchObject({ tool: "jj" })
     if (status === 404) expect(exec).not.toHaveBeenCalled()
   })
   it("clones anonymously and accepts a positional directory plus clone arguments", async () => {
     const { c } = await fixture({ SMITHERS_TOKEN: "" })
-    const exec = vi.spyOn(c, "exec").mockReturnValue("")
+    const exec = vi.spyOn(c, "exec").mockResolvedValue("")
     await repositories["repo clone"]!(c, { repo: "owner/repo", rest: ["copy", "--depth=1"] }, {})
     expect(exec).toHaveBeenCalledWith("jj", [
       "git",
@@ -95,14 +95,14 @@ describe("repository edge contracts", () => {
   })
   it.each(["", "00000", "a\nb"])("rejects invalid jj push revisions %j", async (revision) => {
     const { c } = await fixture()
-    vi.spyOn(c, "exec").mockReturnValue(revision)
+    vi.spyOn(c, "exec").mockResolvedValue(revision)
     await expect(repositories["repo push"]!(c, {}, options)).rejects.toThrow("one non-root")
   })
   it.each(["", "commit\trefs/smithers/users/7/head"])(
     "renews the current ref without forcing a new commit (%j)",
     async (advertisement) => {
       const { c } = await fixture(), request = vi.spyOn(c, "request").mockResolvedValue({ id: 7 })
-      const exec = vi.spyOn(c, "exec").mockImplementation((_cmd, args) =>
+      const exec = vi.spyOn(c, "exec").mockImplementation(async (_cmd, args) =>
         args.includes("ls-remote") ? advertisement : "commit"
       )
       expect(await repositories["repo push"]!(c, {}, { ...options, "working-copy": true })).toMatchObject({
@@ -115,13 +115,13 @@ describe("repository edge contracts", () => {
   it("does not delete an absent jj user ref", async () => {
     const { c } = await fixture()
     vi.spyOn(c, "request").mockResolvedValue({ id: 7 })
-    const exec = vi.spyOn(c, "exec").mockReturnValue("")
+    const exec = vi.spyOn(c, "exec").mockResolvedValue("")
     expect(await repositories["repo push"]!(c, {}, { ...options, delete: true })).toMatchObject({ deleted: false })
     expect(exec.mock.calls.some(([, args]) => args.includes("push"))).toBe(false)
   })
   it("refuses a git working copy and missing user identity", async () => {
     const { c } = await fixture(),
-      exec = vi.spyOn(c, "exec").mockImplementation((command) => {
+      exec = vi.spyOn(c, "exec").mockImplementation(async (command) => {
         if (command === "jj") throw new Error("not jj")
         return "commit"
       })
@@ -129,7 +129,7 @@ describe("repository edge contracts", () => {
       "requires a jj"
     )
     vi.spyOn(c, "request").mockResolvedValue({})
-    exec.mockReturnValue("commit")
+    exec.mockResolvedValue("commit")
     await expect(repositories["repo push"]!(c, {}, options)).rejects.toThrow("user id")
   })
   it("keeps existing package declarations and reports malformed cache setup", async () => {
@@ -186,7 +186,7 @@ describe("offline docs and ancillary commands", () => {
   it("chunks large docs, reports no matches, and sends conditional timestamps", async () => {
     const { c } = await fixture()
     vi.spyOn(c, "repo").mockReturnValue("owner/repo")
-    vi.spyOn(c, "exec").mockReturnValue("checkout")
+    vi.spyOn(c, "exec").mockResolvedValue("checkout")
     vi.spyOn(c, "request").mockRejectedValue(apiError(404))
     const fetch = vi.fn().mockResolvedValueOnce(
       new Response(`# Title\n${"words ".repeat(260)}\nNext line\n## Nested\nDetails`, {

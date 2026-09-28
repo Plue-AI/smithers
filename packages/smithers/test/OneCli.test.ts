@@ -481,8 +481,8 @@ describe("migrated command dispatch", () => {
   })
   it("uses one login for repository and control-plane HTTP/WebSocket configuration", async () => {
     const f = await fixture((_req, res) => res.end("{}"))
-    expect(makeConfig(["--remote", f.origin], f.environment, f.home).credential).toBe("test-session-secret")
-    expect(makeConfig(["--remote", "https://other.invalid"], f.environment, f.home).credential).toBeUndefined()
+    expect(await makeConfig(["--remote", f.origin], f.environment, f.home).login?.()).toBe("test-session-secret")
+    expect(await makeConfig(["--remote", "https://other.invalid"], f.environment, f.home).login?.()).toBeUndefined()
     const result = await f.run(["auth", "token"])
     expect(result.code, result.output).toBe(0)
     expect(result.output).toContain("token_set")
@@ -490,10 +490,10 @@ describe("migrated command dispatch", () => {
   })
   it("persists and clears a protected login without a keyring", async () => {
     const f = await fixture((_req, res) => res.end("{}")), session = new Session(f.environment)
-    session.save(f.origin, "replacement-secret", { username: "owner" })
-    expect(session.require().token).toBe("replacement-secret")
-    session.clear()
-    expect(session.resolve()).toBeUndefined()
+    await session.save(f.origin, "replacement-secret", { username: "owner" })
+    expect((await session.require()).token).toBe("replacement-secret")
+    await session.clear()
+    expect(await session.resolve()).toBeUndefined()
   })
   it("rejects browser callback state and then accepts the matching fragment exchange", async () => {
     const f = await fixture((_req, res) => res.end("{}"))
@@ -573,7 +573,7 @@ describe("migrated command dispatch", () => {
 describe("clone argument compatibility", () => {
   it("preserves positional destinations and clone flags after --", async () => {
     const f = await fixture((_req, res) => res.end("{}"))
-    const exec = vi.spyOn(Client.prototype, "exec").mockReturnValue("")
+    const exec = vi.spyOn(Client.prototype, "exec").mockResolvedValue("")
     let output = "", code = 0
     try {
       await makeCli({

@@ -1,12 +1,12 @@
-import { spawnSync } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Client } from "../src/internal/backend/Client.ts"
+import { NotFound, run } from "../src/internal/backend/Process.ts"
 import { normalizeOrigin, observeOrigin, Session } from "../src/internal/backend/Session.ts"
-vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }))
-const spawn = vi.mocked(spawnSync)
+vi.mock("../src/internal/backend/Process.ts", async (actual) => ({ ...await actual(), run: vi.fn() }))
+const spawn = vi.mocked(run)
 const platform = Object.getOwnPropertyDescriptor(process, "platform")!
 const dirs: string[] = []
 afterEach(async () => {
@@ -28,15 +28,14 @@ const fixture = async (env: Record<string, string> = {}) => {
   }
   return { home, environment, session: new Session(environment) }
 }
-const result = (stdout = "", status = 0) =>
-  ({ pid: 0, output: [null, stdout, ""], stdout, stderr: "", status, signal: null }) as ReturnType<typeof spawnSync>
+const result = (stdout = "", code = 0, stderr = "") => Promise.resolve({ code, stdout, stderr })
+const missing = () => new NotFound("missing")
 describe("native login stores", () => {
   it("falls back from pwsh to Windows PowerShell and replaces the previous credential", async () => {
     Object.defineProperty(process, "platform", { value: "win32" })
     const { session } = await fixture()
-    spawn.mockReturnValueOnce({ ...result(), error: Object.assign(new Error("missing"), { code: "ENOENT" }) })
-      .mockReturnValueOnce(result())
-    session.keyring("set", "example.test", "replacement-secret")
+    spawn.mockRejectedValueOnce(missing()).mockReturnValueOnce(result())
+    await session.keyring("set", "example.test", "replacement-secret")
     expect(spawn.mock.calls.map(([command]) => command)).toEqual(["pwsh", "powershell"])
     expect(JSON.stringify(spawn.mock.calls[1]![1])).toContain("$v.Remove")
     expect(JSON.stringify(spawn.mock.calls[1]![1])).not.toContain("replacement-secret")
@@ -45,45 +44,45 @@ describe("native login stores", () => {
     Object.defineProperty(process, "platform", { value: os })
     const { session } = await fixture()
     spawn.mockReturnValue(result())
-    expect(session.keyring("set", "example.test", "private-secret")).toBe("")
+    expect(await session.keyring("set", "example.test", "private-secret")).toBe("")
     const call = spawn.mock.calls[0]!
     expect(JSON.stringify(call.slice(0, 2))).not.toContain("private-secret")
     if (os === "win32") expect(call[2]).toMatchObject({ env: { SMITHERS_CRED_TOKEN: "private-secret" } })
     else expect(call[2]).toMatchObject({ input: expect.stringContaining("private-secret") })
     spawn.mockReturnValue(result("private-secret\n"))
-    expect(session.keyring("get", "example.test")).toBe("private-secret")
+    expect(await session.keyring("get", "example.test")).toBe("private-secret")
     spawn.mockReturnValue(result())
-    expect(session.keyring("delete", "example.test")).toBe("")
+    expect(await session.keyring("delete", "example.test")).toBe("")
   })
   it("falls back to a private auth file only when the native store is unavailable", async () => {
     const { session, home } = await fixture()
-    spawn.mockReturnValue({ ...result(), error: Object.assign(new Error("missing"), { code: "ENOENT" }) })
-    session.save("https://api.example.test", "fallback-secret", { username: "owner" })
+    spawn.mockRejectedValue(missing())
+    await session.save("https://api.example.test", "fallback-secret", { username: "owner" })
     expect((await stat(join(home, "auth.json"))).mode & 0o777).toBe(0o600)
-    expect(session.require()).toMatchObject({ source: "smithers_auth_file", token: "fallback-secret" })
+    expect(await session.require()).toMatchObject({ source: "smithers_auth_file", token: "fallback-secret" })
     expect(await readFile(session.configPath, "utf8")).not.toContain("fallback-secret")
   })
   it("does not duplicate a native credential into the auth file", async () => {
     const { session } = await fixture()
     spawn.mockReturnValue(result())
-    session.save("https://api.example.test", "native-secret")
+    await session.save("https://api.example.test", "native-secret")
     expect(await readFile(session.authPath, "utf8")).not.toContain("native-secret")
     spawn.mockReturnValue(result("native-secret"))
-    expect(session.require()).toMatchObject({ source: "keyring", token: "native-secret" })
+    expect(await session.require()).toMatchObject({ source: "keyring", token: "native-secret" })
   })
   it("surfaces a locked store and preserves an existing fallback login", async () => {
     const { session } = await fixture()
     session.saveConfig({ api_origin: "https://api.example.test" })
-    spawn.mockReturnValue({ ...result("", 1), stderr: "keychain locked" })
-    expect(() => session.resolve()).toThrow("Secure credential")
+    spawn.mockReturnValue(result("", 1, "keychain locked"))
+    await expect(session.resolve()).rejects.toThrow("Secure credential")
     await writeFile(session.authPath, JSON.stringify({ api_url: "https://api.example.test", token: "fallback" }))
-    expect(session.resolve()?.token).toBe("fallback")
+    expect((await session.resolve())?.token).toBe("fallback")
   })
   it.each(["darwin", "linux"])("handles an absent %s credential", async (os) => {
     Object.defineProperty(process, "platform", { value: os })
     const { session } = await fixture()
     spawn.mockReturnValue(result("", os === "darwin" ? 44 : 1))
-    expect(session.keyring("get", "example.test")).toBe("")
+    expect(await session.keyring("get", "example.test")).toBe("")
   })
   it.each([
     ["darwin", "delete-generic-password"],
@@ -94,21 +93,21 @@ describe("native login stores", () => {
     const { session } = await fixture()
     session.saveConfig({ api_origin: "https://api.example.test" })
     spawn.mockReturnValue(result())
-    session.clear()
+    await session.clear()
     expect(JSON.stringify(spawn.mock.calls)).toContain(command)
   })
   it("migrates a legacy config token on login and removes it on logout", async () => {
     const { session } = await fixture({ SMITHERS_DISABLE_SYSTEM_KEYRING: "1" })
     await mkdir(join(session.configPath, ".."), { recursive: true })
     await writeFile(session.configPath, "api_url: https://api.example.test\ntoken: legacy-secret\n")
-    expect(session.require().token).toBe("legacy-secret")
-    session.clear()
+    expect((await session.require()).token).toBe("legacy-secret")
+    await session.clear()
     expect(await readFile(session.configPath, "utf8")).not.toContain("legacy-secret")
-    expect(session.resolve()).toBeUndefined()
+    expect(await session.resolve()).toBeUndefined()
   })
   it.each(["", "a b", "a\nb"])("rejects invalid stored tokens %j", async (token) => {
     const { session } = await fixture()
-    expect(() => session.save("https://api.example.test", token)).toThrow("token")
+    await expect(session.save("https://api.example.test", token)).rejects.toThrow("token")
     expect(spawn).not.toHaveBeenCalled()
   })
   it.each([
@@ -196,9 +195,9 @@ describe("authenticated transport boundaries", () => {
   it("returns a bounded process error without stderr or secrets", async () => {
     const { environment } = await fixture()
     const c = new Client({ environment })
-    spawn.mockReturnValue({ ...result("", 1), stderr: "secret diagnostic" })
-    expect(() => c.exec("git", ["push"])).toThrow("git failed")
+    spawn.mockReturnValue(result("", 1, "secret diagnostic"))
+    await expect(c.exec("git", ["push"])).rejects.toThrow(/^git failed$/)
     spawn.mockReturnValue(result("  output  \n"))
-    expect(c.exec("jj", ["status"])).toBe("output")
+    expect(await c.exec("jj", ["status"])).toBe("output")
   })
 })

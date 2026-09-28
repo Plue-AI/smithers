@@ -172,7 +172,7 @@ const seed = async (c: Client, ssh: string, agents: Array<string>) => {
       if (!tokens.access_token || !tokens.refresh_token) throw new Error("Codex subscription login required")
       for (const value of Object.values(tokens)) if (typeof value === "string") c.protect(value)
     } else if (agent === "claude") {
-      let token = c.env.ANTHROPIC_AUTH_TOKEN || c.session.keyring("get", "claude.subscription-token")
+      let token = c.env.ANTHROPIC_AUTH_TOKEN || await c.session.keyring("get", "claude.subscription-token")
       if (!token) {
         const value = object(
           JSON.parse(
@@ -239,7 +239,8 @@ workspaces["workspace shell"] = async (c, a, o) => {
   const cols = Number(o.cols) || process.stdout.columns || 80, rows = Number(o.rows) || process.stdout.rows || 24
   const session = object(await c.request("POST", path, { cols, rows, workspace_id: id }))
   if (!session.id) throw new Error("Terminal response omitted id")
-  const auth = c.session.require(), url = auth.api_url.replace(/^http/, "ws") + `${path}/${esc(session.id)}/terminal`
+  const auth = await c.session.require(),
+    url = auth.api_url.replace(/^http/, "ws") + `${path}/${esc(session.id)}/terminal`
   const socket = new NodeWS.WebSocket(url, { headers: { Authorization: `token ${auth.token}`, Origin: auth.api_url } })
   const raw = process.stdin.isRaw
   const input = (chunk: Buffer) => socket.send(chunk, { binary: true })

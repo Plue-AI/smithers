@@ -14,9 +14,9 @@ import { observeOrigin } from "./Session.ts"
 
 const equal = (a: string, b: string) =>
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b))
-const open = (c: Client, url: string) => {
+const open = async (c: Client, url: string) => {
   try {
-    c.exec(
+    await c.exec(
       c.env.BROWSER ||
         (process.platform === "darwin" ? "open" : process.platform === "win32" ? "rundll32" : "xdg-open"),
       process.platform === "win32" ? ["url.dll,FileProtocolHandler", url] : [url]
@@ -47,7 +47,7 @@ export const browserLogin = async (
   origin: string,
   admin: boolean,
   ttl: string,
-  launch = (url: string) => open(c, url),
+  launch = (url: string): void => void open(c, url),
   timeout = 300_000
 ): Promise<Values> => {
   const state = randomBytes(32).toString("base64url")
@@ -143,7 +143,7 @@ const providerLogin = async (c: Client, provider: string, directory: string): Pr
       raw = await readFile(join(dir, ".credentials.json"), "utf8")
     } catch {
       if (process.platform !== "darwin") throw new Error("No Claude subscription login; run claude and sign in")
-      raw = c.exec("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+      raw = await c.exec("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"])
     }
     const oauth = object(object(JSON.parse(raw)).claudeAiOauth)
     if (!oauth.accessToken) throw new Error("Claude login is not a subscription login")
@@ -200,7 +200,7 @@ auth["auth login"] = async (c, _a, o) => {
     ? { token: await c.stdin("Login token") }
     : await browserLogin(c, target.api_url, admin, str(o.ttl))
   const { token, callback_state: _state, ...metadata } = value
-  const saved = c.session.save(target.api_url, str(token), { ...metadata, admin })
+  const saved = await c.session.save(target.api_url, str(token), { ...metadata, admin })
   if (o.observe) await openObserve(c, str(token))
   return {
     status: "logged_in",
@@ -211,9 +211,9 @@ auth["auth login"] = async (c, _a, o) => {
     token_source: saved.source
   }
 }
-auth["auth logout"] = async (c, _a, o) => c.session.clear(str(o.hostname))
+auth["auth logout"] = async (c, _a, o) => await c.session.clear(str(o.hostname))
 auth["auth status"] = async (c, _a, o) => {
-  const target = c.session.target(str(o.hostname)), resolved = c.session.resolve(target.api_url)
+  const target = c.session.target(str(o.hostname)), resolved = await c.session.resolve(target.api_url)
   if (!resolved) {
     if (!o.context) c.runtime.exit?.(1)
     return { logged_in: false, token_set: false, ...target }
@@ -241,7 +241,7 @@ auth["auth status"] = async (c, _a, o) => {
   return result
 }
 auth["auth token"] = async (c, _a, o) => {
-  const { token: _token, ...metadata } = c.session.require(str(o.hostname))
+  const { token: _token, ...metadata } = await c.session.require(str(o.hostname))
   return { ...metadata, token_set: true }
 }
 for (const action of ["status", "login", "bootstrap"]) {
@@ -283,7 +283,10 @@ for (const action of ["status", "login", "bootstrap"]) {
     )
     const user = object(response.user)
     if (!response.token || !user.username) throw new Error("Owner token response was incomplete")
-    c.session.save(target.api_url, str(response.token), { username: user.username, expires_at: response.expires_at })
+    await c.session.save(target.api_url, str(response.token), {
+      username: user.username,
+      expires_at: response.expires_at
+    })
     return {
       status: "logged_in",
       host: target.host,
@@ -310,9 +313,9 @@ auth["auth revoke"] = async (c, a) => {
   return { status: "revoked", id: a.id }
 }
 const claudeKey = "claude.subscription-token"
-const claudeToken = (c: Client) => c.env.ANTHROPIC_AUTH_TOKEN || c.session.keyring("get", claudeKey)
+const claudeToken = async (c: Client) => c.env.ANTHROPIC_AUTH_TOKEN || await c.session.keyring("get", claudeKey)
 const pushClaude: Handler = async (c, _a, o) => {
-  const token = claudeToken(c)
+  const token = await claudeToken(c)
   if (!token) throw new Error("No Claude subscription token; run smithers auth claude login")
   const flags = object(object(await c.request("GET", "/api/feature-flags", undefined, { anonymous: true })).flags)
   if (flags.subscription_connections !== true) {
@@ -323,18 +326,18 @@ const pushClaude: Handler = async (c, _a, o) => {
 }
 auth["auth claude login"] = async (c, a, o) => {
   const token = setupToken(await c.stdin("Claude setup token"))
-  if (c.session.keyring("set", claudeKey, token) === undefined) {
+  if (await c.session.keyring("set", claudeKey, token) === undefined) {
     throw new Error("Secure credential storage is unavailable")
   }
   return o.repo ? pushClaude(c, a, o) : { status: "logged_in", stored_token: true }
 }
 auth["auth claude logout"] = async (c) => ({
   status: "logged_out",
-  cleared: c.session.keyring("delete", claudeKey) !== undefined
+  cleared: await c.session.keyring("delete", claudeKey) !== undefined
 })
 auth["auth claude status"] = async (c) => ({
-  configured: !!claudeToken(c),
-  stored_token_set: !!c.session.keyring("get", claudeKey),
+  configured: !!await claudeToken(c),
+  stored_token_set: !!await c.session.keyring("get", claudeKey),
   auth_kind: "ANTHROPIC_AUTH_TOKEN"
 })
 auth["auth claude token"] = auth["auth claude status"]!
@@ -407,7 +410,7 @@ const openObserve = async (c: Client, token: string) => {
   c.runtime.signal?.addEventListener("abort", abort, { once: true })
   try {
     if (c.runtime.signal?.aborted) abort()
-    else open(c, `${base}/login/cli#${new URLSearchParams({ state, port: String(port) })}`)
+    else void open(c, `${base}/login/cli#${new URLSearchParams({ state, port: String(port) })}`)
     await done
   } finally {
     clearTimeout(timer)

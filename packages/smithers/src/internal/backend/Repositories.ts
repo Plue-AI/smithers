@@ -66,7 +66,7 @@ repositories["repo clone"] = async (c, a, o) => {
   if (isSlug) {
     const host = c.session.target().host
     url = protocol === "https" ? `https://${host}/${slug}.git` : `git@ssh.${host}:${slug}.git`
-    if (c.session.resolve()) {
+    if (await c.session.resolve()) {
       try {
         await c.request("GET", `/api/repos/${slug}`)
       } catch (error) {
@@ -77,10 +77,10 @@ repositories["repo clone"] = async (c, a, o) => {
   const extra = [...list(o["clone-arg"]).map(str), ...rest]
   let backend = "jj"
   try {
-    c.exec("jj", ["git", "clone", url, directory, ...extra])
+    await c.exec("jj", ["git", "clone", url, directory, ...extra])
   } catch {
     backend = "git"
-    c.exec("git", ["clone", url, directory, ...extra])
+    await c.exec("git", ["clone", url, directory, ...extra])
   }
   return { cloned: isSlug ? slug : directory, directory, protocol, tool: backend }
 }
@@ -96,25 +96,28 @@ repositories["repo push"] = async (c, _a, o) => {
   ) throw new Error("Invalid ref name")
   const repository = c.repo(o.repo, githubOrigin), path = `/api/repos/${repository}`
   if (o.list) return c.request("GET", path + "/user-refs")
-  const auth = c.session.require(), env = gitAuth(auth.api_url, auth.token)
+  const auth = await c.session.require(), env = gitAuth(auth.api_url, auth.token)
   let gitDir = "", commit = "", uncommitted = false, jj = false
   try {
-    c.exec("jj", ["root"])
+    await c.exec("jj", ["root"])
     jj = true
   } catch { /* git checkout */ }
-  if (o.delete) gitDir = jj ? c.exec("jj", ["git", "root"]) : c.exec("git", ["rev-parse", "--absolute-git-dir"])
-  else if (jj) {
-    gitDir = c.exec("jj", ["git", "root"])
+  if (o.delete) {
+    gitDir = jj
+      ? await c.exec("jj", ["git", "root"])
+      : await c.exec("git", ["rev-parse", "--absolute-git-dir"])
+  } else if (jj) {
+    gitDir = await c.exec("jj", ["git", "root"])
     const commits = lines(
-      c.exec("jj", ["log", "-r", o["working-copy"] ? "@" : "@-", "--no-graph", "-T", "commit_id ++ \"\\n\""])
+      await c.exec("jj", ["log", "-r", o["working-copy"] ? "@" : "@-", "--no-graph", "-T", "commit_id ++ \"\\n\""])
     )
     if (commits.length !== 1 || /^0+$/.test(commits[0]!)) throw new Error("Push exactly one non-root commit")
     commit = commits[0]!
   } else {
     if (o["working-copy"]) throw new Error("--working-copy requires a jj checkout")
-    gitDir = c.exec("git", ["rev-parse", "--absolute-git-dir"])
-    commit = c.exec("git", ["rev-parse", "--verify", "HEAD^{commit}"])
-    uncommitted = !!c.exec("git", ["status", "--porcelain"])
+    gitDir = await c.exec("git", ["rev-parse", "--absolute-git-dir"])
+    commit = await c.exec("git", ["rev-parse", "--verify", "HEAD^{commit}"])
+    uncommitted = !!await c.exec("git", ["status", "--porcelain"])
   }
   if (o["working-copy"] && object(await c.request("GET", path)).is_public) {
     throw new Error("--working-copy is refused on a public repository")
@@ -122,17 +125,21 @@ repositories["repo push"] = async (c, _a, o) => {
   const id = Number(object(await c.request("GET", "/api/user")).id)
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error("API returned no user id")
   const ref = `refs/smithers/users/${id}/${name}`, remote = `${auth.api_url}/${repository}.git`
-  const advertised = c.exec("git", ["--git-dir", gitDir, "ls-remote", remote, ref], env)
+  const advertised = await c.exec("git", ["--git-dir", gitDir, "ls-remote", remote, ref], env)
   const previous = lines(advertised).map((line) => line.split(/\s+/)).find((fields) => fields[1] === ref)?.[0] || ""
   const result: Values = { repository, ref, previous: previous || null }
   if (o.delete) {
     if (previous) {
-      c.exec("git", ["--git-dir", gitDir, "push", `--force-with-lease=${ref}:${previous}`, remote, `:${ref}`], env)
+      await c.exec(
+        "git",
+        ["--git-dir", gitDir, "push", `--force-with-lease=${ref}:${previous}`, remote, `:${ref}`],
+        env
+      )
     }
     return { ...result, deleted: !!previous }
   }
   if (previous !== commit) {
-    c.exec(
+    await c.exec(
       "git",
       ["--git-dir", gitDir, "push", `--force-with-lease=${ref}:${previous}`, remote, `${commit}:${ref}`],
       env

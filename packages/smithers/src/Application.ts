@@ -75,6 +75,12 @@ export interface Config {
   readonly remote?: string | undefined
   readonly credential?: string | undefined
   /**
+   * Reads the stored login for `remote` when `credential` is unset. The Node
+   * remote transport calls it once while it is built, because the login may
+   * live in the system keyring and reading that starts a process.
+   */
+  readonly login?: (() => Promise<string | undefined>) | undefined
+  /**
    * Whether this host imports a flow file its own runs write, while it serves.
    *
    * OFF by default, and that default is a trust statement. The host's module

@@ -69,7 +69,11 @@ const configuration = (
   args: ReadonlyArray<string>,
   environment: Readonly<Record<string, string | undefined>>
 ) => {
-  const { migrationRoot: _migrationRoot, root: _root, ...rest } = NodeControl.makeConfig(args, environment, "/work")
+  const { login: _login, migrationRoot: _migrationRoot, root: _root, ...rest } = NodeControl.makeConfig(
+    args,
+    environment,
+    "/work"
+  )
   return rest
 }
 

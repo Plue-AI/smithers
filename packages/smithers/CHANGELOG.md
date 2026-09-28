@@ -28,6 +28,13 @@
 
 ### Fixed
 
+- Backend commands (`repo`, `stack`, `land`, `auth`, `workspace ssh`/`cp` and
+  the local jj verbs) start `jj`, `git`, `ssh` and the keyring helper through
+  the contained host spawner, so a timed-out or cancelled command stops their
+  descendants too (#2482). `NodeControl.makeConfig` no longer reads the system
+  keyring: `credential` holds `SMITHERS_TOKEN`, and otherwise the new optional
+  `Application.Config.login` reads the stored login once when the remote
+  transport is built.
 - An unknown command's suggestion names a canonical command
   (`Did you mean: smthrs runs show?`) read from the command tree, never a
   hidden alias or the `smithers` program name (#2225).

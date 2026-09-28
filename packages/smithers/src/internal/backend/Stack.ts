@@ -87,10 +87,10 @@ const body = (changes: Array<Values>, change: Values) => {
   ].join("\n")
   return [text, block].filter(Boolean).join("\n\n")
 }
-const push = (c: Client, change: Values) => {
-  c.exec("jj", ["--ignore-working-copy", "bookmark", "set", "-B", branch(change), "-r", str(change.change_id)])
-  const session = c.env.GITHUB_TOKEN ? undefined : c.session.require()
-  c.exec(
+const push = async (c: Client, change: Values) => {
+  await c.exec("jj", ["--ignore-working-copy", "bookmark", "set", "-B", branch(change), "-r", str(change.change_id)])
+  const session = c.env.GITHUB_TOKEN ? undefined : await c.session.require()
+  await c.exec(
     "jj",
     ["--ignore-working-copy", "git", "push", "--bookmark", branch(change)],
     session
@@ -198,12 +198,12 @@ const restack = async (c: Client, o: Values, changes: Array<Values>) => {
     await remove(c, o)
     return { fetched: true, stack_deleted: true, stack_id: null, remaining: [] }
   }
-  const local = new Map(stackChanges(c, target(o)).map((change) => [change.change_id, change]))
+  const local = new Map((await stackChanges(c, target(o))).map((change) => [change.change_id, change]))
   for (const [index, change] of changes.entries()) {
     const match = local.get(str(change.change_id))
     if (!match) throw new Error(`Local stack is missing ${str(change.change_id)}; run smithers stack submit`)
     Object.assign(change, description(match))
-    const [name, email] = c.exec("jj", [
+    const [name, email] = (await c.exec("jj", [
       "--ignore-working-copy",
       "log",
       "-r",
@@ -211,8 +211,8 @@ const restack = async (c: Client, o: Values, changes: Array<Values>) => {
       "--no-graph",
       "-T",
       "author.name() ++ \"\\t\" ++ author.email() ++ \"\\n\""
-    ]).split("\t")
-    c.exec("jj", [
+    ])).split("\t")
+    await c.exec("jj", [
       "--ignore-working-copy",
       ...(name ? ["--config", `user.name=${JSON.stringify(name)}`] : []),
       ...(email ? ["--config", `user.email=${JSON.stringify(email)}`] : []),
@@ -223,7 +223,7 @@ const restack = async (c: Client, o: Values, changes: Array<Values>) => {
       index ? str(changes[index - 1]!.change_id) : target(o)
     ])
   }
-  for (const change of changes) push(c, change)
+  for (const change of changes) await push(c, change)
   for (const [index, change] of changes.entries()) {
     const updated = await github(c, o, "PATCH", `/pulls/${str(change.pr_number)}`, {
       base: index ? branch(changes[index - 1]!) : target(o),
@@ -241,9 +241,9 @@ const restack = async (c: Client, o: Values, changes: Array<Values>) => {
 export const stacks: Record<string, Handler> = {}
 stacks["stack submit"] = async (c, _a, o) => {
   const existing = mapped(await load(c, o)), changes: Array<Values> = []
-  for (const change of stackChanges(c, target(o)).reverse()) {
+  for (const change of (await stackChanges(c, target(o))).reverse()) {
     const entry: Values = { ...change, ...description(change), branch_name: branch(change), status: "created" }
-    push(c, entry)
+    await push(c, entry)
     const payload = { base: changes.length ? branch(changes.at(-1)!) : target(o), title: entry.title, body: entry.body }
     let pull: Values | undefined
     const prior = existing.find((item) => item.change_id === change.change_id)
@@ -316,9 +316,9 @@ stacks["stack status"] = async (c, _a, o) => {
   const existing = await load(c, o)
   if (!existing.id) return { changes: [], stack_id: null, state: "inactive", target: target(o) }
   const changes = mapped(existing)
-  let locals: ReturnType<typeof stackChanges> = []
+  let locals: Awaited<ReturnType<typeof stackChanges>> = []
   try {
-    locals = stackChanges(c, target(o))
+    locals = await stackChanges(c, target(o))
   } catch { /* backend status works outside a local checkout */ }
   const ordered: Array<Values> = [
     ...locals.map((local) => ({ ...local, ...changes.find((change) => change.change_id === local.change_id) })),
@@ -345,7 +345,7 @@ stacks["stack status"] = async (c, _a, o) => {
   }
 }
 stacks["stack sync"] = async (c, _a, o) => {
-  c.exec("jj", ["--ignore-working-copy", "git", "fetch"])
+  await c.exec("jj", ["--ignore-working-copy", "git", "fetch"])
   const existing = await load(c, o), merged: Array<Values> = [], remaining: Array<Values> = []
   if (!existing.id) {
     return {
@@ -425,7 +425,7 @@ stacks["stack land"] = async (c, _a, o) => {
     if (!merged) throw new Error("GitHub rejected available merge methods")
     landed.push(summary(c, [change])[0]!)
     remaining = remaining.slice(1)
-    c.exec("jj", ["--ignore-working-copy", "git", "fetch"])
+    await c.exec("jj", ["--ignore-working-copy", "git", "fetch"])
     result = await restack(c, o, remaining)
   }
   return { ...result, landed, stack_found: true, target: target(o) }

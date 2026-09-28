@@ -36,7 +36,9 @@ boundary. It reads `--remote`, `--mcp-config`, and `--root`
 straight off the argument vector, falls back to `SMITHERS_REMOTE`,
 `SMITHERS_TOKEN`, and `SMITHERS_MCP_CONFIG`, resolves the project root and
 the 0.x migration root, and throws a `CliError.UsageError` naming the offending
-flag for a bad URL or an unreadable MCP file.
+flag for a bad URL or an unreadable MCP file. It starts no process. Without
+`SMITHERS_TOKEN`, a remote's stored `smithers auth login` credential, which may
+live in the system keyring, is read once when `NodeControl.layer(config)` is built.
 
 Those four values cannot be handler-level flags: the durable layers are built
 from them, and they are built before the parser reads a token.

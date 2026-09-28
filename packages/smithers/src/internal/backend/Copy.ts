@@ -3,13 +3,13 @@
  * @since 1.0.0
  */
 
-import { spawn } from "node:child_process"
 import type { Stats } from "node:fs"
 import { lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises"
 import { basename, dirname, join, posix, resolve } from "node:path"
 import { pipeline } from "node:stream/promises"
 import * as tar from "tar"
 import { str } from "./Client.ts"
+import { spawn } from "./Process.ts"
 import type { Handler } from "./Resources.ts"
 import { quote, sshArgs } from "./SSH.ts"
 import { resolveID, workspaceSSH } from "./Workspaces.ts"
@@ -106,21 +106,24 @@ export const copy: Handler = async (c, a, o) => {
     }
     const script = copyScript(upload, upload ? to.path : source.path, name, source.contents)
     const child = spawn("ssh", [...await sshArgs(c, ssh), script], {
-      env: { ...c.env },
-      stdio: ["pipe", "pipe", "pipe"],
-      ...(c.runtime.signal ? { signal: c.runtime.signal } : {})
+      env: c.env,
+      stdio: "pipe",
+      signal: c.runtime.signal
     })
     let stderr = "", expired = false
-    child.stderr.on("data", (chunk) => {
+    child.stderr!.on("data", (chunk) => {
       stderr = (stderr + String(chunk)).slice(-8192)
     })
-    const exited = new Promise<number>((resolve, reject) => {
-      child.once("error", reject)
-      child.once("close", (code) => resolve(code ?? 1))
+    const exited = child.exited.catch((error: unknown) => {
+      if (expired) throw new Error("Workspace copy timed out")
+      throw error
     })
+    // Every path below awaits `exited`; this keeps an early throw from
+    // leaving its rejection unhandled.
+    exited.catch(() => {})
     const timer = setTimeout(() => {
       expired = true
-      child.kill("SIGKILL")
+      child.kill()
     }, (Number(o.timeout) > 0 ? Number(o.timeout) : 600) * 1000)
     try {
       let transferError: unknown
@@ -139,15 +142,15 @@ export const copy: Handler = async (c, a, o) => {
             return true
           }
         }, [name])
-        child.stdout.resume()
+        child.stdout!.resume()
         await Promise.all([
-          pipeline(packed, child.stdin).catch((error) => {
+          pipeline(packed, child.stdin!).catch((error) => {
             transferError = error
           }),
           exited
         ])
       } else {
-        child.stdin.end()
+        child.stdin!.end()
         let archiveError: unknown
         const validate = archiveFilter(source.contents ? "" : name)
         const unpacked = tar.x({
@@ -171,7 +174,7 @@ export const copy: Handler = async (c, a, o) => {
           }
         })
         await Promise.all([
-          pipeline(child.stdout, unpacked).catch((error) => {
+          pipeline(child.stdout!, unpacked).catch((error) => {
             transferError = error
           }),
           exited
@@ -179,7 +182,6 @@ export const copy: Handler = async (c, a, o) => {
         transferError ??= archiveError
       }
       const code = await exited
-      if (expired) throw new Error("Workspace copy timed out")
       if (code) {
         c.runtime.exit?.(code)
         throw new Error(
@@ -193,7 +195,7 @@ export const copy: Handler = async (c, a, o) => {
       if (transferError) throw transferError
     } finally {
       clearTimeout(timer)
-      if (child.exitCode === null) child.kill("SIGKILL")
+      child.kill()
     }
     if (scratch) {
       // Refuse symlink parents before merging. Tar never follows archive links.

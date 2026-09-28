@@ -29,7 +29,7 @@ const fixture = (
       ...(config.githubToken ? { GITHUB_TOKEN: "github-secret", SMITHERS_GITHUB_API_URL: "https://github.test" } : {})
     }
   })
-  const exec = vi.spyOn(c, "exec").mockImplementation((_command, args) => {
+  const exec = vi.spyOn(c, "exec").mockImplementation(async (_command, args) => {
     if (!args.includes("log")) return ""
     const template = args.at(-1)!
     if (template.startsWith("change_id")) return locals.map((id) => `${id}\tcommit-${id}`).join("\n")

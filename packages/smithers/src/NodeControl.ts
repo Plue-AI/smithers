@@ -167,7 +167,11 @@ export const makeConfig = (
   }
   return {
     remote,
-    credential: remote === undefined ? undefined : new Session(environment).resolve(new URL(remote).origin)?.token,
+    // SMITHERS_TOKEN outranks the stored login, and reading it starts no process.
+    credential: remote === undefined ? undefined : environment.SMITHERS_TOKEN?.trim() || undefined,
+    login: remote === undefined || environment.SMITHERS_TOKEN?.trim()
+      ? undefined
+      : async () => (await new Session(environment).resolve(new URL(remote).origin))?.token,
     mcpServers: mcpServersFromArguments(globals, environment),
     // `--root` is resolved here rather than in a handler because the durable
     // layers are built from it, and they are built before any flag is parsed.
@@ -438,15 +442,21 @@ const layerControlFromEngine = (
     return native.layerControlFromEngine(applicationConfig, registry, engine, modules)
   }
   const remote = applicationConfig.remote
-  return Application.layer(applicationConfig, registry, engine).pipe(
-    Layer.provide([
-      // A remote control plane is an origin like any other: reached through the
-      // egress proxy this process's environment names, or directly when it
-      // names none.
-      layerEgressHttpClient(process.env),
-      websocketLayer(remote, applicationConfig.credential),
-      RpcSerialization.layerNdjson
-    ])
+  return Layer.unwrap(
+    Effect.promise(async () => applicationConfig.credential ?? await applicationConfig.login?.()).pipe(
+      Effect.map((credential) =>
+        Application.layer({ ...applicationConfig, credential }, registry, engine).pipe(
+          Layer.provide([
+            // A remote control plane is an origin like any other: reached through the
+            // egress proxy this process's environment names, or directly when it
+            // names none.
+            layerEgressHttpClient(process.env),
+            websocketLayer(remote, credential),
+            RpcSerialization.layerNdjson
+          ])
+        )
+      )
+    )
   )
 }
 

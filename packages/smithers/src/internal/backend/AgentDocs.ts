@@ -14,16 +14,16 @@ import type { Handler } from "./Resources.ts"
  */
 export const ask: Handler = async (c, a, o) => {
   const prompt = str(a.prompt)
-  const capture = (command: string, args: Array<string>) => {
+  const capture = async (command: string, args: Array<string>) => {
     try {
-      return { ok: true, output: c.exec(command, args) }
+      return { ok: true, output: await c.exec(command, args) }
     } catch (error) {
       return { ok: false, error: str(error) }
     }
   }
-  const root = capture("jj", ["root"]),
-    jjRemotes = capture("jj", ["git", "remote", "list"]),
-    jjStatus = capture("jj", ["status"])
+  const root = await capture("jj", ["root"]),
+    jjRemotes = await capture("jj", ["git", "remote", "list"]),
+    jjStatus = await capture("jj", ["status"])
   let repoSlug: string | null = null
   try {
     repoSlug = c.repo(o.repo)
