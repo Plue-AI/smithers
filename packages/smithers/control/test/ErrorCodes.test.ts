@@ -34,6 +34,11 @@ const table: ReadonlyArray<{
     error: new ControlError.PlanDigestMismatch({ planId: "plan-1", expected: "a", actual: "b" })
   },
   {
+    tag: "/control/CodeDrift",
+    code: "code_drift",
+    error: new ControlError.CodeDrift({ runId: "run-1", flowId: "flow-1", recorded: "a", current: "b" })
+  },
+  {
     tag: "/control/EnvelopeMismatch",
     code: "envelope_mismatch",
     error: new ControlError.EnvelopeMismatch({ planId: "plan-1", expected: "a", actual: "b" })

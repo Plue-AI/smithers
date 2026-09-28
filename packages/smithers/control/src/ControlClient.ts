@@ -15,7 +15,7 @@ import {
   CancelInputSchema,
   ListRequest,
   PlanInputSchema,
-  ReasonedMutationInputSchema,
+  ResumeInputSchema,
   RunInputSchema,
   SignalInputSchema,
   SteerInputSchema,
@@ -194,7 +194,7 @@ const approvalEncoder = encoder(ApprovalInputSchema)
 const steerEncoder = encoder(SteerInputSchema)
 const signalEncoder = encoder(SignalInputSchema)
 const cancelEncoder = encoder(CancelInputSchema)
-const resumeEncoder = encoder(ReasonedMutationInputSchema)
+const resumeEncoder = encoder(ResumeInputSchema)
 const listEncoder = encoder(ListRequest)
 const watchEncoder = encoder(WatchFilter)
 

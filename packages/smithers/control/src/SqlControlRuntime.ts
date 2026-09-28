@@ -98,7 +98,15 @@ import {
 } from "./ControlSchema.ts"
 import * as ActiveFibers from "./internal/activeFibers.ts"
 import { canonicalIssue, cappedIssue, schemaIssuePath } from "./internal/issues.ts"
-import { accepted, alreadyApplied, canonical, emptyEnvelope, planCard, sameEnvelope } from "./internal/planning.ts"
+import {
+  accepted,
+  alreadyApplied,
+  canonical,
+  emptyEnvelope,
+  planCard,
+  refuseCodeDrift,
+  sameEnvelope
+} from "./internal/planning.ts"
 import { causeMessages, missingTable } from "./internal/sqlSchemaErrors.ts"
 import * as Lineage from "./Lineage.ts"
 import * as Migrations from "./Migrations.ts"
@@ -147,6 +155,8 @@ export interface Options {
   readonly isAlive?: Ownership.LivenessCheck | undefined
   readonly principal?: Omit<Principal, "stampedAt"> | undefined
   readonly approvalAuthority?: ApprovalAuthority.Service | undefined
+  /** The engine version stamped on every run this runtime starts. */
+  readonly engineVersion?: string | undefined
 }
 
 const persistence = (operation: string) => (cause: unknown): PersistenceError =>
@@ -1629,6 +1639,8 @@ const makeRuntime = (
           status: "accepted",
           planId,
           planDigest: plan.card.digest,
+          ...(plan.card.executionDigest === undefined ? {} : { executionDigest: plan.card.executionDigest }),
+          ...(options.engineVersion === undefined ? {} : { engineVersion: options.engineVersion }),
           ownerId: JSON.stringify(claimant),
           createdAt: timestamp,
           updatedAt: timestamp
@@ -1897,6 +1909,10 @@ const makeRuntime = (
             )
           )
         )
+      }),
+      refuseCodeDrift: Effect.fn("SqlControlRuntime.refuseCodeDrift")(function*(runId: RunId) {
+        const summary = yield* summaryOf(yield* requireRow(runId))
+        yield* refuseCodeDrift(summary, (yield* readFlows).get(summary.flowId))
       }),
       resume: Effect.fn("SqlControlRuntime.resume")(function*(
         runId: RunId,

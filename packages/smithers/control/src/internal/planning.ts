@@ -14,6 +14,7 @@ import { Sha256 } from "@smthrs/crypto"
 import type * as PersistedPlan from "@smthrs/plan/Plan"
 import { Effect, Schema } from "effect"
 import type { ApprovalTarget } from "../Control.ts"
+import { CodeDrift } from "../ControlError.ts"
 import type {
   Envelope,
   FlowId,
@@ -22,8 +23,32 @@ import type {
   PlanGraph,
   PlanNode,
   Receipt,
-  RunId
+  RunId,
+  RunSummary
 } from "../ControlSchema.ts"
+
+/**
+ * Fails when the run's flow no longer has the execution digest the run
+ * started with. A run that recorded none (a flow without a digest, or a row
+ * older than the field) is not checked.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const refuseCodeDrift = (
+  run: RunSummary,
+  flow: { readonly executionDigest?: string | undefined } | undefined
+): Effect.Effect<void, CodeDrift> =>
+  run.executionDigest === undefined || flow?.executionDigest === run.executionDigest
+    ? Effect.void
+    : Effect.fail(
+      new CodeDrift({
+        runId: run.runId,
+        flowId: run.flowId,
+        recorded: run.executionDigest,
+        ...(flow?.executionDigest === undefined ? {} : { current: flow.executionDigest })
+      })
+    )
 
 /**
  * The envelope a flow with no declared capabilities carries.

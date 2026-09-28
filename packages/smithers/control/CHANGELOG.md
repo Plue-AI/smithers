@@ -4,6 +4,11 @@
 
 ### Added
 
+- A run records its flow's `executionDigest` and the host's `engineVersion`
+  (`SqlControlRuntime` and memory option `engineVersion`) on `RunSummary`.
+  `Control.resume` refuses a run whose flow's digest changed with `CodeDrift`
+  before claiming it, unless `allowCodeDrift` is set.
+
 - `Health.makeRegistry` takes an optional third argument, `evaluator`: the
   judge the registered `jev.session` checker asks.
 

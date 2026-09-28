@@ -18,6 +18,7 @@ import type { ApprovalTarget, PlanInput } from "./Control.ts"
 import {
   AlreadyResolved,
   ClaimLost,
+  type CodeDrift,
   EnvelopeMismatch,
   FlowNotFound,
   InvalidInput,
@@ -51,6 +52,7 @@ import {
   canonical,
   emptyEnvelope,
   planCard,
+  refuseCodeDrift,
   sameEnvelope
 } from "./internal/planning.ts"
 import { plannable } from "./SystemFlows.ts"
@@ -331,6 +333,8 @@ export interface MemoryOptions {
   readonly now?: (() => number) | undefined
   readonly principal?: Omit<Principal, "stampedAt"> | undefined
   readonly approvalAuthority?: ApprovalAuthority.Service | undefined
+  /** The engine version stamped on every run this runtime starts. */
+  readonly engineVersion?: string | undefined
 }
 
 /**
@@ -507,6 +511,12 @@ export interface Service {
     runId: RunId,
     options?: { readonly scope?: "launched" | "any" | undefined } | undefined
   ) => Effect.Effect<RunSummary, RunNotFound | ClaimLost | PersistenceError>
+  /**
+   * Fails `CodeDrift` when the run's flow no longer has the execution digest
+   * the run started with. An operator resume asks this before it claims;
+   * recovery paths that only settle a run do not.
+   */
+  readonly refuseCodeDrift: (runId: RunId) => Effect.Effect<void, RunNotFound | CodeDrift | PersistenceError>
   readonly claimFence: (runId: RunId) => Effect.Effect<string, RunNotFound | ClaimLost | PersistenceError>
   /**
    * Releases a launch the configured executor declined without changing its
@@ -961,6 +971,8 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             status: "accepted",
             planId,
             planDigest: plan.card.digest,
+            ...(plan.card.executionDigest === undefined ? {} : { executionDigest: plan.card.executionDigest }),
+            ...(options.engineVersion === undefined ? {} : { engineVersion: options.engineVersion }),
             ownerId: "memory-owner",
             createdAt: timestamp,
             updatedAt: timestamp
@@ -1163,6 +1175,10 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             run.localFence = undefined
             return updateSummary(run, { status: "cancelled", ownerId: undefined, parkedBy: undefined })
           }))
+        }),
+        refuseCodeDrift: Effect.fn("ControlRuntime.refuseCodeDrift")(function*(runId) {
+          const run = yield* requireRun(runId)
+          yield* refuseCodeDrift(run.summary, flows.get(run.summary.flowId))
         }),
         resume: Effect.fn("ControlRuntime.resume")(function*(runId) {
           const run = yield* requireRun(runId)

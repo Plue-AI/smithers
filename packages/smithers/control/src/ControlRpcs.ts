@@ -10,6 +10,7 @@ import { Rpc, RpcGroup, RpcMiddleware } from "effect/unstable/rpc"
 import {
   AlreadyResolved,
   ClaimLost,
+  CodeDrift,
   ControlErrorSchema,
   EnvelopeMismatch,
   FlowNotFound,
@@ -34,8 +35,8 @@ import {
   PlanCard,
   PlanInputSchema,
   type Principal,
-  ReasonedMutationInputSchema,
   Receipt,
+  ResumeInputSchema,
   RunInputSchema,
   SignalInputSchema,
   SteerInputSchema,
@@ -72,6 +73,17 @@ const mutationErrors = Schema.Union([
   Unauthorized
 ])
 
+const resumeErrors = Schema.Union([
+  RunNotFound,
+  ClaimLost,
+  CodeDrift,
+  InvalidInput,
+  PersistenceError,
+  Unavailable,
+  TransportError,
+  Unauthorized
+])
+
 /**
  * The ten remote procedures corresponding to `Control` operations.
  *
@@ -94,6 +106,7 @@ export const ControlRpcs = RpcGroup.make(
       PlanDigestMismatch,
       EnvelopeMismatch,
       ClaimLost,
+      CodeDrift,
       InvalidInput,
       LaunchFailed,
       PersistenceError,
@@ -161,7 +174,11 @@ export const ControlRpcs = RpcGroup.make(
     ])
   }),
   Rpc.make("Cancel", { payload: CancelInputSchema, success: Receipt, error: mutationErrors }),
-  Rpc.make("Resume", { payload: ReasonedMutationInputSchema, success: Receipt, error: mutationErrors }),
+  Rpc.make("Resume", {
+    payload: ResumeInputSchema,
+    success: Receipt,
+    error: resumeErrors
+  }),
   // `list` and `watch` carry the whole `ControlError` union in their contract,
   // so they name it once rather than restating its members. Two hand-copied
   // lists is how `CredentialConflict` came to be a control error the union did

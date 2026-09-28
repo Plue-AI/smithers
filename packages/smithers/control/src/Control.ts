@@ -9,6 +9,7 @@ import { Context, Effect, Layer, Stream } from "effect"
 import type {
   AlreadyResolved,
   ClaimLost,
+  CodeDrift,
   ControlError,
   EnvelopeMismatch,
   FlowNotFound,
@@ -135,6 +136,12 @@ export interface RunMutationInput {
    * when the caller names none.
    */
   readonly principal?: Principal | undefined
+  /**
+   * Resume only: run the flow's current code even when its execution digest
+   * differs from the one the run started with. Without it such a resume fails
+   * `CodeDrift` and leaves the run where it was.
+   */
+  readonly allowCodeDrift?: boolean | undefined
 }
 
 /**
@@ -163,6 +170,7 @@ export interface Service {
     | PlanDigestMismatch
     | EnvelopeMismatch
     | ClaimLost
+    | CodeDrift
     | InvalidInput
     | LaunchFailed
     | PersistenceError
@@ -222,7 +230,7 @@ export interface Service {
     input: RunMutationInput
   ) => Effect.Effect<
     Receipt,
-    RunNotFound | ClaimLost | InvalidInput | PersistenceError | Unavailable | TransportError | Unauthorized
+    RunNotFound | ClaimLost | CodeDrift | InvalidInput | PersistenceError | Unavailable | TransportError | Unauthorized
   >
   readonly list: (input: ListRequest) => Effect.Effect<ListResponse, ControlError>
   /** Checkpoint `event.cursor` after processing each event and resume with `afterCursor`. */

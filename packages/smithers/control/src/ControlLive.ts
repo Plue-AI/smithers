@@ -23,6 +23,7 @@ import {
 } from "./Control.ts"
 import {
   ClaimLost,
+  type CodeDrift,
   type ControlError,
   type EnvelopeMismatch,
   InvalidInput,
@@ -57,6 +58,7 @@ import {
   maxPageSize,
   Principal,
   ReasonedMutationInputSchema,
+  ResumeInputSchema,
   RunInputSchema,
   SignalInputSchema,
   SteerInputSchema,
@@ -187,6 +189,10 @@ const AttributedReasonedMutationInput = Schema.Struct({
   ...ReasonedMutationInputSchema.fields,
   principal: Schema.optional(Principal)
 })
+const AttributedResumeInput = Schema.Struct({
+  ...ResumeInputSchema.fields,
+  principal: Schema.optional(Principal)
+})
 const AttributedRunInput = Schema.Union([
   Schema.Struct({ ...RunInputSchema.members[0].fields, principal: Schema.optional(Principal) }),
   Schema.Struct({ ...RunInputSchema.members[1].fields, principal: Schema.optional(Principal) })
@@ -240,6 +246,8 @@ const snapshotApproval = (operation: string, input: unknown) =>
   snapshotMutation(operation, Schema.decodeUnknownEffect(AttributedApprovalInput), input)
 const snapshotReasonedMutation = (operation: string, input: unknown) =>
   snapshotMutation(operation, Schema.decodeUnknownEffect(AttributedReasonedMutationInput), input)
+const snapshotResume = (input: unknown) =>
+  snapshotMutation("resume", Schema.decodeUnknownEffect(AttributedResumeInput), input)
 const snapshotRun = (input: unknown) => snapshotMutation("run", Schema.decodeUnknownEffect(AttributedRunInput), input)
 const snapshotSignal = (input: unknown) =>
   snapshotMutation("signal", Schema.decodeUnknownEffect(AttributedSignalInput), input)
@@ -706,9 +714,9 @@ export const layer: Layer.Layer<
      */
     const runMutation = (
       submitted: RunMutationInput
-    ): Effect.Effect<Receipt, RunNotFound | ClaimLost | InvalidInput | PersistenceError> =>
+    ): Effect.Effect<Receipt, RunNotFound | ClaimLost | CodeDrift | InvalidInput | PersistenceError> =>
       Effect.gen(function*() {
-        const input = yield* snapshotReasonedMutation("resume", submitted)
+        const input = yield* snapshotResume(submitted)
         // Terminality is read BEFORE the idempotency replay, as `cancel` reads
         // it. A recorded receipt is the proof a restart was made once; it is
         // not an answer about the run, and the run settles afterwards. The
@@ -729,6 +737,9 @@ export const layer: Layer.Layer<
             if (terminal(current.status)) {
               return { _tag: "Terminal", runId: current.runId, status: current.status }
             }
+            // Every claim re-enters the flow's current code, so a changed flow
+            // is refused before the claim and the run stays where it was.
+            if (input.allowCodeDrift !== true) yield* runtime.refuseCodeDrift(input.runId)
             const claimed = yield* runtime.resume(input.runId, { scope: "launched" }).pipe(
               Effect.catchTag("/control/ClaimLost", () =>
                 live(current.status)

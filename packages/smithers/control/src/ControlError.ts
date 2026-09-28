@@ -110,6 +110,29 @@ export class ClaimLost extends Schema.TaggedError<ClaimLost>()("/control/ClaimLo
 }) {}
 
 /**
+ * The run's flow changed since the run started, so resuming it would run code
+ * the run did not start with. Pass `allowCodeDrift` to resume it anyway.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export class CodeDrift extends Schema.TaggedError<CodeDrift>()("/control/CodeDrift", {
+  code: constantCode("code_drift"),
+  runId: RunId,
+  flowId: FlowId,
+  /** The execution digest the run started with. */
+  recorded: Schema.String,
+  /** The flow's execution digest now; absent when the flow is gone or declares none. */
+  current: Schema.optional(Schema.String)
+}) {
+  override get message(): string {
+    return `Run ${this.runId} started on ${this.flowId} ${this.recorded}, which is now ${
+      this.current ?? "gone"
+    }. Resume with --allow-code-drift to run the changed code.`
+  }
+}
+
+/**
  * This request was already answered; a second answer is refused rather
  * than overwriting the first.
  *
@@ -272,6 +295,7 @@ export const ControlErrorSchema = Schema.Union([
   PlanDigestMismatch,
   EnvelopeMismatch,
   ClaimLost,
+  CodeDrift,
   AlreadyResolved,
   InvalidInput,
   Unauthorized,

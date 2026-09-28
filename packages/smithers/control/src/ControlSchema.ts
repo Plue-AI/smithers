@@ -543,6 +543,10 @@ export const RunSummary = Schema.Struct({
   status: RunStatus,
   planId: Schema.optional(Schema.String),
   planDigest: Schema.optional(Schema.String),
+  /** The flow's executable identity when the run started; resume refuses a different one. */
+  executionDigest: Schema.optional(Schema.String),
+  /** The engine version that started the run. */
+  engineVersion: Schema.optional(Schema.String),
   ownerId: Schema.optional(Schema.String),
   /**
    * The run this one branched from: the spawning run, the forked-from run, or
@@ -789,7 +793,11 @@ export const RunInputSchema = Schema.Union([
     envelope: Envelope,
     idempotencyKey: IdempotencyKey
   }),
-  Schema.TaggedStruct("Resume", { runId: RunId, idempotencyKey: IdempotencyKey })
+  Schema.TaggedStruct("Resume", {
+    runId: RunId,
+    idempotencyKey: IdempotencyKey,
+    allowCodeDrift: Schema.optional(Schema.Boolean)
+  })
 ])
 
 /**
@@ -859,6 +867,18 @@ export const ReasonedMutationInputSchema = Schema.Struct({
  * @category models
  */
 export const CancelInputSchema = ReasonedMutationInputSchema
+
+/**
+ * The RPC request schema for resume: a reasoned mutation that may accept a
+ * changed flow.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const ResumeInputSchema = Schema.Struct({
+  ...ReasonedMutationInputSchema.fields,
+  allowCodeDrift: Schema.optional(Schema.Boolean)
+})
 
 /**
  * A checkpoint in one journal entry's expansion. Without `offset`, the whole
