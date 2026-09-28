@@ -346,6 +346,30 @@ describe("generator backup recovery and bounds", () => {
     expect(await Fs.readFile(NodePath.join(root, "b"), "utf8")).toBe("other")
   })
 
+  it("reports a generator that appends a line at the end of a checked-in file", async () => {
+    const root = await directory()
+    await Fs.writeFile(NodePath.join(root, "out"), "first")
+    const exit = await check(root, "require('node:fs').writeFileSync('out', 'first\\nsecond')")
+    expect(Exit.isFailure(exit)).toBe(true)
+    const message = Exit.isFailure(exit) ? Cause.pretty(exit.cause) : ""
+    expect(message).toContain("first difference at line 2: (end of file) became \"second\"")
+    expect(await Fs.readFile(NodePath.join(root, "out"), "utf8")).toBe("first")
+  })
+
+  it("bounds the differing-line excerpt and restores long checked-in text", async () => {
+    const root = await directory()
+    const previous = "x".repeat(240)
+    const current = "y".repeat(240)
+    await Fs.writeFile(NodePath.join(root, "out"), previous)
+    const exit = await check(root, `require('node:fs').writeFileSync('out', ${JSON.stringify(current)})`)
+    expect(Exit.isFailure(exit)).toBe(true)
+    const message = Exit.isFailure(exit) ? Cause.pretty(exit.cause) : ""
+    expect(message).toContain(`first difference at line 1: "${"x".repeat(200)}..." became "${"y".repeat(200)}..."`)
+    expect(message).not.toContain("x".repeat(240))
+    expect(message).not.toContain("y".repeat(240))
+    expect(await Fs.readFile(NodePath.join(root, "out"), "utf8")).toBe(previous)
+  })
+
   it("rejects a non-directory ancestor before running a generator", async () => {
     const root = await directory()
     await Fs.writeFile(NodePath.join(root, "out"), "keep")

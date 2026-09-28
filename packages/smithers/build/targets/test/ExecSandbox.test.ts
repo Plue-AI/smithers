@@ -142,6 +142,50 @@ describe("write grant symlink confinement", () => {
     }
   })
 
+  it.each(["directory", "file"] as const)(
+    "refuses a %s write when a path becomes a symlink during planning",
+    (kind) => {
+      const { base, workspaceRoot, outside, facts } = writeFixture()
+      try {
+        const output = NodePath.join(workspaceRoot, "output")
+        NodeFs.mkdirSync(output)
+        let probes = 0
+        const changing: ExecSandbox.Host = {
+          ...facts,
+          isSymbolicLink: (path) => {
+            if (path === output && ++probes === 2) {
+              NodeFs.rmdirSync(output)
+              NodeFs.symlinkSync(outside, output, "dir")
+            }
+            try {
+              return NodeFs.lstatSync(path).isSymbolicLink()
+            } catch (cause) {
+              if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false
+              throw cause
+            }
+          }
+        }
+        const result = ExecSandbox.plan(
+          {
+            policy: {},
+            reads: [],
+            writes: kind === "directory" ? ["output"] : [],
+            writeFiles: kind === "file" ? ["output/result.txt"] : []
+          },
+          { workspaceRoot, cwd: workspaceRoot, tmp: NodePath.join(workspaceRoot, ".tmp") },
+          changing
+        )
+        expect(probes).toBe(2)
+        if (!ExecSandbox.isUnenforceable(result)) throw new Error("expected a write-path refusal")
+        expect(result.missing).toBe("canonical workspace write path")
+        expect(result.message).toContain(`write path ${output} has a symbolic link`)
+        expect(NodeFs.readdirSync(outside)).toEqual([])
+      } finally {
+        NodeFs.rmSync(base, { recursive: true, force: true })
+      }
+    }
+  )
+
   it.each(["directory", "ancestor", "workspace"] as const)("revalidates a replaced %s before rendering", (replaced) => {
     const { base, workspaceRoot, outside, plan } = writeFixture()
     try {

@@ -87,10 +87,14 @@ describe("parseWorkflow", () => {
   })
 
   it("refuses jobs and steps GitHub cannot execute", () => {
+    expect(() => parseWorkflow("jobs: {}\n"))
+      .toThrow(/workflow declares no jobs/)
     expect(() => parseWorkflow("jobs:\n  test:\n    steps:\n      - run: pnpm run check\n"))
       .toThrow(/declares no runner/)
     expect(() => parseWorkflow("jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"))
       .toThrow(/declares no steps/)
+    expect(() => parseWorkflow("jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps: {}\n"))
+      .toThrow(/`steps` must be a block sequence/)
     expect(() => parseWorkflow("jobs:\n  test: inline\n"))
       .toThrow(/must be a block mapping/)
     expect(() =>
@@ -103,6 +107,28 @@ describe("parseWorkflow", () => {
         "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        run: echo shadow\n"
       )
     ).toThrow(/exactly one of `uses` or `run`/)
+  })
+
+  it.each([
+    ["- run: ''", "empty run value"],
+    ["- uses: ''", "empty uses value"],
+    ["- run: echo ready\n        shell: ''", "empty shell"]
+  ])("refuses a step with %s", (step, reason) => {
+    expect(() =>
+      parseWorkflow(
+        `jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      ${step}\n`
+      )
+    ).toThrow(reason)
+  })
+
+  it("refuses a reusable job with no target or with a runner", () => {
+    expect(() => parseWorkflow("jobs:\n  test:\n    uses: ''\n")).toThrow(/reusable job "test" has an empty uses value/)
+    expect(() =>
+      parseWorkflow("jobs:\n  test:\n    uses: org/repo/.github/workflows/test.yml@main\n    runs-on: ubuntu-latest\n")
+    )
+      .toThrow(/reusable job "test" cannot also declare runs-on or steps/)
+    expect(() => parseWorkflow("jobs:\n  test:\n    uses: org/repo/.github/workflows/test.yml@main\n    steps:\n"))
+      .toThrow(/reusable job "test" cannot also declare runs-on or steps/)
   })
 
   /**
@@ -129,6 +155,8 @@ describe("parseWorkflow", () => {
   })
 
   it("refuses sequence items and invalid identifiers where mappings are required", () => {
+    expect(() => parseWorkflow("jobs: []\n"))
+      .toThrow(/expected a job mapping entry, not a sequence item/)
     expect(() => parseWorkflow("jobs:\n  - test:\n      runs-on: ubuntu-latest\n"))
       .toThrow(/expected a job mapping entry, not a sequence item/)
     expect(() =>
@@ -141,6 +169,16 @@ describe("parseWorkflow", () => {
         "jobs:\n  test:\n    - runs-on: ubuntu-latest\n"
       )
     ).toThrow(/expected a mapping entry in job "test", not a sequence item/)
+    expect(() => parseWorkflow("jobs:\n  test: []\n"))
+      .toThrow(/expected a mapping entry in job "test", not a sequence item/)
+  })
+
+  it("refuses a structured YAML key rather than treating it as an executable job", () => {
+    expect(() =>
+      parseWorkflow(
+        "jobs:\n  ? [test]\n  :\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm run check\n"
+      )
+    ).toThrow(/mapping key that is not a scalar is not supported by the gate scanner/)
   })
 
   it("skips deeper unknown step metadata without losing the executable field", () => {
