@@ -190,24 +190,42 @@ export const seatResolver = (options: {
       })
   })
 
+const verificationList = (
+  commands: Contract.Commands,
+  show: (command: Contract.VerificationCommand) => string
+): ReadonlyArray<string> => [
+  ...new Set([
+    ...(commands.install === undefined ? [] : [show(commands.install)]),
+    ...(commands.format === undefined ? [] : [show(commands.format)]),
+    ...commands.typecheck.map(show),
+    ...(commands.test === undefined ? [] : [show(commands.test)])
+  ])
+]
+
 /**
  * Every command line the host runs to verify a unit: this project's own install,
  * format, typecheck, and test commands, in the order a verification runs them.
  *
- * The list is exactly what {@link module:Verify.run} executes. {@link rules}
- * grants the agent only lines the capability grammar can represent literally.
+ * The list is exactly what {@link module:Verify.run} executes, as the prompt
+ * and the report show it. {@link verificationResources} is what {@link rules}
+ * grants for the same commands.
  *
  * @category combinators
  * @since 1.0.0-rc.0
  */
-export const verificationCommands = (commands: Contract.Commands): ReadonlyArray<string> => [
-  ...new Set([
-    ...(commands.install === undefined ? [] : [Contract.commandLine(commands.install)]),
-    ...(commands.format === undefined ? [] : [Contract.commandLine(commands.format)]),
-    ...commands.typecheck.map(Contract.commandLine),
-    ...(commands.test === undefined ? [] : [Contract.commandLine(commands.test)])
-  ])
-]
+export const verificationCommands = (commands: Contract.Commands): ReadonlyArray<string> =>
+  verificationList(commands, Contract.commandLine)
+
+/**
+ * The `proc:spawn` resource the kernel checks for each command
+ * {@link verificationCommands} lists, in the same order. {@link rules} grants
+ * the agent only resources the capability grammar can represent literally.
+ *
+ * @category combinators
+ * @since 1.0.0-rc.1
+ */
+export const verificationResources = (commands: Contract.Commands): ReadonlyArray<string> =>
+  verificationList(commands, Contract.grantResource)
 
 /**
  * A migration root proven absolute.
@@ -265,10 +283,13 @@ const caseSpellings = (name: string): ReadonlyArray<string> =>
  * configured report directory, on `.git` and `.jj`, and on every path whose
  * name starts with `.env`, each in every ASCII case spelling.
  *
- * `proc:spawn` is granted only when the command line can be represented as an
- * exact capability pattern. The kernel checks the line produced by
- * `@smthrs/kernel/CommandLine.render`. Its glob grammar has no escape for `*`
- * or `?`, so lines containing either receive no agent process grant. The
+ * `proc:spawn` is granted only when the command's resource can be represented
+ * as an exact capability pattern. The kernel checks the resource produced by
+ * `@smthrs/kernel/CommandLine.resource`, which {@link Contract.grantResource}
+ * mirrors: an operator override holding shell control syntax is granted as
+ * `sh -c '<line>'`, the way the kernel names it. The glob grammar has no
+ * escape for `*` or `?`, so resources containing either receive no agent
+ * process grant. The
  * deterministic verification still runs the configured commands; a package
  * script without those characters lets the agent run them too. The store is
  * unattended, so a line that matches no grant is refused rather than queued.
@@ -309,8 +330,8 @@ export const rules = (options: {
     // project units exist to rewrite.
     allow("fs:*", root),
     allow("fs:*", `${root}/**`),
-    ...verificationCommands(options.commands).flatMap((command) =>
-      Capability.patternFromCapability(Capability.make("proc:spawn", command)).pipe(
+    ...verificationResources(options.commands).flatMap((resource) =>
+      Capability.patternFromCapability(Capability.make("proc:spawn", resource)).pipe(
         Option.map((pattern) => new Permission.Rule({ effect: "allow", pattern })),
         Option.toArray
       )

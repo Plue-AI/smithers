@@ -57,7 +57,7 @@ A provider may add SDK details to `ProviderError.cause`, but it cannot create ne
 
 `Provider.kill` and `Provider.ping` are optional, because a transport that can only post a command line has neither. A provider that implements them buys two things it cannot otherwise have: one command can be stopped without tearing down the session that runs it, and the session's liveness can be supervised. When `kill` is present the adapter maps `ChildProcessHandle.kill` onto it and signals a still-running command when its scope closes, ahead of the provider's own release finalizer; a process this side has already seen exit is left alone. When `kill` is absent the adapter refuses with a `BadArgument` `PlatformError` rather than pretending to have delivered a signal.
 
-The command reaches the provider as the string `CommandLine.render` produces: the same string `@smthrs/kernel`'s `proc:spawn` check is written against, so a grant and the thing it authorizes cannot drift apart.
+The command reaches the provider as the string `CommandLine.render` produces. `@smthrs/kernel`'s `proc:spawn` check is written against `CommandLine.resource`, which starts from that string and adds a `sh -c` wrapper for a shell line holding control syntax, an `env <NAME>… -- ` prefix for overridden environment names, and a `cwd <path> -- ` prefix for a directory outside the workspace. The two strings match only when none of those apply.
 
 Unsupported semantics are declared rather than dropped. Each of these fails with a `BadArgument` `PlatformError` before the provider is asked to start anything:
 

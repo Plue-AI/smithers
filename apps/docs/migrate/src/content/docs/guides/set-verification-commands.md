@@ -76,8 +76,12 @@ as written.
 
 The same derivation builds the command list shown to the model, the list
 recorded in the report, and the inputs to the `proc:spawn` grants the kernel
-enforces. A grant names the kernel's own rendering of the argv it spawns. Only
-lines that the capability grammar can represent literally become grants.
+enforces. A grant names the resource the kernel checks when it spawns the
+command: the rendering of a derived argv, or an override line as typed. An
+override holding shell control syntax, such as `tsc -b && eslint .`, runs
+through a shell, so the kernel checks it as `sh -c 'tsc -b && eslint .'` and
+the grant names that. Only resources that the capability grammar can represent
+literally become grants.
 
 ## Commands containing wildcard characters
 

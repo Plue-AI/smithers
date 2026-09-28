@@ -419,9 +419,12 @@ export const make = (
  * or stream consumer closes that scope and therefore runs the finalizer
  * installed by `Provider.open`.
  *
- * The command reaches the provider as the same rendered line
- * `@smthrs/kernel/ChildProcessSpawner` writes as the `proc:spawn` capability
- * resource, so a grant and the thing it authorizes read the same.
+ * The provider runs `@smthrs/kernel/CommandLine.render(command)`. The kernel's
+ * `proc:spawn` grant resource is `@smthrs/kernel/CommandLine.resource`, which
+ * starts from that line and adds a `sh -c` wrapper for a shell line holding
+ * control syntax, an `env <NAME>… -- ` prefix for overridden environment
+ * names, and a `cwd <path> -- ` prefix for a directory outside the workspace.
+ * The two read the same only when none of those apply.
  *
  * @category layers
  * @since 0.1.0

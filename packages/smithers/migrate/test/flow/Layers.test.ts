@@ -12,6 +12,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { describe, expect, expectTypeOf, it } from "@effect/vitest"
 import { Capability, GrantStore, Workspace } from "@smthrs/kernel"
+import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as Command from "@smthrs/migrate/flow/Command"
 import type * as Contract from "@smthrs/migrate/flow/Contract"
 import * as Layers from "@smthrs/migrate/flow/Layers"
@@ -226,10 +227,54 @@ describe("Layers.rules over a real grant store", () => {
 
   it.effect("permits exactly the project's own verification commands", () =>
     Effect.gen(function*() {
-      for (const command of Layers.verificationCommands(commands)) {
+      for (const command of Layers.verificationResources(commands)) {
         expect([command, yield* permitted("proc:spawn", command)]).toEqual([command, true])
       }
     }))
+
+  it.effect("admits a shell override with control syntax through the kernel-guarded spawner", () =>
+    Effect.gen(function*() {
+      // The kernel checks `CommandLine.resource`, which names a `shell: true`
+      // line holding control syntax as the `sh -c '<line>'` it runs. A grant
+      // written from the raw line matched nothing, so an operator override
+      // such as `tsc -b && eslint .` was refused for the agent. This spawns
+      // through the same guarded composition `hostFor` builds.
+      const project = copyFixture("jsx-single")
+      const granted: Contract.Commands = {
+        typecheck: ["node -e \"\" && node -e \"\""],
+        test: "node -e \"process.exit(0)\"",
+        flowsDir: "flows"
+      }
+      const guarded = (verified: Contract.Commands) =>
+        Verify.run({ root: project, commands: verified, expectFlows: false }).pipe(
+          Effect.provide(KernelChildProcessSpawner.layer.pipe(
+            Layer.provide([
+              Workspace.layer(project),
+              GrantStore.layer({
+                attended: false,
+                rules: Layers.rules({
+                  root: Effect.runSync(Layers.migrationRoot(project)),
+                  runStatePaths,
+                  commands: granted
+                })
+              }).pipe(Layer.provide(Workspace.layer(project)), Layer.orDie)
+            ]),
+            Layer.provideMerge(NodeServices.layer)
+          ))
+        )
+      const admitted = yield* guarded(granted)
+      expect(admitted.typecheck.map((entry) => [entry.command, entry.exitCode])).toEqual([
+        ["node -e \"\" && node -e \"\"", 0]
+      ])
+      expect([admitted.tests?.command, admitted.tests?.exitCode]).toEqual(["node -e \"process.exit(0)\"", 0])
+      // The guard is live: a chained line nobody configured is still refused.
+      const refused = yield* guarded({
+        typecheck: [],
+        test: "node -e \"process.exit(0)\" && node -e \"\"",
+        flowsDir: "flows"
+      })
+      expect(refused.tests?.exitCode).not.toBe(0)
+    }).pipe(Effect.provide(NodeServices.layer)))
 
   for (const approved of ["npm test -- tests/*", "npm test -- tests/?", "npm test -- *"]) {
     it.effect(`does not turn ${approved} into a wildcard shell grant`, () =>

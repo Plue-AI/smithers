@@ -392,18 +392,34 @@ export { ArgvCommand, VerificationCommand }
 
 /**
  * The exact command line one command is shown as, everywhere it is shown: in
- * the prompt, in the report, and as the `proc:spawn` resource the host grants.
+ * the prompt and in the report. {@link grantResource} is the `proc:spawn`
+ * resource the host grants for it.
  *
  * An operator override is its own line. A structured command renders every
  * token POSIX-quoted, which is what `@smthrs/kernel/CommandLine.render`
- * produces for the argv the kernel spawns with no shell, so the grant and the
- * spawn describe the same execution.
+ * produces for the argv the kernel spawns with no shell.
  *
  * @category conversions
  * @since 1.0.0-rc.0
  */
 export const commandLine = (command: VerificationCommand): string =>
   typeof command === "string" ? command : CommandLine.renderArgv(command.executable, command.args)
+
+/**
+ * The `proc:spawn` resource the kernel checks when `Verify` spawns one command
+ * in the project root: what `@smthrs/kernel/CommandLine.resource` produces.
+ *
+ * A structured command runs as argv, so its resource is its
+ * {@link commandLine}. An operator override runs with `shell: true`, so a line
+ * holding shell control syntax (`tsc -b && eslint .`, `node -e "f()"`) is
+ * checked as the `sh -c '<line>'` it is, and a simple line keeps its verbatim
+ * resource.
+ *
+ * @category conversions
+ * @since 1.0.0-rc.1
+ */
+export const grantResource = (command: VerificationCommand): string =>
+  typeof command === "string" ? CommandLine.shellResource(command) : commandLine(command)
 
 /**
  * The commands that decide whether a migrated unit is real.

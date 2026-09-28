@@ -89,6 +89,36 @@ describe("derived typecheck commands over hostile tsconfig names", () => {
     }
   })
 
+  it("grant a shell override as the resource the kernel checks when it spawns the line", () => {
+    for (
+      const line of [
+        "vitest run",
+        "tsc -b && eslint .",
+        "node -e \"process.exit(0)\"",
+        "npm test 2>&1",
+        "npm test >/dev/null",
+        "npm test > out.txt",
+        "a; b",
+        "echo $HOME",
+        "echo `id`",
+        "a | b",
+        "a\nb",
+        "it's"
+      ]
+    ) {
+      const kernel = KernelCommandLine.resource(ChildProcess.make(line, { shell: true, cwd: "/tmp/project" }), {
+        contains: () => true
+      })
+      expect([line, Contract.grantResource(line)]).toEqual([line, kernel])
+    }
+    const argv = Units.argv("tsc", "--noEmit", "-p", "tsconfig.;touch pwned;.json")
+    expect(Contract.grantResource(argv)).toBe(
+      KernelCommandLine.resource(ChildProcess.make(argv.executable, [...argv.args], { cwd: "/tmp/project" }), {
+        contains: () => true
+      })
+    )
+  })
+
   it.effect("grant exactly the rendered lines, and refuse the unquoted line and the injected command", () =>
     Effect.gen(function*() {
       const root = "/tmp/project"
