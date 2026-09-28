@@ -191,7 +191,9 @@ Each code, with its cause and its fix, is in
 ## BoundedJson
 
 `BoundedJson.admit(input, limits)` copies inert JSON without calling getters or
-`toJSON`. A success carries `{ ok: true, value, bytes }`; a refusal carries
+`toJSON`. A Proxy's `ownKeys`, `getOwnPropertyDescriptor`, and
+`getPrototypeOf` traps still run, so admission bounds parsed or otherwise inert
+data, not a live Proxy from untrusted code. A success carries `{ ok: true, value, bytes }`; a refusal carries
 `{ ok: false, code, complaint, path }`. `path` contains property names and array
 indices, so callers should allowlist or redact sensitive segments before
 reporting it, then bound its length. A length cap does not remove secrets.

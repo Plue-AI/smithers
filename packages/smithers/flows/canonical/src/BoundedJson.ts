@@ -1,6 +1,8 @@
 /**
  * Descriptor-only JSON admission and encoded-byte accounting for durable boundaries.
  * Never invokes getters or `toJSON`; admitted values are detached and frozen.
+ * A Proxy's `ownKeys`, `getOwnPropertyDescriptor`, and `getPrototypeOf` traps
+ * still run, so only JSON.parse output or other inert data is untrusted input.
  *
  * @since 1.0.0-rc.0
  */
@@ -351,7 +353,7 @@ const walk = (
 
 /**
  * Copies a JSON tree without invoking getters or `toJSON`, under explicit
- * byte, depth, node, and member limits.
+ * byte, depth, node, and member limits. Proxy inspection traps still run.
  *
  * @category validation
  * @since 1.0.0-rc.0

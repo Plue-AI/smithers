@@ -5,11 +5,20 @@
 import type * as Schema from "effect/Schema"
 import type * as SchemaIssue from "effect/SchemaIssue"
 
+// A key holding `.` or `[` must not read as a different field, so only an
+// identifier renders with a dot; any other key renders as a quoted JSON string,
+// matching `canonicalize` and `BoundedJson.admitStrict`.
+const renderSegment = (segment: PropertyKey): string =>
+  typeof segment === "number"
+    ? `[${segment}]`
+    : typeof segment === "symbol"
+    ? `[${String(segment)}]`
+    : /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(segment)
+    ? `.${segment}`
+    : `[${JSON.stringify(segment)}]`
+
 const renderPath = (segments: ReadonlyArray<PropertyKey>): string =>
-  segments.reduce<string>(
-    (path, segment) => path + (typeof segment === "number" ? `[${segment}]` : `.${String(segment)}`),
-    "$"
-  )
+  segments.reduce<string>((path, segment) => path + renderSegment(segment), "$")
 
 /**
  * Finds the first rejected field in an Effect schema error without rendering

@@ -134,7 +134,9 @@ const caused = (
  * primitives, sparse arrays, and omission/null substitution. It rejects
  * non-finite numbers, BigInt, lone surrogates, cycles, and non-plain built-ins
  * whose lossy stringify forms could collide in a digest. The iterative walk
- * supports 10,000 nested levels below the root.
+ * supports 10,000 nested levels below the root. Only depth is bounded: a value
+ * reachable twice is serialized twice, so bound width and repeated references
+ * with `BoundedJson.admitStrict` first when the value is not the caller's own.
  *
  * `loneSurrogates: "escape"` preserves legacy sorted-JSON formats that accepted
  * unpaired UTF-16 code units. It emits their JSON escapes; this opt-in format

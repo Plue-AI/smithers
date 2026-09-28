@@ -131,7 +131,11 @@ so in a fixed order.
   path where it threw, never as the raw error.
 - **A value reachable twice is walked twice.** Two members pointing at one
   object are not a cycle; the object is serialized and validated at each
-  occurrence, so a refusal fires whichever occurrence reaches it first.
+  occurrence, so a refusal fires whichever occurrence reaches it first. Work
+  and output grow with the expanded tree, which a chain of shared references
+  makes exponential, exactly as with `JSON.stringify`. `canonicalize` bounds
+  depth only; run `BoundedJson.admitStrict`, which refuses repeated references
+  and bounds nodes and bytes, before serializing a value it did not build.
 - **A `toJSON` that throws** surfaces as `canonical_tojson_threw` at that
   value's path, carrying the original error as `cause`.
 

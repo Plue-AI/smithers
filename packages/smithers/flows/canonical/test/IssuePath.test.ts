@@ -66,4 +66,17 @@ describe("firstPath", () => {
     expect(path.split(".").slice(1)).toHaveLength(64)
     expect(path.startsWith("$.level99.level98.")).toBe(true)
   })
+
+  it("quotes a key that would otherwise read as a different field", () => {
+    const spoofing = Schema.Record(Schema.String, Schema.Number)
+    const error = errorOf(() => Schema.decodeUnknownSync(spoofing)({ "admin.role": "x" }))
+    expect(firstPath(error)).toBe("$[\"admin.role\"]")
+    const bracket = errorOf(() => Schema.decodeUnknownSync(spoofing)({ "a[0]": "x" }))
+    expect(firstPath(bracket)).toBe("$[\"a[0]\"]")
+  })
+
+  it("renders a symbol key in brackets", () => {
+    const issue = new SchemaIssue.Pointer([Symbol.for("k")], new SchemaIssue.InvalidType(Schema.String.ast))
+    expect(firstPath(new Schema.SchemaError(issue))).toBe("$[Symbol(k)]")
+  })
 })

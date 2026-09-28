@@ -67,6 +67,21 @@ describe("Canonical", () => {
     const document = serialize({ b: 2, a: [true, null, "\u00e9\ud83d\ude00"], c: 1e21 })
     expect(serialize(Schema.encodeUnknownSync(Canonical)(document))).toBe(document)
   })
+
+  it("keeps the rejected input out of the issue unless the caller asks for it", () => {
+    const secret = { token: "hunter2", n: Number.NaN }
+    const retained = (reportInput: boolean): unknown => {
+      let issue: unknown = Effect.runSync(
+        Effect.flip(Schema.decodeUnknownEffect(Canonical)(secret, { reportInput }))
+      ).issue
+      while (issue !== null && typeof issue === "object" && !("input" in issue) && "issue" in issue) {
+        issue = issue.issue
+      }
+      return (issue as { readonly input?: unknown }).input
+    }
+    expect(retained(false)).toBeUndefined()
+    expect(retained(true)).toBe(secret)
+  })
 })
 
 describe("encoding malformed text", () => {
