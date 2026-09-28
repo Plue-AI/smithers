@@ -8,6 +8,7 @@ import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RpcServer } from "effect/unstable/rpc"
 import { Control } from "./Control.ts"
+import { Unauthorized } from "./ControlError.ts"
 import { ControlPrincipal, ControlRpcs } from "./ControlRpcs.ts"
 
 /**
@@ -36,12 +37,18 @@ export const layer = ControlRpcs.toLayer(
       Approve: Effect.fn("Control.approve")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
+          if (principal.id === "loopback" && principal.kind === "anonymous") {
+            return yield* new Unauthorized({ message: "An operator credential is required" })
+          }
           return yield* control.approve({ ...input, principal })
         })
       ),
       Deny: Effect.fn("Control.deny")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
+          if (principal.id === "loopback" && principal.kind === "anonymous") {
+            return yield* new Unauthorized({ message: "An operator credential is required" })
+          }
           return yield* control.deny({ ...input, principal })
         })
       ),

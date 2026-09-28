@@ -11,8 +11,9 @@
  *    launch runs, cancel them, and approve capability grants; reachable from
  *    another machine, an unauthenticated one is a remote execution service.
  *
- * A loopback bind with no credential is allowed and is the local default:
- * ingress checks Host and Origin so a web page cannot exercise that trust.
+ * A loopback bind with no network credential allows anonymous reads; approval
+ * decisions require the session operator token. Ingress still checks Host and
+ * Origin so a web page cannot exercise the loopback endpoint.
  *
  * @since 1.0.0
  */
@@ -41,6 +42,8 @@ export interface ServerOptions extends ListenOptions {
   readonly listen?: boolean | undefined
   /** The shared bearer credential, required for a non-loopback bind. */
   readonly credential?: string | undefined
+  /** Per-session approval token on credential-free loopback. Read calls remain anonymous. */
+  readonly operatorToken?: string | undefined
   /**
    * How often an idle followed `Watch` on `/rpc/ws` and an idle followed
    * `Projection.Subscribe` on `/projections/ws` emit a keepalive frame. Unset,
@@ -145,7 +148,8 @@ export const listenOptions = (options: ServerOptions): Effect.Effect<ListenOptio
  * A configured credential authenticates every request that presents it and
  * stamps the same server-owned principal. With no credential the composition
  * is loopback-only (see {@link listenOptions}) and every request runs as the
- * local operator.
+ * anonymous read principal. A session operator token alone stamps the local
+ * operator for approval decisions; without it approvals are unauthorized.
  *
  * @param options the requested bind
  * @since 1.0.0
@@ -153,10 +157,21 @@ export const listenOptions = (options: ServerOptions): Effect.Effect<ListenOptio
  */
 export const layerAuth = (options: ServerOptions): Layer.Layer<ControlRpcs.ControlAuth> =>
   options.credential === undefined || options.credential === ""
-    // The credential-free local operator requires both the loopback bind and
-    // the ingress Host/Origin checks that exclude browser-originated attacks.
-    // eslint-disable-next-line no-restricted-syntax -- loopback-only bind, see above
-    ? ControlRpcs.layerNoopAuth({ id: "local", kind: "operator", stampedAt: 0 })
+    ? ControlRpcs.layerAuth({
+      authenticate: (headers) => {
+        const token = options.operatorToken
+        if (token === undefined || token === "") {
+          return Effect.succeed({ id: "loopback", kind: "anonymous", stampedAt: 0 })
+        }
+        return ControlRpcs.bearerAuthenticator({
+          token,
+          principal: { id: "local", kind: "operator" }
+        }).authenticate(headers).pipe(
+          Effect.catchTag("/control/Unauthorized", () =>
+            Effect.succeed({ id: "loopback", kind: "anonymous", stampedAt: 0 }))
+        )
+      }
+    })
     : ControlRpcs.layerBearerAuth({
       token: options.credential,
       principal: bearerPrincipal

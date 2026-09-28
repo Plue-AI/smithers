@@ -133,7 +133,7 @@ const raw = (
  */
 const socketExchange = (
   target: string,
-  credential: string,
+  credential: string | undefined,
   payload: string
 ): Promise<ReadonlyArray<string>> => {
   const url = new URL(target)
@@ -150,7 +150,7 @@ const socketExchange = (
         "Upgrade: websocket",
         "Sec-WebSocket-Version: 13",
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
-        `Authorization: Bearer ${credential}`,
+        ...(credential === undefined ? [] : [`Authorization: Bearer ${credential}`]),
         "",
         ""
       ].join("\r\n"))
@@ -289,6 +289,59 @@ const launched = Effect.gen(function*() {
   })
   if (receipt._tag !== "Accepted" || receipt.runId === undefined) return yield* Effect.die("expected a run")
   return receipt.runId
+})
+
+describe("loopback approval credential", () => {
+  for (const mount of ["rpc", "projections"] as const) {
+    for (const protocol of ["http", "ws"] as const) {
+      for (const decision of ["approve", "deny"] as const) {
+        test(`${mount}/${protocol} ${decision} requires the session token`, () =>
+          Effect.gen(function*() {
+            const url = yield* baseUrl
+            const control = yield* Control
+            const runtime = yield* ControlRuntime
+            const card = yield* control.plan({ flowId: "system/test", input: {} })
+            const payload = {
+              ...card.approval,
+              ...(mount === "projections" ? { decision } : {}),
+              principal: { id: "local", kind: "operator", stampedAt: 0 }
+            }
+            const request = JSON.stringify({
+              _tag: "Request",
+              id: 1,
+              tag: mount === "projections" ? "Approval.Submit" : decision === "approve" ? "Approve" : "Deny",
+              payload,
+              headers: []
+            }) + "\n"
+            const exchange = (credential?: string) => Effect.promise(async () => {
+              const frames = protocol === "ws"
+                ? await socketExchange(`${url}/${mount}/ws`, credential, request)
+                : [await (await fetch(`${url}/${mount}`, {
+                  method: "POST",
+                  headers: { ...(credential === undefined ? {} : { authorization: `Bearer ${credential}` }), "content-type": "application/json" },
+                  body: request
+                })).text()]
+              return frames.join("\n")
+            })
+            // An uncredentialed read stays available, even if a decision is pending.
+            const listed = yield* control.list({ _tag: "flows" }).pipe(Effect.provide(client(url)))
+            expect(listed).toBeDefined()
+            for (const credential of [undefined, "wrong"]) {
+              const reply = yield* exchange(credential)
+              expect(reply).toContain("/control/Unauthorized")
+              expect((yield* runtime.getPlan(card.planId)).decision).toBe("pending")
+            }
+            const reply = yield* exchange("session-secret")
+            expect(reply).toContain('"Success"')
+            expect((yield* runtime.getPlan(card.planId)).decision).toBe(
+              decision === "approve" ? "approved" : "denied"
+            )
+          }).pipe(Effect.provide(served(
+            { host: "127.0.0.1", port: 0, operatorToken: "session-secret" }
+          ))))
+      }
+    }
+  }
 })
 
 describe("approval authority across every served mutation mount", () => {
@@ -1181,7 +1234,7 @@ describe("the assembled gateway over a real loopback bind", () => {
         const after = yield* control.list({ _tag: "runs", filters: { runId: receipt.runId } })
         const flows = yield* control.list({ _tag: "flows" })
         return { listed, after, flows, runId: receipt.runId }
-      }).pipe(Effect.provide(client(url)))
+      }).pipe(Effect.provide(client(url, "session-secret")))
 
       expect(remote.listed._tag).toBe("runs")
       expect(remote.after._tag).toBe("runs")
@@ -1192,7 +1245,7 @@ describe("the assembled gateway over a real loopback bind", () => {
       expect(RunStatus.literals).toContain(remote.listed.items[0]?.status ?? "")
       // The cancel is durable: the next read of the same run says so.
       expect(remote.after.items).toMatchObject([{ runId: remote.runId, status: "cancelled" }])
-    }).pipe(Effect.provide(served())))
+    }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, operatorToken: "session-secret" }))))
 
   /**
    * Attribution over a credentialed bind, which is the only composition where

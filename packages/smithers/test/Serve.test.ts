@@ -349,7 +349,7 @@ describe("the banner", () => {
     expect(banner).toContain("/rpc")
     expect(banner).toContain("ws://127.0.0.1:3000/rpc/ws")
     expect(banner).toContain("/health")
-    expect(banner).toContain("no bearer (loopback Host; loopback browser Origin)")
+    expect(banner).toContain("anonymous reads (loopback Host; loopback browser Origin); approval token required")
   })
 
   it("brackets an IPv6 host and reports bearer authentication", () => {

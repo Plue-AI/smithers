@@ -9,8 +9,9 @@
  * whether the requested bind is allowed at all, and what it says it is
  * serving.
  *
- * The bind rule is strict: loopback needs no bearer and accepts only loopback
- * Host values and browser origins; anything else needs both an explicit
+ * The bind rule is strict: loopback reads need no bearer, but approval
+ * decisions require a session token. Loopback accepts only loopback Host values
+ * and browser origins; anything else needs both an explicit
  * `--listen` and a bearer token. It is
  * spelled out here, as data, because the failure mode it prevents,
  * an unauthenticated control plane on a laptop's LAN address, able to launch
@@ -101,6 +102,8 @@ export interface Bind {
   readonly port: number
   readonly listen: boolean
   readonly credential: string | undefined
+  /** Ephemeral approval credential for this serve session. */
+  readonly operatorToken?: string | undefined
 }
 
 /**
@@ -196,7 +199,7 @@ export const banner = (bind: Bind): string => {
       `  ${mount.path.padEnd(width)}  ${mount.protocol === "ws" ? socket : base}${mount.path}  ${mount.serves}`
     ),
     bind.credential === undefined
-      ? "  auth  no bearer (loopback Host; loopback browser Origin)"
+      ? "  auth  anonymous reads (loopback Host; loopback browser Origin); approval token required"
       : "  auth  bearer token"
   ].join("\n")
 }
@@ -222,6 +225,6 @@ export const host = (bind: Bind, root: string) =>
       host: bind.host,
       port: bind.port,
       listen: bind.listen,
-      ...(bind.credential === undefined || bind.credential === "" ? {} : { credential: bind.credential })
+      ...(bind.credential === undefined || bind.credential === "" ? { operatorToken: bind.operatorToken } : { credential: bind.credential })
     }, root)
   })

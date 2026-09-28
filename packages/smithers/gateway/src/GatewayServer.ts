@@ -100,6 +100,11 @@ export const layerHandlers = GatewayRpcs.toLayer(
           // to the same operator, and a decision journaled under the
           // composition's default operator names the wrong one.
           const principal = yield* ControlPrincipal
+          // Answering a human wait uses signal rather than the approval policy.
+          // Do not let that alternate mutation path bypass loopback authentication.
+          if (principal.id === "loopback" && principal.kind === "anonymous") {
+            return yield* new ControlError.Unauthorized({ message: "An operator credential is required" })
+          }
           const payload = {
             target: input.target,
             scope: input.scope,

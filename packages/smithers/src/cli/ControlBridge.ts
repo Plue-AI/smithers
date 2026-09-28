@@ -15,6 +15,7 @@ import { Cause, Console, Effect, Exit, Layer, Logger, References, Stream } from 
 import { Command } from "effect/unstable/cli"
 import { z } from "incur"
 import { format } from "node:util"
+import { randomBytes } from "node:crypto"
 import * as CliError from "../CliError.ts"
 import { cli as legacyCli } from "../Command.ts"
 import * as ExecutionTarget from "../history/ExecutionTarget.ts"
@@ -379,6 +380,10 @@ export const host = async (bind: Serve.Bind, options: ConnectionOptions, runtime
   // approval authority. Do not inherit NodeControl's credential-based default.
   // A served gateway and the trigger scheduler beside it both launch runs, so
   // this host is a run-capable one and refuses to open without a judge.
+  const operatorToken = bind.credential === undefined || bind.credential === ""
+    ? randomBytes(32).toString("hex")
+    : undefined
+  const servedBind = { ...bind, operatorToken }
   const control = NodeControl.layer({
     ...config,
     startsRuns: true,
@@ -387,9 +392,10 @@ export const host = async (bind: Serve.Bind, options: ConnectionOptions, runtime
   })
   const root = Project.root(config.root, process.cwd())
   const host = Layer.merge(control, layerTriggerScheduler(root).pipe(Layer.provide(control)))
-  if (!options.quiet) process.stderr.write(`${Serve.banner(bind)}\n`)
+  if (!options.quiet) process.stderr.write(`${Serve.banner(servedBind)}\n`)
+  if (operatorToken !== undefined) process.stderr.write(`  approval token  ${operatorToken}\n`)
   const result = await Effect.runPromiseExit(
-    Serve.host(bind, root).pipe(
+    Serve.host(servedBind, root).pipe(
       Effect.provide(host),
       Effect.provide(RedactedLogger.layer()),
       Effect.provideService(Logger.LogToStderr, true)

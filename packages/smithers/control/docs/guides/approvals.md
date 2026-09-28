@@ -70,9 +70,12 @@ compatibility server requires both host tool exposure and a separately delegated
 agent identity. Delegating an agent to approve is automated approval, not an
 independent human review. None of these checks sandboxes a caller that already
 has arbitrary host shell, code execution, or direct database write access.
-A credential-free loopback gateway also trusts native callers as the local
-operator; do not give an untrusted agent access to that endpoint and call it
-independent human approval.
+On loopback, `smthrs serve` prints a fresh per-session approval token to
+stderr (even with `--quiet`). Send `Authorization: Bearer <token>` to approve,
+deny, or answer a human wait over `/rpc` or `/projections`, HTTP or WebSocket.
+Calls without that token retain read access, but cannot decide approvals.
+Keep the token away from agents: a caller holding it has operator approval authority.
+A network bind still requires the configured bearer credential for all protected calls.
 
 ## Gate the launch: a plan approval
 
