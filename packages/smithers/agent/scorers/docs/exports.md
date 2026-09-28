@@ -93,7 +93,7 @@ order. Signatures, bounds, and the reasoning behind each rule are on the
 | `Checks.barePaths`                   | const     | checks       | No file-system path outside link syntax.                                                      |
 | `Checks.questions`                   | const     | measuring    | Counts sentences ending in `?`.                                                               |
 | `Checks.count`                       | const     | checks       | Matching tool calls within inclusive bounds.                                                  |
-| `Checks.leakage`                     | const     | checks       | No marker in any sink; names sink and marker only.                                            |
+| `Checks.leakage`                     | const     | checks       | No marker anywhere in any sink; names sink and marker position.                               |
 | `Checks.all`                         | const     | combinators  | Folds checks into a score and a pass flag.                                                    |
 | `Checks.scorer`                      | const     | constructors | Declares a scorer over a list of checks.                                                      |
 | `Rubric.Request`                     | interface | models       | One judge request: `system` and `prompt`.                                                     |
@@ -108,7 +108,7 @@ order. Signatures, bounds, and the reasoning behind each rule are on the
 | `Rubric.MakeOptions`                 | interface | models       | Scorer identity, rubric, rule, instructions, and the judge.                                   |
 | `Rubric.Agreement`                   | interface | models       | Judge-versus-human agreement counts and accuracy.                                             |
 | `Rubric.render`                      | const     | rendering    | Builds the judge request with fenced, inert content.                                          |
-| `Rubric.parse`                       | const     | parsing      | Reads the first JSON object of a reply into a `Judgement`.                                    |
+| `Rubric.parse`                       | const     | parsing      | Reads the one scores object of a reply into a `Judgement`.                                    |
 | `Rubric.decide`                      | const     | predicates   | Applies a `Rule` to scores.                                                                   |
 | `Rubric.make`                        | const     | constructors | Declares a rubric scorer over a caller-supplied judge.                                        |
 | `Rubric.agreement`                   | const     | calibration  | Counts judge agreement with human labels.                                                     |

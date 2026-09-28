@@ -163,8 +163,10 @@ const hits = (text: string, entry: string): ReadonlyArray<string> =>
     ? []
     : [...new Set([...fold(text).matchAll(phrase(literal.test(entry) ? entry : fold(entry)))].map(([match]) => match))]
 
-// Slack `<url|label>` / `<url>`, markdown `[label](url)`, then a bare URL.
-const linkSyntax = /<([a-z][a-z0-9+.-]*:[^|>\s]+)(?:\|([^>]*))?>|\[([^\]]*)\]\(([^)\s]+)\)|https?:\/\/[^\s<>]+/giu
+// Slack `<url|label>` / `<url>`, markdown `[label](url)`, then a bare URL. No
+// part may run past the next opening `<` or `[`, so a failed attempt stops
+// there and a scan of model output stays linear in its length.
+const linkSyntax = /<([a-z][a-z0-9+.-]*:[^|<>\s]+)(?:\|([^<>]*))?>|\[([^[\]]*)\]\(([^)[\s]+)\)|https?:\/\/[^\s<>]+/giu
 
 interface Found {
   readonly index: number
@@ -175,12 +177,16 @@ interface Found {
 }
 
 const trimBare = (url: string): string => {
-  let value = url
+  // Parentheses the URL has not closed yet; counted once so trimming is linear.
+  let open = 0
+  for (const char of url) open += char === "(" ? 1 : char === ")" ? -1 : 0
+  let end = url.length
   for (;;) {
-    const last = value.charAt(value.length - 1)
-    const unbalanced = last === ")" && value.split("(").length < value.split(")").length
-    if (".,;:!?'\"]".includes(last) || unbalanced) value = value.slice(0, -1)
-    else return value
+    const last = url.charAt(end - 1)
+    const unbalanced = last === ")" && open < 0
+    if (!".,;:!?'\"]".includes(last) && !unbalanced) return url.slice(0, end)
+    if (last === ")") open++
+    end--
   }
 }
 
@@ -437,6 +443,13 @@ export const pathExtensions: ReadonlyArray<string> = [
 
 const fileName = new RegExp(`\\.(?:${pathExtensions.join("|")})$`, "iu")
 
+/** Drops trailing `chars` in one pass; an end-anchored `[...]+$` is quadratic. */
+const trimTrailing = (text: string, chars: string): string => {
+  let end = text.length
+  while (end > 0 && chars.includes(text.charAt(end - 1))) end--
+  return text.slice(0, end)
+}
+
 /**
  * Fails on file-system paths outside link syntax: a token containing `/`
  * that ends in one of {@link pathExtensions}, or one starting with `/Users/`,
@@ -448,7 +461,7 @@ const fileName = new RegExp(`\\.(?:${pathExtensions.join("|")})$`, "iu")
 export const barePaths = (text: string): Check => {
   const found = new Set<string>()
   for (const raw of rewrite(text, () => " ", " ").split(/\s+/u)) {
-    const token = raw.replace(/^[`'"([{<*_]+/u, "").replace(/[`'")\]}>*_.,;:!?]+$/u, "")
+    const token = trimTrailing(raw.replace(/^[`'"([{<*_]+/u, ""), "`'\")]}>*_.,;:!?")
     if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(token)) continue
     const absolute = /^(?:\/Users\/|\/home\/|~\/)/u.test(token)
     if (absolute || (token.includes("/") && fileName.test(token))) found.add(token)
@@ -465,7 +478,7 @@ export const barePaths = (text: string): Check => {
  * @since 0.1.0
  */
 export const questions = (text: string): number =>
-  [...rewrite(text, labelOf, " link ").matchAll(/\?+(?=[\s"')\]*_]|$)/gu)].length
+  [...rewrite(text, labelOf, " link ").matchAll(/(?<!\?)\?+(?=[\s"')\]*_]|$)/gu)].length
 
 const matches = (actual: unknown, expected: string | number | boolean): boolean =>
   typeof expected === "string"
@@ -504,16 +517,32 @@ export const count = (actions: ReadonlyArray<Action>, spec: CountSpec): Check =>
   return check(id, true, counted)
 }
 
+/** A leakage marker: `/source/flags` is a regular expression, anything else a substring. */
+const marker = (entry: string): RegExp =>
+  literal.test(entry) ? phrase(entry) : new RegExp(escape(fold(entry)).replace(/\s+/g, "\\s+"), "giu")
+
 /**
- * Fails when any marker appears in any sink, matched as {@link excludes}
- * matches. The detail names each sink and marker, never the surrounding text.
+ * Fails when any marker appears in any sink. A marker is found anywhere in the
+ * text, case-insensitively, even inside a longer word or token, because a
+ * secret followed by more characters has still leaked; typographic quotes
+ * match their ASCII forms, runs of whitespace match any whitespace, and
+ * `/source/flags` is a regular expression. Blank markers are ignored. The
+ * detail names each sink and the marker's 1-based position in `markers`,
+ * never the marker or the surrounding text, so a failed check does not copy
+ * the secret into a score's reason.
  *
  * @category checks
  * @since 0.1.0
  */
 export const leakage = (texts: ReadonlyArray<Emission>, markers: ReadonlyArray<string>): Check => {
+  const patterns = markers.map((entry, index) => ({
+    index,
+    pattern: entry.trim().length === 0 ? undefined : marker(entry)
+  }))
   const leaked = texts.flatMap(({ sink, text }) =>
-    markers.filter((marker) => hits(text, marker).length > 0).map((marker) => `${sink}: ${quote(marker)}`)
+    patterns
+      .filter(({ pattern }) => pattern !== undefined && fold(text).search(pattern) !== -1)
+      .map(({ index }) => `${sink}: marker ${index + 1}`)
   )
   return leaked.length === 0
     ? check("leakage", true, "no markers found")

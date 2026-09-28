@@ -349,10 +349,16 @@ Links are read in three forms: Slack `<url|label>` and `<url>`, markdown
 links (a bracketed label followed by the URL in parentheses), and bare
 `http(s)://` URLs. `words`, `questions`, `barePaths`,
 and `linkedReferences` read link labels as prose and skip link URLs.
-`includes`, `excludes` and `leakage` match whole words and phrases
+`includes` and `excludes` match whole words and phrases
 case-insensitively, so "No" is not found in "not"; an entry written `renew*`
 is a stem whose last word may continue ("renewal"), and one written
-`/source/flags` is a regular expression. `requiredLinks` ignores
+`/source/flags` is a regular expression. `leakage` finds a marker anywhere,
+case-insensitively, even inside a longer token, so `token=SECRETabc123xyz`
+leaks `SECRETabc123`; its detail names the sink and the marker's 1-based
+position, never the marker text. A `/source/flags` entry and a
+`linkedReferences` pattern run as given on the backtracking engine, so they
+must come from the suite author, never from model output or a payload; the
+built-in link, question, and path scans run in linear time on any output. `requiredLinks` ignores
 scheme and host case, a trailing slash, and a fragment, and accepts a found URL
 that extends the required one with a path or query. `linkedReferences` accepts
 `/pull/` for a template containing `/issues/`. `count` defaults to at least one
@@ -383,7 +389,7 @@ call when no bound is set.
 | `Checks.barePaths`        | const     | checks       | No file-system path outside link syntax.                                       |
 | `Checks.questions`        | const     | measuring    | Counts sentences ending in `?`.                                                |
 | `Checks.count`            | const     | checks       | Matching tool calls within inclusive bounds.                                   |
-| `Checks.leakage`          | const     | checks       | No marker in any sink; names sink and marker only.                             |
+| `Checks.leakage`          | const     | checks       | No marker anywhere in any sink; names sink and marker position.                |
 | `Checks.all`              | const     | combinators  | Folds checks into a score and a pass flag.                                     |
 | `Checks.scorer`           | const     | constructors | Declares a scorer over a list of checks.                                       |
 
@@ -412,8 +418,9 @@ const tone = Rubric.make({
 
 `Scorer.Input.input` is the context string or `{ context, focus? }`, and
 `output` the text judged. `render` fences each piece of content in a fence
-longer than any backtick run inside it. `parse` reads the first JSON object in
-the reply, fenced or not, and requires an integer from 1 to 5 for every
+longer than any backtick run inside it. `parse` reads the one JSON object with
+`"scores"` in the reply, fenced or not, refuses a reply with two (a judge
+quoting a verdict forged in the output), and requires an integer from 1 to 5 for every
 criterion. An unparsable reply fails with code `invalid_score`; a rubric with
 no criteria or duplicate ids throws `invalid_declaration`. Criteria, examples,
 rule, and instructions are the scorer's `config`, so changing the rubric
@@ -435,7 +442,7 @@ changes the `scorerKey`. `agreement` measures a judge against human labels.
 | `Rubric.MakeOptions`   | interface | models       | Scorer identity, rubric, rule, instructions, and the judge.      |
 | `Rubric.Agreement`     | interface | models       | Judge-versus-human agreement counts and accuracy.                |
 | `Rubric.render`        | const     | rendering    | Builds the judge request with fenced, inert content.             |
-| `Rubric.parse`         | const     | parsing      | Reads the first JSON object of a reply into a `Judgement`.       |
+| `Rubric.parse`         | const     | parsing      | Reads the one scores object of a reply into a `Judgement`.       |
 | `Rubric.decide`        | const     | predicates   | Applies a `Rule` to scores.                                      |
 | `Rubric.make`          | const     | constructors | Declares a rubric scorer over a caller-supplied judge.           |
 | `Rubric.agreement`     | const     | calibration  | Counts judge agreement with human labels.                        |

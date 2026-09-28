@@ -341,14 +341,68 @@ describe("Checks.leakage", () => {
     expect(check).toEqual({
       id: "leakage",
       pass: false,
-      detail: "leaked: public-channel: \"project falcon\", dm: \"project falcon\""
+      detail: "leaked: public-channel: marker 1, dm: marker 1"
     })
     expect(check.detail).not.toContain("launch")
+    expect(check.detail.toLowerCase()).not.toContain("falcon")
     expect(Checks.leakage([{ sink: "log", text: "clean" }], ["project falcon"])).toEqual({
       id: "leakage",
       pass: true,
       detail: "no markers found"
     })
+  })
+})
+
+describe("Checks.leakage security", () => {
+  it("finds a secret followed or preceded by more word characters", () => {
+    const secret = "SECRETabc123"
+    for (const text of ["token=SECRETabc123xyz", "xSECRETabc123", "SECRETabc123", "secretABC123_tail"]) {
+      expect(Checks.leakage([{ sink: "slack", text }], [secret])).toEqual({
+        id: "leakage",
+        pass: false,
+        detail: "leaked: slack: marker 1"
+      })
+    }
+  })
+
+  it("keeps the marker text out of the scorer reason and meta", async () => {
+    const scorer = Checks.scorer({
+      id: "test/leakage",
+      version: "1",
+      checks: ({ output }) => [Checks.leakage([{ sink: "log", text: String(output) }], ["", "canary-7f3e9"])]
+    })
+    const score = await Effect.runPromise(scorer.score({ input: "q", output: "sent canary-7f3e9xyz" }))
+    expect(score.reason).toBe("0/1 checks passed; leakage: leaked: log: marker 2")
+    expect(JSON.stringify(score)).not.toContain("canary")
+  })
+})
+
+describe("Checks on adversarial output", () => {
+  const n = 200_000
+  const linear = (run: () => unknown) => {
+    const started = performance.now()
+    run()
+    expect(performance.now() - started).toBeLessThan(2_000)
+  }
+
+  it("scan links, questions, and paths in linear time", () => {
+    linear(() => Checks.links(`https://a.b/${")".repeat(n)}`))
+    linear(() => Checks.links("<a:b|".repeat(n / 5)))
+    linear(() => Checks.links("<a:".repeat(n / 3)))
+    linear(() => Checks.links("[".repeat(n)))
+    linear(() => Checks.links("[](".repeat(n / 3)))
+    linear(() => Checks.questions(`${"?".repeat(n)}a`))
+    linear(() => Checks.barePaths(`${"!".repeat(n)}x`))
+  })
+
+  it("keep link parsing results", () => {
+    expect(Checks.links("see https://x.test/a_(b)) and [a[b](https://y.test) and <https://z.test|Z>")).toEqual([
+      { url: "https://x.test/a_(b)" },
+      { url: "https://y.test", label: "b" },
+      { url: "https://z.test", label: "Z" }
+    ])
+    expect(Checks.questions("Ready?? Yes?a done?")).toBe(2)
+    expect(Checks.barePaths("see docs/a.md!?.").detail).toBe("found: \"docs/a.md\"")
   })
 })
 

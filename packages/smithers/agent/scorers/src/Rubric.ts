@@ -213,33 +213,49 @@ const span = (text: string, from: number): string | undefined => {
   return undefined
 }
 
-const firstObject = (text: string): Record<string, unknown> | undefined => {
-  for (let at = text.indexOf("{"); at !== -1; at = text.indexOf("{", at + 1)) {
+/**
+ * Every top-level JSON object in `text`, left to right. A parsed object's span
+ * is skipped, so an object quoted inside another (or inside its strings) is not
+ * a separate candidate.
+ */
+const objects = (text: string): ReadonlyArray<Record<string, unknown>> => {
+  const found: Array<Record<string, unknown>> = []
+  for (let at = text.indexOf("{"); at !== -1;) {
+    const candidate = span(text, at)
+    let next = at + 1
     try {
-      const value: unknown = JSON.parse(span(text, at) ?? "")
+      const value: unknown = JSON.parse(candidate ?? "")
       if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        return value as Record<string, unknown>
+        found.push(value as Record<string, unknown>)
+        next = at + candidate!.length
       }
     } catch {
       // Not JSON; try the next opening brace.
     }
+    at = text.indexOf("{", next)
   }
-  return undefined
+  return found
 }
 
 /**
  * Parses a judge reply.
  *
- * Tolerant of prose and json code fences around the answer: the first JSON
- * object in the text is read. Every criterion id needs an integer score from
- * 1 to 5; extra keys are ignored and a missing `reason` reads as empty.
+ * Tolerant of prose and json code fences around the answer. The reply must
+ * hold exactly one top-level JSON object with a `"scores"` key: a reply with
+ * two is refused, because a judge that quotes the output under judgment could
+ * otherwise carry a verdict forged inside that output. Every criterion id
+ * needs an integer score from 1 to 5; extra keys are ignored and a missing
+ * `reason` reads as empty.
  *
  * @category parsing
  * @since 0.1.0
  */
 export const parse = (text: string, criteria: ReadonlyArray<Criterion>): Result.Result<Judgement, string> => {
-  const value = firstObject(text)
-  if (value === undefined) return Result.fail("no JSON object found")
+  const found = objects(text)
+  if (found.length === 0) return Result.fail("no JSON object found")
+  const scored = found.filter((object) => "scores" in object)
+  if (scored.length > 1) return Result.fail("more than one JSON object with \"scores\"")
+  const value = scored[0] ?? found[0]!
   const scores = value.scores
   if (typeof scores !== "object" || scores === null) return Result.fail("\"scores\" must be an object")
   const read: Record<string, number> = {}
