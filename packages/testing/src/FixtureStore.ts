@@ -10,8 +10,8 @@
 import { Context, Effect, Exit, Layer, Option, Ref, SynchronizedRef } from "effect"
 import { randomUUID } from "node:crypto"
 import { constants } from "node:fs"
-import { appendFile, mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { appendFile, lstat, mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises"
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { decode, type Fixture, type RecordedCall } from "./Fixture.ts"
 import { maximumDepth, snapshot } from "./internal/Structural.ts"
 
@@ -141,10 +141,32 @@ const io = <A>(path: string, run: () => Promise<A>): Effect.Effect<A> =>
 // symlink there and aim a recording run's appends and truncation at any file
 // the test user can write. Every journal open refuses to follow a final
 // symlink (ELOOP), which the store reports as a path-naming defect. Windows has
-// no O_NOFOLLOW; there `| undefined` adds no bit.
+// no O_NOFOLLOW; there `| undefined` adds no bit. O_NOFOLLOW covers only the
+// last component, so `refuseSymlinkedDirs` covers the directories above it.
 const journalRead = constants.O_RDONLY | constants.O_NOFOLLOW
 const journalAppend = constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW
 const journalTruncate = constants.O_WRONLY | constants.O_NOFOLLOW
+
+// A committed directory symlink on the fixture path (`test/fixtures -> ~/notes`)
+// would carry the journal, the staging file, and the published rename into the
+// link's target. Every directory between the working directory and the fixture
+// is checked with lstat before the store creates or opens anything; a path
+// outside the working directory has no trusted root and is not checked.
+const refuseSymlinkedDirs = async (path: string): Promise<void> => {
+  const root = process.cwd()
+  const rel = relative(root, dirname(path))
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return
+  let current = root
+  for (const part of rel.split(sep)) {
+    current = join(current, part)
+    const stat = await lstat(current).catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code === "ENOENT") return undefined
+      throw cause
+    })
+    if (stat === undefined) return
+    if (stat.isSymbolicLink()) throw new Error(`refusing to record through symbolic link ${current}`)
+  }
+}
 
 const truncateJournal = async (path: string, length: number): Promise<void> => {
   const handle = await open(path, journalTruncate)
@@ -243,6 +265,7 @@ export const makeFile = (path: string): Effect.Effect<
     const lockPath = `${path}.lock`
     let locked = false
     const acquire = io(path, async () => {
+      await refuseSymlinkedDirs(path)
       await mkdir(dirname(path), { recursive: true })
       await mkdir(lockPath)
       locked = true

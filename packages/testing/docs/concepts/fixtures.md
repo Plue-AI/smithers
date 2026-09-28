@@ -40,8 +40,13 @@ refresh changes from other stores. Do not address the same fixture through
 symlink aliases.
 
 The store opens `path.journal` with `O_NOFOLLOW` for every read, append, and
-truncation. A symlink at that path fails with a defect naming it, so a planted
-link cannot aim a recording run at another file. Windows has no `O_NOFOLLOW`.
+truncation, so a symlink at the journal path fails with a defect naming it.
+`O_NOFOLLOW` checks only that last component. Before it creates or opens
+anything, the store also refuses a symlinked directory between the working
+directory and the fixture, so a planted directory link cannot carry the
+journal or the published fixture into another directory. A fixture path
+outside the working directory has no trusted root, and its directories are
+not checked. Windows has no `O_NOFOLLOW`.
 
 After a killed process, confirm that no writer remains, remove `path.lock`,
 and reopen the store. Complete journal lines are recovered; an unfinished last

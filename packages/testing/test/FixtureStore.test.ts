@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -62,6 +63,69 @@ describe("FixtureStore file persistence", () => {
         expect(Exit.isFailure(exit)).toBe(true)
         if (Exit.isFailure(exit)) expect(String(Cause.squash(exit.cause))).toContain(`${path}.journal`)
         expect(readFileSync(victim, "utf8")).toBe("partial record")
+      })
+    ))
+
+  it.effect("refuses to record through a symlinked directory on the fixture path", () =>
+    withFile((path) =>
+      Effect.gen(function*() {
+        const root = join(path, "..", "repo")
+        const victim = join(path, "..", "victim")
+        mkdirSync(root)
+        mkdirSync(victim)
+        symlinkSync(victim, join(root, "fixtures"))
+        vi.spyOn(process, "cwd").mockReturnValue(root)
+        const linked = join(root, "fixtures", "nested", "fixture.json")
+        const exit = yield* Effect.exit(Effect.gen(function*() {
+          const store = yield* FixtureStore.makeFile(linked)
+          yield* store.append(call)
+          yield* store.flush()
+        }))
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(String(Cause.squash(exit.cause))).toContain(join(root, "fixtures"))
+        expect(readdirSync(victim)).toEqual([])
+      })
+    ))
+
+  it.effect("records under real directories below the working directory", () =>
+    withFile((path) =>
+      Effect.gen(function*() {
+        const root = join(path, "..", "repo")
+        mkdirSync(root)
+        vi.spyOn(process, "cwd").mockReturnValue(root)
+        const nested = join(root, "fixtures", "nested", "fixture.json")
+        const store = yield* FixtureStore.makeFile(nested)
+        yield* store.append(call)
+        yield* store.flush()
+        expect(JSON.parse(readFileSync(nested, "utf8")).calls).toHaveLength(1)
+      })
+    ))
+
+  it.effect("records a fixture directly in the working directory", () =>
+    withFile((path) =>
+      Effect.gen(function*() {
+        vi.spyOn(process, "cwd").mockReturnValue(join(path, ".."))
+        const store = yield* FixtureStore.makeFile(path)
+        yield* store.append(call)
+        yield* store.flush()
+        expect(JSON.parse(readFileSync(path, "utf8")).calls).toHaveLength(1)
+      })
+    ))
+
+  it.effect("reports a directory it cannot inspect as a defect naming the fixture", () =>
+    withFile((path) =>
+      Effect.gen(function*() {
+        const root = join(path, "..", "repo")
+        mkdirSync(join(root, "fixtures"), { recursive: true })
+        vi.spyOn(process, "cwd").mockReturnValue(root)
+        vi.spyOn(fs, "lstat").mockRejectedValueOnce(
+          Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" })
+        )
+        const fixture = join(root, "fixtures", "fixture.json")
+        const exit = yield* Effect.exit(FixtureStore.makeFile(fixture))
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(String(Cause.squash(exit.cause))).toContain("EACCES")
+        expect(existsSync(`${fixture}.lock`)).toBe(false)
       })
     ))
 
