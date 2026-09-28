@@ -1,12 +1,7 @@
+import type { State } from "./durableState.ts";
+
 /** A repository's published app URL and when it was committed. */
 export type Ready = { appUrl: string; completedAt: string };
-interface Transaction {
-  get<T>(key: string): Promise<T | undefined>;
-  put<T>(key: string, value: T): Promise<void>;
-}
-interface State {
-  storage: { transaction<T>(callback: (txn: Transaction) => Promise<T>): Promise<T> };
-}
 
 /**
  * The only authority for one normalized repository's published app URL.

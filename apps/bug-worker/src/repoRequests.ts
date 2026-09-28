@@ -1,9 +1,10 @@
 import { parseAppUrl } from "./appUrl.ts";
-import { checkRateLimit } from "./checkRateLimit.ts";
+import { checkRateLimit, clientAddress, PUBLIC_READS_PER_HOUR } from "./checkRateLimit.ts";
 import type { BugWorkerDeps } from "./deps.ts";
 import type { BugWorkerEnv } from "./env.ts";
 import { isOperator } from "./isOperator.ts";
 import { logFailure } from "./logFailure.ts";
+import { newToken } from "./newToken.ts";
 import { publicBaseUrl } from "./publicBaseUrl.ts";
 import { readBodyBounded } from "./readBodyBounded.ts";
 import type { Ready } from "./RepoCompletion.ts";
@@ -32,17 +33,6 @@ const leaderboardKey = "repo-nominations-top";
 const listTop = 20;
 /** Browsers reuse a list for this long; KV is eventually consistent over the same window. */
 const listCache = { ...cors, "cache-control": "public, max-age=60" };
-/**
- * Public reads per IP per hour. A browser that honours max-age needs at most
- * 60 list reads an hour plus one uncached read per submission, so a
- * well-behaved visitor never meets this bound.
- */
-const readsPerIpPerHour = 100;
-
-/** Single-use confirmation and cancellation tokens; 128 bits, hex encoded. */
-function newToken() {
-  return Array.from(crypto.getRandomValues(new Uint8Array(16))).map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 async function read<T>(env: BugWorkerEnv, key: string): Promise<T | null> {
   const value = await env.BUGS.get(key);
   return value === null ? null : JSON.parse(value) as T;
@@ -205,7 +195,7 @@ export async function handleRepoRequests(request: Request, env: BugWorkerEnv, de
     if (request.method === "GET" && route === "") {
       // Public reads are throttled on their own bucket so a list refresh never
       // spends the nomination budget, and abuse cannot amplify into KV reads.
-      if (!(await checkRateLimit(env, `repos-read:${request.headers.get("cf-connecting-ip") ?? "unknown"}`, deps.now(), readsPerIpPerHour))) {
+      if (!(await checkRateLimit(env, `repos-read:${clientAddress(request)}`, deps.now(), PUBLIC_READS_PER_HOUR))) {
         return json(429, { error: "Too many requests. Please try again later." });
       }
       const query = url.searchParams.get("repo");

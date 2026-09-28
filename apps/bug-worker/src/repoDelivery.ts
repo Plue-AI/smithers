@@ -1,6 +1,7 @@
 import { parseAppUrl } from "./appUrl.ts";
 import type { BugWorkerDeps } from "./deps.ts";
 import type { BugWorkerEnv } from "./env.ts";
+import { newToken } from "./newToken.ts";
 import { publicBaseUrl } from "./publicBaseUrl.ts";
 import type { Ready } from "./RepoCompletion.ts";
 import { sendMail } from "./sendMail.ts";
@@ -62,6 +63,28 @@ function parseReady(value: string): Ready {
 }
 
 /**
+ * A deliverable subscriber with its cancellation token. Confirmed subscribers
+ * are `{ email, cancel }` JSON. A plain address, or JSON without a token,
+ * predates the confirmation flow; it is rewritten to that shape with a fresh
+ * token before any mail, so every notification carries an unsubscribe link.
+ * The cancel record goes first, so a failed rewrite leaves no dead link.
+ */
+async function subscriber(env: BugWorkerEnv, key: string, stored: string): Promise<{ email: string; cancel: string }> {
+  let email = stored;
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (parsed && typeof parsed === "object" && "email" in parsed && typeof parsed.email === "string") {
+      if ("cancel" in parsed && typeof parsed.cancel === "string") return { email: parsed.email, cancel: parsed.cancel };
+      email = parsed.email;
+    }
+  } catch { /* A plain address. */ }
+  const cancel = newToken();
+  await env.BUGS.put(`repo-cancel:${cancel}`, JSON.stringify({ key }));
+  await env.BUGS.put(key, JSON.stringify({ email, cancel }));
+  return { email, cancel };
+}
+
+/**
  * One page of up to 50 subscribers, with receipts, a per-recipient rejection
  * budget, and provider deduplication. An unavailable provider or the sweep
  * budget cuts the page and returns its start cursor, so the next sweep re-reads
@@ -83,21 +106,11 @@ async function notify(env: BugWorkerEnv, deps: BugWorkerDeps, name: string, read
       const stored = await env.BUGS.get(key.name);
       if (!stored) continue;
       if (deps.now() >= deadline) return held("budget");
-      // Confirmed subscribers are JSON with a cancellation token; plain
-      // addresses predate the confirmation flow and stay deliverable.
-      let email = stored;
-      let cancel: string | undefined;
-      try {
-        const parsed: unknown = JSON.parse(stored);
-        if (parsed && typeof parsed === "object" && "email" in parsed && typeof parsed.email === "string") {
-          email = parsed.email;
-          if ("cancel" in parsed && typeof parsed.cancel === "string") cancel = parsed.cancel;
-        }
-      } catch { /* A plain address is a legacy confirmed subscriber. */ }
+      const { email, cancel } = await subscriber(env, key.name, stored);
       const outcome = await sendMail(env, deps, {
         to: email,
         subject: `${name} is ready in Smithers`,
-        text: `You asked to be notified when ${name} was smithered. It is now supported in Smithers and available to everyone.\n\nOpen in Smithers: ${ready.appUrl}\n\nThis is the one-time notification you requested at smithers.sh.${cancel ? `\n\nUnsubscribe: ${publicBaseUrl(env)}/api/repo-requests/cancel?token=${cancel}` : ""}`,
+        text: `You asked to be notified when ${name} was smithered. It is now supported in Smithers and available to everyone.\n\nOpen in Smithers: ${ready.appUrl}\n\nThis is the one-time notification you requested at smithers.sh.\n\nUnsubscribe: ${publicBaseUrl(env)}/api/repo-requests/cancel?token=${cancel}`,
         idempotencyKey: `smithers-ready-${await sha256(key.name)}`,
       });
       if (outcome.ok) {

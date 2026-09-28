@@ -5,7 +5,7 @@ import { bugReportSchema } from "../src/bugReportSchema.ts";
 import type { BugWorkerEnv } from "../src/worker.ts";
 import { createBugWorker } from "../src/worker.ts";
 import { memoryKv } from "./helpers/memoryKv.ts";
-import { memoryRepoCompletions } from "./helpers/memoryRepoCompletions.ts";
+import { memoryRateLimits, memoryRepoCompletions } from "./helpers/memoryDurableObjects.ts";
 
 const decodeRunSummary = Schema.decodeUnknownSync(ControlSchema.RunSummary);
 const decodeControlEvent = Schema.decodeUnknownSync(ControlSchema.ControlEvent);
@@ -58,7 +58,7 @@ const legacyPayload = {
 };
 
 function makeEnv(): BugWorkerEnv & { BUGS: ReturnType<typeof memoryKv> } {
-  return { BUGS: memoryKv(), REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: "admin", PUBLIC_BASE_URL: "https://bug.smithers.sh" };
+  return { BUGS: memoryKv(), REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: "admin", PUBLIC_BASE_URL: "https://bug.smithers.sh" };
 }
 
 function post(body: unknown): Request {

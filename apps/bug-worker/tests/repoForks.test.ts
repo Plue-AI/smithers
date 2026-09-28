@@ -2,11 +2,11 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { createBugWorker } from "../src/worker.ts";
 import { forkRepo, type RepoFork } from "../src/repoForks.ts";
 import { memoryKv } from "./helpers/memoryKv.ts";
-import { memoryRepoCompletions } from "./helpers/memoryRepoCompletions.ts";
+import { memoryRateLimits, memoryRepoCompletions } from "./helpers/memoryDurableObjects.ts";
 import type { BugWorkerEnv } from "../src/env.ts";
 
 function fixture(token: string | null = "fork-token") {
-  const env: BugWorkerEnv = { BUGS: memoryKv(), REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: "test-admin", ...(token ? { GITHUB_FORK_TOKEN: token } : {}) };
+  const env: BugWorkerEnv = { BUGS: memoryKv(), REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: "test-admin", ...(token ? { GITHUB_FORK_TOKEN: token } : {}) };
   const calls: { url: string; init?: RequestInit }[] = [];
   let forkStatus = 202;
   let forkThrows = false;

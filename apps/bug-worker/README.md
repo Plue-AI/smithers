@@ -74,10 +74,11 @@ title-only report.
 - `POST /api/bugs` — zod-validated report: a non-blank `summary` or `title` is
   required, every other key is optional, and the object stays loose. 256KB cap
   (stream-counted, so a missing/spoofed content-length can't buffer past the
-  cap), per-IP rate limit of 20 valid reports/hour via a KV counter; a 400 or
-  413 never spends the budget. The KV counter is **best-effort/advisory** — KV has no atomic
-  increment, so a concurrent burst from one IP can race past the limit; use a
-  Durable Object or a Rate Limiting binding if a hard cap is ever needed.
+  cap), rate limits of 20 valid reports/hour per client and 200/hour across all
+  clients; a 400 or 413 never spends the budget. Each budget is an atomic
+  `RateLimiter` Durable Object counter, so a concurrent burst cannot race past
+  it. A client is Cloudflare's `cf-connecting-ip` (`x-forwarded-for` is
+  ignored), charged per /64 for IPv6.
   Stores `bug:<id>` and returns `{ id, url }`. No auth: reporting must be
   zero-friction. CORS allows POST from anywhere.
 - `GET /api/bugs/:id` — maintainers only; requires the `x-bug-admin` header

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createBugWorker } from "../src/worker.ts";
 import type { BugKv, BugWorkerEnv } from "../src/env.ts";
 import { memoryKv } from "./helpers/memoryKv.ts";
-import { memoryRepoCompletions } from "./helpers/memoryRepoCompletions.ts";
+import { memoryRateLimits, memoryRepoCompletions } from "./helpers/memoryDurableObjects.ts";
 
 /**
  * Every 503 the Worker answers must leave one structured log line behind, so
@@ -42,7 +42,7 @@ describe("failure logs", () => {
   for (const [name, request, event] of cases) {
     test(`${name} logs the route and cause before answering 503`, async () => {
       const req = request();
-      const response = await answer(req, { BUGS: offline(), REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: ADMIN });
+      const response = await answer(req, { BUGS: offline(), REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: ADMIN });
       expect(response.status).toBe(503);
       expect(logged()).toEqual([{ event, route: `${req.method} ${new URL(req.url).pathname}`, error: "KV namespace unavailable" }]);
     });
@@ -57,14 +57,13 @@ describe("failure logs", () => {
         if (key.startsWith("bug:")) throw new Error("report write unavailable");
         await kv.put(key, value, options);
       } },
-      REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: ADMIN,
+      REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: ADMIN,
     };
     const response = await answer(post("/api/bugs", { summary: "lost report" }), env);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "storage unavailable" });
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
-    expect(writes).toEqual(["ratelimit:unknown:496805", expect.stringMatching(/^bug:/)]);
-    expect(await kv.get("ratelimit:unknown:496805")).toBe("1");
+    expect(writes).toEqual([expect.stringMatching(/^bug:/)]);
     const reports = writes.filter(key => key.startsWith("bug:"));
     expect(reports).toHaveLength(1);
     expect(await kv.get(reports[0]!)).toBeNull();
@@ -73,14 +72,14 @@ describe("failure logs", () => {
 
   test("a KV outage during the notification cron is logged, never a failed scheduled event", async () => {
     const worker = createBugWorker({ now: () => 1788500000000 });
-    const env: BugWorkerEnv = { BUGS: offline(), REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: ADMIN, RESEND_API_KEY: "key", NOTIFICATION_FROM: "from@example.com" };
+    const env: BugWorkerEnv = { BUGS: offline(), REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: ADMIN, RESEND_API_KEY: "key", NOTIFICATION_FROM: "from@example.com" };
     await worker.scheduled({}, env);
     expect(logged()).toEqual([{ event: "repo_notification.failed", route: "scheduled", error: "KV namespace unavailable" }]);
   });
 
   test("the notification sweep logs whose fault each undelivered repository is", async () => {
     const kv = memoryKv();
-    const env: BugWorkerEnv = { BUGS: kv, REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: ADMIN, RESEND_API_KEY: "key", NOTIFICATION_FROM: "from@example.com" };
+    const env: BugWorkerEnv = { BUGS: kv, REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: ADMIN, RESEND_API_KEY: "key", NOTIFICATION_FROM: "from@example.com" };
     const ready = JSON.stringify({ appUrl: "https://app.smithers.sh/r", completedAt: "2026-01-01T00:00:00.000Z" });
     await kv.put("repo-ready:a/bad", "{");
     await kv.put("repo-ready:b/down", ready);
@@ -110,7 +109,7 @@ describe("failure logs", () => {
 
   test("a Durable Object failure is logged before answering 503", async () => {
     const failing = { getByName: () => ({ fetch: async () => new Response("", { status: 500 }) }) };
-    const env: BugWorkerEnv = { BUGS: memoryKv(), REPO_COMPLETIONS: failing, BUG_ADMIN_TOKEN: ADMIN };
+    const env: BugWorkerEnv = { BUGS: memoryKv(), REPO_COMPLETIONS: failing, RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: ADMIN };
     await env.BUGS.put("repo-request:owner/repo", JSON.stringify({ name: "owner/repo", url: "https://github.com/owner/repo" }));
     for (const route of ["/complete", "/notify"]) {
       const response = await answer(post(`/api/repo-requests${route}`, { repo: "owner/repo", appUrl: "https://app.smithers.sh/r" }, { "x-bug-admin": ADMIN }), env);
@@ -134,7 +133,7 @@ describe("failure logs", () => {
     ];
     for (const [event, providerStatus, store, error] of cases) {
       errors.mockClear();
-      const env: BugWorkerEnv = { BUGS: store(memoryKv()), REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: ADMIN, RESEND_API_KEY: "key", NOTIFICATION_FROM: "from@example.com" };
+      const env: BugWorkerEnv = { BUGS: store(memoryKv()), REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: ADMIN, RESEND_API_KEY: "key", NOTIFICATION_FROM: "from@example.com" };
       const provider = (async (input: string) =>
         String(input).includes("api.github.com") ? Response.json(github) : new Response("", { status: providerStatus })) as unknown as typeof fetch;
       const response = await answer(post("/api/repo-requests", { repo: "owner/repo", email: "fan@example.com" }, { "x-bug-admin": ADMIN }), env, provider);
@@ -145,7 +144,7 @@ describe("failure logs", () => {
   });
 
   test("a GitHub outage is logged apart from a storage outage", async () => {
-    const env: BugWorkerEnv = { BUGS: memoryKv(), REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: ADMIN };
+    const env: BugWorkerEnv = { BUGS: memoryKv(), REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: ADMIN };
     const unreachable = (async () => { throw new Error("connect ECONNREFUSED"); }) as unknown as typeof fetch;
     expect((await answer(post("/api/repo-requests", { repo: "owner/repo" }, { "x-bug-admin": ADMIN }), env, unreachable)).status).toBe(503);
     const limited = (async () => new Response("", { status: 403 })) as unknown as typeof fetch;

@@ -37,8 +37,8 @@ the list is fresh as soon as the completion call returns and stale for at
 most that one-minute browser cache plus KV propagation.
 `GET /api/repo-requests?repo=owner/repo` returns `{ repo }` for one
 repository, 404 when nobody has requested it, and 400 for an invalid name.
-Public `GET` reads share a per-IP throttle of 100 per hour and answer `429`
-above it.
+Public `GET` reads, including `GET /api/repo-claims`, share a per-client
+throttle of 100 per hour and answer `429` above it.
 The upcoming app can consume this same public catalog and use ready entries
 as its supported repositories.
 
@@ -59,9 +59,8 @@ JSON array of `{ "name", "count", "appUrl" }` sorted by count, then name,
 capped at 20. It replaces the repository's own entry with the new count and
 its current readiness (`appUrl` is null while smithering) and drops anything
 past 20. `POST /api/repo-requests/complete` writes the published `appUrl`
-into the repository's entry when it is listed. The list endpoint reads the
-throttle bucket and that one key, two KV reads at any catalog size, and never
-scans the catalog. Entries written before readiness was materialized have no
+into the repository's entry when it is listed. The list endpoint reads
+that one key, one KV read at any catalog size, and never scans the catalog. Entries written before readiness was materialized have no
 `appUrl` field and cost one readiness read each until their next nomination
 or completion. The leaderboard shares the counter's read-modify-write, so the
 same concurrent-write undercount applies to it and nothing else.
@@ -185,9 +184,10 @@ confirmation or a confirmed subscription (`repo-cancel:<token>` maps the
 cancellation token to the subscriber key, and is deleted after the subscriber)
 and returns 404 for unknown tokens. Confirm and cancel write before they consume
 their token, so a 503 from either is safe to retry with the same link.
-Confirmed subscribers are stored as `{ "email", "cancel" }` JSON; plain-address
-records written before this flow remain deliverable but carry no unsubscribe
-link. Without provider configuration no consent email can be sent, so the
+Confirmed subscribers are stored as `{ "email", "cancel" }` JSON. A
+plain-address record written before this flow is rewritten to that shape, with
+a new `repo-cancel:` token, before its notification is sent, so every
+notification carries an unsubscribe link. Without provider configuration no consent email can be sent, so the
 submission stores nothing and reports `confirmation: "email_not_configured"`.
 A failed confirmation never fails the nomination: it reports `"send_failed"` and
 logs one JSON line naming the fault. `repo_confirmation.failed` means storage
@@ -263,7 +263,10 @@ Records and per-email subscriptions use separate keys so concurrent
 submissions cannot overwrite a subscriber list or reset completed work. Provider keys
 protect concurrent delivery retries for 24 hours; if a send succeeds but its
 KV receipt cannot be saved for longer than that, a retry may send a duplicate.
-The existing KV per-IP throttle is advisory, not an atomic rate limiter.
+Throttles are atomic: each bucket is a `RateLimiter` Durable Object behind the
+`RATE_LIMITS` binding that counts inside a storage transaction. A client is
+Cloudflare's `cf-connecting-ip`, charged per /64 for IPv6; `x-forwarded-for`
+is ignored.
 
 Email addresses never appear in public responses. Confirmed subscribers live
 under `repo-subscriber:<owner/repo>:<sha256(email)>`, pending confirmations

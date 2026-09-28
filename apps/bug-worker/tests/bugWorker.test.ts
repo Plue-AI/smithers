@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { BugWorkerEnv } from "../src/worker.ts";
 import { createBugWorker } from "../src/worker.ts";
 import { memoryKv } from "./helpers/memoryKv.ts";
-import { memoryRepoCompletions } from "./helpers/memoryRepoCompletions.ts";
+import { memoryRateLimits, memoryRepoCompletions } from "./helpers/memoryDurableObjects.ts";
 
 const ADMIN = "test-admin-secret";
 
@@ -61,7 +61,7 @@ function postStreamed(bytes: Uint8Array, splitAt: number, ip: string): Request {
 function makeEnv(now?: () => number): BugWorkerEnv & { BUGS: ReturnType<typeof memoryKv> } {
   return {
     BUGS: memoryKv(now),
-    REPO_COMPLETIONS: memoryRepoCompletions(),
+    REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(),
     BUG_ADMIN_TOKEN: ADMIN,
     PUBLIC_BASE_URL: "https://bug.smithers.sh",
   };

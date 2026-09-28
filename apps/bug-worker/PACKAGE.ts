@@ -138,7 +138,8 @@ const securityReview = Smithers.SecurityReview({
         "An anonymous caller exhausts KV storage or Worker memory, or plants content that triage tools later render as HTML.",
       lookFor: [
         "A body read with request.text() or request.json() instead of readBodyBounded, or a cap checked only on content-length.",
-        "A rate-limit key taken from x-forwarded-for when cf-connecting-ip is present, letting a caller pick its own bucket.",
+        "A rate-limit key taken from x-forwarded-for or any header but cf-connecting-ip, letting a caller pick its own bucket.",
+        "A rate-limit counter kept as a KV read-modify-write instead of the RateLimiter Durable Object, an IPv6 client charged per address instead of per /64, or bug intake without the all-clients hourly cap.",
         "A stored report served with a content type other than application/json, or loose() fields echoed into HTML."
       ],
       paths: ["src/worker.ts", "src/readBodyBounded.ts", "src/checkRateLimit.ts", "src/bugReportSchema.ts"]

@@ -21,6 +21,10 @@ export interface BugWorkerEnv {
   REPO_COMPLETIONS: {
     getByName(name: string): { fetch(request: Request): Promise<Response> };
   };
+  /** `RateLimiter` Durable Objects: one atomic hourly counter per rate-limit bucket. */
+  RATE_LIMITS: {
+    getByName(name: string): { fetch(request: Request): Promise<Response> };
+  };
   /** Shared secret required in the x-bug-admin header for GET /api/bugs/:id. */
   BUG_ADMIN_TOKEN: string;
   /** Public origin used for the returned bug URL, e.g. https://bug.smithers.sh */

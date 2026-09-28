@@ -1,20 +1,48 @@
 import type { BugWorkerEnv } from "./env.ts";
-
-/** Default budget: accepted writes per IP per hour, per route bucket. */
-export const RATE_LIMIT_PER_HOUR = 20;
+import type { RateLimitRequest } from "./RateLimiter.ts";
 
 /**
- * Best-effort per-IP throttle. KV has no atomic increment and up to ~60s of
- * propagation, so this is a read-modify-write that concurrent bursts from one
- * IP can race past — the 20/hour is advisory, a speed bump against accidental
- * floods, not a hard security boundary. For a strict limit, back the counter
- * with a Durable Object or a Cloudflare Rate Limiting binding.
+ * Accepted bug reports per hour across all clients. Rotating addresses defeats
+ * any per-client budget, so this bounds the KV bytes anonymous intake can add:
+ * at most this many 256 KB reports an hour.
  */
-export async function checkRateLimit(env: BugWorkerEnv, ip: string, now: number, limit = RATE_LIMIT_PER_HOUR): Promise<boolean> {
-  const hourBucket = Math.floor(now / 3_600_000);
-  const key = `ratelimit:${ip}:${hourBucket}`;
-  const count = Number((await env.BUGS.get(key)) ?? "0");
-  if (count >= limit) return false;
-  await env.BUGS.put(key, String(count + 1), { expirationTtl: 3600 });
-  return true;
+export const BUG_REPORTS_PER_HOUR = 200;
+/** Default budget: accepted writes per client per hour, per route bucket. */
+export const RATE_LIMIT_PER_HOUR = 20;
+/**
+ * Public reads per client per hour, shared by every public GET. A browser that
+ * honours max-age needs at most 60 list reads an hour plus one uncached read
+ * per submission, so a well-behaved visitor never meets this bound.
+ */
+export const PUBLIC_READS_PER_HOUR = 100;
+
+/**
+ * The client a request is charged to. Only Cloudflare's `cf-connecting-ip` is
+ * trusted: `x-forwarded-for` is caller-written. An IPv6 client is charged per
+ * /64, the smallest prefix one subscriber is routinely assigned, so rotating
+ * addresses inside it shares one budget.
+ */
+export function clientAddress(request: Request): string {
+  const ip = request.headers.get("cf-connecting-ip")?.trim().toLowerCase();
+  if (!ip) return "unknown";
+  if (!ip.includes(":")) return ip;
+  // An IPv4-mapped address (::ffff:192.0.2.1) is charged to its IPv4 address.
+  if (ip.includes(".")) return ip.slice(ip.lastIndexOf(":") + 1);
+  const [head = "", tail] = ip.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? left : [...left, ...Array<string>(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  return `${groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+/**
+ * Admit one request against `bucket`'s hourly budget. The count lives in the
+ * `RateLimiter` Durable Object named by the bucket, which increments it
+ * atomically, so a concurrent burst gets exactly `limit` admissions.
+ */
+export async function checkRateLimit(env: BugWorkerEnv, bucket: string, now: number, limit = RATE_LIMIT_PER_HOUR): Promise<boolean> {
+  const body: RateLimitRequest = { hour: Math.floor(now / 3_600_000), limit };
+  const answer = await env.RATE_LIMITS.getByName(bucket).fetch(new Request("https://rate-limiter/", { method: "POST", body: JSON.stringify(body) }));
+  if (!answer.ok) throw new Error(`Rate limiter answered ${answer.status}`);
+  return (await answer.json() as { allowed: boolean }).allowed;
 }

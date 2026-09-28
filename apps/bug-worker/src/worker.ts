@@ -1,7 +1,7 @@
 import type { BugWorkerDeps } from "./deps.ts";
 import type { BugWorkerEnv } from "./env.ts";
 import { bugReportSchema } from "./bugReportSchema.ts";
-import { checkRateLimit, RATE_LIMIT_PER_HOUR } from "./checkRateLimit.ts";
+import { BUG_REPORTS_PER_HOUR, checkRateLimit, clientAddress, RATE_LIMIT_PER_HOUR } from "./checkRateLimit.ts";
 import { isOperator } from "./isOperator.ts";
 import { logFailure } from "./logFailure.ts";
 import { newBugId } from "./newBugId.ts";
@@ -13,6 +13,7 @@ import { handleRepoRequests } from "./repoRequests.ts";
 
 export type { BugWorkerDeps } from "./deps.ts";
 export type { BugWorkerEnv, BugKv } from "./env.ts";
+export { RateLimiter } from "./RateLimiter.ts";
 export { RepoCompletion } from "./RepoCompletion.ts";
 
 const MAX_PAYLOAD_BYTES = 256 * 1024;
@@ -54,19 +55,23 @@ async function handlePostBug(request: Request, env: BugWorkerEnv, now: number): 
     return json(400, { error: "invalid bug report", issues: result.error.issues });
   }
 
-  const ip = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for") ?? "unknown";
-  // The budget counts valid reports only, so rejected requests never spend a
-  // reporter's hourly quota. A KV exception escaping the fetch handler becomes
-  // workerd's 1101 HTML page; answer a clean JSON error instead.
-  let allowed: boolean;
+  // The budgets count valid reports only, so rejected requests never spend a
+  // reporter's hourly quota. A storage exception escaping the fetch handler
+  // becomes workerd's 1101 HTML page; answer a clean JSON error instead.
+  let admitted: "yes" | "client" | "all";
   try {
-    allowed = await checkRateLimit(env, ip, now);
+    admitted = !(await checkRateLimit(env, `bugs:${clientAddress(request)}`, now)) ? "client"
+      : !(await checkRateLimit(env, "bugs:all", now, BUG_REPORTS_PER_HOUR)) ? "all"
+      : "yes";
   } catch (error) {
     logFailure("bug_report.failed", request, error);
     return json(503, { error: "storage unavailable" });
   }
-  if (!allowed) {
+  if (admitted === "client") {
     return json(429, { error: `rate limit exceeded (${RATE_LIMIT_PER_HOUR} reports per hour per IP)` });
+  }
+  if (admitted === "all") {
+    return json(429, { error: "rate limit exceeded (too many reports this hour; try again later)" });
   }
 
   const id = newBugId(now);

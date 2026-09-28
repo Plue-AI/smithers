@@ -2,12 +2,12 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { createBugWorker } from "../src/worker.ts";
 import { repoName } from "../src/repoName.ts";
 import { memoryKv } from "./helpers/memoryKv.ts";
-import { memoryRepoCompletions } from "./helpers/memoryRepoCompletions.ts";
+import { memoryRateLimits, memoryRepoCompletions } from "./helpers/memoryDurableObjects.ts";
 import type { BugWorkerEnv } from "../src/env.ts";
 
 function fixture() {
   const kv = memoryKv();
-  const env: BugWorkerEnv = { BUGS: kv, REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: "test-admin", RESEND_API_KEY: "test-key", NOTIFICATION_FROM: "Smithers <test@example.com>" };
+  const env: BugWorkerEnv = { BUGS: kv, REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: "test-admin", RESEND_API_KEY: "test-key", NOTIFICATION_FROM: "Smithers <test@example.com>" };
   const calls: { url: string; init?: RequestInit }[] = [];
   let now = 1788500000000;
   let emailStatus = 200;
@@ -315,6 +315,19 @@ describe("public repository requests", () => {
     expect(emails.filter((call) => JSON.parse(String(call.init?.body)).to[0] === "user0@example.com")).toHaveLength(3);
     expect((await f.env.BUGS.list!({ prefix: "repo-notified:" })).keys).toHaveLength(50);
     expect(JSON.parse((await f.env.BUGS.get("repo-notification-failure:repo-subscriber:owner/repo:000"))!)).toMatchObject({ attempts: 3, terminal: true });
+  });
+  test("a legacy plain-address subscriber is migrated and mailed a working unsubscribe link", async () => {
+    const f = fixture();
+    await f.env.BUGS.put("repo-ready:owner/repo", JSON.stringify({ appUrl: "https://app.smithers.sh/repo", completedAt: "2026-01-01T00:00:00.000Z" }));
+    await f.env.BUGS.put("repo-subscriber:owner/repo:legacy", "legacy@example.com");
+    await f.worker.scheduled({}, f.env);
+    const [mail] = f.mails("is ready in Smithers");
+    expect(mail?.to).toEqual(["legacy@example.com"]);
+    const cancel = /Unsubscribe: https:\/\/bug\.smithers\.sh\/api\/repo-requests\/cancel\?token=([0-9a-f]{32})$/.exec(mail!.text)?.[1];
+    expect(cancel).toBeDefined();
+    expect(JSON.parse((await f.env.BUGS.get("repo-subscriber:owner/repo:legacy"))!)).toEqual({ email: "legacy@example.com", cancel });
+    expect((await f.press(`/cancel?token=${cancel}`)).status).toBe(200);
+    expect(await f.env.BUGS.get("repo-subscriber:owner/repo:legacy")).toBeNull();
   });
   test("a transient failure is retried on the next sweep and receipted", async () => {
     const f = fixture();
@@ -768,14 +781,14 @@ describe("public repository requests", () => {
     ]);
     expect(repos.slice(2).every((repo: { nominations: number }) => repo.nominations === 1)).toBe(true);
     expect(JSON.stringify(repos)).not.toContain("example.com");
-    // Listing reads the throttle bucket and the materialized leaderboard only: no
-    // per-entry readiness lookups and never the whole catalog.
+    // Listing reads the materialized leaderboard only (the throttle lives in a
+    // Durable Object): no per-entry readiness lookups and never the whole catalog.
     let reads = 0;
     const get = f.env.BUGS.get.bind(f.env.BUGS);
     f.env.BUGS.get = async (key: string) => { reads++; return get(key); };
     f.env.BUGS.list = async () => { throw new Error("list must not be used"); };
     expect((await f.call()).status).toBe(200);
-    expect(reads).toBe(2);
+    expect(reads).toBe(1);
   });
   test("completion rebuilds the materialized list so readiness costs no extra read", async () => {
     const f = fixture();
@@ -786,7 +799,7 @@ describe("public repository requests", () => {
     const get = f.env.BUGS.get.bind(f.env.BUGS);
     f.env.BUGS.get = async (key: string) => { reads++; return get(key); };
     const { repos } = await (await f.call()).json();
-    expect(reads).toBe(2);
+    expect(reads).toBe(1);
     expect(repos).toMatchObject([
       { name: "owner/other", status: "smithering", appUrl: null, nominations: 1 },
       { name: "owner/repo", status: "ready", appUrl: "https://app.smithers.sh/repos/owner/repo", nominations: 1 },

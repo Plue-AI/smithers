@@ -1,4 +1,4 @@
-import { checkRateLimit } from "./checkRateLimit.ts";
+import { checkRateLimit, clientAddress, PUBLIC_READS_PER_HOUR } from "./checkRateLimit.ts";
 import type { BugWorkerDeps } from "./deps.ts";
 import type { BugWorkerEnv } from "./env.ts";
 import { isOperator } from "./isOperator.ts";
@@ -36,6 +36,10 @@ export async function handleRepoClaims(request: Request, env: BugWorkerEnv, deps
   try {
     const url = new URL(request.url);
     if (request.method === "GET") {
+      // Shares the public-read bucket with GET /api/repo-requests.
+      if (!(await checkRateLimit(env, `repos-read:${clientAddress(request)}`, deps.now(), PUBLIC_READS_PER_HOUR))) {
+        return json(429, { error: "Too many requests. Please try again later." });
+      }
       const name = repoName(url.searchParams.get("repo"));
       if (!name) return json(400, { error: "Pass ?repo=owner/repo." });
       const stored = await env.BUGS.get(`repo-claim:${name}`);
@@ -45,7 +49,7 @@ export async function handleRepoClaims(request: Request, env: BugWorkerEnv, deps
     }
     if (request.method !== "POST") return json(404, { error: "Not found." });
     if (!(await isOperator(request, env))) return json(401, { error: "Claims open with GitHub sign-in in the app." });
-    if (!(await checkRateLimit(env, `claims:${request.headers.get("cf-connecting-ip") ?? "unknown"}`, deps.now()))) {
+    if (!(await checkRateLimit(env, `claims:${clientAddress(request)}`, deps.now()))) {
       return json(429, { error: "Too many requests. Please try again later." });
     }
     const raw = await readBodyBounded(request, 4096);
