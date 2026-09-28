@@ -4,7 +4,7 @@ import type { AgentInvocation } from "../../flows/AgentInvocation"
 import type { CommandGesture } from "../../flows/CommandGesture"
 import type { CommandOutcome } from "../../flows/Commands"
 import type { FieldOption,FieldValue,FormDraft,FormField,FormHints,OptionProvider } from "@smthrs/ui/flow-form"
-import { assembleArgs,declaredInput,draftFrom,formFieldsFor,missingFields,positionalRead,publicFormPayload,submissionPayload } from "@smthrs/ui/flow-form"
+import { assembleLine,declaredInput,displayLine,draftFrom,formFieldsFor,missingFields,positionalRead,publicFormPayload,submissionPayload } from "@smthrs/ui/flow-form"
 import { payloadFor } from "../../flows/SlashPayload"
 import { manifests } from "../../plugins/catalog"
 import { actorSharedState } from "../ActorBindings"
@@ -579,9 +579,13 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     const represented = new Set(card.payload.fields.map((field) => field.name))
     const unrepresented = Object.fromEntries(Object.entries(card.payload.given).filter(([name]) => !represented.has(name)))
     const payload = nestedField === undefined ? submission.payload : { ...card.payload.given, [nestedField]: submission.payload }
-    const args = nestedField === undefined
-      ? assembleArgs(card.payload.fields, entry.metadata.form, { ...unrepresented, ...card.payload.draft })
-      : assembleArgs(formFieldsFor(entry.input, entry.metadata.form), entry.metadata.form, payload)
+    // `args` stays a line that parses back to what it carries (a sign-in resume re-runs it);
+    // the acknowledgment names every value the line withheld, so none is hidden from the person.
+    const assembled = nestedField === undefined
+      ? assembleLine(card.payload.fields, entry.metadata.form, { ...unrepresented, ...card.payload.draft })
+      : assembleLine(formFieldsFor(entry.input, entry.metadata.form), entry.metadata.form, payload)
+    const args = assembled.args
+    const echo = displayLine(assembled)
     const actor = ctx.commandActor
     /*
      * The continuation keeps the asker's actor: an agent-rendered form runs
@@ -631,7 +635,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
         await patch(current, { ...payload, submitting: false }, "acted")
       }
       reopen?.()
-      return { value: outcome.value ?? `submitted /${flow}${args === "" ? "" : ` ${args}`}` }
+      return { value: outcome.value ?? `submitted /${flow}${echo === "" ? "" : ` ${echo}`}` }
     }
     const error = describe(outcome)
     if (current === undefined) return error

@@ -20,6 +20,8 @@ const windowCloseFault = new Error('window close failed')
 const rollbackBackendFault = new Error('backend failed during rollback')
 const rollbackQuitEvents: Array<{ response?: { allow: boolean } }> = []
 let requests: Record<string, (params: unknown) => Promise<unknown>> = {}
+const dialogs: string[] = []
+let dialogAnswer = 0
 
 const originalExit = process.exit
 const originalError = console.error
@@ -75,7 +77,13 @@ mock.module('electrobun/main', () => ({
   },
   BuildConfig: { getSync: () => ({ isPackaged: false, channel: 'dev', defaultRenderer: 'native' }) },
   Screen: { captureRegion: () => null },
-  Utils: { openExternal: () => true }
+  Utils: {
+    openExternal: () => true,
+    showMessageBox: async (options: { message: string }) => {
+      dialogs.push(options.message)
+      return { response: dialogAnswer }
+    }
+  }
 }))
 mock.module('../../../src/bun/NativeBackendProcess', () => ({
   startNativeBackend: async () => {
@@ -258,11 +266,18 @@ const exercise = async () => {
     } })
 
     if (scenario === 'normal') {
+      // WebView script alone cannot re-point the relay: the user refuses the native prompt and nothing changes.
+      dialogAnswer = 1
+      await expect(requests.switchApplicationTarget!({ origin: 'https://attacker.example', token: 'stolen' })).rejects.toThrow('Backend switch cancelled.')
+      expect(calls.filter((call) => call.startsWith('renderer:target:'))).toEqual([])
+      expect(await requests.applicationToken?.({})).toEqual({ token: null })
+      dialogAnswer = 0
       expect(await requests.switchApplicationTarget?.({ origin: 'https://plue.example', token: '  secret  ' })).toEqual({ target: {
         apiVersion: 1, mode: 'native-plue', apiOrigin: 'http://127.0.0.1:4920',
         auth: { kind: 'bearer' }, cors: 'same-origin', developerExternal: false
       } })
       expect(calls).toContain('renderer:target:https://plue.example:secret')
+      expect(dialogs).toEqual(['Connect to https://attacker.example?', 'Connect to https://plue.example?'])
       expect(await requests.applicationToken?.({})).toEqual({ token: 'secret' })
       process.emit('SIGTERM')
       expect(await within(exited.promise)).toBe(0)

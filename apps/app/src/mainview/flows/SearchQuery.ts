@@ -6,7 +6,7 @@
  * state/seams/SearchSeam.ts and the overlay in SearchPalette.tsx.
  */
 import type { SearchAction, SearchItem, SearchItemKind } from "@smthrs/rpc/Cards"
-import { assembleArgs, formFieldsFor } from "@smthrs/ui/flow-form"
+import { assembleLine, formFieldsFor } from "@smthrs/ui/flow-form"
 import { runSearchPayload } from "@smthrs/ui/run-command"
 import type { FlowEntry } from "./registry"
 import { nameOf, namespaceOf } from "./registry"
@@ -473,12 +473,15 @@ export const actionsFor = (item: Pick<SearchItem, "kind" | "ref" | "title">, ent
     if (!form.every((field) => !field.required || fields.has(field.name))) return
     // A namespace flow joins only when the ref fills one of its fields; a kind's own open flow may take nothing (secrets.list).
     if (!preferred && !form.some((field) => fields.has(field.name))) return
+    // The button re-parses its args as text, so a ref value the line cannot carry means no button.
+    const assembled = assembleLine(form, entry.metadata.form, payload)
+    if (assembled.withheld.length > 0) return
     let role = roleOf(item.kind, name)
     if (role !== "other") {
       if (roles[role]) role = "other"
       else roles[role] = true
     }
-    const args = assembleArgs(form, entry.metadata.form, payload)
+    const args = assembled.args
     actions.push({ flow: name, ...(args === "" ? {} : { args }), label: entry.metadata.summary, role })
   }
   // Preference order first, so the first registered open/primary flow takes the role.

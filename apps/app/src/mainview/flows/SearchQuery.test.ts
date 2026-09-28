@@ -174,6 +174,16 @@ describe("§2 actions: every action is a registered flow whose input the ref fil
     expect(run.find((action) => action.role === "primary")).toMatchObject({ flow: "runs.resume", args: "run-9" })
   })
 
+  test("a ref value the line cannot carry drops the action rather than running without it", () => {
+    // A button re-parses its args as text: a run id carrying a flag would run the flow without it, or with the flag.
+    const run = actionsFor({ kind: "run", ref: "run-9 --delete", title: "run-9" }, entries)
+    expect(run.filter((action) => action.flow.startsWith("runs."))).toEqual([])
+    expect(run.some((action) => action.args?.includes("--delete"))).toBe(false)
+    // A value the flow's own builder quotes still gets its button.
+    const file = actionsFor({ kind: "file", ref: "src/my --file.ts", title: "src/my --file.ts" }, entries)
+    expect(file[0]).toMatchObject({ flow: "files.read", args: '"src/my --file.ts"' })
+  })
+
   test("a flow item's one action is the flow itself; a secret name opens the secrets list and nothing more", () => {
     expect(actionsFor({ kind: "flow", ref: "flow.list", title: "flow.list" }, entries)).toEqual([
       { flow: "flow.list", label: "List the flows on your workspace", role: "open" }

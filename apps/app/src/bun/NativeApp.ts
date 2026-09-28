@@ -10,6 +10,7 @@ import type { BrowserWindow as NativeBrowserWindow } from "electrobun/main"
 import { deepLinkPath } from "./DeepLink"
 import { nativeBackendConfig } from "./NativeBackendConfig"
 import { startNativeBackend } from "./NativeBackendProcess"
+import { parseNativeApiOrigin } from "./NativeApiOrigin"
 import { startNativeRendererServer } from "./NativeRendererServer"
 import { createNativeShutdown } from "./NativeShutdown"
 import { nativeStateDirectory } from "./NativeState"
@@ -190,7 +191,17 @@ try {
           switchApplicationTarget: async ({ origin, token }) => {
             if (rendererServer === undefined) throw new Error("Native backend selection is unavailable.")
             const credential = token.trim()
-            rendererServer.setTarget(origin, credential)
+            const next = parseNativeApiOrigin(origin)
+            // WebView script cannot re-point the relay, its cookie jars and bearer without the user's native consent.
+            const { response } = await Utils.showMessageBox({
+              type: "warning",
+              message: `Connect to ${next.origin}?`,
+              buttons: ["Connect", "Cancel"],
+              defaultId: 1,
+              cancelId: 1
+            })
+            if (response !== 0) throw new Error("Backend switch cancelled.")
+            rendererServer.setTarget(next.origin, credential)
             selectedBackend = {
               rendererOrigin: rendererServer.origin,
               target: {

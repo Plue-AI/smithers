@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun"
 import { existsSync, statSync } from "node:fs"
 import { join, normalize, resolve } from "node:path"
+import { parseNativeApiOrigin } from "./NativeApiOrigin"
 
 type Tunnel = {
   target: string
@@ -95,20 +96,11 @@ export const startNativeRendererServer = (distDirectory: string, apiOrigin: stri
   const dist = resolve(distDirectory)
   const index = join(dist, "index.html")
   if (!existsSync(index)) throw new Error(`The packaged UI is missing ${index}.`)
-  const parseTarget = (value: string): URL => {
-    let target: URL
-    try { target = new URL(value) }
-    catch { throw new Error("Native API origin must be a credential-free HTTP(S) origin.") }
-    if (!/^https?:$/.test(target.protocol) || target.username || target.password ||
-      target.pathname !== "/" || target.search || target.hash) {
-      throw new Error("Native API origin must be a credential-free HTTP(S) origin.")
-    }
-    return target
-  }
-  let remote = parseTarget(apiOrigin)
+  let remote = parseNativeApiOrigin(apiOrigin)
   let credential = apiToken.trim()
   let generation = 0
   let origin = ""
+  let host = ""
   // A target's cookies live only in this process and never enter the shared renderer jar.
   const jars = new Map<string, Map<string, StoredCookie>>()
   const identity = (target: URL, token: string): string => `${target.origin}\0${token}`
@@ -130,6 +122,10 @@ export const startNativeRendererServer = (distDirectory: string, apiOrigin: stri
     hostname: "127.0.0.1",
     port: 0,
     fetch: async (request, server) => {
+      // DNS rebinding: a web page that re-points its own hostname at this port must not become same-origin.
+      if (request.headers.get("host") !== host) return new Response("Invalid host", { status: 421 })
+      const requestOrigin = request.headers.get("origin")
+      if (requestOrigin !== null && requestOrigin !== origin) return new Response("Invalid origin", { status: 403 })
       const url = new URL(request.url)
       if (url.pathname.startsWith("/api/")) {
         const selected = remote
@@ -138,7 +134,7 @@ export const startNativeRendererServer = (distDirectory: string, apiOrigin: stri
         const jar = jarFor(selected, selectedToken)
         const target = new URL(url.pathname + url.search, selected)
         if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-          if (request.headers.get("origin") !== origin) return new Response("Invalid origin", { status: 403 })
+          if (requestOrigin !== origin) return new Response("Invalid origin", { status: 403 })
           target.protocol = target.protocol === "https:" ? "wss:" : "ws:"
           const headers: Record<string, string> = { origin: selected.origin }
           const cookie = cookiesFor(jar, url.pathname)
@@ -297,7 +293,8 @@ export const startNativeRendererServer = (distDirectory: string, apiOrigin: stri
       }
     }
   })
-  origin = `http://127.0.0.1:${server.port}`
+  host = `127.0.0.1:${server.port}`
+  origin = `http://${host}`
   return {
     origin,
     stop: () => {
@@ -308,7 +305,7 @@ export const startNativeRendererServer = (distDirectory: string, apiOrigin: stri
       server.stop(true)
     },
     setTarget: (apiOrigin, apiToken = "") => {
-      const next = parseTarget(apiOrigin)
+      const next = parseNativeApiOrigin(apiOrigin)
       const nextToken = apiToken.trim()
       if (identity(next, nextToken) === identity(remote, credential)) return
       remote = next

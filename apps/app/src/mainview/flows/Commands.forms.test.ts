@@ -464,17 +464,20 @@ describe("THE FORM LAW — every flow's form submits its own named payload", () 
 
   test("the form door submits the draft by name and keeps the assembled line for display only", async () => {
     const { store, controller } = await boot()
-    const submitted = spyOn(controller.commands, "submit")
+    const submitted = spyOn(controller.commands, "submit").mockResolvedValue({ status: "executed" })
     expect(await execute(controller, "change.diff")).toContain("rendered a form")
     const card = formOf(store, "change.diff")!
     await controller.commands.run("form.set", `${card.id} changeId c1`)
     await controller.commands.run("form.set", `${card.id} to 1`)
-    await controller.commands.run("form.submit", card.id)
+    const acknowledged = await controller.commands.run("form.submit", card.id)
     const submission = submitted.mock.calls[0]?.[0]
     expect(submission?.payload).toEqual({ changeId: "c1", to: "1" })
-    // The line the card echoes is the lossy one the run path no longer reads.
-    expect(submission?.display).toBe("c1 1")
-    expect(payloadFor("change.diff", submission?.display)).toEqual({ payload: { changeId: "c1", from: "1" } })
+    // The line withholds `to` (behind the unset `from` slot it would read back as `from`), so it
+    // parses back to exactly what it carries.
+    expect(submission?.display).toBe("c1")
+    expect(payloadFor("change.diff", submission?.display)).toEqual({ payload: { changeId: "c1" } })
+    // The acknowledgment names the withheld value, so the run's `to` is never hidden behind the line.
+    expect(acknowledged).toEqual({ status: "executed", value: "submitted /change.diff c1 (+to)" })
   })
 })
 

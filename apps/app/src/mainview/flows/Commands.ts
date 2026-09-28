@@ -597,6 +597,21 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     const parsed: Parsed = named === undefined
       ? payloadFor(nameOf(target), args, target.metadata.grammar, actions.knownRepositories())
       : { payload: named }
+    /*
+     * A named payload survives as text only where the text reads back as that
+     * payload. A deferred command and a confirmation button re-run the LINE
+     * through the grammar, and a form value carrying a binding (`from:x`, a
+     * trailing `owner/repo`) or a withheld value would otherwise run with a
+     * field the payload never held, or without one it did. `extra` names the
+     * fields the line may add: a confirmation's `confirmArgs` binds the
+     * implicit repository.
+     */
+    const lineCarries = (line: string | undefined, extra: ReadonlySet<string> = new Set()): boolean =>
+      named === undefined || carriesPayload(
+        payloadFor(nameOf(target), line, target.metadata.grammar, actions.knownRepositories()),
+        named,
+        extra
+      )
     const repo = "payload" in parsed && typeof parsed.payload.repo === "string" ? parsed.payload.repo : undefined
     const readsRepository = target.metadata.requires?.includes("repo-source") === true
     const sourcePath = readsRepository
@@ -635,6 +650,9 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
           }
         }
         return { status: "failed", error: `${unmet.reason} — /${nameOf(target)} waits on that` }
+      }
+      if (!lineCarries(args)) {
+        return { status: "failed", error: `${unmet.reason}. Submit the form again once that is done.` }
       }
       if (unmet.fulfill === undefined) {
         /*
@@ -698,6 +716,12 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
        * confirmation cannot drift to a different target while it waits.
        */
       const bound = target.metadata.confirmArgs?.(parsed.payload) ?? args
+      if (!lineCarries(bound, target.metadata.confirmArgs === undefined ? undefined : new Set(["repo"]))) {
+        return {
+          status: "failed",
+          error: `/${nameOf(target)} cannot be confirmed from this input: its command line would not run the same values`
+        }
+      }
       acting.requestFlowConfirmation(nameOf(target), bound ?? null, confirmation, target.metadata.confirmQuestion)
       trace(invoker, name, bound, startedAt, "confirm-requested", confirmation)
       return {
@@ -829,3 +853,36 @@ export type { CatalogItem } from "./registry"
 
 /** The visible catalog, for the "/flows" answer and the slash menu. */
 export const visibleItems = (registry: CommandRegistry): Array<CatalogItem> => visible(registry.all())
+
+/** A form value as the grammar compares it: whitespace-collapsed text, or JSON for a structure; blank is absent. */
+const comparable = (value: unknown): string | undefined => {
+  if (value === undefined || value === null || value === false) return undefined
+  const text = Array.isArray(value) ? value.map(String).join(" ")
+    : typeof value === "object" ? JSON.stringify(value) : String(value)
+  const collapsed = text.trim().split(/\s+/).join(" ")
+  return collapsed === "" ? undefined : collapsed
+}
+
+/**
+ * Whether a re-parsed line holds exactly the named payload: every field the
+ * payload holds, read back as itself, and no other field except those in
+ * `extra` the payload left unset.
+ *
+ * @internal
+ */
+export const carriesPayload = (
+  reread: Parsed,
+  named: Readonly<Record<string, unknown>>,
+  extra: ReadonlySet<string>
+): boolean => {
+  if ("error" in reread) return false
+  const fields = new Set([...Object.keys(named), ...Object.keys(reread.payload)])
+  for (const field of fields) {
+    const want = comparable(named[field])
+    const got = comparable(reread.payload[field])
+    if (want === got) continue
+    if (want === undefined && extra.has(field)) continue
+    return false
+  }
+  return true
+}

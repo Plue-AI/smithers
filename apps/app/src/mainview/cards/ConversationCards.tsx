@@ -231,9 +231,23 @@ const WikiCardTree = ({ space, documents, selectedId, onRunCommand, fallback }: 
  * visible; a site that refuses framing gets the honest state + the one next
  * step, never a silent blank.
  */
+/**
+ * The URL a browser card may embed or link: absolute http(s) only, and never
+ * the app's own origin. A card can arrive from an upstream chat frame, and a
+ * same-origin frame sandboxed with allow-scripts + allow-same-origin can
+ * script the app document that holds the local session.
+ */
+const foreignHttpUrl = (url: string): URL | undefined => {
+  try {
+    const parsed = new URL(url)
+    return /^https?:$/.test(parsed.protocol) && parsed.origin !== window.location.origin ? parsed : undefined
+  } catch { return undefined }
+}
+
 export const BrowserCardBody = ({ card }: { readonly card: Extract<Card, { kind: "browser" }> }) => {
   const { url, finalUrl, frameable, blockReason, error } = card.payload
   const shownUrl = finalUrl ?? url
+  const target = foreignHttpUrl(shownUrl)
   if (error !== undefined) {
     return (
       <p className="sui-approval-error" role="alert">
@@ -247,7 +261,7 @@ export const BrowserCardBody = ({ card }: { readonly card: Extract<Card, { kind:
       <p className="browser-card-url">
         <ExternalLink size={12} aria-hidden="true" /> {shownUrl}
       </p>
-      {frameable ?
+      {frameable && target !== undefined ?
         (
           /*
            * §8.13: the app document is cross-origin isolated (COEP
@@ -262,7 +276,7 @@ export const BrowserCardBody = ({ card }: { readonly card: Extract<Card, { kind:
            */
           <iframe
             className="browser-card-frame"
-            src={shownUrl}
+            src={target.href}
             title={shownUrl}
             // @ts-expect-error React has no typing for the credentialless attribute yet.
             credentialless=""
@@ -275,9 +289,9 @@ export const BrowserCardBody = ({ card }: { readonly card: Extract<Card, { kind:
         (
           <div className="browser-card-blocked">
             <p>{blockReason ?? "This site can't be embedded here."}</p>
-            <a className="browser-card-open" href={shownUrl} target="_blank" rel="noreferrer">
+            {target !== undefined && <a className="browser-card-open" href={target.href} target="_blank" rel="noreferrer">
               Open in a new tab
-            </a>
+            </a>}
           </div>
         )}
     </div>

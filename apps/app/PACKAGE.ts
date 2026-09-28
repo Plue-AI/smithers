@@ -269,7 +269,7 @@ const securityReview = Smithers.SecurityReview({
         "openExternal passing a scheme other than http(s) to the OS.",
         "The window or a deep link navigating to a URL outside the renderer origin while the RPC bridge stays attached."
       ],
-      paths: ["src/bun/NativeApp.ts", "src/bun/DeepLink.ts", "src/mainview/native/**"]
+      paths: ["src/bun/NativeApp.ts", "src/bun/NativeApiOrigin.ts", "src/bun/DeepLink.ts", "src/mainview/native/**"]
     },
     {
       id: "cloud-login-callback",

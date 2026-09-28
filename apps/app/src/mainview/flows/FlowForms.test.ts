@@ -165,9 +165,13 @@ describe("draftFrom and missingFields", () => {
 })
 
 describe("assembleArgs — the filled form is one slash line again", () => {
-  test("the default is positional in schema order: blanks skipped, a true boolean as --name, arrays space-joined", () => {
+  test("the default is positional in schema order: blanks skipped, a true boolean as a trailing --name, arrays space-joined", () => {
     const fields = formFieldsFor(Mixed, undefined)
-    expect(assembleArgs(fields, undefined, { runId: "run-1", seq: 2, follow: true, paths: "a b" })).toBe("run-1 2 --follow a b")
+    // The flag trails, so the positional read reaches every value behind a mid-schema boolean.
+    expect(assembleArgs(fields, undefined, { runId: "run-1", seq: 2, follow: true, kind: "vm", paths: "a b" })).toBe("run-1 2 vm a b --follow")
+    expect(positionalRead(fields, undefined, "run-1 2 vm a b --follow").payload).toEqual({ runId: "run-1", seq: 2, kind: "vm", paths: "a b" })
+    // Behind the unset `kind` slot, `paths` would read back as `kind`, so the line withholds it.
+    expect(assembleArgs(fields, undefined, { runId: "run-1", seq: 2, follow: true, paths: "a b" })).toBe("run-1 2 --follow")
     expect(assembleArgs(fields, undefined, { runId: "run-1", seq: 2, follow: false, kind: "vm", paths: "a" })).toBe("run-1 2 vm a")
   })
 

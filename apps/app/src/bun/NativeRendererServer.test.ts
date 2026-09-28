@@ -391,3 +391,39 @@ test("terminal input survives the first HTTPS upstream handshake", async () => {
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test("a DNS-rebound or cross-origin page cannot use the owner's relayed backend session", async () => {
+  const dist = mkdtempSync(join(tmpdir(), "smithers-native-rebind-"))
+  close.push(() => rmSync(dist, { recursive: true, force: true }))
+  writeFileSync(join(dist, "index.html"), "<div>packaged UI</div>")
+  const seen: Array<string> = []
+  const remote = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => {
+    seen.push(new URL(request.url).pathname)
+    return new Response("owner data", { headers: { "set-cookie": "smithers_session=owner; HttpOnly; Path=/" } })
+  } })
+  close.push(() => remote.stop(true))
+  const native = startNativeRendererServer(dist, `http://127.0.0.1:${remote.port}`)
+  close.push(native.stop)
+  const port = new URL(native.origin).port
+  // Bun's fetch rewrites Host from the URL, so send the rebound request over node:http.
+  const { request } = await import("node:http")
+  const send = (headers: Record<string, string>, path = "/api/repos") => new Promise<{ status: number; setCookie: string[] | undefined }>((resolve, reject) => {
+    const outgoing = request({ host: "127.0.0.1", port: Number(port), path, headers }, (response) => {
+      response.resume()
+      resolve({ status: response.statusCode ?? 0, setCookie: response.headers["set-cookie"] })
+    })
+    outgoing.on("error", reject)
+    outgoing.end()
+  })
+  const rebound = await send({ host: `attacker.example:${port}` })
+  expect(rebound.status).toBe(421)
+  expect(rebound.setCookie).toBeUndefined()
+  expect((await send({ host: `attacker.example:${port}` }, "/")).status).toBe(421)
+  const crossOrigin = await send({ host: `127.0.0.1:${port}`, origin: "http://attacker.example" })
+  expect(crossOrigin.status).toBe(403)
+  expect((await send({ host: `127.0.0.1:${port}`, origin: "null" })).status).toBe(403)
+  expect(seen).toEqual([])
+  expect((await send({ host: `127.0.0.1:${port}`, origin: native.origin })).status).toBe(200)
+  expect((await send({ host: `127.0.0.1:${port}` })).status).toBe(200)
+  expect(seen).toEqual(["/api/repos", "/api/repos"])
+})
