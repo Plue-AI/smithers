@@ -85,6 +85,8 @@ The root entry point exports these namespaces. Each is also importable from
   `Endpoint`, `MakeOptions`, `make`, `render`
 - **`Evaluator`**: The transport a classifier asks: one JSON state and a map of typed questions go out, one typed raw answer per question comes back.
   `EvaluatorErrorCode`, `EvaluatorError`, `BooleanQuestion`, `ChoiceQuestion`, `ScoreQuestion`, `Question`, `RawBooleanAnswer`, `RawChoiceAnswer`, `RawScoreAnswer`, `RawAnswer`, `RawAnswers`, `Request`, `Usage`, `Response`, `Evaluator`, `defaultBaseUrl`, `defaultModel`, `defaultTimeoutMs`, `defaultAttempts`, `retryBackoffMs`, `protocolVersion`, `specificationVersion`, `VercelGatewayOptions`, `layerVercelGateway`, `layerFromSeat`, `ScriptedAnswer`, `Script`, `layerScripted`, `layerUnavailable`
+- **`EvaluatorBackup`**: Use a model as a validated judge and call it only when the primary judge is unreachable or times out.
+  `fromModel`, `withFallback`
 - **`Framing`**: Byte-stream framing, chosen independently of the protocol that interprets the frames.
   `Framing`, `sse`, `ndjson`
 - **`FailureCopy`**: Safe headlines and actions for typed model and harness failures.

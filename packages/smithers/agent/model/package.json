@@ -44,6 +44,7 @@
     "./DeferredTools": "./src/DeferredTools.ts",
     "./Endpoint": "./src/Endpoint.ts",
     "./Evaluator": "./src/Evaluator.ts",
+    "./EvaluatorBackup": "./src/EvaluatorBackup.ts",
     "./Framing": "./src/Framing.ts",
     "./FailureCopy": "./src/FailureCopy.ts",
     "./Model": "./src/Model.ts",
@@ -157,6 +158,16 @@
         "require": {
           "types": "./dist/cjs/Evaluator.d.ts",
           "default": "./dist/cjs/Evaluator.js"
+        }
+      },
+      "./EvaluatorBackup": {
+        "import": {
+          "types": "./dist/esm/EvaluatorBackup.d.ts",
+          "default": "./dist/esm/EvaluatorBackup.js"
+        },
+        "require": {
+          "types": "./dist/cjs/EvaluatorBackup.d.ts",
+          "default": "./dist/cjs/EvaluatorBackup.js"
         }
       },
       "./Framing": {

@@ -50,6 +50,11 @@ export * as Endpoint from "./Endpoint.ts"
 export * as Evaluator from "./Evaluator.ts"
 
 /**
+ * @since 1.0.0-rc.1
+ */
+export * as EvaluatorBackup from "./EvaluatorBackup.ts"
+
+/**
  * @since 0.1.0
  * @slop
  */

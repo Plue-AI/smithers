@@ -7,8 +7,9 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/age
 ---
 
 A decision inside a flow (classify, filter, rank, route, yes/no over items)
-asks Jev through `Classifier.make` and the host `Evaluator`. Never ask an LLM
-seat.
+asks Jev through `Classifier.make` and the host `Evaluator`. A host can use
+`EvaluatorBackup.withFallback(jev, EvaluatorBackup.fromModel(model, modelId))`
+when its resolved LLM seat should cover Jev outages and timeouts.
 
 | Where           | Ask with                                                              |
 | --------------- | --------------------------------------------------------------------- |
@@ -84,8 +85,9 @@ export const JudgeLive = Layer.mergeAll(Keep.toLayer(keep), Rank.toLayer(rank))
 
 ## Failure
 
-Jev unreachable, refused, timed out, or answering the wrong shape fails with a
-typed `ClassifierError`. There is no fallback answer and no other model.
+Jev refusals and invalid answers fail with a typed `ClassifierError`. A configured
+backup is used only when Jev is unreachable or times out. Backup answers receive
+the same question validation; a malformed answer still fails.
 
 ## Examples
 
