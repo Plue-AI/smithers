@@ -414,6 +414,30 @@ describe("QuickJs sealed realm", () => {
     expect(error.message).toBe(QuickJsRunner.escapedWrapper)
   })
 
+  it("contacts no handler from text that escapes the async wrapper", async () => {
+    const calls: Array<string> = []
+    const error = await failWith(
+      layer,
+      `}; ctx.call("escaped-top-level", {}); var reopened = async () => {`,
+      (request) => Effect.sync(() => calls.push(request.name))
+    ) as ScriptRunner.ScriptFailure
+    expect(error.code).toBe("runtime")
+    expect(error.message).toBe(QuickJsRunner.escapedWrapper)
+    expect(calls).toEqual([])
+  })
+
+  it("contacts no handler from a job an escaped wrapper queued", async () => {
+    const calls: Array<string> = []
+    const error = await failWith(
+      layer,
+      `}; Promise.resolve().then(() => ctx.call("escaped-job", {})); var reopened = async () => {`,
+      (request) => Effect.sync(() => calls.push(request.name))
+    ) as ScriptRunner.ScriptFailure
+    expect(error.code).toBe("runtime")
+    expect(error.message).toBe(QuickJsRunner.escapedWrapper)
+    expect(calls).toEqual([])
+  })
+
   it("encodes the outcome even when the script replaces Promise.prototype.then", async () => {
     const outcome = await runWith(
       layer,

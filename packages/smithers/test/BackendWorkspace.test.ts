@@ -110,6 +110,12 @@ describe("box remote execution", () => {
     await expect(workspaceSSH(c, "box", options)).rejects.toThrow("403")
     expect(request).toHaveBeenCalledTimes(1)
   })
+  it("refuses a malformed advertised host key at once instead of polling", async () => {
+    const { c, request } = await fixture({ SMITHERS_WORKSPACE_SSH_POLL_TIMEOUT_MS: "60000" })
+    request.mockResolvedValue({ ssh_command: "ssh guest", host_keys: [{ known_hosts_line: "ssh-ed25519 not a key" }] })
+    await expect(workspaceSSH(c, "box", options)).rejects.toThrow("Invalid workspace SSH host key")
+    expect(request).toHaveBeenCalledTimes(1)
+  })
   it("times out missing SSH receipts", async () => {
     const { c, request } = await fixture()
     request.mockResolvedValue({})

@@ -119,7 +119,9 @@ in-memory EVM fork, six panes, a full Worker, and a Cloudflare deploy.
 - **Tools.** Three sources: `tevm` (`fork`, `getBalance`, `readContract`,
   `call`, `setAccount`, `mine`, `simulate`, `getBlock`), `ui` (`pane`, `html`),
   and `flows` (`show-script`, `write-flow`, which writes a flow, its test, and
-  its fixture back into the app's own source tree).
+  its fixture back into the app's own source tree). `write-flow` declares
+  `fs:write:/flows/**`, which `TOOLS.ts` grants; remove that grant and every
+  save is refused with `capability_refused`.
 - **Worker.** A router free of `cloudflare:workers` so it can be driven on
   plain Node, one Durable Object per session, an NDJSON turn stream run by
   `@smthrs/create-app/worker`, and a guard that enforces a bearer credential,
@@ -129,8 +131,8 @@ in-memory EVM fork, six panes, a full Worker, and a Cloudflare deploy.
 
 ### Chain tool configuration
 
-`TOOLS.ts` composes the deterministic Tevm mock with an empty grant, which the
-fixtures and tests run on. A host using `layerTevm` supplies
+`TOOLS.ts` composes the deterministic Tevm mock with no network grant, which
+the fixtures and tests run on. A host using `layerTevm` supplies
 `TevmOptions.rpcUrl`, or sets `TEVM_FORK_RPC_URL` in the process environment.
 The shipped Worker passes its `TEVM_FORK_RPC_URL` binding as `rpcUrl` and
 refuses a turn without it. `tevm/fork` accepts only `blockTag` and

@@ -176,8 +176,8 @@ describe("host-selected fork endpoint", () => {
     expect(sdk.http).not.toHaveBeenCalled()
   })
 
-  test("the root mock composition has no wildcard grant", () => {
-    expect(Tools.grant).toEqual([])
+  test("the root mock composition grants only the flow write", () => {
+    expect(Tools.grant).toEqual([{ action: "fs:write", resource: "/flows/**" }])
   })
 
   test("mock bindings need no network grant", async () => {

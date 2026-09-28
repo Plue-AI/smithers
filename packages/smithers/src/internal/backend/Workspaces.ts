@@ -32,15 +32,18 @@ export const resolveID = async (c: Client, a: Values, o: Values) => {
 const sshInfo = async (c: Client, path: string, user: unknown): Promise<Endpoint> => {
   const deadline = Date.now() + (Number(c.env.SMITHERS_WORKSPACE_SSH_POLL_TIMEOUT_MS) || 120_000)
   do {
+    let info: Values | undefined
     try {
-      const info = object(
+      info = object(
         await c.request("GET", path + "/ssh" + query({ user: user && user !== "developer" ? user : undefined }))
       )
-      if (info.ssh_command || info.command) {
-        return { command: str(info.ssh_command || info.command), hostKeys: hostKeys(info.host_keys) }
-      }
     } catch (error) {
       if (error instanceof APIError && ![404, 409, 423, 425, 429, 502, 503, 504].includes(error.status)) throw error
+    }
+    // Host keys are validated outside the retry guard: a malformed advertised
+    // key is a refusal, never a transient state to poll through.
+    if (info && (info.ssh_command || info.command)) {
+      return { command: str(info.ssh_command || info.command), hostKeys: hostKeys(info.host_keys) }
     }
     await delay(Number(c.env.SMITHERS_WORKSPACE_SSH_POLL_INTERVAL_MS) || 3000, undefined, { signal: c.runtime.signal })
   } while (Date.now() < deadline)

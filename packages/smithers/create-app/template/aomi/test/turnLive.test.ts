@@ -16,6 +16,8 @@ import { type AppCard, type Message, type SessionSummary, TurnFrame } from "../s
 import type { Env } from "../worker/env.ts"
 import { hostFor } from "../worker/host.ts"
 import { runTurn, type TurnSession } from "../worker/turnImpl.ts"
+import { flows } from "../routes.gen.ts"
+import type { TurnRoute } from "@smthrs/create-app/worker"
 import { fixtures, nodeHost, recordedHost, scriptedSeat } from "./support/recordedHost.ts"
 
 const env = { APP_NAME: "turn-test" } as Env
@@ -156,6 +158,44 @@ await ctx.done({ answer: String(script.cells.length) + ":" + written.files.lengt
       }
     ]])
   })
+
+  it("write-flow saves nothing when the route grants no flow write", async () => {
+    const saved: Array<string> = []
+    const sink = memorySession()
+    const session: TurnSession = {
+      ...sink.session,
+      writeFlow: (id) => {
+        saved.push(id)
+        return { files: [] }
+      }
+    }
+    // A refused call resolves to the refusal, so the answer carries it.
+    const cell = `const result = await ctx.call("flows/write-flow", {
+  id: "vitalik-balance",
+  description: "Reads one address's ETH balance",
+  flowSource: "export {}",
+  testSource: "export {}",
+  fixtureJson: "{}"
+})
+await ctx.done({ answer: JSON.stringify(result), cards: [] })`
+    const ungranted = (flows as unknown as ReadonlyArray<TurnRoute>).map((route) => ({
+      ...route,
+      tools: { ...route.tools, grant: [] }
+    }))
+    const body = await runTurn({
+      env,
+      session,
+      request,
+      signal: new AbortController().signal,
+      seams: nodeHost(scriptedSeat(cell), { routes: async () => ungranted })
+    })
+    if (!(body instanceof ReadableStream)) throw new Error(`refused: ${JSON.stringify(body)}`)
+    const frames = await read(body)
+    const last = frames.at(-1)
+    expect(last?.type).toBe("done")
+    expect(JSON.stringify(last)).toContain("capability_refused")
+    expect(saved).toEqual([])
+  })
 })
 
 describe("a turn the host cannot run", () => {
@@ -205,7 +245,10 @@ describe("the Worker's chain", () => {
     if ("error" in host) throw new Error(host.message)
     const route = host.flows.find((flow) => flow.id === "chat")!
     const tools = host.tools!(route, { emit: () => undefined, update: () => undefined })
-    expect(tools.grant).toEqual([{ action: "net:post", resource: "https://rpc.example:8443/*" }])
+    expect(tools.grant).toEqual([
+      { action: "fs:write", resource: "/flows/**" },
+      { action: "net:post", resource: "https://rpc.example:8443/*" }
+    ])
     const chain = tools.sources.find((source) => source.name === "tevm")!
     for (const binding of await Effect.runPromise(chain.bindings())) {
       expect(binding.descriptor.capabilities).toEqual(["net:post:https://rpc.example:8443/*"])

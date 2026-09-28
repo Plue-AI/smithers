@@ -12,8 +12,9 @@
   reached.
 - `QuickJsRunner` reads the outcome from a sealed completion value. A script
   that closes its async wrapper fails with `runtime` and
-  `QuickJsRunner.escapedWrapper` instead of replacing the outcome, and the
-  parse check no longer runs authored code.
+  `QuickJsRunner.escapedWrapper` instead of replacing the outcome, its
+  escaped statements reach no `ctx.call` handler, and the parse check no
+  longer runs authored code.
 - `Chain.run` hands catalog handlers and the author context the JSON copy
   it journals, never the runner's live payload object.
 

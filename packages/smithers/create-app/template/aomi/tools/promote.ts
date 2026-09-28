@@ -214,13 +214,18 @@ const showScriptFlow = Flow.make({
   effects: undefined
 })
 
+/** The authority `flows/write-flow` needs: writing files under `/flows/`. */
+export const writeFlowCapabilities = ["fs:write:/flows/**"]
+
 const writeFlowFlow = Flow.make({
   name: "flows/write-flow",
   description:
     "Save a flow: writes flow.ts, flow.e2e.ts, and its fixture under flows/<id>/. The id must be lowercase letters, digits, and hyphens.",
   input: WriteFlowInput,
   output: WriteFlowOutput,
-  capabilities: [],
+  // Saving creates flow files the app routes, so the turn's grant must
+  // include this write; a TOOLS.ts that omits it refuses the call.
+  capabilities: writeFlowCapabilities,
   effects: undefined
 })
 

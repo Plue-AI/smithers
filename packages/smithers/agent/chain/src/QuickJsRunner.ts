@@ -111,7 +111,9 @@ export const defaultLimits: Required<Limits> = {
  * The wrapper is source concatenation, so a script can end its own body
  * early, run top-level statements, and reopen a body for the suffix to
  * close. The seal compares the body function's source text with the
- * authored text and refuses anything else before the body runs.
+ * authored text and refuses anything else before the body runs. Escaped
+ * statements still execute, but `ctx.call` refuses until the seal passes,
+ * so they reach no handler and cannot replace the outcome.
  *
  * @category constants
  * @since 0.1.0
@@ -237,11 +239,16 @@ const prelude = `(function () {
   // always passes encodeOutcome: no realm Promise.prototype.then, and no
   // reassigned global, can substitute a result. The source check refuses a
   // body that is not exactly the authored text, which is what a wrapper
-  // escape leaves behind.
+  // escape leaves behind. The bridge stays closed until the check passes:
+  // an escape runs its top-level statements before the seal, so ctx.call
+  // refuses every call issued there, or from a job queued there, and no
+  // handler is contacted.
+  var sealed = false
   globalThis.__seal = async function (body) {
     if (intrinsicFunctionToString.call(body) !== expectedBody) {
       throw new IntrinsicError(${JSON.stringify(escapedWrapper)})
     }
+    sealed = true
     var value = await body()
     return encodeOutcome(value === undefined ? null : value)
   }
@@ -251,6 +258,9 @@ const prelude = `(function () {
   delete Math.random
   globalThis.ctx = Object.freeze({
     call: function (name, input) {
+      if (!sealed) {
+        return intrinsicPromiseReject(new IntrinsicError(${JSON.stringify(escapedWrapper)}))
+      }
       if (typeof name !== "string") {
         return intrinsicPromiseReject(new IntrinsicTypeError(${JSON.stringify(JsonBoundary.missingCallName)}))
       }
