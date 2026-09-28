@@ -143,7 +143,13 @@ const securityReview = Smithers.SecurityReview({
         "Budget accumulator keyed so that a resumed or retried execution gets a fresh allowance.",
         "QuotaPolicy classifying a provider error so the call is retried unbounded or parked with spend uncounted."
       ],
-      paths: ["src/Budget.ts", "src/QuotaPolicy.ts", "src/FlowEngineLike.ts", "src/AgentAction.ts"]
+      paths: [
+        "src/Budget.ts",
+        "src/RunawayGuard.ts",
+        "src/QuotaPolicy.ts",
+        "src/FlowEngineLike.ts",
+        "src/AgentAction.ts"
+      ]
     },
     {
       id: "journal-secret-redaction",

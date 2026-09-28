@@ -88,6 +88,9 @@ const publicExecutionError = (error: StdError): string | undefined => {
   return error.code === "command_failed" || error.code === "request_failed" ? undefined : error.message
 }
 
+/** A command past its own limit is a timeout; see `FlowBinding.Options.timedOut`. */
+const commandTimedOut = (error: StdError): boolean => error.code === "timeout"
+
 /**
  * Native search may report raw stderr, so only the contract's own rejection,
  * which names the construct that broke, is published verbatim.
@@ -250,6 +253,7 @@ export const shell = (
         flow: Bash.flow,
         handler: options?.sealedTo === undefined ? Bash.run : Bash.sealed(options.sealedTo),
         publicError: publicExecutionError,
+        timedOut: commandTimedOut,
         presentation: Bash.presentation
       }),
       Context.add(services, Container.Container, container)
@@ -284,6 +288,7 @@ export const tests = (
         flow: TestRun.flow,
         handler: TestRun.run,
         publicError: publicExecutionError,
+        timedOut: commandTimedOut,
         activity: TestRun.activity,
         presentation: TestRun.presentation
       }),

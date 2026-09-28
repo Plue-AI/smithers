@@ -2010,17 +2010,41 @@ const issued = (
     // Authority is decided before the clock starts: time a person spends
     // answering an approval is not the flow's to spend.
     const refused = engine.admit === undefined ? undefined : yield* engine.admit(call)
+    const identity = { session: state.session, frame: state.frame, boundary: `cell-call:${cell}:${ordinal}` }
+    // A guarded host parks a timed-out call instead of letting the cell read
+    // it. The call's own timeout (a command's, a child await still running)
+    // is reported under the same code as this boundary's. Nothing is recorded
+    // for the parked call, so Continue issues it again and Stop refuses it
+    // here before it runs.
+    const subject = JSON.stringify(identity)
+    if (refused === undefined && engine.guard !== undefined) yield* engine.guard.admit(subject)
+    let bounded = false
     const settlement = refused ?? (yield* issue.pipe(
       Effect.timeoutOrElse({
         duration: callMs,
-        orElse: () => Effect.succeed(Sandbox.callTimedOut(flow, callMs))
+        orElse: () =>
+          Effect.sync(() => {
+            bounded = true
+            return Sandbox.callTimedOut(flow, callMs)
+          })
       }),
       Effect.flatMap(Cell.decodeCallResult)
     ))
+    if (
+      refused === undefined && engine.guard !== undefined && settlement.outcome === "failure" &&
+      settlement.code === "timeout"
+    ) {
+      yield* engine.guard.trip({
+        source: "tool-call",
+        subject,
+        limitMillis: bounded ? callMs : undefined,
+        message: settlement.message ?? `Flow ${flow} timed out.`
+      })
+    }
     return yield* engine.record({
       name: "cell-call",
       call,
-      identity: { session: state.session, frame: state.frame, boundary: `cell-call:${cell}:${ordinal}` },
+      identity,
       success: Cell.CallResultVariant,
       execute: Effect.succeed(settlement)
     }).pipe(Effect.flatMap(Cell.decodeCallResult))
@@ -2866,6 +2890,7 @@ const evaluate = (
     // where the settlement is recorded rather than in the drive loop, so the
     // number a run armed and the number its journal holds are the same one.
     const callMs = Sandbox.withDefaults(sandbox.capabilities, input.limits).callMs ?? Sandbox.defaultLimits.callMs
+    const totalMs = Sandbox.withDefaults(sandbox.capabilities, input.limits).totalMs
     let replaying = false
     const observing: Sandbox.Handler = (invocation) => {
       const handle = callHandler(
@@ -2983,6 +3008,17 @@ const evaluate = (
           ? { boundary: recorded.boundary, outcome: yield* Cell.decodeOutcome(recorded.outcome) }
           : undefined
         replaying = replay !== undefined
+        // A guarded host parks a frame past its wall-clock limit instead of
+        // recording it. The subject is the frame, not its attempt, so Stop
+        // refuses the re-evaluation here and Continue re-evaluates it with
+        // its settled calls replayed.
+        const guarded = recorded === null && engine.guard !== undefined ? engine.guard : undefined
+        const subject = JSON.stringify({
+          session: state.session,
+          frame: state.frame,
+          boundary: `cell-frame:${cell.digest}`
+        })
+        if (guarded !== undefined) yield* guarded.admit(subject)
         const frame = yield* realm.evaluate({
           cell,
           // The boundary parse is the only one this cell gets: the realm runs
@@ -3000,6 +3036,12 @@ const evaluate = (
         })
         if (recorded !== null) return recorded
         const outcome = yield* Cell.decodeOutcome(frame.outcome)
+        if (
+          guarded !== undefined && frame.boundary?.terminal === "timeout" &&
+          outcome._tag === "rejected" && outcome.code === "limit_exceeded"
+        ) {
+          yield* guarded.trip({ source: "cell", subject, limitMillis: totalMs, message: outcome.message })
+        }
         return yield* engine.record({
           name: "cell-frame",
           identity: identity(attempt + 1),

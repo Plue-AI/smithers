@@ -144,6 +144,12 @@ export * as QuotaPolicy from "./QuotaPolicy.ts"
 export * as Budget from "./Budget.ts"
 
 /**
+ * @category services
+ * @since 1.0.0-rc.1
+ */
+export * as RunawayGuard from "./RunawayGuard.ts"
+
+/**
  * @category testing
  * @since 1.0.0-rc.0
  */

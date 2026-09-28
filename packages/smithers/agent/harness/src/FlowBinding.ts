@@ -310,6 +310,14 @@ export interface Options<
    * Inspect raw causes in the host handler, redacting before any persistence.
    */
   readonly publicError?: ((error: E) => string | undefined) | undefined
+  /**
+   * Whether a handler failure is the flow's own timeout: a command past its
+   * limit, or a wait that gave up. The cell reads one as a `timeout` call
+   * failure, the code of the call boundary's own limit, and a host that
+   * guards timeouts parks the run on it. Absent, every failure is
+   * `flow_failed`.
+   */
+  readonly timedOut?: ((error: E) => boolean) | undefined
 }
 
 /**
@@ -368,7 +376,7 @@ export const make = <
           if (escalate !== undefined) return yield* Effect.fail(escalate)
           const message = publicMessage(produced.failure, options.publicError)
           return refusal(
-            "flow_failed",
+            options.timedOut?.(produced.failure) === true ? "timeout" : "flow_failed",
             message === undefined
               ? `Flow ${descriptor.name} failed.`
               : `Flow ${descriptor.name} failed: ${message}`

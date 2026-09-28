@@ -862,7 +862,8 @@ ctx.done(suite.passed + " passed, " + suite.failed.join(","))`
       "Flow bash failed: The command timed out.",
       "Flow test failed: The command timed out."
     ])
-    expect(settled.every((event) => event.result.code === "flow_failed")).toBe(true)
+    // A command's own timeout is a timeout, the code a guarded host parks on (#2120).
+    expect(settled.every((event) => event.result.code === "timeout")).toBe(true)
     expect(JSON.stringify(settled.map((event) => event.result))).not.toContain("SYNTHETIC_")
   })
 

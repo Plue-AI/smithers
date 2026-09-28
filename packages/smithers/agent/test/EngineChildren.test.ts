@@ -34,13 +34,14 @@ import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as TestStores from "@smthrs/engine-store/test/TestStores"
 import { Action, DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
 import { Notifications } from "@smthrs/harness"
+import * as Cell from "@smthrs/harness/Cell"
 import * as Jj from "@smthrs/kernel/Jj"
 import type * as ModelRequest from "@smthrs/model/ModelRequest"
 import { NotificationQueue } from "@smthrs/notifications"
 import { Node } from "@smthrs/plan"
 import { Registry } from "@smthrs/registry"
 import { RunStore } from "@smthrs/run-store"
-import { Deferred, Effect, Exit, Fiber, Layer, Schema } from "effect"
+import { Deferred, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
 import type * as Scope from "effect/Scope"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -918,6 +919,51 @@ describe("EngineChildren.await", () => {
         })
       }))
   )
+
+  /**
+   * A child await that gave up is a timeout, and the cell and a guarded host
+   * must read it as one: the `agent/await` binding reports the port's
+   * `still_running` under the call boundary's own `timeout` code, which is
+   * the code a host that guards timeouts parks the run on (#2120).
+   */
+  it("reports an await that gave up as a timeout through its binding", () =>
+    run(Effect.gen(function*() {
+      const runtime = yield* engine("children-await-binding")
+      const store = yield* RunStore.RunStore
+      const port = yield* children({ awaitTimeout: "30 millis" }).pipe(
+        Effect.provideService(FlowRuntime.FlowRuntime, runtime)
+      )
+      yield* runtime.register(Worker, () => Effect.succeed("worker finished"))
+      yield* store.create(
+        "stuck-child",
+        JSON.stringify({ version: 1, flowName: Worker._tag, payload: {} }),
+        { lineageId: FlowEngine.Round.initial("stuck-child").rootExecutionId, roundOrdinal: 0 }
+      )
+      const bindings = yield* ChildFlows.source(port).bindings()
+      const awaiting = bindings.find((binding) => binding.descriptor.name === "agent/await")!
+      const result = yield* awaiting.run(
+        new Cell.Call({
+          flowName: "agent/await",
+          input: { child: "stuck-child" },
+          capabilities: [],
+          effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+          placement: Option.none(),
+          identity: new Cell.CallIdentity({
+            session: "session-1",
+            frame: 0,
+            cell: Cell.source("await ctx.call(\"agent/await\", { child: \"stuck-child\" })").digest,
+            ordinal: 0,
+            declaration: "declaration-digest",
+            layers: []
+          })
+        })
+      )
+      expect(result).toMatchObject({
+        outcome: "failure",
+        code: "timeout",
+        message: expect.stringContaining("still running")
+      })
+    })))
 })
 
 describe("EngineChildren.send", () => {

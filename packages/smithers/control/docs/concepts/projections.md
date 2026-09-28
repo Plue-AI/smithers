@@ -163,6 +163,14 @@ digest. Repeated requests do not reopen a decision. Legacy records retain their
 historical read contract; only legacy requests are eligible for unnamed legacy
 decision fallback.
 
+A request a runaway guard makes carries an optional `incident`
+(`ControlFacts.GuardIncident`): its `Runaway` or `Stuck` classification, the
+guard `source` (`tokens`, `latency`, `model-call`, `tool-call`, `cell`), the
+triggering `message`, and the numbers frozen when it tripped (`used`,
+`reserved`, `max`, `next`, the `allowance` Continue authorizes, and the
+timed-out `subject`). A host that re-parks the run reuses the recorded request
+and its incident rather than measuring again.
+
 These atomic guarantees require the SQL control runtime and journal to share
 the same database/writer, as the production control composition does. The
 in-memory test runtime has no transactional rollback protocol. `SqlJournal`

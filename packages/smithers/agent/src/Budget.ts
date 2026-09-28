@@ -83,6 +83,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { failureJson } from "./internal/FailureJson.ts"
+import type * as RunawayGuard from "./RunawayGuard.ts"
 
 /**
  * What a composition wants done when a budget runs out.
@@ -456,6 +457,31 @@ export interface Parked {
  */
 export class Parking extends Context.Service<Parking, {
   readonly park: (exceeded: BudgetExceeded) => Effect.Effect<Parked, HarnessError.HarnessError>
+  /**
+   * Whether a {@link RunawayGuard.Timeout} parks the run. When false every
+   * timeout keeps its own behavior: an exhausted model call fails the run, and
+   * a tool call or cell reports its timeout to the cell.
+   */
+  readonly guardsTimeouts: boolean
+  /**
+   * Parks the run on a tripped timeout with its {@link RunawayGuard.incident}
+   * facts. A subject the operator already continued asks again under a new
+   * request; one the operator stopped fails with {@link RunawayGuard.stopped}.
+   */
+  readonly trip: (timeout: RunawayGuard.Timeout) => Effect.Effect<Parked, HarnessError.HarnessError>
+  /**
+   * Admits work on a subject a timeout may have parked: how many times the
+   * operator chose Continue for it, the park when its question is still
+   * open, or {@link RunawayGuard.stopped} when the operator chose Stop. The
+   * decisions are read once per host drive, because a decision only takes
+   * effect by driving the run again.
+   */
+  readonly admit: (
+    subject: string
+  ) => Effect.Effect<
+    { readonly _tag: "proceed"; readonly continued: number } | { readonly _tag: "park"; readonly parked: Parked },
+    HarnessError.HarnessError
+  >
 }>()("@smthrs/agent/Budget/Parking") {}
 
 /**

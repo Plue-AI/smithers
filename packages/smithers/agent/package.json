@@ -52,6 +52,7 @@
     "./MemorySnapshotRecorder": "./src/MemorySnapshotRecorder.ts",
     "./PromoteFlows": "./src/PromoteFlows.ts",
     "./QuotaPolicy": "./src/QuotaPolicy.ts",
+    "./RunawayGuard": "./src/RunawayGuard.ts",
     "./Seat": "./src/Seat.ts",
     "./SeatResolver": "./src/SeatResolver.ts",
     "./SeatRouter": "./src/SeatRouter.ts",
@@ -239,6 +240,16 @@
         "require": {
           "types": "./dist/cjs/QuotaPolicy.d.ts",
           "default": "./dist/cjs/QuotaPolicy.js"
+        }
+      },
+      "./RunawayGuard": {
+        "import": {
+          "types": "./dist/esm/RunawayGuard.d.ts",
+          "default": "./dist/esm/RunawayGuard.js"
+        },
+        "require": {
+          "types": "./dist/cjs/RunawayGuard.d.ts",
+          "default": "./dist/cjs/RunawayGuard.js"
         }
       },
       "./Seat": {

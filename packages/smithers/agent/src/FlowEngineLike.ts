@@ -86,6 +86,7 @@ import * as Budget from "./Budget.ts"
 import { callId } from "./internal/CallIdentity.ts"
 import { normalizeRecordedModelStep, recordModelStep } from "./internal/FlowEngineLike.ts"
 import * as QuotaPolicy from "./QuotaPolicy.ts"
+import * as RunawayGuard from "./RunawayGuard.ts"
 import * as WorkspaceObservation from "./WorkspaceObservation.ts"
 import type * as WorkspaceSandbox from "./WorkspaceSandbox.ts"
 
@@ -562,6 +563,19 @@ const unlessParked = (quota: QuotaPolicy.Service) =>
 }
 
 /**
+ * Fails an exhausted call timeout instead of sealing it, when the host guards
+ * timeouts: the guard parks the run on it, and a sealed timeout would replay
+ * into every Continue the operator chose.
+ */
+const unlessGuarded = (guarded: boolean) =>
+(
+  recorded: typeof RecordedModelStep.Type
+): Effect.Effect<typeof RecordedModelStep.Type, ModelError.ModelError> => {
+  const error = normalizeRecordedModelStep(recorded).error
+  return guarded && error?.code === "call_timeout" ? Effect.fail(error) : Effect.succeed(recorded)
+}
+
+/**
  * Model, permission, and usage-infrastructure failures as one encodable
  * boundary schema. The engine stores an activity's failure as well as its
  * success, so the port's error channel cannot be an opaque value.
@@ -880,6 +894,17 @@ export const make = (
 
     // The wait a budget park declared, applied when the frame suspends.
     let parkedOn: FlowRuntime.WaitingAnnotation | undefined
+    // The run's timeout guard, read where the controller asks: the host that
+    // owns approvals provides `Budget.Parking` around the run it drives.
+    const guarding = Effect.map(
+      Effect.serviceOption(Budget.Parking),
+      (parking) => Option.isSome(parking) && parking.value.guardsTimeouts ? parking.value : undefined
+    )
+    const parkOn = (parked: Budget.Parked) =>
+      Effect.suspend(() => {
+        parkedOn = parked.waiting
+        return Effect.fail(parked.failure)
+      })
     const sealStep = (
       step: EngineLike.SealedModelStep,
       onLive?: (event: ModelEvent.ModelEvent) => Effect.Effect<void>
@@ -887,7 +912,27 @@ export const make = (
       Stream.unwrap(
         Effect.gen(function*() {
           yield* accountedResume
-          const key = yield* seal(step, options.route)
+          const sealed = yield* seal(step, options.route)
+          // A guarded host parks an exhausted call timeout instead of failing
+          // the run. The timed-out attempt's failure is durable under its key,
+          // so each Continue the operator chose re-issues the call under a key
+          // of its own, as a capacity cycle does, and Stop replays the failure
+          // into the stopped incident without asking a provider again.
+          const guard = yield* guarding
+          let key = sealed
+          if (guard !== undefined) {
+            const admitted = yield* guard.admit(sealed)
+            if (admitted._tag === "park") return yield* parkOn(admitted.parked)
+            if (admitted.continued > 0) {
+              key = yield* seal({
+                ...step,
+                keyMaterial: {
+                  ...step.keyMaterial,
+                  layers: [...step.keyMaterial.layers, `timeout-continue:${admitted.continued}`]
+                }
+              }, options.route)
+            }
+          }
           // The composition's spending ceiling, applied where every model call
           // in the run passes: a step that assembles its own loop cannot evade
           // a budget declared for the whole run. `warn` journals inside the
@@ -959,6 +1004,7 @@ export const make = (
                   onLive
                 ).pipe(
                   Effect.flatMap(unlessParked(quota)),
+                  Effect.flatMap(unlessGuarded(guard !== undefined)),
                   // The normal sealed result is accounted below, including on
                   // replay. This finalizer covers only exits that cannot seal.
                   // It runs uninterruptibly before releasing the reservation;
@@ -973,7 +1019,21 @@ export const make = (
                 )
               })
             })
-          })
+          }).pipe(
+            Effect.catchIf(
+              (error): error is ModelError.ModelError =>
+                guard !== undefined && error instanceof ModelError.ModelError && error.code === "call_timeout",
+              (error) =>
+                guard!.trip(
+                  new RunawayGuard.Timeout({
+                    source: "model-call",
+                    subject: sealed,
+                    limitMillis: step.modelCallMs,
+                    message: error.message
+                  })
+                ).pipe(Effect.flatMap(parkOn))
+            )
+          )
           const normalized = normalizeRecordedModelStep(recorded)
           // Accounted after the step settles. The accumulator is keyed by the
           // step key, so a step whose body really did re-run counts once, and
@@ -1207,11 +1267,28 @@ export const make = (
         Effect.orElseSucceed(() => Option.none<EngineLike.Resolved>())
       )
 
+    const guard: EngineLike.Guard = {
+      admit: (subject) =>
+        Effect.gen(function*() {
+          const parking = yield* guarding
+          if (parking === undefined) return
+          const admitted = yield* parking.admit(subject)
+          if (admitted._tag === "park") return yield* parkOn(admitted.parked)
+        }),
+      trip: (timeout) =>
+        Effect.gen(function*() {
+          const parking = yield* guarding
+          if (parking === undefined) return
+          return yield* parkOn(yield* parking.trip(new RunawayGuard.Timeout(timeout)))
+        })
+    }
+
     return EngineLike.make({
       sealStep,
       sealStepWithEvents,
       splice,
       call,
+      guard,
       ...(admit === undefined ? {} : { admit }),
       record,
       observe,

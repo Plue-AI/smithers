@@ -109,6 +109,7 @@ import { latestPendingApproval } from "./internal/PendingApproval.ts"
 import { unordered } from "./internal/TraceOrder.ts"
 import { waitingAnnotation } from "./internal/WaitingAnnotation.ts"
 import type * as QuotaPolicy from "./QuotaPolicy.ts"
+import * as RunawayGuard from "./RunawayGuard.ts"
 import * as Seat from "./Seat.ts"
 import { contextWindowResolver, SeatResolver } from "./SeatResolver.ts"
 import * as SeatRouter from "./SeatRouter.ts"
@@ -1484,18 +1485,80 @@ export const approvedEnvelope = (
   }).pipe(Effect.map(() => Budget.raisedBy(envelope, raises)))
 }
 
+/** The request prefix every timeout park of one subject in one run shares. */
+const timeoutPrefix = (runId: string, subject: string): string =>
+  `${budgetRequestPrefix}${runId}/timeout/${Digest.digest(CanonicalJson.stringify({ runId, subject }))}/`
+
+/** Where one timeout subject's latest park stands, from its run's control journal. */
+interface TimeoutPark {
+  /** The park's ordinal: the first timeout of a subject is 1, each Continue adds one. */
+  readonly ordinal: number
+  readonly fact: typeof ControlFacts.ApprovalRequestFact.Type
+  readonly decision: "pending" | "approved" | "denied"
+  /** How many of this subject's parks the operator continued. */
+  readonly continued: number
+}
+
+/** Every timeout subject's latest park in one run's control journal, by request prefix. */
+const timeoutParks = (journal: Journal.Service, runId: string) => {
+  const facts = new Map<string, typeof ControlFacts.ApprovalRequestFact.Type>()
+  const decisions = new Map<string, "approved" | "denied">()
+  const prefix = `${budgetRequestPrefix}${runId}/timeout/`
+  return scanRun(journal, runId, (entries) => {
+    for (const entry of entries) {
+      if (entry.eventType === "control.approval.requested") {
+        const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
+        if (Option.isSome(fact) && fact.value.requestId.startsWith(prefix)) facts.set(fact.value.requestId, fact.value)
+      }
+      const target = budgetDecision(entry)
+      if (target !== undefined && target.requestId.startsWith(prefix)) {
+        decisions.set(target.requestId, entry.eventType === "control.approval.approved" ? "approved" : "denied")
+      }
+    }
+  }).pipe(
+    Effect.map(() => {
+      const parks = new Map<string, TimeoutPark>()
+      for (const [requestId, fact] of facts) {
+        const cut = requestId.lastIndexOf("/") + 1
+        const subject = requestId.slice(0, cut)
+        const ordinal = Number(requestId.slice(cut))
+        const decision = decisions.get(requestId) ?? "pending"
+        const previous = parks.get(subject)
+        const continued = (previous?.continued ?? 0) + (decision === "approved" ? 1 : 0)
+        parks.set(
+          subject,
+          previous === undefined || ordinal > previous.ordinal
+            ? { ordinal, fact, decision, continued }
+            : { ...previous, continued }
+        )
+      }
+      return parks
+    }),
+    Effect.mapError((cause) =>
+      new HarnessError.HarnessError({
+        code: "engine_failed",
+        message: "The run's timeout decisions could not be read",
+        cause
+      })
+    )
+  )
+}
+
 /**
- * Parks a run whose `park` budget refused a call: registers the request for a
- * raised budget in the run's control journal and answers with the `budget`
- * wait and the requirement that suspends the frame. Approving the request
- * raises the ceiling the resumed attempt spends against; denying it fails the
- * run.
+ * Parks a run whose `park` budget refused a call, or one of whose operations
+ * ran past its time limit: registers the request in the run's control journal
+ * with the guard's exact {@link RunawayGuard.incident} facts, and answers with
+ * the `budget` wait and the requirement that suspends the frame. Approving the
+ * request is Continue: a raised ceiling the resumed attempt spends against, or
+ * one more run of the timed-out operation. Denying it is Stop: the resumed
+ * attempt fails the run.
  *
  * `envelope` is the one the attempt spends against, with approved raises
  * applied. A request already made against that ceiling is reused as it was
- * recorded, proposal included, so a re-driven run finds the operator's
- * decision on it rather than asking a new question. A concurrent park that
- * registered the same request first wins: this one parks on its proposal.
+ * recorded, proposal and facts included, so a re-driven run finds the
+ * operator's decision on it rather than asking a new question. A concurrent
+ * park that registered the same request first wins: this one parks on its
+ * proposal. Timeouts are guarded only when the envelope's budget parks.
  *
  * @category budget
  * @since 1.0.0
@@ -1504,101 +1567,174 @@ export const budgetParking = (
   journal: Journal.Service,
   runtime: Pick<ControlRuntime["Service"], "registerApproval">
 ) =>
-(runId: string, envelope: Envelope): Budget.Parking["Service"] => ({
-  park: (exceeded) =>
-    Effect.gen(function*() {
-      const identity = budgetIdentity(runId, exceeded.scope, envelope.budget)
-      let recorded: typeof ControlFacts.ApprovalRequestFact.Type | undefined
-      yield* scanRun(journal, runId, (entries) => {
-        for (const entry of entries) {
-          if (recorded !== undefined || entry.eventType !== "control.approval.requested") continue
-          const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
-          if (Option.isSome(fact) && fact.value.requestId === identity.requestId) recorded = fact.value
-        }
-      }).pipe(Effect.mapError((cause) =>
-        new HarnessError.HarnessError({
-          code: "engine_failed",
-          message: "The run's budget requests could not be read",
-          cause
+(runId: string, envelope: Envelope): Budget.Parking["Service"] => {
+  const commit = (request: {
+    readonly requestId: string
+    readonly question: string
+    readonly target: typeof ControlFacts.ApprovalRequestFact.Type["payload"]["target"]
+    readonly incident: RunawayGuard.Incident | undefined
+  }) =>
+    ControlFacts.commitApprovalRequest(journal, runtime, {
+      runId,
+      requestId: request.requestId,
+      question: request.question,
+      payload: { target: request.target, scope: "run", idempotencyKey: `approve:${request.requestId}` },
+      ...(request.incident === undefined ? {} : { incident: request.incident })
+    }, sourceId).pipe(Effect.map((token) => ({ token, question: request.question })))
+  const parked = (requestId: string, question: string, resource: string): Budget.Parked => ({
+    waiting: { reason: "budget", token: requestId, request: declaredQuestion(question) },
+    failure: new HarnessError.HarnessError({
+      code: "engine_failed",
+      message: `Budget approval required: ${question}`,
+      cause: Schema.encodeUnknownSync(Permission.PermissionRequired)(
+        new Permission.PermissionRequired({
+          code: "permission_required",
+          requestId,
+          runId,
+          capability: Capability.make("model:call", resource),
+          tier: "irreversible",
+          meta: { question }
         })
-      ))
-      const question = (budget: Envelope["budget"]) => {
-        const unit = exceeded.scope === "tokens" ? "tokens" : "ms"
-        const raised = exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
-        return `Raise the ${exceeded.scope} budget from ${exceeded.max} to ${raised} ${unit}?`
-      }
-      const commit = (request: {
-        readonly question: string
-        readonly target: typeof ControlFacts.ApprovalRequestFact.Type["payload"]["target"]
-      }) =>
-        ControlFacts.commitApprovalRequest(journal, runtime, {
-          runId,
-          requestId: identity.requestId,
-          question: request.question,
-          payload: { target: request.target, scope: "run", idempotencyKey: `approve:${identity.requestId}` }
-        }, sourceId).pipe(Effect.map((token) => ({ token, question: request.question })))
-      const proposed = (budget: Envelope["budget"]) => ({
-        question: question(budget),
-        target: {
-          _tag: "Node" as const,
-          runId,
-          requestId: identity.requestId,
-          digest: identity.digest,
-          envelope: { ...envelope, budget }
-        }
-      })
-      const { question: asked, token } = yield* commit(
-        recorded === undefined
-          ? proposed(Budget.raise(envelope.budget, exceeded))
-          : { question: recorded.question, target: recorded.payload.target }
-      ).pipe(
-        // A concurrent park of this run registered the same identity between
-        // the scan and this commit, with the raise its own elapsed time
-        // proposed. The runtime holds one proposal per identity and reports
-        // it in the refusal, so park on that one.
-        Effect.catchIf(
-          (cause): cause is EnvelopeMismatch =>
-            recorded === undefined && cause instanceof EnvelopeMismatch && cause.planId === identity.requestId,
-          (cause) =>
-            Option.match(decodeRegisteredEnvelope(cause.expected), {
-              onNone: () => Effect.fail(cause),
-              onSome: (registered) => commit(proposed(registered.budget))
-            })
-        ),
-        Effect.mapError((cause) =>
+      )
+    })
+  })
+  const committed = (cause: unknown) =>
+    new HarnessError.HarnessError({
+      code: "engine_failed",
+      message: "The budget approval request and token could not be committed",
+      cause
+    })
+  // Read once per drive: a decision takes effect only by driving the run again.
+  let decided: Map<string, TimeoutPark> | undefined
+  return {
+    guardsTimeouts: envelope.budget.onExceeded === "park",
+    park: (exceeded) =>
+      Effect.gen(function*() {
+        const identity = budgetIdentity(runId, exceeded.scope, envelope.budget)
+        let recorded: typeof ControlFacts.ApprovalRequestFact.Type | undefined
+        yield* scanRun(journal, runId, (entries) => {
+          for (const entry of entries) {
+            if (recorded !== undefined || entry.eventType !== "control.approval.requested") continue
+            const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
+            if (Option.isSome(fact) && fact.value.requestId === identity.requestId) recorded = fact.value
+          }
+        }).pipe(Effect.mapError((cause) =>
           new HarnessError.HarnessError({
             code: "engine_failed",
-            message: "The budget approval request and token could not be committed",
+            message: "The run's budget requests could not be read",
             cause
           })
-        )
-      )
-      // A decided request no longer parks: a denial is the refusal it
-      // asked to lift, and an approval this attempt did not apply is too.
-      if (token._tag !== "Pending") {
-        return yield* new HarnessError.HarnessError({
-          code: "model_failed",
-          message: exceeded.message,
-          cause: exceeded
-        })
-      }
-      const failure = new HarnessError.HarnessError({
-        code: "engine_failed",
-        message: `Budget approval required: ${asked}`,
-        cause: Schema.encodeUnknownSync(Permission.PermissionRequired)(
-          new Permission.PermissionRequired({
-            code: "permission_required",
-            requestId: identity.requestId,
+        ))
+        const question = (budget: Envelope["budget"]) => {
+          const unit = exceeded.scope === "tokens" ? "tokens" : "ms"
+          const raised = exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
+          return `Raise the ${exceeded.scope} budget from ${exceeded.max} to ${raised} ${unit}?`
+        }
+        const proposed = (budget: Envelope["budget"]) => ({
+          requestId: identity.requestId,
+          question: question(budget),
+          target: {
+            _tag: "Node" as const,
             runId,
-            capability: Capability.make("model:call", `budget/${exceeded.scope}`),
-            tier: "irreversible",
-            meta: { question: asked }
-          })
+            requestId: identity.requestId,
+            digest: identity.digest,
+            envelope: { ...envelope, budget }
+          },
+          incident: RunawayGuard.incident(
+            exceeded,
+            exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
+          )
+        })
+        const { question: asked, token } = yield* commit(
+          recorded === undefined
+            ? proposed(Budget.raise(envelope.budget, exceeded))
+            : {
+              requestId: identity.requestId,
+              question: recorded.question,
+              target: recorded.payload.target,
+              incident: recorded.incident
+            }
+        ).pipe(
+          // A concurrent park of this run registered the same identity between
+          // the scan and this commit, with the raise its own elapsed time
+          // proposed. The runtime holds one proposal per identity and reports
+          // it in the refusal, so park on that one.
+          Effect.catchIf(
+            (cause): cause is EnvelopeMismatch =>
+              recorded === undefined && cause instanceof EnvelopeMismatch && cause.planId === identity.requestId,
+            (cause) =>
+              Option.match(decodeRegisteredEnvelope(cause.expected), {
+                onNone: () => Effect.fail(cause),
+                onSome: (registered) => commit(proposed(registered.budget))
+              })
+          ),
+          Effect.mapError(committed)
         )
+        // A decided request no longer parks: a denial is the refusal it
+        // asked to lift, and an approval this attempt did not apply is too.
+        if (token._tag !== "Pending") {
+          return yield* new HarnessError.HarnessError({
+            code: "model_failed",
+            message: exceeded.message,
+            cause: exceeded
+          })
+        }
+        return parked(identity.requestId, asked, `budget/${exceeded.scope}`)
+      }),
+    trip: (timeout) =>
+      Effect.gen(function*() {
+        const prefix = timeoutPrefix(runId, timeout.subject)
+        decided = yield* timeoutParks(journal, runId)
+        const latest = decided.get(prefix)
+        if (latest?.decision === "denied") {
+          return yield* RunawayGuard.stopped(latest.fact.incident ?? RunawayGuard.incident(timeout))
+        }
+        // An open question is the one this timeout re-parks on; a continued
+        // one was answered by the run that just timed out again.
+        const reused = latest?.decision === "pending" ? latest.fact : undefined
+        const requestId = `${prefix}${reused === undefined ? (latest?.ordinal ?? 0) + 1 : latest!.ordinal}`
+        const limit = timeout.limitMillis === undefined ? "its limit" : `another ${timeout.limitMillis} ms`
+        const { question: asked, token } = yield* commit(
+          reused === undefined
+            ? {
+              requestId,
+              question: `${timeout.message} Continue runs it again with ${limit}; Stop fails the run.`,
+              target: {
+                _tag: "Node",
+                runId,
+                requestId,
+                digest: Digest.digest(CanonicalJson.stringify({ requestId, runId })),
+                envelope
+              },
+              incident: RunawayGuard.incident(timeout)
+            }
+            : { requestId, question: reused.question, target: reused.payload.target, incident: reused.incident }
+        ).pipe(Effect.mapError(committed))
+        if (token._tag === "Pending") return parked(requestId, asked, `timeout/${timeout.source}`)
+        // Decided between the scan and the commit: settle on that decision.
+        decided = undefined
+        return yield* RunawayGuard.stopped(reused?.incident ?? RunawayGuard.incident(timeout))
+      }),
+    admit: (subject) =>
+      Effect.gen(function*() {
+        decided ??= yield* timeoutParks(journal, runId)
+        const latest = decided.get(timeoutPrefix(runId, subject))
+        if (latest === undefined) return { _tag: "proceed", continued: 0 } as const
+        if (latest.decision === "denied") {
+          return yield* RunawayGuard.stopped(
+            latest.fact.incident ?? { classification: "Stuck", source: "tool-call", message: latest.fact.question }
+          )
+        }
+        if (latest.decision === "pending") {
+          return {
+            _tag: "park",
+            parked: parked(latest.fact.requestId, latest.fact.question, "timeout")
+          } as const
+        }
+        return { _tag: "proceed", continued: latest.continued } as const
       })
-      return { waiting: { reason: "budget", token: identity.requestId, request: declaredQuestion(asked) }, failure }
-    })
-})
+  }
+}
 
 /** The envelope a runtime's `EnvelopeMismatch` names as registered, if it decodes. */
 const decodeRegisteredEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(Envelope))

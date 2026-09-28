@@ -322,6 +322,15 @@ export interface EngineLike {
    */
   readonly admit?: (call: Cell.Call) => Effect.Effect<Cell.CallResult | undefined, HarnessError>
   /**
+   * The host's runaway guard for timeouts, when it has one.
+   *
+   * A tool call or a cell that ran past its time limit is otherwise the cell's
+   * to read. A host that guards timeouts parks the run on it instead, for an
+   * operator's Continue or Stop, and the controller records nothing for the
+   * timed-out operation, so Continue runs it again.
+   */
+  readonly guard?: Guard
+  /**
    * Journals one nondeterministic controller read as a durable boundary.
    *
    * The controller's state is rebuilt by re-execution, so every read of the
@@ -434,6 +443,43 @@ export const EngineLike: Context.Service<EngineLike, EngineLike> = Context.Servi
  * @slop
  */
 export const make = (implementation: EngineLike): EngineLike => EngineLike.of(implementation)
+
+/**
+ * One operation that ran past its time limit, as the controller reports it to
+ * {@link Guard.trip}.
+ *
+ * `subject` is the operation's replay-stable identity. `limitMillis` is
+ * absent when the operation reported its own timeout without its limit.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface TimedOut {
+  readonly source: "tool-call" | "cell"
+  readonly subject: string
+  readonly limitMillis?: number | undefined
+  readonly message: string
+}
+
+/**
+ * A host's runaway guard for tool-call and cell timeouts; see
+ * {@link EngineLike.guard}.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface Guard {
+  /**
+   * Admits an operation before it runs. A park whose question is still open,
+   * or the failure a Stop settles the run with, travels in the error channel.
+   */
+  readonly admit: (subject: string) => Effect.Effect<void, HarnessError>
+  /**
+   * Reports a timeout. Succeeds when this run's timeouts are not guarded, so
+   * the caller keeps its timeout; otherwise fails with the park.
+   */
+  readonly trip: (timeout: TimedOut) => Effect.Effect<void, HarnessError>
+}
 
 /**
  * Provides an engine port implementation.

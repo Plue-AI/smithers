@@ -1118,16 +1118,17 @@ a call may start, not how long one may take; cutting a call off is
 budget question and is durable, so a park or restart does not grant the run the
 whole interval again. The ceiling counts active time only: time the run spends
 suspended on an approval, a question, or a budget raise is recorded durably and
-subtracted, including across a process restart.
+subtracted, including across a process restart. That includes a native module
+execution suspended on a `HumanTask`, an approval, or a timer.
 
 `onExceeded` decides what running out means, and defaults to `fail`:
 
-| Setting          | Behavior                                                                                                                                                                                 |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fail`           | The step fails with `BudgetExceeded { scope, used, max, next }`.                                                                                                                         |
-| `warn`           | A `flows.agent.budget-warning.v1` record is written and the call proceeds.                                                                                                               |
-| `skip-remaining` | The budget latches. Every later model call in the run fails typed `skipped` without asking a provider.                                                                                   |
-| `park`           | The run parks with waiting reason `budget` and an approval request for a raised budget. Approving it resumes the run under the raised ceiling; denying it fails the call as `fail` does. |
+| Setting          | Behavior                                                                                                                                                                                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fail`           | The step fails with `BudgetExceeded { scope, used, max, next }`.                                                                                                                                                                               |
+| `warn`           | A `flows.agent.budget-warning.v1` record is written and the call proceeds.                                                                                                                                                                     |
+| `skip-remaining` | The budget latches. Every later model call in the run fails typed `skipped` without asking a provider.                                                                                                                                         |
+| `park`           | The run parks with waiting reason `budget` and an approval request for a raised budget. Approving it resumes the run under the raised ceiling; denying it fails the call as `fail` does. Timeouts park too; see [RunawayGuard](#runawayguard). |
 
 A flow sets it in frontmatter as `budget.onExceeded`, and `smthrs flow start`
 sets it for one run with `--on-exceeded`, beside `--budget-tokens` and
@@ -1143,7 +1144,7 @@ interface Service {
   readonly usage: Effect.Effect<Usage, AccountingUnavailable>
   readonly usageOf: (runId: string) => Effect.Effect<Usage, AccountingUnavailable>
   readonly suspend: Effect.Effect<void, AccountingUnavailable>
-  readonly resume: Effect.Effect<void, AccountingUnavailable>
+  readonly resume: (at?: number) => Effect.Effect<void, AccountingUnavailable>
 }
 
 class Budget extends Context.Service<Budget, Service>()("@smthrs/agent/Budget")
@@ -1163,10 +1164,14 @@ class Budget extends Context.Service<Budget, Service>()("@smthrs/agent/Budget")
 - `usage` is what the current run has spent.
 - `usageOf` reads one named run's spend, from its live accumulator when this
   process is driving it and from its durable records when it is not.
-- `suspend` and `resume` open and close the current run's suspension span. The
-  harness engine port calls `suspend` when it parks a frame and `resume` when
-  it is built for the next drive; admission also closes an open span, so a
-  missing `resume` charges less parked time, never more.
+- `suspend` and `resume` open and close the current run's suspension span,
+  `resume` at `at` when given. The harness engine port calls `suspend` when it
+  parks a frame and `resume` when it is built for the next drive; a native
+  module execution calls them when it suspends and when it enters. Admission
+  also closes an open span. A port or module execution whose `resume` was not
+  recorded does no work: it retries the record at the instant it resumed and
+  fails the run with `AccountingUnavailable` while it cannot, because an open
+  span would subtract that work as parked time.
 
 ### Budget.Verdict and Budget.Usage
 
@@ -1271,6 +1276,14 @@ default.
 ```ts
 class Parking extends Context.Service<Parking, {
   readonly park: (exceeded: BudgetExceeded) => Effect.Effect<Parked, HarnessError.HarnessError>
+  readonly guardsTimeouts: boolean
+  readonly trip: (timeout: RunawayGuard.Timeout) => Effect.Effect<Parked, HarnessError.HarnessError>
+  readonly admit: (
+    subject: string
+  ) => Effect.Effect<
+    { readonly _tag: "proceed"; readonly continued: number } | { readonly _tag: "park"; readonly parked: Parked },
+    HarnessError.HarnessError
+  >
 }>()("@smthrs/agent/Budget/Parking")
 
 const raise: (budget: Envelope["budget"], exceeded: BudgetExceeded) => Envelope["budget"]
@@ -1284,6 +1297,12 @@ cover what the run spent and holds, the refused call, and one more original
 allowance. A resumed run spends against `raisedBy` of its card and every
 approved raise. Parked time does not count against a latency ceiling, so an
 approved latency raise admits the resumed call however long the park lasted.
+The request's fact carries the guard's `incident`, so a restarted host re-parks
+on and presents the facts the park was made on.
+
+`guardsTimeouts` is true when the envelope's budget parks. `trip` parks the run
+on a `RunawayGuard.Timeout` and `admit` answers work on a subject a timeout
+may have parked; see [RunawayGuard](#runawayguard).
 
 ### Budget.current
 
@@ -1382,6 +1401,48 @@ would otherwise re-dispatch a skipped step gives up on the first refusal.
 
 A composition with no journal at all, such as the reference memory engine,
 accounts within one process and recovers nothing across a restart.
+
+## RunawayGuard
+
+```ts
+class Timeout extends Schema.TaggedError<Timeout>()("flows/agent/Timeout", {
+  source: Schema.Literals(["model-call", "tool-call", "cell"]),
+  subject: Schema.String,
+  limitMillis: Schema.optional(Schema.Number),
+  message: Schema.String
+})
+
+type Incident = typeof ControlFacts.GuardIncident.Type
+const incident: (tripped: BudgetExceeded | Timeout, raised?: number) => Incident
+const stopped: (facts: Incident) => HarnessError.HarnessError
+```
+
+A run whose envelope budget sets `onExceeded: park` parks on every guard for
+an operator's Continue or Stop, through `Budget.Parking`:
+
+| Guard                                                                                    | Classification | `source`            |
+| ---------------------------------------------------------------------------------------- | -------------- | ------------------- |
+| A token or latency ceiling                                                               | `Runaway`      | `tokens`, `latency` |
+| A model call past `modelCallMs`, after its one overrun retry                             | `Stuck`        | `model-call`        |
+| A tool call past its call limit, a command's own timeout, or a child await still running | `Stuck`        | `tool-call`         |
+| A cell past its wall-clock limit                                                         | `Stuck`        | `cell`              |
+
+Each park is one `budget/` approval request, with waiting reason `budget`,
+whose `control.approval.requested` fact carries the exact `incident` facts
+frozen when the guard tripped: `used`, `reserved`, `max`, and `next` in the
+source's unit, the `message`, the timed-out `subject`, and the `allowance`
+Continue authorizes. A restarted host re-parks on that request without
+measuring again.
+
+Approving is Continue. For a budget it raises the ceiling to the recorded
+allowance; the ledger keeps every charge. For a timeout it authorizes one more
+run of the operation under the same limit: a model call is re-issued under a
+key of its own, and a tool call or cell runs again with its settled calls
+replayed. The same operation timing out again asks again under a new request.
+Denying is Stop: the resumed run fails with `stopped` before the operation
+runs again, without calling the provider. A run whose budget does not park
+keeps each timeout's own behavior: an exhausted model call fails the run, and
+the cell reads a tool or cell timeout as a `timeout` call failure.
 
 ## EventSink
 

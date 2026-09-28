@@ -232,5 +232,11 @@ export const source = (children: Children): FlowBinding.Source =>
   FlowBinding.source(sourceName, [
     FlowBinding.make({ flow: spawnFlow, handler: children.spawn, publicError: (error) => error.message }),
     FlowBinding.make({ flow: sendFlow, handler: children.send, publicError: (error) => error.message }),
-    FlowBinding.make({ flow: awaitFlow, handler: children.await, publicError: (error) => error.message })
+    FlowBinding.make({
+      flow: awaitFlow,
+      handler: children.await,
+      publicError: (error) => error.message,
+      // An await that gave up on a child still running is a timeout.
+      timedOut: (error) => error._tag === "@smthrs/agent/ChildFlows/ChildError" && error.code === "still_running"
+    })
   ])

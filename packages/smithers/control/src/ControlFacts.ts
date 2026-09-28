@@ -38,7 +38,35 @@ export const runFact = (
   return Schema.decodeUnknownSync(RunFact)({ factVersion: version, baseline, run: structuredClone(run) })
 }
 
+/** The exact facts of the guard that parked a run, frozen when it tripped.
+ *
+ * `Runaway` is a run spending past an approved ceiling (`tokens`, `latency`).
+ * `Stuck` is one operation that ran past its time limit (`model-call`,
+ * `tool-call`, `cell`). Every number is in the source's unit, tokens or
+ * milliseconds: `used`, `reserved`, `max`, and `next` are a budget's spend,
+ * held forecast, ceiling, and refused call; `max` is a timeout's limit.
+ * `allowance` is what Continue authorizes: the raised ceiling for a budget,
+ * one more run of `max` for a timeout. `subject` names the operation a
+ * timeout interrupted.
+ * @category facts
+ * @since 1.0.0
+ */
+export const GuardIncident = Schema.Struct({
+  classification: Schema.Literals(["Runaway", "Stuck"]),
+  source: Schema.Literals(["tokens", "latency", "model-call", "tool-call", "cell"]),
+  message: Schema.String,
+  used: Schema.optional(Schema.Number),
+  reserved: Schema.optional(Schema.Number),
+  max: Schema.optional(Schema.Number),
+  next: Schema.optional(Schema.Number),
+  allowance: Schema.optional(Schema.Number),
+  subject: Schema.optional(Schema.String)
+})
+
 /** The identity-bearing request admitted with its approval token.
+ *
+ * `incident` is present on a request a guard made, so a restarted host reads
+ * the facts the park was made on rather than measuring them again.
  * @category facts
  * @since 1.0.0
  */
@@ -47,7 +75,8 @@ export const ApprovalRequestFact = Schema.Struct({
   runId: Schema.String,
   requestId: Schema.String,
   question: Schema.String,
-  payload: ControlSchema.ApprovalPayload
+  payload: ControlSchema.ApprovalPayload,
+  incident: Schema.optional(GuardIncident)
 })
 
 /** The exact target a committed decision resolves; old target-tag fields remain readable.
