@@ -7,16 +7,21 @@
  * it let the resume claim the run, and the executor then found the changed
  * bytes and failed the run (#1807).
  */
-import { ControlRuntime } from "@smthrs/control"
+import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
+import { Control, ControlRuntime } from "@smthrs/control"
 import { CodeDrift } from "@smthrs/control/ControlError"
 import type { RunId } from "@smthrs/control/ControlSchema"
+import { Flow, HumanTask, Interpreter } from "@smthrs/flow"
 import * as Descriptor from "@smthrs/registry/Descriptor"
+import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { expect, it } from "vitest"
+import * as CoreFlow from "../flows/core/src/Flow.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
 const writeFlow = (root: string, prompt: string) => {
@@ -83,4 +88,218 @@ it("refuses a flow deleted from disk while the host stayed up", async () => {
 it("passes a flow whose bytes on disk did not change", async () => {
   const { drift } = await afterEdit(() => undefined)
   expect(drift).toBeUndefined()
+})
+
+// A module flow runs the executable this host loaded, not the file on disk, so
+// its drift has two halves: the source moved, and the host's catalog did not.
+const moduleSource = `import * as Flow from "@smthrs/core/Flow"
+import { Schema } from "effect"
+export default Flow.make({name:"native",description:"Waits",input:Schema.Unknown,output:Schema.Json,capabilities:[],flows:["test/Wait"]})
+`
+
+/**
+ * A host serving the `native` module flow, whose body parks on a human task,
+ * and the digests of every entry it loaded.
+ */
+const moduleHost = (root: string) => {
+  mkdirSync(join(root, "flows", "native"), { recursive: true })
+  writeFileSync(join(root, "flows", "native", "flow.ts"), moduleSource)
+  const loaded: Array<string> = []
+  const Wait = Flow.make("test/Wait", {
+    payload: Executable.Invocation,
+    success: Schema.Json,
+    error: HumanTask.HumanTaskFailed,
+    body: () => HumanTask.action.call({ name: "probe", kind: "ask", prompt: "Continue?", maxAttempts: 3 })
+  })
+  const modules = Executable.layer({
+    delegates: [Wait],
+    load: (_path, source) =>
+      Effect.suspend(() => {
+        loaded.push(source.contentDigest)
+        if (new TextDecoder().decode(source.bytes).includes("// broken")) {
+          return Effect.fail(new Error("the entry does not load"))
+        }
+        return Effect.succeed({
+          default: CoreFlow.make({
+            name: "native",
+            description: "Waits",
+            input: Schema.Unknown,
+            output: Schema.Json,
+            capabilities: [],
+            flows: ["test/Wait"]
+          })
+        })
+      })
+  }).pipe(Layer.provideMerge(Layer.merge(Interpreter.layer(Wait), HumanTask.layer)), Layer.orDie)
+  const registry = NodeControl.layerRegistry(root)
+  const engine = NodeControl.engineDurable(root, registry)
+  return {
+    loaded,
+    layer: Layer.merge(
+      NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, engine, modules),
+      Layer.merge(engine.runtime, registry)
+    )
+  }
+}
+
+/** Launches `native` and waits for it to park on its human task. */
+const launchParked = Effect.gen(function*() {
+  const control = yield* Control.Control
+  const card = yield* control.plan({ flowId: "native", input: {} })
+  yield* control.approve(card.approval)
+  const launched = yield* control.run({
+    _tag: "Plan",
+    planId: card.planId,
+    digest: card.digest,
+    envelope: card.envelope,
+    idempotencyKey: "start"
+  })
+  if (launched._tag !== "Accepted" || launched.runId === undefined) {
+    return yield* Effect.die(`expected an accepted run, got ${launched._tag}`)
+  }
+  return { card, runId: launched.runId, parked: yield* settled(launched.runId) }
+})
+
+/**
+ * The run once it stops moving, and has moved since `since` when given. Read
+ * off the control row: a listing reports the executor's parked view of a run
+ * the control plane has already claimed.
+ */
+const settled = (runId: RunId, since?: number) =>
+  Effect.gen(function*() {
+    const runtime = yield* ControlRuntime.ControlRuntime
+    for (let attempt = 0;; attempt++) {
+      const run = yield* runtime.getRun(runId)
+      const moved = since === undefined || run.updatedAt > since
+      if (moved && run.status !== "running" && run.status !== "accepted") return run
+      if (attempt >= 1_000) return yield* Effect.die(`run ${runId} never settled: ${JSON.stringify(run)}`)
+      yield* Effect.sleep("10 millis")
+    }
+  })
+
+/** The run as `status <run>` reports it, with the drift a resume would refuse. */
+const status = (runId: RunId) =>
+  Control.Control.pipe(
+    Effect.flatMap((control) => control.list({ _tag: "runs", filters: { runId } })),
+    Effect.map((page) => page._tag === "runs" ? page.items[0] : undefined)
+  )
+
+const onDisk = Effect.gen(function*() {
+  const discovery = yield* Registry.Registry
+  yield* discovery.refresh()
+  const current = yield* discovery.getOption("native")
+  return current._tag === "Some" ? Descriptor.executionDigest(current.value) : undefined
+})
+
+const withModuleHost = <A, E>(
+  body: (
+    root: string,
+    loaded: ReadonlyArray<string>
+  ) => Effect.Effect<A, E, Control.Control | ControlRuntime.ControlRuntime | Registry.Registry>
+) => {
+  const root = mkdtempSync(join(tmpdir(), "smithers-drift-module-"))
+  const host = moduleHost(root)
+  return Effect.runPromise(
+    body(root, host.loaded).pipe(Effect.provide(host.layer), Effect.scoped, Effect.timeout("30 seconds"))
+  ).finally(() => rmSync(root, { recursive: true, force: true }))
+}
+
+it("resume --allow-code-drift on an edited module flow runs it", async () => {
+  const observed = await withModuleHost((root, loaded) =>
+    Effect.gen(function*() {
+      const control = yield* Control.Control
+      const { card, runId, parked } = yield* launchParked
+      yield* Effect.sync(() => writeFileSync(join(root, "flows", "native", "flow.ts"), `${moduleSource}// adopted\n`))
+      const current = yield* onDisk
+      const receipt = yield* control.resume({ runId, idempotencyKey: "resume", allowCodeDrift: true })
+      const after = yield* settled(runId, parked.updatedAt)
+      return { card, parked, receipt, current, after, reported: yield* status(runId), loaded: [...loaded] }
+    })
+  )
+  expect(observed.parked.status).toBe("parked")
+  expect(observed.current).not.toBe(observed.card.executionDigest)
+  expect(observed.receipt._tag).toBe("Accepted")
+  // The run re-entered the edited module and parked on its task again.
+  expect(observed.after.status).toBe("parked")
+  expect(observed.after.executionDigest).toBe(observed.current)
+  expect(observed.reported?.codeDrift).toBeUndefined()
+  // The host loaded the edited entry: two distinct entry digests.
+  expect(new Set(observed.loaded).size).toBe(2)
+})
+
+it("refuses a module flow deleted from disk while its executable stays loaded", async () => {
+  const observed = await withModuleHost((root) =>
+    Effect.gen(function*() {
+      const control = yield* Control.Control
+      const runtime = yield* ControlRuntime.ControlRuntime
+      const { card, runId } = yield* launchParked
+      yield* Effect.sync(() => rmSync(join(root, "flows", "native"), { recursive: true }))
+      const drift = yield* runtime.codeDrift(runId)
+      const plain = yield* Effect.flip(control.resume({ runId, idempotencyKey: "plain" }))
+      const allowed = yield* Effect.flip(control.resume({ runId, idempotencyKey: "allowed", allowCodeDrift: true }))
+      return { card, runId, drift, plain, allowed, after: yield* settled(runId), reported: yield* status(runId) }
+    })
+  )
+  const refusal = new CodeDrift({ runId: observed.runId, flowId: "native", recorded: observed.card.executionDigest })
+  expect(observed.drift).toEqual(refusal)
+  expect(observed.plain).toEqual(refusal)
+  // There is no code to adopt: the run is left where it was, not accepted to fail.
+  expect(observed.allowed).toEqual(refusal)
+  expect(observed.after.status).toBe("parked")
+  expect(observed.after.ownerId).toBeUndefined()
+  expect(observed.reported?.codeDrift).toEqual({ recorded: observed.card.executionDigest })
+})
+
+it("a round of a run that adopted drift runs the adopted code the check admitted", async () => {
+  const observed = await withModuleHost((root) =>
+    Effect.gen(function*() {
+      const control = yield* Control.Control
+      const runtime = yield* ControlRuntime.ControlRuntime
+      const { runId, parked } = yield* launchParked
+      yield* Effect.sync(() => writeFileSync(join(root, "flows", "native", "flow.ts"), `${moduleSource}// adopted\n`))
+      yield* control.resume({ runId, idempotencyKey: "resume", allowCodeDrift: true })
+      const adopted = yield* settled(runId, parked.updatedAt)
+      // What the engine writes for a trampoline round or fork: engine state,
+      // a parent, and no control summary of its own.
+      yield* Effect.sync(() => {
+        const database = new DatabaseSync(NodeControl.databasePath(root))
+        try {
+          database.prepare(
+            "INSERT INTO flows_runs (run_id, status, created_at_ms, parent_run_id, state_json) VALUES (?, 'suspended', 1, ?, ?)"
+          ).run("round-1", runId, JSON.stringify({ version: 1, flowName: "native", payload: {} }))
+        } finally {
+          database.close()
+        }
+      })
+      const round = "round-1" as RunId
+      return {
+        adopted,
+        drift: yield* runtime.codeDrift(round),
+        own: (yield* runtime.getRun(round)).executionDigest,
+        executes: yield* runtime.recordedCode(round)
+      }
+    })
+  )
+  expect(observed.adopted.status).toBe("parked")
+  // The check admits the round on its parent's adopted code, and the identity
+  // the executor enters is that same code, not the row's own (none).
+  expect(observed.drift).toBeUndefined()
+  expect(observed.own).toBeUndefined()
+  expect(observed.executes.executionDigest).toBe(observed.adopted.executionDigest)
+})
+
+it("an allowed drift to code this host cannot load leaves the run parked", async () => {
+  const observed = await withModuleHost((root) =>
+    Effect.gen(function*() {
+      const control = yield* Control.Control
+      const { card, runId } = yield* launchParked
+      yield* Effect.sync(() => writeFileSync(join(root, "flows", "native", "flow.ts"), `${moduleSource}// broken\n`))
+      const refused = yield* Effect.flip(control.resume({ runId, idempotencyKey: "allowed", allowCodeDrift: true }))
+      return { card, refused, after: yield* settled(runId) }
+    })
+  )
+  expect(observed.refused).toMatchObject({ _tag: "/control/CodeDrift", recorded: observed.card.executionDigest })
+  expect(observed.after.status).toBe("parked")
+  expect(observed.after.ownerId).toBeUndefined()
+  expect(observed.after.executionDigest).toBe(observed.card.executionDigest)
 })

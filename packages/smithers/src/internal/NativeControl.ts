@@ -518,6 +518,29 @@ export const make = (
   let hostRevision: string | undefined
 
   /**
+   * The registry and catalog rebuild this host's executor checks runs
+   * against, or `undefined` when it has no executor. Set with `hostCatalog`.
+   *
+   * Both are snapshots the control plane's own discovery does not refresh, so
+   * an allowed drift that recorded the digest on disk handed the executor an
+   * identity it did not hold: the resume was accepted and the run then failed
+   * `LaunchFailed` (#2740). Adopting loads the new code through these first.
+   */
+  let hostExecutor:
+    | {
+      readonly registry: Registry.Registry
+      readonly refresh: Executable.Refresh | undefined
+      /**
+       * Runs `effect` in the host's transaction-free context. A resume
+       * adopts inside the control mutation's SQL transaction, and a body
+       * registered from there inherits it: every later run of that body
+       * then failed "cannot start a transaction within a transaction".
+       */
+      readonly onHost: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E>
+    }
+    | undefined
+
+  /**
    * One node's address and the declaration site behind it, as a plan card may
    * carry it.
    *
@@ -733,6 +756,58 @@ export const make = (
       : Layer.effect(ControlRuntime.ControlRuntime)(
         Effect.gen(function*() {
           const registryService = yield* Registry.Registry
+          const discoveryError = (operation: string) => (cause: { readonly message: string }) =>
+            new ControlError.PersistenceError({ operation, message: cause.message, cause })
+          // Discovery scans these roots. A catalog entry from one of them that
+          // discovery no longer names was deleted; one from anywhere else is a
+          // flow the host registered itself, which discovery never scans.
+          const scanned = new Set(projectSources(root).map((source) => resolve(source.root)))
+          const currentFlows = () =>
+            registryService.refresh().pipe(
+              Effect.mapError(discoveryError("read the flows' current code")),
+              Effect.andThen(registryService.list()),
+              Effect.map((discovered) => {
+                const named = new Set(discovered.map((flow) => flow.name))
+                return [
+                  ...systemFlows,
+                  ...[
+                    ...discovered,
+                    ...(hostCatalog?.executables ?? []).map((entry) => entry.descriptor)
+                      .filter((descriptor) =>
+                        !named.has(descriptor.name) && !scanned.has(resolve(descriptor.provenance.root))
+                      )
+                  ].map((flow) => durableFlow(flow, root))
+                ]
+              })
+            )
+          const adoptFlow = (flowId: string) =>
+            Effect.gen(function*() {
+              const executor = hostExecutor
+              // With no executor here, the code on disk is all this host names.
+              if (executor === undefined) return (yield* currentFlows()).find((flow) => flow.flowId === flowId)
+              const descriptor = yield* executor.onHost(Effect.gen(function*() {
+                yield* executor.registry.refresh()
+                const found = yield* executor.registry.getOption(flowId)
+                if (Option.isNone(found)) return undefined
+                // A prompt flow's body is read off the registry at each run.
+                if (found.value.body._tag !== "Module") return found.value
+                // A module's body is the executable the catalog holds, so the
+                // catalog is rebuilt from the bytes on disk. The operator asked
+                // for exactly this code, which is why an adopt may import it
+                // on a host that does not rebuild authored flows.
+                const rebuilt = executor.refresh === undefined ? undefined : yield* executor.refresh.flow(flowId)
+                if (rebuilt?._tag === "Registered") return rebuilt.executable.descriptor
+                if (rebuilt?._tag === "Removed" || rebuilt?._tag === "Refused") return undefined
+                // A host that cannot rebuild the entry, or holds it fixed, runs
+                // the executable it loaded, and only that code can be adopted.
+                const loaded = hostCatalog?.executables.find((entry) => entry.descriptor.name === flowId)
+                return loaded !== undefined &&
+                    Descriptor.executionDigest(loaded.descriptor) === Descriptor.executionDigest(found.value)
+                  ? loaded.descriptor
+                  : undefined
+              }))
+              return descriptor === undefined ? undefined : durableFlow(descriptor, root)
+            }).pipe(Effect.mapError(discoveryError("load the flow's current code")))
           return yield* SqlControlRuntime.make({
             ...authorization,
             owner,
@@ -780,28 +855,10 @@ export const make = (
             // passed was claimed and then failed by the executor's own byte
             // check (#1807). Discovery wins here over a rebuilt entry: the
             // question is whether the source moved, not what the host loaded.
-            currentFlows: () =>
-              registryService.refresh().pipe(
-                Effect.mapError((cause) =>
-                  new ControlError.PersistenceError({
-                    operation: "read the flows' current code",
-                    message: cause.message,
-                    cause
-                  })
-                ),
-                Effect.andThen(registryService.list()),
-                Effect.map((discovered) => {
-                  const named = new Set(discovered.map((flow) => flow.name))
-                  return [
-                    ...systemFlows,
-                    ...[
-                      ...discovered,
-                      ...(hostCatalog?.executables ?? []).map((entry) => entry.descriptor)
-                        .filter((descriptor) => !named.has(descriptor.name))
-                    ].map((flow) => durableFlow(flow, root))
-                  ]
-                })
-              )
+            currentFlows,
+            // An allowed drift records the code the executor will run, so the
+            // executor loads it first (#2740).
+            adoptFlow
           })
         })
       ).pipe(
@@ -1134,6 +1191,18 @@ export const make = (
           sourceId: "native-control:execution-facts:v1"
         })
         const nativeHost = yield* Effect.context<never>()
+        hostExecutor = {
+          registry: yield* Registry.Registry,
+          refresh: registrations === undefined
+            ? undefined
+            : Option.getOrUndefined(Context.getOption(Executable.Refresh)(registrations)),
+          onHost: (effect) =>
+            Effect.acquireUseRelease(
+              Effect.sync(() => Effect.runForkWith(nativeHost)(effect)),
+              Fiber.join,
+              Fiber.interrupt
+            )
+        }
         const requestNativeCancel: ControlExecutor.Service["requestCancel"] = (input) =>
           Effect.acquireUseRelease(
             Effect.sync(() =>
