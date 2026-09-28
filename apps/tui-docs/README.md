@@ -81,12 +81,19 @@ estimated price among text models with at least 32K context. Free entries sort
 first. It forces a 2,048-token output ceiling and rejects oversized requests.
 SQLite reserves spend before each call, retains reservations on ambiguous
 failure, and caches successful responses. Limits default to $0.50 and 100
-calls per UTC day, plus 16 calls per visitor cookie. Missing credentials or
-exhausted limits produce a visible, retryable refusal.
+calls per UTC day, plus 16 calls per client address (an IPv4 address or an IPv6
+/64). The server takes the address from the TCP peer, or from the header named by
+`DOCS_CLIENT_IP_HEADER` when a trusted proxy sets it to a single address, such as
+`cf-connecting-ip`. Never name a header clients can set. Requests without a
+usable address are refused. Missing credentials or exhausted limits produce a
+visible, retryable refusal.
+
+Pages are served with a Content-Security-Policy that allows only same-origin
+scripts and styles plus WebAssembly, and `frame-ancestors 'none'`.
 
 Self-hosting variables: `PORT`, `HOST`, `DOCS_ORIGIN`, `DOCS_BUDGET_DB`,
-`DOCS_DAILY_DOLLARS`, and `DOCS_DAILY_CALLS`. Use a persistent budget database
-shared by requests to the same server. Hosted deployment, keys, domain setup,
+`DOCS_DAILY_DOLLARS`, `DOCS_DAILY_CALLS`, and `DOCS_CLIENT_IP_HEADER`. Use a
+persistent budget database shared by requests to the same server. Hosted deployment, keys, domain setup,
 and multi-instance routing belong in the private deployment repository.
 
 The native TUI regression suite runs separately in tmux; see [TUI verification](../tui/docs/testing.md).

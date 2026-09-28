@@ -2,11 +2,12 @@
 import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import { extname, resolve } from "node:path"
-import { Readable } from "node:stream"
+import { pipeline, Readable } from "node:stream"
 import { fileURLToPath } from "node:url"
 import { Sponsor } from "./sponsor.mjs"
 const root = resolve(process.env.DOCS_DIST || fileURLToPath(new URL("../dist/", import.meta.url))),
-  port = Number(process.env.PORT || 4388)
+  port = Number(process.env.PORT || 4388),
+  clientHeader = process.env.DOCS_CLIENT_IP_HEADER?.toLowerCase()
 let origin = process.env.DOCS_ORIGIN || `http://localhost:${port}`
 const database = process.env.DOCS_BUDGET_DB || fileURLToPath(new URL("../.cache/sponsor.sqlite", import.meta.url))
 mkdirSync(resolve(database, ".."), { recursive: true })
@@ -27,6 +28,19 @@ const types = {
   ".txt": "text/plain; charset=utf-8",
   ".wasm": "application/wasm"
 }
+// Personal providers are any HTTPS endpoint or a loopback HTTP one (src/playground/provider.ts endpoint()).
+// CSP cannot name the [::1] loopback, so http: stays open here and endpoint() enforces loopback-only.
+const csp = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self'",
+  "img-src 'self' data:",
+  "connect-src 'self' https: http:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join("; ")
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, origin)
@@ -37,7 +51,8 @@ const server = createServer(async (req, res) => {
           headers: req.headers,
           ...(!["GET", "HEAD"].includes(req.method) ? { body: Readable.toWeb(req), duplex: "half" } : {})
         }),
-        origin
+        origin,
+        clientHeader ? req.headers[clientHeader] : req.socket.remoteAddress
       )
       res.writeHead(response.status, Object.fromEntries(response.headers))
       res.end(Buffer.from(await response.arrayBuffer()))
@@ -63,10 +78,11 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, {
       "Content-Type": types[extname(file)] || "application/octet-stream",
       "X-Content-Type-Options": "nosniff",
-      "Referrer-Policy": "same-origin"
+      "Referrer-Policy": "same-origin",
+      "Content-Security-Policy": csp
     })
     if (req.method === "HEAD") res.end()
-    else createReadStream(file).pipe(res)
+    else pipeline(createReadStream(file), res, () => {})
   } catch {
     res.writeHead(503, { "Content-Type": "application/json" })
     res.end("{\"error\":\"Sponsored access unavailable\"}")

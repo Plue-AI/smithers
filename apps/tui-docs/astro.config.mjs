@@ -31,5 +31,9 @@ export default defineConfig({
     "/reference/troubleshooting/": "https://smithers.sh/docs/learn/troubleshooting/",
     "/reference/recordings/": "https://github.com/smithersai/smithers/blob/main/apps/tui/docs/README.md"
   },
-  vite: { server: { fs: { allow: ["../.."] } }, optimizeDeps: { exclude: ["@smthrs/agent", "@smthrs/harness"] } }
+  // Serve only this app, the workspace packages it imports, and installed dependencies; never the whole checkout.
+  vite: {
+    server: { fs: { allow: [".", "../../packages/smithers", "../../node_modules"] } },
+    optimizeDeps: { exclude: ["@smthrs/agent", "@smthrs/harness"] }
+  }
 })

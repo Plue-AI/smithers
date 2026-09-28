@@ -1,5 +1,6 @@
 /** A bounded, same-origin OpenRouter transport. Keys and spend reservations stay server-side. */
 import { createHash, randomUUID } from "node:crypto"
+import { isIP } from "node:net"
 import { DatabaseSync } from "node:sqlite"
 export function cheapest(models) {
   return models.flatMap((model) => {
@@ -14,6 +15,20 @@ export function cheapest(models) {
     if (model.architecture?.output_modalities && !model.architecture.output_modalities.includes("text")) return []
     return [{ id: model.id, input, output, request, cost: input * 33_000 + output * 2048 + request }]
   }).sort((a, b) => a.cost - b.cost || a.id.localeCompare(b.id))[0]
+}
+/** Per-visitor budget key: an IPv4 address, or the /64 prefix of an IPv6 address (one subscriber's allocation). */
+export function clientKey(address) {
+  const ip = String(address ?? "").trim().replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, "")
+  if (isIP(ip) === 4) return ip
+  if (isIP(ip) !== 6) return undefined
+  const [head, tail] = ip.toLowerCase().split("::"), left = head ? head.split(":") : []
+  const right = (tail ?? "").split(":").filter(Boolean).flatMap((group) => {
+    if (!group.includes(".")) return [group]
+    const [a, b, c, d] = group.split(".").map(Number)
+    return [((a << 8) | b).toString(16), ((c << 8) | d).toString(16)]
+  })
+  const groups = tail === undefined ? left : [...left, ...Array(8 - left.length - right.length).fill("0"), ...right]
+  return `${groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, "")).join(":")}::/64`
 }
 export class Sponsor {
   constructor({ key, database, fetchImpl = fetch, dailyDollars = 0.5, dailyCalls = 100, now = () => Date.now() }) {
@@ -33,9 +48,12 @@ export class Sponsor {
   close() {
     this.db.close()
   }
-  async handle(request, origin) {
-    const json = (body, status = 200, headers = {}) =>
-      Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } })
+  /**
+   * `client` is the caller's network address as the server observed it (socket peer or a header set by a
+   * trusted proxy). The per-visitor cap is keyed on it, never on a request header or cookie the client chooses.
+   */
+  async handle(request, origin, client) {
+    const json = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } })
     if (request.method !== "POST") return json({ error: "Method not allowed" }, 405)
     if (request.headers.get("origin") !== origin) return json({ error: "Origin refused" }, 403)
     if (!this.key) return json({ error: "Sponsored access is not configured" }, 503)
@@ -63,29 +81,24 @@ export class Sponsor {
       !Array.isArray(input.messages) || input.messages.length > 80 ||
       input.messages.some((m) => !["user", "assistant", "system"].includes(m.role) || typeof m.content !== "string")
     ) return json({ error: "Invalid messages" }, 400)
-    const existing = /\bsmithers_demo=([a-f0-9-]{36})\b/.exec(request.headers.get("cookie") || "")?.[1]
-    const visitor = existing || randomUUID(),
-      cookie = {
-        "Set-Cookie": `smithers_demo=${visitor}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400${
-          origin.startsWith("https:") ? "; Secure" : ""
-        }`
-      }
+    const visitor = clientKey(client)
+    if (!visitor) return json({ error: "Client address unavailable" }, 403)
     const day = new Date(this.now()).toISOString().slice(0, 10)
     const digest = createHash("sha256").update(JSON.stringify(input.messages)).digest("hex")
     const cached = this.db.prepare(
       "SELECT response FROM attempts WHERE visitor=? AND digest=? AND day=? AND response IS NOT NULL ORDER BY rowid DESC LIMIT 1"
     ).get(visitor, digest, day)
-    if (cached) return json(JSON.parse(cached.response), 200, cookie)
+    if (cached) return json(JSON.parse(cached.response), 200)
     if (!this.catalog || this.catalog.expires < this.now()) {
       const response = await this.fetch("https://openrouter.ai/api/v1/models", {
         signal: AbortSignal.timeout(15_000),
         redirect: "error"
       })
-      if (!response.ok) return json({ error: "Model catalog unavailable" }, 503, cookie)
+      if (!response.ok) return json({ error: "Model catalog unavailable" }, 503)
       this.catalog = { model: cheapest((await response.json()).data ?? []), expires: this.now() + 3_600_000 }
     }
     const model = this.catalog.model
-    if (!model) return json({ error: "No eligible model" }, 503, cookie)
+    if (!model) return json({ error: "No eligible model" }, 503)
     const reservation = model.input * (size + 1000) + model.output * 2048 + model.request
     this.db.exec("BEGIN IMMEDIATE")
     const id = randomUUID()
@@ -99,7 +112,7 @@ export class Sponsor {
       )
       if (total.calls >= this.dailyCalls || perVisitor.calls >= 16 || total.dollars + reservation > this.dailyDollars) {
         this.db.exec("ROLLBACK")
-        return json({ error: "Sponsored limit reached. Use your own provider." }, 429, cookie)
+        return json({ error: "Sponsored limit reached. Use your own provider." }, 429)
       }
       this.db.prepare("INSERT INTO attempts(id,day,visitor,digest,reserved) VALUES(?,?,?,?,?)").run(
         id,
@@ -127,16 +140,16 @@ export class Sponsor {
         provider: { sort: "price", allow_fallbacks: false }
       })
     })
-    if (!response.ok) return json({ error: "Provider unavailable" }, response.status === 429 ? 429 : 502, cookie)
+    if (!response.ok) return json({ error: "Provider unavailable" }, response.status === 429 ? 429 : 502)
     const data = await response.json(), choice = data.choices?.[0]
     if (
       choice?.finish_reason !== "stop" || typeof choice.message?.content !== "string" ||
       choice.message.content.length > 100_000
-    ) return json({ error: "Incomplete provider response" }, 502, cookie)
+    ) return json({ error: "Incomplete provider response" }, 502)
     const result = {
       choices: [{ finish_reason: "stop", message: { role: "assistant", content: choice.message.content } }]
     }
     this.db.prepare("UPDATE attempts SET response=? WHERE id=?").run(JSON.stringify(result), id)
-    return json(result, 200, cookie)
+    return json(result, 200)
   }
 }

@@ -13,7 +13,7 @@ const securityReview = Smithers.SecurityReview({
       title: "Sponsored model spend stays within the daily dollar, call, and per-visitor caps",
       threat: "An anonymous internet client drains the maintainer's OpenRouter budget or locks every other visitor out of the sponsored playground.",
       lookFor: [
-        "A per-visitor limit keyed on a client-chosen value (the smithers_demo cookie) that a cookieless or rotating client resets on every request.",
+        "A per-visitor limit keyed on a client-chosen value (a cookie, or a forwarded address header the operator did not name in DOCS_CLIENT_IP_HEADER) instead of the observed client address.",
         "An Origin equality check treated as authentication although non-browser clients set Origin freely.",
         "A reservation smaller than the real cost: size counted in bytes but priced as tokens, provider request fee or fallback routing not reserved, or a refund path.",
         "A request field (model, max_tokens, stream, provider, tools) copied from the client body into the upstream OpenRouter call.",
@@ -73,7 +73,7 @@ const securityReview = Smithers.SecurityReview({
         "A child env that spreads process.env or forwards provider keys instead of the explicit PATH/HOME/TMPDIR allowlist.",
         "A recording id, Expect file path, or scenario name used in a filesystem path without the parseScripts or scenarioNames allowlist.",
         "Provider traffic not pinned to the local providerFixture (SMITHERS_ACCOUNT_POOL_URL) or NO_PROXY dropped.",
-        "The Vite fs.allow of the workspace root reachable from a dev server bound to a non-loopback host."
+        "A Vite fs.allow wider than this app, packages/smithers, and node_modules, reachable from a dev server bound to a non-loopback host."
       ],
       paths: ["scripts/**", "astro.config.mjs"]
     }
