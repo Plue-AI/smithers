@@ -154,3 +154,30 @@ it.each(["unavailable", "disconnected"] as const)(
     expect(sent).toHaveLength(failure === "unavailable" ? 1 : 2)
   }
 )
+
+it("fails closed when the subscription pool's route list cannot be read", async () => {
+  const sent: string[] = []
+  const executor = RequestExecutor.RequestExecutor.of({
+    execute: (request) => {
+      sent.push(request.url)
+      const body = new ReadableStream({ start: (controller) => controller.error(new Error("connection reset")) })
+      return Effect.succeed(HttpClientResponse.fromWeb(request, new Response(body)))
+    }
+  })
+  await expect(Effect.runPromise(
+    Effect.flatMap(Evaluator.Evaluator, (judge) =>
+      judge.evaluate({
+        state: "proof",
+        questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
+      })).pipe(Effect.provide(
+        layerSeatEvaluator({
+          SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
+          SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
+          SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+          CODEX_HOME: "/nonexistent",
+          OPENAI_API_KEY: "must-not-use"
+        }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+      ))
+  )).rejects.toMatchObject({ code: "unreachable", message: Evaluator.unreachableMessage })
+  expect(sent).toEqual(["https://pool.example/routes"])
+})
