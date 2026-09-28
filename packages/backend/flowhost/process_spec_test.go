@@ -110,6 +110,22 @@ func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {
 	assert.Equal(t, "anthropic,chatgpt", spec.Environment[AccountPoolProvidersEnv])
 	assert.Equal(t, credential, spec.Environment[AccountPoolKeyEnv])
 	assert.NotContains(t, spec.Identity, credential)
+	// Pool-only managed hosts discover a model at startup, including accounts
+	// connected after the workspace booted (#1985).
+	catalog.ModelProxyURL, catalog.ModelSeats = "", nil
+	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "control-credential"},
+		WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	assert.NotContains(t, spec.Environment, "SMITHERS_CODING_IMPLEMENT_MODEL")
+	assert.NotContains(t, spec.Environment, "AI_GATEWAY_API_KEY")
+	assert.Equal(t, catalog.AccountPoolURL, spec.Environment[AccountPoolURLEnv])
+	assert.Equal(t, AccountPoolRoutes, spec.Environment[AccountPoolProvidersEnv])
+	assert.Equal(t, credential, spec.Environment[AccountPoolKeyEnv])
+	catalog.ImplementationModel = "openai:gpt-6-sol"
+	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "control-credential"},
+		WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	assert.Equal(t, catalog.ImplementationModel, spec.Environment["SMITHERS_CODING_IMPLEMENT_MODEL"])
 	catalog.AccountPoolURL = "file:///etc/passwd"
 	_, err = validateCatalog(catalog)
 	require.Error(t, err)

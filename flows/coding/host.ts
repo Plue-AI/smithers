@@ -130,6 +130,16 @@ export const configuredCodingRoutes = (options: Pick<Options, "planning" | "land
   ...(options.planning?.wiki === true ? [{ name: "coding/wiki", capability: "coding-wiki/v1" }] : [])
 ]
 
+/** Resolve at host startup, including accounts connected since workspace boot. */
+export const optionsFromEnv = (environment: Readonly<Record<string, string | undefined>>) =>
+  Effect.gen(function*() {
+    // A blank pin also stays blank: provisioning uses it to refuse an unavailable explicit model.
+    const pinned = environment.SMITHERS_CODING_IMPLEMENT_MODEL
+    return {
+      implementationModel: pinned ?? (yield* NativeEquipment.accountPoolDefaultModel(environment)) ?? ""
+    }
+  })
+
 const configured = (options: Options) => {
   if (seatRefusal(options.implementationModel) !== undefined) {
     throw new Error(

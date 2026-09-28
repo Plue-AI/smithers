@@ -399,6 +399,26 @@ const accountPoolRoutes = (
     return routes.filter((route): route is string => typeof route === "string")
   }))
 
+/**
+ * A startup default from the pool's currently connected, host-permitted routes.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const accountPoolDefaultModel = (environment: Readonly<Record<string, string | undefined>>) =>
+  Effect.gen(function*() {
+    const pool = accountPoolOf(environment)
+    if (pool === undefined) return undefined
+    const executor = yield* RequestExecutor.RequestExecutor
+    const routes = yield* accountPoolRoutes(pool, executor, "coding/implement").pipe(
+      Effect.orElseSucceed((): ReadonlyArray<string> => [])
+    )
+    const defaults = [
+      ["chatgpt", "openai:gpt-6-luna"],
+      ["anthropic", "anthropic:claude-sonnet-4-6"]
+    ] as const
+    return defaults.find(([route]) => pool.routes.includes(route) && routes.includes(route))?.[1]
+  })
+
 const seatOf = <Body, Frame, Event, State>(
   configured: Result.Result<Route.Route<Body, Frame, Event, State>, ModelError.ModelError>,
   executor: RequestExecutor.RequestExecutor,

@@ -10,7 +10,7 @@ import { packageVersion } from "../../packages/smithers/src/Version.ts"
 import { layer as checkReceiptLayer } from "../repository/check-receipt.ts"
 import { remoteLayer } from "../repository/remote.ts"
 import { share } from "./host-modules.ts"
-import { layer } from "./host.ts"
+import { layer, optionsFromEnv } from "./host.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
 import { loadProject } from "./project-config.ts"
@@ -48,7 +48,7 @@ if (parsed.values.version) {
     "smithers-coding-host serve --root <workspace> --host <host> --port <port> --listen [--state-dir <path>]\n" +
       `--state-dir, or ${CodingState.directoryVariable}, holds control.db and engine.db; it defaults to a sibling of the root and may never be inside it.\n` +
       `Set ${CodingState.inRootVariable}=1 only for a local single-repository run that wants the old <root>/.flows layout.\n` +
-      "Requires SMITHERS_GATEWAY_ID and SMITHERS_CODING_IMPLEMENT_MODEL; SMITHERS_API_KEY authenticates the existing gateway.\n" +
+      "Requires SMITHERS_GATEWAY_ID; set SMITHERS_CODING_IMPLEMENT_MODEL or connect an account pool. SMITHERS_API_KEY authenticates the existing gateway.\n" +
       "Loads <root>/.smithers/coding-project.json when present; SMITHERS_CODING_PROJECT overrides it.\n" +
       "SMITHERS_FLOW_ARTIFACT_SHA256, SMITHERS_SOURCE_REVISION and SMITHERS_OWNER_GENERATION bind the runtime bridge.\n" +
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY selects the packaged native workspace helper.\n" +
@@ -93,7 +93,6 @@ if (parsed.values.version) {
     gatewayId: process.env.SMITHERS_GATEWAY_ID ?? "",
     sourcePublication: process.env.SMITHERS_CODING_LOCAL_OWNER === "1" ? "local-only" as const : "cloud" as const,
     ...runtimeBridge,
-    implementationModel: process.env.SMITHERS_CODING_IMPLEMENT_MODEL ?? "",
     ...(process.env.SMITHERS_CODING_PLAN_MODEL === undefined
       ? {}
       : { planningModel: process.env.SMITHERS_CODING_PLAN_MODEL }),
@@ -120,10 +119,15 @@ if (parsed.values.version) {
   // The reserved repository credential leaves process.env here, before the
   // host, model seats or any approved shell tool can inherit it.
   const run = (platform: NativeControl.Platform, http: Layer.Layer<HttpClient.HttpClient>) =>
-    Effect.all([loadProject(root, process.env.SMITHERS_CODING_PROJECT), loadLanding(root, process.env)]).pipe(
-      Effect.flatMap(([planning, landing]) =>
+    Effect.all([
+      loadProject(root, process.env.SMITHERS_CODING_PROJECT),
+      loadLanding(root, process.env),
+      optionsFromEnv(process.env).pipe(Effect.provide(platform.requestExecutor))
+    ]).pipe(
+      Effect.flatMap(([planning, landing, models]) =>
         Serve.host(bind, root).pipe(Effect.provide(layer(platform, {
           ...options,
+          ...models,
           ...(planning === undefined ? {} : { planning }),
           ...(landing === undefined ? {} : {
             landing: Landing.layer(landing).pipe(Layer.provide(http), Layer.orDie),
