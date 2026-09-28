@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/smithersai/smithers/packages/backend/internal/buildcache"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
@@ -143,7 +144,7 @@ func readTurnRequest(w http.ResponseWriter, r *http.Request) (string, JournalReq
 		return "", JournalRequest{}, nil, false
 	}
 	delete(object, "journal")
-	canonical, err := canonicalValue(object)
+	canonical, err := buildcache.CanonicalJSON(object)
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "request_invalid")
 		return "", JournalRequest{}, nil, false
