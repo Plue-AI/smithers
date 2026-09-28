@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 
+import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import { attemptIn } from "../internal/attempt.ts"
@@ -58,7 +59,10 @@ export interface VercelSandboxOptions extends Credentials {
    * Vercel fixes memory at 2048 MiB per vCPU, so `memoryMib` must be that
    * product, and alone it sizes the vCPUs. `timeoutSecs` is the lifetime
    * `timeoutMs` otherwise sets, and is exclusive with it. A resumed sandbox
-   * holding another vCPU count is refused rather than used.
+   * holding another vCPU count, or a session that would run past
+   * `timeoutSecs` from this acquire, is refused rather than used, because
+   * `getOrCreate` applies neither to a sandbox that exists and Vercel cannot
+   * shorten a session.
    */
   readonly limits?: ResourceLimits | undefined
 }
@@ -160,8 +164,10 @@ const resolveCredentials = (
  *
  * Vercel limits the timeout accepted by one create request to five minutes.
  * Longer requested lifetimes create at that ceiling, then call
- * `extendTimeout` with only the remaining duration because that API extends by
- * its argument rather than setting an absolute target.
+ * `extendTimeout` with the gap between the session's reported deadline and
+ * the requested one, because that API extends by its argument rather than
+ * setting an absolute target and a resumed session runs on the sandbox's own
+ * timeout rather than the one this acquire asked for.
  *
  * @category constructors
  * @since 0.1.0
@@ -234,11 +240,28 @@ export const make = (options: VercelSandboxOptions): Provider => {
         )
         // `getOrCreate` sizes only a sandbox it creates; a resumed one keeps
         // the vCPUs it was made with, which is not the ceiling asked for.
-        if (vcpus !== undefined && sandbox.vcpus !== undefined && sandbox.vcpus !== vcpus) {
+        if (vcpus !== undefined && sandbox.vcpus !== vcpus) {
           return yield* Effect.fail(
             new ProviderError({
               code: "unavailable",
-              message: `vercel-sandbox: ${name} holds ${sandbox.vcpus} vCPU, not the requested ${vcpus}`
+              message: `vercel-sandbox: ${name} holds ${sandbox.vcpus ?? "an unreported number of"} vCPU, ` +
+                `not the requested ${vcpus}`
+            })
+          )
+        }
+        // Nor does it time a session it resumes: a running one keeps its
+        // deadline and a stopped one restarts on the sandbox's own timeout.
+        // Vercel can extend a session but never shorten it, so a deadline
+        // past the requested lifetime is refused.
+        const deadline = (yield* Clock.currentTimeMillis) + desiredMs
+        const expiresAt = sandbox.expiresAt?.getTime()
+        if (limits.timeoutSecs !== undefined && (expiresAt === undefined || expiresAt > deadline)) {
+          return yield* Effect.fail(
+            new ProviderError({
+              code: "unavailable",
+              message: expiresAt === undefined
+                ? `vercel-sandbox: ${name} reports no session deadline, so limits.timeoutSecs cannot be enforced`
+                : `vercel-sandbox: ${name} runs ${expiresAt - deadline}ms past limits.timeoutSecs ${limits.timeoutSecs}`
             })
           )
         }
@@ -252,9 +275,10 @@ export const make = (options: VercelSandboxOptions): Provider => {
             `could not apply the network policy to ${name}`
           )
         }
-        if (desiredMs > createMs) {
+        const extension = expiresAt === undefined ? desiredMs - createMs : deadline - expiresAt
+        if (desiredMs > createMs && extension > 0) {
           yield* attempt(
-            () => sandbox.extendTimeout(desiredMs - createMs),
+            () => sandbox.extendTimeout(extension),
             "unavailable",
             `could not extend ${name}`
           )

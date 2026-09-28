@@ -124,6 +124,18 @@ interface Faults {
   /** `writeFiles` overwrites byte buffers after it has consumed them. */
   mutateWriteBuffers?: boolean
   updateFailure?: Error
+  /** The SDK reports no session deadline. */
+  hideExpiry?: boolean
+  /** The SDK reports no vCPU count. */
+  hideVcpus?: boolean
+}
+
+interface Machine {
+  readonly name: string
+  running: boolean
+  readonly vcpus?: number
+  readonly timeout: number
+  expiresAt: number
 }
 
 interface Recorded {
@@ -138,7 +150,8 @@ interface Recorded {
 
 const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: Recorded } => {
   const recorded: Recorded = { acquired: [], commands: [], extended: [], updates: [], stopped: [], writes: [] }
-  const machines = new Map<string, { readonly name: string; running: boolean; readonly vcpus?: number }>()
+  // The test clock stands at the epoch, so session deadlines are offsets from it.
+  const machines = new Map<string, Machine>()
   const finished = (result: FinishedRun): CommandFinished => ({
     exitCode: result.exitCode,
     stdout: () =>
@@ -149,9 +162,12 @@ const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: R
   // Relative paths resolve the way the vendor documents them: "Defaults to
   // writing to /vercel/sandbox unless an absolute path is specified."
   const resolve = (path: string): string => isAbsolute(path) ? path : join(home, path)
-  const instance = (machine: { readonly name: string; running: boolean; readonly vcpus?: number }): VendorSandbox => ({
+  const instance = (machine: Machine): VendorSandbox => ({
     name: machine.name,
-    vcpus: machine.vcpus,
+    vcpus: faults.hideVcpus === true ? undefined : machine.vcpus,
+    get expiresAt() {
+      return faults.hideExpiry === true ? undefined : new Date(machine.expiresAt)
+    },
     runCommand: async (request) => {
       recorded.commands.push(request)
       if (request.cmd === "rm" && faults.removeWait !== undefined) await Effect.runPromise(faults.removeWait)
@@ -196,6 +212,7 @@ const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: R
     extendTimeout: async (duration) => {
       recorded.extended.push(duration)
       if (faults.extendFailure !== undefined) throw faults.extendFailure
+      machine.expiresAt += duration
     },
     update: async ({ networkPolicy }) => {
       recorded.updates.push({ networkPolicy, commandsBefore: recorded.commands.length })
@@ -213,17 +230,23 @@ const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: R
   const get = (name: string) => machines.get(name)
   // "Your sandbox will get the amount of vCPUs you specify here" (sandbox.d.ts);
   // a sandbox created without `resources` gets the vendor default of 2.
-  const create = (name: string, vcpus = 2) => {
-    const machine = { name, running: true, vcpus }
+  // A created sandbox keeps `timeout` as its own and every session it starts
+  // runs on that one: "The default timeout of this sandbox" (sandbox.d.ts).
+  const create = (name: string, vcpus = 2, timeout = 5 * 60_000) => {
+    const machine: Machine = { name, running: true, vcpus, timeout, expiresAt: timeout }
     machines.set(name, machine)
     return machine
   }
   const getOrCreate: Sdk["Sandbox"]["getOrCreate"] = async (input) => {
     recorded.acquired.push(input)
     if (faults.acquireFailure !== undefined) throw faults.acquireFailure
-    const machine = get(input.name) ?? create(input.name, input.resources?.vcpus)
-    if (input.resume === true) machine.running = true
-    return instance(machine)
+    const existing = get(input.name)
+    if (existing === undefined) return instance(create(input.name, input.resources?.vcpus, input.timeout))
+    if (input.resume === true && !existing.running) {
+      existing.running = true
+      existing.expiresAt = existing.timeout
+    }
+    return instance(existing)
   }
   return { sdk: { Sandbox: { getOrCreate } }, recorded }
 }
@@ -293,6 +316,63 @@ describe("VercelSandbox", () => {
       expect(recorded.stopped).toHaveLength(2)
       yield* acquired(VercelSandbox.make({ sdk, workdir: dir("unlimited") }), () => Effect.void)
       expect(recorded.acquired[2]).not.toHaveProperty("resources")
+    }))
+
+  it.effect("holds a resumed session to the neutral lifetime and extends from its real deadline", () =>
+    Effect.gen(function*() {
+      const refusal = (error: ProviderError) => `${error.code}: ${error.message}`
+
+      // A stopped sandbox created with a five-minute timeout resumes on it,
+      // not on the 60 seconds asked for now.
+      const stopped = fakeSdk()
+      const workdir = dir("lifetime")
+      yield* acquired(
+        VercelSandbox.make({ sdk: stopped.sdk, workdir, limits: { timeoutSecs: 300 } }),
+        () => Effect.void
+      )
+      const resumed = yield* Effect.flip(
+        acquired(VercelSandbox.make({ sdk: stopped.sdk, workdir, limits: { timeoutSecs: 60 } }), () => Effect.void)
+      )
+      expect(refusal(resumed)).toMatch(
+        /^unavailable: vercel-sandbox: smthrs-run-1-\S+ runs 240000ms past limits\.timeoutSecs 60$/
+      )
+      expect(stopped.recorded.commands.map((command) => command.cmd)).toEqual(["mkdir"])
+
+      // A running session keeps its own deadline.
+      const running = fakeSdk()
+      const inner = yield* acquired(
+        VercelSandbox.make({ sdk: running.sdk, workdir, timeoutMs: 15 * 60_000 }),
+        () =>
+          Effect.flip(
+            acquired(VercelSandbox.make({ sdk: running.sdk, workdir, limits: { timeoutSecs: 60 } }), () => Effect.void)
+          )
+      )
+      expect(inner.message).toContain("runs 840000ms past limits.timeoutSecs 60")
+      expect(running.recorded.commands.map((command) => command.cmd)).toEqual(["mkdir"])
+
+      // A session with no reported deadline cannot be held to one.
+      const blind = fakeSdk({ hideExpiry: true })
+      const unknown = yield* Effect.flip(
+        acquired(VercelSandbox.make({ sdk: blind.sdk, workdir, limits: { timeoutSecs: 60 } }), () => Effect.void)
+      )
+      expect(unknown.message).toContain("reports no session deadline, so limits.timeoutSecs cannot be enforced")
+      expect(blind.recorded.commands).toEqual([])
+      // Without a ceiling to hold, an unreported deadline extends by the create remainder.
+      yield* acquired(VercelSandbox.make({ sdk: blind.sdk, workdir, timeoutMs: 15 * 60_000 }), () => Effect.void)
+      expect(blind.recorded.extended).toEqual([10 * 60_000])
+      // An unreported vCPU count cannot be held to one either.
+      const unsized = fakeSdk({ hideVcpus: true })
+      const sized = yield* Effect.flip(
+        acquired(VercelSandbox.make({ sdk: unsized.sdk, workdir, limits: { cpus: 2 } }), () => Effect.void)
+      )
+      expect(sized.message).toContain("holds an unreported number of vCPU, not the requested 2")
+
+      // A resumed session on a two-minute sandbox timeout is extended by what
+      // it lacks, not by the gap a fresh five-minute session would have.
+      const short = fakeSdk()
+      yield* acquired(VercelSandbox.make({ sdk: short.sdk, workdir, timeoutMs: 2 * 60_000 }), () => Effect.void)
+      yield* acquired(VercelSandbox.make({ sdk: short.sdk, workdir, limits: { timeoutSecs: 900 } }), () => Effect.void)
+      expect(short.recorded.extended).toEqual([13 * 60_000])
     }))
 
   it("refuses limits Vercel cannot enforce when make is called", () => {

@@ -16,6 +16,8 @@ interface SandboxInstance {
   readonly name: string
   /** The vCPUs the running sandbox holds, when the SDK reports them. */
   readonly vcpus?: number | undefined
+  /** When the running session times out, when the SDK reports it. */
+  readonly expiresAt?: Date | undefined
   runCommand(params: {
     readonly cmd: string
     readonly args?: Array<string> | undefined
