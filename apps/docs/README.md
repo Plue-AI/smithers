@@ -32,15 +32,17 @@ per site. Everything else is derived from it.
 `shared/gen-sites.mjs` writes each site's `package.json`, `astro.config.mjs`,
 `tsconfig.json`, `PACKAGE.ts`, and `alchemy.run.ts` from that roster. To
 change how every site is configured, edit the generator and rerun it; to
-change one site, you almost certainly want the generator too.
+change one site, you almost certainly want the generator too. The one
+hand-authored file in a site directory is `security.ts`: the site's security
+checks, which the generated `PACKAGE.ts` passes to `SecurityReview`.
 
 ```bash
 node apps/docs/shared/gen-sites.mjs           # write the scaffolding
 node apps/docs/shared/gen-sites.mjs --check    # fail if it drifted
 ```
 
-Adding a package's site is one row in `manifest.mjs`, a generator run, and a
-`pnpm install` to enrol the new workspace member.
+Adding a package's site is one row in `manifest.mjs`, a `security.ts` with its
+checks, a generator run, and a `pnpm install` to enrol the new workspace member.
 
 ## Everyday commands
 

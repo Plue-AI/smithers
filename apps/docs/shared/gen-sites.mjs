@@ -10,6 +10,8 @@
  * the drift under lint, the same contract as apps/site's sync scripts.
  *
  * src/content/docs/ is NOT generated here; sync-content.mjs owns that tree.
+ * Nor is security.ts: each site's SecurityReview options are hand-authored
+ * there, and the generated PACKAGE.ts imports them. A site without one fails.
  *
  * Usage: node apps/docs/shared/gen-sites.mjs [--check]
  */
@@ -122,6 +124,7 @@ const packageTs = (site) => `/**
 import { Smithers } from "@smthrs/targets"
 import { Package as ${bindingFor(site.slug)} } from "../../../${site.dir}/PACKAGE.ts"
 import { Package as docsSharedPackage } from "../shared/PACKAGE.ts"
+import { security } from "./security.ts"
 
 const cwd = "apps/docs/${site.slug}"
 
@@ -173,8 +176,15 @@ const contentSync = Smithers.Generate({
   changes: ["src/content/docs/**"]
 })
 
+/**
+ * Security review of the site. The checks are hand-authored in ./security.ts;
+ * \`security\` reviews the diff against origin/main, \`securityAudit\` audits
+ * every included file.
+ */
+const securityReview = Smithers.SecurityReview({ cwd, ...security })
+
 export const Package = Smithers.Package({
-  targets: { check, build, contentSync }
+  targets: { check, build, contentSync, ...securityReview }
 })
 `
 
@@ -207,7 +217,12 @@ const filesFor = (site) => {
 const bytesEqual = (a, b) => Buffer.compare(Buffer.isBuffer(a) ? a : Buffer.from(a), Buffer.isBuffer(b) ? b : Buffer.from(b)) === 0
 
 let drift = 0
+let missing = 0
 for (const site of sites) {
+  if (!existsSync(join(site.siteDir, "security.ts"))) {
+    console.error(`missing: apps/docs/${site.slug}/security.ts (hand-authored SecurityReview options the generated PACKAGE.ts imports)`)
+    missing++
+  }
   for (const [rel, content] of filesFor(site)) {
     const abs = join(site.siteDir, rel)
     if (checkMode) {
@@ -237,6 +252,10 @@ for (const entry of readdirSync(docsRoot, { withFileTypes: true })) {
   }
 }
 
+if (missing > 0) {
+  console.error(`gen-sites: ${missing} site(s) lack security.ts; write their checks, then rerun`)
+  process.exit(1)
+}
 if (checkMode) {
   if (drift > 0) {
     console.error(`gen-sites: ${drift} file(s) out of date; run node apps/docs/shared/gen-sites.mjs`)

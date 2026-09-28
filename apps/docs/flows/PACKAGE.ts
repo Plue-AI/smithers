@@ -11,6 +11,7 @@
 import { Smithers } from "@smthrs/targets"
 import { Package as flowsPackage } from "../../../packages/smithers/flows/PACKAGE.ts"
 import { Package as docsSharedPackage } from "../shared/PACKAGE.ts"
+import { security } from "./security.ts"
 
 const cwd = "apps/docs/flows"
 
@@ -62,6 +63,13 @@ const contentSync = Smithers.Generate({
   changes: ["src/content/docs/**"]
 })
 
+/**
+ * Security review of the site. The checks are hand-authored in ./security.ts;
+ * `security` reviews the diff against origin/main, `securityAudit` audits
+ * every included file.
+ */
+const securityReview = Smithers.SecurityReview({ cwd, ...security })
+
 export const Package = Smithers.Package({
-  targets: { check, build, contentSync }
+  targets: { check, build, contentSync, ...securityReview }
 })
