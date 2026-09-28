@@ -17,18 +17,15 @@ export default defineConfig({
       // each other's coverage scratch state (issues #115/#121).
       reportsDirectory: join(tmpdir(), `flows-std-coverage-${process.pid}`),
       include: ["src/**"],
-      // A floor below what the suite already measures is not a ratchet: it
-      // lets a regression that deletes a covered branch land green. These sit
-      // just under the measured run (93.38 / 84.45 / 88.73 / 95.13) and are
-      // raised with every suite added, toward the repository's 100% baseline.
-      // What still keeps them off 100 is named per file: Lsp and WebFetch
-      // error branches, ShellCommand's Codex-parity output shaping, and the
-      // NodeLanguageServer paths that need a real language server to reach.
+      // Aggregate floors apply across the supported host lanes, which differ
+      // in native-process and filesystem tests. Completed portable modules
+      // get stricter per-file gates without narrowing the source inventory.
       thresholds: {
         branches: 84,
         functions: 88,
         lines: 94,
-        statements: 93
+        statements: 93,
+        "src/Container.ts": { branches: 100, functions: 100, lines: 100, statements: 100 }
       }
     }
   }

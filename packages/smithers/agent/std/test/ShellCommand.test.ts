@@ -1,4 +1,9 @@
-import { Effect } from "effect"
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import { Effect, Layer } from "effect"
+import * as Path from "effect/Path"
+import { realpathSync } from "node:fs"
+import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   approxTokenCount,
@@ -10,8 +15,26 @@ import * as ShellCommand from "../src/ShellCommand.ts"
 import { layer } from "./TestLayers.ts"
 
 const execute = <A, E>(effect: Effect.Effect<A, E, never>) => Effect.runPromise(effect)
+const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
 
 describe("CodexText", () => {
+  it("uses UTF-8 bytes for the token estimate", () => {
+    expect(approxTokenCount("🙂")).toBe(1)
+    expect(approxTokenCount("🙂a")).toBe(2)
+  })
+
+  it("preserves exact budgets and discloses a zero budget", () => {
+    expect(truncateMiddleWithTokenBudget("abcdefgh", 2)).toEqual({
+      text: "abcdefgh",
+      originalTokenCount: undefined
+    })
+    expect(truncateMiddleWithTokenBudget("abcdefgh", 0)).toEqual({
+      text: "…2 tokens truncated…",
+      originalTokenCount: 2
+    })
+    expect(truncateMiddleChars("🙂🙂", 0)).toBe("…2 chars truncated…")
+  })
+
   it("estimates tokens at four bytes per token, rounding up", () => {
     expect(approxTokenCount("")).toBe(0)
     expect(approxTokenCount("abcd")).toBe(1)
@@ -67,6 +90,17 @@ describe("CodexText", () => {
     expect(out).toContain("Output:\ncommand timed out af")
     expect(out).toContain("tokens truncated")
   })
+
+  it("counts a terminal newline as a terminator in the model output", () => {
+    const out = formatExecOutputForModel({
+      durationSeconds: 0,
+      exitCode: 0,
+      maxOutputTokens: 100,
+      output: "one\ntwo\n"
+    })
+    expect(out).toBe("Exit code: 0\nWall time: 0 seconds\nOutput:\none\ntwo\n")
+    expect(out).not.toContain("Total output lines")
+  })
 })
 
 describe("ShellCommand", () => {
@@ -88,6 +122,44 @@ describe("ShellCommand", () => {
     expect(result.exitCode).toBe(7)
     expect(result.output).toContain("Exit code: 7")
     expect(result.output).toContain("bad")
+  })
+
+  it("places captured stdout before stderr in the model output", async () => {
+    const result = await execute(Effect.provide(
+      ShellCommand.run({ command: "both" }),
+      layer({ commands: { both: { stdout: "stdout\n", stderr: "stderr\n", exitCode: 3 } } })
+    ))
+    expect(result.exitCode).toBe(3)
+    expect(result.output).toContain("Output:\nstdout\nstderr\n")
+  })
+
+  it.skipIf(process.platform === "win32")("reports a timed-out process as exit code 124", async () => {
+    const result = await Effect.runPromise(
+      ShellCommand.run({
+        command: `${shellQuote(process.execPath)} -e 'setTimeout(() => {}, 10000)'`,
+        timeout_ms: 20
+      }).pipe(Effect.provide(Layer.provide(
+        NodeChildProcessSpawner.layer,
+        Layer.merge(NodeFileSystem.layer, Path.layer)
+      )))
+    )
+    expect(result.exitCode).toBe(ShellCommand.TIMEOUT_EXIT_CODE)
+    expect(result.output).toContain("command timed out after 20 milliseconds")
+  })
+
+  it.skipIf(process.platform === "win32")("runs in the requested working directory", async () => {
+    const workdir = realpathSync(resolve(process.cwd(), "test"))
+    const result = await Effect.runPromise(
+      ShellCommand.run({
+        command: `${shellQuote(process.execPath)} -e 'process.stdout.write(process.cwd())'`,
+        workdir
+      }).pipe(Effect.provide(Layer.provide(
+        NodeChildProcessSpawner.layer,
+        Layer.merge(NodeFileSystem.layer, Path.layer)
+      )))
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.output).toContain(`Output:\n${workdir}`)
   })
 
   it("bounds capture while retaining the tail of very large output", async () => {

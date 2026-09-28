@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import * as Grouping from "../src/internal/Grouping.ts"
-import { slice, sourceLines, truncateBytes } from "../src/internal/Text.ts"
+import { notice, slice, sourceLines, truncateBytes } from "../src/internal/Text.ts"
 
 const bytes = (value: string): number => new TextEncoder().encode(value).byteLength
 
@@ -30,6 +30,58 @@ describe("Text", () => {
       text: "�abc",
       keptBytes: 6,
       droppedBytes: 1
+    })
+  })
+
+  it("keeps a complete Unicode scalar at the head or tail byte boundary", () => {
+    const source = "abc😀def"
+    expect(truncateBytes(source, 7, { keep: "head" })).toEqual({
+      text: "abc😀",
+      truncated: true,
+      keptBytes: 7,
+      droppedBytes: 3
+    })
+    expect(truncateBytes(source, 7, { keep: "tail" })).toEqual({
+      text: "😀def",
+      truncated: true,
+      keptBytes: 7,
+      droppedBytes: 3
+    })
+    expect(truncateBytes(source, 5, { keep: "tail" })).toMatchObject({
+      text: "def",
+      keptBytes: 3,
+      droppedBytes: 7
+    })
+    expect(truncateBytes("😀", 0, { keep: "head" })).toMatchObject({
+      text: "",
+      keptBytes: 0,
+      droppedBytes: 4
+    })
+  })
+
+  it("keeps an exact byte budget without a truncation notice", () => {
+    expect(truncateBytes("é", 2, { keep: "head" })).toEqual({
+      text: "é",
+      truncated: false,
+      keptBytes: 2,
+      droppedBytes: 0
+    })
+    expect(notice("bytes", 3, 7)).toBe("Showing 3 of 7 bytes; output was truncated.")
+  })
+
+  it("pages with one-based offsets and an empty limit", () => {
+    const source = "one\ntwo\nthree\n"
+    expect(slice(source, { offset: 2, limit: 1 })).toEqual({
+      lines: ["two"],
+      startLine: 2,
+      endLine: 2,
+      totalLines: 3
+    })
+    expect(slice(source, { offset: 0, limit: 0 })).toEqual({
+      lines: [],
+      startLine: 1,
+      endLine: 0,
+      totalLines: 3
     })
   })
 
