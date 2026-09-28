@@ -2639,32 +2639,6 @@ type WorkflowDefinition struct {
 	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
-type WorkflowInvocation struct {
-	WorkflowRunID        int64              `json:"workflow_run_id"`
-	RepositoryID         int64              `json:"repository_id"`
-	WorkflowDefinitionID int64              `json:"workflow_definition_id"`
-	Runtime              string             `json:"runtime"`
-	RequestKey           string             `json:"request_key"`
-	RequestDigest        string             `json:"request_digest"`
-	FlowPath             string             `json:"flow_path"`
-	FlowTag              string             `json:"flow_tag"`
-	SourceCommit         string             `json:"source_commit"`
-	SourceDigest         string             `json:"source_digest"`
-	DispatchInputs       json.RawMessage    `json:"dispatch_inputs"`
-	TriggerEvent         string             `json:"trigger_event"`
-	TriggerRef           string             `json:"trigger_ref"`
-	SandboxID            string             `json:"sandbox_id"`
-	HostArtifactDigest   string             `json:"host_artifact_digest"`
-	Plan                 []byte             `json:"plan"`
-	RunRequest           []byte             `json:"run_request"`
-	AttemptedAt          pgtype.Timestamptz `json:"attempted_at"`
-	HostRunID            string             `json:"host_run_id"`
-	FinalOutput          []byte             `json:"final_output"`
-	CancelAcknowledgedAt pgtype.Timestamptz `json:"cancel_acknowledged_at"`
-	CleanedAt            pgtype.Timestamptz `json:"cleaned_at"`
-	CreatedAt            time.Time          `json:"created_at"`
-}
-
 type WorkflowLog struct {
 	ID             int64     `json:"id"`
 	WorkflowRunID  int64     `json:"workflow_run_id"`
@@ -2711,6 +2685,15 @@ type WorkflowRunCodingHost struct {
 	FlowID        string    `json:"flow_id"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type WorkflowRunFlowInvocation struct {
+	WorkflowRunID int64       `json:"workflow_run_id"`
+	UserID        int64       `json:"user_id"`
+	FlowID        string      `json:"flow_id"`
+	OperationID   string      `json:"operation_id"`
+	WorkspaceID   pgtype.UUID `json:"workspace_id"`
+	CreatedAt     time.Time   `json:"created_at"`
 }
 
 type WorkflowRunLog struct {

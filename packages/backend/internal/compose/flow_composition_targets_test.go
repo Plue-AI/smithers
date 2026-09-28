@@ -56,3 +56,22 @@ func TestFlowProjectorFansOutDespiteFailure(t *testing.T) {
 	require.Equal(t, 1, agentCalls)
 	require.Equal(t, 1, repositoryJobCalls)
 }
+
+func TestInvokedFlowTargetsRouteOnlyWorkflowInvokeBindings(t *testing.T) {
+	var baseKinds, invokedKinds []string
+	base := flowhost.TargetResolverFunc(func(_ context.Context, target flowruntime.Target) (flowhost.Authority, error) {
+		baseKinds = append(baseKinds, target.BindingKind)
+		return flowhost.Authority{}, nil
+	})
+	invoked := flowhost.TargetResolverFunc(func(_ context.Context, target flowruntime.Target) (flowhost.Authority, error) {
+		invokedKinds = append(invokedKinds, target.BindingKind)
+		return flowhost.Authority{}, nil
+	})
+	resolver := withInvokedFlowTargets(base, invoked)
+	for _, kind := range []string{"workflow-invoke", "agent-session", "repository-setup"} {
+		_, err := resolver.ResolveFlowHostTarget(context.Background(), flowruntime.Target{BindingKind: kind})
+		require.NoError(t, err)
+	}
+	require.Equal(t, []string{"workflow-invoke"}, invokedKinds)
+	require.Equal(t, []string{"agent-session", "repository-setup"}, baseKinds)
+}

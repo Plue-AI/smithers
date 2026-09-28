@@ -31,7 +31,7 @@ type flowComposition struct {
 	stopper    flowhost.RetirementStopper
 }
 
-func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, setupServices ...*services.RepositorySetupService) (*flowComposition, error) {
+func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService, setupServices ...*services.RepositorySetupService) (*flowComposition, error) {
 	if options.FlowHostRegistry == nil {
 		return nil, nil
 	}
@@ -85,6 +85,10 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		projectors = append(projectors, setupServices[0])
 	}
 	targets := flowTargetResolver(agentTargets, repositoryJobTargets, additionalTargets...)
+	if invoked != nil {
+		targets = withInvokedFlowTargets(targets, invoked)
+		projectors = append(projectors, invoked)
+	}
 	if mythical != nil {
 		// Mythical stack lanes: every item launch is authorized against its
 		// persisted item and stack.
@@ -223,6 +227,17 @@ func withMythicalTargets(base, mythical flowhost.TargetResolver) flowhost.Target
 	return flowhost.TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowhost.Authority, error) {
 		if target.BindingKind == "mythical-item" || target.BindingKind == "mythical-wiki" {
 			return mythical.ResolveFlowHostTarget(ctx, target)
+		}
+		return base.ResolveFlowHostTarget(ctx, target)
+	})
+}
+
+// withInvokedFlowTargets authorizes an invoked run's launch against its
+// persisted invocation and the invoker's repository write access.
+func withInvokedFlowTargets(base, invoked flowhost.TargetResolver) flowhost.TargetResolver {
+	return flowhost.TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowhost.Authority, error) {
+		if target.BindingKind == "workflow-invoke" {
+			return invoked.ResolveFlowHostTarget(ctx, target)
 		}
 		return base.ResolveFlowHostTarget(ctx, target)
 	})

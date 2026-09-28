@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -11,18 +11,17 @@ import (
 )
 
 // InvokeWorkflowInput is the input for InvokeWorkflow: one durable run of a
-// repo-file workflow (`.smithers/workflows/*.tsx`) on the sandbox execution
-// plane, where the in-API scheduler claims it and executes `smithers up`
-// inside a one-shot VM. Unlike CI dispatch, invocation does not require the
-// definition to declare jobs — the sandbox executor interprets the file.
+// repository file flow (`flows/<name>/flow.ts`) on the canonical Flow
+// runtime, hosted on the invoker's box.
 type InvokeWorkflowInput struct {
 	RepositoryID int64
-	// Identifier is the flow name (`echo`), its path
-	// (`.smithers/workflows/echo.tsx`), or a numeric definition ID.
+	// UserID is the person invoking the flow; the run's host runs as them.
+	UserID int64
+	// Identifier is the flow name (`echo`) or its path (`flows/echo/flow.ts`).
 	Identifier string
-	// Input is the workflow's input payload, persisted as dispatch_inputs.
+	// Input is the flow's payload, persisted as dispatch_inputs.
 	Input map[string]interface{}
-	// TriggerRef is the bookmark the sandbox clones (the repo default).
+	// TriggerRef is the bookmark the run records (the repo default).
 	TriggerRef string
 }
 
@@ -38,40 +37,43 @@ type InvokeWorkflowResult struct {
 // invocation is only ever an invocation (see workflowCachePublisher).
 const InvokeTriggerEvent = "invoke"
 
-// invokeDefinitionMatches mirrors the dispatch route's identifier matching:
-// exact name, full path, or path basename without extension.
-func invokeDefinitionMatches(def db.WorkflowDefinition, identifier string) bool {
-	trimmed := strings.TrimSpace(identifier)
-	if trimmed == "" {
-		return false
+// invokeFlowName is a file flow's name: `flows/<name>/flow.ts`.
+var invokeFlowName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+// invokeFlowID reads a flow name or its `flows/<name>/flow.ts` path.
+func invokeFlowID(identifier string) (string, bool) {
+	name := strings.TrimSpace(identifier)
+	if inner, ok := strings.CutPrefix(name, "flows/"); ok {
+		if name, ok = strings.CutSuffix(inner, "/flow.ts"); !ok {
+			return "", false
+		}
 	}
-	if strings.EqualFold(def.Name, trimmed) {
-		return true
-	}
-	base := strings.TrimSuffix(filepath.Base(def.Path), filepath.Ext(def.Path))
-	return strings.EqualFold(base, trimmed) || strings.EqualFold(def.Path, trimmed)
+	return name, invokeFlowName.MatchString(name)
 }
 
-// InvokeWorkflow creates one durable sandbox-plane workflow run for a
-// repo-file flow and returns it in status queued. The sandbox scheduler
-// (WorkflowSandboxSchedulerWorker) claims the run within one poll interval,
-// so the returned run is honestly queued — never reported as further along
-// than the database says it is.
-func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWorkflowInput) (*InvokeWorkflowResult, error) {
-	if s.queries == nil {
-		return nil, pkgerrors.Internal("workflow store unavailable")
-	}
-	identifier := strings.TrimSpace(input.Identifier)
-	if identifier == "" {
-		return nil, pkgerrors.BadRequest("a workflow name or path is required")
-	}
+// InvokedFlowInvoker admits an invoked run on the canonical Flow runtime
+// (InvokedFlowService).
+type InvokedFlowInvoker interface {
+	Invoke(context.Context, InvokedFlowLaunch) (db.WorkflowRun, db.WorkflowDefinition, error)
+	CancelInvokedRun(ctx context.Context, repositoryID, runID int64) error
+}
 
-	matched, err := s.findActiveWorkflowDefinition(ctx, input.RepositoryID, identifier)
-	if err != nil {
-		return nil, err
+// InvokeWorkflow creates one queued flow-plane run and admits its Flow
+// launch in the same transaction. The Flow worker resolves the host later,
+// so the returned run is honestly queued.
+func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWorkflowInput) (*InvokeWorkflowResult, error) {
+	if strings.TrimSpace(input.Identifier) == "" {
+		return nil, pkgerrors.BadRequest("a flow name is required")
 	}
-	if matched == nil {
-		return nil, pkgerrors.NotFound("workflow definition not found")
+	flowID, ok := invokeFlowID(input.Identifier)
+	if !ok {
+		return nil, pkgerrors.BadRequest("flow must name a file flow: flows/<name>/flow.ts")
+	}
+	if input.UserID <= 0 {
+		return nil, pkgerrors.Unauthorized("a person must invoke a flow")
+	}
+	if s.invoker == nil {
+		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "the Flow runtime is not configured on this deployment")
 	}
 
 	triggerRef := strings.TrimSpace(input.TriggerRef)
@@ -93,43 +95,12 @@ func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWor
 			return nil, err
 		}
 	}
-	run, err := s.queries.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
-		RepositoryID:         input.RepositoryID,
-		WorkflowDefinitionID: matched.ID,
-		Status:               "queued",
-		TriggerEvent:         InvokeTriggerEvent,
-		TriggerRef:           triggerRef,
-		TriggerCommitSha:     "",
-		DispatchInputs:       dispatchInputs,
-		ExecutionPlane:       WorkflowRunPlaneSandbox,
+	run, def, err := s.invoker.Invoke(ctx, InvokedFlowLaunch{
+		RepositoryID: input.RepositoryID, UserID: input.UserID, FlowID: flowID,
+		Input: dispatchInputs, TriggerRef: triggerRef,
 	})
 	if err != nil {
-		return nil, pkgerrors.Internal("failed to create workflow run").WithCause(err)
+		return nil, err
 	}
-	return &InvokeWorkflowResult{Run: run, Definition: *matched}, nil
-}
-
-// findActiveWorkflowDefinition scans every active definition in the
-// repository, batch by batch, for the first one matching identifier. Sync
-// allows up to 1000 workflow files, more than one listing batch holds.
-func (s *workflowAPIService) findActiveWorkflowDefinition(ctx context.Context, repositoryID int64, identifier string) (*db.WorkflowDefinition, error) {
-	for offset := 0; ; offset += listWorkflowDefinitionsBatchSize {
-		rows, err := s.queries.ListWorkflowDefinitionsByRepo(ctx, db.ListWorkflowDefinitionsByRepoParams{
-			RepositoryID: repositoryID,
-			PageOffset:   ClampInt32(offset),
-			PageSize:     int32(listWorkflowDefinitionsBatchSize),
-		})
-		if err != nil {
-			return nil, err
-		}
-		for i := range rows {
-			if rows[i].IsActive && invokeDefinitionMatches(rows[i], identifier) {
-				def := rows[i]
-				return &def, nil
-			}
-		}
-		if len(rows) < listWorkflowDefinitionsBatchSize {
-			return nil, nil
-		}
-	}
+	return &InvokeWorkflowResult{Run: run, Definition: def}, nil
 }

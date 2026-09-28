@@ -3,151 +3,289 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strconv"
+	"strings"
 	"testing"
-	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
-func invokeTestDefinition(id int64, name, path string, active bool) db.WorkflowDefinition {
-	return db.WorkflowDefinition{
-		ID:           id,
-		RepositoryID: 7,
-		Name:         name,
-		Path:         path,
-		Config:       json.RawMessage(`{"on":{}}`),
-		IsActive:     active,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
+// recordingFlowInvoker records the launch InvokeWorkflow admits.
+type recordingFlowInvoker struct {
+	launches  []InvokedFlowLaunch
+	cancelled []int64
 }
 
-func invokeTestService(defs []db.WorkflowDefinition, captured *db.CreateWorkflowRunParams) WorkflowAPIService {
-	querier := &mockWorkflowAPIQuerier{
-		listDefsByRepoFn: func(ctx context.Context, arg db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
-			return defs, nil
-		},
-		createWorkflowRunFn: func(ctx context.Context, arg db.CreateWorkflowRunParams) (db.WorkflowRun, error) {
-			*captured = arg
-			return db.WorkflowRun{
-				ID:                   42,
-				RepositoryID:         arg.RepositoryID,
-				WorkflowDefinitionID: arg.WorkflowDefinitionID,
-				Status:               arg.Status,
-				TriggerEvent:         arg.TriggerEvent,
-				TriggerRef:           arg.TriggerRef,
-				DispatchInputs:       arg.DispatchInputs,
-				ExecutionPlane:       arg.ExecutionPlane,
-				CreatedAt:            time.Now(),
-				UpdatedAt:            time.Now(),
-			}, nil
-		},
-	}
-	return NewWorkflowAPIService(querier, nil)
+func (r *recordingFlowInvoker) Invoke(_ context.Context, launch InvokedFlowLaunch) (db.WorkflowRun, db.WorkflowDefinition, error) {
+	r.launches = append(r.launches, launch)
+	return db.WorkflowRun{ID: 42, RepositoryID: launch.RepositoryID, Status: "queued", ExecutionPlane: WorkflowRunPlaneFlow},
+		db.WorkflowDefinition{ID: 11, Name: launch.FlowID, Path: invokedFlowPath(launch.FlowID)}, nil
 }
 
-func TestInvokeWorkflowCreatesSandboxPlaneRun(t *testing.T) {
-	defs := []db.WorkflowDefinition{invokeTestDefinition(11, "echo", ".smithers/workflows/echo.tsx", true)}
-	var captured db.CreateWorkflowRunParams
-	svc := invokeTestService(defs, &captured)
+func (r *recordingFlowInvoker) CancelInvokedRun(_ context.Context, _ int64, runID int64) error {
+	r.cancelled = append(r.cancelled, runID)
+	return nil
+}
+
+func TestInvokeWorkflowLaunchesTheNamedFlow(t *testing.T) {
+	invoker := &recordingFlowInvoker{}
+	svc := NewWorkflowAPIService(&mockWorkflowAPIQuerier{}, nil, WithWorkflowAPIFlowInvoker(invoker))
 
 	result, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{
-		RepositoryID: 7,
-		Identifier:   "echo",
-		Input:        map[string]interface{}{"goal": "hello"},
-		TriggerRef:   "main",
+		RepositoryID: 7, UserID: 3, Identifier: " echo ",
+		Input: map[string]interface{}{"goal": "hello"}, TriggerRef: "trunk",
 	})
 	require.NoError(t, err)
-	require.NotNil(t, result)
 	assert.Equal(t, int64(42), result.Run.ID)
-	assert.Equal(t, "queued", result.Run.Status)
-	assert.Equal(t, "echo", result.Definition.Name)
+	assert.Equal(t, "flows/echo/flow.ts", result.Definition.Path)
+	require.Len(t, invoker.launches, 1)
+	launch := invoker.launches[0]
+	assert.Equal(t, InvokedFlowLaunch{RepositoryID: 7, UserID: 3, FlowID: "echo", Input: launch.Input, TriggerRef: "trunk"}, launch)
+	assert.JSONEq(t, `{"goal":"hello"}`, string(launch.Input))
 
-	assert.Equal(t, int64(7), captured.RepositoryID)
-	assert.Equal(t, int64(11), captured.WorkflowDefinitionID)
-	assert.Equal(t, "queued", captured.Status)
-	assert.Equal(t, WorkflowRunPlaneSandbox, captured.ExecutionPlane)
-	assert.Equal(t, "invoke", captured.TriggerEvent)
-	assert.Equal(t, "main", captured.TriggerRef)
-	assert.JSONEq(t, `{"goal":"hello"}`, string(captured.DispatchInputs))
+	_, err = svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{RepositoryID: 7, UserID: 3, Identifier: "echo"})
+	require.NoError(t, err)
+	assert.Equal(t, "main", invoker.launches[1].TriggerRef, "an unset ref records main")
+	assert.Nil(t, invoker.launches[1].Input)
 }
 
-func TestInvokeWorkflowBillingDeniedCreatesNoRun(t *testing.T) {
+func TestInvokeWorkflowBillingDeniedLaunchesNothing(t *testing.T) {
 	policy := &denyWorkflowDispatchBillingPolicy{}
-	created := false
-	querier := &mockWorkflowAPIQuerier{
-		listDefsByRepoFn: func(context.Context, db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error) {
-			return []db.WorkflowDefinition{invokeTestDefinition(11, "echo", ".smithers/workflows/echo.tsx", true)}, nil
-		},
-		createWorkflowRunFn: func(context.Context, db.CreateWorkflowRunParams) (db.WorkflowRun, error) {
-			created = true
-			return db.WorkflowRun{}, nil
-		},
-	}
-	svc := NewWorkflowAPIService(querier, nil, WithWorkflowAPIBillingPolicy(policy))
-	_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{RepositoryID: 7, Identifier: "echo"})
+	invoker := &recordingFlowInvoker{}
+	svc := NewWorkflowAPIService(&mockWorkflowAPIQuerier{}, nil, WithWorkflowAPIBillingPolicy(policy), WithWorkflowAPIFlowInvoker(invoker))
+	_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{RepositoryID: 7, UserID: 3, Identifier: "echo"})
 	require.Error(t, err)
 	assert.Equal(t, 1, policy.dispatchCalls)
-	assert.False(t, created, "billing refusal must precede run creation")
+	assert.Empty(t, invoker.launches, "billing refusal must precede the launch")
 }
 
-func TestInvokeWorkflowMatchesPathAndBasename(t *testing.T) {
-	defs := []db.WorkflowDefinition{invokeTestDefinition(11, "echo", ".smithers/workflows/echo.tsx", true)}
-	for _, identifier := range []string{".smithers/workflows/echo.tsx", "Echo"} {
-		var captured db.CreateWorkflowRunParams
-		svc := invokeTestService(defs, &captured)
-		_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{
-			RepositoryID: 7,
-			Identifier:   identifier,
-		})
-		require.NoError(t, err, "identifier %q", identifier)
-		assert.Equal(t, int64(11), captured.WorkflowDefinitionID)
+func TestInvokeWorkflowReadsAFlowNameOrItsPath(t *testing.T) {
+	for identifier, want := range map[string]string{
+		"echo": "echo", "flows/echo/flow.ts": "echo", "ci-2": "ci-2", "7": "7",
+	} {
+		invoker := &recordingFlowInvoker{}
+		svc := NewWorkflowAPIService(&mockWorkflowAPIQuerier{}, nil, WithWorkflowAPIFlowInvoker(invoker))
+		_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{RepositoryID: 7, UserID: 3, Identifier: identifier})
+		require.NoError(t, err, identifier)
+		require.Len(t, invoker.launches, 1, identifier)
+		assert.Equal(t, want, invoker.launches[0].FlowID, identifier)
 	}
 }
 
-func TestInvokeWorkflowRejectsUnknownFlow(t *testing.T) {
-	defs := []db.WorkflowDefinition{invokeTestDefinition(11, "echo", ".smithers/workflows/echo.tsx", true)}
-	var captured db.CreateWorkflowRunParams
-	svc := invokeTestService(defs, &captured)
-
-	_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{
-		RepositoryID: 7,
-		Identifier:   "missing",
-	})
-	require.Error(t, err)
-	var apiErr *pkgerrors.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, 404, apiErr.Status)
-	assert.Equal(t, int64(0), captured.WorkflowDefinitionID)
+func TestInvokeWorkflowRejectsInvalidRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		input      InvokeWorkflowInput
+		noInvoker  bool
+		wantStatus int
+	}{
+		{"blank flow", InvokeWorkflowInput{UserID: 3, Identifier: "  "}, false, 400},
+		{"legacy workflow file", InvokeWorkflowInput{UserID: 3, Identifier: ".smithers/workflows/echo.tsx"}, false, 400},
+		{"uppercase name", InvokeWorkflowInput{UserID: 3, Identifier: "Echo"}, false, 400},
+		{"flow directory", InvokeWorkflowInput{UserID: 3, Identifier: "flows/echo"}, false, 400},
+		{"nested path", InvokeWorkflowInput{UserID: 3, Identifier: "flows/a/b/flow.ts"}, false, 400},
+		{"traversal", InvokeWorkflowInput{UserID: 3, Identifier: "../echo"}, false, 400},
+		{"no person", InvokeWorkflowInput{Identifier: "echo"}, false, 401},
+		{"no Flow runtime", InvokeWorkflowInput{UserID: 3, Identifier: "echo"}, true, 503},
+	} {
+		invoker := &recordingFlowInvoker{}
+		var opts []WorkflowAPIServiceOption
+		if !tc.noInvoker {
+			opts = append(opts, WithWorkflowAPIFlowInvoker(invoker))
+		}
+		svc := NewWorkflowAPIService(&mockWorkflowAPIQuerier{}, nil, opts...)
+		tc.input.RepositoryID = 7
+		_, err := svc.InvokeWorkflow(context.Background(), tc.input)
+		var apiErr *pkgerrors.APIError
+		require.ErrorAs(t, err, &apiErr, tc.name)
+		assert.Equal(t, tc.wantStatus, apiErr.Status, tc.name)
+		assert.Empty(t, invoker.launches, tc.name)
+	}
 }
 
-func TestInvokeWorkflowRejectsInactiveDefinition(t *testing.T) {
-	defs := []db.WorkflowDefinition{invokeTestDefinition(11, "echo", ".smithers/workflows/echo.tsx", false)}
-	var captured db.CreateWorkflowRunParams
-	svc := invokeTestService(defs, &captured)
+type invokedFlowTestWorkspaces struct{ workspaceID string }
 
-	_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{
-		RepositoryID: 7,
-		Identifier:   "echo",
-	})
-	require.Error(t, err)
-	var apiErr *pkgerrors.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, 404, apiErr.Status)
+func (w invokedFlowTestWorkspaces) CreateWorkspace(context.Context, CreateWorkspaceInput) (WorkspaceResponse, error) {
+	return WorkspaceResponse{ID: w.workspaceID, Status: "running"}, nil
 }
 
-func TestInvokeWorkflowValidatesInput(t *testing.T) {
-	defs := []db.WorkflowDefinition{invokeTestDefinition(11, "echo", ".smithers/workflows/echo.tsx", true)}
-	var captured db.CreateWorkflowRunParams
-	svc := invokeTestService(defs, &captured)
+// TestInvokeWorkflowAdmitsThroughFlowDispatch drives an invocation through
+// the real Flow dispatcher and jobs store: the run is admitted as one
+// canonical Flow launch on the flow plane, which the sandbox scheduler never
+// claims, and the runtime's run id is recorded against the product run.
+func TestInvokeWorkflowAdmitsThroughFlowDispatch(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	var userID, repositoryID int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
+		"owner"+suffix, suffix+"@example.invalid").Scan(&userID))
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO repositories(user_id,name,lower_name) VALUES($1,$2,$2) RETURNING id`,
+		userID, "repo"+suffix).Scan(&repositoryID))
+	workspaceID := uuid.NewString()
+	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, workspaceID, repositoryID, userID)
+	require.NoError(t, err)
 
-	_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{RepositoryID: 7, Identifier: "  "})
-	require.Error(t, err)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(
+		func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			return nil, errors.New("admission must not resolve a runtime")
+		})})
+	require.NoError(t, err)
+	invoked := NewInvokedFlowService(pool, NewRepositoryJobService(q, nil, pool), invokedFlowTestWorkspaces{workspaceID: workspaceID})
+	invoked.SetFlowDispatcher(dispatcher)
+	api := NewWorkflowAPIService(q, nil, WithWorkflowAPIFlowInvoker(invoked))
+
+	result, err := api.InvokeWorkflow(ctx, InvokeWorkflowInput{
+		RepositoryID: repositoryID, UserID: userID, Identifier: "echo",
+		Input: map[string]interface{}{"goal": "hello"}, TriggerRef: "main",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "queued", result.Run.Status)
+	assert.Equal(t, WorkflowRunPlaneFlow, result.Run.ExecutionPlane, "the sandbox scheduler claims only sandbox-plane runs")
+	assert.Equal(t, InvokeTriggerEvent, result.Run.TriggerEvent)
+	assert.Equal(t, "flows/echo/flow.ts", result.Definition.Path)
+
+	scope := repositoryJobFlowScope(repositoryID, userID)
+	operation, err := store.GetByRequest(ctx, scope, flowdispatch.OperationLaunch, invokedFlowRequestID(result.Run.ID))
+	require.NoError(t, err)
+	var launch struct {
+		Target     flowruntime.Target `json:"target"`
+		FlowID     string             `json:"flowId"`
+		Payload    json.RawMessage    `json:"payload"`
+		Projection json.RawMessage    `json:"projection"`
+	}
+	require.NoError(t, json.Unmarshal(operation.Payload, &launch))
+	assert.Equal(t, "echo", launch.FlowID)
+	assert.JSONEq(t, `{"goal":"hello"}`, string(launch.Payload))
+
+	authority, err := invoked.ResolveFlowHostTarget(ctx, launch.Target)
+	require.NoError(t, err)
+	assert.Equal(t, workspaceID, authority.WorkspaceID)
+
+	project := func(state jobs.State, run *flowruntime.FlowRuntimeRun) {
+		t.Helper()
+		require.NoError(t, invoked.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{
+			OperationID: operation.ID, Scope: scope, State: state,
+			Checkpoint: flowdispatch.RuntimeCheckpoint{
+				Version: 1, Target: launch.Target, FlowID: "echo", Projection: launch.Projection,
+				RunID: "flow-run-1", Run: run,
+			},
+		}))
+	}
+	project(jobs.StateRunning, nil)
+	host, err := q.GetWorkflowRunCodingHost(ctx, result.Run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "flow-run-1", host.HostRunID)
+	assert.Equal(t, "echo", host.FlowID)
+	run, err := q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: result.Run.ID, RepositoryID: repositoryID})
+	require.NoError(t, err)
+	assert.Equal(t, "running", run.Status)
+
+	project(jobs.StateCompleted, &flowruntime.FlowRuntimeRun{RunID: "flow-run-1", FlowID: "echo", Status: "completed"})
+	run, err = q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: result.Run.ID, RepositoryID: repositoryID})
+	require.NoError(t, err)
+	assert.Equal(t, "success", run.Status)
+	assert.True(t, run.CompletedAt.Valid)
+}
+
+// invokedFlowTestFixture is one invoked run admitted through the real
+// dispatcher and jobs store.
+type invokedFlowTestFixture struct {
+	pool         *pgxpool.Pool
+	store        *jobs.Store
+	invoked      *InvokedFlowService
+	api          WorkflowAPIService
+	userID       int64
+	repositoryID int64
+	run          db.WorkflowRun
+}
+
+func newInvokedFlowTestFixture(t *testing.T) invokedFlowTestFixture {
+	t.Helper()
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	f := invokedFlowTestFixture{pool: pool}
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
+		"owner"+suffix, suffix+"@example.invalid").Scan(&f.userID))
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO repositories(user_id,name,lower_name) VALUES($1,$2,$2) RETURNING id`,
+		f.userID, "repo"+suffix).Scan(&f.repositoryID))
+	var err error
+	f.store, err = jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: f.store, Resolver: flowruntime.ResolverFunc(
+		func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			return nil, errors.New("admission must not resolve a runtime")
+		})})
+	require.NoError(t, err)
+	f.invoked = NewInvokedFlowService(pool, NewRepositoryJobService(q, nil, pool), invokedFlowTestWorkspaces{workspaceID: uuid.NewString()})
+	f.invoked.SetFlowDispatcher(dispatcher)
+	f.api = NewWorkflowAPIService(q, NewWorkflowRunService(q), WithWorkflowAPIFlowInvoker(f.invoked))
+	result, err := f.api.InvokeWorkflow(ctx, InvokeWorkflowInput{RepositoryID: f.repositoryID, UserID: f.userID, Identifier: "echo"})
+	require.NoError(t, err)
+	f.run = result.Run
+	return f
+}
+
+func TestInvokedFlowCancelReachesTheFlowLaunchAndReplayIsRefused(t *testing.T) {
+	f := newInvokedFlowTestFixture(t)
+	ctx := context.Background()
+
+	require.NoError(t, f.api.CancelWorkflowRun(ctx, f.repositoryID, f.run.ID))
+	run, err := f.api.GetWorkflowRun(ctx, f.repositoryID, f.run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "cancelled", run.Status)
+	operation, err := f.store.GetByRequest(ctx, repositoryJobFlowScope(f.repositoryID, f.userID), flowdispatch.OperationLaunch, invokedFlowRequestID(f.run.ID))
+	require.NoError(t, err)
+	assert.True(t, operation.CancellationRequested, "the Flow launch receives the cancel")
+
 	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, f.api.ResumeRun(ctx, f.repositoryID, f.run.ID), &apiErr)
+	assert.Equal(t, 409, apiErr.Status, "no queue would claim a resumed flow-plane run")
+	_, err = f.api.RerunRun(ctx, RerunInput{RepositoryID: f.repositoryID, RunID: f.run.ID, UserID: f.userID})
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, 400, apiErr.Status)
+	assert.Equal(t, 409, apiErr.Status)
+}
+
+func TestInvokedFlowTargetRefusesAnotherPersonOrALostWriter(t *testing.T) {
+	f := newInvokedFlowTestFixture(t)
+	ctx := context.Background()
+	target := flowruntime.Target{
+		TenantID: repositoryJobFlowScope(f.repositoryID, f.userID).TenantID, PrincipalID: "user:" + strconv.FormatInt(f.userID+1000, 10),
+		BindingKind: invokedFlowBinding, BindingID: strconv.FormatInt(f.run.ID, 10),
+	}
+	_, err := f.invoked.ResolveFlowHostTarget(ctx, target)
+	var failure flowruntime.Failure
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, "runtime_target_forbidden", failure.FlowRuntimeCode(), "another person cannot host the run")
+
+	target.PrincipalID = repositoryJobFlowScope(f.repositoryID, f.userID).PrincipalID
+	_, err = f.pool.Exec(ctx, `UPDATE repositories SET is_archived=TRUE WHERE id=$1`, f.repositoryID)
+	require.NoError(t, err)
+	_, err = f.invoked.ResolveFlowHostTarget(ctx, target)
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, "runtime_target_forbidden", failure.FlowRuntimeCode(), "the invoker must still write the repository")
+
+	target.BindingKind = "repository-setup"
+	_, err = f.invoked.ResolveFlowHostTarget(ctx, target)
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, "runtime_target_unsupported", failure.FlowRuntimeCode())
 }

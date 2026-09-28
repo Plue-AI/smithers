@@ -35,7 +35,7 @@ func TestWorkflowHandler_InvokeWorkflow_Created(t *testing.T) {
 				Definition: db.WorkflowDefinition{
 					ID:   11,
 					Name: "echo",
-					Path: ".smithers/workflows/echo.tsx",
+					Path: "flows/echo/flow.ts",
 				},
 			}, nil
 		},
@@ -51,6 +51,7 @@ func TestWorkflowHandler_InvokeWorkflow_Created(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, int64(101), captured.RepositoryID)
 	assert.Equal(t, "echo", captured.Identifier)
+	assert.Equal(t, int64(1), captured.UserID, "the invoking person runs the flow")
 	assert.Equal(t, "main", captured.TriggerRef)
 	assert.Equal(t, map[string]interface{}{"goal": "hi"}, captured.Input)
 
@@ -60,7 +61,7 @@ func TestWorkflowHandler_InvokeWorkflow_Created(t *testing.T) {
 	assert.Equal(t, int64(42), body.ID)
 	assert.Equal(t, "queued", body.Status)
 	assert.Equal(t, "echo", body.Flow)
-	assert.Equal(t, ".smithers/workflows/echo.tsx", body.Path)
+	assert.Equal(t, "flows/echo/flow.ts", body.Path)
 }
 
 func TestWorkflowHandler_InvokeWorkflow_UnknownFlowIsNotFound(t *testing.T) {

@@ -572,8 +572,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	variableService := services.NewVariableService(queries, services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 
-	workflowAPIService := services.NewWorkflowAPIService(queries, workflowRunService, services.WithWorkflowAPIBillingPolicy(billingPolicy))
-
 	blobConfig := cfg.Blob
 	blobConfig.TransferBaseURL = publicBaseURL
 	blobStore, blobCloser, expiryDuration, err := selectBlobStore(ctx, blobConfig, options.Blobs)
@@ -1148,7 +1146,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	repositoryJobService.SetOutsiderEgress(workspaceService)
 	repositoryJobService.SetRepositoryPolicyReader(repoHostClient)
 	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
-	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, repositorySetupService)
+	// InvokeWorkflow runs a file flow through the same Flow dispatcher.
+	invokedFlowService := services.NewInvokedFlowService(pool, repositoryJobService, workspaceService)
+	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, repositorySetupService)
 	if err != nil {
 		return err
 	}
@@ -1157,6 +1157,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		agentService.SetFlowDispatcher(flow.dispatcher)
 		repositoryJobService.SetFlowDispatcher(flow.dispatcher)
 		repositorySetupService.SetFlowDispatcher(flow.dispatcher)
+		invokedFlowService.SetFlowDispatcher(flow.dispatcher)
 		mythicalService.SetLauncher(flow.dispatcher)
 		if options.topology.workers() {
 			flowWorker = newCriticalWorker()
@@ -1191,6 +1192,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			chatCallbackWorker = newCriticalWorker()
 		}
 	}
+	workflowAPIService := services.NewWorkflowAPIService(queries, workflowRunService,
+		services.WithWorkflowAPIBillingPolicy(billingPolicy), services.WithWorkflowAPIFlowInvoker(invokedFlowService))
 	workspaceInternalHandler := &routes.WorkspaceInternalHandler{
 		Service: workspaceService,
 	}

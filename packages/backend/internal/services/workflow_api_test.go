@@ -23,7 +23,6 @@ type mockWorkflowAPIQuerier struct {
 	listRunsByRepoFn           func(ctx context.Context, arg db.ListWorkflowRunsByRepoParams) ([]db.WorkflowRun, error)
 	listRunsByDefFn            func(ctx context.Context, arg db.ListWorkflowRunsByDefinitionParams) ([]db.WorkflowRun, error)
 	getRunFn                   func(ctx context.Context, arg db.GetWorkflowRunParams) (db.WorkflowRun, error)
-	createWorkflowRunFn        func(ctx context.Context, arg db.CreateWorkflowRunParams) (db.WorkflowRun, error)
 	listWorkflowStepsByRunIDFn func(ctx context.Context, runID int64) ([]db.WorkflowStep, error)
 	listWorkflowLogsSinceFn    func(ctx context.Context, arg db.ListWorkflowLogsSinceParams) ([]db.WorkflowLog, error)
 }
@@ -59,13 +58,6 @@ func (m *mockWorkflowAPIQuerier) ListWorkflowRunsByDefinition(ctx context.Contex
 func (m *mockWorkflowAPIQuerier) GetWorkflowRun(ctx context.Context, arg db.GetWorkflowRunParams) (db.WorkflowRun, error) {
 	if m.getRunFn != nil {
 		return m.getRunFn(ctx, arg)
-	}
-	return db.WorkflowRun{}, pgx.ErrNoRows
-}
-
-func (m *mockWorkflowAPIQuerier) CreateWorkflowRun(ctx context.Context, arg db.CreateWorkflowRunParams) (db.WorkflowRun, error) {
-	if m.createWorkflowRunFn != nil {
-		return m.createWorkflowRunFn(ctx, arg)
 	}
 	return db.WorkflowRun{}, pgx.ErrNoRows
 }

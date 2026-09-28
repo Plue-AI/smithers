@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,12 +18,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
@@ -61,8 +65,17 @@ func TestRunCredentialCannotStartCacheSavingWorkflowRunsPostgres(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	cache := services.NewWorkflowCacheService(q, store, services.WorkflowCacheConfig{})
+	jobStore, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: jobStore, Resolver: flowruntime.ResolverFunc(
+		func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			return nil, errors.New("no Flow host in this test")
+		})})
+	require.NoError(t, err)
+	invokedFlows := services.NewInvokedFlowService(pool, services.NewRepositoryJobService(q, nil, pool), nil)
+	invokedFlows.SetFlowDispatcher(dispatcher)
 	router := buildWorkflowTriggerRouter(q, pool, &routes.WorkflowHandler{
-		Service: services.NewWorkflowAPIService(q, services.NewWorkflowRunService(q)),
+		Service: services.NewWorkflowAPIService(q, services.NewWorkflowRunService(q), services.WithWorkflowAPIFlowInvoker(invokedFlows)),
 	})
 	serve := func(bearer, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/repos/trig-owner/app"+path, bytes.NewBufferString(body))
@@ -85,9 +98,9 @@ func TestRunCredentialCannotStartCacheSavingWorkflowRunsPostgres(t *testing.T) {
 	}
 
 	for _, attempt := range []struct{ name, path, body string }{
-		{"invoke as schedule", "/invoke", `{"flow":"CI","trigger":"schedule"}`},
-		{"invoke as manual", "/invoke", `{"flow":"CI","trigger":"manual"}`},
-		{"invoke", "/invoke", `{"flow":"CI"}`},
+		{"invoke as schedule", "/invoke", `{"flow":"ci","trigger":"schedule"}`},
+		{"invoke as manual", "/invoke", `{"flow":"ci","trigger":"manual"}`},
+		{"invoke", "/invoke", `{"flow":"ci"}`},
 		{"dispatch by id", fmt.Sprintf("/workflows/%d/dispatches", defID), `{"ref":"main"}`},
 		{"dispatch by name", "/workflows/CI/dispatch", `{"ref":"main"}`},
 	} {
@@ -98,7 +111,7 @@ func TestRunCredentialCannotStartCacheSavingWorkflowRunsPostgres(t *testing.T) {
 	}
 
 	// A person's invoke cannot claim the scheduler either.
-	rec := serve(personToken, "/invoke", `{"flow":"CI","trigger":"schedule"}`)
+	rec := serve(personToken, "/invoke", `{"flow":"ci","trigger":"schedule"}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var invoked struct {
 		RunID int64 `json:"run_id"`
@@ -107,6 +120,7 @@ func TestRunCredentialCannotStartCacheSavingWorkflowRunsPostgres(t *testing.T) {
 	run, err := q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: invoked.RunID, RepositoryID: repoID})
 	require.NoError(t, err)
 	assert.Equal(t, "invoke", run.TriggerEvent)
+	assert.Equal(t, services.WorkflowRunPlaneFlow, run.ExecutionPlane, "an invoked flow runs on the Flow runtime, not the sandbox scheduler")
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, saves(invoked.RunID), &apiErr)
 	assert.Equal(t, http.StatusForbidden, apiErr.Status, "an invoked run restores caches and saves none")

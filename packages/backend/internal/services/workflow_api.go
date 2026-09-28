@@ -18,8 +18,6 @@ type WorkflowAPIQuerier interface {
 	ListWorkflowRunsByRepo(ctx context.Context, arg db.ListWorkflowRunsByRepoParams) ([]db.WorkflowRun, error)
 	ListWorkflowRunsByDefinition(ctx context.Context, arg db.ListWorkflowRunsByDefinitionParams) ([]db.WorkflowRun, error)
 	GetWorkflowRun(ctx context.Context, arg db.GetWorkflowRunParams) (db.WorkflowRun, error)
-	// InvokeWorkflow persistence: one durable run row for a repo-file flow.
-	CreateWorkflowRun(ctx context.Context, arg db.CreateWorkflowRunParams) (db.WorkflowRun, error)
 	// SSE log streaming reads.
 	ListWorkflowStepsByRunID(ctx context.Context, runID int64) ([]db.WorkflowStep, error)
 	ListWorkflowLogsSince(ctx context.Context, arg db.ListWorkflowLogsSinceParams) ([]db.WorkflowLog, error)
@@ -47,12 +45,18 @@ type workflowAPIService struct {
 	queries WorkflowAPIQuerier
 	runner  WorkflowRunService
 	billing BillingPolicy
+	invoker InvokedFlowInvoker
 }
 
 type WorkflowAPIServiceOption func(*workflowAPIService)
 
 func WithWorkflowAPIBillingPolicy(policy BillingPolicy) WorkflowAPIServiceOption {
 	return func(s *workflowAPIService) { s.billing = policy }
+}
+
+// WithWorkflowAPIFlowInvoker runs InvokeWorkflow on the canonical Flow runtime.
+func WithWorkflowAPIFlowInvoker(invoker InvokedFlowInvoker) WorkflowAPIServiceOption {
+	return func(s *workflowAPIService) { s.invoker = invoker }
 }
 
 // NewWorkflowAPIService creates a new WorkflowAPIService.
@@ -197,7 +201,17 @@ func (s *workflowAPIService) CancelWorkflowRun(ctx context.Context, repositoryID
 	if s.runner == nil {
 		return pkgerrors.Internal("workflow run service unavailable")
 	}
-	return s.runner.CancelRun(ctx, repositoryID, runID)
+	if err := s.runner.CancelRun(ctx, repositoryID, runID); err != nil {
+		return err
+	}
+	// The run row is cancelled first; an invoked run's Flow launch then
+	// receives the cancel through its durable request.
+	if s.invoker != nil {
+		if err := s.invoker.CancelInvokedRun(ctx, repositoryID, runID); err != nil {
+			return pkgerrors.Internal("failed to cancel the Flow run").WithCause(err)
+		}
+	}
+	return nil
 }
 
 func (s *workflowAPIService) RerunRun(ctx context.Context, input RerunInput) (*WorkflowRunResult, error) {

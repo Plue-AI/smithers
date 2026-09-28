@@ -13,10 +13,10 @@ import (
 
 // invokeWorkflowRequest is the JSON body for POST /api/repos/{owner}/{repo}/invoke.
 type invokeWorkflowRequest struct {
-	// Flow is the repo-file flow to run: its name (`echo`), path
-	// (`.smithers/workflows/echo.tsx`), or numeric definition ID.
+	// Flow is the file flow to run: its name (`echo`) or path
+	// (`flows/echo/flow.ts`).
 	Flow string `json:"flow"`
-	// Input becomes the run's dispatch_inputs (the workflow's ctx.input).
+	// Input is the flow's payload, recorded as the run's dispatch_inputs.
 	Input map[string]interface{} `json:"input,omitempty"`
 }
 
@@ -34,10 +34,9 @@ type invokeWorkflowResponse struct {
 // server-credentialed invocation seam (smithersai/ui#7). A person's write
 // credential (browser session or personal access token) starts the run; a
 // run credential is refused by the route. The run records the "invoke"
-// trigger whatever the body says. The run is
-// created on the sandbox plane: the in-API scheduler claims it and executes
-// the flow file with `smithers up` in a one-shot VM, recording logs and the
-// terminal status durably. The response is the honest queued state.
+// trigger whatever the body says. The run is admitted as one canonical Flow
+// launch on the invoker's box, and the Flow runtime's receipts settle its
+// status. The response is the honest queued state.
 func (h *WorkflowHandler) InvokeWorkflow(w http.ResponseWriter, r *http.Request) {
 	if h.Service == nil {
 		pkgerrors.WriteError(w, pkgerrors.Internal("workflow service unavailable"))
@@ -50,6 +49,12 @@ func (h *WorkflowHandler) InvokeWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	user := middleware.UserFromContext(r.Context())
+	if user == nil {
+		pkgerrors.WriteError(w, pkgerrors.Unauthorized("authentication required"))
+		return
+	}
+
 	var req invokeWorkflowRequest
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -57,6 +62,7 @@ func (h *WorkflowHandler) InvokeWorkflow(w http.ResponseWriter, r *http.Request)
 
 	result, err := h.Service.InvokeWorkflow(r.Context(), services.InvokeWorkflowInput{
 		RepositoryID: repoCtx.Repository.ID,
+		UserID:       user.ID,
 		Identifier:   req.Flow,
 		Input:        req.Input,
 		TriggerRef:   repoCtx.Repository.DefaultBookmark,

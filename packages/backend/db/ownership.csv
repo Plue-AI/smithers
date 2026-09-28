@@ -232,7 +232,7 @@ workflow_run_coding_reconciliations,private,Plue coding reconciliation state
 owner_model_credentials,product,product migration 0009
 owner_model_defaults,product,product migration 0009
 owner_model_credential_receipts,product,product migration 0009
-workflow_invocations,product,product migration 0010
+workflow_run_flow_invocations,product,product migration 0064
 onboarding_answers,product,product migration 0011
 workspace_setup_jobs,product,product migration 0011
 repo_push_events,product,product migration 0016

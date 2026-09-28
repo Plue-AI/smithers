@@ -267,13 +267,16 @@ type WorkflowStepResult struct {
 }
 
 // Workflow run execution planes. Exactly one consumer claims work per run:
-// sandbox-plane runs (CI and invoked workflows) are claimed whole by the
-// sandbox workflow scheduler (ClaimQueuedWorkflowRuns), and agent-plane runs
-// are driven solely by agent dispatch. The plane is fixed at run creation and
+// sandbox-plane CI runs are claimed whole by the sandbox workflow scheduler
+// (ClaimQueuedWorkflowRuns), agent-plane runs are driven solely by agent
+// dispatch, and flow-plane runs solely by their Flow launch. The plane is fixed at run creation and
 // never changes.
 const (
 	WorkflowRunPlaneSandbox = "sandbox"
 	WorkflowRunPlaneAgent   = "agent"
+	// WorkflowRunPlaneFlow runs are invoked flows that the canonical Flow
+	// runtime executes (InvokedFlowService).
+	WorkflowRunPlaneFlow = "flow"
 )
 
 // JobConfig represents a single job extracted from the workflow config.
@@ -1339,7 +1342,7 @@ func (s *workflowRunService) ResumeRun(ctx context.Context, repositoryID, runID 
 			}
 			return pkgerrors.Internal("failed to fetch workflow run").WithCause(err)
 		}
-		if err := rejectInternalAlertRemediationReplay(run); err != nil {
+		if err := rejectUnreplayableRun(run); err != nil {
 			return err
 		}
 		if run.Status != "cancelled" && run.Status != "failure" {
@@ -1370,7 +1373,7 @@ func (s *workflowRunService) ResumeRun(ctx context.Context, repositoryID, runID 
 		}
 		return pkgerrors.Internal("failed to fetch workflow run").WithCause(err)
 	}
-	if err := rejectInternalAlertRemediationReplay(run); err != nil {
+	if err := rejectUnreplayableRun(run); err != nil {
 		return err
 	}
 
@@ -1411,7 +1414,7 @@ func (s *workflowRunService) RerunRun(ctx context.Context, input RerunInput) (*W
 		}
 		return nil, pkgerrors.Internal("failed to fetch workflow run").WithCause(err)
 	}
-	if err := rejectInternalAlertRemediationReplay(originalRun); err != nil {
+	if err := rejectUnreplayableRun(originalRun); err != nil {
 		return nil, err
 	}
 
@@ -1466,9 +1469,14 @@ func (s *workflowRunService) RerunRun(ctx context.Context, input RerunInput) (*W
 	return &result, nil
 }
 
-func rejectInternalAlertRemediationReplay(run db.WorkflowRun) error {
+func rejectUnreplayableRun(run db.WorkflowRun) error {
 	if run.TriggerEvent == AlertRemediationTriggerEvent {
 		return pkgerrors.Conflict("internal alert remediation runs cannot be resumed or rerun")
+	}
+	// No queue claims a flow-plane run: its Flow launch was its only
+	// executor, so a replay is a new invocation.
+	if run.ExecutionPlane == WorkflowRunPlaneFlow {
+		return pkgerrors.Conflict("an invoked flow run cannot be resumed or rerun; invoke the flow again")
 	}
 	return nil
 }
