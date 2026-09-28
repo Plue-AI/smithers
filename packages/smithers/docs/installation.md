@@ -58,12 +58,16 @@ and is not supported.
 `smthrs tui` opens the terminal coding agent in the current directory. It
 runs on Node 26.4 or later or on Bun. Under Node, the CLI starts the TUI with
 `--experimental-ffi`, which OpenTUI needs to load its renderer. Set
-`SMITHERS_BUN` to a Bun executable to run the TUI on Bun instead.
+`SMITHERS_BUN` to a Bun executable to run the TUI on Bun instead. The launcher
+tries `SMITHERS_TUI_BIN`, an installed compiled binary, Bun, then Node.
+Compiled interactive builds need a writable, executable `TMPDIR`; Alpine
+also needs `libstdc++`. See the [TUI installation guide](/docs/tui/) for
+source-checkout prerequisites and the full reference.
 
 ```bash
 smthrs tui                       # open the TUI here
-smthrs tui ../repo -c            # continue the latest session in ../repo
-smthrs tui -m openai:gpt-6-sol   # choose the chat seat
+smthrs tui ../repo -c            # continue the latest conversation in ../repo
+smthrs tui -m openai:gpt-6-sol   # choose the chat model
 smthrs tui -p "Summarize README" # print one answer and exit
 smthrs tui --approve ask        # ask before consequential calls
 ```
