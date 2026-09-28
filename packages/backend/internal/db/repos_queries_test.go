@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -228,22 +229,42 @@ func TestListReadableReposForUser_TeamOfOtherOrgDoesNotLeak(t *testing.T) {
 			require.NoError(t, err)
 			mustAddTeamMember(t, db, teamID, userID)
 
+			publicOrgID := mustCreateOrganization(t, db, "team-cross-org-public")
+			publicRepoIDs := make([]int64, 0, 12)
+			for i := range 12 {
+				publicRepoIDs = append(publicRepoIDs, mustCreateOrgRepo(t, db, publicOrgID, fmt.Sprintf("unrelated-public-%d", i), true))
+			}
+			baselineCount, err := q.CountReadableReposForUser(ctx, userID)
+			require.NoError(t, err)
+
 			sameOrgRepoID := mustCreateOrgRepo(t, db, teamOrgID, "same-org-private", false)
 			otherOrgRepoID := mustCreateOrgRepo(t, db, otherOrgID, "other-org-private", false)
 			mustAddTeamRepo(t, db, teamID, sameOrgRepoID)
 			mustAddTeamRepo(t, db, teamID, otherOrgRepoID)
 
-			repos, err := q.ListReadableReposForUser(ctx, ListReadableReposForUserParams{
-				UserID: userID, PageSize: 10,
-			})
-			require.NoError(t, err)
-			require.Len(t, repos, 1)
-			assert.Equal(t, sameOrgRepoID, repos[0].ID)
-			assert.NotEqual(t, otherOrgRepoID, repos[0].ID)
-
 			count, err := q.CountReadableReposForUser(ctx, userID)
 			require.NoError(t, err)
-			assert.Equal(t, int64(1), count)
+			assert.Equal(t, baselineCount+1, count)
+
+			seen := make(map[int64]struct{})
+			for offset := int32(0); ; offset += 10 {
+				repos, err := q.ListReadableReposForUser(ctx, ListReadableReposForUserParams{
+					UserID: userID, PageSize: 10, PageOffset: offset,
+				})
+				require.NoError(t, err)
+				for _, repo := range repos {
+					seen[repo.ID] = struct{}{}
+				}
+				if len(repos) < 10 {
+					break
+				}
+			}
+			assert.Equal(t, count, int64(len(seen)))
+			assert.Contains(t, seen, sameOrgRepoID)
+			assert.NotContains(t, seen, otherOrgRepoID)
+			for _, publicRepoID := range publicRepoIDs {
+				assert.Contains(t, seen, publicRepoID)
+			}
 		})
 	}
 }
