@@ -218,7 +218,7 @@ const invalidRoundStore = (
 /** Runs one body against a fresh database and the real durable stores. */
 const durable = <A, E, R>(
   body: Effect.Effect<A, E, R>
-) => withCrypto(Effect.scoped(body.pipe(Effect.provide(services)) as Effect.Effect<A>))
+) => withCrypto(body.pipe(Effect.scoped, Effect.provide(services)) as Effect.Effect<A>)
 
 const roundId = (lineageId: string, ordinal: number) => sha256(JSON.stringify(["flow-round/v2", lineageId, ordinal]))
 

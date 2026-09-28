@@ -364,9 +364,9 @@ describe("a cancel that races the quarantine park", () => {
             interruptions: page.entries.filter((entry) => entry.eventType === "flows.engine.interrupted")
           }
         }).pipe(
+          Effect.scoped,
           Effect.provide(TestStores.layer()),
           Effect.provide(TestClock.layer()),
-          Effect.scoped,
           Effect.orDie
         )
       )

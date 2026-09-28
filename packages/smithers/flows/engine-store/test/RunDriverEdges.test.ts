@@ -69,9 +69,9 @@ const provideJournal = <A, E, R>(
   effect: Effect.Effect<A, E, R | Journal.Journal | RunStore.RunStore>
 ) =>
   effect.pipe(
+    Effect.scoped,
     Effect.provide(TestStores.layer()),
-    Effect.provide(DurableEngineState.layerMemory),
-    Effect.scoped
+    Effect.provide(DurableEngineState.layerMemory)
   ) as Effect.Effect<
     A,
     E,
@@ -1190,10 +1190,10 @@ const provideJournalWithTestClock = <A, E, R>(
   effect: Effect.Effect<A, E, R | Journal.Journal | RunStore.RunStore>
 ) =>
   effect.pipe(
+    Effect.scoped,
     Effect.provide(TestStores.layer()),
     Effect.provide(DurableEngineState.layerMemory),
-    Effect.provide(TestClock.layer()),
-    Effect.scoped
+    Effect.provide(TestClock.layer())
   ) as Effect.Effect<
     A,
     E,
@@ -1551,7 +1551,7 @@ describe("RunDriver atomic waiting markers", () => {
             wakeDepths,
             recovered
           }
-        }).pipe(Effect.provide(TestStores.layerAt(":memory:")), Effect.scoped)
+        }).pipe(Effect.scoped, Effect.provide(TestStores.layerAt(":memory:")))
       )
 
     it.effect(`${implementation}: rolls back its own released marker when the release transition loses the fence`, () =>

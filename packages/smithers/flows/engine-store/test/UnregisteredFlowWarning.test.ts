@@ -48,10 +48,10 @@ const provideJournal = <A, E, R>(
   effect: Effect.Effect<A, E, R | Journal.Journal | RunStore.RunStore>
 ) =>
   effect.pipe(
+    Effect.scoped,
     Effect.provide(TestStores.layer()),
     Effect.provide(DurableEngineState.layerMemory),
-    Effect.provide(TestClock.layer()),
-    Effect.scoped
+    Effect.provide(TestClock.layer())
   ) as Effect.Effect<
     A,
     E,
@@ -74,9 +74,9 @@ const provideSql = <A, E, R>(
   effect: Effect.Effect<A, E, R | Journal.Journal | RunStore.RunStore | DurableEngineState.DurableEngineState>
 ) =>
   effect.pipe(
+    Effect.scoped,
     Effect.provide(TestStores.layerAt(":memory:")),
-    Effect.provide(TestClock.layer()),
-    Effect.scoped
+    Effect.provide(TestClock.layer())
   ) as Effect.Effect<
     A,
     E,

@@ -48,13 +48,13 @@ type Services =
   | TestClock.TestClock
 const onDatabase = <A, E>(file: string, boundary: StepBoundary.Service, body: Effect.Effect<A, E, Services>) =>
   Effect.runPromise(withCrypto(body.pipe(
+    Effect.scoped,
     Effect.provide(Layer.mergeAll(
       TestStores.layerAt(file),
       jj,
       TestClock.layer(),
       Layer.succeed(StepBoundary.StepBoundary, boundary)
-    )),
-    Effect.scoped
+    ))
   )))
 
 const withDatabase = async (body: (file: string) => Promise<void>) => {

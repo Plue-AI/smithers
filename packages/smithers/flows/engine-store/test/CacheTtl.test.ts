@@ -1040,7 +1040,7 @@ describe("a WithCache policy on the durable engine", () => {
         ).toBe("built")
         expect(reads).toHaveLength(50)
         expect(Math.max(...reads)).toBeLessThanOrEqual(1)
-      }).pipe(Effect.provide(engineLayers), Effect.scoped)
+      }).pipe(Effect.scoped, Effect.provide(engineLayers))
     ))
 
   it.effect("replays inside the declared bound and dispatches again past it", () =>
@@ -1070,7 +1070,7 @@ describe("a WithCache policy on the durable engine", () => {
         const expired = (yield* provenance("ttl-engine-c")).filter((record) => record.action === "expired")
         expect(expired.length).toBe(1)
         expect(expired[0]!.ttlMs).toBe(1000)
-      }).pipe(Effect.provide(engineLayers), Effect.provide(TestClock.layer()), Effect.scoped)
+      }).pipe(Effect.scoped, Effect.provide(engineLayers), Effect.provide(TestClock.layer()))
     ))
 
   it.effect("re-executes when only the declared version changes", () =>
@@ -1098,7 +1098,7 @@ describe("a WithCache policy on the durable engine", () => {
         const rebuilt = yield* runOn("version-engine-c", "version-engine-c", policy, count, "v2")
         expect(rebuilt).toBe("dist/server.js?target=server")
         expect(executions).toBe(2)
-      }).pipe(Effect.provide(engineLayers), Effect.provide(TestClock.layer()), Effect.scoped)
+      }).pipe(Effect.scoped, Effect.provide(engineLayers), Effect.provide(TestClock.layer()))
     ))
 
   it.effect("keeps dispatching an undeclared policy at every age", () =>
@@ -1114,6 +1114,6 @@ describe("a WithCache policy on the durable engine", () => {
         // No time to live, so age never refuses the row: one execution total,
         // an hour apart.
         expect(executions).toBe(1)
-      }).pipe(Effect.provide(engineLayers), Effect.provide(TestClock.layer()), Effect.scoped)
+      }).pipe(Effect.scoped, Effect.provide(engineLayers), Effect.provide(TestClock.layer()))
     ))
 })
