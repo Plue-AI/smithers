@@ -116,7 +116,7 @@ describe("Install", () => {
         }).pipe(Effect.provide(NodeServices.layer))
       )
       const evidence = await packageJsonDigest(root)
-      for (const name of [".pnpmfile.cjs", "pnpm-workspace.yaml"]) {
+      for (const name of [".pnpmfile.mjs", ".pnpmfile.cjs", "pnpm-workspace.yaml"]) {
         const fileSystem: FileSystem.FileSystem = {
           ...real,
           exists: (path) =>
@@ -171,7 +171,7 @@ describe("Install", () => {
     })
   })
 
-  for (const path of ["pnpm-lock.yaml", ".npmrc", ".pnpmfile.cjs", "pnpm-workspace.yaml"]) {
+  for (const path of ["pnpm-lock.yaml", ".npmrc", ".pnpmfile.mjs", ".pnpmfile.cjs", "pnpm-workspace.yaml"]) {
     for (const phase of ["fetch", "link"] as const) {
       for (const timing of ["before", "during"] as const) {
         it(`refuses ${path} drift ${timing} ${phase}`, async () => {
@@ -305,7 +305,13 @@ describe("Install", () => {
         )
       const empty = await measure()
       const baseline = await fetch(empty)
-      for (const [field, path] of [["pnpmfile", ".pnpmfile.cjs"], ["workspace", "pnpm-workspace.yaml"]] as const) {
+      for (
+        const [field, path] of [
+          ["pnpmfile", ".pnpmfile.mjs"],
+          ["pnpmfile", ".pnpmfile.cjs"],
+          ["workspace", "pnpm-workspace.yaml"]
+        ] as const
+      ) {
         await Fs.writeFile(NodePath.join(root, path), "first\n")
         const first = await measure()
         expect(first[field]).toEqual({
@@ -866,12 +872,13 @@ describe("Install", () => {
         ".npmrc",
         "bun.lock",
         "pnpm-lock.yaml",
+        ".pnpmfile.mjs",
         ".pnpmfile.cjs",
         "pnpm-workspace.yaml"
       ])
       expect(fetch!.draft.effects.reads).toEqual(
         manager === "pnpm"
-          ? [lockfile, ".npmrc", ".pnpmfile.cjs", "pnpm-workspace.yaml"]
+          ? [lockfile, ".npmrc", ".pnpmfile.mjs", ".pnpmfile.cjs", "pnpm-workspace.yaml"]
           : [lockfile, ".npmrc"]
       )
       // `pnpm fetch` also lays down the virtual store it hardlinks into (observed with pnpm 11.25.0:
@@ -886,6 +893,7 @@ describe("Install", () => {
         ".npmrc",
         "bun.lock",
         "pnpm-lock.yaml",
+        ".pnpmfile.mjs",
         ".pnpmfile.cjs",
         "pnpm-workspace.yaml",
         "package.json",

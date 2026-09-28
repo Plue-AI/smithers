@@ -153,7 +153,7 @@ const measureInputPatterns: ReadonlyArray<string> = [
   ".npmrc",
   "bun.lock",
   "pnpm-lock.yaml",
-  ".pnpmfile.cjs",
+  ...PackageManager.pnpmfileNames,
   "pnpm-workspace.yaml"
 ]
 
@@ -233,7 +233,7 @@ const makeFetch = <Tag extends string>(
   })
     .annotate(Flow.EffectsDeclaration, {
       reads: manager === "pnpm"
-        ? [lockfile, ".npmrc", ".pnpmfile.cjs", "pnpm-workspace.yaml"]
+        ? [lockfile, ".npmrc", ...PackageManager.pnpmfileNames, "pnpm-workspace.yaml"]
         : [lockfile, ".npmrc"],
       writes: [
         { _tag: "TreeArtifact", path: `${PackageManager.storeRoot}/${manager}` },
@@ -495,6 +495,16 @@ const optionalInput = (root: string, path: string) =>
     return present ? { path, digest: yield* PackageManager.lockfileDigest(root, path) } : null
   })
 
+/** Digests the one default hook file pnpm will load, which every pnpm command names. */
+const pnpmfileInput = (root: string) =>
+  Effect.flatMap(
+    PackageManager.pnpmfileOf(root),
+    (name) =>
+      name === null
+        ? Effect.succeed(null)
+        : Effect.map(PackageManager.lockfileDigest(root, name), (digest) => ({ path: name, digest }))
+  )
+
 /** Re-read fixed manager paths, never paths supplied by a recorded payload. */
 const verifyContent = (manager: PackageManager.Service, content: Content) =>
   Effect.gen(function*() {
@@ -543,7 +553,7 @@ export const executeMeasure = (): Effect.Effect<
     return {
       lockfile: { path: manager.lockfileName, digest: lockfile },
       npmrc: npmrc === null ? null : { path: ".npmrc", digest: npmrc },
-      pnpmfile: manager.name === "pnpm" ? yield* optionalInput(manager.projectRoot, ".pnpmfile.cjs") : null,
+      pnpmfile: manager.name === "pnpm" ? yield* pnpmfileInput(manager.projectRoot) : null,
       workspace: manager.name === "pnpm" ? yield* optionalInput(manager.projectRoot, "pnpm-workspace.yaml") : null
     }
   })

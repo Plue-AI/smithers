@@ -64,11 +64,15 @@ Only pnpm has a live implementation. It runs:
 
 ```text
 pnpm fetch --frozen-lockfile --ignore-scripts --reporter=append-only \
-  --store-dir <workspace>/.flows/store/pnpm
+  <hooks> --store-dir <workspace>/.flows/store/pnpm
 
 pnpm install --offline --frozen-lockfile --ignore-scripts \
-  --reporter=append-only --store-dir <workspace>/.flows/store/pnpm
+  --reporter=append-only <hooks> --store-dir <workspace>/.flows/store/pnpm
 ```
+
+`<hooks>` is `--pnpmfile <workspace>/<hook file> --global-pnpmfile=`, where the
+hook file is `.pnpmfile.mjs`, else `.pnpmfile.cjs`, and `--ignore-pnpmfile` when
+neither exists.
 
 Bun installs are unsupported. The `Install` target, the planner, `runInstall`,
 and the install Flow payload refuse a Bun manager at configuration time with

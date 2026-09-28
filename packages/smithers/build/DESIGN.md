@@ -136,7 +136,21 @@ because the check belongs at whatever composition root wires a layer against a
 declaration rather than inside a sealed action that receives only the layer.
 
 Literal credentials in `.npmrc` are refused. Environment placeholders are
-allowed, but process-control variable names are not. Child commands receive an
+allowed only as the whole value of a registry-scoped credential setting
+(`//host/:_authToken`, `_auth`, `_password`, `username`) whose host is on the
+operator's `credentialHosts` list (default `registry.npmjs.org`; the build CLI
+reads `SMITHERS_NPM_CREDENTIAL_HOSTS`), because the repository writes that host.
+`.npmrc` is parsed the way pnpm's `ini` decoder parses it (`\r` line breaks,
+`JSON.parse` for quoted values), because any divergence hides a setting. While
+a credential is forwarded, project proxy, TLS, and CA settings and non-https
+registries are refused, and fetch and link pin those settings on the command
+line to the operator's values, the only source that outranks
+`pnpm-workspace.yaml` in pnpm 10.
+Process-control variable names are refused. pnpm hooks are pinned to the measured default hook file
+(`.pnpmfile.mjs`, else `.pnpmfile.cjs`)
+(`--pnpmfile`, `--global-pnpmfile=`), or disabled with `--ignore-pnpmfile`.
+Only the hook file's own bytes are digested; modules it imports run
+undigested and do not move the store manifest. Child commands receive an
 allowlisted environment snapshot with user/global npm configuration disabled;
 the complete host environment is never inherited.
 
