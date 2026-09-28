@@ -2100,16 +2100,27 @@ export const make = (
                 // run's poll loop, so a run driven to completion by a sweep or a
                 // coordinator wake is observed now rather than on the next tick.
                 yield* wakeBus.wake(executionId)
-                if (activeState.parentExecutionId !== undefined) {
+                // Every parent that attached to this child is runnable now:
+                // the creating parent in `state_json` and each diamond parent
+                // whose only record is its durable edge (issue #2500). Edges
+                // are keyed on the lineage's first round, so a child that
+                // handed off still finds them from its last round.
+                const edges = yield* engineState.runParents(initial.lineageId ?? executionId)
+                const parents = new Set<string>()
+                if (activeState.parentExecutionId !== undefined) parents.add(activeState.parentExecutionId)
+                for (const edge of edges) parents.add(edge.parentId)
+                if (parents.size > 0) {
                   const activeCoordinator = yield* Deferred.await(coordinatorDeferred)
-                  // A parent that parked on this child is runnable now, and
-                  // this wake is the only thing that says so: a child
-                  // settlement never passes through `scheduleResume`. Recorded
-                  // for the same reason it is there — the round this wake
-                  // schedules is the one a host's park guard has to recognize.
-                  yield* recordParentResume(activeState.parentExecutionId)
-                  yield* activeCoordinator.wake(activeState.parentExecutionId)
-                  yield* wakeBus.wake(activeState.parentExecutionId)
+                  for (const parentId of parents) {
+                    // A parent that parked on this child is runnable now, and
+                    // this wake is the only thing that says so: a child
+                    // settlement never passes through `scheduleResume`. Recorded
+                    // for the same reason it is there — the round this wake
+                    // schedules is the one a host's park guard has to recognize.
+                    yield* recordParentResume(parentId)
+                    yield* activeCoordinator.wake(parentId)
+                    yield* wakeBus.wake(parentId)
+                  }
                 }
                 return
               }
