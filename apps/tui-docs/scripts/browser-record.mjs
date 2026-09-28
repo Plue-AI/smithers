@@ -1,4 +1,5 @@
 /** Record the real browser playground; only its provider transport is a controlled fixture. */
+import assert from "node:assert/strict"
 import { fork, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -14,6 +15,7 @@ import {
 } from "node:fs"
 import { join } from "node:path"
 import { chromium } from "playwright"
+import { browserReplies, completion } from "./browser-replies.mjs"
 const digestOf = (bytes) => createHash("sha256").update(bytes).digest("hex")
 export async function recordBrowser({ scripts, base, here, output, cache, ffmpeg }) {
   let server, browser, origin
@@ -74,19 +76,10 @@ export async function recordBrowser({ scripts, base, here, output, cache, ffmpeg
           captured = []
         try {
           const errors = []
+          let modelCalls = 0
           page.on("pageerror", (error) => errors.push(error.message))
           await page.route("**/api/playground/model", (route) =>
-            route.fulfill({
-              json: {
-                choices: [{
-                  finish_reason: "stop",
-                  message: {
-                    content:
-                      "```cell\nawait ctx.call(\"read\", {path:\"math.js\"}); await ctx.call(\"write\", {path:\"math.js\",content:\"export const add = (a, b) => a + b\\n\"}); console.log(await ctx.call(\"check\",{})); ctx.done(\"Fixed math.js. Both checks pass.\");\n```"
-                  }
-                }]
-              }
-            }))
+            route.fulfill({ json: completion(browserReplies[modelCalls++]) }))
           await page.goto(origin)
           await page.locator("#run").waitFor()
           for (const step of script.steps) {
@@ -97,6 +90,21 @@ export async function recordBrowser({ scripts, base, here, output, cache, ffmpeg
                 (text) => document.querySelector("#run-status")?.textContent?.includes(text),
                 step.value
               )
+              if (step.value === "done") {
+                assert.equal(modelCalls, 2)
+                const run = await page.evaluate(() => {
+                  const state = JSON.parse(localStorage.getItem("smithers.tui.playground.v1"))
+                  const frame = state.branches.find((branch) => branch.id === state.current).frames.at(-1)
+                  return {
+                    ...frame.run,
+                    flows: frame.events.filter((event) => event.kind === "flow")
+                      .map((event) => event.text.split("\n")[0])
+                  }
+                })
+                assert.equal(run.replies.length, 2)
+                assert.equal(Object.keys(run.calls).length, 3)
+                assert.deepEqual(run.flows, ["read math.js", "write math.js", "check"])
+              }
             } else if (step.kind === "Capture") {
               await page.waitForTimeout(300)
               const subject = await page.locator("#settings").evaluate((el) => el.open)

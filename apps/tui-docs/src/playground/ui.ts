@@ -141,7 +141,7 @@ export function mount() {
       status.textContent = String(error)
     }
   }
-  addEventListener("storage", (event) => {
+  window.addEventListener("storage", (event) => {
     if (event.key?.startsWith("smithers.tui.playground") && !controller) {
       journal = new Journal(localStorage)
       changed()

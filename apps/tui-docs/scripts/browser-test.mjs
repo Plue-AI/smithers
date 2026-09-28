@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { fork } from "node:child_process"
 import { once } from "node:events"
 import { chromium } from "playwright"
+import { browserReplies, completion } from "./browser-replies.mjs"
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.CHROME_BIN
@@ -19,8 +20,15 @@ let calls = 0, release, releaseInterrupted
 const held = new Promise((resolve) => {
   release = resolve
 })
-const answer =
-  "```cell\nconst before = await ctx.call(\"read\", {path:\"math.js\"});\nawait ctx.call(\"write\", {path:\"math.js\", content:\"export const add = (a, b) => a + b\\n\"});\nconst result = await ctx.call(\"check\", {});\nconsole.log(result);\nctx.done(\"Fixed math.js. Both checks pass.\");\n```"
+const savedRun = async (page) => page.evaluate(() => {
+  const state = JSON.parse(localStorage.getItem("smithers.tui.playground.v1"))
+  return state.branches.find((branch) => branch.id === state.current).frames.at(-1).run
+})
+const savedFlows = async (page) => page.evaluate(() => {
+  const state = JSON.parse(localStorage.getItem("smithers.tui.playground.v1"))
+  return state.branches.find((branch) => branch.id === state.current).frames.at(-1).events
+    .filter((event) => event.kind === "flow").map((event) => event.text.split("\n")[0])
+})
 try {
   if (!origin) {
     server = fork(new URL("../server/serve.mjs", import.meta.url), [], {
@@ -46,9 +54,7 @@ try {
   await page.route("**/api/playground/model", async (route) => {
     calls++
     await held
-    await route.fulfill({
-      json: { choices: [{ finish_reason: "stop", message: { role: "assistant", content: answer } }] }
-    })
+    await route.fulfill({ json: completion(browserReplies[calls - 1]) })
   })
   await page.goto(origin)
   await page.locator("#run").waitFor()
@@ -66,12 +72,16 @@ try {
   await other.locator("#resume").click()
   await other.waitForFunction(() => document.querySelector("#run-status")?.textContent?.includes("another tab"))
   await other.close()
+  assert.equal(calls, 1)
   release()
   await page.waitForFunction(() => document.querySelector("#run-status")?.textContent === "done", {}, {
     timeout: 90_000
   })
   assert.match(await page.locator("#file-content").innerText(), /a \+ b/)
-  assert.equal(calls, 1)
+  assert.equal(calls, 2)
+  assert.equal((await savedRun(page)).replies.length, 2)
+  assert.equal(Object.keys((await savedRun(page)).calls).length, 3)
+  assert.deepEqual(await savedFlows(page), ["read math.js", "write math.js", "check"])
   const head = Number(await page.locator("#checkpoint").getAttribute("max"))
   await page.locator("#checkpoint").fill("0")
   assert.match(await page.locator("#file-content").innerText(), /a - b/)
@@ -79,7 +89,8 @@ try {
   await page.locator("#checkpoint").fill(String(head))
   await page.reload()
   assert.match(await page.locator("#file-content").innerText(), /a \+ b/)
-  assert.equal(calls, 1)
+  assert.equal(calls, 2)
+  assert.equal(Object.keys((await savedRun(page)).calls).length, 3)
   await page.locator("#checkpoint").fill("0")
   await page.locator("#branch").click()
   await page.waitForFunction(() => document.querySelector("#branch-select")?.value !== "main")
@@ -102,7 +113,7 @@ try {
   await page.route("https://provider.test/v1/chat/completions", async (route) => {
     personalCalls++
     assert.equal(route.request().headers().authorization, "Bearer test-browser-secret")
-    await route.fulfill({ json: { choices: [{ finish_reason: "stop", message: { content: answer } }] } })
+    await route.fulfill({ json: completion(browserReplies[personalCalls - 1]) })
   })
   await page.locator("#settings-open").click()
   await page.locator("#base-url").fill("https://provider.test/v1")
@@ -111,7 +122,8 @@ try {
   await page.locator("#settings-form button[type=submit]").click()
   await page.locator("#run").click()
   await page.waitForFunction(() => document.querySelector("#run-status")?.textContent === "done")
-  assert.equal(personalCalls, 1)
+  assert.equal(personalCalls, 2)
+  assert.equal(Object.keys((await savedRun(page)).calls).length, 3)
   assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes("test-browser-secret")), false)
   const failed = await browser.newPage()
   await failed.route(
@@ -137,10 +149,7 @@ try {
       await route.abort().catch(() => {})
       return
     }
-    const content = attempts === 1
-      ? "```cell\nawait ctx.call(\"write\", {path:\"math.js\",content:\"export const add = (a, b) => a + b\\n\"});\nconsole.log(await ctx.call(\"check\", {}));\n```"
-      : "```cell\nctx.done(\"Recovered.\");\n```"
-    await route.fulfill({ json: { choices: [{ finish_reason: "stop", message: { content } }] } })
+    await route.fulfill({ json: completion(browserReplies[attempts === 1 ? 0 : 1]) })
   })
   await recovering.goto(origin)
   await recovering.locator("#run").click()
@@ -152,7 +161,10 @@ try {
   await recovering.locator("#resume").click()
   await recovering.waitForFunction(() => document.querySelector("#run-status")?.textContent === "done")
   assert.equal(attempts, 3)
-  assert.equal(await recovering.locator("#transcript details").count(), 2)
+  assert.equal((await savedRun(recovering)).replies.length, 2)
+  assert.equal(Object.keys((await savedRun(recovering)).calls).length, 3)
+  assert.deepEqual(await savedFlows(recovering), ["read math.js", "write math.js", "check"])
+  assert.equal(await recovering.locator("#transcript details").count(), 3)
   await recovering.close()
   assert.deepEqual(errors, [])
   console.log(
