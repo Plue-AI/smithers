@@ -782,3 +782,38 @@ describe("Checkpoint.tree", () => {
       expect(yield* Checkpoint.treeDiff(root, ref)).toEqual([])
     }).pipe(Effect.provide(platform)))
 })
+
+describe("Checkpoint paths stay inside the project", () => {
+  for (const escape of ["../victim.txt", "/tmp/victim.txt", "nested/../../victim.txt", ""]) {
+    it.effect(`refuses to take a checkpoint of ${JSON.stringify(escape)}`, () =>
+      Effect.gen(function*() {
+        const root = gitProject("escape-take")
+        const failure = yield* Effect.flip(Checkpoint.take(payload(root, [escape])))
+        expect(failure.code).toBe("checkpoint-failed")
+      }).pipe(Effect.provide(platform)))
+  }
+
+  it.effect("refuses a forged manifest entry that would remove or overwrite a file outside the root", () =>
+    Effect.gen(function*() {
+      // The manifest travels through the journal and the report directory, so
+      // restore must not trust its paths: `path.join(root, "../x")` is outside.
+      const outside = scratch("escape-victim")
+      const root = join(outside, "project")
+      mkdirSync(root)
+      write(outside, "victim.txt", "operator file\n")
+      const ref = yield* Checkpoint.take({ ...payload(root, []), allowNoVcs: true })
+      for (
+        const forged of [
+          { ...ref, entries: [{ path: "../victim.txt", state: "absent" as const }] },
+          {
+            ...ref,
+            entries: [{ path: "../victim.txt", state: "file" as const, digest: createHash("sha256").digest("hex") }]
+          }
+        ]
+      ) {
+        const failure = yield* Effect.flip(Checkpoint.restore(root, forged, ["../victim.txt"]))
+        expect(failure.code).toBe("checkpoint-failed")
+        expect(readFileSync(join(outside, "victim.txt"), "utf8")).toBe("operator file\n")
+      }
+    }).pipe(Effect.provide(platform)))
+})

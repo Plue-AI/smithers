@@ -40,6 +40,7 @@ import type * as Report from "../Report.ts"
 import * as Exec from "./internal/Exec.ts"
 import * as Pending from "./internal/Pending.ts"
 import * as VcsInternal from "./internal/Vcs.ts"
+import * as Options from "./Options.ts"
 
 /**
  * Which version control the project is under.
@@ -185,9 +186,23 @@ export const detectVcs: typeof VcsInternal.detect = VcsInternal.detect
 const absolute = (path: Path.Path, root: string, file: string): string => path.join(root, ...file.split("/"))
 
 /**
- * Fails when a project path, or any directory on the way to it, is a symbolic
- * link. Reading through one copies bytes from wherever it points into the
- * backup; writing or removing through one changes a file outside the project.
+ * Fails when a project path is not a plain relative path. Manifest entries are
+ * read back from the journal and the report directory, so a `..` segment or an
+ * absolute path would otherwise join onto the root and name an operator file
+ * outside the project that restore then overwrites or removes.
+ */
+const refuseEscape = (file: string, doing: string): Effect.Effect<void, MigrateError> => {
+  const issue = Options.lexicalPathIssue(`declared migration path "${file}"`, file)
+  return issue === undefined
+    ? Effect.void
+    : Effect.fail(make("checkpoint-failed", `${issue}; the tool will not ${doing} outside the project`))
+}
+
+/**
+ * Fails when a project path escapes the root, or when it, or any directory on
+ * the way to it, is a symbolic link. Reading through one copies bytes from
+ * wherever it points into the backup; writing or removing through one changes
+ * a file outside the project.
  */
 const refuseLink = (
   root: string,
@@ -195,6 +210,7 @@ const refuseLink = (
   doing: string
 ): Effect.Effect<void, MigrateError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function*() {
+    yield* refuseEscape(file, doing)
     const link = yield* Fs.linkOnPath(root, file)
     if (link === undefined) return
     return yield* Effect.fail(
@@ -961,6 +977,7 @@ export const rollback = (
     const unrestored = changes
       .filter((file) => file.change !== "added" && !recorded.has(file.path))
       .map((file) => file.path)
+    for (const file of added) yield* refuseEscape(file, "remove it")
     const deletedAdds = yield* preserveAdded(root, ref, added)
     const declared = [...new Set(options.paths ?? [])]
     for (const file of declared) {

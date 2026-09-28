@@ -185,3 +185,33 @@ describe("mapping table rendering", () => {
     expect(table).not.toContain("|  |")
   })
 })
+
+/**
+ * Pages that describe what `--apply` executes and what the report keeps. An
+ * operator commits `report.json` and runs `--apply` on the strength of these
+ * sentences, so they must match `src/flow/Verify.ts`.
+ */
+describe("security claims", () => {
+  const pages = ["api.md", "quickstart.md", "concepts/report.md", "guides/set-verification-commands.md"]
+
+  it.each(pages)("%s never says verification output goes unredacted", (page) => {
+    const text = unwrapped(read(`../docs/${page}`))
+    expect(text).not.toMatch(/nothing redacts/i)
+    expect(text).not.toMatch(/captured verbatim/i)
+  })
+
+  it("keeps the redaction the pages describe in Verify.ts", () => {
+    const verify = read("../src/flow/Verify.ts")
+    expect(verify).toContain("stdoutTail: redact(")
+    expect(verify).toContain("stderrTail: redact(")
+  })
+
+  it.each(["quickstart.md", "guides/set-verification-commands.md"])(
+    "%s warns that --apply runs the project's own commands",
+    (page) => {
+      const text = unwrapped(read(`../docs/${page}`))
+      expect(text).toContain("runs the project's own install, format, typecheck, and test commands")
+      expect(text).toMatch(/trusted checkout or inside a sandbox/)
+    }
+  )
+})

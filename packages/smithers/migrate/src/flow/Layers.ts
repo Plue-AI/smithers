@@ -241,9 +241,29 @@ export const migrationRoot = (root: string): Effect.Effect<MigrationRoot, Migrat
   ))
 
 /**
+ * Every ASCII upper/lower-case spelling of a name, so a deny for `.git` also
+ * denies `.GIT` and `.Git`. The capability matcher compares code units and the
+ * kernel canonicalizes through a realpath that keeps the caller's spelling,
+ * so on a case-insensitive volume each spelling reaches the same file. The
+ * general fix belongs in the kernel's canonicalization (smithersai/smithers#2762); this
+ * covers the fixed names these rules deny. The configured report directory
+ * and run-state paths are arbitrary names and wait on that kernel fix.
+ */
+const caseSpellings = (name: string): ReadonlyArray<string> =>
+  [...name].reduce<ReadonlyArray<string>>(
+    (prefixes, unit) => {
+      const spellings = [...new Set([unit.toLowerCase(), unit.toUpperCase()])]
+      return prefixes.flatMap((prefix) => spellings.map((spelling) => prefix + spelling))
+    },
+    [""]
+  )
+
+/**
  * The permission rules one migration runs under: the project tree, the
  * commands that verify it, the model calls that rewrite it, and a denial of
- * every filesystem action on every 0.x run-state path.
+ * every filesystem action on every 0.x run-state path, on the default and the
+ * configured report directory, on `.git` and `.jj`, and on every path whose
+ * name starts with `.env`, each in every ASCII case spelling.
  *
  * `proc:spawn` is granted only when the command line can be represented as an
  * exact capability pattern. The kernel checks the line produced by
@@ -273,6 +293,8 @@ export const rules = (options: {
   readonly root: MigrationRoot
   readonly runStatePaths: ReadonlyArray<string>
   readonly commands: Contract.Commands
+  /** The run's report directory, which holds the backups and the recovery record. Defaults to `.smithers-migrate`. */
+  readonly reportDir?: string | undefined
 }): ReadonlyArray<Permission.Rule> => {
   const root = options.root.replace(/\/+$/, "")
   const allow = (action: Capability.PatternAction, resource: string): Permission.Rule =>
@@ -296,9 +318,32 @@ export const rules = (options: {
     allow("net:*", "**"),
     allow("model:*", "**"),
     // The permanent SQLite lock inode and diagnostic state are host-owned,
-    // including when reports are written to another directory.
-    deny("fs:*", `${root}/${Options.defaultReportDir}`),
-    deny("fs:*", `${root}/${Options.defaultReportDir}/**`),
+    // including when reports are written to another directory. The configured
+    // report directory holds the backups, the tree manifests, and
+    // pending-unit.json that restore trusts, so it is denied by its own path.
+    ...[...new Set([Options.defaultReportDir, options.reportDir ?? Options.defaultReportDir])].flatMap((
+      directory
+    ) => [deny("fs:*", `${root}/${directory}`), deny("fs:*", `${root}/${directory}/**`)]),
+    // Version-control metadata runs as the operator later: a hook, a git
+    // config alias, or a jj config the agent wrote would execute outside every
+    // rule here. No unit rewrites it. Every ASCII case spelling is denied: the
+    // matcher is case-sensitive, the kernel keeps the caller's spelling, and
+    // on a case-insensitive volume (the macOS default) `.GIT/hooks/pre-commit`
+    // is `.git/hooks/pre-commit`.
+    ...[".git", ".jj"].flatMap(caseSpellings).flatMap((directory) => [
+      deny("fs:*", `${root}/${directory}`),
+      deny("fs:*", `${root}/${directory}/**`)
+    ]),
+    // Dotenv files hold the operator's keys. The brief carries a redacted
+    // inventory of them and the contract forbids reading them; this makes the
+    // refusal the kernel's rather than a prompt sentence's. `*` crosses `/`,
+    // so the `**` rule covers every nested directory, and it also denies
+    // everything under a directory whose name starts with `.env` (`.envoy/`):
+    // a deliberate fail-closed over-deny. Case spellings as above.
+    ...caseSpellings(".env").flatMap((name) => [
+      deny("fs:*", `${root}/${name}*`),
+      deny("fs:*", `${root}/**/${name}*`)
+    ]),
     // Every filesystem action, not only writes. The contract forbids reading
     // run state too: a database, an execution log, or a subscription file
     // read into a model call has left the machine, and a prompt sentence is
@@ -367,6 +412,8 @@ export interface NodeConfig {
   readonly root: string
   readonly commands: Contract.Commands
   readonly runStatePaths: ReadonlyArray<string>
+  /** The run's report directory, denied to the agent. Defaults to `.smithers-migrate`. */
+  readonly reportDir?: string | undefined
   readonly environment?: Readonly<Record<string, string | undefined>> | undefined
   readonly seat?: string | undefined
 }
@@ -382,7 +429,12 @@ interface ValidatedConfig extends NodeConfig {
 const grantsFor = (config: ValidatedConfig): Layer.Layer<GrantStore.GrantStore, never, never> =>
   GrantStore.layer({
     attended: false,
-    rules: rules({ root: config.root, runStatePaths: config.runStatePaths, commands: config.commands })
+    rules: rules({
+      root: config.root,
+      runStatePaths: config.runStatePaths,
+      commands: config.commands,
+      reportDir: config.reportDir
+    })
   }).pipe(Layer.provide(Workspace.layer(config.root)), Layer.orDie)
 
 const hostFor = (
@@ -589,6 +641,7 @@ export const layerNodeScanned = (config: ScannedConfig) => {
         ...(config.environment === undefined ? {} : { environment: config.environment }),
         ...(config.seat === undefined ? {} : { seat: config.seat }),
         runStatePaths: Transform.runStatePaths(result),
+        ...(config.reportDir === undefined ? {} : { reportDir: config.reportDir }),
         commands: commandsFor(result.detection, config.commands ?? {}, config.flowsDir ?? "flows")
       })
     })

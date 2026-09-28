@@ -25,7 +25,7 @@ export const security = {
       title: "Pages describe report redaction exactly as packages/smithers/migrate/src/flow/Verify.ts performs it",
       threat: "A user commits `.smithers-migrate/report.json` holding a registry token or `.env` value because a page misstated what the report redacts.",
       lookFor: [
-        "A page saying verification output is captured verbatim with nothing redacted (quickstart.md and reference/api.md do today) while Verify.ts applies @smthrs/journal/Redaction and concepts/report.md says so.",
+        "A page saying verification output is captured verbatim with nothing redacted, while Verify.ts applies @smthrs/journal/Redaction to every captured stream.",
         "A redaction list naming a pattern (URL credentials, private key blocks, JWTs, provider key shapes) the migrate source does not implement."
       ],
       paths: ["src/content/docs/quickstart.md", "src/content/docs/concepts/report.md", "src/content/docs/concepts/units.md", "src/content/docs/guides/set-verification-commands.md", "src/content/docs/reference/api.md"]

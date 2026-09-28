@@ -86,6 +86,10 @@ That order is fixed, and it is the order the rewrite runs in. See
 
 ## Rewrite the project
 
+`--apply` runs the project's own install, format, typecheck, and test commands
+on your machine, package manager lifecycle scripts and `repoCommands.test`
+included. Run it only on a trusted checkout or inside a sandbox.
+
 Pass `--apply` and name the seat the rewrite runs on:
 
 ```bash
@@ -129,10 +133,11 @@ When the run finishes, the tree has changed in four ways:
 - `.smithers-migrate/report.md` records all of it.
 
 Read the report's Verification section before you commit it. Each command's
-last 12 KB of output is captured verbatim and nothing redacts it: a failing
-install or test suite in a 0.x project prints whatever it prints, a registry
-token or a value read from `.env` included, and the tool cannot tell a secret
-from a stack frame.
+last 12 KB of output is captured after the journal's shared redaction rules,
+which replace known credential shapes such as bearer tokens and `*_KEY=`
+values with `[REDACTED]`. The rules match known shapes only: a failing install
+or test suite can still print a secret in a shape they do not recognize. See
+[The migration report](./concepts/report.md).
 
 ## Verify the tree yourself
 

@@ -11,6 +11,10 @@ registry discovery. The tool derives them from your project. When the
 derivation is wrong, an override is the only way to correct it, because the
 model's shell is confined to exactly these command lines.
 
+`--apply` runs the project's own install, format, typecheck, and test commands
+on your machine, package manager lifecycle scripts and `repoCommands.test`
+included. Run it only on a trusted checkout or inside a sandbox.
+
 ## What the derivation produces
 
 | Kind      | Derived from                                                                                                            |

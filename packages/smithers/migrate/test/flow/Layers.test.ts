@@ -367,3 +367,91 @@ describe("Layers.rules over run-state paths outside the project", () => {
       }).pipe(Layer.provide(Workspace.layer(root)), Layer.orDie)
     )))
 })
+
+describe("Layers.rules over host-owned and secret paths", () => {
+  const probe = (reportDir: string | undefined, action: Capability.Action, resource: string) =>
+    Effect.gen(function*() {
+      const grants = yield* GrantStore.GrantStore
+      return yield* grants.check(Capability.make(action, resource)).pipe(
+        Effect.as(true),
+        Effect.catch(() => Effect.succeed(false))
+      )
+    }).pipe(Effect.provide(
+      GrantStore.layer({
+        attended: false,
+        rules: Layers.rules({ root, runStatePaths, commands, ...(reportDir === undefined ? {} : { reportDir }) })
+      }).pipe(Layer.provide(Workspace.layer(root)), Layer.orDie)
+    ))
+
+  it.effect("denies the configured report directory, not only the default one", () =>
+    Effect.gen(function*() {
+      // A custom `--report-dir` holds the backups, the tree manifests, and
+      // pending-unit.json that restore trusts. The agent must not reach them.
+      for (const action of ["fs:read", "fs:write"] as const) {
+        for (
+          const target of [
+            "build/migrate",
+            "build/migrate/report.json",
+            "build/migrate/pending-unit.json",
+            "build/migrate/backup/workflow/demo.tree.json",
+            ".smithers-migrate/apply.lock.sqlite"
+          ]
+        ) {
+          expect([action, target, yield* probe("build/migrate", action, `${root}/${target}`)])
+            .toEqual([action, target, false])
+        }
+      }
+      expect(yield* probe("build/migrate", "fs:write", `${root}/build/other.ts`)).toBe(true)
+    }))
+
+  it.effect("denies version-control metadata, so a rewrite cannot plant a hook", () =>
+    Effect.gen(function*() {
+      for (const action of ["fs:read", "fs:write"] as const) {
+        for (const target of [".git", ".git/hooks/pre-commit", ".git/config", ".jj", ".jj/repo/config.toml"]) {
+          expect([action, target, yield* probe(undefined, action, `${root}/${target}`)])
+            .toEqual([action, target, false])
+        }
+      }
+      expect(yield* probe(undefined, "fs:write", `${root}/.gitignore`)).toBe(true)
+    }))
+
+  it.effect("denies every case spelling of the fixed names, which a case-insensitive volume resolves to one file", () =>
+    Effect.gen(function*() {
+      // The kernel keeps the caller's spelling and the matcher is literal,
+      // so on APFS `.GIT/hooks/pre-commit` would otherwise miss the deny.
+      for (const action of ["fs:read", "fs:write"] as const) {
+        for (
+          const target of [
+            ".GIT/hooks/pre-commit",
+            ".Git/config",
+            ".gIT",
+            ".JJ/repo/config.toml",
+            ".jJ",
+            ".ENV",
+            ".Env.local",
+            "apps/web/.eNV.production"
+          ]
+        ) {
+          expect([action, target, yield* probe(undefined, action, `${root}/${target}`)])
+            .toEqual([action, target, false])
+        }
+      }
+      expect(yield* probe(undefined, "fs:write", `${root}/.GITIGNORE`)).toBe(true)
+      expect(yield* probe(undefined, "fs:write", `${root}/src/ENVIRONMENT.ts`)).toBe(true)
+    }))
+
+  it.effect("denies every dotenv file, at the root and nested, so injected text cannot read a key", () =>
+    Effect.gen(function*() {
+      for (const action of ["fs:read", "fs:write"] as const) {
+        for (const target of [".env", ".env.local", "apps/web/.env", "apps/web/.env.production"]) {
+          expect([action, target, yield* probe(undefined, action, `${root}/${target}`)])
+            .toEqual([action, target, false])
+        }
+      }
+      // `*` crosses `/`, so a directory whose name starts with `.env` is
+      // denied whole. That over-deny is deliberate and fails closed.
+      expect(yield* probe(undefined, "fs:read", `${root}/.envoy/config.ts`)).toBe(false)
+      expect(yield* probe(undefined, "fs:read", `${root}/src/environment.ts`)).toBe(true)
+      expect(yield* probe(undefined, "fs:read", `${root}/.envrc.example.md`)).toBe(false)
+    }))
+})

@@ -201,6 +201,27 @@ export const reportDirEntries: ReadonlyArray<string> = [
  * @since 1.0.0-rc.0
  */
 export const relativePathIssue = (label: string, value: string): string | undefined => {
+  const lexical = lexicalPathIssue(label, value)
+  if (lexical !== undefined) return lexical
+  const reserved = value.split("/").find((segment) => reservedDirectories.includes(segment))
+  if (reserved !== undefined) {
+    return `${label} must not be "${reserved}" or live under it ("${value}")`
+  }
+  return undefined
+}
+
+/**
+ * Why one project-relative path, joined onto the root, could name a place
+ * outside the project, or `undefined` when it cannot.
+ *
+ * The lexical half of {@link relativePathIssue}, without its reserved
+ * directory list, for paths the tool reads back from its own records (a
+ * checkpoint manifest) before it writes or removes through them.
+ *
+ * @category checks
+ * @since 1.0.0-rc.0
+ */
+export const lexicalPathIssue = (label: string, value: string): string | undefined => {
   if (value === "") return `${label} must not be empty`
   if (value.includes("\0")) return `${label} must not contain a NUL byte`
   if (value.includes("\\")) return `${label} must not contain a backslash`
@@ -210,10 +231,6 @@ export const relativePathIssue = (label: string, value: string): string | undefi
   if (segments.some((segment) => segment === "")) return `${label} must not contain an empty segment ("${value}")`
   if (segments.some((segment) => segment === "." || segment === "..")) {
     return `${label} must not contain a "." or ".." segment ("${value}")`
-  }
-  const reserved = segments.find((segment) => reservedDirectories.includes(segment))
-  if (reserved !== undefined) {
-    return `${label} must not be "${reserved}" or live under it ("${value}")`
   }
   return undefined
 }
