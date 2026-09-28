@@ -71,12 +71,13 @@ The database layer is scoped, so the program is run under `Effect.scoped`.
 
 A host that runs flows rarely builds this by hand.
 [`@smthrs/engine-store`](/api/engine-store) already composes the step cache
-with the journal and the run store, and its `Migrations.sets` installs every
-table in dependency order, which matters: the migrator decides what to run from
-a single high-water mark, so the sets must be ordered by id block. Reach for
-this guide when you need the store on its own, for a tool that inspects or
-prunes a cache file, or when you are composing a shared tier under a custom
-engine.
+with the journal and the run store. The database loader runs migrations
+sorted by migration id regardless of the order the sets are supplied in.
+Its single high-water mark does not prevent appending to an installed lower
+block, but introducing a new lower block after a higher block is already installed
+is refused. Reach for this guide when you need the store on its own, for a tool
+that inspects or prunes a cache file, or when you are composing a shared tier
+under a custom engine.
 
 ## Where to go next
 
