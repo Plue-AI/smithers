@@ -18,6 +18,8 @@ import { Ownership } from "@smthrs/run-store"
 import { Clock, Console, Effect, Option, Schema, SchemaIssue, Stream } from "effect"
 import { Argument, CliError as ParserError, Command, Flag, Prompt } from "effect/unstable/cli"
 import { randomUUID } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import { text } from "node:stream/consumers"
 import { hostname } from "node:os"
 import { resolve } from "node:path"
 import * as CliError from "./CliError.ts"
@@ -97,7 +99,7 @@ const rootCommand = Command.make("smthrs").pipe(Command.withSharedFlags(global))
 const input = Argument.String("key=value").pipe(Argument.variadic())
 const data = Flag.String("data").pipe(
   Flag.optional,
-  Flag.withDescription("Flow input as JSON; object members override key=value entries")
+  Flag.withDescription("Flow input as JSON, @file, or - for stdin; object members override key=value entries")
 )
 /** Required values are collected before the command opens durable services. */
 const inputPrompt = (name: string, pickFlow = false) =>
@@ -190,10 +192,23 @@ const decodeInput = (
     return separator < 1 ? [entry, true] : [entry.slice(0, separator), entry.slice(separator + 1)]
   }))
   if (Option.isNone(raw)) return Effect.succeed(pairs)
-  return Effect.try({
-    try: () => JSON.parse(raw.value) as unknown,
-    catch: () => malformedJson("--data")
-  }).pipe(
+  const source = raw.value
+  const serialized = source === "-"
+    ? Effect.tryPromise({
+      try: () => text(process.stdin),
+      catch: () => new CliError.UsageError({ message: "Could not read --data from stdin" })
+    })
+    : source.startsWith("@")
+    ? Effect.tryPromise({
+      try: () => readFile(source.slice(1), "utf8"),
+      catch: () => new CliError.UsageError({ message: `Could not read --data file ${source.slice(1)}` })
+    })
+    : Effect.succeed(source)
+  return serialized.pipe(
+    Effect.flatMap((value) => Effect.try({
+      try: () => JSON.parse(value) as unknown,
+      catch: () => malformedJson("--data")
+    })),
     Effect.map((decoded) =>
       decoded !== null && typeof decoded === "object" && !Array.isArray(decoded)
         ? { ...pairs, ...(decoded as Record<string, unknown>) }

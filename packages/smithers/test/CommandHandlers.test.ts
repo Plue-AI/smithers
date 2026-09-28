@@ -16,8 +16,8 @@ import { CliError as ParserError, Command } from "effect/unstable/cli"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Writable } from "node:stream"
-import { describe, expect, it } from "vitest"
+import { Readable, Writable } from "node:stream"
+import { describe, expect, it, vi } from "vitest"
 import * as RunProgress from "../src/cli/RunProgress.ts"
 import * as CliError from "../src/CliError.ts"
 import { cli, latestSequence } from "../src/Command.ts"
@@ -197,6 +197,43 @@ describe("input decoding", () => {
     expect((card as { readonly inputSummary: string }).inputSummary).toBe(
       JSON.stringify({ a: "overridden", b: "2", c: 3 })
     )
+  })
+
+  it("reads --data @file and merges it over positional pairs", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "smthrs-data-"))
+    try {
+      const file = join(directory, "input.json")
+      writeFileSync(file, '{"a":"file","count":2}')
+      const card = await run(json(["--json", "plan", "demo/ship", "a=pair", "--data", `@${file}`]), testControl)
+      expect((card as { readonly inputSummary: string }).inputSummary).toBe(
+        JSON.stringify({ a: "file", count: 2 })
+      )
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("reads --data - from stdin for plan", async () => {
+    const stdin = vi.spyOn(process, "stdin", "get").mockReturnValue(Readable.from(['{"topic":"stdin"}']) as typeof process.stdin)
+    try {
+      const card = await run(json(["--json", "plan", "demo/ship", "--data", "-"]), testControl)
+      expect((card as { readonly inputSummary: string }).inputSummary).toBe(
+        JSON.stringify({ topic: "stdin" })
+      )
+    } finally {
+      stdin.mockRestore()
+    }
+  })
+
+  it("rejects a missing --data file with a usage error", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "smthrs-data-"))
+    try {
+      const error = await run(Effect.flip(runCommand(["plan", "demo/ship", "--data", `@${join(directory, "missing.json")}`])), testControl)
+      expect(error).toBeInstanceOf(CliError.UsageError)
+      expect((error as Error).message).toContain("missing.json")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it.each(
@@ -545,6 +582,18 @@ describe("up", () => {
     // no operator-supplied run id (the release policy).
     expect(receipt).toMatchObject({ _tag: "Accepted" })
     expect(typeof (receipt as { readonly runId: string }).runId).toBe("string")
+  })
+
+  it("launches with --data @file", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "smthrs-data-"))
+    try {
+      const file = join(directory, "input.json")
+      writeFileSync(file, '{"topic":"file"}')
+      const receipt = await run(json(["--json", "up", "demo/ship", "--data", `@${file}`]), testControl)
+      expect(receipt).toMatchObject({ _tag: "Accepted" })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it("refuses to auto-approve an envelope that grants every capability", async () => {
