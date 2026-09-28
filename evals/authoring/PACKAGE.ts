@@ -145,6 +145,66 @@ const sftLaunchPilot = Smithers.ToolRun({
   cwd
 })
 
+/**
+ * Security review of the fine-tune assets. `security` reviews the diff against
+ * `origin/main`; `securityAudit` audits every reviewed file.
+ *
+ * @since 0.1.0
+ * @category test
+ */
+const securityReview = Smithers.SecurityReview({
+  cwd,
+  include: ["validate.ts", "PACKAGE.ts", "README.md", "data/**"],
+  checks: [
+    {
+      id: "fireworks-key-scoping",
+      title: "The Fireworks key reaches only firectl targets and only api.fireworks.ai",
+      threat: "Anyone reading the plan, logs, or a new target exfiltrates the owner's billed Fireworks API key.",
+      lookFor: [
+        "A FIREWORKS_API_KEY or fw_ literal in PACKAGE.ts, README.md, or data/ instead of Smithers.Secret.",
+        "Smithers.HttpSecret allowlisting any origin other than https://api.fireworks.ai.",
+        "fireworksCredential passed to a target other than a firectl ToolRun, or to a cached or ci-reachable target."
+      ],
+      paths: ["PACKAGE.ts", "README.md"]
+    },
+    {
+      id: "irreversible-ops-gated",
+      title: "Billed Fireworks operations run only from the run verb and after the validator",
+      threat: "A CI run or agent triggers billed fine-tuning jobs or uploads an unvalidated dataset to the owner's Fireworks account.",
+      lookFor: [
+        "A firectl upload or fine-tuning target declared with something other than Smithers.ToolRun, making it cacheable or ci-reachable.",
+        "datasetUpload losing its deps on test, so an invalid dataset ships.",
+        "A target wired into Package targets that runs firectl on commit or in ci."
+      ],
+      paths: ["PACKAGE.ts"]
+    },
+    {
+      id: "training-data-leak",
+      title: "The SFT corpus carries no secrets, private paths, or private code",
+      threat: "Fireworks, or anyone with access to the trained model, extracts credentials, home paths, or private repository code the owner uploaded as training data.",
+      lookFor: [
+        "An API key, token, cookie, or password string inside any message content in data/pilot-sft.jsonl.",
+        "Absolute host paths such as /Users/<name> or internal hostnames in message content or in top-level row metadata such as source_path.",
+        "Top-level row fields besides messages (role, source_path) that firectl uploads alongside the training examples.",
+        "Code copied from private repositories (plue, deployment repo) rather than public Smithers sources."
+      ],
+      paths: ["data/**"]
+    },
+    {
+      id: "training-data-poisoning",
+      title: "Assistant turns teach safe flow authoring, and the validator rejects rows it cannot prove",
+      threat: "A contributor who edits the dataset trains the authoring model to emit flows that run unsandboxed shell, disable approvals, or leak secrets for every downstream user.",
+      lookFor: [
+        "An assistant message whose code runs shell with request-derived strings, bypasses approvals, or reads secrets into prompts.",
+        "Instruction-like text in system or user turns that tells the model to ignore safety controls.",
+        "validate.ts accepting rows it should reject: extra top-level keys, a message with extra keys, or no user turn before the final assistant turn.",
+        "validate.ts exiting 0 on an input it failed to read or parse, so the datasetUpload gate passes an unchecked file."
+      ],
+      paths: ["data/**", "validate.ts"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
-  targets: { check, datasetUpload, sftLaunch, sftLaunchPilot, test }
+  targets: { check, datasetUpload, sftLaunch, sftLaunchPilot, test, ...securityReview }
 })
