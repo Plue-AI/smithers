@@ -340,7 +340,7 @@ const countEntries = (eventType: string) =>
   )
 
 describe("Alerts.layer over a real journal", () => {
-  it("pages even when another writer journals a delivery record for the alert", async () => {
+  it("pages even when another producer journals a delivery record for the alert under its own source", async () => {
     const observed = await Effect.runPromise(
       Effect.gen(function*() {
         const journal = yield* Journal.Journal

@@ -199,8 +199,10 @@ export interface Alert {
  * The journal source the alerter writes one outcome of one alert under.
  *
  * A delivery record counts as evidence that an alert went out only under this
- * source, so another writer to the run's journal cannot silence a page by
- * journaling `flows.alerts.delivered` with a matching `alertId`.
+ * source, so another producer's `flows.alerts.delivered` record with a
+ * matching `alertId` does not suppress a page. This scopes records; it does
+ * not authenticate the writer, because the journal does not bind a source to
+ * a writer.
  *
  * @param id the alert's {@link alertId}
  * @param outcome `delivered`, `refused`, or `failed/<code>`

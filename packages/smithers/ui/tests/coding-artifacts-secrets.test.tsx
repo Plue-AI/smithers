@@ -132,7 +132,7 @@ describe("EnvironmentVariables", () => {
           { name: "PUBLIC_KEY_ID", value: "shown-4", secret: false },
           { name: "NODE_ENV", value: "production" },
           { name: "DATABASE_URL", value: "postgres://app:pw-leak-5@db/app" },
-          { name: "REDIS_URI", value: "redis-leak-6" },
+          { name: "REDIS_URI", value: "redis://:redis-leak-6@cache" },
           { name: "GPG_PASSPHRASE", value: "phrase-leak-7" },
           { name: "HASH_SALT", value: "salt-leak-8" },
           { name: "TLS_CERT", value: "cert-leak-9" },
@@ -165,6 +165,42 @@ describe("EnvironmentVariables", () => {
     const secrets = [...container!.querySelectorAll('[data-slot="environment-variable"]')].map((row) => row.getAttribute("data-secret"));
     expect(secrets).toEqual(["true", "true", "true", "false", "false", "true", "true", "true", "true", "true", "true", "true",
       "true", "true", "true", "true", "true", "true", "true", "true", "true", "true", "false", "false"]);
+  });
+
+  test("an ordinary setting whose name contains a credential word stays visible", async () => {
+    const shown = [
+      "PUBLIC_URL", "NEXT_PUBLIC_API_URL", "VITE_BASE_URL", "AUTHOR", "SIGNAL_LEVEL", "KEYBOARD_LAYOUT",
+      "PASSTHROUGH", "SESSION_TIMEOUT", "CERTIFIED", "DATABASE_URL",
+    ];
+    await render(
+      <EnvironmentVariables variables={shown.map((name, index) => ({ name, value: `https://shown-${index}.example/` }))} />,
+    );
+    const rows = [...container!.querySelectorAll('[data-slot="environment-variable"]')];
+    expect(rows.map((row) => row.getAttribute("data-secret"))).toEqual(shown.map(() => "false"));
+    for (const [index] of shown.entries()) expect(container!.innerHTML).toContain(`shown-${index}.example`);
+  });
+
+  test("a credential in a URL query, a connection string, or a whole-word name still masks", async () => {
+    await render(
+      <EnvironmentVariables
+        variables={[
+          { name: "SEARCH_URL", value: "https://search.example/?api_key=leak-a" },
+          { name: "SQL_CONNECTION", value: "Server=db;User Id=app;Password=leak-b;" },
+          { name: "SLACK_WEBHOOK_URL", value: "https://hooks.example/services/leak-c" },
+          { name: "SESSION_ID", value: "leak-d" },
+          { name: "AUTHORIZATION", value: "leak-e" },
+          { name: "OAUTH_CLIENT", value: "leak-f" },
+          { name: "APP_SESSION", value: "leak-g" },
+          { name: "SMTP_PASS", value: "leak-h" },
+          { name: "APIKEY", value: "leak-i" },
+          { name: "SIGNATURE", value: "leak-j" },
+        ]}
+      />,
+    );
+    const html = container!.innerHTML;
+    for (const leak of ["leak-a", "leak-b", "leak-c", "leak-d", "leak-e", "leak-f", "leak-g", "leak-h", "leak-i", "leak-j"]) {
+      expect(html).not.toContain(leak);
+    }
   });
 
   test("compound mode renders EnvironmentVariable children", async () => {

@@ -31,8 +31,9 @@ describe("MCP diagnostic privacy", () => {
               command: process.execPath,
               args: ["-e", FixtureServer.source, `private-${mode}`],
               env: { MCP_DIAGNOSTIC_TEST_SECRET: secret },
-              // Truncation can remove the credential prefix. The remainder must
-              // still never be attached to an outward error.
+              // A cap shorter than the credential's line. The transport redacts
+              // the line before capping, so the cap cannot strip the prefix
+              // that makes the credential recognizable.
               maxStderrBytes: secret.length + 1,
               handshakeTimeoutMs: McpClient.defaultHandshakeTimeoutMs,
               requestTimeoutMs: McpClient.defaultHandshakeTimeoutMs
@@ -49,7 +50,11 @@ describe("MCP diagnostic privacy", () => {
         expect(display).not.toContain("short-private-pin")
       }
       expect(events.length).toBeGreaterThan(0)
-      expect(events.some((event) => Redacted.value(event.detail).includes(secret))).toBe(true)
+      if (mode === "stderr") {
+        expect(events.map((event) => Redacted.value(event.detail))).toEqual(["API_TOKEN=[REDACTED]"])
+      } else {
+        expect(events.some((event) => Redacted.value(event.detail).includes(secret))).toBe(true)
+      }
     }
   )
 

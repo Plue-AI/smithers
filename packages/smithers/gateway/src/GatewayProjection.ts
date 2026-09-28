@@ -288,7 +288,7 @@ export const runSummary = (
   // `events`. Combining it keeps turns, calls, edits and tokens exact for a run
   // whose journal no longer fits one window, so the counters a run card shows
   // describe the whole run and not just its tail.
-  const window = Diagnosis.digest(events)
+  const window = Diagnosis.digest(events, run.runId)
   const facts = { ...(carry === undefined ? window : Diagnosis.combine(carry, window)), status: run.status }
   return {
     runId: run.runId,

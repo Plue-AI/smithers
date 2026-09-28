@@ -187,8 +187,9 @@ export const layer = (
             if (payload === undefined) continue
             if (entry.eventType === deliveredEventType) {
               const id = payload["alertId"]
-              // Only the alerter's own record, under the source it writes,
-              // proves a page went out. Any other writer could suppress one.
+              // Only a record under the source the alerter writes counts, so
+              // another producer's delivered record cannot suppress a page.
+              // The journal does not bind a source to a writer.
               if (typeof id === "string" && entry.sourceId === recordSourceId(id, "delivered")) {
                 delivered = HashSet.add(delivered, id)
               }

@@ -126,8 +126,10 @@ condition it paged about, the next tick would re-open it, and a webhook that
 answered 503 once would alert forever.
 
 A delivery record suppresses a repeat page only under the source the alerter
-writes it with, `/notifications/alerts/<alertId>/delivered`. Another writer to
-the run's journal can name the same `alertId`, and its record is ignored.
+writes it with, `/notifications/alerts/<alertId>/delivered`. Another producer's
+record naming the same `alertId` under its own source is ignored. The journal
+does not bind a source to a writer, so this scopes records; it does not
+authenticate the writer.
 
 ## Next
 

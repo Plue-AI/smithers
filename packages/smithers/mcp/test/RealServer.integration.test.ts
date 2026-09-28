@@ -550,7 +550,8 @@ describe("McpClient against a real MCP server", () => {
     )
     expect(error.message).toContain("stderr diagnostic withheld")
     const detail = Redacted.value(diagnostics.find((event) => event.source === "stderr")!.detail)
-    expect(detail).toBe("token=[")
+    expect(detail).toBe("DACTED]")
+    expect(detail).not.toContain("x")
     expect(new TextEncoder().encode(detail).byteLength).toBe(7)
   })
 

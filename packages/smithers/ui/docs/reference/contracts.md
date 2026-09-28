@@ -204,13 +204,17 @@ render twice; only an actual ancestor cycle is reported as circular.
   A refused favicon falls back to the initial tile; a refused tool image
   renders its alt text. Proxy a remote image through your own origin.
 - `EnvironmentVariable` masks a value through `SecretField` when `secret` is
-  unset and either the name contains `KEY`, `TOKEN`, `SECRET`, `PASS`,
-  `CREDENTIAL`, `AUTH`, `PRIVATE`, `COOKIE`, `SESSION`, `DSN`, `URL`, `URI`,
-  `SALT`, `CERT`, `SIGN`, `HMAC`, or `BEARER`, or has `PW`, `PWD`, `SK`, `PAT`,
-  `OTP`, `TOTP`, or `PIN` as a whole `_`-separated word, or the trimmed value
-  is a URL carrying `user:password@`. The name match is a heuristic: a
-  harmless name containing one of these words (`AUTHOR`, `PUBLIC_URL`) is
-  masked too. Pass `secret={false}` to show such a value.
+  unset and the name or the value looks like a credential. The name masks when
+  it contains `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `PASSPHRASE`,
+  `CREDENTIAL`, `PRIVATE`, `COOKIE`, `DSN`, `SALT`, `HMAC`, `BEARER`, or
+  `WEBHOOK`; `KEY` not followed by a letter (`API_KEY`, not `KEYBOARD`); `AUTH`
+  outside `AUTHOR` (`OAUTH`, `AUTHORIZATION`); a whole `_`-separated `PASS`,
+  `PW`, `PWD`, `SK`, `PAT`, `OTP`, `TOTP`, `PIN`, `SIGN`, `SIGNING`,
+  `SIGNATURE`, `CERT`, or `CERTIFICATE`; or `SESSION` as the last word or before
+  `ID`. A URL name alone does not mask: `PUBLIC_URL` shows. The trimmed value
+  masks when it is a URL carrying `user:password@`, or has a credential-named
+  query or connection-string parameter (`?api_key=`, `;Password=`). The match
+  is a heuristic. Pass `secret` to override it either way.
 - `assembleLine` in `src/flow-form.ts` (and `assembleArgs`, its line alone)
   withholds a value when it contains one of the tokens the app's grammars
   share, or when the positional read places it elsewhere. It does not know

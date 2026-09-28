@@ -13,14 +13,39 @@ export type EnvironmentVariableModel = {
 
 /**
  * Names that usually hold a credential: masked unless the caller passes `secret={false}`.
- * `URL`/`URI`/`DSN` cover connection strings (`DATABASE_URL`), `PASS` covers `PASSWORD`,
- * `PASSWD`, and `PASSPHRASE`. Short abbreviations (`PW`, `PWD`, `SK`, `PAT`, `OTP`, `TOTP`, `PIN`)
- * count only as a whole `_`-separated word, so `MYSQL_PWD` and `GH_PAT` mask while `PATH` shows.
- * The match is a heuristic: a harmless name that contains one of these words (`AUTHOR`) is masked too.
+ *
+ * Unambiguous words (`TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `WEBHOOK`, ...) match anywhere in
+ * the name. `KEY` matches unless a letter follows it, so `API_KEY` and `APIKEY` mask while
+ * `KEYBOARD_LAYOUT` shows. `AUTH` matches `OAUTH` and `AUTHORIZATION` but not `AUTHOR`. Words that
+ * also name ordinary settings count only as a whole `_`-separated word: `PASS`, `PW`, `PWD`, `SK`,
+ * `PAT`, `OTP`, `TOTP`, `PIN`, `SIGN`, `SIGNING`, `SIGNATURE`, `CERT`, `CERTIFICATE`, so `MYSQL_PWD`
+ * and `TLS_CERT` mask while `PATH`, `PASSTHROUGH`, `SIGNAL_LEVEL`, and `CERTIFIED` show. `SESSION`
+ * masks only as the last word or before `ID` (`SESSION_ID`), so `SESSION_TIMEOUT` shows.
+ *
+ * A URL name alone is not a credential: `PUBLIC_URL` shows. A URL masks by its value,
+ * {@link CREDENTIAL_VALUE}.
  */
-const CREDENTIAL_NAME = /KEY|TOKEN|SECRET|PASS|CREDENTIAL|AUTH|PRIVATE|COOKIE|SESSION|DSN|URL|URI|SALT|CERT|SIGN|HMAC|BEARER|(?:^|_)(?:PWD?|SK|PAT|T?OTP|PIN)(?:_|$)/i;
-/** A URL carrying `user:password@` credentials, whatever its variable is called. */
-const CREDENTIAL_URL = /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:[^/@\s]*@/i;
+const CREDENTIAL_NAME = new RegExp(
+  [
+    "TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|PRIVATE|COOKIE|DSN|SALT|HMAC|BEARER|WEBHOOK",
+    "KEYS?(?![A-Z])",
+    "AUTH(?!OR(?!IZ))",
+    "(?:^|_)(?:PASS|PWD?|SK|PAT|T?OTP|PIN|SIGN|SIGNING|SIGNATURE|CERTS?|CERTIFICATE)(?:_|$)",
+    "(?:^|_)SESSION(?:_?ID)?$",
+  ].join("|"),
+  "i",
+);
+/**
+ * A value carrying a credential whatever its variable is called: a URL with `user:password@`, or a
+ * URL query or connection string with a credential-named parameter (`?token=`, `;Password=`).
+ */
+const CREDENTIAL_VALUE = new RegExp(
+  [
+    "^[a-z][a-z0-9+.-]*://[^/@\\s]*:[^/@\\s]*@",
+    "(?:^|[?&;\\s])[a-z0-9_-]*(?:password|passwd|pwd|secret|token|key|sig|signature|auth|credential)=",
+  ].join("|"),
+  "i",
+);
 
 export type EnvironmentVariablesProps = Omit<ComponentProps<"div">, "children"> & (
   | { variables: readonly EnvironmentVariableModel[]; children?: never }
@@ -57,7 +82,7 @@ export type EnvironmentVariableProps = Omit<ComponentProps<"div">, "children"> &
 
 export function EnvironmentVariable({ name, value, secret: declared, className, ...props }: EnvironmentVariableProps) {
   useInjectUiCss();
-  const secret = declared ?? (CREDENTIAL_NAME.test(name) || (value !== undefined && CREDENTIAL_URL.test(value.trim())));
+  const secret = declared ?? (CREDENTIAL_NAME.test(name) || (value !== undefined && CREDENTIAL_VALUE.test(value.trim())));
   return (
     <div data-slot="environment-variable" data-secret={secret ? "true" : "false"} className={cn("sui-envvar", className)} {...props}>
       <span className="sui-envvar-name">{name}</span>

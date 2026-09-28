@@ -183,13 +183,16 @@ const decodePromoted = Schema.decodeUnknownOption(Promoted)
  * Foreign entries and structurally invalid payloads decode to `None` so a
  * projection over a shared journal stays total.
  *
- * The event type alone does not make an entry owned: any writer to a shared
+ * The event type alone does not make an entry owned: any producer on a shared
  * journal can choose one. An admission counts only under
  * {@link admissionSourceId} for the notification it carries, and a promotion
  * only under the `/notifications/drain/` source family the queue writes, so
- * another writer cannot forge a steer the model reads as an operator's or
- * mark pending steers delivered. The drain check is a prefix because records
- * written before the lineage joined the identity carry the boundary alone.
+ * another producer's record with the same event type stays out of the
+ * projection. This scopes records; it does not authenticate the writer. The
+ * journal fences writes on run ownership, not on source, so a writer that
+ * sets this package's source id is read as this package. The drain check is
+ * a prefix because records written before the lineage joined the identity
+ * carry the boundary alone.
  *
  * @param entry one journal entry, owned or foreign
  * @category constructors

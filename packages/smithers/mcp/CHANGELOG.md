@@ -25,6 +25,11 @@
 
 ### Fixed
 
+- Stderr diagnostics are redacted one complete line at a time before the
+  `maxStderrBytes` cap. Capping raw bytes first could cut a credential's
+  recognizable prefix and hand its remainder to the private diagnostic observer
+  unredacted. A stderr line longer than 64 KiB is withheld whole.
+
 - Distinguish inbound server requests from notifications. Reply to `ping` with
   an empty result and unsupported methods with `-32601`, preserving exact ids
   independently of active client requests. Server responses obey the outbound

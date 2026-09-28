@@ -1,7 +1,7 @@
 /**
  * Internal optional-observer capture. Every detail is redacted with
- * `Redaction.redact` (stderr by the transport, before its cap) and then
- * wrapped in `Redacted`.
+ * `Redaction.redact` and then wrapped in `Redacted`. Stderr is redacted by the
+ * transport, one whole line at a time, before its byte cap.
  *
  * @since 1.0.0-rc.0
  */
@@ -24,9 +24,10 @@ export const make = (server: string) =>
       try {
         // A remote error can echo a credential and an argument snapshot can
         // carry one under a secret key, so every source is redacted here.
-        // StdioTransport already redacts stderr BEFORE capping it to
-        // `maxStderrBytes` (a cap first could cut a credential's recognizable
-        // prefix); redacting its capped tail again would regrow it past the cap.
+        // StdioTransport redacts each complete stderr line as it arrives and
+        // caps only the redacted text to `maxStderrBytes`, so the cap cannot
+        // cut a credential's recognizable prefix. Redacting that capped tail
+        // again would regrow it past the cap.
         const redacted = source === "stderr" ? detail : Redaction.redact(detail, { onTooDeep: "name" })
         const text = typeof redacted === "string" ? redacted : JSON.stringify(redacted)
         const bytes = new TextEncoder().encode(text)

@@ -10,14 +10,15 @@
   read as an operator message, seat, thinking, or tools steer.
 - `NotificationEvent.fromEntry` reads an `Admitted` entry only under
   `admissionSourceId` of the notification it carries, and a `Promoted` entry
-  only under a `/notifications/drain/` source. Another journal writer could
-  otherwise forge a steer or mark pending steers delivered.
+  only under a `/notifications/drain/` source, so another producer's record
+  with the same event type stays out of the projection. The source scopes
+  records; it does not authenticate the writer.
 - `NotificationQueue.admit` refuses a notification larger than 1,048,576 UTF-16
   code units with `notification_invalid`, before copying or fingerprinting it.
 - `Alerts.defaultDetectors` consult only `control.*` event types, and a
   `Detector.eventTypes` item ending in `.*` names a family. A
-  `flows.alerts.delivered` entry suppresses a page only under the alerter's own
-  source.
+  `flows.alerts.delivered` entry suppresses a page only under the source the
+  alerter writes.
 
 ## [1.0.0-rc.0] - 2026-09-01
 

@@ -497,12 +497,27 @@ const remember = (value: Digest, state: DigestState): Digest => {
 }
 
 /**
+ * A `control.run.*` verdict stamped with a run id other than `runId`, such as
+ * a child's riding in the parent's events. It must not set the digested run's
+ * status or failure cause. An unstamped verdict is the run's own.
+ */
+const foreignVerdict = (event: ControlSchema.ControlEvent, runId: string | undefined): boolean =>
+  runId !== undefined && event.runId !== undefined && event.runId !== runId && event.kind.startsWith("control.run.")
+
+/**
  * Folds one event range, retaining compact identities for later combination.
  * Native facts supersede telemetry at its first position across ranges too.
+ *
+ * @param events the range to fold
+ * @param runId the run being digested; a `control.run.*` verdict stamped with
+ *   another run's id is skipped. Omitted, every verdict folds.
  * @category constructors
  * @since 1.0.0
  */
-export const digest = (events: ReadonlyArray<ControlSchema.ControlEvent>): Digest => {
+export const digest = (events: ReadonlyArray<ControlSchema.ControlEvent>, runId?: string): Digest => {
+  if (runId !== undefined && events.some((event) => foreignVerdict(event, runId))) {
+    events = events.filter((event) => !foreignVerdict(event, runId))
+  }
   let contributions = HashMap.empty<string, Contribution>()
   let indexes = emptyIndexes()
   let contributionBytes = 0

@@ -17,8 +17,8 @@ const connect = (overrides: Partial<HandleOptions>, released: () => void = () =>
     server: "terminal-drain",
     command: "fixture",
     args: [],
-    // Remove the credential prefix, so only the private observer may see
-    // the now-unrecognizable tail. Error redaction must not depend on it.
+    // A cap shorter than the line: capping raw bytes first would cut the
+    // credential's recognizable prefix and hand the observer its remainder.
     maxStderrBytes: secret.length + 1,
     queueCapacity: 1,
     requestTimeoutMs: 1_000
@@ -48,7 +48,7 @@ const assertDiagnostic = (error: McpError, events: ReadonlyArray<Diagnostics.Eve
   expect(error.message).toContain("(stderr diagnostic withheld)")
   expect(events).toHaveLength(1)
   expect(events[0]!.source).toBe("stderr")
-  expect(Redacted.value(events[0]!.detail)).toBe(secret)
+  expect(Redacted.value(events[0]!.detail)).toBe("API_TOKEN=[REDACTED]")
 }
 
 describe("terminal stderr drainage", () => {
@@ -102,6 +102,42 @@ describe("terminal stderr drainage", () => {
       )
     )
     assertDiagnostic(error, events)
+  })
+
+  it.each(
+    [
+      [
+        "a credential split across chunks",
+        ["API_TO", `KEN=${secret.slice(0, 5)}`, `${secret.slice(5)}\n`],
+        "API_TOKEN=[REDACTED]"
+      ],
+      [
+        "a private key block spanning lines",
+        ["-----BEGIN RSA PRIVATE KEY-----\n", `MII${secret}\n`, "-----END RSA PRIVATE KEY-----\n"],
+        "[REDACTED]"
+      ]
+    ] as const
+  )("redacts %s before the cap cuts its prefix", async (_name, chunks, expected) => {
+    const events: Array<Diagnostics.Event> = []
+    const error = await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const consumed = yield* Deferred.make<void>()
+        const transport = yield* connect({
+          stderr: Stream.fromIterable(chunks.map((chunk) => new TextEncoder().encode(chunk))).pipe(
+            Stream.ensuring(Deferred.succeed(consumed, undefined))
+          ),
+          exitCode: Deferred.await(consumed).pipe(Effect.as(ExitCode(1)))
+        })
+        return yield* Effect.flip(transport.request("call"))
+      })).pipe(
+        Effect.provide(TestClock.layer()),
+        Effect.provide(Diagnostics.layer((event) => events.push(event)))
+      )
+    )
+    assertPrivate(error, events)
+    const detail = events.map((event) => Redacted.value(event.detail)).join("")
+    expect(detail).toBe(expected)
+    expect(detail).not.toContain("PUBLISH")
   })
 
   it.each(["exit", "stdout"] as const)(

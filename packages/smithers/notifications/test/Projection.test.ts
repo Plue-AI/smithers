@@ -200,7 +200,7 @@ describe("Notification projection", () => {
     expect(states.at(-1)?.items).toEqual([])
   })
 
-  it("reads no admission or promotion another writer journaled under the queue's event types", async () => {
+  it("reads no admission or promotion another producer journaled under the queue's event types", async () => {
     const forged = (eventType: string, payload: unknown, forgedSource: string) =>
       new JournalEvent.Input({
         runId,
@@ -242,5 +242,30 @@ describe("Notification projection", () => {
       )
     )
     expect(states.at(-1)?.items.map((item) => item.notification.id)).toEqual(["real"])
+  })
+
+  // The source check scopes records; it does not authenticate the writer. The
+  // journal fences on run ownership, not on source, so a record a non-queue
+  // writer journals under the queue's own source reads as the queue's. The
+  // docs state this limit; this pins it so a claim of more cannot pass.
+  it("reads an admission any writer journals under the queue's own source", async () => {
+    const states = await Effect.runPromise(
+      runJournal(
+        Effect.gen(function*() {
+          const journal = yield* Journal.Journal
+          yield* journal.emitDurableUnfenced(
+            new JournalEvent.Input({
+              runId,
+              sourceId: JournalEvent.SourceId.make(NotificationEvent.admissionSourceId("impersonated")),
+              eventType: NotificationEvent.AdmittedEventType,
+              payload: { notification: notification("impersonated"), decision: "admitted" }
+            })
+          )
+          yield* journal.flush
+          return yield* journal.project(Projection.derive, { runId }).pipe(Stream.take(2), Stream.runCollect)
+        })
+      )
+    )
+    expect(states.at(-1)?.items.map((item) => item.notification.id)).toEqual(["impersonated"])
   })
 })

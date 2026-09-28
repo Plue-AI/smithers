@@ -454,7 +454,7 @@ const appendEvent = (
       }
       encodedBytes = Math.max(2, encodedBytes - encodedSize(evicted) - (state.events.length === 0 ? 0 : 1))
       const previousCarryBytes = retainedDigestBytes(carry)
-      carry = Diagnosis.combine(carry ?? Diagnosis.emptyDigest(), Diagnosis.digest([evicted]))
+      carry = Diagnosis.combine(carry ?? Diagnosis.emptyDigest(), Diagnosis.digest([evicted], run.runId))
       encodedBytes += retainedDigestBytes(carry) - previousCarryBytes
       dropped += 1
     }

@@ -74,9 +74,11 @@ successfully. When a healthy connection's scope closes, its terminal reason is
 recorded before I/O teardown, so cleanup does not report "stdin closed".
 
 For `spawn_failed`, `timeout`, and `connection_closed`, the message withholds
-process details. A child's stderr may contain credentials, including fragments
-whose identifying prefix was removed by truncation. The bounded,
-whitespace-collapsed tail is available only to an explicitly installed
+process details. A child's stderr may contain credentials, so the client
+redacts each complete stderr line as it arrives and caps only the redacted text.
+A cap cannot cut a credential's recognizable prefix, and a line longer than
+64 KiB is withheld whole. The bounded, whitespace-collapsed tail is available
+only to an explicitly installed
 [private host diagnostic observer](../api.md#diagnostics); it is never appended
 to the ordinary error. Without that observer, private details are discarded.
 

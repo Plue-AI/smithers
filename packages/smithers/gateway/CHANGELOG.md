@@ -4,6 +4,11 @@
 
 ### Added
 
+- `Diagnosis.digest` takes an optional `runId`. A `control.run.*` verdict
+  stamped with another run's id, such as a child's, no longer sets the digested
+  run's status or failure cause, so a run summary no longer reports a child's
+  failure as the parent's.
+
 - Approval RPC failures include `CodeDrift`; gateway envelopes and projections
   carry the optional budget `onExceeded` policy. Clients with exhaustive error
   handling must handle the new refusal (#1807, #1843).
