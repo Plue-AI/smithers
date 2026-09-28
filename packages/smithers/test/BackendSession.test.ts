@@ -85,12 +85,17 @@ describe("native login stores", () => {
     spawn.mockReturnValue(result("", os === "darwin" ? 44 : 1))
     expect(session.keyring("get", "example.test")).toBe("")
   })
-  it("deletes a configured native login even without an auth record", async () => {
+  it.each([
+    ["darwin", "delete-generic-password"],
+    ["linux", "\"secret-tool\",[\"clear\""],
+    ["win32", "$v.Remove($v.Retrieve"]
+  ])("deletes a configured native %s login even without an auth record", async (os, command) => {
+    Object.defineProperty(process, "platform", { value: os })
     const { session } = await fixture()
     session.saveConfig({ api_origin: "https://api.example.test" })
     spawn.mockReturnValue(result())
     session.clear()
-    expect(JSON.stringify(spawn.mock.calls)).toContain("delete-generic-password")
+    expect(JSON.stringify(spawn.mock.calls)).toContain(command)
   })
   it("migrates a legacy config token on login and removes it on logout", async () => {
     const { session } = await fixture({ SMITHERS_DISABLE_SYSTEM_KEYRING: "1" })
