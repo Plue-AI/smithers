@@ -238,8 +238,17 @@ fn receipt(repo: &Path, request_id: &str, digest: &str) -> Result<Option<Value>>
             .pointer("/tags/args")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let needle = format!("{request_id}:{digest}");
-        if args.contains("smithers.coding-request") && args.contains(&needle) {
+        // Only the helper's config argument is a receipt. The later -m argument
+        // can contain arbitrary user text, including another request UUID.
+        let recorded = args
+            .split_once(" --no-pager '--color=never' --config 'smithers.coding-request=\"")
+            .and_then(|(_, rest)| rest.split_once("\"'"))
+            .and_then(|(value, _)| value.split_once(':'))
+            .filter(|(id, hash)| {
+                id.len() == 36 && hash.len() == 64
+                    && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            });
+        if recorded == Some((request_id, digest)) {
             if found.is_some() {
                 return Err(Failure::new(
                     "operation_conflict",
@@ -247,7 +256,7 @@ fn receipt(repo: &Path, request_id: &str, digest: &str) -> Result<Option<Value>>
                 ));
             }
             found = Some(operation);
-        } else if args.contains("smithers.coding-request") && args.contains(request_id) {
+        } else if recorded.is_some_and(|(id, _)| id == request_id) {
             return Err(Failure::new(
                 "request_conflict",
                 "request ID was used for different content",
@@ -745,6 +754,46 @@ mod tests {
                 .trim_end(),
             "renamed change"
         );
+    }
+
+    #[test]
+    fn description_uuid_does_not_reserve_another_native_request() {
+        let dir = tempdir().unwrap();
+        let output = Command::new("jj")
+            .args(["git", "init", dir.path().to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let first = run(serde_json::to_string(&json!({
+            "operation":"read", "repositoryPath":dir.path()
+        })).unwrap().as_bytes()).unwrap();
+        let original = json!({"operation":"create", "repositoryPath":dir.path(),
+            "requestId":"11111111-1111-4111-8111-111111111111",
+            "expectedOperationId":first["operationId"], "target":first["head"],
+            "description":"Related request 22222222-2222-4222-8222-222222222222"});
+        let created = run(serde_json::to_string(&original).unwrap().as_bytes()).unwrap();
+        assert_eq!(created["status"], "accepted");
+        let replay = run(serde_json::to_string(&original).unwrap().as_bytes()).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["operationId"], created["operationId"]);
+        let mut changed = original.clone();
+        changed["description"] = json!("different payload");
+        assert_eq!(run(serde_json::to_string(&changed).unwrap().as_bytes())
+            .unwrap_err().code, "request_conflict");
+
+        let next = json!({"operation":"create", "repositoryPath":dir.path(),
+            "requestId":"22222222-2222-4222-8222-222222222222",
+            "expectedOperationId":created["operationId"], "target":created["head"],
+            "description":"another change"});
+        let accepted = run(serde_json::to_string(&next).unwrap().as_bytes()).unwrap();
+        assert_eq!(accepted["status"], "accepted");
+        assert_eq!(accepted["replayed"], false);
+        let replay = run(serde_json::to_string(&next).unwrap().as_bytes()).unwrap();
+        assert_eq!(replay["replayed"], true);
+        let mut changed = next.clone();
+        changed["description"] = json!("changed again");
+        assert_eq!(run(serde_json::to_string(&changed).unwrap().as_bytes())
+            .unwrap_err().code, "request_conflict");
     }
 
     #[test]
