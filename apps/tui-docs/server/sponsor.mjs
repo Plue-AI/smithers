@@ -16,19 +16,23 @@ export function cheapest(models) {
     return [{ id: model.id, input, output, request, cost: input * 33_000 + output * 2048 + request }]
   }).sort((a, b) => a.cost - b.cost || a.id.localeCompare(b.id))[0]
 }
-/** Per-visitor budget key: an IPv4 address, or the /64 prefix of an IPv6 address (one subscriber's allocation). */
+/** Per-visitor budget key: an IPv4 address (IPv4-mapped IPv6 in any spelling included), or the /64 prefix of an IPv6 address (one subscriber's allocation). */
 export function clientKey(address) {
-  const ip = String(address ?? "").trim().replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, "")
+  const ip = String(address ?? "").trim()
   if (isIP(ip) === 4) return ip
   if (isIP(ip) !== 6) return undefined
   const [head, tail] = ip.toLowerCase().split("::"), left = head ? head.split(":") : []
-  const right = (tail ?? "").split(":").filter(Boolean).flatMap((group) => {
-    if (!group.includes(".")) return [group]
+  const hex = (groups) => groups.flatMap((group) => {
+    if (!group.includes(".")) return [Number.parseInt(group, 16)]
     const [a, b, c, d] = group.split(".").map(Number)
-    return [((a << 8) | b).toString(16), ((c << 8) | d).toString(16)]
+    return [(a << 8) | b, (c << 8) | d]
   })
-  const groups = tail === undefined ? left : [...left, ...Array(8 - left.length - right.length).fill("0"), ...right]
-  return `${groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, "")).join(":")}::/64`
+  const right = hex((tail ?? "").split(":").filter(Boolean))
+  const groups = tail === undefined ? hex(left) : [...hex(left), ...Array(8 - hex(left).length - right.length).fill(0), ...right]
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+    return [groups[6] >> 8, groups[6] & 255, groups[7] >> 8, groups[7] & 255].join(".")
+  }
+  return `${groups.slice(0, 4).map((group) => group.toString(16)).join(":")}::/64`
 }
 export class Sponsor {
   constructor({ key, database, fetchImpl = fetch, dailyDollars = 0.5, dailyCalls = 100, now = () => Date.now() }) {
