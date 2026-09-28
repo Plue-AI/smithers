@@ -191,7 +191,7 @@ def check_helper() -> None:
 
 
 def check_plue_shim() -> None:
-    environ = {"TOKEN": "t0", "PATH": "/bin"}
+    environ = {"TOKEN": "t0", "PATH": "/bin", "SMITHERS_TOKEN": "operator-token"}
     config = {"repo": "acme/bench", "cli": "/bin/sh"}
     args, stdin = plue_docker.translate(
         ["exec", "-i", "-w", "/app", "-e", "TOKEN", "-e", "MISSING", "--", "ws-1", "bash", "-lc", 'exec "$@"', "bash", "python3", "-"],
@@ -209,7 +209,9 @@ def check_plue_shim() -> None:
     assert plue_env.with_egress("ls") == plue_env.EGRESS_PREFIX + "ls" and plue_env.EGRESS_PREFIX == plue_docker.EGRESS_PREFIX
     plain, stdin = plue_docker.translate(["exec", "--", "ws-1", "bash", "-lc", "ls"], environ, config)
     assert stdin is False and "--cwd" not in plain and "--env" not in plain
-    for bad in (["ps"], ["exec", "--", "ws-1"], ["exec", "-t", "--", "ws-1", "true"]):
+    for bad in (["ps"], ["exec", "--", "ws-1"], ["exec", "-t", "--", "ws-1", "true"],
+                # the plue CLI's credential never reaches the task container
+                ["exec", "-e", "SMITHERS_TOKEN", "--", "ws-1", "env"]):
         try:
             plue_docker.translate(bad, environ, config)
         except ValueError:

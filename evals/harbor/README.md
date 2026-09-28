@@ -79,7 +79,8 @@ workspace id is the container the prompt names. The harness spawns that
 TMPDIR, SHELL), so the adapter writes the repository, the CLI's absolute path,
 `SMITHERS_TOKEN` and `XDG_CONFIG_HOME` into an owner-only `plue-docker.json`
 beside the shim in a per-attempt temporary directory, deleted when the attempt
-ends.
+ends. A `-e SMITHERS_TOKEN` from the harness is refused (exit 125): the
+CLI's credential never reaches the task container.
 `plue_docker.shim_config` and `shim_directory` write both; the SWE-bench rig's
 plue transport (`evals/swebench/lib/plue.py`, `SWB_TRANSPORT=plue`) runs its
 agent through the same shim and its workspaces through `plue_env`.
@@ -98,6 +99,13 @@ to its own verifier, whose `reserve()` also runs before Harbor's build timer.
 A workspace SSH session the gateway lost (`ssh_session_failed`) or OpenSSH's
 own exit 255 (`ssh_transport`: connect timeout, remote closed, dead read)
 raises `PlueError` instead of passing the command a meaningless status.
+
+A task is untrusted. A Dockerfile-only task is accepted when it is `FROM`,
+`COPY` and `RUN chmod` alone: a `COPY` source must resolve, symlinks included,
+inside the task's environment directory, and a `chmod` line must be a mode
+and plain paths or globs; anything else raises `PlueImageError`. Debug logs
+of CLI calls redact `--env` values, and an image's registry token realm must
+be https.
 
 No plue failure ends the job: every environment method raises `PlueError`
 or a subclass, Harbor's constructor checks are deferred to `reserve()`
@@ -135,8 +143,10 @@ the stock arm). The stock arm is
   `command_execution` item in `codex.txt` exited 0. The count is
   `containerCommands` in `smithers-run.json` / `codex-account.json`.
 - A trial is healthy only when it was graded, or graded after a whitelisted
-  agent outcome: `AgentTimeoutError`, or `NonZeroAgentExitCodeError` with no
-  SSH or gateway transport error in its output (`outcome.py`). Everything
+  agent outcome: `AgentTimeoutError`, or `NonZeroAgentExitCodeError` unless
+  Harbor's header says exit 255 and OpenSSH's transport message follows
+  (`outcome.py`); a transport line in the agent's own output after any other
+  exit code is the agent's, never a re-run. Everything
   else (`VerifierTimeoutError`, `CancelledError`, `PlueError`, start and
   setup timeouts, `ContainerUnreachable`, `ModelRouteError`, an ungraded
   agent outcome) is infrastructure: re-run, never scored. Run with `-r 3` and

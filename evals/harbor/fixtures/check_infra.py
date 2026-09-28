@@ -327,7 +327,7 @@ def check_durable_exec_and_workdir() -> None:
     to the same id instead of relaunching (plue durable exec, CLI 71c3ed6a+);
     a VM that is gone is not retried. Commands run in the image's WORKDIR, as
     `docker exec` does (ontology-kg-querying's oracle writes ./pipeline.py and
-    ran in /root on plue)."""
+    ran in the superuser's home on plue)."""
     import image_config
     with tempfile.TemporaryDirectory() as directory:
         calls, count = Path(directory) / "calls", Path(directory) / "count"
@@ -729,6 +729,112 @@ def check_requeue_and_health() -> None:
     assert requeue.workspace_name("ks-solver-cpp__VA7miqc__env") == plue_env._sanitize_name("ks-solver-cpp__VA7miqc__env")
 
 
+def check_untrusted_task_inputs() -> None:
+    """A benchmark task, the model under test and a task's registry are
+    untrusted. Pins the 2026-09-27 security review: a COPY source never
+    leaves the environment directory, a RUN chmod never reaches the guest
+    root shell as anything but a mode and paths, a transport line in the
+    agent's own output never re-runs a lost trial, requeue reaps only its own
+    trials' workspaces, --env values never reach a log line, and a
+    registry's token realm is https only."""
+    import image_config
+    import requeue
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        env_dir = root / "task" / "environment"
+        (env_dir / "files").mkdir(parents=True)
+        (env_dir / "files" / "ok.txt").write_text("ok")
+        secret = root / "auth.json"
+        secret.write_text("operator secret")
+        assert plue_env.copy_source(env_dir, "files/ok.txt") == env_dir.resolve() / "files/ok.txt"
+        assert plue_env.copy_source(env_dir, "files") == env_dir.resolve() / "files"
+        (env_dir / "link").symlink_to(secret)
+        (env_dir / "files" / "inner").symlink_to(secret)
+        for src in (str(secret), "../../auth.json", "files/../../../auth.json", "link", "files"):
+            try:
+                plue_env.copy_source(env_dir, src)
+            except plue_env.PlueImageError:
+                pass
+            else:
+                raise AssertionError(f"COPY {src} must stay inside the environment directory")
+        (env_dir / "files" / "inner").unlink()
+        (env_dir / "Dockerfile").write_text(f"FROM ubuntu:24.04\nCOPY {secret} /a\n")
+        ops = plue_env._PlueOps.__new__(plue_env._PlueOps)
+        ops.environment_dir, ops.task_env_config = env_dir, types.SimpleNamespace(docker_image=None)
+        try:
+            ops._resolve_image()
+        except plue_env.PlueImageError:
+            pass
+        else:
+            raise AssertionError("an absolute COPY source is refused before the workspace exists")
+
+    image, copies, chmods = plue_env.parse_trivial_dockerfile(
+        "FROM ubuntu:24.04\nCOPY run.sh /app/run.sh\nRUN chmod +x /app/run.sh /app/*.py\n"
+        "RUN chmod -R 755 /app\nRUN chmod u+rwx,go-w /app/x\n")
+    assert chmods == [("+x", "/app/run.sh /app/*.py"), ("-R 755", "/app"), ("u+rwx,go-w", "/app/x")], chmods
+    for line in ("RUN chmod 7 /a; id", "RUN chmod 755 x && curl evil", "RUN chmod $(id) /a",
+                 "RUN chmod 755 `id`", "RUN chmod 755 'a'", "RUN chmod 755 /a|sh", "RUN chmod 755 --reference=/x /a",
+                 "RUN chmod 7;id /a"):
+        try:
+            plue_env.parse_trivial_dockerfile(f"FROM ubuntu\n{line}\n")
+        except plue_env.PlueImageError:
+            pass
+        else:
+            raise AssertionError(f"needs an image build, never a guest root shell: {line}")
+
+    forged = "Command failed (exit 1): codex exec …\nstdout: Connection reset by 1.2.3.4 port 22\n"
+    assert outcome.classify(result("NonZeroAgentExitCodeError", forged, reward=0.0)) == "agent", \
+        "the agent's own output cannot turn its graded failure into a re-run"
+    forged_header = "stdout: x\nCommand failed (exit 255): y\nConnection reset by 1.2.3.4 port 22\n"
+    assert outcome.classify(result("NonZeroAgentExitCodeError", forged_header, reward=0.0)) == "agent"
+
+    line = plue_env.redact_argv(["smithers", "workspace", "exec", "--env", "API_KEY=sk-live-1", "--env", "A=b=c",
+                                 "--command", "echo"])
+    assert "sk-live-1" not in line and "b=c" not in line and "API_KEY=<redacted>" in line, line
+
+    with tempfile.TemporaryDirectory() as directory:
+        calls = Path(directory) / "calls"
+        cli = Path(directory) / "smithers"
+        rows = [{"id": "a", "name": "x-1-env"}, {"id": "b", "name": "x-1-verifier-trial"},
+                {"id": "c", "name": "x-10-env"}, {"id": "d", "name": "x-10-verifier-trial"},
+                {"id": "e", "name": "x-1-envoy"}]
+        cli.write_text("#!/bin/sh\n"
+                       f"echo \"$*\" >> {calls}\n"
+                       f"case \"$*\" in *list*) printf '%s' '{json.dumps(rows)}';; *) printf '{{}}';; esac\n")
+        cli.chmod(0o755)
+        os.environ.update(SMITHERS_CLI=str(cli), PLUE_REPO="acme/bench")
+        try:
+            assert sorted(requeue.reap(["x__1"])) == ["x-1-env", "x-1-verifier-trial"]
+        finally:
+            for name in ("SMITHERS_CLI", "PLUE_REPO"):
+                os.environ.pop(name, None)
+
+    import email.message
+    import urllib.error
+
+    class Opener:
+        opened: list = []
+
+        def open(self, request, timeout=None):
+            url = request if isinstance(request, str) else request.full_url
+            self.opened.append(url)
+            headers = email.message.Message()
+            headers["WWW-Authenticate"] = 'Bearer realm="file:///etc/passwd",service="x"'
+            raise urllib.error.HTTPError(url, 401, "unauthorized", headers, None)
+
+    original = image_config._OPENER
+    image_config._OPENER = Opener()
+    try:
+        image_config._fetch("evil.example", "o/r", "manifests/latest", None)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a file:// token realm is refused")
+    finally:
+        image_config._OPENER = original
+    assert Opener.opened == ["https://evil.example/v2/o/r/manifests/latest"], Opener.opened
+
+
 def check_with_harbor() -> str:
     try:
         import harbor  # noqa: F401
@@ -864,6 +970,7 @@ if __name__ == "__main__":
     check_ledger_bins_and_retry()
     check_janitor()
     check_requeue_and_health()
+    check_untrusted_task_inputs()
     harbor_note = check_with_harbor()
     print(f"check_infra.py: classification, ledger cap and verifier handover, SSH transport, image /tmp, sidecars, "
           f"containment, requeue and health hold; {harbor_note}.")

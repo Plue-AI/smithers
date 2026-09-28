@@ -71,11 +71,14 @@ def reap(trials: list[str]) -> list[str]:
         rows = json.loads(text[text.find("["):]) if "[" in text else []
     except ValueError:
         return []
-    prefixes = tuple(workspace_name(t) for t in trials)
+    # Exactly each trial's own workspaces (`<trial>__env`, `<trial>__verifier__<key>`):
+    # a bare prefix would also match trial `x-10`'s when requeuing `x-1`.
+    envs = {workspace_name(f"{t}__env") for t in trials}
+    verifiers = tuple(workspace_name(f"{t}__verifier__") + "-" for t in trials)
     deleted = []
     for row in rows:
         name, ident = str(row.get("name") or ""), row.get("id")
-        if ident and name.startswith(prefixes):
+        if ident and (name in envs or name.startswith(verifiers)):
             subprocess.run([cli, "workspace", "delete", ident, "--yes", "--repo", repo, "--format", "json"],
                            capture_output=True, text=True, timeout=300)
             deleted.append(name)

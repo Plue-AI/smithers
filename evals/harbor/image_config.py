@@ -17,6 +17,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
@@ -26,6 +27,18 @@ _ACCEPT = ", ".join([
     "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json",
 ])
 _TIMEOUT_SEC = 30
+
+
+class _HttpsRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a registry's redirects (blob CDNs) to https URLs only."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme != "https":
+            raise urllib.error.HTTPError(newurl, code, f"refused non-https redirect: {newurl}", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_HttpsRedirects)
 
 
 def parse(image: str) -> tuple[str, str, str]:
@@ -46,7 +59,7 @@ def _get(url: str, token: str | None, accept: str):
     headers = {"Accept": accept}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=_TIMEOUT_SEC)
+    return _OPENER.open(urllib.request.Request(url, headers=headers), timeout=_TIMEOUT_SEC)
 
 
 def _fetch(registry: str, repo: str, path: str, token: str | None, accept: str = _ACCEPT):
@@ -57,8 +70,13 @@ def _fetch(registry: str, repo: str, path: str, token: str | None, accept: str =
         if error.code != 401 or token:
             raise
         challenge = dict(re.findall(r'(\w+)="([^"]*)"', error.headers.get("WWW-Authenticate", "")))
-        query = f"{challenge['realm']}?service={challenge.get('service', '')}&scope=repository:{repo}:pull"
-        reply = json.load(urllib.request.urlopen(query, timeout=_TIMEOUT_SEC))
+        realm = challenge.get("realm", "")
+        if urllib.parse.urlsplit(realm).scheme != "https":
+            # The registry is named by the task's FROM line, so its challenge
+            # is untrusted: never let it point this host at file:// or http://.
+            raise ValueError(f"registry {registry} names a non-https token realm: {realm!r}")
+        query = f"{realm}?service={challenge.get('service', '')}&scope=repository:{repo}:pull"
+        reply = json.load(_OPENER.open(query, timeout=_TIMEOUT_SEC))
         token = reply.get("token") or reply.get("access_token")
         return json.load(_get(url, token, accept)), token
 

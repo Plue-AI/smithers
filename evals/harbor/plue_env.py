@@ -546,7 +546,38 @@ def is_capacity_error(error: PlueError) -> bool:
 
 _COPY_RE = re.compile(r"^\s*COPY\s+(?:--chmod=\S+\s+)?(\S+)\s+(\S+)\s*$", re.I)
 _FROM_RE = re.compile(r"^\s*FROM\s+(\S+)(?:\s+AS\s+\S+)?\s*$", re.I)
-_CHMOD_RE = re.compile(r"^\s*RUN\s+chmod\s+(\S+)\s+(.+?)\s*$", re.I)
+_CHMOD_RE = re.compile(r"^\s*RUN\s+chmod\s+(?:(-R)\s+)?(\S+)\s+(.+?)\s*$", re.I)
+# The chmod line runs as a guest root shell command, so it is accepted only
+# when a shell reads it as plain words: an octal or symbolic mode and targets
+# of path and glob characters. Anything else (`;`, `$(…)`, quotes) is a real
+# RUN step and needs an image build.
+_CHMOD_MODE_RE = re.compile(r"^(?:[0-7]{1,4}|[ugoa]*(?:[-+=][rwxXstugo]*)+(?:,[ugoa]*(?:[-+=][rwxXstugo]*)+)*)$")
+_CHMOD_TARGETS_RE = re.compile(r"^[A-Za-z0-9_./*?@%+=:,\s-]+$")
+
+
+def copy_source(environment_dir: Path | str, src: str) -> Path:
+    """The host path of a Dockerfile COPY source, which must stay inside the
+    task's environment directory: the task is untrusted and the upload runs
+    on the operator's host. Symlinks are resolved, inside a copied directory
+    too, so none can point the upload at the operator's files."""
+    root = Path(environment_dir).resolve()
+    if PurePosixPath(src).is_absolute() or ".." in PurePosixPath(src).parts:
+        raise PlueImageError(f"COPY source {src!r} leaves the environment directory")
+    path = root / src
+    paths = [path, *(path.rglob("*") if path.is_dir() and not path.is_symlink() else [])]
+    for each in paths:
+        if not each.resolve().is_relative_to(root):
+            raise PlueImageError(f"COPY source {src!r} resolves outside the environment directory: {each}")
+    return path
+
+
+def redact_argv(command: list[str]) -> str:
+    """`command` for a log line, with every `--env KEY=VALUE` value hidden."""
+    shown = list(command)
+    for index in range(1, len(shown)):
+        if shown[index - 1] == "--env" and "=" in shown[index]:
+            shown[index] = shown[index].split("=", 1)[0] + "=<redacted>"
+    return " ".join(shlex.quote(a) for a in shown)
 
 
 def parse_trivial_dockerfile(text: str) -> tuple[str, list[tuple[str, str]], list[tuple[str, str]]]:
@@ -570,7 +601,11 @@ def parse_trivial_dockerfile(text: str) -> tuple[str, list[tuple[str, str]], lis
             copies.append((m.group(1), m.group(2)))
             continue
         if m := _CHMOD_RE.match(line):
-            chmods.append((m.group(1), m.group(2)))
+            flag, mode, targets = m.group(1), m.group(2), m.group(3)
+            if not _CHMOD_MODE_RE.match(mode) or not _CHMOD_TARGETS_RE.match(targets) \
+                    or any(word.startswith("-") for word in targets.split()):
+                raise PlueImageError(f"Dockerfile instruction needs an image build: {line}")
+            chmods.append((f"{flag} {mode}" if flag else mode, targets))
             continue
         raise PlueImageError(f"Dockerfile instruction needs an image build: {line}")
     if not image:
@@ -656,6 +691,8 @@ class _PlueOps:
             self._plue_image, self._plue_copies, self._plue_chmods = parse_trivial_dockerfile(
                 dockerfile.read_text()
             )
+            for src, _ in self._plue_copies:
+                copy_source(self.environment_dir, src)
             return
         raise PlueImageError(
             f"{self.environment_dir} has neither docker_image nor a Dockerfile"
@@ -666,7 +703,7 @@ class _PlueOps:
     async def _run(self, *args: str, stdin: bytes | None = None, timeout: float | None = None,
                    check: bool = True) -> subprocess.CompletedProcess[bytes]:
         command = [self._cli(), *args]
-        self.logger.debug("plue: %s", " ".join(shlex.quote(a) for a in command))
+        self.logger.debug("plue: %s", redact_argv(command))
         try:
             proc = await asyncio.create_subprocess_exec(
                 *command,
@@ -798,7 +835,7 @@ class _PlueOps:
                                           user="root", timeout_sec=120)
         self._plue_boot_id = (out.strip().splitlines() or [""])[-1].strip()
         for src, dst in self._plue_copies:
-            await self._plue_upload(Path(self.environment_dir) / src, dst)
+            await self._plue_upload(copy_source(self.environment_dir, src), dst)
         for mode_bits, target in self._plue_chmods:
             await self._plue_exec(f"chmod {mode_bits} {target}", user="root", timeout_sec=120)
 

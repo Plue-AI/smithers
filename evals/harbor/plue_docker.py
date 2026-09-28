@@ -27,7 +27,7 @@ harness spawns this shim with a least-authority environment (PATH, HOME, USER,
 LANG, TERM, TMPDIR, SHELL; `flows/kernel/src/ChildProcessEnvironment.ts`), so
 PLUE_REPO and SMITHERS_CLI never arrive, and `smithers` on PATH is the flows
 CLI, not the plue one. The ambient environment is read only for the `-e KEY`
-values the harness forwards on purpose.
+values the harness forwards on purpose, and never for SMITHERS_TOKEN.
 """
 
 from __future__ import annotations
@@ -57,6 +57,9 @@ EGRESS_PREFIX = plue_env.EGRESS_PREFIX
 
 # What the plue CLI itself needs from the harness host's environment.
 SHIM_ENV_NAMES = ("SMITHERS_TOKEN", "XDG_CONFIG_HOME", "HOME")
+# Of those, the ones a `-e KEY` never copies from the host into the task
+# container, where the model under test would read them.
+CLI_CREDENTIALS = frozenset({"SMITHERS_TOKEN"})
 
 
 def shim_config(base: dict[str, str], workdir: str | None = None) -> dict:
@@ -136,6 +139,8 @@ def translate(argv: list[str], environ: dict[str, str], config: dict) -> tuple[l
             key = rest[index]
             if "=" in key:
                 env.append(key)
+            elif key in CLI_CREDENTIALS:
+                raise ValueError(f"plue docker shim: refusing to forward the plue CLI credential {key}")
             elif key in environ:
                 env.append(f"{key}={environ[key]}")
         elif token.startswith("-"):
