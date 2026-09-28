@@ -703,7 +703,7 @@
     },
     {
       "name": "admin user delete",
-      "description": "Delete a user",
+      "description": "Suspend a user and mark it deleted; keeps its data",
       "schema": {
         "args": {
           "type": "object",
@@ -778,6 +778,45 @@
         "options": {
           "type": "object",
           "properties": {},
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "admin user erase",
+      "description": "Erase a user's data; keeps billing records",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "username": {
+              "type": "string",
+              "description": "Username to erase"
+            }
+          },
+          "required": [
+            "username"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "request-date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date the user asked for deletion (YYYY-MM-DD)"
+            },
+            "yes": {
+              "default": false,
+              "type": "boolean",
+              "description": "Confirm erasing the user"
+            }
+          },
+          "required": [
+            "request-date",
+            "yes"
+          ],
           "additionalProperties": false
         }
       }

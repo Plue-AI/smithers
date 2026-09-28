@@ -299,7 +299,11 @@ for (const action of ["enable", "disable"]) {
 admin["admin user delete"] = async (c, a, o) => {
   await c.confirm(o.yes, `delete user ${str(a.username)}`)
   await c.request("DELETE", `/api/admin/users/${esc(a.username)}`)
-  return { status: "deleted", username: a.username }
+  return { status: "suspended", username: a.username }
+}
+admin["admin user erase"] = async (c, a, o) => {
+  await c.confirm(o.yes, `erase user ${str(a.username)} and all of its data`)
+  return c.request("POST", `/api/admin/users/${esc(a.username)}/erase`, { request_date: o["request-date"] })
 }
 admin["admin health"] = (c) => c.request("GET", "/api/admin/system/health")
 admin["admin runs list"] = (c, _a, o) =>

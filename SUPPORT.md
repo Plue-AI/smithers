@@ -11,4 +11,16 @@ Business days are Monday to Friday, US Pacific time, excluding US federal holida
 
 Keep private code, credentials and billing details out of public issues; send them by email.
 
+## Delete or export your account data
+
+Email [support@smithers.sh](mailto:support@smithers.sh) from the address on your account and say whether you want your data deleted or a copy of it. The date of that email starts the clock: we finish within 30 days.
+
+An operator deletes the account with:
+
+```sh
+smthrs admin user erase <username> --request-date <YYYY-MM-DD> --yes
+```
+
+The erase deletes the repositories you own, your workspaces and their sandboxes, sessions, tokens, SSH keys, provider connections and chat history. It keeps billing, credit and tax records we must keep by law. Your comments and issues in other people's repositories stay, attributed to a deleted user. Running it again changes nothing, and every run is recorded in the audit log with the request date.
+
 Policies: [Terms](https://smithers.sh/terms/) · [Privacy](https://smithers.sh/privacy/) · [Refunds](https://smithers.sh/refunds/)

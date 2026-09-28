@@ -4,9 +4,10 @@ Usage: smthrs admin user <command>
 
 Commands:
   create   Create a user
-  delete   Delete a user
+  delete   Suspend a user and mark it deleted; keeps its data
   disable  Suspend a user
   enable   Lift a user's suspension
+  erase    Erase a user's data; keeps billing records
   list     List all users
 
 Custom Global Options:

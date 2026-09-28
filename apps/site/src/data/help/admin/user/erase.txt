@@ -1,11 +1,12 @@
-smthrs admin user delete — Suspend a user and mark it deleted; keeps its data
+smthrs admin user erase — Erase a user's data; keeps billing records
 
-Usage: smthrs admin user delete <username> [options]
+Usage: smthrs admin user erase <username> [options]
 
 Arguments:
-  username  Username to delete
+  username  Username to erase
 
 Options:
+  --request-date <string>  Date the user asked for deletion (YYYY-MM-DD)
   --yes
 
 Custom Global Options:

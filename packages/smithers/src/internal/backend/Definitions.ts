@@ -152,9 +152,17 @@ export const definitions = {
     options: z.object({ "username": z.string().describe("Username"), "email": z.string().describe("Email address") })
   },
   "admin user delete": {
-    description: "Delete a user",
+    description: "Suspend a user and mark it deleted; keeps its data",
     args: z.object({ "username": z.string().describe("Username to delete") }),
     options: z.object({ "yes": z.boolean().describe("Confirm deleting the user").default(false) })
+  },
+  "admin user erase": {
+    description: "Erase a user's data; keeps billing records",
+    args: z.object({ "username": z.string().describe("Username to erase") }),
+    options: z.object({
+      "request-date": z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).describe("Date the user asked for deletion (YYYY-MM-DD)"),
+      "yes": z.boolean().describe("Confirm erasing the user").default(false)
+    })
   },
   "admin user disable": {
     description: "Suspend a user",
