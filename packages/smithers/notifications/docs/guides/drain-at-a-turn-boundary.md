@@ -55,7 +55,7 @@ import * as SteerPayload from "@smthrs/notifications/SteerPayload"
 
 const messages = (receipt: NotificationQueue.DrainReceipt) =>
   receipt.notifications.flatMap((notification) => {
-    const item = SteerPayload.decode(notification.payload)
+    const item = SteerPayload.decode(notification)
     return item?.kind === "Message" ? [item.body] : []
   })
 ```

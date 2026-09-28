@@ -54,10 +54,11 @@ export type Severity = typeof Severity.Type
  * How a condition is recognized in the journal.
  *
  * `field` names a payload key, `value` the value that means the condition
- * holds, and `eventTypes` narrows which entries are consulted at all. An entry
- * that carries the field with a different value CLOSES the condition, which is
- * what makes a resume clear an approval alert without a second vocabulary for
- * "cleared".
+ * holds, and `eventTypes` narrows which entries are consulted at all. An
+ * `eventTypes` item ending in `.*` names a family: `control.*` consults
+ * `control.run.parked` and `control.monitor.beat` alike. An entry that carries
+ * the field with a different value CLOSES the condition, which is what makes a
+ * resume clear an approval alert without a second vocabulary for "cleared".
  *
  * @category models
  * @since 0.1.0
@@ -138,15 +139,27 @@ export type Policy = typeof Policy.Type
  * `control.monitor.beat`. A deployment whose supervisor journals a park reason
  * gets `quota-parked` from the same field the run summary reports it under.
  *
+ * Each consults the `control.*` family only. A run's journal is shared with
+ * flow steps, agent traces, and anything else that writes to the run, and a
+ * `status` or `health` field on one of those entries would otherwise open or
+ * close a condition the control plane never reported.
+ *
  * @category constants
  * @since 0.1.0
  */
 export const defaultDetectors: Readonly<Record<string, Detector>> = {
-  "waiting-approval": { field: "status", value: "waiting-approval" },
-  failed: { field: "status", value: "failed" },
-  stalled: { field: "health", value: "stalled" },
-  "quota-parked": { field: "waitingReason", value: "quota" }
+  "waiting-approval": { field: "status", value: "waiting-approval", eventTypes: ["control.*"] },
+  failed: { field: "status", value: "failed", eventTypes: ["control.*"] },
+  stalled: { field: "health", value: "stalled", eventTypes: ["control.*"] },
+  "quota-parked": { field: "waitingReason", value: "quota", eventTypes: ["control.*"] }
 }
+
+/**
+ * Whether a detector's `eventTypes` names an entry's event type, exactly or
+ * through a `.*` family.
+ */
+const names = (eventTypes: ReadonlyArray<string>, eventType: string): boolean =>
+  eventTypes.some((named) => named.endsWith(".*") ? eventType.startsWith(named.slice(0, -1)) : named === eventType)
 
 /**
  * A condition that is open on a run, and when it opened.
@@ -181,6 +194,20 @@ export interface Alert {
   readonly owner?: string | undefined
   readonly runbook?: string | undefined
 }
+
+/**
+ * The journal source the alerter writes one outcome of one alert under.
+ *
+ * A delivery record counts as evidence that an alert went out only under this
+ * source, so another writer to the run's journal cannot silence a page by
+ * journaling `flows.alerts.delivered` with a matching `alertId`.
+ *
+ * @param id the alert's {@link alertId}
+ * @param outcome `delivered`, `refused`, or `failed/<code>`
+ * @private
+ * @since 1.0.0
+ */
+export const recordSourceId = (id: string, outcome: string): string => `/notifications/alerts/${id}/${outcome}`
 
 /**
  * The key an alert coalesces on: one open condition on one run.
@@ -262,7 +289,7 @@ export const observe = (
   for (const condition of Object.keys(policy.rules)) {
     const detector = detectors[condition]
     if (detector === undefined) continue
-    if (detector.eventTypes !== undefined && !detector.eventTypes.includes(entry.eventType)) continue
+    if (detector.eventTypes !== undefined && !names(detector.eventTypes, entry.eventType)) continue
     // Own properties only. `in` walks `Object.prototype`, so a detector named
     // `toString` or `constructor` would read every record-shaped entry in the
     // run as evidence and close the condition on all of them.

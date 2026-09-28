@@ -8,17 +8,20 @@
  * either of them.
  *
  * The payload is stored as JSON in the journal, which makes decoding the
- * interesting half. A record carrying a `body` string and no `kind` decodes as
- * a message, because that is what a minimal caller means by it: the control
- * plane's steer RPC accepts the same shape. A payload this module cannot
- * classify decodes as nothing at all, because notifications also carry webhook
- * bodies and system events, and rendering one of those as an instruction would
- * put an unrelated payload in front of the model.
+ * interesting half. Only a `human-steer` or `human-followup` carries a steer: a
+ * `system-event` decodes as nothing whatever its payload says, because system
+ * events carry webhook bodies and machine reports, and reading one as an
+ * instruction would let its producer message the model or change its seat,
+ * thinking, or tools. Inside a human notification, a record carrying a `body`
+ * string and no `kind` decodes as a message, because that is what a minimal
+ * caller means by it: the control plane's steer RPC accepts the same shape. A
+ * payload this module cannot classify decodes as nothing at all.
  *
  * @since 0.1.0
  */
 
 import { Schema } from "effect"
+import type * as Notification from "./Notification.ts"
 
 /**
  * How hard the model should think.
@@ -151,15 +154,18 @@ const record = (value: unknown): Readonly<Record<string, unknown>> | undefined =
     : undefined
 
 /**
- * Reads a notification payload as a steering item, or reports that it is not
- * one.
+ * Reads a notification as a steering item, or reports that it is not one.
  *
- * @param payload the notification's stored payload
+ * The notification, not its payload, is the argument: a `system-event` is
+ * never a steer, so the classification cannot be separated from who sent it.
+ *
+ * @param notification the admitted notification
  * @category conversions
  * @since 0.1.0
  */
-export const decode = (payload: unknown): SteerPayload | undefined => {
-  const fields = record(payload)
+export const decode = (notification: Notification.Notification): SteerPayload | undefined => {
+  if (notification._tag === "system-event") return undefined
+  const fields = record(notification.payload)
   if (fields === undefined) return undefined
   // A record with a body and no kind is a message: it is the shape a caller
   // writes when it has nothing else to say.

@@ -88,6 +88,18 @@ finite depth, so it trips the same bound rather than looping forever.
 serialized on the way to the journal, and an unbounded walk turns a hostile
 payload into an untyped `RangeError` instead of a refusal a caller can read.
 
+## notification_invalid: larger than the 1048576 code unit bound
+
+**Symptom.** The message names a code unit bound.
+
+**Cause.** The notification is larger than 1,048,576 UTF-16 code units, counting
+every string and object key at its length and every other value as one.
+
+**Fix.** Store the large content elsewhere and put a reference in the payload.
+The bound is checked before the notification is copied, decoded, fingerprinted,
+or journaled, so an oversized payload costs the notifying process no more than
+the bound.
+
 ## notification_unavailable
 
 **Symptom.** Every call fails with `code: "notification_unavailable"` and a
@@ -172,7 +184,7 @@ empty arrays.
 2. **No detector.** A rule whose condition is in neither `defaultDetectors` nor
    the policy's own `detectors` raises nothing.
 3. **`eventTypes` excludes the entry.** A detector that names event types
-   consults no others.
+   consults no others. Every default detector consults only `control.*`.
 4. **The payload is not a record.** An entry whose payload is a string, an array,
    or `null` is skipped.
 5. **The delay has not elapsed.** `decide` compares `now` against

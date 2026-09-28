@@ -4,7 +4,7 @@
  * @since 0.1.0
  */
 
-import type { JournalEvent } from "@smthrs/journal"
+import { JournalEvent } from "@smthrs/journal"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Notification from "./Notification.ts"
@@ -138,6 +138,42 @@ export const isAdmitted = (event: Event): event is Admitted => "notification" in
  */
 export const isPromoted = (event: Event): event is Promoted => !isAdmitted(event)
 
+/**
+ * The journal source every admission of one notification is written under.
+ *
+ * @param notificationId the admitted notification's id
+ * @category constructors
+ * @since 1.0.0
+ */
+export const admissionSourceId = (notificationId: string): JournalEvent.SourceId =>
+  JournalEvent.SourceId.make(`${admissionSourcePrefix}${notificationId}`)
+
+/**
+ * The identity of one drain: the lineage and the boundary, each encoded so a
+ * value containing a slash cannot forge another pair's identity.
+ *
+ * @param targetLineageId the lineage the boundary closed on
+ * @param boundary the boundary name
+ * @category constructors
+ * @since 1.0.0
+ */
+export const drainKey = (targetLineageId: string, boundary: string): string =>
+  `${encodeURIComponent(targetLineageId)}/${encodeURIComponent(boundary)}`
+
+/**
+ * The journal source one drain's promotion record is written under.
+ *
+ * @param targetLineageId the lineage the boundary closed on
+ * @param boundary the boundary name
+ * @category constructors
+ * @since 1.0.0
+ */
+export const drainSourceId = (targetLineageId: string, boundary: string): JournalEvent.SourceId =>
+  JournalEvent.SourceId.make(`${drainSourcePrefix}${drainKey(targetLineageId, boundary)}`)
+
+const admissionSourcePrefix = "/notifications/admission/"
+const drainSourcePrefix = "/notifications/drain/"
+
 const decodeAdmitted = Schema.decodeUnknownOption(Admitted)
 const decodePromoted = Schema.decodeUnknownOption(Promoted)
 
@@ -147,15 +183,26 @@ const decodePromoted = Schema.decodeUnknownOption(Promoted)
  * Foreign entries and structurally invalid payloads decode to `None` so a
  * projection over a shared journal stays total.
  *
+ * The event type alone does not make an entry owned: any writer to a shared
+ * journal can choose one. An admission counts only under
+ * {@link admissionSourceId} for the notification it carries, and a promotion
+ * only under the `/notifications/drain/` source family the queue writes, so
+ * another writer cannot forge a steer the model reads as an operator's or
+ * mark pending steers delivered. The drain check is a prefix because records
+ * written before the lineage joined the identity carry the boundary alone.
+ *
  * @param entry one journal entry, owned or foreign
  * @category constructors
  * @since 0.1.0
  */
 export const fromEntry = (entry: JournalEvent.Entry): Option.Option<Event> => {
   if (entry.eventType === AdmittedEventType) {
-    return decodeAdmitted(entry.payload)
+    return Option.filter(
+      decodeAdmitted(entry.payload),
+      (event) => entry.sourceId === admissionSourceId(event.notification.id)
+    )
   }
-  if (entry.eventType === PromotedEventType) {
+  if (entry.eventType === PromotedEventType && entry.sourceId.startsWith(drainSourcePrefix)) {
     return decodePromoted(entry.payload)
   }
   return Option.none()

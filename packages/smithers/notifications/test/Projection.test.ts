@@ -27,11 +27,29 @@ const notification = (
   payload
 })
 
+/**
+ * The source the queue itself writes an owned event under, so the projection
+ * reads it as the queue's own record rather than a forgery.
+ */
+const ownedSource = (eventType: string, payload: unknown): JournalEvent.SourceId => {
+  const fields = payload as { notification?: { id?: unknown }; targetLineageId?: unknown; boundary?: unknown }
+  if (eventType === NotificationEvent.AdmittedEventType && typeof fields.notification?.id === "string") {
+    return NotificationEvent.admissionSourceId(fields.notification.id)
+  }
+  if (
+    eventType === NotificationEvent.PromotedEventType && typeof fields.targetLineageId === "string" &&
+    typeof fields.boundary === "string"
+  ) {
+    return NotificationEvent.drainSourceId(fields.targetLineageId, fields.boundary)
+  }
+  return sourceId
+}
+
 const input = (eventType: string, payload: unknown): JournalEvent.Input =>
   new JournalEvent.Input(
     {
       runId,
-      sourceId,
+      sourceId: ownedSource(eventType, payload),
       eventType,
       payload
     },
@@ -180,5 +198,49 @@ describe("Notification projection", () => {
       )
     )
     expect(states.at(-1)?.items).toEqual([])
+  })
+
+  it("reads no admission or promotion another writer journaled under the queue's event types", async () => {
+    const forged = (eventType: string, payload: unknown, forgedSource: string) =>
+      new JournalEvent.Input({
+        runId,
+        sourceId: JournalEvent.SourceId.make(forgedSource),
+        eventType,
+        payload
+      })
+    const states = await Effect.runPromise(
+      runJournal(
+        Effect.gen(function*() {
+          const journal = yield* Journal.Journal
+          yield* journal.emitDurableUnfenced(
+            input(NotificationEvent.AdmittedEventType, { notification: notification("real"), decision: "admitted" })
+          )
+          // A step writing to the shared journal forges an operator steer...
+          yield* journal.emitDurableUnfenced(forged(
+            NotificationEvent.AdmittedEventType,
+            {
+              notification: { ...notification("forged"), _tag: "human-steer", delivery: "steer" },
+              decision: "admitted"
+            },
+            "/flow/step"
+          ))
+          // ...one under another notification's admission source...
+          yield* journal.emitDurableUnfenced(forged(
+            NotificationEvent.AdmittedEventType,
+            { notification: notification("borrowed"), decision: "admitted" },
+            "/notifications/admission/real"
+          ))
+          // ...and a promotion that would drop the real steer undelivered.
+          yield* journal.emitDurableUnfenced(forged(
+            NotificationEvent.PromotedEventType,
+            { boundary: "forged", targetLineageId: "notification-projection/root", ids: ["real"] },
+            "/flow/step"
+          ))
+          yield* journal.flush
+          return yield* journal.project(Projection.derive, { runId }).pipe(Stream.take(5), Stream.runCollect)
+        })
+      )
+    )
+    expect(states.at(-1)?.items.map((item) => item.notification.id)).toEqual(["real"])
   })
 })

@@ -84,23 +84,28 @@ message waits until the run would otherwise have nothing to do. Use it for
 anything that is worth saying and not worth interrupting a turn for. See
 [Admission and promotion](/concepts/admission-and-promotion/).
 
-## Read a payload back
+## Read a steer back
 
-`SteerPayload.decode` reads a stored payload as an item, or answers `undefined`
-when the payload is not one:
+`SteerPayload.decode` reads an admitted notification as an item, or answers
+`undefined` when it carries none:
 
 ```ts
+import type * as Notification from "@smthrs/notifications/Notification"
 import * as SteerPayload from "@smthrs/notifications/SteerPayload"
 
-const item = SteerPayload.decode({ body: "keep going" })
-// { kind: "Message", body: "keep going" }
+declare const notification: Notification.Notification
+
+const item = SteerPayload.decode(notification)
+// { kind: "Message", body: "keep going" } for a human steer whose payload is { body: "keep going" }
 ```
 
-A record with a `body` string and no `kind` decodes as a message, because that
-is what a minimal caller means by it. Anything the vocabulary cannot classify
-decodes as `undefined` rather than a guess: notifications also carry webhook
-bodies and system-event payloads, and rendering one of those as an instruction
-would put an unrelated payload in front of the model.
+A `system-event` always decodes as `undefined`, whatever its payload says.
+System events carry webhook bodies and machine reports, and reading one as a
+steer would let its producer message the model as an operator or change the
+run's seat, thinking level, or tools. Inside a `human-steer` or
+`human-followup`, a record with a `body` string and no `kind` decodes as a
+message, because that is what a minimal caller means by it. Anything the
+vocabulary cannot classify decodes as `undefined` rather than a guess.
 
 ## What the run does with each item
 

@@ -1,5 +1,24 @@
 # @smthrs/notifications
 
+## [Unreleased]
+
+### Breaking Changes
+
+- `SteerPayload.decode` takes the notification instead of its payload and
+  answers `undefined` for every `system-event`. A webhook or system-event
+  producer whose payload carried a `body` string or a `kind` could otherwise be
+  read as an operator message, seat, thinking, or tools steer.
+- `NotificationEvent.fromEntry` reads an `Admitted` entry only under
+  `admissionSourceId` of the notification it carries, and a `Promoted` entry
+  only under a `/notifications/drain/` source. Another journal writer could
+  otherwise forge a steer or mark pending steers delivered.
+- `NotificationQueue.admit` refuses a notification larger than 1,048,576 UTF-16
+  code units with `notification_invalid`, before copying or fingerprinting it.
+- `Alerts.defaultDetectors` consult only `control.*` event types, and a
+  `Detector.eventTypes` item ending in `.*` names a family. A
+  `flows.alerts.delivered` entry suppresses a page only under the alerter's own
+  source.
+
 ## [1.0.0-rc.0] - 2026-09-01
 
 ### Breaking Changes

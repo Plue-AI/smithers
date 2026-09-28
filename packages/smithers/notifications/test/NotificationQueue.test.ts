@@ -109,7 +109,7 @@ it("recovers promotion identities across multiple filtered pages", async () => {
           journal.emitDurableUnfenced(
             new JournalEvent.Input({
               runId,
-              sourceId: JournalEvent.SourceId.make("history"),
+              sourceId: JournalEvent.SourceId.make(`/notifications/drain/history-${index}`),
               sourceSeq: JournalEvent.SourceSeq.make(index),
               eventType: "flows/notifications/Promoted",
               payload: { targetLineageId: runId, boundary: `past-${index}`, ids: [] }
@@ -164,7 +164,7 @@ it.each(
       yield* log.emitDurableUnfenced(
         new JournalEvent.Input({
           runId,
-          sourceId: JournalEvent.SourceId.make("legacy"),
+          sourceId: JournalEvent.SourceId.make("/notifications/admission/legacy"),
           eventType: "flows/notifications/Admitted",
           payload: { notification, decision: "admitted" }
         })
@@ -510,7 +510,7 @@ describe("NotificationQueue", () => {
       yield* journal.emitDurableUnfenced(
         new JournalEvent.Input({
           runId: JournalEvent.RunId.make("run"),
-          sourceId: JournalEvent.SourceId.make("legacy-writer"),
+          sourceId: JournalEvent.SourceId.make("/notifications/admission/legacy"),
           sourceSeq: JournalEvent.SourceSeq.make(0),
           eventType: "flows/notifications/Admitted",
           payload: { notification, decision: "admitted" }
@@ -631,7 +631,7 @@ describe("NotificationQueue", () => {
         yield* journal.emitDurableUnfenced(
           new JournalEvent.Input({
             runId: JournalEvent.RunId.make("run"),
-            sourceId: JournalEvent.SourceId.make("foreign-promotion"),
+            sourceId: JournalEvent.SourceId.make("/notifications/drain/run%2Froot/missing"),
             sourceSeq: JournalEvent.SourceSeq.make(0),
             eventType: "flows/notifications/Promoted",
             payload: {
@@ -958,6 +958,33 @@ describe("NotificationQueue", () => {
       expect(rows.entries).toHaveLength(1)
       expect(rows.entries[0]?.payload).toMatchObject({ notification: { id: "legal" } })
       expect((yield* queue.pending("run")).map(({ id }) => id)).toEqual(["legal"])
+    }))
+  })
+
+  it("refuses an oversized payload before fingerprinting or journaling it", async () => {
+    await run(Effect.gen(function*() {
+      const queue = yield* NotificationQueue.NotificationQueue
+      const journal = yield* Journal.Journal
+      // One wide value of each kind: a string, an array, and an object whose
+      // size is in its keys. Each passes the depth bound.
+      const keys: Record<string, number> = {}
+      for (let index = 0; index < 70_000; index++) keys[`key-${String(index).padStart(12, "0")}`] = index
+      for (
+        const [id, payload] of [
+          ["long-string", "x".repeat(1_048_577)],
+          ["wide-array", Array.from({ length: 1_048_577 }, () => 0)],
+          ["wide-keys", keys]
+        ] as const
+      ) {
+        const error = refusal(
+          yield* queue.admit("run", untyped({ ...item(id, "steer"), payload })).pipe(Effect.flip)
+        )
+        expect(error).toMatchObject({ code: "notification_invalid", notificationId: id })
+        expect(error.message).toContain("1048576 code unit bound")
+      }
+      expect((yield* journal.entries({ runId: JournalEvent.RunId.make("run"), limit: 512 })).entries).toEqual([])
+      const receipt = yield* queue.admit("run", untyped({ ...item("large", "steer"), payload: "x".repeat(1_000_000) }))
+      expect(receipt.decision).toBe("admitted")
     }))
   })
 

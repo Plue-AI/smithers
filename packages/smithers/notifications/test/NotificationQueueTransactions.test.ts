@@ -200,7 +200,7 @@ describe("NotificationQueue replay integrity", () => {
           yield* journal.emitDurableUnfenced(
             new JournalEvent.Input({
               runId: JournalEvent.RunId.make("run"),
-              sourceId: JournalEvent.SourceId.make("legacy"),
+              sourceId: NotificationEvent.admissionSourceId(item.id),
               sourceSeq: JournalEvent.SourceSeq.make(0),
               eventType: NotificationEvent.AdmittedEventType,
               payload: { notification: item, decision: "admitted" }

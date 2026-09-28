@@ -33,12 +33,16 @@ else, and the condition is gone.
 
 An entry that does not carry the field at all is ignored entirely, which is what
 stops a health report from closing an approval wait. `eventTypes` narrows
-further, for a field two different producers write under different meanings.
+further, for a field two different producers write under different meanings. An
+item ending in `.*`, such as `control.*`, names every event type with that
+prefix.
 
 `Alerts.defaultDetectors` ships four conditions, each of them one field and one
 value: `waiting-approval` and `failed` read `status`, `stalled` reads `health`,
 and `quota-parked` reads `waitingReason` for `quota`. Those are the fields
-[`@smthrs/control`](https://control.smithers.sh/reference/api/) writes. A policy's own `detectors` are merged
+[`@smthrs/control`](https://control.smithers.sh/reference/api/) writes, and each default consults only the
+`control.*` event types: a flow step or agent trace that writes a `status` field
+into the same run's journal neither opens nor closes a default condition. A policy's own `detectors` are merged
 over them, so a deployment that journals a different vocabulary names its own
 rather than forking the module.
 
@@ -120,6 +124,10 @@ reports the answering HTTP `status`, which a detector watching the run's
 from condition detection outright. Without that exclusion, a page would close the
 condition it paged about, the next tick would re-open it, and a webhook that
 answered 503 once would alert forever.
+
+A delivery record suppresses a repeat page only under the source the alerter
+writes it with, `/notifications/alerts/<alertId>/delivered`. Another writer to
+the run's journal can name the same `alertId`, and its record is ignored.
 
 ## Next
 

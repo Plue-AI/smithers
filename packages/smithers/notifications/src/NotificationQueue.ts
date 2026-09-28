@@ -202,24 +202,46 @@ export const layerNoop = (overrides: Partial<Service> = {}): Layer.Layer<Notific
  */
 const maximumPayloadDepth = 256
 
+/**
+ * The largest a notification may be, in UTF-16 code units: every string and
+ * object key counted at its length, and every other value as one.
+ *
+ * The bound exists because an admission copies, decodes, canonicalizes,
+ * fingerprints, and journals the whole value, so a producer admitting a huge
+ * array or string spends the notifying process's CPU and memory and bloats
+ * every replay of the run. It is checked before any of that work starts.
+ */
+const maximumNotificationCodeUnits = 1_048_576
+
 /** Bounds an issue message so a refusal cannot journal or log an essay. */
 const maximumIssueCodeUnits = 200
 
 /**
- * Whether a value nests deeper than the bound, walked iteratively so the walk
- * itself cannot exhaust the stack. A cycle is caught by the same bound: it has
- * no finite depth, so it trips the limit rather than looping forever.
+ * The bound a value breaks, if any, walked iteratively so the walk itself
+ * cannot exhaust the stack. A cycle is caught by the depth bound: it has no
+ * finite depth, so it trips the limit rather than looping forever. The size
+ * count stops the walk as soon as it passes the bound, so an oversized value
+ * costs the walk no more than the bound does.
  */
-const tooDeep = (value: unknown): boolean => {
+const exceededBound = (value: unknown): "depth" | "size" | undefined => {
   const pending: Array<{ readonly value: unknown; readonly depth: number }> = [{ value, depth: 0 }]
+  let size = 0
   while (pending.length > 0) {
     const next = pending.pop()!
+    size += typeof next.value === "string" ? next.value.length : 1
+    if (size > maximumNotificationCodeUnits) return "size"
     if (typeof next.value !== "object" || next.value === null) continue
-    if (next.depth >= maximumPayloadDepth) return true
-    const nested = Array.isArray(next.value) ? next.value : Object.values(next.value)
-    for (const child of nested) pending.push({ value: child, depth: next.depth + 1 })
+    if (next.depth >= maximumPayloadDepth) return "depth"
+    if (Array.isArray(next.value)) {
+      for (const child of next.value) pending.push({ value: child, depth: next.depth + 1 })
+      continue
+    }
+    for (const [key, child] of Object.entries(next.value)) {
+      size += key.length
+      pending.push({ value: child, depth: next.depth + 1 })
+    }
   }
-  return false
+  return undefined
 }
 
 /**
@@ -255,19 +277,22 @@ const decodeNotification = Schema.decodeUnknownEffect(NotificationModel.Notifica
  *
  * Nothing downstream re-checks the shape: a structurally invalid notification
  * that reached the journal would be acknowledged at a real sequence and then
- * skipped by every replay, which is acknowledged data loss. The depth bound
- * runs first so a hostile payload cannot exhaust the stack before the schema
- * sees it.
+ * skipped by every replay, which is acknowledged data loss. The depth and size
+ * bounds run first so a hostile payload can neither exhaust the stack nor make
+ * the copy, the decode, and the fingerprint walk it in full.
  */
 const validated = (
   notification: NotificationModel.Notification
 ): Effect.Effect<NotificationModel.Notification, NotificationError> =>
   Effect.gen(function*() {
     const notificationId = identifiedBy(notification)
-    if (tooDeep(notification)) {
+    const exceeded = exceededBound(notification)
+    if (exceeded !== undefined) {
       return yield* new NotificationError({
         code: "notification_invalid",
-        message: `A notification nests deeper than the ${maximumPayloadDepth} level bound`,
+        message: exceeded === "depth"
+          ? `A notification nests deeper than the ${maximumPayloadDepth} level bound`
+          : `A notification is larger than the ${maximumNotificationCodeUnits} code unit bound`,
         ...(notificationId === undefined ? {} : { notificationId })
       })
     }
@@ -342,19 +367,6 @@ interface Loaded {
  * journal tails for all but a fixed handful of them.
  */
 const maximumCachedRuns = 64
-
-const admissionSource = (id: string): JournalEvent.SourceId =>
-  JournalEvent.SourceId.make(`/notifications/admission/${id}`)
-
-/**
- * The identity of one drain: the lineage and the boundary, each encoded so a
- * value containing a slash cannot forge another pair's identity.
- */
-const drainKey = (targetLineageId: string, boundary: string): string =>
-  `${encodeURIComponent(targetLineageId)}/${encodeURIComponent(boundary)}`
-
-const drainSource = (targetLineageId: string, boundary: string): JournalEvent.SourceId =>
-  JournalEvent.SourceId.make(`/notifications/drain/${drainKey(targetLineageId, boundary)}`)
 
 /**
  * Journal-backed production layer, with the pending capacity a composition
@@ -493,7 +505,11 @@ export const layerWith = (
               })
               state = NotificationState.applyAdmission(state, event.notification, entry.seq, event.decision)
             } else {
-              promotions = HashMap.set(promotions, drainKey(event.targetLineageId, event.boundary), entry.seq)
+              promotions = HashMap.set(
+                promotions,
+                NotificationEvent.drainKey(event.targetLineageId, event.boundary),
+                entry.seq
+              )
               state = NotificationState.applyPromoted(state, event.ids)
             }
           }
@@ -580,7 +596,7 @@ export const layerWith = (
           const receipt = yield* journal.emitDurableUnfenced(
             new JournalEvent.Input({
               runId,
-              sourceId: admissionSource(admitted.id),
+              sourceId: NotificationEvent.admissionSourceId(admitted.id),
               sourceSeq: JournalEvent.SourceSeq.make(0),
               // The sequence is derived from the notification's own id, so
               // a collision IS this admission observed twice. Comparing
@@ -627,7 +643,7 @@ export const layerWith = (
           journal.transact(
             operations.withPermits(1)(Effect.gen(function*() {
               const runId = JournalEvent.RunId.make(input.runId)
-              const key = drainKey(input.targetLineageId, input.boundary)
+              const key = NotificationEvent.drainKey(input.targetLineageId, input.boundary)
               const loaded = yield* load(runId)
               // A replay reports what the committed record delivered, read
               // back from the journal: the fold holds the identities, not the
@@ -685,7 +701,7 @@ export const layerWith = (
               const receipt = yield* journal.emitDurableUnfenced(
                 new JournalEvent.Input({
                   runId,
-                  sourceId: drainSource(input.targetLineageId, input.boundary),
+                  sourceId: NotificationEvent.drainSourceId(input.targetLineageId, input.boundary),
                   sourceSeq: JournalEvent.SourceSeq.make(0),
                   // The identity is the drain: this lineage closing this
                   // boundary. Two processes that both reach it have observed one

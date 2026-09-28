@@ -80,6 +80,23 @@ describe("Alerts.conditions", () => {
     expect(open).toEqual([{ runId, condition: "waiting-approval", since: 5_000 }])
   })
 
+  it("reads the default conditions only off control-plane entries", () => {
+    const open = Alerts.conditions({ rules: { failed: { afterMs: 0 }, stalled: { afterMs: 0 } } }, runId, [
+      entry(1, 1_000, "control.run.failed", { status: "failed" }),
+      entry(2, 2_000, "control.monitor.beat", { health: "stalled" }),
+      // A flow step or an agent trace shares the run's journal. A `status` or
+      // `health` field it writes is not the control plane reporting the run.
+      entry(3, 3_000, "flows.step.settled", { status: "succeeded" }),
+      entry(4, 4_000, "agent.trace", { health: "healthy" }),
+      entry(5, 5_000, "controlled.by.step", { status: "running" })
+    ])
+
+    expect(open).toEqual([
+      { runId, condition: "failed", since: 1_000 },
+      { runId, condition: "stalled", since: 2_000 }
+    ])
+  })
+
   it("ignores an entry that carries neither field", () => {
     const open = Alerts.conditions(policy, runId, [
       entry(1, 5_000, "control.run.parked", { status: "waiting-approval" }),
@@ -323,6 +340,39 @@ const countEntries = (eventType: string) =>
   )
 
 describe("Alerts.layer over a real journal", () => {
+  it("pages even when another writer journals a delivery record for the alert", async () => {
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const journal = yield* Journal.Journal
+        const alerts = yield* Alerts.AlertRuntime
+        yield* parkForApproval
+        yield* TestClock.adjust("2 minutes")
+        // The alert id is derivable from the run and the park time, so a step
+        // writing to the run's journal can name it. Only the alerter's own
+        // record may suppress the page.
+        const since = (yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 1 })).entries[0]!
+          .emittedAtMs
+        const id = Alerts.alertId({ coalescingKey: Alerts.coalescingKey(runId, "waiting-approval"), since })
+        yield* journal.emitDurableUnfenced(
+          new JournalEvent.Input({
+            runId: JournalEvent.RunId.make(runId),
+            sourceId: JournalEvent.SourceId.make("/flow/step"),
+            eventType: Alerts.deliveredEventType,
+            payload: { runId, alertId: id }
+          })
+        )
+        const first = yield* alerts.tick(runId)
+        const second = yield* alerts.tick(runId)
+        return { first, second }
+      }).pipe(Effect.provide(stack(Alerts.layerNoop)), Effect.scoped, Effect.orDie)
+    )
+
+    expect(observed.first.delivered.map((alert) => alert.condition)).toEqual(["waiting-approval"])
+    expect(observed.first.suppressed).toEqual([])
+    // The alerter's own record does suppress the repeat.
+    expect(observed.second.suppressed.map((alert) => alert.condition)).toEqual(["waiting-approval"])
+  })
+
   it("stays quiet until the delay elapses and then admits one coalesced event", async () => {
     const sink = controllableSink()
     const observed = await Effect.runPromise(
@@ -1190,8 +1240,8 @@ describe("Alerts over a policy that states only delays", () => {
       // record is not evidence about any condition.
       entry(1, 1_000, "control.monitor.beat", ["not", "a", "record"] as unknown as Record<string, unknown>),
       // `beat-only` names monitor beats, so a park saying the same thing is
-      // not its evidence; the default `stalled` detector names no event types
-      // and takes it.
+      // not its evidence; the default `stalled` detector names the whole
+      // `control.*` family and takes it.
       entry(2, 2_000, "control.run.parked", { health: "stalled" }),
       entry(3, 3_000, "control.monitor.beat", { health: "stalled" })
     ])

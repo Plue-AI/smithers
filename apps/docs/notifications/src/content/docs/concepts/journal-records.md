@@ -80,6 +80,14 @@ an entry this package does not own, and for an owned entry whose payload does
 not decode, so a projection over a busy journal stays total instead of failing
 on somebody else's record.
 
+An event type alone does not make an entry owned, because any writer to a shared
+journal can choose one. An `Admitted` entry counts only under
+`NotificationEvent.admissionSourceId` of the notification it carries, and a
+`Promoted` entry only under a `/notifications/drain/` source. Another writer
+therefore cannot forge a steer the model would read as an operator's, or mark
+pending steers delivered. The drain check is a prefix because drain records
+written before the lineage joined the identity carry the boundary alone.
+
 `NotificationEvent.isAdmitted` and `NotificationEvent.isPromoted` tell the two
 owned events apart. They are refinements over the decoded shape rather than a
 stored discriminant, because a discriminant would be a durable field this

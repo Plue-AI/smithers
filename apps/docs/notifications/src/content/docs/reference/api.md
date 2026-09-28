@@ -91,6 +91,11 @@ Admission refuses objects or arrays at depth 256 with `notification_invalid`
 and writes no row. The notification envelope is depth 0; its payload is
 at depth 1. Cyclic payloads receive the same typed refusal.
 
+Admission also refuses a notification larger than 1,048,576 UTF-16 code units
+with `notification_invalid` and writes no row. Every string and object key
+counts at its length and every other value counts as one. The bound is checked
+before the notification is copied, decoded, or fingerprinted.
+
 ### AdmissionReceipt
 
 ```ts
@@ -264,25 +269,28 @@ The pure bounded queue: the same rules with no I/O and no journal. Import from
 The journal event types this package owns. Import from
 `@smthrs/notifications/NotificationEvent`.
 
-| Export              | Value or shape                                                                                                       |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `AdmittedEventType` | `"flows/notifications/Admitted"`. Frozen: the value is already durable in every journal this package has written to. |
-| `PromotedEventType` | `"flows/notifications/Promoted"`. Frozen for the same reason.                                                        |
-| `AdmissionDecision` | `"admitted" \| "coalesced" \| "rejected-full"`. The one declaration of the admission vocabulary.                     |
-| `Admitted`          | `{ notification: Notification; decision: AdmissionDecision; fingerprint?: string }`.                                 |
-| `Promoted`          | `{ boundary: string; targetLineageId: string; ids: ReadonlyArray<string> }`.                                         |
-| `Event`             | `Admitted \| Promoted`.                                                                                              |
+| Export              | Value or shape                                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `AdmittedEventType` | `"flows/notifications/Admitted"`. Frozen: the value is already durable in every journal this package has written to.    |
+| `PromotedEventType` | `"flows/notifications/Promoted"`. Frozen for the same reason.                                                           |
+| `AdmissionDecision` | `"admitted" \| "coalesced" \| "rejected-full"`. The one declaration of the admission vocabulary.                        |
+| `Admitted`          | `{ notification: Notification; decision: AdmissionDecision; fingerprint?: string }`.                                    |
+| `Promoted`          | `{ boundary: string; targetLineageId: string; ids: ReadonlyArray<string> }`.                                            |
+| `Event`             | `Admitted \| Promoted`.                                                                                                 |
+| `admissionSourceId` | `(notificationId: string) => JournalEvent.SourceId`. The source every admission of one notification is written under.   |
+| `drainKey`          | `(targetLineageId: string, boundary: string) => string`. One drain's identity, each component percent-encoded.          |
+| `drainSourceId`     | `(targetLineageId: string, boundary: string) => JournalEvent.SourceId`. The source one drain's record is written under. |
 
 A `rejected-full` decision is never written. The queue refuses a full queue in
 the receipt alone, so the notification id stays admissible once a boundary
 drains. The literal remains in `AdmissionDecision` because a reader must stay
 total over a record any writer could have produced.
 
-| Export       | Signature                                             | Returns                                                                                                                                                      |
-| ------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `isAdmitted` | `(event: Event) => event is Admitted`                 | Whether the owned event is an admission record.                                                                                                              |
-| `isPromoted` | `(event: Event) => event is Promoted`                 | Whether the owned event is a promotion record.                                                                                                               |
-| `fromEntry`  | `(entry: JournalEvent.Entry) => Option.Option<Event>` | The owned event a journal entry carries. Foreign entries and structurally invalid payloads answer `None`, so a projection over a shared journal stays total. |
+| Export       | Signature                                             | Returns                                                                                                                                                                                                                                                                                                                                             |
+| ------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isAdmitted` | `(event: Event) => event is Admitted`                 | Whether the owned event is an admission record.                                                                                                                                                                                                                                                                                                     |
+| `isPromoted` | `(event: Event) => event is Promoted`                 | Whether the owned event is a promotion record.                                                                                                                                                                                                                                                                                                      |
+| `fromEntry`  | `(entry: JournalEvent.Entry) => Option.Option<Event>` | The owned event a journal entry carries. Foreign entries and structurally invalid payloads answer `None`, so a projection over a shared journal stays total. An admission counts only under `admissionSourceId` of the notification it carries, and a promotion only under a `/notifications/drain/` source, so another writer cannot forge either. |
 
 ## Projection
 
@@ -318,10 +326,10 @@ other, so the shape they have to agree on belongs beneath both.
 | `ToolsPayload`    | `{ kind: "Tools"; toolNames: ReadonlyArray<string> }`. Non-empty, of non-empty strings. Additive only: steering can widen the active tool set and cannot narrow it.                                                       |
 | `SteerPayload`    | The union of the four.                                                                                                                                                                                                    |
 
-| Export   | Signature                                         | Returns                                                                                                                                                                                       |
-| -------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `decode` | `(payload: unknown) => SteerPayload \| undefined` | The steering item a stored payload carries, or `undefined` when it is not one. A record with a `body` string and no `kind` reads as a message.                                                |
-| `encode` | `(item: SteerPayload) => SteerPayload`            | The record the item is stored as. Every item is written with its `kind`, including a message. The result is assignable to `Notification.payload` and shares no mutable structure with `item`. |
+| Export   | Signature                                                   | Returns                                                                                                                                                                                                        |
+| -------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `decode` | `(notification: Notification) => SteerPayload \| undefined` | The steering item a notification carries, or `undefined` when it carries none. A `system-event` is never a steer. Inside a human notification, a record with a `body` string and no `kind` reads as a message. |
+| `encode` | `(item: SteerPayload) => SteerPayload`                      | The record the item is stored as. Every item is written with its `kind`, including a message. The result is assignable to `Notification.payload` and shares no mutable structure with `item`.                  |
 
 ## Alerts
 
@@ -330,13 +338,13 @@ delivered-once notifications. Import from `@smthrs/notifications/Alerts`.
 
 ### Policy
 
-| Export             | Shape                                                                                                                                                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Severity`         | `"info" \| "warning" \| "critical"`.                                                                                                                                                                         |
-| `Detector`         | `{ field: string; value: string; eventTypes?: ReadonlyArray<string> }`. `field` names a payload key, `value` the value that means the condition holds, and `eventTypes` narrows which entries are consulted. |
-| `Rule`             | `{ afterMs: number; severity?: Severity; owner?: string; runbook?: string }`. `afterMs` is a whole, non-negative number of milliseconds.                                                                     |
-| `Policy`           | `{ defaults?: { severity?; owner?; runbook? }; rules: Record<string, Rule>; detectors?: Record<string, Detector> }`.                                                                                         |
-| `defaultDetectors` | `Readonly<Record<string, Detector>>`: `waiting-approval` and `failed` on `status`, `stalled` on `health`, `quota-parked` on `waitingReason`.                                                                 |
+| Export             | Shape                                                                                                                                                                                                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Severity`         | `"info" \| "warning" \| "critical"`.                                                                                                                                                                                                                                                               |
+| `Detector`         | `{ field: string; value: string; eventTypes?: ReadonlyArray<string> }`. `field` names a payload key, `value` the value that means the condition holds, and `eventTypes` narrows which entries are consulted; an item ending in `.*`, such as `control.*`, names every event type with that prefix. |
+| `Rule`             | `{ afterMs: number; severity?: Severity; owner?: string; runbook?: string }`. `afterMs` is a whole, non-negative number of milliseconds.                                                                                                                                                           |
+| `Policy`           | `{ defaults?: { severity?; owner?; runbook? }; rules: Record<string, Rule>; detectors?: Record<string, Detector> }`.                                                                                                                                                                               |
+| `defaultDetectors` | `Readonly<Record<string, Detector>>`: `waiting-approval` and `failed` on `status`, `stalled` on `health`, `quota-parked` on `waitingReason`, each consulting only the `control.*` event types.                                                                                                     |
 
 An entry that carries a detector's field with the matching value opens the
 condition; an entry that carries it with any other value closes it. A policy's
@@ -414,6 +422,10 @@ deduplicate on `alertId`.
 Both owned event types are excluded from condition detection: they are written
 into the journal the detectors read, and they carry the alert's own vocabulary,
 so reading them as evidence would let a page close the condition it paged about.
+
+A `flows.alerts.delivered` entry suppresses a page only when the alerter wrote
+it, under the source `/notifications/alerts/<alertId>/delivered`. The same entry
+from any other writer to the run's journal is ignored.
 
 See [`@smthrs/control`](https://control.smithers.sh/reference/api/) for the run conditions the entries come
 from.

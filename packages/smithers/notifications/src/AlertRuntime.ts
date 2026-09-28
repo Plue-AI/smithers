@@ -24,7 +24,8 @@ import {
   failedEventType,
   observe,
   payloadRecord,
-  Policy
+  Policy,
+  recordSourceId
 } from "./AlertPolicy.ts"
 import { Sink } from "./AlertSink.ts"
 import * as FoldCache from "./internal/foldCache.ts"
@@ -186,7 +187,11 @@ export const layer = (
             if (payload === undefined) continue
             if (entry.eventType === deliveredEventType) {
               const id = payload["alertId"]
-              if (typeof id === "string") delivered = HashSet.add(delivered, id)
+              // Only the alerter's own record, under the source it writes,
+              // proves a page went out. Any other writer could suppress one.
+              if (typeof id === "string" && entry.sourceId === recordSourceId(id, "delivered")) {
+                delivered = HashSet.add(delivered, id)
+              }
             }
             observe(checked, detectors, entry, payload, open)
           }
@@ -209,7 +214,7 @@ export const layer = (
         journal.emitDurableUnfenced(
           new JournalEvent.Input({
             runId: JournalEvent.RunId.make(alert.runId),
-            sourceId: JournalEvent.SourceId.make(`/notifications/alerts/${alertId(alert)}/${source}`),
+            sourceId: JournalEvent.SourceId.make(recordSourceId(alertId(alert), source)),
             sourceSeq: JournalEvent.SourceSeq.make(0),
             // One record per alert per outcome. Without an explicit identity
             // the journal allocates a new sequence on every attempt, and a
