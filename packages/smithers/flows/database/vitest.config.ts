@@ -33,8 +33,6 @@ export default defineConfig({
       // profile with every test passing (issues #115/#121).
       reportsDirectory: join(tmpdir(), `flows-database-coverage-${process.pid}`),
       include: ["src/**"],
-      // Needs real bun:sqlite; agent/memory NativeBunAffectedRows.test.ts runs it under Bun.
-      exclude: ["src/internal/BunSqliteClient.ts"],
       thresholds: {
         branches: 100,
         functions: 100,

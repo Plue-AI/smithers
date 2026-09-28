@@ -8,7 +8,8 @@
  * (issue #2419). Like `@effect/sql-sqlite-node`, a statement without result
  * columns runs through `.run()` here and `.raw` returns
  * `{ changes, lastInsertRowid }`. Delete this module once the upstream driver
- * does the same. Only real Bun exercises it (`NativeBunAffectedRows.test.ts`).
+ * does the same. `BunSqliteClient.test.ts` measures it over a `bun:sqlite` shim;
+ * agent/memory `NativeBunAffectedRows.test.ts` runs it under real Bun.
  *
  * @since 1.0.0
  */
@@ -69,12 +70,12 @@ const make = (
       })
 
     const rows = (sql: string, params: ReadonlyArray<unknown> = []) =>
-      execute("execute", sql, params, (statement, values) => (statement.all(...values) ?? []) as Array<any>)
+      execute("execute", sql, params, (statement, values) => statement.all(...values) as Array<any>)
     const values = (sql: string, params: ReadonlyArray<unknown> = []) =>
       execute("executeValues", sql, params, (statement, values) => (statement.values(...values) ?? []) as Array<any>)
     const raw = (sql: string, params: ReadonlyArray<unknown> = []) =>
       execute("execute", sql, params, (statement, values): unknown => {
-        if (statement.columnNames.length > 0) return statement.all(...values) ?? []
+        if (statement.columnNames.length > 0) return statement.all(...values)
         const result = statement.run(...values)
         return { changes: result.changes, lastInsertRowid: result.lastInsertRowid }
       })
