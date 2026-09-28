@@ -234,10 +234,7 @@ fn receipt(repo: &Path, request_id: &str, digest: &str) -> Result<Option<Value>>
     for line in output.lines() {
         let operation: Value = serde_json::from_str(line)
             .map_err(|_| Failure::new("unsupported_jj", "JJ operation log is invalid"))?;
-        let args = operation
-            .pointer("/tags/args")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let args = operation_args(&operation);
         // Only the helper's config argument is a receipt. The later -m argument
         // can contain arbitrary user text, including another request UUID.
         let recorded = args
@@ -245,7 +242,8 @@ fn receipt(repo: &Path, request_id: &str, digest: &str) -> Result<Option<Value>>
             .and_then(|(_, rest)| rest.split_once("\"'"))
             .and_then(|(value, _)| value.split_once(':'))
             .filter(|(id, hash)| {
-                id.len() == 36 && hash.len() == 64
+                id.len() == 36
+                    && hash.len() == 64
                     && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
             });
         if recorded == Some((request_id, digest)) {
@@ -264,6 +262,14 @@ fn receipt(repo: &Path, request_id: &str, digest: &str) -> Result<Option<Value>>
         }
     }
     Ok(found)
+}
+
+fn operation_args(operation: &Value) -> &str {
+    operation
+        .pointer("/attributes/args")
+        .or_else(|| operation.pointer("/tags/args"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
 }
 
 fn mutate(repo: &Path, input: &Value) -> Result<Value> {
@@ -684,6 +690,19 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn operation_args_supports_old_and_new_jj_receipts() {
+        let args = "jj --no-pager '--color=never' --config 'smithers.coding-request=\"11111111-1111-4111-8111-111111111111:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"'";
+        for operation in [
+            json!({"tags":{"args":args}}),
+            json!({"attributes":{"args":args}}),
+        ] {
+            assert_eq!(operation_args(&operation), args);
+        }
+        assert_eq!(operation_args(&json!({"attributes":{"args":42}})), "");
+        assert_eq!(operation_args(&json!({})), "");
+    }
+
+    #[test]
     fn reads_the_actual_jj_head_and_history() {
         let dir = tempdir().unwrap();
         let output = Command::new("jj")
@@ -766,7 +785,10 @@ mod tests {
         assert!(output.status.success());
         let first = run(serde_json::to_string(&json!({
             "operation":"read", "repositoryPath":dir.path()
-        })).unwrap().as_bytes()).unwrap();
+        }))
+        .unwrap()
+        .as_bytes())
+        .unwrap();
         let original = json!({"operation":"create", "repositoryPath":dir.path(),
             "requestId":"11111111-1111-4111-8111-111111111111",
             "expectedOperationId":first["operationId"], "target":first["head"],
@@ -778,8 +800,12 @@ mod tests {
         assert_eq!(replay["operationId"], created["operationId"]);
         let mut changed = original.clone();
         changed["description"] = json!("different payload");
-        assert_eq!(run(serde_json::to_string(&changed).unwrap().as_bytes())
-            .unwrap_err().code, "request_conflict");
+        assert_eq!(
+            run(serde_json::to_string(&changed).unwrap().as_bytes())
+                .unwrap_err()
+                .code,
+            "request_conflict"
+        );
 
         let next = json!({"operation":"create", "repositoryPath":dir.path(),
             "requestId":"22222222-2222-4222-8222-222222222222",
@@ -792,8 +818,12 @@ mod tests {
         assert_eq!(replay["replayed"], true);
         let mut changed = next.clone();
         changed["description"] = json!("changed again");
-        assert_eq!(run(serde_json::to_string(&changed).unwrap().as_bytes())
-            .unwrap_err().code, "request_conflict");
+        assert_eq!(
+            run(serde_json::to_string(&changed).unwrap().as_bytes())
+                .unwrap_err()
+                .code,
+            "request_conflict"
+        );
     }
 
     #[test]
