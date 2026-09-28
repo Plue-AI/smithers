@@ -81,9 +81,11 @@ export const outsideWorkspace = (
   const cached = staged.get(source)
   if (cached !== undefined) return usableExecutable(cached, boundaryRoot)
   for (const [index, base] of bases.entries()) {
-    const directory = mkdtempSync(join(base, ".smthrs-atomic-helper-"))
-    const destination = join(directory, helperName)
+    let created: string | undefined
     try {
+      const directory = mkdtempSync(join(base, ".smthrs-atomic-helper-"))
+      created = directory
+      const destination = join(directory, helperName)
       chmodSync(directory, 0o700)
       // readFile also supports assets embedded in a Bun executable; copyfile
       // delegates to the OS, which cannot open its virtual /$bunfs path.
@@ -94,7 +96,7 @@ export const outsideWorkspace = (
       process.once("exit", () => rmSync(directory, { recursive: true, force: true }))
       return executable
     } catch (cause) {
-      rmSync(directory, { recursive: true, force: true })
+      if (created !== undefined) rmSync(created, { recursive: true, force: true })
       if (index === bases.length - 1) throw cause
     }
   }

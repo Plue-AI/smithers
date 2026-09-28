@@ -94,6 +94,26 @@ describe("default atomic helper resolution", () => {
     expect(outsideWorkspace(source, root, [confined])).toBe(selected)
   })
 
+  it.each(["missing", "file"])("tries the next staging location when the first is a %s", async (kind) => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const unavailable = join(root, kind)
+    const available = join(root, "available")
+    await helper(source)
+    await mkdir(available)
+    if (kind === "file") await writeFile(unavailable, "not a directory")
+    const selected = outsideWorkspace(source, undefined, [unavailable, available])
+    expect(selected.startsWith(`${available}${sep}`)).toBe(true)
+    expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
+  })
+
+  it("reports the final creation failure when no staging directory is usable", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    await helper(source)
+    expect(() => outsideWorkspace(source, undefined, [join(root, "missing")])).toThrow(/ENOENT/)
+  })
+
   it("fails when every staging location is confined or none is available", async () => {
     const { root } = await fixture()
     const source = join(root, "helper")
