@@ -670,32 +670,51 @@ const runCi = async (
       config
     )
     const packagePlans: Array<{ readonly kind: (typeof ciKinds)[number]; readonly plan: PackageExec.PackagePlan }> = []
-    const refusals: Array<unknown> = []
+    const refusals: Array<Planner.UnsupportedVerbError> = []
+    const accepted = new Set<string>()
     for (const kind of ciKinds) {
-      try {
-        packagePlans.push({
-          kind,
-          plan: await PackageExec.plan({
-            index,
-            cacheDirectory,
-            ...(remoteCache === undefined ? {} : { remoteCache }),
-            verb: kind,
-            patterns,
-            plan: flags.plan,
-            includeExclusive: flags.includeExclusive,
-            jobs: flags.jobs,
-            readCache: flags.cache,
-            signal: config.signal,
-            reporter,
-            environment: config.environment,
-            // CI never spawns an agent: the docs-verb page writers stay out.
-            unattended: true
+      let remaining = [...patterns]
+      while (remaining.length > 0) {
+        try {
+          packagePlans.push({
+            kind,
+            plan: await PackageExec.plan({
+              index,
+              cacheDirectory,
+              ...(remoteCache === undefined ? {} : { remoteCache }),
+              verb: kind,
+              patterns: remaining,
+              plan: flags.plan,
+              includeExclusive: flags.includeExclusive,
+              jobs: flags.jobs,
+              readCache: flags.cache,
+              signal: config.signal,
+              reporter,
+              environment: config.environment,
+              // CI never spawns an agent: the docs-verb page writers stay out.
+              unattended: true
+            })
           })
-        })
-      } catch (cause) {
-        if (cause instanceof Planner.UnsupportedVerbError && cause.verb === kind) refusals.push(cause)
-        else throw cause
+          for (const pattern of remaining) accepted.add(pattern)
+          break
+        } catch (cause) {
+          if (
+            !(cause instanceof Planner.UnsupportedVerbError) || cause.verb !== kind ||
+            !remaining.includes(cause.pattern)
+          ) {
+            throw cause
+          }
+          // One incompatible exact selector must not discard this kind's
+          // compatible roots. Keep planning their union so overlaps run once.
+          refusals.push(cause)
+          remaining = remaining.filter((pattern) => pattern !== cause.pattern)
+        }
       }
+    }
+    const unsupported = patterns.find((pattern) => !accepted.has(pattern))
+    if (unsupported !== undefined) {
+      throw refusals.find((refusal) => refusal.pattern === unsupported) ??
+        new Error(`no targets selected by ${unsupported}`)
     }
     if (packagePlans.length === 0) throw refusals[0] ?? new Error(`no targets selected by ${pattern}`)
     const merged = Executor.mergePlans(packagePlans.map(({ kind, plan }) => ({

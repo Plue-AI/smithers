@@ -29,7 +29,7 @@ const temporary = async (prefix: string): Promise<string> => {
 }
 
 /** A committed PACKAGE.ts workspace: two tests and a suite that reaches one of them twice. */
-const packageFixture = async (): Promise<string> => {
+const packageFixture = async (goodShell = "true"): Promise<string> => {
   const root = await temporary("smthrs-cli-branches-pkg-")
   await write(
     root,
@@ -49,12 +49,13 @@ export const Workspace = S.Workspace("fixture", {
     root,
     "PACKAGE.ts",
     `import { Smithers as S } from "@smthrs/targets"
-const good = S.Shell.Test({ shell: "true" })
+const good = S.Shell.Test({ shell: ${JSON.stringify(goodShell)} })
 const bad = S.Shell.Test({ shell: "false" })
+const hello = S.Shell.Run({ shell: "true" })
 const pair = S.Suite({ tests: [good, bad] })
 const all = S.Suite({ tests: [pair, good] })
 const docs = S.DocsParity({ readme: S.file("README.md"), deps: [], minimumProseCharacters: 20 })
-export const Package = S.Package({ targets: { good, bad, pair, all, docs } })
+export const Package = S.Package({ targets: { good, bad, hello, pair, all, docs } })
 `
   )
   await write(root, "package.json", `${JSON.stringify({ name: "fixture", private: true }, undefined, 2)}\n`)
@@ -240,5 +241,85 @@ describe("PACKAGE.ts branches", () => {
     expect(planned.envelope).toContain("verb: ci")
     expect(planned.envelope).toContain("label: \"//:docs\"")
     expect(planned.envelope).not.toContain("rule:")
+  })
+
+  it("plans and runs disjoint exact CI targets through their supported verbs", async () => {
+    const root = await packageFixture()
+    const planned = await serve(root, ["ci", "//:good", "//:docs", "--plan", "--format", "json"], false)
+    expect(planned.exitCode, planned.envelope).toBe(0)
+    const plan = JSON.parse(planned.envelope) as {
+      readonly roots: ReadonlyArray<string>
+      readonly targets: ReadonlyArray<{ readonly label: string }>
+    }
+    expect([...plan.roots].sort()).toEqual(["//:docs", "//:good"])
+    expect(plan.targets.map((target) => target.label).sort()).toEqual(["//:docs", "//:good"])
+
+    const executed = await serve(root, ["ci", "//:good", "//:docs", "--format", "json"], false)
+    expect(executed.exitCode, executed.envelope).toBe(0)
+    const summary = JSON.parse(executed.envelope) as {
+      readonly ok: boolean
+      readonly results: ReadonlyArray<{ readonly label: string; readonly status: string }>
+    }
+    expect(summary.ok).toBe(true)
+    expect(summary.results.map((result) => result.label).sort()).toEqual(["//:docs", "//:good"])
+    expect(summary.results.every((result) => result.status === "ran")).toBe(true)
+  })
+
+  it("refuses a mixed CI command when an exact target supports no CI verb", async () => {
+    const root = await packageFixture("mkdir -p .flows/tmp; printf good > .flows/tmp/good-ran.log")
+    const marker = NodePath.join(root, ".flows", "tmp", "good-ran.log")
+    const patterns = ["ci", "//:good", "//:hello"]
+
+    const planned = await serve(root, [...patterns, "--plan", "--format", "json"], false)
+    const executed = await serve(root, [...patterns, "--format", "json"], false)
+    expect.soft(planned.exitCode, "plan must refuse").toBe(1)
+    expect.soft(planned.envelope.includes("//:hello"), "plan must name hello").toBe(true)
+    expect.soft(planned.envelope.includes("does not support"), "plan must explain refusal").toBe(true)
+    expect.soft(executed.exitCode, "execution must refuse").toBe(1)
+    expect.soft(executed.envelope.includes("//:hello"), "execution must name hello").toBe(true)
+    expect.soft(executed.envelope.includes("does not support"), "execution must explain refusal").toBe(true)
+    expect.soft(executed.envelope.includes('"counts":'), "execution must not report run counts").toBe(false)
+    await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+
+    const control = await serve(root, ["ci", "//:good", "--format", "json"], false)
+    expect(control.exitCode, control.envelope).toBe(0)
+    expect(await Fs.readFile(marker, "utf8")).toBe("good")
+  })
+
+  it("runs a repeated exact CI selector once", async () => {
+    const root = await packageFixture()
+    const executed = await serve(root, ["ci", "//:good", "//:good", "--format", "json"], false)
+    expect(executed.exitCode, executed.envelope).toBe(0)
+    const summary = JSON.parse(executed.envelope) as {
+      readonly results: ReadonlyArray<{ readonly label: string }>
+    }
+    expect(summary.results.map((result) => result.label)).toEqual(["//:good"])
+  })
+
+  it("deduplicates a CI target selected by both an exact label and a recursive wildcard", async () => {
+    const root = await packageFixture()
+    const patterns = ["ci", "//:good", "//...:good", "//:docs"]
+    const planned = await serve(root, [...patterns, "--plan", "--format", "json"], false)
+    expect(planned.exitCode, planned.envelope).toBe(0)
+    const plan = JSON.parse(planned.envelope) as { readonly roots: ReadonlyArray<string> }
+    expect([...plan.roots].sort()).toEqual(["//:docs", "//:good"])
+
+    const executed = await serve(root, [...patterns, "--format", "json"], false)
+    expect(executed.exitCode, executed.envelope).toBe(0)
+    const summary = JSON.parse(executed.envelope) as {
+      readonly results: ReadonlyArray<{ readonly label: string }>
+    }
+    expect(summary.results.map((result) => result.label).sort()).toEqual(["//:docs", "//:good"])
+  })
+
+  it("still rejects an unsupported single verb and an unknown CI label", async () => {
+    const root = await packageFixture()
+    const unsupported = await serve(root, ["docs", "//:good", "--plan"], false)
+    expect(unsupported.exitCode).toBe(1)
+    expect(unsupported.envelope).toContain("does not support the docs verb")
+
+    const unknown = await serve(root, ["ci", "//:good", "//:missing", "--plan"], false)
+    expect(unknown.exitCode).toBe(1)
+    expect(unknown.envelope).toContain("//:missing")
   })
 })
