@@ -809,7 +809,7 @@ export const callFailure = (result: CallResult): Schema.Json => {
   }
 }
 
-const fenced = /```(?<info>[^\n`]*)\n(?<body>[\s\S]*?)(?:\n?(?<close>```)|$)/g
+const fenced = /^```(?<info>[^\n`]*)\r?\n(?<body>[\s\S]*?)(?:\n?(?<close>^```[ \t]*(?=\r?$))|(?![\s\S]))/gm
 
 const languageOf = (info: string): Language | undefined => {
   const tokens = new Set(info.trim().toLowerCase().split(/\s+/).filter((token) => token.length > 0))
