@@ -17,6 +17,32 @@ import { record, runWith, sqlLayer } from "./SourceStoreFixtures.ts"
 
 const run = runWith(sqlLayer)
 
+describe("SourceStore search contract", () => {
+  it("searches case-insensitively within grants and keeps the newest matching record first", async () => {
+    const found = await run(Effect.gen(function*() {
+      const store = yield* SourceStore
+      yield* store.apply([
+        record({ externalId: "older", text: "Deploy Release", updatedAtMs: 1_000 }),
+        record({ externalId: "newer", text: "release notes", updatedAtMs: 3_000 }),
+        record({
+          externalId: "other",
+          text: "Release private",
+          updatedAtMs: 4_000,
+          access: { scope: "container", containerId: "c-private" },
+          thread: { containerId: "c-private", threadId: null, parentId: null }
+        }),
+        record({ externalId: "unmatched", text: "lunch", updatedAtMs: 5_000 })
+      ])
+      return (yield* store.retrieve({
+        allowed: [{ connectionId: "team-chat", containers: ["c-general"] }],
+        query: "RELEASE",
+        limit: 10
+      })).map(({ externalId }) => externalId)
+    }))
+    expect(found).toEqual(["newer", "older"])
+  })
+})
+
 const commitPage = (externalIds: ReadonlyArray<string>, cursor: string) =>
   Effect.flatMap(SourceStore, (store) =>
     store.commit({

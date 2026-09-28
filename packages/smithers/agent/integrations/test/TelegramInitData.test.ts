@@ -1,5 +1,5 @@
 import { webcrypto } from "node:crypto"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   ED25519_PUBLIC_KEY_PROD,
   ED25519_PUBLIC_KEY_TEST,
@@ -98,6 +98,20 @@ describe("verifyWithBotToken", () => {
     expect(verified.raw).toBe(initData)
   })
 
+  it("reports an unsupported runtime when Web Crypto is unavailable", async () => {
+    const initData = await hmacInitData()
+    vi.stubGlobal("crypto", undefined)
+    try {
+      await expect(verifyWithBotToken(initData, BOT_TOKEN, { nowMs: NOW })).rejects.toMatchObject({
+        code: "UNSUPPORTED"
+      })
+      await expect(verifyWithBotToken(initData, BOT_TOKEN, { nowMs: NOW }))
+        .rejects.toThrow("Web Crypto (crypto.subtle) is not available in this runtime.")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   // The `signature` field stays inside the HMAC data-check string; only `hash`
   // is removed. Dropping both would reject every modern client.
   it("keeps the signature field inside the data-check string", async () => {
@@ -171,6 +185,22 @@ describe("verifySignature", () => {
     const { initData, publicKeyHex } = await signEd25519(ed25519Fields())
     const verified = await verifySignature(initData, BOT_ID, { publicKeyHex, nowMs: NOW })
     expect(verified.user).toMatchObject({ id: 7 })
+  })
+
+  it("reports an unsupported runtime when Ed25519 key import is unavailable", async () => {
+    const { initData, publicKeyHex } = await signEd25519(ed25519Fields())
+    vi.stubGlobal("crypto", {
+      subtle: { importKey: () => Promise.reject(new Error("Ed25519 unavailable")) }
+    })
+    try {
+      await expect(verifySignature(initData, BOT_ID, { publicKeyHex, nowMs: NOW })).rejects.toMatchObject({
+        code: "UNSUPPORTED"
+      })
+      await expect(verifySignature(initData, BOT_ID, { publicKeyHex, nowMs: NOW }))
+        .rejects.toThrow("Ed25519 verification is not supported in this runtime.")
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("rejects a signature from a different key, which is what Telegram's own key is here", async () => {

@@ -426,6 +426,14 @@ describe("LinearClient over a real HTTP server", () => {
     expect(Exit.hasInterrupts(exit)).toBe(true)
     expect(server.requests).toHaveLength(1)
   })
+
+  it("does not start a request for an already-aborted run signal", async () => {
+    fixture = await startFixture((_request, response) => json(response, 200, { data: { x: true } }))
+    await expect(
+      Effect.runPromise(client().query("query X { x }"), { signal: AbortSignal.abort("already stopped") })
+    ).rejects.toThrow()
+    expect(fixture.requests).toHaveLength(0)
+  })
 })
 
 describe("mutations are not repeated on an ambiguous answer", () => {
