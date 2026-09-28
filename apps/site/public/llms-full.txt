@@ -17616,10 +17616,11 @@ The same serialization as an [`effect/Schema`](https://effect.website) codec,
 built against Effect 4: the package declares `effect@4.0.0-rc.115` as a peer
 dependency.
 
-**Decoding** takes any value, canonicalizes it, verifies that the emitted
-document parses as JSON, and returns it branded. A value with no canonical form
-fails with a `Schema.SchemaError` whose message carries the same
-`code: detail at path` text `canonicalize` would have thrown.
+**Decoding** takes any value, canonicalizes it, and returns the document
+branded. The serializer guarantees valid JSON, so decoding does not parse its
+output again. A value with no canonical form fails with a `Schema.SchemaError`
+whose message carries the same `code: detail at path` text `canonicalize`
+would have thrown.
 
 **Encoding** takes a canonical document and parses it back into a plain JSON
 value. The round trip is lossy exactly where JSON is lossy: a `Date` comes back

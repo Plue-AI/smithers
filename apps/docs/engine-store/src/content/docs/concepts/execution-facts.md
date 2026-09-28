@@ -31,8 +31,12 @@ handoff and terminal settlement capture their fact in the transaction that
 changes the row. Parking and the guarded status CAS are one transaction. A lost
 CAS rolls the park back, preserving an earlier committed waiting row. Resume
 clears the waiting row before capturing the running fact and before executing
-work. Journal/SQL is the outer transaction and engine-state is the inner one,
-matching deferred completion's lock order, including the guarded memory adapter.
+work. Engine-state is the outer transaction and the journal write transaction
+is inside it, matching deferred completion's state-first lock order. The memory
+state adapter holds its own gate: taking the journal writer first can deadlock against a
+state-first fiber waiting for that writer. The memory state gate is released
+at SQL commit before post-commit journal work; publication failures after
+commit cannot undo either committed boundary.
 
 Cancellation records the actual `cancel_requested_at_ms` only when a guarded
 request changes a live row. Repeat requests, missing rows and terminal rows
