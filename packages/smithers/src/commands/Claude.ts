@@ -70,7 +70,7 @@ export const make = <E, R>({ guard, required }: Options<E, R>) => {
       yield* Effect.sync(() => ClaudeMirror.subscribe(projectRoot, config.runId, sessionId(config.session)))
       const collected = yield* RunReads.events(control, config.runId)
       const run = yield* RunReads.summary(control, config.runId)
-      const digest = Forensics.digest(collected)
+      const digest = Forensics.digest(collected, config.runId)
       yield* renderJson(
         ClaudeMirror.frame(config.runId, run, collected, {
           afterSeq: config.afterSeq,

@@ -248,7 +248,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
                 operation: "run diagnosis",
                 subject: run.runId
               })
-              return { ...run, diagnosis: Forensics.digest(events) }
+              return { ...run, diagnosis: Forensics.digest(events, run.runId) }
             }),
             c.options,
             runtime
@@ -428,7 +428,7 @@ export const pendingApprovals = (runId?: string) =>
           operation: "pending approval",
           subject: run.runId
         })
-        const digest = Forensics.digest(events)
+        const digest = Forensics.digest(events, run.runId)
         const waits = run.pendingWaits ?? []
         return {
           runId: run.runId,

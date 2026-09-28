@@ -841,3 +841,36 @@ describe("Forensics.digest against the gateway's Diagnosis.digest", () => {
     expect(/\p{Surrogate}/u.test(card)).toBe(false)
   })
 })
+
+describe("Forensics.digest foreign run verdicts", () => {
+  const stamped = (runId: string, kind: string, payload: unknown, at: number): ControlSchema.ControlEvent => ({
+    ...event(kind, payload, at),
+    runId: runId as ControlSchema.ControlEvent["runId"]
+  })
+  // A parent's watch stream carries its child's lifecycle stamped with the
+  // child's id; the parent failed, the child failed first and later completed.
+  const events = [
+    stamped("child", "control.run.failed", { cause: "child boom" }, 1),
+    stamped("parent", "control.run.failed", { cause: "parent boom" }, 2),
+    stamped("child", "control.run.failed", { cause: "child boom again" }, 3),
+    stamped("child", "control.run.completed", {}, 4)
+  ]
+
+  it("reports the parent's cause and status, not the child's", () => {
+    const d = Forensics.digest(events, "parent")
+    expect(d.cause).toBe("parent boom")
+    expect(d.status).toBe("failed")
+  })
+
+  it("renders the parent's verdict on the transcript header", () => {
+    const transcript = Forensics.renderTranscript(events, "parent")
+    expect(transcript.split("\n")[0]).toMatch(/^parent · failed · /)
+  })
+
+  it("keeps an unstamped verdict", () => {
+    const legacy = { ...event("control.run.failed", { cause: "legacy" }, 1), runId: undefined }
+    const d = Forensics.digest([legacy as ControlSchema.ControlEvent], "parent")
+    expect(d.cause).toBe("legacy")
+    expect(d.status).toBe("failed")
+  })
+})

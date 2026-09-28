@@ -500,8 +500,13 @@ const remember = (value: Digest, state: DigestState): Digest => {
  * A `control.run.*` verdict stamped with a run id other than `runId`, such as
  * a child's riding in the parent's events. It must not set the digested run's
  * status or failure cause. An unstamped verdict is the run's own.
+ *
+ * @param event the event to classify
+ * @param runId the run being digested; omitted, no verdict is foreign
+ * @category predicates
+ * @since 1.0.0
  */
-const foreignVerdict = (event: ControlSchema.ControlEvent, runId: string | undefined): boolean =>
+export const foreignVerdict = (event: ControlSchema.ControlEvent, runId: string | undefined): boolean =>
   runId !== undefined && event.runId !== undefined && event.runId !== runId && event.kind.startsWith("control.run.")
 
 /**

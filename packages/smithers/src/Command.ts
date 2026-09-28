@@ -809,7 +809,7 @@ const statusOf = (runId: Option.Option<string>) =>
     if (run === undefined) return yield* Effect.fail(RunReads.missing(runId.value))
     if (root.json) return yield* render(listed)
     const events = yield* RunReads.events(control, runId.value)
-    yield* render(Forensics.renderDiagnosis(run, Forensics.digest(events)))
+    yield* render(Forensics.renderDiagnosis(run, Forensics.digest(events, runId.value)))
   })
 
 const status = Command.make("status", {
@@ -866,7 +866,7 @@ const readLogs = (runId: Option.Option<string>, follow: boolean, forceJson: bool
       subject: `run ${JSON.stringify(watchedRunId)}`
     })
     if (json) return yield* renderJson(collected)
-    yield* render(Forensics.renderTranscript(collected))
+    yield* render(Forensics.renderTranscript(collected, Option.getOrUndefined(runId)))
   })
 
 const logs = Command.make("logs", {

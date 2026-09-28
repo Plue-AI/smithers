@@ -28,6 +28,7 @@ import {
   digest as diagnose,
   duration,
   firstLine,
+  foreignVerdict,
   timeOf,
   uniqueCallEvents
 } from "@smthrs/gateway/Diagnosis"
@@ -123,11 +124,16 @@ const field = (value: unknown, fallback: string): string => terminalSafe(asStrin
  * absence and the digest of a malformed journal is a sparse digest, never a
  * throw.
  *
+ * @param events the run's watch stream
+ * @param runId the run being digested; a `control.run.*` verdict stamped with
+ *   another run's id, such as a child's, sets neither status nor cause.
+ *   Omitted, every verdict folds.
  * @category constructors
  * @since 0.1.0
  */
-export const digest = (events: ReadonlyArray<ControlSchema.ControlEvent>): Digest => {
-  const facts = diagnose(events)
+export const digest = (events: ReadonlyArray<ControlSchema.ControlEvent>, runId?: string): Digest => {
+  if (runId !== undefined) events = events.filter((event) => !foreignVerdict(event, runId))
+  const facts = diagnose(events, runId)
   let status: string | undefined
   let duplicateCalls = 0
   let parkedApproval: string | undefined
@@ -395,14 +401,19 @@ export const eventLine = (event: ControlSchema.ControlEvent): string => {
  * scanning for "where did it go wrong" needs the shape of the run, not the
  * bytes of every result.
  *
+ * @param events the run's watch stream
+ * @param watchedRunId the run being rendered; a child's verdict does not set its status
  * @category rendering
  * @since 0.1.0
  */
-export const renderTranscript = (events: ReadonlyArray<ControlSchema.ControlEvent>): string => {
+export const renderTranscript = (
+  events: ReadonlyArray<ControlSchema.ControlEvent>,
+  watchedRunId?: string
+): string => {
   if (events.length === 0) return "No events."
-  const d = digest(events)
+  const d = digest(events, watchedRunId)
   const start = d.startedAt ?? 0
-  const runId = events.find((event) => event.runId !== undefined)?.runId
+  const runId = watchedRunId ?? events.find((event) => event.runId !== undefined)?.runId
   const lines: Array<string> = [
     `${runId ?? "?"} · ${d.status ?? "?"} · ${
       duration(d)

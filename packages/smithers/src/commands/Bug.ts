@@ -80,7 +80,8 @@ export const submit = (
             cause: error
           })
         )
-      )
+      ),
+      runId
     )
     const body = Bug.report({
       summary,
