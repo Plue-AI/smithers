@@ -449,6 +449,9 @@ export const make = (
                   Authorization: apiKey
                 },
                 body: requestBody,
+                // Answered, not followed: a redirect would re-send the key to
+                // whatever host its Location names.
+                redirect: "manual",
                 signal: controller.signal
               })
             },
@@ -465,6 +468,15 @@ export const make = (
               )
           })
           pendingResponse = response
+          if (response.status >= 300 && response.status < 400) {
+            return yield* Effect.fail(
+              integrationError(
+                "delivery-failed",
+                `Linear API responded ${response.status}; redirects are not followed.`,
+                { status: response.status, apiBaseUrl, retryable: false, outcomeUnknown: false }
+              )
+            )
+          }
           // A 429 was refused, so repeating it is safe for any operation. A 5xx
           // is ambiguous: Linear may have committed the mutation and lost the
           // answer, so a write stops here and says the outcome is unknown.

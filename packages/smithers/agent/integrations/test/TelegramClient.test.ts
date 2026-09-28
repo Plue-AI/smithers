@@ -926,3 +926,18 @@ describe("request serialization", () => {
     expect(request).not.toHaveBeenCalled()
   })
 })
+
+describe("Telegram redirects", () => {
+  // The bot token is in the path, so a followed redirect whose Location echoes
+  // it would carry the token to another host.
+  it("fails on a redirect and never follows it", async () => {
+    fixture = await startFixture((request, response) => {
+      if (request.url === "/captured") return json(response, 200, { ok: true, result: { message_id: 1 } })
+      response.writeHead(307, { location: "/captured" })
+      response.end()
+    })
+    const failure = await Effect.runPromise(Effect.flip(client().call("getMe")))
+    expect(failure.details).toMatchObject({ errorCode: 307 })
+    expect(fixture.requests).toHaveLength(1)
+  })
+})

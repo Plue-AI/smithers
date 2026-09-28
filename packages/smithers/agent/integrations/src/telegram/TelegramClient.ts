@@ -435,6 +435,9 @@ export const make = (
               method: "POST",
               ...(request.headers === undefined ? {} : { headers: request.headers }),
               body: request.body,
+              // Answered, not followed: the token is in the path, so a
+              // Location that echoes it would carry it to another host.
+              redirect: "manual",
               signal: controller.signal
             })
           },
@@ -447,6 +450,14 @@ export const make = (
             )
         })
         pendingResponse = response
+        if (response.status >= 300 && response.status < 400) {
+          return yield* Effect.fail(
+            new TelegramApiError(
+              `Telegram API responded ${response.status} for method "${method}"; redirects are not followed.`,
+              { method, errorCode: response.status, reason: "delivery-failed", outcomeUnknown: false }
+            )
+          )
+        }
         const body = yield* Effect.tryPromise({
           try: (signal) => {
             linkInterrupt(signal, controller)

@@ -1054,3 +1054,17 @@ describe("Linear request deadline", () => {
     expect(resolve({}, {}).requestTimeout).toEqual(DEFAULT_REQUEST_TIMEOUT)
   })
 })
+
+describe("Linear redirects", () => {
+  it("fails on a redirect and never sends the API key to its target", async () => {
+    fixture = await startFixture((request, response) => {
+      if (request.url === "/captured") return json(response, 200, { data: { x: 1 } })
+      response.writeHead(307, { location: "/captured" })
+      response.end()
+    })
+    const failure = await Effect.runPromise(Effect.flip(client().query("query X { x }")))
+    expect(failure.reason).toBe("delivery-failed")
+    expect(failure.details).toMatchObject({ status: 307 })
+    expect(fixture.requests).toHaveLength(1)
+  })
+})

@@ -434,6 +434,9 @@ export const make = (
           const response = await fetch(url, {
             method: call.method,
             headers,
+            // Answered, not followed: a redirect would re-send the token to
+            // whatever host its Location names. A 3xx fails below as non-2xx.
+            redirect: "manual",
             signal,
             ...(body === undefined ? {} : { body })
           })

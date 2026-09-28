@@ -316,7 +316,8 @@ call open. It must be a finite, positive `Duration.Input`.
 The REST client. Rate-limit handling, bounded pagination, and token hygiene:
 the token reaches the `Authorization` header and nothing else, and every
 request URL, including a `rel="next"` target, is pinned to the configured API
-origin. Provider and transport errors redact the token and Authorization
+origin. A 3xx is not followed: it fails `delivery-failed` with its status, so
+the token never reaches a `Location` host. Provider and transport errors redact the token and Authorization
 header value from summaries, details, and retained cause messages before
 construction. Raw upstream stacks and nested causes are discarded.
 
@@ -426,7 +427,9 @@ throws `IntegrationError` `invalid-config` when it is not.
 ### Linear.LinearClient
 
 The GraphQL client: plain `fetch` over raw GraphQL, with lookup caching, name
-resolution, and rate-limit handling. A 429 is retried up to five attempts for
+resolution, and rate-limit handling. A 3xx is not followed: it fails
+`delivery-failed` with its status, so the key never reaches a `Location` host.
+A 429 is retried up to five attempts for
 every operation, waiting `Retry-After` or `X-RateLimit-Requests-Reset` capped
 at 30 seconds. A 5xx is retried only for a query: on `issueCreate`,
 `issueUpdate`, or `commentCreate` the server may have applied the mutation
@@ -536,7 +539,9 @@ first is capped at 5 seconds or `requestTimeout`, whichever is shorter.
 ### Telegram.TelegramClient
 
 The Bot API client: plain `fetch`, no framework. The bot token is redacted
-from every error, including one a transport raised with the URL in it. A 429
+from every error, including one a transport raised with the URL in it. A 3xx
+is not followed, since the token is in the request path: it fails
+`delivery-failed` with its status as `errorCode`. A 429
 is retried, waiting the server's capped `retry_after`.
 
 Service interface:
@@ -854,7 +859,8 @@ Exported as `Gmail` or from `@smthrs/integrations/gmail`. See the
 - `Capabilities`: operations, the scopes that allow each, `allows`,
   `refusal`.
 - `GmailClient`: messages, history, profile, drafts, and send, scope-checked
-  against the bound connection.
+  against the bound connection. A 3xx is not followed; it fails
+  `delivery-failed` with its status.
 - `Mime`: `compose` builds an RFC 2822 message and refuses control characters
   in headers; `KEY_HEADER` carries the reconcile key.
 - `Actions`: `CreateDraft`, `SendMessage` (irreversible, `outcomeUnknown` on a
@@ -872,6 +878,7 @@ Exported as `X` or from `@smthrs/integrations/x`. **Read-only**: see the
 - `Capabilities`: operations and the scopes each needs.
 - `XClient`: `me`, `mentions`, `userTweets`, `dmEvents`,
   `conversationEvents`; also `createTweet` and `sendDirectMessage`, which are
-  not durable actions.
+  not durable actions. A 3xx is not followed; it fails `delivery-failed` with
+  its status.
 - `Records`: `fromMention`, `fromDirectMessage`.
 - `Sync`: `mentions` and `directMessages` change feeds.

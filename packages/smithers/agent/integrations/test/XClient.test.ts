@@ -537,3 +537,17 @@ describe("X layer", () => {
     expect(make({ token: rotating([TOKEN]).source }).connectionId).toBeUndefined()
   })
 })
+
+describe("X redirects", () => {
+  it("fails on a redirect and never sends the token to its target", async () => {
+    const server = await serve((request, response) => {
+      if (request.url === "/captured") return json(response, 200, { data: [] })
+      response.writeHead(302, { location: "/captured" })
+      response.end()
+    })
+    const error = await failure(client().dmEvents())
+    expect(error.reason).toBe("delivery-failed")
+    expect(error.details).toMatchObject({ status: 302, retryable: false })
+    expect(server.requests).toHaveLength(1)
+  })
+})

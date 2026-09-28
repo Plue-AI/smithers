@@ -17,7 +17,8 @@
  * - **Token hygiene.** The token reaches the `Authorization` header and
  *   nothing else, not a message, not `details`, not a log line, and every
  *   request URL, including a `rel="next"` target, is pinned to the configured
- *   API origin so a redirected link cannot carry the token elsewhere. Errors
+ *   API origin, and a 3xx fails rather than being followed, so neither a
+ *   redirected link nor a `Location` header can carry the token elsewhere. Errors
  *   redact echoed credentials from summaries, details, and cause messages. The
  *   origin pin is not a path pin: a caller that builds a path from provider
  *   data uses `Repository.repositoryPath`, which validates each segment,
@@ -420,6 +421,9 @@ export const make = (
           method,
           headers,
           ...(body === undefined ? {} : { body }),
+          // Answered, not followed: a redirect would re-send the token to
+          // whatever host its Location names. A 3xx fails below as non-2xx.
+          redirect: "manual",
           signal
         })
         const text = await response.text()
