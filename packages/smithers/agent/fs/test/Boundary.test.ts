@@ -14,11 +14,27 @@ const limits = (overrides: Partial<Boundary.JsonLimits> = {}): Boundary.JsonLimi
 const admit = (value: unknown, overrides?: Partial<Boundary.JsonLimits>) => Boundary.admitJson(value, limits(overrides))
 
 describe("the inert fs boundary", () => {
-  it("refuses a proxy reporting an invalid array length", () => {
+  it("reads array length from the own descriptor, never the get trap", () => {
+    let reads = 0
     const input = new Proxy([], {
-      get: (target, key, receiver) => key === "length" ? Number.NaN : Reflect.get(target, key, receiver)
+      get: (target, key, receiver) => {
+        reads++
+        return key === "length" ? Number.NaN : Reflect.get(target, key, receiver)
+      }
     })
     expect(Array.isArray(input)).toBe(true)
+    expect(admit(input)).toEqual({ ok: true, value: [] })
+    expect(reads).toBe(0)
+  })
+
+  it("refuses a proxy whose own length descriptor is invalid", () => {
+    const input = new Proxy([], {
+      getOwnPropertyDescriptor: (target, key) => {
+        const descriptor = Reflect.getOwnPropertyDescriptor(target, key)
+        return key === "length" ? { ...descriptor, value: Number.NaN } : descriptor
+      }
+    })
+    expect(Object.getOwnPropertyDescriptor(input, "length")?.value).toBeNaN()
     expect(admit(input)).toEqual({ ok: false, path: "$", complaint: "has an invalid array length" })
   })
 
