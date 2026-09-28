@@ -39206,6 +39206,40 @@
     }
   },
   {
+    "label": "//scripts:bunCoverage",
+    "package": "scripts",
+    "name": "bunCoverage",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/bun-coverage/coverage.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/bun-coverage/receipts.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/bun-coverage/run.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/bun-coverage/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:changelog",
     "package": "scripts",
     "name": "changelog",

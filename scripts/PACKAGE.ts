@@ -625,9 +625,22 @@ const commit = Smithers.NodeTest({
   deps: []
 })
 
+/** Exercises real Bun coverage collection and sealed process receipts. */
+const bunCoverage = Smithers.NodeTest({
+  runner: Smithers.testRunner([
+    Smithers.file("//scripts/bun-coverage/coverage.test.mjs"),
+    Smithers.file("//scripts/bun-coverage/receipts.test.mjs"),
+    Smithers.file("//scripts/bun-coverage/run.test.mjs")
+  ]),
+  srcs: [Smithers.glob("//scripts/bun-coverage/**/*")],
+  timeout: "2m",
+  deps: []
+})
+
 export const Package = Smithers.Package({
   targets: {
     apiBaseline,
+    bunCoverage,
     commit,
     conformanceCheck,
     repositoryConformance,
