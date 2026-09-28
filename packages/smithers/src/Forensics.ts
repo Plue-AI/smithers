@@ -236,7 +236,16 @@ const shellCommand = (...arguments_: ReadonlyArray<string>): string => arguments
  * @since 0.1.0
  */
 export const renderDiagnosis = (
-  run: { readonly runId?: string; readonly flowId?: string } | undefined,
+  run: {
+    readonly runId?: string
+    readonly flowId?: string
+    readonly codeDrift?: {
+      readonly recorded?: string | undefined
+      readonly current?: string | undefined
+      readonly recordedEngine?: string | undefined
+      readonly currentEngine?: string | undefined
+    } | undefined
+  } | undefined,
   d: Digest
 ): string => {
   const lines: Array<string> = []
@@ -263,6 +272,20 @@ export const renderDiagnosis = (
   }
   if (d.finalOutput !== undefined && d.finalOutput.length > 0) {
     lines.push(`${label("Output")}${clip(firstLine(d.finalOutput), 120)}`)
+  }
+  const drift = run?.codeDrift
+  if (drift !== undefined) {
+    const changes = [
+      ...(drift.recorded === undefined ? [] : [`flow ${drift.recorded} → ${drift.current ?? "gone"}`]),
+      ...(drift.recordedEngine === undefined
+        ? []
+        : [`engine ${drift.recordedEngine} → ${drift.currentEngine ?? "unknown"}`])
+    ]
+    lines.push(
+      `${label("Drift")}${changes.join(", ")}    # resume needs ${
+        shellCommand("smthrs", "runs", "resume", runId, "--allow-code-drift")
+      }`
+    )
   }
   if (d.parkedApproval !== undefined) {
     lines.push(

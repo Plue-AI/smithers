@@ -207,6 +207,18 @@ describe("Forensics.renderDiagnosis", () => {
       .toContain("completed: but 0 of 1 calls attempted an edit")
   })
 
+  it("names a drifted run's recorded and current code and the resume that accepts it", () => {
+    const d = Forensics.digest([event("control.run.parked", { runId: "run-1", status: "parked" }, 1)])
+    const card = Forensics.renderDiagnosis({
+      runId: "run-1",
+      codeDrift: { recorded: "sha-a", current: "sha-b", recordedEngine: "1.0.0", currentEngine: "1.1.0" }
+    }, d)
+    expect(card).toContain(
+      "Drift     flow sha-a → sha-b, engine 1.0.0 → 1.1.0    # resume needs smthrs runs resume run-1 --allow-code-drift"
+    )
+    expect(Forensics.renderDiagnosis({ runId: "run-1" }, d)).not.toContain("Drift")
+  })
+
   it("prints the exact unblock command for a parked run", () => {
     const d = Forensics.digest([
       event("control.approval.requested", { question: "Q", payload: { k: 1 } }, 1),
