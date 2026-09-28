@@ -72,7 +72,7 @@ const scopedCalls = Effect.gen(function*() {
 
 Two policy values short-circuit before bank validation or I/O: `recall: "none"` answers no rows and never reaches the recall service, and `retain: "never"` answers `{ key }` while nothing reaches the store.
 
-Bare handlers, direct `runRecall` / `runRemember` calls, recall services, and store methods do not enforce flow policies. Bind the policy-carrying declarations for model-facing access.
+Given a declaration that carries no policy, `handlersFor`, `runRecallFor`, and `runRememberFor` fail with `invalid_namespace` before any I/O. Bare handlers, direct `runRecall` / `runRemember` calls, recall services, and store methods do not enforce flow policies. Bind the policy-carrying declarations for model-facing access.
 
 ## Cover generated work with MemoryTrellis
 

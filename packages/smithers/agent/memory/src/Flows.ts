@@ -78,11 +78,29 @@ const maxUtf8Bytes = (max: number, label: string) =>
   )
 
 /**
+ * The tag prefix a `remember` caller may not write.
+ *
+ * A `source:` tag claims where a record came from, and recall filters on it to
+ * select trusted-source memory, so only a host writing through the store may
+ * set it. A model-written fact carrying `source:eval` would otherwise pose as
+ * an evaluation's finding.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const RESERVED_REMEMBER_TAG_PREFIX = "source:"
+
+const reservedTagIssue = (tags: ReadonlyArray<string>): string | undefined =>
+  tags.some((tag) => tag.startsWith(RESERVED_REMEMBER_TAG_PREFIX))
+    ? `invalid_tag: remember may not set a ${RESERVED_REMEMBER_TAG_PREFIX} tag`
+    : undefined
+
+/**
  * Input schema for remember.
  *
- * Tags use `Namespace.Tags` directly so model decoding and durable writes
- * enforce the same vocabulary, uniqueness rule, and 16-tag cap before the
- * handler performs I/O. The bank uses `Recall.BankName`, so every remembered
+ * Tags use `Namespace.Tags` so model decoding and durable writes enforce the
+ * same vocabulary, uniqueness rule, and 16-tag cap before the handler performs
+ * I/O, and refuse the reserved `source:` prefix. The bank uses `Recall.BankName`, so every remembered
  * fact is in a bank recall can name, and key and text are byte-capped. `ttlMs` is passed to the authoritative fact row.
  *
  * @category schemas
@@ -92,7 +110,9 @@ export const RememberInput = Schema.Struct({
   bank: Recall.BankName,
   key: Schema.NonEmptyString.pipe(Schema.check(maxUtf8Bytes(MAX_REMEMBER_KEY_BYTES, "remember key"))),
   text: Schema.String.pipe(Schema.check(maxUtf8Bytes(MAX_REMEMBER_TEXT_BYTES, "remember text"))),
-  tags: Schema.optional(Namespace.Tags),
+  tags: Schema.optional(
+    Namespace.Tags.pipe(Schema.check(Schema.makeFilter(reservedTagIssue, { identifier: "invalid_tag" })))
+  ),
   ttlMs: Schema.optional(
     Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
   )
@@ -214,6 +234,8 @@ export const runRememberWith = (provenance: MemoryStore.Provenance) =>
   Effect.gen(function*() {
     const store = yield* MemoryStore.MemoryStore
     const { namespace } = yield* resolveNamespace(input.bank)
+    const reserved = reservedTagIssue(input.tags ?? [])
+    if (reserved !== undefined) return yield* Effect.fail(new MemoryError({ code: "invalid_tag", message: reserved }))
     yield* store.putFact({
       namespace,
       key: input.key,
@@ -250,6 +272,13 @@ export const runRecall = (
 ): Effect.Effect<Recall.Output, MemoryError, Recall.Recall> =>
   Effect.flatMap(Recall.Recall, (service) => service.recall(input))
 
+const missingPolicy = Effect.fail(
+  new MemoryError({
+    code: "invalid_namespace",
+    message: "memory flow carries no policy; bind a WithMemory.withMemory declaration"
+  })
+)
+
 const validatePolicyBank = (bank: string, policy: WithMemory.Policy): Effect.Effect<void, MemoryError> =>
   Effect.gen(function*() {
     const { namespace } = yield* resolveNamespace(bank)
@@ -271,6 +300,8 @@ const validatePolicyBank = (bank: string, policy: WithMemory.Policy): Effect.Eff
  * that same namespace or the entire request fails before recall runs. The
  * policy budget is a default the caller may override. `recall: "none"`
  * returns no rows before bank validation or any call to the recall service.
+ * A flow that carries no policy fails with `invalid_namespace` before recall
+ * runs; `runRecall` is the explicitly unscoped call.
  *
  * @category handlers
  * @since 0.1.0
@@ -280,7 +311,7 @@ export const runRecallFor = (
   input: Recall.Input
 ): Effect.Effect<Recall.Output, MemoryError, Recall.Recall> => {
   const policy = WithMemory.policyOf(flow)
-  if (policy === undefined) return runRecall(input)
+  if (policy === undefined) return missingPolicy
   if (policy.recall === "none") return Effect.succeed([])
   return Effect.gen(function*() {
     const banks = input.banks.length > 0 ? input.banks : policy.banks
@@ -300,6 +331,8 @@ export const runRecallFor = (
  * fails before the store runs. `retain: "never"` drops the write before bank
  * validation: the caller still receives the key it asked for, and nothing
  * reaches the store. The optional provenance argument is forwarded unchanged.
+ * A flow that carries no policy fails with `invalid_namespace` before the store
+ * runs; `runRememberWith` is the explicitly unscoped write.
  *
  * The flow comes first so this can never be mistaken for a `FlowBinding`
  * handler; {@link handlersFor} is the one-argument handler a host binds.
@@ -313,7 +346,7 @@ export const runRememberFor = (
   provenance: MemoryStore.Provenance = {}
 ): Effect.Effect<typeof RememberOutput.Type, MemoryError, MemoryStore.MemoryStore> => {
   const policy = WithMemory.policyOf(flow)
-  if (policy === undefined) return runRememberWith(provenance)(input)
+  if (policy === undefined) return missingPolicy
   if (policy.retain === "never") return Effect.succeed({ key: input.key })
   return Effect.gen(function*() {
     const bank = input.bank.length > 0 ? input.bank : policy.banks[0]!

@@ -10,6 +10,7 @@ import * as Flows from "../src/Flows.ts"
 import * as MemoryStore from "../src/MemoryStore.ts"
 import * as Recall from "../src/Recall.ts"
 import * as TestMemory from "../src/test/TestMemory.ts"
+import * as WithMemory from "../src/WithMemory.ts"
 
 describe("Flows", () => {
   it("declares remember and recall as unsealed flows without bodies", () => {
@@ -144,7 +145,10 @@ describe("Flows", () => {
     const persisted = await Effect.runPromise(
       Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
-        const handlers = Flows.handlersFor(Flows.remember, { runId: "run-9", nodeId: "node-9", iteration: 1 })
+        const handlers = Flows.handlersFor(
+          WithMemory.withMemory(Flows.remember, { banks: ["bank"], maxTokens: 1024, retain: "on-complete" }),
+          { runId: "run-9", nodeId: "node-9", iteration: 1 }
+        )
         yield* handlers.remember({ bank: "bank", key: "bound", text: "text" })
         const rows = yield* sql<{ readonly provenance_json: string }>`SELECT provenance_json
           FROM memory_facts WHERE namespace_kind = 'flow' AND namespace_id = 'bank' AND fact_key = 'bound'`
@@ -211,5 +215,47 @@ describe("RememberInput bounds", () => {
     }]
   ])("rejects %s", (_name, input) => {
     expect(decode(input)._tag).toBe("Failure")
+  })
+})
+
+describe("Flows model-facing boundary", () => {
+  it("refuses a scoped remember or recall on a declaration that carries no policy", async () => {
+    const touched: Array<string> = []
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const store = yield* MemoryStore.MemoryStore
+        const handlers = Flows.handlersFor(Flows.remember)
+        const remember = yield* Effect.flip(handlers.remember({ bank: "user-victim", key: "k", text: "planted" }))
+        const recall = yield* Effect.flip(
+          Flows.runRecallFor(Flows.recall, { banks: ["global-secrets"], query: "q" })
+        )
+        const planted = yield* store.getFact({ namespace: { kind: "user", id: "victim" }, key: "k" })
+        return { remember, recall, planted }
+      }).pipe(
+        Effect.provide(Recall.layer({
+          recall: (input) =>
+            Effect.sync(() => {
+              touched.push(...input.banks)
+              return []
+            })
+        })),
+        Effect.provide(TestMemory.layer)
+      )
+    )
+    expect(result.remember.code).toBe("invalid_namespace")
+    expect(result.recall.code).toBe("invalid_namespace")
+    expect(result.planted).toBeUndefined()
+    expect(touched).toEqual([])
+  })
+
+  it("refuses a model-written source: tag so a planted fact cannot pose as trusted-source memory", async () => {
+    const decode = Schema.decodeUnknownSync(Flows.RememberInput)
+    expect(() => decode({ bank: "bank", key: "key", text: "text", tags: ["source:eval"] })).toThrow()
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        Flows.runRemember({ bank: "bank", key: "key", text: "text", tags: ["source:supervisor"] as never })
+      ).pipe(Effect.provide(TestMemory.layer))
+    )
+    expect(failure.code).toBe("invalid_tag")
   })
 })

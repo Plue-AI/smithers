@@ -58,7 +58,7 @@ const read = Effect.gen(function*() {
 
 ## Write through the remember flow
 
-When the writer is a model, use the `remember` flow's runtime handler instead of calling `putFact` yourself. It stores `{ content: text }` as the fact value, which is the shape recall renders best:
+When the writer is a model, use the `remember` flow's runtime handler instead of calling `putFact` yourself. It stores `{ content: text }` as the fact value, which is the shape recall renders best. It refuses a `source:` tag with `invalid_tag`, so a model-written fact cannot claim a trusted source:
 
 ```ts
 import * as Flows from "@smthrs/memory/Flows"

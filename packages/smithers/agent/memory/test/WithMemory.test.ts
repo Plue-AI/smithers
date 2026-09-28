@@ -332,7 +332,7 @@ describe("WithMemory", () => {
           WithMemory.withMemory(Flows.recall, policy),
           { banks: [], query: "durable" }
         )
-        const unscoped = yield* Flows.runRecallFor(Flows.recall, { banks: [], query: "durable" })
+        const unscoped = yield* Effect.flip(Flows.runRecallFor(Flows.recall, { banks: [], query: "durable" }))
         const explicit = yield* Effect.flip(Flows.runRecallFor(
           WithMemory.withMemory(Flows.recall, policy),
           { banks: ["flow-elsewhere"], query: "durable" }
@@ -345,7 +345,7 @@ describe("WithMemory", () => {
     )
 
     expect(result.scoped.map((row) => row.key)).toEqual(["ledger"])
-    expect(result.unscoped).toEqual([])
+    expect(result.unscoped.code).toBe("invalid_namespace")
     expect(result.explicit).toBeInstanceOf(MemoryError)
     expect(result.explicit.code).toBe("invalid_namespace")
   })

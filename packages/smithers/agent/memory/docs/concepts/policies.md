@@ -40,6 +40,6 @@ Two policy values short-circuit before bank validation or I/O:
 - `recall: "none"` returns no rows and never reaches the recall service.
 - `retain: "never"` drops the write. The caller still receives the key it asked for, and nothing reaches the store.
 
-The boundary applies through `Flows.handlersFor` on a policy-carrying declaration, or through `runRecallFor` and `runRememberFor`. Bare handlers, direct `runRecall` / `runRemember` calls, recall services, and store methods do not enforce flow policies. Hosts must bind the scoped declarations for model-facing access.
+The boundary applies through `Flows.handlersFor` on a policy-carrying declaration, or through `runRecallFor` and `runRememberFor`. Given a declaration that carries no policy, these fail closed with `invalid_namespace` before any I/O. Bare handlers, direct `runRecall` / `runRemember` calls, recall services, and store methods do not enforce flow policies. Hosts must bind the scoped declarations for model-facing access.
 
 For the binding mechanics, provenance, and the delegation case, see [Scope a flow tree to a namespace](../guides/scope-a-flow-tree.md).
