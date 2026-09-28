@@ -4,6 +4,12 @@
 
 ### Added
 
+- `PlanInput.budget` can override budget fields, including the optional
+  `onExceeded` policy. Resume accepts `allowCodeDrift`; run and approval
+  operations can also fail with `CodeDrift`. Custom runtime implementations
+  must provide `codeDrift`; SQL runtime options accept `currentFlows`
+  for checking the current catalog (#1807, #1843).
+
 - A run records its flow's `executionDigest` and the host's `engineVersion`
   (`SqlControlRuntime` and memory option `engineVersion`) on `RunSummary`.
   `Control.resume` refuses a run whose flow's digest changed with `CodeDrift`

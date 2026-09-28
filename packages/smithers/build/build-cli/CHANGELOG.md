@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `ci` accepts mixed exact labels for different target kinds and runs their
+  union once, retaining compatible roots when another label belongs to a
+  different verb. An exact label that no CI verb supports still fails (#2482).
+
+- **Breaking:** `KnownRed.Entry` requires `failureDigest`; `Verdict` includes
+  `observed` failures. Use `fingerprint` on the complete diagnostic so a new
+  failure cannot reuse an old target exemption (#2466).
+
 - Compare all generated declaration files in `Api.Compat`, including ignored output
   directories and directories containing package markers.
 

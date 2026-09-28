@@ -4,6 +4,10 @@
 
 ### Added
 
+- Approval RPC failures include `CodeDrift`; gateway envelopes and projections
+  carry the optional budget `onExceeded` policy. Clients with exhaustive error
+  handling must handle the new refusal (#1807, #1843).
+
 - Added `GatewaySchema.SnapshotOf`, `FrameOf`, and `RowOf`, and made
   `Projections.Service.snapshot`, `subscribe`, and `GatewaySchema.rowSchemaFor`
   generic in their selector, so a literal selector keeps its own row type and a

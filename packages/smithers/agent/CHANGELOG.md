@@ -4,6 +4,10 @@
 
 ### Added
 
+- Budgets accept `onExceeded: "park"`. Hosts provide `Budget.Parking` to
+  request approval; `Budget.raise` and `raisedBy` apply approved ceilings.
+  Exhaustive `OnExceeded` matches must handle `park` (#1843).
+
 - `AgentAction.Host.serverTools` and `Agent.Options.serverTools`: provider-run
   tools, such as the provider's web search, forwarded to every frame.
 

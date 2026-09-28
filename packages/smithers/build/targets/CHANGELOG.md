@@ -8,6 +8,9 @@ of it.
 
 ### Added
 
+- `GithubCiGen` accepts optional `concurrency: "ref" | "commit"`; `commit`
+  groups drift checks by commit without cancelling earlier runs (#2484).
+
 - Added `reviewerAgents` to `Smithers.Github.Policy` and its projection.
   Only the named agent accounts' LGTMs count toward a protected bookmark's
   required agent LGTM.
