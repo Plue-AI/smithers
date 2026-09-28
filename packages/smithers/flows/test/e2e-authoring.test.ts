@@ -30,6 +30,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import { createHash, webcrypto } from "node:crypto"
 import {
@@ -107,29 +108,41 @@ const services = Layer.mergeAll(
   Layer.merge(Layer.succeed(Jj.Jj, jj))
 )
 
-/** Runs one body against a fresh database and the real durable stores. */
-const durableWith = <A, E, R>(
-  body: Effect.Effect<A, E, R>,
-  layer: Layer.Layer<never, unknown, Crypto.Crypto>
-) => Effect.scoped(body.pipe(Effect.provide(layer), Effect.provide(hostCrypto))) as Effect.Effect<A>
+/** Everything {@link services} provides, read off the composition itself. */
+type DurableServices = Layer.Success<typeof services>
+
+/** Runs one body against a fresh database and the given durable stores. */
+const durableWith = <A, E, ROut>(
+  body: Effect.Effect<A, E, NoInfer<ROut> | Crypto.Crypto | Scope.Scope>,
+  layer: Layer.Layer<ROut, unknown, Crypto.Crypto>
+) => Effect.scoped(body.pipe(Effect.provide(layer), Effect.provide(hostCrypto)))
 
 /** Runs one body against a fresh database and the real durable stores. */
-const durable = <A, E, R>(body: Effect.Effect<A, E, R>) => durableWith(body, services)
+const durable = <A, E>(body: Effect.Effect<A, E, DurableServices | Crypto.Crypto | Scope.Scope>) =>
+  durableWith(body, services)
 
 /** The same, with time under the test's control so a durable timer can fire. */
-const durableTimed = <A, E, R>(body: Effect.Effect<A, E, R>) =>
+const durableTimed = <A, E>(
+  body: Effect.Effect<A, E, DurableServices | Crypto.Crypto | TestClock.TestClock | Scope.Scope>
+) =>
   Effect.scoped(
     body.pipe(Effect.provide(services), Effect.provide(hostCrypto), Effect.provide(TestClock.layer()))
-  ) as Effect.Effect<A>
+  )
 
 /** The layer type an action implementation registers itself through. */
 type Implementation = Layer.Layer<never, never, Crypto.Crypto | Action.Implementations | FlowRuntime.FlowRuntime>
+
+/**
+ * What a wired incarnation provides an execution: the engine, the
+ * implementation registry, and every registered action's requirement.
+ */
+type Wired = FlowRuntime.FlowRuntime | Action.Implementations | Action.Requirement<string>
 
 const wiringFor = (
   engine: FlowRuntime.FlowRuntime["Service"],
   flows: ReadonlyArray<Flow.Any>,
   implementations: ReadonlyArray<Implementation>
-): Implementation =>
+): Layer.Layer<Wired, never, Crypto.Crypto> =>
   [
     ...implementations,
     // A body's registration cannot state the schema services its own
@@ -137,7 +150,10 @@ const wiringFor = (
     ...flows.map((flow) => Interpreter.layer(flow as never) as Implementation)
   ].reduce<Implementation>((left, right) => Layer.merge(left, right), Layer.empty).pipe(
     Layer.provideMerge(Action.layerImplementations),
-    Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
+    Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine)),
+    // The same erasure, stated once: the registered implementations answer
+    // every `Action.Requirement` the listed flows call.
+    (wired) => wired as Layer.Layer<Wired, never, Crypto.Crypto>
   )
 
 /**

@@ -62,11 +62,7 @@ const run = <A, E>(
   >
 ) =>
   withCrypto(
-    effect.pipe(Effect.provide(layer), Effect.provide(TestClock.layer()), Effect.scoped) as Effect.Effect<
-      A,
-      E,
-      Crypto.Crypto
-    >
+    effect.pipe(Effect.provide(layer), Effect.provide(TestClock.layer()), Effect.scoped)
   )
 
 /** Activates a fresh run under `owner`, mirroring the RunDriver claim path. */

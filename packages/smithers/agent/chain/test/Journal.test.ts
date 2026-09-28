@@ -10,7 +10,7 @@ const withJournal = <A, E>(
   use: (journal: Journal.Service) => Effect.Effect<A, E>
 ): Promise<A> =>
   Effect.runPromise(
-    Effect.flatMap(Journal.Journal, use).pipe(Effect.provide(layer)) as Effect.Effect<A, never, never>
+    Effect.flatMap(Journal.Journal, use).pipe(Effect.provide(layer))
   )
 
 describe("Journal", () => {
@@ -84,7 +84,7 @@ describe("Journal", () => {
     const error = await Effect.runPromise(
       Effect.flip(Effect.flatMap(Journal.Journal, (journal) => journal.read)).pipe(
         Effect.provide(Journal.layerNoop())
-      ) as Effect.Effect<Journal.JournalError, never, never>
+      )
     )
     expect(error.code).toBe("journal_unavailable")
   })

@@ -24,7 +24,7 @@ const runWith = <E>(
   Effect.runPromise(
     Effect.flatMap(ScriptRunner.ScriptRunner, (runner) => runner.run(Script.make(text), handler)).pipe(
       Effect.provide(layer)
-    ) as Effect.Effect<Outcome.Outcome, never, never>
+    )
   )
 
 const failWith = <E>(
@@ -35,7 +35,7 @@ const failWith = <E>(
   Effect.runPromise(
     Effect.flip(
       Effect.flatMap(ScriptRunner.ScriptRunner, (runner) => runner.run(Script.make(text), handler))
-    ).pipe(Effect.provide(layer)) as Effect.Effect<unknown, never, never>
+    ).pipe(Effect.provide(layer))
   )
 
 const echo = (request: ScriptRunner.Request): Effect.Effect<unknown> =>
@@ -134,7 +134,7 @@ describe.each(runners)("runner conformance: %s", (_name, layer) => {
               }
             )
         ).pipe(Effect.provide(layer))
-      ) as Effect.Effect<Exit.Exit<unknown, unknown>, never, never>
+      )
     )
 
     expect(Exit.isFailure(exit)).toBe(true)
@@ -727,7 +727,7 @@ describe("QuickJs sealed realm", () => {
               () => Effect.die(new Error("the host handler is broken"))
             )
         ).pipe(Effect.provide(QuickJsRunner.layer()))
-      ) as Effect.Effect<Exit.Exit<unknown, unknown>, never, never>
+      )
     )
     expect(Exit.isFailure(exit)).toBe(true)
     const cause = (exit as Exit.Failure<unknown, unknown>).cause

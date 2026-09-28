@@ -317,12 +317,15 @@ export const defaultScratchPath = (suite: string): string => {
   return join(tmpdir(), `flows-host-contract-${process.pid}-${++scratchSeq}-${slug}`)
 }
 
-const provide = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-  layer: HostContractLayer
-): Effect.Effect<A, E | unknown> => effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E | unknown>
+/** Everything a {@link HostContractLayer} provides; a case may use nothing else. */
+type HostServices = Layer.Success<HostContractLayer>
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>, layer: HostContractLayer) => provide(effect, layer)
+const provide = <A, E>(
+  effect: Effect.Effect<A, E, HostServices>,
+  layer: HostContractLayer
+): Effect.Effect<A, E | unknown> => effect.pipe(Effect.provide(layer))
+
+const run = <A, E>(effect: Effect.Effect<A, E, HostServices>, layer: HostContractLayer) => provide(effect, layer)
 
 const unsupported = ChildProcess.make("host-contract-unsupported")
 
@@ -338,7 +341,7 @@ const fileSystemProbe = (
   fs: FileSystem.FileSystem,
   operation: FileSystemOperation,
   root: string
-): Effect.Effect<unknown, unknown, unknown> => {
+): Effect.Effect<unknown, unknown> => {
   const at = (name: string): string => `${root}/${operation}-${name}`
   const source = `${root}/source.txt`
   const bytes = new TextEncoder().encode("host-contract")

@@ -120,7 +120,7 @@ const source = (options: Partial<Parameters<typeof make>[0]> = {}) =>
   })
 
 const runWithCursors = <A, E>(effect: Effect.Effect<A, E, CursorStore>, layer = layerMemory) =>
-  Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E>)
+  Effect.runPromise(effect.pipe(Effect.provide(layer)))
 
 describe("source authorization", () => {
   it.each([[undefined], [[]]])("refuses to start with allowedChatIds %s", async (allowedChatIds) => {

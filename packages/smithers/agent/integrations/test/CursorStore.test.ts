@@ -14,7 +14,7 @@ const sqlLayer = Layer.provideMerge(layerSql, Layer.provideMerge(Migrations.laye
 
 const contract = (name: string, layer: Layer.Layer<CursorStore, never, never>) => {
   const run = <A, E>(effect: Effect.Effect<A, E, CursorStore>) =>
-    Effect.runPromise(effect.pipe(Effect.provide(layer), Effect.scoped) as Effect.Effect<A, E>)
+    Effect.runPromise(effect.pipe(Effect.provide(layer), Effect.scoped))
 
   describe(name, () => {
     it("reads null for a source that has never polled", async () => {
@@ -96,7 +96,7 @@ describe("CursorStore (SQLite) durability", () => {
           ),
           Effect.scoped,
           Effect.orDie
-        ) as Effect.Effect<A>
+        )
       )
 
   it("keeps the cursor across a second store opened on the same file", async () => {

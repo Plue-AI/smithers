@@ -43,4 +43,4 @@ export const sqlLayer: Layer.Layer<SourceStore.SourceStore | SqlClient.SqlClient
 
 /** Runs `effect` against a fresh store built from `layer`. */
 export const runWith = <R>(layer: Layer.Layer<R>) => <A, E>(effect: Effect.Effect<A, E, R>): Promise<A> =>
-  Effect.runPromise(effect.pipe(Effect.provide(layer), Effect.scoped) as Effect.Effect<A, E>)
+  Effect.runPromise(effect.pipe(Effect.provide(layer), Effect.scoped))

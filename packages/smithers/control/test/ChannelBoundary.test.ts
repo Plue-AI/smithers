@@ -93,7 +93,7 @@ const withChannels = <A, E>(
   layer = memoryChannels()
 ) =>
   Effect.runPromise(
-    Effect.flatMap(Channels.Channels, effect).pipe(Effect.provide(layer)) as Effect.Effect<A, E>
+    Effect.flatMap(Channels.Channels, effect).pipe(Effect.provide(layer))
   )
 
 /** The refusal `ingest` answered, or a failure if it did not refuse. */
