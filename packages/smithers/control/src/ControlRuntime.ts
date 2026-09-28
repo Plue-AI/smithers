@@ -48,11 +48,12 @@ import { GrantScope as GrantScopeSchema, Principal as PrincipalSchema } from "./
 import { canonicalIssue } from "./internal/issues.ts"
 import {
   accepted,
+  adoptedCode,
   alreadyApplied as replayReceipt,
   canonical,
+  codeDriftOf,
   emptyEnvelope,
   planCard,
-  refuseCodeDrift,
   sameEnvelope
 } from "./internal/planning.ts"
 import { plannable } from "./SystemFlows.ts"
@@ -509,14 +510,23 @@ export interface Service {
    */
   readonly resume: (
     runId: RunId,
-    options?: { readonly scope?: "launched" | "any" | undefined } | undefined
+    options?: {
+      readonly scope?: "launched" | "any" | undefined
+      /**
+       * Record the flow's current execution digest and this runtime's engine
+       * version on the claimed run: the operator allowed it to resume on
+       * changed code, so later checks compare against that code.
+       */
+      readonly adoptCode?: boolean | undefined
+    } | undefined
   ) => Effect.Effect<RunSummary, RunNotFound | ClaimLost | PersistenceError>
   /**
-   * Fails `CodeDrift` when the run's flow no longer has the execution digest
-   * the run started with. An operator resume asks this before it claims;
-   * recovery paths that only settle a run do not.
+   * The drift between the code the run recorded and the code that would
+   * resume it, or `undefined` when there is none. Every path that re-drives a
+   * parked run asks this before it claims or delegates; recovery paths that
+   * only settle a run do not.
    */
-  readonly refuseCodeDrift: (runId: RunId) => Effect.Effect<void, RunNotFound | CodeDrift | PersistenceError>
+  readonly codeDrift: (runId: RunId) => Effect.Effect<CodeDrift | undefined, RunNotFound | PersistenceError>
   readonly claimFence: (runId: RunId) => Effect.Effect<string, RunNotFound | ClaimLost | PersistenceError>
   /**
    * Releases a launch the configured executor declined without changing its
@@ -1176,11 +1186,11 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             return updateSummary(run, { status: "cancelled", ownerId: undefined, parkedBy: undefined })
           }))
         }),
-        refuseCodeDrift: Effect.fn("ControlRuntime.refuseCodeDrift")(function*(runId) {
+        codeDrift: Effect.fn("ControlRuntime.codeDrift")(function*(runId) {
           const run = yield* requireRun(runId)
-          yield* refuseCodeDrift(run.summary, flows.get(run.summary.flowId))
+          return codeDriftOf(run.summary, flows.get(run.summary.flowId), options.engineVersion)
         }),
-        resume: Effect.fn("ControlRuntime.resume")(function*(runId) {
+        resume: Effect.fn("ControlRuntime.resume")(function*(runId, resumeOptions) {
           const run = yield* requireRun(runId)
           if (
             run.summary.status === "cancelled" ||
@@ -1199,7 +1209,14 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           run.fence = fence
           run.localFence = fence
           // Claiming ends the park, so it ends the record of who wrote it.
-          return updateSummary(run, { status: "accepted", ownerId: "memory-owner", parkedBy: undefined })
+          return updateSummary(run, {
+            ...(resumeOptions?.adoptCode === true
+              ? adoptedCode(run.summary, flows.get(run.summary.flowId), options.engineVersion)
+              : {}),
+            status: "accepted",
+            ownerId: "memory-owner",
+            parkedBy: undefined
+          })
         }),
         claimFence: Effect.fn("ControlRuntime.claimFence")(function*(runId) {
           const run = yield* requireRun(runId)

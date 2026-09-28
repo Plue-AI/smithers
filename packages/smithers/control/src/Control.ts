@@ -187,6 +187,7 @@ export interface Service {
     | AlreadyResolved
     | PlanNotFound
     | RunNotFound
+    | CodeDrift
     | InvalidInput
     | Unauthorized
     | PersistenceError
@@ -202,6 +203,7 @@ export interface Service {
     | AlreadyResolved
     | PlanNotFound
     | RunNotFound
+    | CodeDrift
     | InvalidInput
     | Unauthorized
     | PersistenceError

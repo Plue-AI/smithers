@@ -100,11 +100,12 @@ import * as ActiveFibers from "./internal/activeFibers.ts"
 import { canonicalIssue, cappedIssue, schemaIssuePath } from "./internal/issues.ts"
 import {
   accepted,
+  adoptedCode,
   alreadyApplied,
   canonical,
+  codeDriftOf,
   emptyEnvelope,
   planCard,
-  refuseCodeDrift,
   sameEnvelope
 } from "./internal/planning.ts"
 import { causeMessages, missingTable } from "./internal/sqlSchemaErrors.ts"
@@ -1131,7 +1132,8 @@ const makeRuntime = (
     const claim = (
       runId: RunId,
       row: RunStore.RunRow,
-      evidence?: Ownership.LivenessEvidence | undefined
+      evidence?: Ownership.LivenessEvidence | undefined,
+      adoptCode = false
     ): Effect.Effect<RunSummary, RunNotFound | ClaimLost | PersistenceError> =>
       Effect.gen(function*() {
         const timestamp = evidence?.checkedAtMs ?? (yield* now)
@@ -1144,8 +1146,41 @@ const makeRuntime = (
         const summary = yield* summaryOf(row)
         return yield* transition(runId, claimant, {
           ...summary,
+          ...(adoptCode ? adoptedCode(summary, (yield* readFlows).get(summary.flowId), options.engineVersion) : {}),
           ownerId: JSON.stringify(claimant)
         }, "accepted")
+      })
+
+    /**
+     * The run's summary with the code identity it started on.
+     *
+     * A row with no control summary of its own (a trampoline round, or a fork
+     * or child the engine wrote) records no identity, and checking it against
+     * nothing let it resume on any code. It inherits the identity of its
+     * nearest ancestor of the same flow that recorded one.
+     */
+    const recordedCode = (row: RunStore.RunRow): Effect.Effect<RunSummary, PersistenceError> =>
+      Effect.gen(function*() {
+        const summary = yield* summaryOf(row)
+        const seen = new Set<string>([row.runId])
+        let parentId = optional(row.parentRunId).value ?? summary.parentRunId
+        while (
+          summary.executionDigest === undefined && summary.engineVersion === undefined &&
+          parentId !== undefined && !seen.has(parentId)
+        ) {
+          seen.add(parentId)
+          const parentRow = yield* requireRow(parentId).pipe(
+            Effect.catchTag("/control/RunNotFound", () => Effect.succeed(undefined))
+          )
+          if (parentRow === undefined) break
+          const parent = yield* summaryOf(parentRow)
+          if (parent.flowId !== summary.flowId) break
+          if (parent.executionDigest !== undefined || parent.engineVersion !== undefined) {
+            return { ...summary, executionDigest: parent.executionDigest, engineVersion: parent.engineVersion }
+          }
+          parentId = optional(parentRow.parentRunId).value ?? parent.parentRunId
+        }
+        return summary
       })
 
     /**
@@ -1910,13 +1945,16 @@ const makeRuntime = (
           )
         )
       }),
-      refuseCodeDrift: Effect.fn("SqlControlRuntime.refuseCodeDrift")(function*(runId: RunId) {
-        const summary = yield* summaryOf(yield* requireRow(runId))
-        yield* refuseCodeDrift(summary, (yield* readFlows).get(summary.flowId))
+      codeDrift: Effect.fn("SqlControlRuntime.codeDrift")(function*(runId: RunId) {
+        const summary = yield* recordedCode(yield* requireRow(runId))
+        return codeDriftOf(summary, (yield* readFlows).get(summary.flowId), options.engineVersion)
       }),
       resume: Effect.fn("SqlControlRuntime.resume")(function*(
         runId: RunId,
-        options?: { readonly scope?: "launched" | "any" | undefined } | undefined
+        resumeOptions?: {
+          readonly scope?: "launched" | "any" | undefined
+          readonly adoptCode?: boolean | undefined
+        } | undefined
       ) {
         const row = yield* requireRow(runId)
         const summary = yield* summaryOf(row)
@@ -1927,19 +1965,21 @@ const makeRuntime = (
         if (row.status === "running") {
           if (ownedByUs(row)) return summary
           const evidence = yield* deadOwner(row)
-          return evidence === undefined ? yield* new ClaimLost({ runId }) : yield* claim(runId, row, evidence)
+          return evidence === undefined
+            ? yield* new ClaimLost({ runId })
+            : yield* claim(runId, row, evidence, resumeOptions?.adoptCode === true)
         }
         // Every public Control resume and steer wake uses launched scope.
         // Engine-created runs keep their continuation and driver. Unrestricted
         // claims are a trusted low-level capability for hosts that can drive
         // the execution; node approval delegates through requestResume instead.
-        if (options?.scope === "launched") {
+        if (resumeOptions?.scope === "launched") {
           const indexed = yield* sql`SELECT run_id FROM control_runs WHERE run_id = ${runId}`.pipe(
             Effect.mapError(persistence("read the launch index"))
           )
           if (indexed.length === 0) return yield* new ClaimLost({ runId })
         }
-        return yield* claim(runId, row)
+        return yield* claim(runId, row, undefined, resumeOptions?.adoptCode === true)
       }),
       claimFence: Effect.fn("SqlControlRuntime.claimFence")(function*(runId: RunId) {
         const row = yield* requireRow(runId)

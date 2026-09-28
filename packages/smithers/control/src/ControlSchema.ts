@@ -547,6 +547,17 @@ export const RunSummary = Schema.Struct({
   executionDigest: Schema.optional(Schema.String),
   /** The engine version that started the run. */
   engineVersion: Schema.optional(Schema.String),
+  /**
+   * How the code that would resume this run differs from the code it
+   * recorded. Computed by an exact run lookup, never stored; absent when
+   * nothing changed or the run is terminal.
+   */
+  codeDrift: Schema.optional(Schema.Struct({
+    recorded: Schema.optional(Schema.String),
+    current: Schema.optional(Schema.String),
+    recordedEngine: Schema.optional(Schema.String),
+    currentEngine: Schema.optional(Schema.String)
+  })),
   ownerId: Schema.optional(Schema.String),
   /**
    * The run this one branched from: the spawning run, the forked-from run, or

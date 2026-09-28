@@ -110,8 +110,9 @@ export class ClaimLost extends Schema.TaggedError<ClaimLost>()("/control/ClaimLo
 }) {}
 
 /**
- * The run's flow changed since the run started, so resuming it would run code
- * the run did not start with. Pass `allowCodeDrift` to resume it anyway.
+ * The run's flow or engine changed since the run started, so resuming it would
+ * run code the run did not start with. Pass `allowCodeDrift` to resume it
+ * anyway; the run then records the code it resumed on.
  *
  * @category errors
  * @since 1.0.0
@@ -120,14 +121,26 @@ export class CodeDrift extends Schema.TaggedError<CodeDrift>()("/control/CodeDri
   code: constantCode("code_drift"),
   runId: RunId,
   flowId: FlowId,
-  /** The execution digest the run started with. */
-  recorded: Schema.String,
+  /** The execution digest the run started with; absent when only the engine changed. */
+  recorded: Schema.optional(Schema.String),
   /** The flow's execution digest now; absent when the flow is gone or declares none. */
-  current: Schema.optional(Schema.String)
+  current: Schema.optional(Schema.String),
+  /** The engine version the run started on, when the engine changed. */
+  recordedEngine: Schema.optional(Schema.String),
+  /** The engine version resuming it, when the engine changed. */
+  currentEngine: Schema.optional(Schema.String)
 }) {
   override get message(): string {
-    return `Run ${this.runId} started on ${this.flowId} ${this.recorded}, which is now ${
-      this.current ?? "gone"
+    const changes = [
+      ...(this.recorded === undefined
+        ? []
+        : [`${this.flowId} ${this.recorded}, which is now ${this.current ?? "gone"}`]),
+      ...(this.recordedEngine === undefined
+        ? []
+        : [`engine ${this.recordedEngine}, which is now ${this.currentEngine ?? "unknown"}`])
+    ]
+    return `Run ${this.runId} started on ${
+      changes.join(" and ")
     }. Resume with --allow-code-drift to run the changed code.`
   }
 }

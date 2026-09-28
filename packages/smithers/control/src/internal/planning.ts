@@ -28,27 +28,47 @@ import type {
 } from "../ControlSchema.ts"
 
 /**
- * Fails when the run's flow no longer has the execution digest the run
- * started with. A run that recorded none (a flow without a digest, or a row
- * older than the field) is not checked.
+ * The drift between the code a run recorded and the code that would resume
+ * it, or `undefined` when there is none. A run that recorded no digest (a flow
+ * without one, or a row older than the field) is not checked for flow drift,
+ * and one that recorded no engine version is not checked for engine drift.
  *
  * @since 1.0.0
  * @private
  */
-export const refuseCodeDrift = (
+export const codeDriftOf = (
   run: RunSummary,
-  flow: { readonly executionDigest?: string | undefined } | undefined
-): Effect.Effect<void, CodeDrift> =>
-  run.executionDigest === undefined || flow?.executionDigest === run.executionDigest
-    ? Effect.void
-    : Effect.fail(
-      new CodeDrift({
-        runId: run.runId,
-        flowId: run.flowId,
-        recorded: run.executionDigest,
-        ...(flow?.executionDigest === undefined ? {} : { current: flow.executionDigest })
-      })
-    )
+  flow: { readonly executionDigest?: string | undefined } | undefined,
+  engineVersion: string | undefined
+): CodeDrift | undefined => {
+  const flowDrift = run.executionDigest !== undefined && flow?.executionDigest !== run.executionDigest
+  const engineDrift = run.engineVersion !== undefined && engineVersion !== undefined &&
+    engineVersion !== run.engineVersion
+  if (!flowDrift && !engineDrift) return undefined
+  return new CodeDrift({
+    runId: run.runId,
+    flowId: run.flowId,
+    ...(flowDrift ? { recorded: run.executionDigest } : {}),
+    ...(flowDrift && flow?.executionDigest !== undefined ? { current: flow.executionDigest } : {}),
+    ...(engineDrift ? { recordedEngine: run.engineVersion, currentEngine: engineVersion } : {})
+  })
+}
+
+/**
+ * The code identity a resume the operator allowed to drift records on the run,
+ * so later checks compare against the code it now runs.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const adoptedCode = (
+  run: RunSummary,
+  flow: { readonly executionDigest?: string | undefined } | undefined,
+  engineVersion: string | undefined
+): Pick<RunSummary, "executionDigest" | "engineVersion"> => ({
+  executionDigest: flow?.executionDigest,
+  engineVersion: engineVersion ?? run.engineVersion
+})
 
 /**
  * The envelope a flow with no declared capabilities carries.

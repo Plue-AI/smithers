@@ -372,6 +372,32 @@ export const layer: Layer.Layer<
       })
     const getRun = (runId: string) => runtime.getRun(runId).pipe(Effect.flatMap(observe))
 
+    /** Fails `CodeDrift` when re-driving the run would enter code it did not start on. */
+    const refuseCodeDrift = (runId: RunId) =>
+      runtime.codeDrift(runId).pipe(Effect.flatMap((drift) => drift === undefined ? Effect.void : Effect.fail(drift)))
+
+    /**
+     * The run with the drift a resume would refuse, for an operator reading it.
+     * A drift that cannot be computed is left absent rather than failing the read.
+     */
+    const withCodeDrift = (run: RunSummary): Effect.Effect<RunSummary> =>
+      terminal(run.status)
+        ? Effect.succeed(run)
+        : runtime.codeDrift(run.runId).pipe(
+          Effect.map((drift) =>
+            drift === undefined ? run : {
+              ...run,
+              codeDrift: {
+                ...(drift.recorded === undefined ? {} : { recorded: drift.recorded }),
+                ...(drift.current === undefined ? {} : { current: drift.current }),
+                ...(drift.recordedEngine === undefined ? {} : { recordedEngine: drift.recordedEngine }),
+                ...(drift.currentEngine === undefined ? {} : { currentEngine: drift.currentEngine })
+              }
+            }
+          ),
+          Effect.orElseSucceed(() => run)
+        )
+
     const mutationSemaphore = yield* Semaphore.make(1)
 
     const emit = (
@@ -592,6 +618,7 @@ export const layer: Layer.Layer<
           Effect.catchTag("/control/ClaimLost", () => Effect.succeed(false))
         )
         if (ours) return
+        yield* refuseCodeDrift(runId)
         const claimed = yield* runtime.resume(runId, { scope: "launched" }).pipe(
           Effect.catchTag("/control/ClaimLost", () => Effect.succeed(undefined))
         )
@@ -647,6 +674,10 @@ export const layer: Layer.Layer<
           input.principal,
           fingerprint(decision, input.principal, input),
           Effect.gen(function*() {
+            // A node decision restarts the run, so it re-enters the flow's
+            // current code: a changed flow is refused before anything is
+            // resolved, and the run stays waiting for this decision.
+            if (input.target._tag === "Node") yield* refuseCodeDrift(input.target.runId)
             const token = yield* runtime.lookupApproval(input.target)
             // Resolve (and recheck authority) before installing any grant. The
             // durable adapter commits all three writes in this transaction;
@@ -739,8 +770,11 @@ export const layer: Layer.Layer<
             }
             // Every claim re-enters the flow's current code, so a changed flow
             // is refused before the claim and the run stays where it was.
-            if (input.allowCodeDrift !== true) yield* runtime.refuseCodeDrift(input.runId)
-            const claimed = yield* runtime.resume(input.runId, { scope: "launched" }).pipe(
+            if (input.allowCodeDrift !== true) yield* refuseCodeDrift(input.runId)
+            const claimed = yield* runtime.resume(input.runId, {
+              scope: "launched",
+              adoptCode: input.allowCodeDrift === true
+            }).pipe(
               Effect.catchTag("/control/ClaimLost", () =>
                 live(current.status)
                   ? Effect.fail(new ClaimLost({ runId: input.runId }))
@@ -867,7 +901,10 @@ export const layer: Layer.Layer<
     ): Effect.Effect<void, PersistenceError> => {
       if (run.status !== "parked") return Effect.void
       if (run.waitingReason !== "event" && run.waitingReason !== "released") return Effect.void
-      return runtime.resume(run.runId, { scope: "launched" }).pipe(
+      // A changed flow keeps its park: the steer stays queued, and the
+      // operator decides with `runs resume --allow-code-drift`.
+      return refuseCodeDrift(run.runId).pipe(
+        Effect.andThen(runtime.resume(run.runId, { scope: "launched" })),
         Effect.flatMap((resumed) =>
           emit(
             run.runId,
@@ -881,7 +918,15 @@ export const layer: Layer.Layer<
           )
         ),
         Effect.catchTag("/control/ClaimLost", () => Effect.void),
-        Effect.catchTag("/control/RunNotFound", () => Effect.void)
+        Effect.catchTag("/control/RunNotFound", () => Effect.void),
+        Effect.catchTag(
+          "/control/CodeDrift",
+          (drift) =>
+            Effect.annotateLogs(Effect.logWarning("A steer did not wake a run whose code changed"), {
+              runId: run.runId,
+              cause: drift.message
+            })
+        )
       )
     }
 
@@ -1007,7 +1052,7 @@ export const layer: Layer.Layer<
           if (filters.terminal !== undefined) runs = runs.filter((run) => terminal(run.status) === filters.terminal)
           if (filters.parentRunId !== undefined) runs = runs.filter((run) => run.parentRunId === filters.parentRunId)
           if (filters.lineageId !== undefined) runs = runs.filter((run) => run.lineageId === filters.lineageId)
-          return { _tag: "runs", items: yield* withSteering(runs) }
+          return { _tag: "runs", items: yield* withSteering(yield* Effect.forEach(runs, withCodeDrift)) }
         }
         // A status filter has to select on the status a caller will READ.
         // `observe` replaces this plane's copy with the executor's, so a run
