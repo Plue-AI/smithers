@@ -58,9 +58,12 @@ async function handlePostBug(request: Request, env: BugWorkerEnv, now: number): 
   // The budgets count valid reports only, so rejected requests never spend a
   // reporter's hourly quota. A storage exception escaping the fetch handler
   // becomes workerd's 1101 HTML page; answer a clean JSON error instead.
+  // An operator skips both budgets, so triage can still file during a flood
+  // that has spent the all-clients cap.
   let admitted: "yes" | "client" | "all";
   try {
-    admitted = !(await checkRateLimit(env, `bugs:${clientAddress(request)}`, now)) ? "client"
+    admitted = await isOperator(request, env) ? "yes"
+      : !(await checkRateLimit(env, `bugs:${clientAddress(request)}`, now)) ? "client"
       : !(await checkRateLimit(env, "bugs:all", now, BUG_REPORTS_PER_HOUR)) ? "all"
       : "yes";
   } catch (error) {
@@ -71,6 +74,7 @@ async function handlePostBug(request: Request, env: BugWorkerEnv, now: number): 
     return json(429, { error: `rate limit exceeded (${RATE_LIMIT_PER_HOUR} reports per hour per IP)` });
   }
   if (admitted === "all") {
+    logFailure("bug_report.global_limit", request, `all-clients cap of ${BUG_REPORTS_PER_HOUR} reports per hour reached`);
     return json(429, { error: "rate limit exceeded (too many reports this hour; try again later)" });
   }
 

@@ -46,6 +46,30 @@ describe("rate limits", () => {
     expect(stored(e)).toBe(BUG_REPORTS_PER_HOUR);
   });
 
+  test("an operator files while a flood holds the all-clients cap, and the refusal is logged", async () => {
+    const e = env();
+    const flood = await statuses(Array.from({ length: BUG_REPORTS_PER_HOUR }, (_, i) =>
+      worker.fetch(report({ "cf-connecting-ip": `10.${i >> 8}.${i & 255}.1` }), e)));
+    expect(flood.every((code) => code === 201)).toBe(true);
+    const logged: string[] = [];
+    const original = console.error;
+    console.error = (line: string) => void logged.push(line);
+    try {
+      expect((await worker.fetch(report({ "cf-connecting-ip": "198.51.100.9" }), e)).status).toBe(429);
+      expect((await worker.fetch(report({ "cf-connecting-ip": "198.51.100.9", "x-bug-admin": "admin" }), e)).status).toBe(201);
+      expect((await worker.fetch(report({ "cf-connecting-ip": "198.51.100.9", "x-bug-admin": "wrong" }), e)).status).toBe(429);
+    } finally {
+      console.error = original;
+    }
+    expect(logged.map((line) => JSON.parse(line).event)).toEqual(["bug_report.global_limit", "bug_report.global_limit"]);
+    expect(stored(e)).toBe(BUG_REPORTS_PER_HOUR + 1);
+  });
+
+  test("the all-clients cap takes at least 100 per-client budgets to spend", () => {
+    expect(BUG_REPORTS_PER_HOUR / RATE_LIMIT_PER_HOUR).toBeGreaterThanOrEqual(100);
+    expect(BUG_REPORTS_PER_HOUR * 256 * 1024).toBeLessThanOrEqual(512 * 1024 * 1024);
+  });
+
   test("anonymous claim reads share the public-read budget", async () => {
     const e = env();
     const read = () => worker.fetch(new Request("https://bug.smithers.sh/api/repo-claims?repo=owner/repo", { headers: { "cf-connecting-ip": "203.0.113.8" } }), e);

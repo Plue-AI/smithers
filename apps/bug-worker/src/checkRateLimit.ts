@@ -4,9 +4,11 @@ import type { RateLimitRequest } from "./RateLimiter.ts";
 /**
  * Accepted bug reports per hour across all clients. Rotating addresses defeats
  * any per-client budget, so this bounds the KV bytes anonymous intake can add:
- * at most this many 256 KB reports an hour.
+ * at most this many 256 KB reports (500 MB) an hour. It sits far above organic
+ * volume so a flood needs 100 clients to spend it; operators bypass it, and a
+ * refusal logs `bug_report.global_limit` so the flood is visible.
  */
-export const BUG_REPORTS_PER_HOUR = 200;
+export const BUG_REPORTS_PER_HOUR = 2000;
 /** Default budget: accepted writes per client per hour, per route bucket. */
 export const RATE_LIMIT_PER_HOUR = 20;
 /**
