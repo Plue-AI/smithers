@@ -72,6 +72,12 @@ export class SmithersError extends Error {
     details?: Record<string, unknown>,
     options: SmithersErrorOptions = {}
   ) {
+    // The type closes the vocabulary only for checked TypeScript callers. A
+    // cast or a JavaScript caller could otherwise mint an instance that passes
+    // `isSmithersError` yet fails `hasSmithersErrorShape` and every classifier.
+    if (!isSmithersErrorCode(code)) {
+      throw new TypeError(`SmithersError: unknown error code ${JSON.stringify(String(code))}`)
+    }
     const docsUrl = ERROR_REFERENCE_URL
     const suffix = ` See ${docsUrl}`
     // Only whitespace after a suffix copy is dropped. Whitespace the summary

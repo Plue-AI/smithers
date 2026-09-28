@@ -58,12 +58,12 @@ class SmithersError extends Error {
 
 Constructor parameters:
 
-| Parameter | Type                      | Meaning                                                                                            |
-| --------- | ------------------------- | -------------------------------------------------------------------------------------------------- |
-| `code`    | `SmithersErrorCode`       | The machine-readable classification. Required, and closed over the five documented codes.          |
-| `summary` | `string`                  | The message a person reads, without the documentation URL. Required.                               |
-| `details` | `Record<string, unknown>` | Caller-supplied context. Optional. Omitting it leaves the instance with no own `details` property. |
-| `options` | `SmithersErrorOptions`    | The cause, the reported name, and the documentation-URL switch. Optional.                          |
+| Parameter | Type                      | Meaning                                                                                                                         |
+| --------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `code`    | `SmithersErrorCode`       | The machine-readable classification. Required, and closed over the five documented codes; any other value throws a `TypeError`. |
+| `summary` | `string`                  | The message a person reads, without the documentation URL. Required.                                                            |
+| `details` | `Record<string, unknown>` | Caller-supplied context. Optional. Omitting it leaves the instance with no own `details` property.                              |
+| `options` | `SmithersErrorOptions`    | The cause, the reported name, and the documentation-URL switch. Optional.                                                       |
 
 Fields:
 

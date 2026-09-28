@@ -11,13 +11,13 @@ constructor enforces.
 
 ## The fields
 
-| Field     | Type                                               | Guarantee                                                                                   |
-| --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `code`    | `SmithersErrorCode`                                | One of five string literals. The classification a caller branches on.                       |
-| `summary` | `string`                                           | The message with every trailing documentation URL removed.                                  |
-| `docsUrl` | `string`                                           | Always `ERROR_REFERENCE_URL`.                                                               |
-| `details` | `Readonly<Record<string, unknown>>` or `undefined` | An own property only when the constructor received one. Copied and frozen at the top level. |
-| `name`    | `string`                                           | A non-enumerable own property, like `Error.prototype.name`. Defaults to `"SmithersError"`.  |
+| Field     | Type                                               | Guarantee                                                                                                   |
+| --------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `code`    | `SmithersErrorCode`                                | One of five string literals; any other value throws a `TypeError`. The classification a caller branches on. |
+| `summary` | `string`                                           | The message with every trailing documentation URL removed.                                                  |
+| `docsUrl` | `string`                                           | Always `ERROR_REFERENCE_URL`.                                                                               |
+| `details` | `Readonly<Record<string, unknown>>` or `undefined` | An own property only when the constructor received one. Copied and frozen at the top level.                 |
+| `name`    | `string`                                           | A non-enumerable own property, like `Error.prototype.name`. Defaults to `"SmithersError"`.                  |
 
 `message` and `cause` are inherited from `Error`. `message` is `summary` plus
 the documentation URL; `cause` is present only when the caller supplied one.

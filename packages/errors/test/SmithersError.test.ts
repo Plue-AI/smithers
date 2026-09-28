@@ -309,6 +309,14 @@ describe("error refinements", () => {
     }
   })
 
+  it("refuses to construct with a code outside the closed vocabulary", () => {
+    for (const code of ["NOT_A_CODE", "toString", "__proto__", "", 42, undefined]) {
+      expect(() => new SmithersError(code as SmithersErrorCode, "x")).toThrow(TypeError)
+    }
+    class Subclass extends SmithersError {}
+    expect(() => new Subclass("NOT_A_CODE" as SmithersErrorCode, "x")).toThrow(TypeError)
+  })
+
   it("rejects an Error carrying an unknown code", () => {
     const error = Object.assign(new Error("f"), {
       code: "NOT_A_CODE",
