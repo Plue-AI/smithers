@@ -343,6 +343,31 @@ describe("shared canonical and strict tree admission", () => {
     maxStringBytes: 128,
     maxKeyBytes: 64
   }
+
+  it("notifies strict containers in postorder with detached frozen children", () => {
+    const original = { left: [{ value: 1 }], right: { value: 2 } }
+    const seen: Array<ReadonlyArray<BoundedJson.Json> | { readonly [key: string]: BoundedJson.Json }> = []
+    const result = BoundedJson.admitStrict(original, strictLimits, {
+      onContainer: (container) => {
+        expect(Object.isFrozen(container)).toBe(true)
+        seen.push(container)
+      }
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(seen).toHaveLength(4)
+    expect(seen[0]).toEqual({ value: 1 })
+    expect(seen[1]).toEqual([{ value: 1 }])
+    expect(seen[2]).toEqual({ value: 2 })
+    expect(seen[3]).toBe(result.value)
+    expect(seen[0]).not.toBe(original.left[0])
+    expect(seen[1]).not.toBe(original.left)
+    expect(seen[2]).not.toBe(original.right)
+
+    original.left[0]!.value = 9
+    expect(result.value).toEqual({ left: [{ value: 1 }], right: { value: 2 } })
+  })
   const admissions = [
     (value: unknown) => BoundedJson.admit(value, strictLimits),
     (value: unknown) => BoundedJson.admitStrict(value, strictLimits),

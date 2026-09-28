@@ -219,7 +219,7 @@ const walk = (
         // throws rather than being believed, which lands in the `inspection`
         // refusal below. A Proxy may still report a bogus numeric value, so
         // the value itself is checked; its presence needs no check.
-        const length = strict ? value.length : Object.getOwnPropertyDescriptor(value, "length")!.value
+        const length = Object.getOwnPropertyDescriptor(value, "length")!.value
         if (!Number.isSafeInteger(length) || length < 0 || length > 0xffffffff) {
           return refuse("arrayLength", "has an invalid array length")
         }
