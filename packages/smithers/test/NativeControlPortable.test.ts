@@ -34,6 +34,24 @@ for (const runtime of ["node", "bun"]) {
   }
 }
 
+it("regression: Flaky: NativeControlPortable 'bun refuses ordinary adoption' after #1807 drift rescans", async () => {
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    const { stdout, stderr } = await execute("bun", [fixture, "bun", "drift-rescan"], {
+      timeout: 1_200_000,
+      maxBuffer: 1024 * 1024
+    })
+    const result = stdout.trim().split("\n").findLast((line) => line.startsWith("{\"runtime\""))
+    expect(result, `attempt ${attempt}: ${stderr}`).toBeDefined()
+    expect(JSON.parse(result!), `attempt ${attempt}: ${stderr}`).toMatchObject({
+      runtime: "bun",
+      recovery: true,
+      driftRescan: true,
+      passed: true
+    })
+    expect(`${stdout}\n${stderr}`, `attempt ${attempt}`).not.toContain("coordinated drain failed")
+  }
+}, 1_205_000)
+
 it("fails a drifted approved module explicitly instead of parking it on an ordinary host", async () => {
   const { stdout } = await execute("node", ["--experimental-strip-types", fixture, "node", "drift"], {
     timeout: 1_200_000,

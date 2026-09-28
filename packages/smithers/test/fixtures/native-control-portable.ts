@@ -12,7 +12,8 @@ import { join } from "node:path"
 import * as CoreFlow from "../../flows/core/src/Flow.ts"
 
 const runtime = process.argv[2]
-const recovery = process.argv[3] === "recovery"
+const driftRescan = process.argv[3] === "drift-rescan"
+const recovery = process.argv[3] === "recovery" || driftRescan
 const drift = process.argv[3] === "drift"
 const cancel = process.argv[3] === "cancel"
 const started = Date.now()
@@ -61,7 +62,10 @@ export default Flow.make({ name: "native", description: "Portable native delegat
       Effect.suspend(() => {
         if ((recovery || drift || cancel) && !interrupted) {
           interrupted = true
-          return Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never))
+          // Let shutdown overlap the real action's interruption cleanup.
+          return Deferred.succeed(entered, undefined).pipe(Effect.andThen(
+            Effect.never.pipe(Effect.ensuring(driftRescan ? Effect.sleep("100 millis") : Effect.void))
+          ))
         }
         return Effect.gen(function*() {
           if (recovery) {
@@ -167,6 +171,19 @@ export default Flow.make({ name: "native", description: "Portable native delegat
             },
             idempotencyKey: "portable-steer"
           })
+          if (driftRescan) {
+            // A monitoring read of an active run refreshes the live registry's
+            // current-code snapshot while its native action is still in flight.
+            const listed = yield* bounded(
+              "native in-flight monitoring read",
+              control.list({ _tag: "runs", filters: { runId } })
+            )
+            assert.equal(listed._tag, "runs")
+            if (listed._tag !== "runs") throw new Error("expected monitored runs")
+            assert.equal(listed.items[0]?.runId, runId)
+            assert.deepEqual(calls, [], "the native action must still be in flight during the drift rescan")
+            trace("in-flight run monitored")
+          }
         }
         trace("native action entered")
         return
@@ -257,6 +274,7 @@ export default Flow.make({ description: "Changed after approval", input: Schema.
     JSON.stringify({
       runtime,
       recovery,
+      driftRescan,
       drift,
       cancel,
       passed: true,

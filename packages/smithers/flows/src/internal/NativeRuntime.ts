@@ -88,29 +88,35 @@ export const makeNative = (platform: NativePlatform) => {
   }
 
   const databaseLayer = (filename: string) =>
-    Layer.unwrap(Effect.gen(function*() {
-      if (/^postgres(?:ql)?:\/\//.test(filename)) return platform.database(filename)
-      const directory = dirname(filename)
-      const fs = yield* FileSystem.FileSystem
-      // The engine database is host configuration and is never a path a model
-      // can name, so it does not have to live inside the workspace the run is
-      // confined to. A host that serves a live JJ or Git checkout deliberately
-      // keeps `engine.db` outside it, because the engine writes on every step
-      // and inside the checkout those writes are untracked files that move the
-      // working-copy tree digest under the code the run is reading. The
-      // injected filesystem stays the first answer, so a confined workspace
-      // still creates its own directory through the kernel; a path that
-      // filesystem refuses as outside its pinned root falls back to the host's
-      // own mkdir, which reports its own failure rather than hiding this one.
-      yield* fs.makeDirectory(directory, { recursive: true }).pipe(
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.failCause(cause)
-            : Effect.sync(() => mkdirSync(directory, { recursive: true }))
+    // Share the entire driver graph, not only Layer.unwrap's factory. Parallel
+    // host consumers share the memoized engine; distinct driver acquisitions
+    // let one consumer close its SQL client while another still owns the engine
+    // and its shutdown drains (#2756).
+    Layer.suspend(() =>
+      Layer.unwrap(Effect.gen(function*() {
+        if (/^postgres(?:ql)?:\/\//.test(filename)) return platform.database(filename)
+        const directory = dirname(filename)
+        const fs = yield* FileSystem.FileSystem
+        // The engine database is host configuration and is never a path a model
+        // can name, so it does not have to live inside the workspace the run is
+        // confined to. A host that serves a live JJ or Git checkout deliberately
+        // keeps `engine.db` outside it, because the engine writes on every step
+        // and inside the checkout those writes are untracked files that move the
+        // working-copy tree digest under the code the run is reading. The
+        // injected filesystem stays the first answer, so a confined workspace
+        // still creates its own directory through the kernel; a path that
+        // filesystem refuses as outside its pinned root falls back to the host's
+        // own mkdir, which reports its own failure rather than hiding this one.
+        yield* fs.makeDirectory(directory, { recursive: true }).pipe(
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.sync(() => mkdirSync(directory, { recursive: true }))
+          )
         )
-      )
-      return platform.database(filename)
-    }))
+        return platform.database(filename)
+      }))
+    )
 
   const storage = (filename: string, workspaceRoot?: string) => {
     const decodedFilename = decodeField("filename", Schema.NonEmptyString, filename, nonEmpty)
