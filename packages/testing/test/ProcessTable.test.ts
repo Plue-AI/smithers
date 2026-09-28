@@ -94,4 +94,22 @@ describe("ProcessTable.queryWindows", () => {
     expect(() => ProcessTable.queryWindows({ columns: ["pid"] }, () => ({ ...result("partial"), error })))
       .toThrow(error)
   })
+
+  it("refuses a pid that is not a positive integer before any probe script is built", () => {
+    const scripts: Array<string> = []
+    const spawn: ProcessTable.Spawn = (_command, args) => {
+      scripts.push(args.join(" "))
+      return result("")
+    }
+    const injected = "0' OR 1=1'; Remove-Item -Recurse C:\\ ; '" as unknown as number
+    for (const pid of [injected, 1.5, 0, -4, Number.NaN]) {
+      expect(() => ProcessTable.queryWindows({ pid, columns: ["pid"] }, spawn))
+        .toThrow("Process probe needs a positive integer pid")
+      expect(() => ProcessTable.query({ pid, columns: ["pid"], platform: "win32" }, spawn))
+        .toThrow("Process probe needs a positive integer pid")
+      expect(() => ProcessTable.query({ pid, columns: ["pid"], platform: "linux" }, spawn))
+        .toThrow("Process probe needs a positive integer pid")
+    }
+    expect(scripts).toEqual([])
+  })
 })

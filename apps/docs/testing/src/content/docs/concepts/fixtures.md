@@ -27,6 +27,9 @@ including on test failure. Direct callers can use
 A flush writes a unique temporary file beside the target and renames it over
 the target only when complete. The JSON path always contains the previous or
 next complete fixture. Commit the JSON file, not the journal or temporary files.
+Read it first: it holds every recorded request verbatim, and the recorder
+refuses only token-shaped credentials, not bearer tokens, URL credentials, or
+private user content.
 
 A fixture path permits one active writer. The first append acquires the
 `path.lock` directory until `flush` releases it. Concurrent appends through one
@@ -36,6 +39,10 @@ reading, so open another store after the current writer flushes. An idle store
 refreshes from disk before its next recording session; `load` alone does not
 refresh changes from other stores. Do not address the same fixture through
 symlink aliases.
+
+The store opens `path.journal` with `O_NOFOLLOW` for every read, append, and
+truncation. A symlink at that path fails with a defect naming it, so a planted
+link cannot aim a recording run at another file. Windows has no `O_NOFOLLOW`.
 
 After a killed process, confirm that no writer remains, remove `path.lock`,
 and reopen the store. Complete journal lines are recovered; an unfinished last
@@ -122,6 +129,26 @@ unfinished, so nothing is recorded.
 there is no exchange to record. Replaying one would hand the code under test a
 provider refusal the provider never made. The failure still reaches the caller
 unchanged.
+
+## A credential is never recorded
+
+A fixture is meant to be committed, and a recorded call holds the system
+prompt, every message, tool arguments and results, and the provider's error
+text verbatim. Before `RecordingModel` hands a call to its sink, it scans the
+serialized call with the token-shaped rules from `@smthrs/journal/Redaction`:
+private key blocks, JWTs, and `sk-`, `ghp_`, `github_pat_`, `AKIA`, `xox`, and
+`AIza` keys. It also joins each text, thinking, and tool-call argument stream
+in event order and scans the joined string, because a provider streams a key a
+few characters per delta. A match fails the stream with a defect that names the
+rule, not the value, and nothing is recorded.
+
+The scan does not cover opaque bearer tokens, such as an `Authorization: Bearer`
+header echoed in a tool result, or credentials embedded in a URL, such as
+`https://user:password@host` in a request. Those are recorded verbatim.
+
+The recorder refuses rather than redacts, because a redacted request no longer
+has the digest its replay looks up. Remove the credential from the request,
+tool output, or provider response, then record again.
 
 ## Two doubles, two questions
 

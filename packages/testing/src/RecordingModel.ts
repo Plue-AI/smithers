@@ -8,6 +8,7 @@
  * @since 0.0.0
  */
 
+import { defaultRules } from "@smthrs/journal/Redaction"
 import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import { Effect, Exit, type Layer, Stream } from "effect"
@@ -41,6 +42,55 @@ const recordedFailure = (error: Model.ModelFailure): ModelErrorLike | undefined 
     }
     : undefined
 
+// A recording is meant to be committed, and it holds the system prompt, every
+// message, tool arguments and results, and the provider's error text verbatim.
+// These are the journal's token-shaped rules only: its name and assignment
+// rules would also match ordinary tool schemas (`"token": {...}`, `maxTokens`).
+// A match refuses the whole call rather than redacting it, because a redacted
+// request no longer has the digest its replay will look up.
+const credentialRules = new Set([
+  "private-key-block",
+  "jwt",
+  "api-key",
+  "github-token",
+  "github-fine-grained-token",
+  "aws-access-key",
+  "slack-token",
+  "google-api-key"
+])
+const credentialPatterns = defaultRules
+  .filter((rule) => credentialRules.has(rule.id))
+  .map((rule) => ({ id: rule.id, pattern: new RegExp(rule.pattern.source, rule.pattern.flags.replace("g", "")) }))
+
+// Providers stream output a few characters per delta, so a key the model
+// emitted is split across events and never contiguous in the serialized call.
+// Each text, thinking and tool-call stream is joined in event order and scanned
+// as one string beside the serialized call.
+const streamedTexts = (events: ReadonlyArray<ModelEventLike>): Array<string> => {
+  const joined = new Map<string, string>()
+  const append = (key: string, piece: string) => joined.set(key, (joined.get(key) ?? "") + piece)
+  for (const event of events) {
+    if (event.type === "text-delta" || event.type === "thinking-delta") {
+      append(`${event.type}\u0000${event.id}`, event.text)
+    } else if (event.type === "tool-call-delta") {
+      append(`${event.type}\u0000${event.id}`, event.arguments)
+    }
+  }
+  return [...joined.values()]
+}
+
+const guarded = (call: RecordedCall, sink: Sink): Effect.Effect<void> =>
+  Effect.suspend(() => {
+    const texts = [JSON.stringify(call), ...streamedTexts(call.events)]
+    const found = credentialPatterns.find((rule) => texts.some((text) => rule.pattern.test(text)))
+    return found === undefined ? sink(call) : Effect.die(
+      new Error(
+        `Refusing to record a ${call.model} call: it contains a value shaped like a credential (${found.id}). ` +
+          "Remove it from the request, tool results, or provider output before recording."
+      )
+    )
+  })
+
 /**
  * Wraps a live model so each call is written to `sink` when its stream ends.
  *
@@ -53,6 +103,12 @@ const recordedFailure = (error: Model.ModelFailure): ModelErrorLike | undefined 
  * because the kernel refused the call before the provider saw it, so there is
  * no provider exchange to record; the failure still reaches the caller
  * unchanged.
+ *
+ * A call whose serialized form holds a credential-shaped value (a private key
+ * block, a JWT, or an `sk-`, `ghp_`, `github_pat_`, `AKIA`, `xox`, or `AIza`
+ * key, including one streamed across several deltas) never reaches `sink`:
+ * the stream dies with a defect naming the rule, not the value, so a recording
+ * run cannot write a secret into a fixture.
  *
  * @category constructors
  * @since 0.0.0
@@ -93,12 +149,12 @@ export const make = (live: Model.Model, sink: Sink): Model.Model =>
           ),
           Stream.onExit((exit) =>
             (Exit.isSuccess(exit) && exhausted) || failure !== undefined
-              ? sink({
+              ? guarded({
                 request: recorded,
                 model: recorded.modelId,
                 events: [...events],
                 ...(failure === undefined ? {} : { failure })
-              })
+              }, sink)
               : Effect.void
           )
         )

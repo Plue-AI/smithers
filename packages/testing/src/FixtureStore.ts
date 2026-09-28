@@ -9,7 +9,8 @@
 
 import { Context, Effect, Exit, Layer, Option, Ref, SynchronizedRef } from "effect"
 import { randomUUID } from "node:crypto"
-import { appendFile, mkdir, readFile, rename, rm, rmdir, truncate, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import { appendFile, mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { decode, type Fixture, type RecordedCall } from "./Fixture.ts"
 import { maximumDepth, snapshot } from "./internal/Structural.ts"
@@ -136,9 +137,27 @@ const fileError = (path: string, cause: unknown): Error =>
 const io = <A>(path: string, run: () => Promise<A>): Effect.Effect<A> =>
   Effect.tryPromise({ try: run, catch: (cause) => fileError(path, cause) }).pipe(Effect.orDie)
 
-const readOptional = (path: string): Effect.Effect<string | undefined> =>
+// The journal sits beside a committed fixture, so a contributor could commit a
+// symlink there and aim a recording run's appends and truncation at any file
+// the test user can write. Every journal open refuses to follow a final
+// symlink (ELOOP), which the store reports as a path-naming defect. Windows has
+// no O_NOFOLLOW; there `| undefined` adds no bit.
+const journalRead = constants.O_RDONLY | constants.O_NOFOLLOW
+const journalAppend = constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW
+const journalTruncate = constants.O_WRONLY | constants.O_NOFOLLOW
+
+const truncateJournal = async (path: string, length: number): Promise<void> => {
+  const handle = await open(path, journalTruncate)
+  try {
+    await handle.truncate(length)
+  } finally {
+    await handle.close()
+  }
+}
+
+const readOptional = (path: string, flag: number = constants.O_RDONLY): Effect.Effect<string | undefined> =>
   io(path, () =>
-    readFile(path, "utf8").catch((cause: NodeJS.ErrnoException) => {
+    readFile(path, { encoding: "utf8", flag }).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code === "ENOENT") return undefined
       throw cause
     }))
@@ -157,7 +176,7 @@ const readFixture = (path: string): Effect.Effect<Option.Option<Fixture>> =>
     const initial = text === undefined ? undefined : yield* decodeFile(path, yield* parse(path, text))
     const calls = [...(initial?.calls ?? [])]
     const journalPath = `${path}.journal`
-    const journal = yield* readOptional(journalPath)
+    const journal = yield* readOptional(journalPath, journalRead)
     if (journal !== undefined) {
       const end = journal.lastIndexOf("\n") + 1
       const complete = journal.slice(0, end)
@@ -178,7 +197,9 @@ const readFixture = (path: string): Effect.Effect<Option.Option<Fixture>> =>
       }
       // A killed append can leave a partial final record, including a partial
       // UTF-8 sequence. Only the complete newline-terminated prefix survives.
-      if (end !== journal.length) yield* io(journalPath, () => truncate(journalPath, Buffer.byteLength(complete)))
+      if (end !== journal.length) {
+        yield* io(journalPath, () => truncateJournal(journalPath, Buffer.byteLength(complete)))
+      }
     }
     return initial === undefined && calls.length === 0
       ? Option.none()
@@ -252,7 +273,8 @@ export const makeFile = (path: string): Effect.Effect<
               yield* io(journalPath, () =>
                 appendFile(
                   journalPath,
-                  `${JSON.stringify({ index, call: next.calls[index] })}\n`
+                  `${JSON.stringify({ index, call: next.calls[index] })}\n`,
+                  { flag: journalAppend }
                 ))
               return Option.some(next)
             }).pipe(Effect.onExit((exit) => Exit.isFailure(exit) ? release : Effect.void))).pipe(Effect.uninterruptible)
@@ -261,7 +283,7 @@ export const makeFile = (path: string): Effect.Effect<
         SynchronizedRef.updateEffect(state, (value) =>
           Effect.gen(function*() {
             const latest = yield* current(value)
-            if (Option.isSome(latest) && (yield* readOptional(`${path}.journal`)) !== undefined) {
+            if (Option.isSome(latest) && (yield* readOptional(`${path}.journal`, journalRead)) !== undefined) {
               yield* writeFixture(path, latest.value)
             }
             return latest

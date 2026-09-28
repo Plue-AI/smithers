@@ -38,6 +38,13 @@ pnpm vitest run test/balance.test.ts   # fixtures/balance.json does not exist ye
 git add test/fixtures/balance.json
 ```
 
+Read the fixture before you commit it. Each call stores the full request and
+response: the system prompt, every message, and tool arguments and results.
+The recorder refuses token-shaped credentials such as `sk-` keys and JWTs (see
+[A credential is never recorded](../concepts/fixtures.md#a-credential-is-never-recorded)),
+but it does not detect private user content or a password in any other shape.
+Record against test data you can publish.
+
 Every run after it replays:
 
 ```bash

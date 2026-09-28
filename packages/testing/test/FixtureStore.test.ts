@@ -1,7 +1,17 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Cause, Effect, Exit, Option } from "effect"
 import { spawn } from "node:child_process"
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import * as fs from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -26,6 +36,35 @@ const withFile = <A, E>(use: (path: string) => Effect.Effect<A, E>) =>
   )
 
 describe("FixtureStore file persistence", () => {
+  it.effect("refuses to append through a symlinked journal", () =>
+    withFile((path) =>
+      Effect.gen(function*() {
+        const victim = `${path}.victim`
+        // Empty, so reading it back through the link is a valid empty journal
+        // and only the append itself can touch it.
+        writeFileSync(victim, "")
+        const store = yield* FixtureStore.makeFile(path)
+        symlinkSync(victim, `${path}.journal`)
+        const exit = yield* Effect.exit(store.append(call))
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(String(Cause.squash(exit.cause))).toContain(`${path}.journal`)
+        expect(readFileSync(victim, "utf8")).toBe("")
+      })
+    ))
+
+  it.effect("refuses to read or truncate through a symlinked journal", () =>
+    withFile((path) =>
+      Effect.gen(function*() {
+        const victim = `${path}.victim`
+        writeFileSync(victim, "partial record")
+        symlinkSync(victim, `${path}.journal`)
+        const exit = yield* Effect.exit(FixtureStore.makeFile(path))
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(String(Cause.squash(exit.cause))).toContain(`${path}.journal`)
+        expect(readFileSync(victim, "utf8")).toBe("partial record")
+      })
+    ))
+
   it.effect("preserves the previous complete fixture while recording", () =>
     withFile((path) =>
       Effect.gen(function*() {

@@ -4,7 +4,7 @@ import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
-import { Effect, Fiber, Option, Ref, Stream } from "effect"
+import { Cause, Effect, Exit, Fiber, Option, Ref, Stream } from "effect"
 import type { RecordedCall } from "../src/Fixture.ts"
 import * as RecordingModel from "../src/RecordingModel.ts"
 
@@ -152,6 +152,83 @@ describe("RecordingModel", () => {
         const model = yield* Model.Model
         yield* Stream.runDrain(model.stream(request("Summarize PR 4821.")))
       }).pipe(Effect.provide(layer))
+      expect(yield* sink.calls()).toHaveLength(1)
+    }))
+
+  // Assembled at runtime so no credential-shaped literal sits in the source.
+  const secrets: ReadonlyArray<readonly [string, string]> = [
+    ["api-key", ["sk", "ant", "api03", "Q1w2E3r4T5y6U7i8"].join("-")],
+    ["github-token", `gh${"p"}_${"A1b2C3d4".repeat(5)}`],
+    ["aws-access-key", `AK${"IA"}${"ABCDEFGH23456789"}`]
+  ]
+  for (const [rule, secret] of secrets) {
+    it.effect(`refuses to record a call carrying a ${rule}`, () =>
+      Effect.gen(function*() {
+        const sink = yield* collector
+        const leaking: ReadonlyArray<ModelEvent.ModelEvent> = [
+          { type: "text-start", id: "text_1" },
+          { type: "text-delta", id: "text_1", text: `the env holds ${secret}` },
+          { type: "text-end", id: "text_1" },
+          { type: "settle", stopReason: "stop", responseId: "resp_1" }
+        ]
+        // Providers stream a long token a few characters at a time, so the key
+        // is never contiguous in the serialized call. Split into three deltas
+        // interleaved with another stream, for text, thinking and tool-call
+        // arguments.
+        const [a, b, c] = [secret.slice(0, 4), secret.slice(4, 9), secret.slice(9)]
+        const chunked: ReadonlyArray<ModelEvent.ModelEvent> = [
+          { type: "text-start", id: "text_1" },
+          { type: "text-start", id: "text_2" },
+          { type: "text-delta", id: "text_1", text: `the env holds ${a}` },
+          { type: "text-delta", id: "text_2", text: "unrelated" },
+          { type: "text-delta", id: "text_1", text: b },
+          { type: "text-delta", id: "text_1", text: c },
+          { type: "text-end", id: "text_2" },
+          { type: "text-end", id: "text_1" },
+          { type: "settle", stopReason: "stop", responseId: "resp_1" }
+        ]
+        const chunkedThinking: ReadonlyArray<ModelEvent.ModelEvent> = [
+          { type: "thinking-start", id: "think_1" },
+          { type: "thinking-delta", id: "think_1", text: a },
+          { type: "thinking-delta", id: "think_1", text: b },
+          { type: "thinking-delta", id: "think_1", text: c },
+          { type: "thinking-end", id: "think_1" },
+          { type: "settle", stopReason: "stop", responseId: "resp_1" }
+        ]
+        const chunkedToolCall: ReadonlyArray<ModelEvent.ModelEvent> = [
+          { type: "tool-call-start", id: "call_1", name: "bash" },
+          { type: "tool-call-delta", id: "call_1", arguments: `{"cmd":"export KEY=${a}` },
+          { type: "tool-call-delta", id: "call_1", arguments: b },
+          { type: "tool-call-delta", id: "call_1", arguments: `${c}"}` },
+          { type: "tool-call-end", id: "call_1" },
+          { type: "settle", stopReason: "tool-calls", responseId: "resp_1" }
+        ]
+        for (
+          const recorder of [
+            RecordingModel.make(liveOf(Stream.fromIterable(events)), sink.sink).stream(request(`key ${secret}`)),
+            RecordingModel.make(liveOf(Stream.fromIterable(leaking)), sink.sink).stream(request("Summarize.")),
+            RecordingModel.make(liveOf(Stream.fromIterable(chunked)), sink.sink).stream(request("Summarize.")),
+            RecordingModel.make(liveOf(Stream.fromIterable(chunkedThinking)), sink.sink).stream(request("Think.")),
+            RecordingModel.make(liveOf(Stream.fromIterable(chunkedToolCall)), sink.sink).stream(request("Run."))
+          ]
+        ) {
+          const exit = yield* Effect.exit(Stream.runDrain(recorder))
+          expect(Exit.isFailure(exit)).toBe(true)
+          if (Exit.isFailure(exit)) {
+            const message = String(Cause.squash(exit.cause))
+            expect(message).toContain(`credential (${rule})`)
+            expect(message).not.toContain(secret)
+          }
+        }
+        expect(yield* sink.calls()).toEqual([])
+      }))
+  }
+
+  it.effect("records ordinary token vocabulary that is not a credential", () =>
+    Effect.gen(function*() {
+      const sink = yield* collector
+      const recorder = RecordingModel.make(liveOf(Stream.fromIterable(events)), sink.sink)
+      yield* Stream.runDrain(recorder.stream(request("Set maxTokens and the token field; see sk-learn docs.")))
       expect(yield* sink.calls()).toHaveLength(1)
     }))
 })

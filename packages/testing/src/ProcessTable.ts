@@ -38,17 +38,27 @@ export type Spawn = (
   options: SpawnSyncOptionsWithStringEncoding
 ) => SpawnSyncReturns<string>
 
+// `pid` reaches the Windows probe inside a PowerShell script, so a value an
+// untyped caller passed as a string would be code there. Refuse anything but a
+// positive integer before either transport sees it.
+const validPid = (pid: unknown): void => {
+  if (pid !== undefined && (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0)) {
+    throw new Error(`Process probe needs a positive integer pid, got ${typeof pid}`)
+  }
+}
+
 /**
  * Queries only the requested columns, with a 64 MiB ceiling for busy hosts.
  * Prefer `comm` for executable names; script-marker containment probes need
  * `args` because an interpreted script's executable name is its interpreter.
- * A missing selected pid returns empty text. Probe failures always throw, so
+ * A selected pid must be a positive integer. A missing selected pid returns empty text. Probe failures always throw, so
  * an overflow or permission failure cannot masquerade as successful cleanup.
  * @category getters
  * @since 1.0.0
  */
 export const query = (input: Query, spawn: Spawn = spawnSync): string => {
   const { columns, pid, timeoutMs, platform = process.platform } = input
+  validPid(pid)
   if (platform === "win32") {
     return queryWindows(input, spawn)
   }
@@ -76,6 +86,7 @@ export const query = (input: Query, spawn: Spawn = spawnSync): string => {
  * @since 1.0.0
  */
 export const queryWindows = ({ columns, pid, timeoutMs }: Query, spawn: Spawn = spawnSync): string => {
+  validPid(pid)
   if (columns.includes("pgid")) throw new Error("Windows has no POSIX process groups")
   const expressions: Record<Exclude<Column, "pgid">, string> = {
     pid: "[string]$p.ProcessId",
