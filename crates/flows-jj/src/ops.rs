@@ -9,6 +9,7 @@
 //! filesystem, so futures are driven with `pollster::block_on`, the same way
 //! jj-lib's own sync wrappers (e.g. `Store::get_commit`) do.
 
+use std::path::Component;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -344,25 +345,68 @@ pub fn status(root: &Path) -> Result<String, OpError> {
     status_render::status(&parent_tree, &commit.tree(), &short_change_id(&commit))
 }
 
+/// Refuses a workspace name outside `[A-Za-z0-9._-]`, or one that is empty or
+/// starts with `.`. The name is a caller-chosen string that becomes a
+/// workspace-store key, a jj operation description, and log text, so a `/`,
+/// `..`, newline, or control character in it would reach all three.
+fn validate_workspace_name(name: &str) -> Result<(), OpError> {
+    if name.is_empty() {
+        return Err(OpError::unknown("workspace name cannot be empty"));
+    }
+    let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-');
+    if name.starts_with('.') || !name.chars().all(allowed) {
+        return Err(OpError::unknown(format!(
+            "workspace name {name:?} must use only A-Z, a-z, 0-9, '.', '_', and '-', and must not start with '.'"
+        )));
+    }
+    Ok(())
+}
+
+/// The destination a `workspaceAdd` may create: an absolute path with no
+/// `.` or `..` component and no `.jj` component. The path is caller-chosen,
+/// and without these checks it could climb out of the directory the caller
+/// named or land a working copy inside a repository's `.jj` store.
+fn workspace_destination(path: &str) -> Result<&Path, OpError> {
+    let destination = Path::new(path);
+    if !destination.is_absolute() {
+        return Err(OpError::unknown(format!(
+            "destination path {path:?} must be absolute"
+        )));
+    }
+    // `Path::components` drops interior `.` segments, so inspect the raw
+    // segments too.
+    let dot_segment = path
+        .split('/')
+        .any(|segment| segment == "." || segment == "..");
+    let bad_component = destination.components().any(|component| {
+        matches!(component, Component::ParentDir | Component::CurDir)
+            || component.as_os_str() == ".jj"
+    });
+    if dot_segment || bad_component {
+        return Err(OpError::unknown(format!(
+            "destination path {path:?} must not contain '.', '..', or '.jj' components"
+        )));
+    }
+    Ok(destination)
+}
+
 /// `workspaceAdd`: attach a second working copy named `name` at `path` —
 /// `jj workspace add --name <name> <path>`. The new workspace's working-copy
 /// commit is opened on the parents of this workspace's current change, same
 /// as the CLI.
 pub fn workspace_add(root: &Path, name: &str, path: &str) -> Result<(), OpError> {
+    validate_workspace_name(name)?;
+    let destination = workspace_destination(path)?;
     let settings = user_settings()?;
     let (mut workspace, mut repo) = load(&settings, root)?;
     snapshot_working_copy(&mut workspace, &mut repo)?;
 
-    if name.is_empty() {
-        return Err(OpError::unknown("workspace name cannot be empty"));
-    }
     let name_buf: WorkspaceNameBuf = name.into();
     if repo.view().get_wc_commit_id(&name_buf).is_some() {
         return Err(OpError::unknown(format!(
             "workspace '{name}' already exists"
         )));
     }
-    let destination = Path::new(path);
     if !destination.exists() {
         std::fs::create_dir_all(destination)?;
     } else if !file_util::is_empty_dir(destination)? {
@@ -412,6 +456,7 @@ pub fn workspace_add(root: &Path, name: &str, path: &str) -> Result<(), OpError>
 /// is a no-op, exactly like the CLI (which warns and exits 0). The files at
 /// the forgotten workspace's path are left in place, also like the CLI.
 pub fn workspace_forget(root: &Path, name: &str) -> Result<(), OpError> {
+    validate_workspace_name(name)?;
     let settings = user_settings()?;
     let (workspace, repo) = load(&settings, root)?;
     let name_buf: WorkspaceNameBuf = name.into();
@@ -815,6 +860,70 @@ mod tests {
             let (_, repo) = load(&settings, &root).unwrap();
             assert!(repo.view().wc_commit_ids().is_empty());
         }
+    }
+
+    #[test]
+    fn workspace_add_refuses_unsafe_names_and_destinations_before_touching_disk() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        let lane = temp.path().join("lane");
+        let lane = lane.to_str().unwrap();
+
+        for name in [
+            "a/b",
+            "..",
+            ".hidden",
+            "lane\nforged",
+            "lane\u{1b}[31m",
+            "雪",
+        ] {
+            let error = workspace_add(&root, name, lane).unwrap_err();
+            assert_eq!(error.code, crate::error::ErrorCode::Unknown);
+            assert!(
+                error.message.contains("workspace name"),
+                "{}",
+                error.message
+            );
+            assert!(!Path::new(lane).exists());
+            let error = workspace_forget(&root, name).unwrap_err();
+            assert!(
+                error.message.contains("workspace name"),
+                "{}",
+                error.message
+            );
+        }
+
+        let inside_store = root.join(".jj").join("lane");
+        let escaping = format!("{}/../escaped", temp.path().join("sub").display());
+        let dotted = format!("{}/./dotted", temp.path().display());
+        for (path, created) in [
+            (
+                "relative-lane".to_owned(),
+                Path::new("relative-lane").to_owned(),
+            ),
+            (
+                inside_store.to_str().unwrap().to_owned(),
+                inside_store.clone(),
+            ),
+            (escaping, temp.path().join("escaped")),
+            (dotted, temp.path().join("dotted")),
+        ] {
+            let error = workspace_add(&root, "lane", &path).unwrap_err();
+            assert_eq!(error.code, crate::error::ErrorCode::Unknown);
+            assert!(
+                error.message.contains("destination path"),
+                "{}",
+                error.message
+            );
+            assert!(!created.exists(), "{path} was created");
+        }
+        let settings = user_settings().unwrap();
+        let (_, repo) = load(&settings, &root).unwrap();
+        assert_eq!(repo.view().wc_commit_ids().len(), 1);
+
+        workspace_add(&root, "Lane_1.a-b", lane).unwrap();
+        workspace_forget(&root, "Lane_1.a-b").unwrap();
     }
 
     #[test]

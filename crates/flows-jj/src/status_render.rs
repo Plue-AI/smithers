@@ -3,7 +3,9 @@
 //! The format is owned by this crate (contract callers treat it as opaque
 //! text) and kept deliberately small and stable: optional `A`/`M`/`D` lines
 //! for the working-copy changes, then the current change id. The vocabulary
-//! mirrors `jj status` so humans reading logs feel at home.
+//! mirrors `jj status` so humans reading logs feel at home. Paths with a
+//! control character, `"`, or `\` are C-quoted the way the diff renderer
+//! quotes them.
 
 use std::fmt::Write as _;
 
@@ -13,6 +15,7 @@ use jj_lib::merged_tree::MergedTree;
 use jj_lib::merged_tree::TreeDiffEntry;
 use pollster::FutureExt as _;
 
+use crate::diff_render::quote_path;
 use crate::error::OpError;
 
 /// Renders the working-copy status: the diff of the current change against
@@ -32,9 +35,11 @@ pub fn status(
                 (true, false) => 'D',
                 _ => 'M',
             };
+            // Quoted like diff headers, so a newline in a file name cannot
+            // forge another status entry.
             lines.push(format!(
                 "{sigil} {path}",
-                path = path.as_internal_file_string()
+                path = quote_path("", path.as_internal_file_string())
             ));
         }
         Ok::<_, OpError>(())

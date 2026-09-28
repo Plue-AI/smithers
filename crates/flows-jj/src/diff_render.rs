@@ -36,18 +36,31 @@ use crate::error::OpError;
 /// `diff.git.context` default: three lines of context around every hunk.
 const CONTEXT_LINES: usize = 3;
 
-/// Git C-quotes paths with control bytes, quotes, or backslashes. Include the
-/// a/ or b/ prefix inside the quotes; ordinary UTF-8 paths stay unchanged.
-fn quote_git_path(path: &str) -> String {
-    if !path
-        .bytes()
-        .any(|byte| byte.is_ascii_control() || matches!(byte, b'"' | b'\\'))
-    {
-        return path.to_owned();
+/// How many bytes one rendered diff may hold: the same 64 MiB ceiling the
+/// Node layers put on one `jj` output stream. A diff this size is not one a
+/// run can journal, and a named failure is a better answer than a guest that
+/// runs out of linear memory.
+const OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
+
+/// Renders a repository path for one line of diff or status output.
+///
+/// A path is file-system data a flow, a model, or a cloned repository chose,
+/// and every line this crate prints is read back by agents, the TUI, and patch
+/// appliers. A newline in a path would forge a `diff --git` header or a status
+/// entry, and an escape byte would drive a terminal. Paths holding a control
+/// character, `"`, or `\` are therefore C-quoted the way git quotes them
+/// (`core.quotePath=false`): wrapped in `"`, with `\a\b\t\n\v\f\r\"\\`
+/// and octal escapes for every other control character's UTF-8 bytes. Every
+/// other path, non-ASCII text included, is printed as is. `prefix` (`a/`,
+/// `b/`, or empty) is quoted together with the path, as git does.
+pub(crate) fn quote_path(prefix: &str, path: &str) -> String {
+    let needs_quoting = |c: char| c.is_control() || c == '"' || c == '\\';
+    if !path.chars().any(needs_quoting) {
+        return format!("{prefix}{path}");
     }
     let mut quoted = String::from("\"");
-    for character in path.chars() {
-        match character {
+    for c in prefix.chars().chain(path.chars()) {
+        match c {
             '\x07' => quoted.push_str("\\a"),
             '\x08' => quoted.push_str("\\b"),
             '\t' => quoted.push_str("\\t"),
@@ -57,12 +70,27 @@ fn quote_git_path(path: &str) -> String {
             '\r' => quoted.push_str("\\r"),
             '"' => quoted.push_str("\\\""),
             '\\' => quoted.push_str("\\\\"),
-            c if c.is_ascii_control() => write!(quoted, "\\{:03o}", c as u8).unwrap(),
+            c if c.is_control() => {
+                let mut bytes = [0; 4];
+                for byte in c.encode_utf8(&mut bytes).bytes() {
+                    write!(quoted, "\\{byte:03o}").unwrap();
+                }
+            }
             c => quoted.push(c),
         }
     }
     quoted.push('"');
     quoted
+}
+
+/// Fails once `output` holds more than `limit` bytes.
+fn within_limit(output: &str, limit: usize) -> Result<(), OpError> {
+    if output.len() > limit {
+        return Err(OpError::unknown(format!(
+            "diff output exceeded the {limit}-byte ceiling"
+        )));
+    }
+    Ok(())
 }
 
 /// Renders the differences between two trees as a git-format unified diff.
@@ -71,6 +99,16 @@ pub fn git_diff(
     store: &Arc<Store>,
     from_tree: &MergedTree,
     to_tree: &MergedTree,
+) -> Result<String, OpError> {
+    git_diff_within(store, from_tree, to_tree, OUTPUT_LIMIT)
+}
+
+/// [`git_diff`] with an explicit output ceiling, so tests can reach it.
+fn git_diff_within(
+    store: &Arc<Store>,
+    from_tree: &MergedTree,
+    to_tree: &MergedTree,
+    limit: usize,
 ) -> Result<String, OpError> {
     let materialize_options = ConflictMaterializeOptions {
         marker_style: ConflictMarkerStyle::Diff,
@@ -90,16 +128,20 @@ pub fn git_diff(
     async {
         while let Some(MaterializedTreeDiffEntry { path, values }) = diff_stream.next().await {
             let values = values?;
-            let left_path = path.source().as_internal_file_string().to_owned();
-            let right_path = path.target().as_internal_file_string().to_owned();
+            let left_path = path.source().as_internal_file_string();
+            let right_path = path.target().as_internal_file_string();
             let left_part =
                 git_diff_part(path.source(), values.before, &materialize_options).await?;
             let right_part =
                 git_diff_part(path.target(), values.after, &materialize_options).await?;
 
-            let left_label = quote_git_path(&format!("a/{left_path}"));
-            let right_label = quote_git_path(&format!("b/{right_path}"));
-            writeln!(output, "diff --git {left_label} {right_label}").unwrap();
+            writeln!(
+                output,
+                "diff --git {} {}",
+                quote_path("a/", left_path),
+                quote_path("b/", right_path)
+            )
+            .unwrap();
             let left_hash = &left_part.hash;
             let right_hash = &right_part.hash;
             match (left_part.mode, right_part.mode) {
@@ -117,9 +159,8 @@ pub fn git_diff(
                             CopyOperation::Copy => "copy",
                             CopyOperation::Rename => "rename",
                         };
-                        writeln!(output, "{operation} from {}", quote_git_path(&left_path))
-                            .unwrap();
-                        writeln!(output, "{operation} to {}", quote_git_path(&right_path)).unwrap();
+                        writeln!(output, "{operation} from {}", quote_path("", left_path)).unwrap();
+                        writeln!(output, "{operation} to {}", quote_path("", right_path)).unwrap();
                     }
                     if left_mode != right_mode {
                         writeln!(output, "old mode {left_mode}").unwrap();
@@ -133,21 +174,23 @@ pub fn git_diff(
                 }
                 (None, None) => {
                     return Err(OpError::unknown(format!(
-                        "diff entry for {right_path} has neither side"
+                        "diff entry for {} has neither side",
+                        quote_path("", right_path)
                     )));
                 }
             }
 
+            within_limit(&output, limit)?;
             if left_part.content.contents == right_part.content.contents {
                 continue; // mode-only change: no content hunks
             }
 
             let left_label = match left_part.mode {
-                Some(_) => left_label,
+                Some(_) => quote_path("a/", left_path),
                 None => "/dev/null".to_owned(),
             };
             let right_label = match right_part.mode {
-                Some(_) => right_label,
+                Some(_) => quote_path("b/", right_path),
                 None => "/dev/null".to_owned(),
             };
             if left_part.content.is_binary || right_part.content.is_binary {
@@ -159,8 +202,10 @@ pub fn git_diff(
                     &mut output,
                     Diff::new(&left_part.content.contents, &right_part.content.contents)
                         .map(BStr::new),
-                );
+                    limit,
+                )?;
             }
+            within_limit(&output, limit)?;
         }
         Ok(())
     }
@@ -180,8 +225,13 @@ fn to_line_number(range: &Range<usize>) -> usize {
 }
 
 /// Renders `@@` hunks with sigil-prefixed lines, including the
-/// `\ No newline at end of file` marker.
-fn render_unified_hunks(output: &mut String, contents: Diff<&BStr>) {
+/// `\ No newline at end of file` marker. Stops with an error once `output`
+/// passes `limit` bytes.
+fn render_unified_hunks(
+    output: &mut String,
+    contents: Diff<&BStr>,
+    limit: usize,
+) -> Result<(), OpError> {
     for hunk in unified_diff_hunks(contents, CONTEXT_LINES, LineCompareMode::Exact) {
         writeln!(
             output,
@@ -207,8 +257,10 @@ fn render_unified_hunks(output: &mut String, contents: Diff<&BStr>) {
             if !line_ends_with_newline {
                 output.push_str("\n\\ No newline at end of file\n");
             }
+            within_limit(output, limit)?;
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -263,7 +315,12 @@ operation.username = "flows"
 
     fn hunks(before: &[u8], after: &[u8]) -> String {
         let mut output = String::new();
-        render_unified_hunks(&mut output, Diff::new(BStr::new(before), BStr::new(after)));
+        render_unified_hunks(
+            &mut output,
+            Diff::new(BStr::new(before), BStr::new(after)),
+            OUTPUT_LIMIT,
+        )
+        .unwrap();
         output
     }
 
@@ -566,6 +623,79 @@ operation.username = "flows"
             git_diff(&store, before, after).unwrap(),
             "diff --git a/a-new.txt b/a-new.txt\nnew file mode 100644\nindex 0000000000..e502eec8fc\n--- /dev/null\n+++ b/a-new.txt\n@@ -0,0 +1,1 @@\n+payload\ndiff --git a/z-old.txt b/z-old.txt\ndeleted file mode 100644\nindex e502eec8fc..0000000000\n--- a/z-old.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-payload\n"
         );
+    }
+
+    #[test]
+    fn paths_with_control_characters_are_c_quoted() {
+        assert_eq!(quote_path("a/", "plain 雪.txt"), "a/plain 雪.txt");
+        assert_eq!(
+            quote_path("a/", "x\n+++ b/forged"),
+            "\"a/x\\n+++ b/forged\""
+        );
+        assert_eq!(
+            quote_path("", "\u{1b}[31m\"\\\t\u{7f}\u{9b}"),
+            "\"\\033[31m\\\"\\\\\\t\\177\\302\\233\""
+        );
+    }
+
+    #[test]
+    fn git_diff_quotes_a_file_name_that_would_forge_headers() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        crate::ops::init(&root).unwrap();
+        let first = crate::ops::snapshot(&root, Some("first")).unwrap();
+        let name = "evil\ndiff --git x y\n\u{1b}[2J";
+        std::fs::write(root.join(name), "payload\n").unwrap();
+        let second = crate::ops::snapshot(&root, Some("second")).unwrap();
+        let (store, trees) = committed_trees(&root, &[&first.commit_id, &second.commit_id]);
+        let [before, after] = &trees[..] else {
+            unreachable!()
+        };
+        let diff = git_diff(&store, before, after).unwrap();
+        assert!(!diff.contains('\u{1b}'), "{diff:?}");
+        assert_eq!(
+            diff.lines()
+                .filter(|line| line.starts_with("diff --git"))
+                .count(),
+            1,
+            "{diff}"
+        );
+        assert!(
+            diff.starts_with(
+                "diff --git \"a/evil\\ndiff --git x y\\n\\033[2J\" \"b/evil\\ndiff --git x y\\n\\033[2J\"\n"
+            ),
+            "{diff}"
+        );
+        assert!(
+            diff.contains("+++ \"b/evil\\ndiff --git x y\\n\\033[2J\"\n"),
+            "{diff}"
+        );
+
+        let status = crate::ops::status(&root).unwrap();
+        assert!(!status.contains('\u{1b}'), "{status:?}");
+        assert_eq!(status.lines().count(), 2, "{status}");
+    }
+
+    #[test]
+    fn git_diff_fails_once_output_passes_the_ceiling() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        crate::ops::init(&root).unwrap();
+        let first = crate::ops::snapshot(&root, Some("first")).unwrap();
+        std::fs::write(root.join("big.txt"), "line\n".repeat(1000)).unwrap();
+        let second = crate::ops::snapshot(&root, Some("second")).unwrap();
+        let (store, trees) = committed_trees(&root, &[&first.commit_id, &second.commit_id]);
+        let [before, after] = &trees[..] else {
+            unreachable!()
+        };
+        let full = git_diff(&store, before, after).unwrap();
+        assert_eq!(
+            git_diff_within(&store, before, after, full.len()).unwrap(),
+            full
+        );
+        let error = git_diff_within(&store, before, after, 256).unwrap_err();
+        assert_eq!(error.code, crate::error::ErrorCode::Unknown);
+        assert_eq!(error.message, "diff output exceeded the 256-byte ceiling");
     }
 
     #[test]
