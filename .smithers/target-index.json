@@ -51790,6 +51790,10 @@
       },
       {
         "kind": "file",
+        "path": "scripts/ci/check-known-red-coverage.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/check-mutations.test.mjs"
       },
       {
@@ -51822,6 +51826,10 @@
       {
         "kind": "file",
         "path": "scripts/ci/coding-check.sh"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/build-cli/src/KnownRed.ts"
       }
     ],
     "outputs": [],

@@ -562,12 +562,17 @@ const tierContracts = Smithers.NodeTest({
     Smithers.file("//scripts/runner-contract.test.mjs"),
     Smithers.file("//scripts/ci/coding-check.test.mjs"),
     Smithers.file("//scripts/ci/check-cache.test.mjs"),
+    Smithers.file("//scripts/ci/check-known-red-coverage.test.mjs"),
     Smithers.file("//scripts/check-mutations.test.mjs"),
     Smithers.file("//scripts/check-soak-campaign.test.mjs"),
     Smithers.file("//scripts/benchmark-gate.test.mjs"),
     Smithers.file("//scripts/run-jj-abi-campaign.test.mjs")
   ]),
-  srcs: [...sources, Smithers.file("//scripts/ci/coding-check.sh")],
+  srcs: [
+    ...sources,
+    Smithers.file("//scripts/ci/coding-check.sh"),
+    Smithers.file("//packages/smithers/build/build-cli/src/KnownRed.ts")
+  ],
   deps: []
 })
 
@@ -741,7 +746,7 @@ const securityReview = Smithers.SecurityReview({
         "A string option split on spaces and executed, like rebase-cache --install.",
         "An unvalidated positional argument placed into go build -ldflags or a similar command-line flag string."
       ],
-      paths: ["commit.mjs", "bench/**", "build-backend.sh", "test-backend-consumer.sh", "generate-changelog.mjs", "run-jj-abi-campaign.mjs", "check-mutations.mjs", "bun-coverage/**"]
+      paths: ["commit.mjs", "ci/check-known-red-coverage.mjs", "bench/**", "build-backend.sh", "test-backend-consumer.sh", "generate-changelog.mjs", "run-jj-abi-campaign.mjs", "check-mutations.mjs", "bun-coverage/**"]
     },
     {
       id: "credential-scrubbing",
