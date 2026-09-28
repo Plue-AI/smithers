@@ -106,17 +106,31 @@ Upstream references:
 - `Activity.ts:127-144`, activity retry option and unconditional wrapper
 - `Activity.ts:181-201`, default exponential/spaced interrupt schedule
 
-### 3. Flow shape is deliberately not expanded
+### 3. Flow authoring shape is expanded
 
-Upstream flows contain their tag, schemas, annotations, idempotency
-function, and suspension schedule. Smithers changes only the idempotency function's
-requiredness and execution behavior. It does not add description, capabilities,
-placement, budgets, or other flow-authoring fields, and annotations remain
-`Context.Context<never>`.
+At the upstream fork point, flows contain their tag, schemas, annotations,
+required idempotency function, and suspension schedule (`Flow.ts:53-60`,
+`Flow.ts:218-229`). Smithers makes the idempotency function optional and
+changes execution identity as described above. The current public
+`@smthrs/flow` shape also differs structurally: `Flow.make` requires a
+pure plan-time `body` returning one `@smthrs/plan` `Node`. `Flow` stores
+that body and exposes `.call()` for inline composition and `.child()` for
+a separate child execution.
 
-Those fields belong to the flows object model above the durable runtime.
-Keeping them out makes future upstream rebases behavioral rather than
-structural.
+`Flow.make` accepts `description`, `capabilities`, `effects`,
+`modelInvocable`, and `maxRounds` alongside schemas and annotations.
+`description`, `body`, and `maxRounds` are Flow fields; capability,
+effect, and model-invocable declarations are lowered into annotations.
+`Flow.annotations` remains `Context.Context<never>`. These authoring
+declarations are not new fields on the engine's encoded seam, nor do they
+imply a placement, failure-policy, external-event, or token-budget field.
+The authoring shape therefore requires structural review on an upstream
+rebase, even where the encoded runtime seam is unchanged.
+
+Current fork references:
+
+- `@smthrs/flow/src/Flow/make.ts`, `MakeOptions`, `Body`, and `make`
+- `@smthrs/flow/src/Flow/Flow.ts`, `Flow.body`, `Flow.call`, and `Flow.child`
 
 Upstream references:
 
@@ -218,8 +232,8 @@ Upstream references (rc.108):
 
 ## Deliberate non-changes
 
-- `Flow.annotations` remains `Context.Context<never>`; open metadata does
-  not expand the flow shape (`Flow.ts:58`).
+- `Flow.annotations` remains `Context.Context<never>`; capability and effect
+  declarations do not change that annotation type (`Flow.ts:58`).
 - Action exits remain schema encoded and decoded across the engine boundary
   (`Activity.ts:135-175`, `FlowEngine.ts:471-483`).
 - `Flow.intoResult` retains upstream scope closure, defect capture,
@@ -233,6 +247,7 @@ Upstream references (rc.108):
   and execute/discard envelope changed.
 - The upstream exponential/spaced suspension schedule remains the fallback
   (`FlowEngine.ts:555-558`).
-- No description, capability, placement, budget, failure-policy, graph,
-  external-event, or token-budget field was added to `Flow` or the encoded
-  seam.
+- No placement, failure-policy, external-event, or token-budget field was
+  added to `Flow` or the encoded seam. The required graph body, description,
+  and round budget belong to the expanded public Flow shape described above;
+  capability and effect declarations are lowered into annotations.
