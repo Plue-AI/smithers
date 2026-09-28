@@ -212,6 +212,42 @@ func TestListPublicOrgRepos_FiltersPrivateRepos(t *testing.T) {
 	assert.Equal(t, int64(1), count)
 }
 
+func TestListReadableReposForUser_TeamOfOtherOrgDoesNotLeak(t *testing.T) {
+	for _, permission := range []string{"read", "write", "admin"} {
+		t.Run(permission, func(t *testing.T) {
+			q, db := newQueries(t)
+			ctx := context.Background()
+
+			userID := mustCreateUser(t, db, "team-cross-org-user")
+			teamOrgID := mustCreateOrganization(t, db, "team-cross-org-a")
+			otherOrgID := mustCreateOrganization(t, db, "team-cross-org-b")
+			mustAddOrgMember(t, db, teamOrgID, userID, "member")
+
+			teamID := mustCreateTeam(t, db, teamOrgID, "team-cross-org-team")
+			_, err := db.Exec(ctx, `UPDATE teams SET permission = $1 WHERE id = $2`, permission, teamID)
+			require.NoError(t, err)
+			mustAddTeamMember(t, db, teamID, userID)
+
+			sameOrgRepoID := mustCreateOrgRepo(t, db, teamOrgID, "same-org-private", false)
+			otherOrgRepoID := mustCreateOrgRepo(t, db, otherOrgID, "other-org-private", false)
+			mustAddTeamRepo(t, db, teamID, sameOrgRepoID)
+			mustAddTeamRepo(t, db, teamID, otherOrgRepoID)
+
+			repos, err := q.ListReadableReposForUser(ctx, ListReadableReposForUserParams{
+				UserID: userID, PageSize: 10,
+			})
+			require.NoError(t, err)
+			require.Len(t, repos, 1)
+			assert.Equal(t, sameOrgRepoID, repos[0].ID)
+			assert.NotEqual(t, otherOrgRepoID, repos[0].ID)
+
+			count, err := q.CountReadableReposForUser(ctx, userID)
+			require.NoError(t, err)
+			assert.Equal(t, int64(1), count)
+		})
+	}
+}
+
 func TestDeleteOrganizationCascadesRepos(t *testing.T) {
 	ctx := context.Background()
 	q, pool := newQueries(t)

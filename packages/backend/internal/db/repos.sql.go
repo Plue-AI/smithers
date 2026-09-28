@@ -159,7 +159,7 @@ WHERE
         ))
      OR (r.org_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM team_repos tr
-            JOIN teams t ON t.id = tr.team_id
+            JOIN teams t ON t.id = tr.team_id AND t.organization_id = r.org_id
             JOIN team_members tm ON tm.team_id = t.id
             WHERE tr.repository_id = r.id
               AND tm.user_id = $1::bigint
@@ -1113,7 +1113,7 @@ WHERE
         ))
      OR (r.org_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM team_repos tr
-            JOIN teams t ON t.id = tr.team_id
+            JOIN teams t ON t.id = tr.team_id AND t.organization_id = r.org_id
             JOIN team_members tm ON tm.team_id = t.id
             WHERE tr.repository_id = r.id
               AND tm.user_id = $1::bigint
