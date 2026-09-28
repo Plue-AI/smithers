@@ -56,6 +56,11 @@
         "kind": "glob",
         "pattern": "distribution/**/*",
         "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "docs/api/**/*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -19732,6 +19737,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/database/src/internal/BunSqliteClient.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/database/src/internal/CommitScope.ts"
       },
       {
@@ -21257,6 +21266,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/sandbox/src/Sandbox/Provider.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/Sandbox/ResourceLimits.ts"
       },
       {
         "kind": "file",

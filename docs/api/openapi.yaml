@@ -13267,7 +13267,7 @@ paths:
   /api/user/github/repos:
     get:
       summary: GET /api/user/github/repos
-      operationId: get_api_user_github_repos
+      operationId: list_user_github_repos
       tags:
         - User
       parameters: []
