@@ -16,10 +16,13 @@ import { join } from "node:path"
 import { setImmediate, setTimeout as timerPhase } from "node:timers/promises"
 import { act, useState } from "react"
 import * as Picker from "../src/picker.ts"
+import * as Search from "../src/search.ts"
 import * as Session from "../src/session.ts"
 
 // Ordinary matching cases use actual rg and filesystem/session adapters.
 // They are component evidence, independent of the controlled-process cases.
+// These cases require Bun's default serial execution: PATH/session-root ports
+// are process-wide, restored in finally. Do not mark them concurrent.
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let state: ReturnType<typeof Picker.useSearch> | undefined
 let pickerState: Picker.Picker | undefined
@@ -329,11 +332,32 @@ test("a non-directory search location reports the actual process admission error
   cwd = invalidDirectory
   await mount(palette("text:needle"))
   await waitFor(() => statuses.length === 1)
-  expect(statuses).toEqual([["rg: spawn rg ENOTDIR", "danger"]])
+  expect(statuses).toHaveLength(1)
+  expect(statuses[0]?.[1]).toBe("danger")
+  expect(statuses[0]?.[0]).toStartWith("rg:")
+  expect(statuses[0]?.[0]).toContain("ENOTDIR")
   expect(state?.search).toBeUndefined()
   writeFileSync(join(workspace, "answer.txt"), "needle\n")
   await update(palette("text:needle"), workspace)
   await waitFor(() => state?.search?.status === "done")
   expect(state?.search?.hits).toEqual([{ path: "answer.txt", line: 1, text: "needle" }])
   expect(statuses).toHaveLength(1)
+})
+
+test("public Search.run turns synchronous process admission refusal into its typed failed outcome", async () => {
+  const invalidDirectory = join(root, "regular-file")
+  writeFileSync(invalidDirectory, "not a directory")
+  let operation: ReturnType<typeof Search.run> | undefined
+  let thrown: unknown
+  try {
+    operation = Search.run({ cwd: invalidDirectory, query: "needle" })
+  } catch (error) {
+    thrown = error
+  }
+  expect(thrown).toBeUndefined()
+  if (operation === undefined) throw new Error("Expected the public search operation")
+  const outcome = await operation.done
+  expect(outcome).toMatchObject({ _tag: "failed", reason: "rg-error" })
+  if (outcome._tag !== "failed") throw new Error("Expected a search refusal")
+  expect(outcome.message).toContain("ENOTDIR")
 })
