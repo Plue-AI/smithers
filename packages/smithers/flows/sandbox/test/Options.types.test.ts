@@ -45,6 +45,21 @@ expectTypeOf<Parameters<typeof MicrosandboxSandbox.make>[0]>()
   .toEqualTypeOf<MicrosandboxSandbox.MicrosandboxSandboxOptions>()
 expectTypeOf<Parameters<typeof VercelSandbox.make>[0]>()
   .toEqualTypeOf<VercelSandbox.VercelSandboxOptions>()
+// Every provider takes the neutral network option; Container also keeps its
+// raw engine network mode.
+expectTypeOf<AwsSandbox.AwsSandboxCommonOptions["network"]>().toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
+expectTypeOf<CloudflareSandbox.CloudflareSandboxOptions<Binding>["network"]>()
+  .toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
+expectTypeOf<ContainerSandbox.ContainerSandboxOptions["network"]>()
+  .toEqualTypeOf<Sandbox.NetworkPolicy | string | undefined>()
+expectTypeOf<DaytonaSandbox.DaytonaSandboxOptions["network"]>().toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
+expectTypeOf<DirectorySandbox.DirectorySandboxOptions["network"]>().toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
+expectTypeOf<JustBashSandbox.JustBashSandboxOptions["network"]>().toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
+expectTypeOf<KubernetesSandbox.KubernetesSandboxOptions["network"]>()
+  .toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
+expectTypeOf<MicrosandboxSandbox.MicrosandboxSandboxOptions["network"]>()
+  .toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
+expectTypeOf<VercelSandbox.VercelSandboxOptions["network"]>().toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
 // The two doubles default their argument, so the parameter itself is the
 // options type or nothing. `NonNullable` names the half a consumer writes.
 expectTypeOf<NonNullable<Parameters<typeof Sandbox.TestSession.make>[0]>>()

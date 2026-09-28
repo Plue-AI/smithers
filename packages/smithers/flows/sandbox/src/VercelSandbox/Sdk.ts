@@ -23,11 +23,15 @@ interface SandboxInstance {
   readFile(file: { readonly path: string }): Promise<ReadableFile | null>
   writeFiles(files: Array<{ readonly path: string; readonly content: Uint8Array | string }>): Promise<void>
   extendTimeout(duration: number): Promise<unknown>
+  update(params: { readonly networkPolicy: VendorNetworkPolicy }): Promise<unknown>
   stop(): Promise<unknown>
 }
 
+type VendorNetworkPolicy = "deny-all" | { allow: Array<string> }
+
 type GetOrCreateInput = {
   readonly name: string
+  readonly networkPolicy?: VendorNetworkPolicy | undefined
   readonly timeout?: number | undefined
   readonly runtime?: string | undefined
   readonly persistent?: boolean | undefined
@@ -45,7 +49,9 @@ type GetOrCreateInput = {
  * mirror the published `@vercel/sandbox` 3.2.1 typings: `getOrCreate`
  * resumes a named sandbox or creates it, `runCommand` resolves once the
  * command finishes and exposes its output as strings, `readFile` answers
- * `null` for an absent path, and `RunCommandParams` carries no standard
+ * `null` for an absent path, `update` replaces a sandbox's network policy
+ * (`getOrCreate` applies one only when it creates), and `RunCommandParams`
+ * carries no standard
  * input channel — which is why the provider stages `stdin` as a workspace
  * file instead of passing it here.
  *

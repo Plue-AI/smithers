@@ -27,6 +27,7 @@ import { stdinRedirect } from "../internal/stdinRedirect.ts"
 import { warnTeardown } from "../internal/teardownWarning.ts"
 import type { RemoteProcess } from "../RemoteChildProcessSpawner/Provider.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
+import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { ExecTransport } from "./ExecTransport.ts"
@@ -39,6 +40,11 @@ import type { Sdk } from "./Sdk.ts"
  * @since 0.1.0
  */
 export interface AwsSandboxCommonOptions {
+  /**
+   * Refused: ECS subnets and security groups are not a host allowlist. Setting it makes `make` throw rather than hand out a
+   * machine with a network it did not ask for.
+   */
+  readonly network?: NetworkPolicy | undefined
   readonly sdk: Sdk
   /**
    * How commands reach the task. Without it the provider provisions and tears
@@ -518,286 +524,291 @@ const spawnScript = (
  * @category constructors
  * @since 0.1.0
  */
-export const make = (options: AwsSandboxOptions): Provider => ({
-  acquire: (sessionKey) =>
-    Effect.gen(function*() {
-      if (options.taskDefinition !== undefined && options.env !== undefined && options.container === undefined) {
-        return yield* Effect.fail(failure("spawn_error", "env overrides for a taskDefinition require a container name"))
-      }
-      const workdir = options.workdir ?? "/workspace"
-      const startedBy = startedByOf(sessionKey)
-      const { sdk: _sdk, exec: _exec, pollIntervalMs: _poll, maxPollAttempts: _attempts, ...configuration } = options
-      const fingerprint = yield* configurationFingerprint({
-        ...configuration,
-        provider: "AwsSandbox/v1",
-        owner: sessionKey
-      })
-      const imageOptions = options.taskDefinition === undefined ? options : undefined
-      const container = options.container ?? (imageOptions === undefined ? undefined : "sandbox")
-      // Reattach before provisioning: the same key names the same machine
-      // wherever one is still running. An adopted task is released the same
-      // way a fresh one is, so closing the scope attempts to stop either.
-      const leftover = yield* leftoverTasks(options, startedBy, container, fingerprint)
-      // Duplicates go before anything else: an adopter that provisioned beside
-      // them would leave the key owning more machines every incarnation.
-      if (leftover.stale.length > 0) yield* stopTasks(options, leftover.stale)
-      const adopt = leftover.adopt
-      const taskArn = adopt !== undefined
-        ? yield* Effect.gen(function*() {
-          const arn = yield* Effect.acquireRelease(
-            Effect.succeed(adopt.taskArn),
-            (task) =>
-              stopTasks(options, [task]).pipe(
-                Effect.andThen(
-                  imageOptions === undefined
-                    ? Effect.void
-                    : deregisterDefinition(imageOptions, adopt.taskDefinitionArn)
+export const make = (options: AwsSandboxOptions): Provider => {
+  refuseNetworkPolicy("aws-sandbox", options.network)
+  return {
+    acquire: (sessionKey) =>
+      Effect.gen(function*() {
+        if (options.taskDefinition !== undefined && options.env !== undefined && options.container === undefined) {
+          return yield* Effect.fail(
+            failure("spawn_error", "env overrides for a taskDefinition require a container name")
+          )
+        }
+        const workdir = options.workdir ?? "/workspace"
+        const startedBy = startedByOf(sessionKey)
+        const { sdk: _sdk, exec: _exec, pollIntervalMs: _poll, maxPollAttempts: _attempts, ...configuration } = options
+        const fingerprint = yield* configurationFingerprint({
+          ...configuration,
+          provider: "AwsSandbox/v1",
+          owner: sessionKey
+        })
+        const imageOptions = options.taskDefinition === undefined ? options : undefined
+        const container = options.container ?? (imageOptions === undefined ? undefined : "sandbox")
+        // Reattach before provisioning: the same key names the same machine
+        // wherever one is still running. An adopted task is released the same
+        // way a fresh one is, so closing the scope attempts to stop either.
+        const leftover = yield* leftoverTasks(options, startedBy, container, fingerprint)
+        // Duplicates go before anything else: an adopter that provisioned beside
+        // them would leave the key owning more machines every incarnation.
+        if (leftover.stale.length > 0) yield* stopTasks(options, leftover.stale)
+        const adopt = leftover.adopt
+        const taskArn = adopt !== undefined
+          ? yield* Effect.gen(function*() {
+            const arn = yield* Effect.acquireRelease(
+              Effect.succeed(adopt.taskArn),
+              (task) =>
+                stopTasks(options, [task]).pipe(
+                  Effect.andThen(
+                    imageOptions === undefined
+                      ? Effect.void
+                      : deregisterDefinition(imageOptions, adopt.taskDefinitionArn)
+                  )
                 )
-              )
-          )
-          if (imageOptions !== undefined) {
-            yield* deregisterStaleDefinitions(imageOptions, startedBy, adopt.taskDefinitionArn)
-          }
-          // A task adopted while still provisioning is released by the same
-          // finalizer whether or not it ever becomes ready.
-          if (!adopt.ready) yield* awaitReady(options, arn, container)
-          return arn
+            )
+            if (imageOptions !== undefined) {
+              yield* deregisterStaleDefinitions(imageOptions, startedBy, adopt.taskDefinitionArn)
+            }
+            // A task adopted while still provisioning is released by the same
+            // finalizer whether or not it ever becomes ready.
+            if (!adopt.ready) yield* awaitReady(options, arn, container)
+            return arn
+          })
+          : yield* Effect.gen(function*() {
+            const taskDefinition = options.taskDefinition === undefined
+              ? yield* registerDefinition(options, startedBy, workdir, options.container ?? "sandbox")
+              : options.taskDefinition
+            const output = yield* Effect.acquireRelease(
+              runTask(options, taskDefinition, startedBy, container, fingerprint),
+              (output) => stopTasks(options, taskArnsOf(output))
+            )
+            const started = taskArnsOf(output)[0]
+            if (started === undefined) {
+              return yield* Effect.fail(failure("unavailable", "RunTask returned no task ARN", output.failures))
+            }
+            yield* awaitReady(options, started, container)
+            return started
+          })
+        const ping = Effect.flatMap(describe(options, taskArn), (description) => {
+          const task = describedTask(description, taskArn)
+          return task !== undefined && agentReady(task, container)
+            ? Effect.void
+            : Effect.fail(failure("unavailable", `${taskArn} is not ready`, description.failures))
         })
-        : yield* Effect.gen(function*() {
-          const taskDefinition = options.taskDefinition === undefined
-            ? yield* registerDefinition(options, startedBy, workdir, options.container ?? "sandbox")
-            : options.taskDefinition
-          const output = yield* Effect.acquireRelease(
-            runTask(options, taskDefinition, startedBy, container, fingerprint),
-            (output) => stopTasks(options, taskArnsOf(output))
-          )
-          const started = taskArnsOf(output)[0]
-          if (started === undefined) {
-            return yield* Effect.fail(failure("unavailable", "RunTask returned no task ARN", output.failures))
-          }
-          yield* awaitReady(options, started, container)
-          return started
-        })
-      const ping = Effect.flatMap(describe(options, taskArn), (description) => {
-        const task = describedTask(description, taskArn)
-        return task !== undefined && agentReady(task, container)
-          ? Effect.void
-          : Effect.fail(failure("unavailable", `${taskArn} is not ready`, description.failures))
-      })
 
-      const transport = options.exec
-      if (transport === undefined) {
+        const transport = options.exec
+        if (transport === undefined) {
+          const session: Session = {
+            id: sessionKey,
+            remoteId: taskArn,
+            workdir,
+            spawn: () => Effect.fail(noTransport("spawn a command")),
+            readFile: (path) => Effect.fail(noTransport(`read ${path}`)),
+            writeFile: (path) => Effect.fail(noTransport(`write ${path}`)),
+            ping
+          }
+          return session
+        }
+
+        const program = transport.program ?? "aws"
+        const chunkBytes = yield* chunkBytesOf(transport)
+        const cli = (remote: string, stdin?: Stream.Stream<Uint8Array>): ChildProcess.Command =>
+          ChildProcess.make(program, [
+            ...transport.globalArgs ?? [],
+            "--region",
+            options.region,
+            "ecs",
+            "execute-command",
+            "--cluster",
+            options.cluster,
+            "--task",
+            taskArn,
+            ...container === undefined ? [] : ["--container", container],
+            "--interactive",
+            "--command",
+            remote
+          ], stdin === undefined ? {} : { stdin })
+        const requireStreaming = Effect.suspend(() =>
+          transport.streamingSpawner === undefined
+            ? Effect.fail(
+              failure(
+                "unavailable",
+                "file writes, stdin, and environment input require ExecTransport.streamingSpawner; the AWS CLI cannot carry them safely"
+              )
+            )
+            : Effect.succeed(transport.streamingSpawner)
+        )
+        const spawnTransport = (remote: string, stdin?: Stream.Stream<Uint8Array>) =>
+          Effect.gen(function*() {
+            const spawner = stdin === undefined ? transport.spawner : yield* requireStreaming
+            return yield* spawner.spawn(cli(remote, stdin)).pipe(
+              Effect.mapError(providerFailure("spawn_error", `\`${program} ecs execute-command\` could not start`))
+            )
+          })
+        const transportFailure = (run: GatheredRun): ProviderError =>
+          failure("unavailable", `\`${program} ecs execute-command\` exited ${run.code}: ${run.stderr.trim()}`)
+        // One-shot guest scripts: reads, writes, kills, and the workspace
+        // preparation. Each opens its own session and reports its own status.
+        let nextNonce = 0
+        const run = (script: string, stdin?: Stream.Stream<Uint8Array>): Effect.Effect<Unframed, ProviderError> =>
+          Effect.scoped(
+            Effect.gen(function*() {
+              const nonce = nextNonce++
+              const handle = yield* spawnTransport(framedScript(script, nonce), stdin)
+              const gathered = yield* gather(handle, `${program} ecs execute-command`)
+              if (gathered.code !== 0) return yield* Effect.fail(transportFailure(gathered))
+              return unframe(gathered, nonce)
+            })
+          )
+        const settled = (what: string, result: Unframed): Effect.Effect<Unframed, ProviderError> =>
+          result.code === undefined
+            ? Effect.fail(failure("aborted", `${what}: the session ended before the command reported its status`))
+            : Effect.succeed(result)
+        yield* Effect.flatMap(
+          run(`mkdir -p ${CommandLine.quote(workdir)} && rm -rf ${pidDirectory} && mkdir -p ${pidDirectory}`),
+          (result) =>
+            result.code === 0 ? Effect.void : Effect.fail(
+              failure(
+                "unavailable",
+                `the workspace ${workdir} could not be prepared in ${taskArn}: ${result.payload.trim()}`
+              )
+            )
+        )
+
+        const writeFile: Session["writeFile"] = (path, content) =>
+          Effect.gen(function*() {
+            yield* requireStreaming
+            const target = CommandLine.quote(path)
+            const parent = parentOf(path)
+            const prepare = parent === undefined ? "" : `mkdir -p ${CommandLine.quote(parent)} && `
+            for (let offset = 0; offset < Math.max(1, content.length); offset += chunkBytes) {
+              const script = `${offset === 0 ? prepare : ""}base64 -d ${offset === 0 ? ">" : ">>"} ${target}`
+              const input = Stream.make(encoder.encode(encodeBase64(content.slice(offset, offset + chunkBytes))))
+              const result = yield* Effect.flatMap(run(script, input), (result) => settled(`writing ${path}`, result))
+              if (result.code !== 0) {
+                return yield* Effect.fail(failure("unknown", `could not write ${path}: ${result.payload.trim()}`))
+              }
+            }
+          })
+        // The session is a pseudo-terminal with no input channel of its own, so
+        // standard input is staged as a workspace file and redirected.
+        const redirect = stdinRedirect({
+          workdir,
+          writeFile,
+          remove: (path) =>
+            Effect.flatMap(
+              Effect.flatMap(run(`rm -f ${CommandLine.quote(path)}`), (result) => settled(`removing ${path}`, result)),
+              (result) =>
+                result.code === 0 ? Effect.void : Effect.fail(
+                  failure("unknown", `could not remove ${path}: command exited ${result.code}`)
+                )
+            )
+        })
+        const resolveCwd = rootedAt(workdir)
+        const kill = (pidfile: string, signal: string): Effect.Effect<void, ProviderError> =>
+          Effect.flatMap(
+            run(killScript(pidfile, signal.replace(/^SIG/, ""))),
+            (result) =>
+              Effect.flatMap(settled(`signalling with ${signal}`, result), (settledResult) =>
+                settledResult.code === 0
+                  ? Effect.void
+                  : Effect.fail(
+                    failure(
+                      "unknown",
+                      `the signal ${signal} could not be delivered in ${taskArn}: ${settledResult.payload.trim()}`
+                    )
+                  ))
+          )
+
+        const pidfiles = new WeakMap<RemoteProcess, string>()
         const session: Session = {
           id: sessionKey,
           remoteId: taskArn,
           workdir,
-          spawn: () => Effect.fail(noTransport("spawn a command")),
-          readFile: (path) => Effect.fail(noTransport(`read ${path}`)),
-          writeFile: (path) => Effect.fail(noTransport(`write ${path}`)),
+          spawn: Effect.fnUntraced(function*(command, spawnOptions) {
+            yield* checkEnvironmentNames(spawnOptions.env)
+            const environment = environmentInput(envPrefix(spawnOptions.env), undefined)
+            if (spawnOptions.stdin !== undefined || environment.stdin !== undefined) yield* requireStreaming
+            const nonce = nextNonce++
+            const pidfile = `${pidDirectory}/${nonce}.pid`
+            const fed = yield* redirect(command, spawnOptions.stdin)
+            const remote = spawnScript(fed, resolveCwd(spawnOptions.cwd ?? ""), environment, pidfile, nonce)
+            const handle = yield* spawnTransport(remote, environment.stdin)
+            // The session's whole output is needed before any of it can be
+            // read back (the banner leads and the sentinel trails), so the
+            // three pieces of the process share one gathering of the local
+            // client, taken when the first of them is consumed.
+            const gathered = yield* Effect.cached(
+              Effect.flatMap(
+                gather(handle, `${program} ecs execute-command`),
+                (result) =>
+                  result.code === 0 ? Effect.succeed(unframe(result, nonce)) : Effect.fail(transportFailure(result))
+              )
+            )
+            // Closing the process scope ends the local client, which the guest
+            // does not notice. The contract says the scope IS the process's
+            // lifetime, so the finalizer signals the guest side too, unless the
+            // command has already been seen to end. A session that ended without
+            // a status is exactly the case where the guest may still be running.
+            let ended = false
+            const observed = Effect.tap(gathered, (result) =>
+              Effect.sync(() => {
+                if (result.code !== undefined) ended = true
+              }))
+            yield* Effect.addFinalizer(() =>
+              ended ? Effect.void : finalizeWithin(
+                Effect.ignore(
+                  kill(pidfile, "SIGTERM").pipe(Effect.tapError((error) => warnTeardown("aws", "kill", error)))
+                ),
+                `aws task ${taskArn} process ${pidfile}`
+              )
+            )
+            const process: RemoteProcess = {
+              stdout: Stream.unwrap(
+                Effect.map(
+                  observed,
+                  (result) => result.payload.length === 0 ? Stream.empty : Stream.make(encoder.encode(result.payload))
+                )
+              ),
+              // The pseudo-terminal merges standard error into standard output.
+              stderr: Stream.empty,
+              exitCode: Effect.flatMap(observed, (result) =>
+                result.code === undefined
+                  ? Effect.fail(failure("aborted", `\`${command}\` ended without reporting its status`))
+                  : Effect.succeed(result.code))
+            }
+            pidfiles.set(process, pidfile)
+            return process
+          }),
+          readFile: (path) =>
+            Effect.flatMap(
+              // Redirected, not positional: BSD `base64` takes no file operand,
+              // and the redirect reads the same on every guest.
+              run(`test -e ${CommandLine.quote(path)} || exit 9; base64 < ${CommandLine.quote(path)}`),
+              (result) =>
+                result.code === 0
+                  ? decodeBase64(result.payload, `while reading ${path}`)
+                  : result.code === 9
+                  ? Effect.fail(new ProviderError({ code: "not_found", message: `the task holds nothing at ${path}` }))
+                  : Effect.fail(
+                    failure(
+                      result.code === undefined ? "aborted" : "unknown",
+                      `could not read ${path}: ${result.payload.trim()}`
+                    )
+                  )
+            ),
+          writeFile,
+          kill: (process, signal) =>
+            Effect.suspend(() => {
+              const pidfile = pidfiles.get(process)
+              /* v8 ignore next 3 -- `spawn` records every process it returns and a `RemoteProcess` has no other source, so the guard only discharges the optional a map read carries */
+              if (pidfile === undefined) {
+                return Effect.fail(failure("unknown", "unrecognized process"))
+              }
+              return kill(pidfile, signal)
+            }),
           ping
         }
         return session
-      }
-
-      const program = transport.program ?? "aws"
-      const chunkBytes = yield* chunkBytesOf(transport)
-      const cli = (remote: string, stdin?: Stream.Stream<Uint8Array>): ChildProcess.Command =>
-        ChildProcess.make(program, [
-          ...transport.globalArgs ?? [],
-          "--region",
-          options.region,
-          "ecs",
-          "execute-command",
-          "--cluster",
-          options.cluster,
-          "--task",
-          taskArn,
-          ...container === undefined ? [] : ["--container", container],
-          "--interactive",
-          "--command",
-          remote
-        ], stdin === undefined ? {} : { stdin })
-      const requireStreaming = Effect.suspend(() =>
-        transport.streamingSpawner === undefined
-          ? Effect.fail(
-            failure(
-              "unavailable",
-              "file writes, stdin, and environment input require ExecTransport.streamingSpawner; the AWS CLI cannot carry them safely"
-            )
-          )
-          : Effect.succeed(transport.streamingSpawner)
-      )
-      const spawnTransport = (remote: string, stdin?: Stream.Stream<Uint8Array>) =>
-        Effect.gen(function*() {
-          const spawner = stdin === undefined ? transport.spawner : yield* requireStreaming
-          return yield* spawner.spawn(cli(remote, stdin)).pipe(
-            Effect.mapError(providerFailure("spawn_error", `\`${program} ecs execute-command\` could not start`))
-          )
-        })
-      const transportFailure = (run: GatheredRun): ProviderError =>
-        failure("unavailable", `\`${program} ecs execute-command\` exited ${run.code}: ${run.stderr.trim()}`)
-      // One-shot guest scripts: reads, writes, kills, and the workspace
-      // preparation. Each opens its own session and reports its own status.
-      let nextNonce = 0
-      const run = (script: string, stdin?: Stream.Stream<Uint8Array>): Effect.Effect<Unframed, ProviderError> =>
-        Effect.scoped(
-          Effect.gen(function*() {
-            const nonce = nextNonce++
-            const handle = yield* spawnTransport(framedScript(script, nonce), stdin)
-            const gathered = yield* gather(handle, `${program} ecs execute-command`)
-            if (gathered.code !== 0) return yield* Effect.fail(transportFailure(gathered))
-            return unframe(gathered, nonce)
-          })
-        )
-      const settled = (what: string, result: Unframed): Effect.Effect<Unframed, ProviderError> =>
-        result.code === undefined
-          ? Effect.fail(failure("aborted", `${what}: the session ended before the command reported its status`))
-          : Effect.succeed(result)
-      yield* Effect.flatMap(
-        run(`mkdir -p ${CommandLine.quote(workdir)} && rm -rf ${pidDirectory} && mkdir -p ${pidDirectory}`),
-        (result) =>
-          result.code === 0 ? Effect.void : Effect.fail(
-            failure(
-              "unavailable",
-              `the workspace ${workdir} could not be prepared in ${taskArn}: ${result.payload.trim()}`
-            )
-          )
-      )
-
-      const writeFile: Session["writeFile"] = (path, content) =>
-        Effect.gen(function*() {
-          yield* requireStreaming
-          const target = CommandLine.quote(path)
-          const parent = parentOf(path)
-          const prepare = parent === undefined ? "" : `mkdir -p ${CommandLine.quote(parent)} && `
-          for (let offset = 0; offset < Math.max(1, content.length); offset += chunkBytes) {
-            const script = `${offset === 0 ? prepare : ""}base64 -d ${offset === 0 ? ">" : ">>"} ${target}`
-            const input = Stream.make(encoder.encode(encodeBase64(content.slice(offset, offset + chunkBytes))))
-            const result = yield* Effect.flatMap(run(script, input), (result) => settled(`writing ${path}`, result))
-            if (result.code !== 0) {
-              return yield* Effect.fail(failure("unknown", `could not write ${path}: ${result.payload.trim()}`))
-            }
-          }
-        })
-      // The session is a pseudo-terminal with no input channel of its own, so
-      // standard input is staged as a workspace file and redirected.
-      const redirect = stdinRedirect({
-        workdir,
-        writeFile,
-        remove: (path) =>
-          Effect.flatMap(
-            Effect.flatMap(run(`rm -f ${CommandLine.quote(path)}`), (result) => settled(`removing ${path}`, result)),
-            (result) =>
-              result.code === 0 ? Effect.void : Effect.fail(
-                failure("unknown", `could not remove ${path}: command exited ${result.code}`)
-              )
-          )
       })
-      const resolveCwd = rootedAt(workdir)
-      const kill = (pidfile: string, signal: string): Effect.Effect<void, ProviderError> =>
-        Effect.flatMap(
-          run(killScript(pidfile, signal.replace(/^SIG/, ""))),
-          (result) =>
-            Effect.flatMap(settled(`signalling with ${signal}`, result), (settledResult) =>
-              settledResult.code === 0
-                ? Effect.void
-                : Effect.fail(
-                  failure(
-                    "unknown",
-                    `the signal ${signal} could not be delivered in ${taskArn}: ${settledResult.payload.trim()}`
-                  )
-                ))
-        )
-
-      const pidfiles = new WeakMap<RemoteProcess, string>()
-      const session: Session = {
-        id: sessionKey,
-        remoteId: taskArn,
-        workdir,
-        spawn: Effect.fnUntraced(function*(command, spawnOptions) {
-          yield* checkEnvironmentNames(spawnOptions.env)
-          const environment = environmentInput(envPrefix(spawnOptions.env), undefined)
-          if (spawnOptions.stdin !== undefined || environment.stdin !== undefined) yield* requireStreaming
-          const nonce = nextNonce++
-          const pidfile = `${pidDirectory}/${nonce}.pid`
-          const fed = yield* redirect(command, spawnOptions.stdin)
-          const remote = spawnScript(fed, resolveCwd(spawnOptions.cwd ?? ""), environment, pidfile, nonce)
-          const handle = yield* spawnTransport(remote, environment.stdin)
-          // The session's whole output is needed before any of it can be
-          // read back (the banner leads and the sentinel trails), so the
-          // three pieces of the process share one gathering of the local
-          // client, taken when the first of them is consumed.
-          const gathered = yield* Effect.cached(
-            Effect.flatMap(
-              gather(handle, `${program} ecs execute-command`),
-              (result) =>
-                result.code === 0 ? Effect.succeed(unframe(result, nonce)) : Effect.fail(transportFailure(result))
-            )
-          )
-          // Closing the process scope ends the local client, which the guest
-          // does not notice. The contract says the scope IS the process's
-          // lifetime, so the finalizer signals the guest side too, unless the
-          // command has already been seen to end. A session that ended without
-          // a status is exactly the case where the guest may still be running.
-          let ended = false
-          const observed = Effect.tap(gathered, (result) =>
-            Effect.sync(() => {
-              if (result.code !== undefined) ended = true
-            }))
-          yield* Effect.addFinalizer(() =>
-            ended ? Effect.void : finalizeWithin(
-              Effect.ignore(
-                kill(pidfile, "SIGTERM").pipe(Effect.tapError((error) => warnTeardown("aws", "kill", error)))
-              ),
-              `aws task ${taskArn} process ${pidfile}`
-            )
-          )
-          const process: RemoteProcess = {
-            stdout: Stream.unwrap(
-              Effect.map(
-                observed,
-                (result) => result.payload.length === 0 ? Stream.empty : Stream.make(encoder.encode(result.payload))
-              )
-            ),
-            // The pseudo-terminal merges standard error into standard output.
-            stderr: Stream.empty,
-            exitCode: Effect.flatMap(observed, (result) =>
-              result.code === undefined
-                ? Effect.fail(failure("aborted", `\`${command}\` ended without reporting its status`))
-                : Effect.succeed(result.code))
-          }
-          pidfiles.set(process, pidfile)
-          return process
-        }),
-        readFile: (path) =>
-          Effect.flatMap(
-            // Redirected, not positional: BSD `base64` takes no file operand,
-            // and the redirect reads the same on every guest.
-            run(`test -e ${CommandLine.quote(path)} || exit 9; base64 < ${CommandLine.quote(path)}`),
-            (result) =>
-              result.code === 0
-                ? decodeBase64(result.payload, `while reading ${path}`)
-                : result.code === 9
-                ? Effect.fail(new ProviderError({ code: "not_found", message: `the task holds nothing at ${path}` }))
-                : Effect.fail(
-                  failure(
-                    result.code === undefined ? "aborted" : "unknown",
-                    `could not read ${path}: ${result.payload.trim()}`
-                  )
-                )
-          ),
-        writeFile,
-        kill: (process, signal) =>
-          Effect.suspend(() => {
-            const pidfile = pidfiles.get(process)
-            /* v8 ignore next 3 -- `spawn` records every process it returns and a `RemoteProcess` has no other source, so the guard only discharges the optional a map read carries */
-            if (pidfile === undefined) {
-              return Effect.fail(failure("unknown", "unrecognized process"))
-            }
-            return kill(pidfile, signal)
-          }),
-        ping
-      }
-      return session
-    })
-})
+  }
+}

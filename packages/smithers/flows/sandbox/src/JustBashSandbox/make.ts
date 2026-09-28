@@ -14,6 +14,7 @@ import { providerFailure } from "../internal/localProcess.ts"
 import { rootedAt } from "../internal/rootedPath.ts"
 import { sessionSlug } from "../internal/sessionSlug.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
+import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { JustBashExecOptions, JustBashLike } from "./JustBashLike.ts"
@@ -25,6 +26,11 @@ import type { JustBashExecOptions, JustBashLike } from "./JustBashLike.ts"
  * @since 0.1.0
  */
 export interface JustBashSandboxOptions {
+  /**
+   * Refused: the injected interpreter's network configuration is not visible to this provider. Setting it makes `make` throw rather than hand out a
+   * machine with a network it did not ask for.
+   */
+  readonly network?: NetworkPolicy | undefined
   /** The interpreter that runs every session command. */
   readonly bash: JustBashLike
   /** The filesystem mounted under the interpreter's own filesystem view. */
@@ -92,6 +98,7 @@ const latin1 = (bytes: Uint8Array): string => {
  * @since 0.1.0
  */
 export const make = (options: JustBashSandboxOptions): Provider => {
+  refuseNetworkPolicy("just-bash-sandbox", options.network)
   const root = (options.root ?? "/workspace").replace(/\/+$/, "")
   const gate = Semaphore.makeUnsafe(1)
   return {

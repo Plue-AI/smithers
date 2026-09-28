@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "@effect/vitest"
-import { Effect, Fiber, Logger, References, Stream } from "effect"
+import { Effect, Exit, Fiber, Logger, References, Stream } from "effect"
 import { type ChildProcess as NodeChild, spawn } from "node:child_process"
 import {
   chmodSync,
@@ -861,7 +861,7 @@ describe("MicrosandboxSandbox", () => {
         labels: { owner: "smithers", "smithers.holder": "forged" },
         scripts: { prepare: "echo ready" },
         detached: true,
-        disableNetwork: true,
+        network: "none",
         owner: "installation-a",
         holder: "host-7"
       })
@@ -922,7 +922,7 @@ describe("MicrosandboxSandbox", () => {
         pullPolicy: "if-missing",
         // The ownership keys are the provider's own: a caller label cannot
         // forge the holder `reap` judges.
-        labels: { owner: "smithers", ...ownership("installation-a", "host-7") },
+        labels: { owner: "smithers", ...ownership("installation-a", "host-7"), "smithers.network": "none" },
         scripts: { prepare: "echo ready" },
         maxDuration: 900,
         idleTimeout: 120,
@@ -959,18 +959,87 @@ describe("MicrosandboxSandbox", () => {
         "policy-snapshot",
         () => Effect.void
       )
-      // Disabling the network wins over a policy.
-      yield* inSession(
-        MicrosandboxSandbox.make({ sdk: fake.sdk, workdir, disableNetwork: true, networkPolicy: policy }),
-        "policy-off",
-        () => Effect.void
-      )
-      const [image, snapshot, off] = fake.recorded.builds.map(({ settings }) => settings)
+      const [image, snapshot] = fake.recorded.builds.map(({ settings }) => settings)
       expect(image).toMatchObject({ image: "oven/bun:1", rootDisk: 32_768, networkPolicy: policy })
       expect(snapshot).toMatchObject({ snapshot: "base" })
       expect(snapshot!["rootDisk"]).toBeUndefined()
-      expect(off).toMatchObject({ disableNetwork: true })
-      expect(off!["networkPolicy"]).toBeUndefined()
+      expect(image!["disableNetwork"]).toBeUndefined()
+      // The neutral option and the vendor policy are exclusive at construction.
+      expect(() => MicrosandboxSandbox.make({ sdk: fake.sdk, workdir, network: "none", networkPolicy: policy }))
+        .toThrow("microsandbox: network and networkPolicy are exclusive; name one")
+      expect(fake.recorded.builds).toHaveLength(2)
+    }))
+
+  it.effect("maps a neutral allowlist to deny-by-default egress that allows DNS and the listed hosts", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      yield* inSession(
+        MicrosandboxSandbox.make({
+          sdk: fake.sdk,
+          workdir: join(root, "allow-ws"),
+          network: { allow: ["registry.npmjs.org", "*.github.com"] }
+        }),
+        "allow",
+        () => Effect.void
+      )
+      const allow = (destination: object) => ({
+        direction: "egress",
+        destination,
+        protocols: [],
+        ports: [],
+        action: "allow"
+      })
+      const policy = {
+        defaultEgress: "deny",
+        defaultIngress: "deny",
+        rules: [
+          { ...allow({ kind: "any" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
+          allow({ kind: "domain", domain: "registry.npmjs.org" }),
+          allow({ kind: "domainSuffix", suffix: "github.com" })
+        ]
+      }
+      const settings = fake.recorded.builds[0]!.settings
+      expect(settings["networkPolicy"]).toEqual(policy)
+      expect(settings["disableNetwork"]).toBeUndefined()
+      expect(settings["labels"]).toMatchObject({ "smithers.network": JSON.stringify(policy) })
+    }))
+
+  it("refuses a malformed allowlist at construction", () => {
+    const fake = fakeSdk()
+    for (const allow of [["https://example.com"], ["exa mple.com"], [""], ["*"]]) {
+      expect(() => MicrosandboxSandbox.make({ sdk: fake.sdk, network: { allow } }))
+        .toThrow("microsandbox: network allowlist entry is not a host name")
+    }
+    expect(() => MicrosandboxSandbox.make({ sdk: fake.sdk, network: "open" as never }))
+      .toThrow(`microsandbox: network must be "none" or { allow: string[] }`)
+    expect(fake.recorded.builds).toEqual([])
+  })
+
+  it.effect("reattaches a sticky machine only under the network it was created with", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const workdir = join(root, "network-reattach-ws")
+      const sticky = (network?: "none" | { readonly allow: ReadonlyArray<string> }) =>
+        MicrosandboxSandbox.make({
+          sdk: fake.sdk,
+          workdir,
+          persistence: "sticky",
+          ...network === undefined ? {} : { network }
+        })
+      yield* inSession(sticky(), "open", () => Effect.void)
+      const refused = yield* Effect.exit(inSession(sticky("none"), "open", () => Effect.void))
+      expect(refused).toMatchObject({ _tag: "Failure" })
+      expect(String(Exit.isFailure(refused) ? refused.cause : "")).toContain("was created with another network")
+      expect(fake.recorded.modifies).toEqual([])
+
+      yield* inSession(sticky({ allow: ["example.com"] }), "fenced", () => Effect.void)
+      yield* inSession(sticky({ allow: ["example.com"] }), "fenced", (session) => session.ping!)
+      expect(fake.recorded.modifies).toHaveLength(1)
+      const widened = yield* Effect.exit(
+        inSession(sticky({ allow: ["example.com", "example.org"] }), "fenced", () => Effect.void)
+      )
+      expect(Exit.isFailure(widened)).toBe(true)
+      expect(fake.recorded.modifies).toHaveLength(1)
     }))
 
   it.effect("labels every machine with a default owner and a holder minted per provider", () =>

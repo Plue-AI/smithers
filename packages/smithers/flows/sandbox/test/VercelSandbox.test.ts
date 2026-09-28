@@ -123,18 +123,21 @@ interface Faults {
   reuseReadBuffer?: boolean
   /** `writeFiles` overwrites byte buffers after it has consumed them. */
   mutateWriteBuffers?: boolean
+  updateFailure?: Error
 }
 
 interface Recorded {
   readonly acquired: Array<CreateInput>
   readonly commands: Array<RunInput>
   readonly extended: Array<number>
+  /** Each network policy update, with how many commands ran before it. */
+  readonly updates: Array<{ readonly networkPolicy: unknown; readonly commandsBefore: number }>
   readonly stopped: Array<string>
   readonly writes: Array<{ readonly path: string; readonly content: Uint8Array }>
 }
 
 const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: Recorded } => {
-  const recorded: Recorded = { acquired: [], commands: [], extended: [], stopped: [], writes: [] }
+  const recorded: Recorded = { acquired: [], commands: [], extended: [], updates: [], stopped: [], writes: [] }
   const machines = new Map<string, { readonly name: string; running: boolean }>()
   const finished = (result: FinishedRun): CommandFinished => ({
     exitCode: result.exitCode,
@@ -193,6 +196,10 @@ const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: R
       recorded.extended.push(duration)
       if (faults.extendFailure !== undefined) throw faults.extendFailure
     },
+    update: async ({ networkPolicy }) => {
+      recorded.updates.push({ networkPolicy, commandsBefore: recorded.commands.length })
+      if (faults.updateFailure !== undefined) throw faults.updateFailure
+    },
     stop: async () => {
       recorded.stopped.push(machine.name)
       machine.running = false
@@ -242,6 +249,56 @@ describe("VercelSandbox", () => {
           output(session, "true", operation === "remove" ? { stdin: encoder.encode("input") } : {}))
       }, operation === "remove" ? ".smthrs-stdin/" : "smthrs-"))
   }
+
+  it.effect("forwards a neutral network allowlist and reapplies it to a resumed sandbox before preparing the guest", () =>
+    Effect.gen(function*() {
+      const { sdk, recorded } = fakeSdk()
+      const provider = VercelSandbox.make({
+        sdk,
+        workdir: dir("network-policy"),
+        network: { allow: ["registry.npmjs.org", "*.github.com"] }
+      })
+      yield* acquired(provider, () => Effect.void)
+      yield* acquired(provider, () => Effect.void)
+      const policy = { allow: ["registry.npmjs.org", "*.github.com"] }
+      expect(recorded.acquired.map((input) => input.networkPolicy)).toEqual([policy, policy])
+      // Each update lands before the workspace-preparing `mkdir` of its acquire.
+      expect(recorded.updates).toEqual([
+        { networkPolicy: policy, commandsBefore: 0 },
+        { networkPolicy: policy, commandsBefore: 1 }
+      ])
+      expect(recorded.commands.map((command) => command.cmd)).toEqual(["mkdir", "mkdir"])
+    }))
+
+  it.effect("maps `none` to deny-all and sends no policy when the option is omitted", () =>
+    Effect.gen(function*() {
+      const { sdk, recorded } = fakeSdk()
+      yield* acquired(VercelSandbox.make({ sdk, workdir: dir("network-none"), network: "none" }), () => Effect.void)
+      yield* acquired(VercelSandbox.make({ sdk, workdir: dir("network-default") }), () => Effect.void)
+      expect(recorded.acquired[0]?.networkPolicy).toBe("deny-all")
+      expect(recorded.updates).toEqual([{ networkPolicy: "deny-all", commandsBefore: 0 }])
+      expect("networkPolicy" in recorded.acquired[1]!).toBe(false)
+    }))
+
+  it.effect("fails the acquire without a guest command when the policy cannot be applied", () =>
+    Effect.gen(function*() {
+      const { sdk, recorded } = fakeSdk({ updateFailure: new Error("policy refused") })
+      const error = yield* Effect.flip(
+        acquired(VercelSandbox.make({ sdk, workdir: dir("network-refused"), network: "none" }), () => Effect.void)
+      )
+      expect(error).toMatchObject({ code: "unavailable" })
+      expect(recorded.commands).toEqual([])
+      expect(recorded.stopped).toHaveLength(1)
+    }))
+
+  it("refuses a malformed network policy at construction", () => {
+    const { sdk, recorded } = fakeSdk()
+    expect(() => VercelSandbox.make({ sdk, network: { allow: ["http://example.com"] } }))
+      .toThrow("vercel-sandbox: network allowlist entry is not a host name: http://example.com")
+    expect(() => VercelSandbox.make({ sdk, network: { allow: "example.com" } as never }))
+      .toThrow(`vercel-sandbox: network must be "none" or { allow: string[] }`)
+    expect(recorded.acquired).toEqual([])
+  })
 
   it.effect("reports failed staged stdin removal without claiming the file was removed", () =>
     Effect.gen(function*() {

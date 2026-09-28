@@ -17,6 +17,7 @@ import { finalizeWithin } from "../internal/finalizeWithin.ts"
 import { gather, type GatheredRun, providerFailure } from "../internal/localProcess.ts"
 import { sessionSlug } from "../internal/sessionSlug.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
+import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 
 interface ResourceValues {
@@ -42,6 +43,11 @@ export interface KubernetesSandboxResources {
  * @since 0.1.0
  */
 export interface KubernetesSandboxOptions {
+  /**
+   * Refused: a Pod NetworkPolicy depends on the cluster's network plugin and matches no host names. Setting it makes `make` throw rather than hand out a
+   * machine with a network it did not ask for.
+   */
+  readonly network?: NetworkPolicy | undefined
   readonly spawner: ChildProcessSpawner["Service"]
   readonly image: string
   readonly namespace?: string | undefined
@@ -150,6 +156,7 @@ const overrideArgs = (name: string, options: KubernetesSandboxOptions): Readonly
  * @since 0.1.0
  */
 export const make = (options: KubernetesSandboxOptions): Provider => {
+  refuseNetworkPolicy("kubernetes-sandbox", options.network)
   const program = options.program ?? "kubectl"
   const workdir = options.workdir ?? "/workspace"
   const prefix = options.namePrefix ?? "smthrs-sbx-"

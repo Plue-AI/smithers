@@ -17,6 +17,7 @@ import { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderError.ts
 import * as Sandbox from "../src/Sandbox/index.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
 import { contain, platform, rawPlatform } from "./helpers/containedPlatform.ts"
+import { untouchable } from "./helpers/untouchable.ts"
 
 const isErrno = (cause: unknown, code: string): boolean =>
   typeof cause === "object" && cause !== null && "code" in cause && cause.code === code
@@ -98,6 +99,15 @@ const provider = Effect.map(services, ({ fs, spawner }) => DirectorySandbox.make
 const budget = 30_000
 
 describe("DirectorySandbox", () => {
+  it("refuses every network policy at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (const network of ["none", { allow: ["example.com"] }] as const) {
+      expect(() => DirectorySandbox.make({ fs: deps.value, spawner: deps.value, root: "/unused", network }))
+        .toThrow("directory-sandbox: cannot enforce a network policy; omit `network`")
+    }
+    expect(deps.touched).toEqual([])
+  })
+
   it.effect("refuses raw and deadline-only spawners before creating a workspace or starting a command", () =>
     Effect.gen(function*() {
       const { fs } = yield* services

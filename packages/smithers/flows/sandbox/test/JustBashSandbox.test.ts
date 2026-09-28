@@ -13,6 +13,7 @@ import { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderError.ts
 import * as Sandbox from "../src/Sandbox/index.ts"
 import type { Session } from "../src/Sandbox/Session.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
+import { untouchable } from "./helpers/untouchable.ts"
 
 const encoder = new TextEncoder()
 
@@ -130,6 +131,15 @@ const output = (session: Session, command: string, options: Parameters<Session["
 const budget = 60_000
 
 describe("JustBashSandbox", () => {
+  it("refuses every network policy at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (const network of ["none", { allow: ["example.com"] }] as const) {
+      expect(() => JustBashSandbox.make({ bash: deps.value, fs: deps.value, network }))
+        .toThrow("just-bash-sandbox: cannot enforce a network policy; omit `network`")
+    }
+    expect(deps.touched).toEqual([])
+  })
+
   it.effect("serializes concurrent commands across sessions", () =>
     Effect.gen(function*() {
       const { fs } = yield* services

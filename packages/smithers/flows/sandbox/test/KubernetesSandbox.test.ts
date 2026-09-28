@@ -18,6 +18,7 @@ import * as KubernetesSandbox from "../src/KubernetesSandbox/index.ts"
 import { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderError.ts"
 import type { Session } from "../src/Sandbox/index.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
+import { untouchable } from "./helpers/untouchable.ts"
 import { stalledFinalizer } from "./stalledFinalizer.ts"
 
 // -----------------------------------------------------------------------------
@@ -276,6 +277,15 @@ const output = (session: Session, command: string, options: Parameters<Session["
   )
 
 describe("KubernetesSandbox", () => {
+  it("refuses every network policy at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (const network of ["none", { allow: ["example.com"] }] as const) {
+      expect(() => KubernetesSandbox.make({ spawner: deps.value, image: "img", network }))
+        .toThrow("kubernetes-sandbox: cannot enforce a network policy; omit `network`")
+    }
+    expect(deps.touched).toEqual([])
+  })
+
   it.effect("bounds stalled process signalling on the platform timer", () =>
     stalledFinalizer((stall) => {
       const fake = cluster((args) => args.at(-1)?.includes("kill -s TERM") === true ? { wait: stall } : undefined)

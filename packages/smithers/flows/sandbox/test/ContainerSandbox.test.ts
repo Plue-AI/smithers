@@ -436,6 +436,24 @@ describe("ContainerSandbox", () => {
       ])
     }))
 
+  it("unsupported host allowlist fails at provider construction", () => {
+    const fake = engine()
+    expect(() =>
+      ContainerSandbox.make({ spawner: fake.spawner, image: "img", workdir, network: { allow: ["example.com"] } })
+    ).toThrow(/container-sandbox: cannot enforce a network allowlist/)
+    expect(fake.calls).toEqual([])
+  })
+
+  it.effect("maps the neutral `none` network to the engine's none mode", () =>
+    Effect.gen(function*() {
+      const fake = engine()
+      yield* acquired(
+        ContainerSandbox.make({ spawner: fake.spawner, image: "img", workdir, network: "none" }),
+        Effect.succeed
+      )
+      expect(fake.calls[0]!.args.slice(5, 7)).toEqual(["--network", "none"])
+    }))
+
   it.effect("hands exec the cwd `Sandbox.fileSystem` would name for a relative path", () =>
     Effect.gen(function*() {
       const fake = engine()

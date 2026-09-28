@@ -19,6 +19,7 @@ import { stdinRedirect } from "../internal/stdinRedirect.ts"
 import { warnTeardown } from "../internal/teardownWarning.ts"
 import type { RemoteProcess } from "../RemoteChildProcessSpawner/Provider.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
+import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { Sdk } from "./Sdk.ts"
@@ -31,6 +32,11 @@ import type { Sdk } from "./Sdk.ts"
  * @since 0.1.0
  */
 export interface CloudflareSandboxOptions<Binding> {
+  /**
+   * Refused: egress control lives on the Worker's Sandbox class, outside this provider. Setting it makes `make` throw rather than hand out a
+   * machine with a network it did not ask for.
+   */
+  readonly network?: NetworkPolicy | undefined
   readonly sdk: Sdk<Binding>
   readonly binding: Binding
   readonly execution?: "exec" | "process" | undefined
@@ -83,6 +89,7 @@ const processOf = (stdout: string, stderr: string, exitCode: number): RemoteProc
  * @since 0.1.0
  */
 export const make = <Binding>(options: CloudflareSandboxOptions<Binding>): Provider => {
+  refuseNetworkPolicy("cloudflare-sandbox", options.network)
   const workdir = options.workdir ?? "/workspace"
 
   return {

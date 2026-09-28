@@ -17,6 +17,7 @@ import { linuxFileSystem } from "../internal/linuxFileSystem.ts"
 import { gather, type GatheredRun, providerFailure } from "../internal/localProcess.ts"
 import { sessionSlug } from "../internal/sessionSlug.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
+import type { NetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 
 /**
@@ -41,8 +42,13 @@ export interface ContainerSandboxOptions {
   readonly workdir?: string | undefined
   /** Container-wide environment, sent through /dev/stdin as an env-file. CR, LF, and NUL values are refused. */
   readonly env?: Readonly<Record<string, string>> | undefined
-  /** The engine's network mode for the container, passed verbatim. Default `none`; another value explicitly opts in. */
-  readonly network?: string | undefined
+  /**
+   * The container's network. `"none"`, the default, gives it none; another
+   * string is the engine's network mode, passed verbatim, and explicitly opts
+   * in. An engine network mode is not a host firewall, so an allowlist
+   * `{ allow }` is refused when `make` is called.
+   */
+  readonly network?: NetworkPolicy | string | undefined
   /** Extra `create` arguments, an escape hatch for engine-specific shaping. */
   readonly createArgs?: ReadonlyArray<string> | undefined
   /** The container-name prefix. Default `smthrs-sbx-`. */
@@ -107,6 +113,11 @@ const inspectedContainer = Schema.Array(Schema.Struct({
 export const make = (options: ContainerSandboxOptions): Provider => {
   const program = options.program ?? "docker"
   const workdir = options.workdir ?? "/workspace"
+  if (typeof options.network === "object") {
+    throw new TypeError(
+      "container-sandbox: cannot enforce a network allowlist; the engine network mode is not a host firewall"
+    )
+  }
   const network = options.network ?? "none"
   const prefix = options.namePrefix ?? "smthrs-sbx-"
   const run = (args: ReadonlyArray<string>, stdin?: Uint8Array): Effect.Effect<GatheredRun, ProviderError> =>

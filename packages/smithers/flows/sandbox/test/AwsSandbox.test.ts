@@ -16,6 +16,7 @@ import * as AwsSandbox from "../src/AwsSandbox/index.ts"
 import { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderError.ts"
 import type { Session } from "../src/Sandbox/Session.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
+import { untouchable } from "./helpers/untouchable.ts"
 import { stalledFinalizer } from "./stalledFinalizer.ts"
 
 type RunTaskInput = Parameters<AwsSandbox.Sdk["runTask"]>[0]
@@ -472,6 +473,24 @@ const output = (session: Session, command: string, options: Parameters<Session["
   )
 
 describe("AwsSandbox", () => {
+  it("refuses every network policy at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (const network of ["none", { allow: ["example.com"] }] as const) {
+      expect(() =>
+        AwsSandbox.make({
+          sdk: deps.value,
+          region: "us-west-2",
+          cluster: "cluster-arn",
+          taskDefinition: "family:7",
+          subnets: ["subnet-a"],
+          network
+        })
+      )
+        .toThrow("aws-sandbox: cannot enforce a network policy; omit `network`")
+    }
+    expect(deps.touched).toEqual([])
+  })
+
   for (const operation of ["remove", "kill"] as const) {
     it.effect(`bounds stalled ${operation} on the platform timer`, () =>
       stalledFinalizer((stall) => {

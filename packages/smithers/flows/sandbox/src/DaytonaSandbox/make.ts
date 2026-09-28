@@ -19,6 +19,7 @@ import { rootedAt } from "../internal/rootedPath.ts"
 import { stdinRedirect } from "../internal/stdinRedirect.ts"
 import { warnTeardown } from "../internal/teardownWarning.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
+import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { Sdk } from "./Sdk.ts"
@@ -30,6 +31,11 @@ import type { Sdk } from "./Sdk.ts"
  * @since 0.1.0
  */
 export interface DaytonaSandboxOptions {
+  /**
+   * Refused: a reattached sandbox keeps the network it was created with, unverified. Setting it makes `make` throw rather than hand out a
+   * machine with a network it did not ask for.
+   */
+  readonly network?: NetworkPolicy | undefined
   /** A configured `Daytona` client instance. */
   readonly sdk: Sdk
   /** An explicit absolute guest workspace, otherwise `getWorkDir()` is used. */
@@ -99,145 +105,148 @@ const attempt = attemptIn("daytona-sandbox")
  * @category constructors
  * @since 0.1.0
  */
-export const make = (options: DaytonaSandboxOptions): Provider => ({
-  acquire: (sessionKey) =>
-    Effect.gen(function*() {
-      if (options.workdir !== undefined && !options.workdir.startsWith("/")) {
-        return yield* Effect.fail(
-          new ProviderError({
-            code: "spawn_error",
-            message: `daytona-sandbox: workdir must be absolute: ${options.workdir}`
-          })
-        )
-      }
-      const name = machineName(options.namePrefix ?? "smthrs-", sessionKey)
-      const held = yield* Effect.acquireRelease(
-        Effect.tryPromise({
-          try: async () => {
-            try {
-              return { sandbox: await options.sdk.get(name), attached: true }
-            } catch (cause) {
-              if (!missingSandbox(cause)) throw cause
-              return { sandbox: await options.sdk.create({ name }), attached: false }
-            }
-          },
-          catch: providerFailure("unavailable", `daytona-sandbox: could not acquire ${name}`)
-        }),
-        ({ sandbox }) =>
-          finalizeWithin(
-            Effect.ignore(
-              attempt(
-                () => options.sdk.delete(sandbox, options.deleteTimeoutSeconds ?? 60, true),
-                "unknown",
-                `could not delete ${name}`
-              ).pipe(Effect.tapError((error) => warnTeardown("daytona", "delete", error)))
-            ),
-            `daytona sandbox ${name}`
+export const make = (options: DaytonaSandboxOptions): Provider => {
+  refuseNetworkPolicy("daytona-sandbox", options.network)
+  return {
+    acquire: (sessionKey) =>
+      Effect.gen(function*() {
+        if (options.workdir !== undefined && !options.workdir.startsWith("/")) {
+          return yield* Effect.fail(
+            new ProviderError({
+              code: "spawn_error",
+              message: `daytona-sandbox: workdir must be absolute: ${options.workdir}`
+            })
           )
-      )
-      if (held.attached) {
-        yield* attempt(
-          () => options.sdk.start(held.sandbox, options.startTimeoutSeconds),
-          "unavailable",
-          `could not start ${name}`
-        )
-      }
-      const discovered = options.workdir === undefined
-        ? yield* attempt(() => held.sandbox.getWorkDir(), "unavailable", `could not discover ${name}'s workdir`)
-        : options.workdir
-      if (discovered === undefined || !discovered.startsWith("/")) {
-        return yield* Effect.fail(
-          new ProviderError({
-            code: "unavailable",
-            message: `daytona-sandbox: ${name} did not report an absolute workdir`
-          })
-        )
-      }
-      const workdir = discovered
-      const execute = (
-        command: string,
-        cwd?: string,
-        env?: Record<string, string>
-      ): Effect.Effect<ExecuteResponse, ProviderError> =>
-        attempt(
-          () => held.sandbox.process.executeCommand(command, cwd, env),
-          "spawn_error",
-          `could not execute ${command}`
-        )
-      const prepare = yield* execute(`mkdir -p ${CommandLine.quote(workdir)}`)
-      yield* checked(prepare, "unavailable", `daytona-sandbox: could not prepare ${workdir}`)
-
-      const writeFile: Session["writeFile"] = (path, content) =>
-        Effect.gen(function*() {
-          const parent = parentOf(path)
-          if (parent !== undefined) {
-            const result = yield* execute(`mkdir -p ${CommandLine.quote(parent)}`)
-            yield* checked(result, "unknown", `daytona-sandbox: could not create ${parent}`)
-          }
-          yield* attempt(
-            // The SDK may retain or mutate its upload buffer after accepting it.
-            () => held.sandbox.fs.uploadFileStream(content.slice(), path),
-            "unknown",
-            `could not upload ${path}`
-          )
-        })
-      // `executeCommand` takes a command line and nothing else, so a
-      // command's standard input is staged as a workspace file and the line
-      // is rewritten to read from it.
-      const redirect = stdinRedirect({
-        workdir,
-        writeFile,
-        remove: (path) =>
-          Effect.asVoid(Effect.flatMap(execute(`rm -f ${CommandLine.quote(path)}`), (result) =>
-            checked(result, "unknown", `daytona-sandbox: could not remove ${path}`)))
-      })
-      const resolveCwd = rootedAt(workdir)
-      const session: Session = {
-        id: sessionKey,
-        remoteId: held.sandbox.id,
-        workdir,
-        spawn: (command, spawnOptions) =>
-          Effect.flatMap(
-            Effect.andThen(checkEnvironmentNames(spawnOptions.env), redirect(command, spawnOptions.stdin)),
-            (fed) => {
-              const guest = environmentCommand(fed, { ...options.commandEnv, ...spawnOptions.env })
-              return Effect.map(
-                execute(
-                  guest.command,
-                  resolveCwd(spawnOptions.cwd ?? ""),
-                  guest.env
-                ),
-                (result) => ({
-                  // `result` is the command's combined output: the wire
-                  // response has no stderr field and the endpoint merges
-                  // standard error into it, so the merged text is delivered on
-                  // stdout and stderr stays honestly empty.
-                  stdout: Stream.make(encoder.encode(result.result)),
-                  stderr: Stream.empty,
-                  exitCode: Effect.succeed(result.exitCode)
-                })
-              )
-            }
-          ),
-        readFile: (path) =>
+        }
+        const name = machineName(options.namePrefix ?? "smthrs-", sessionKey)
+        const held = yield* Effect.acquireRelease(
           Effect.tryPromise({
-            try: () =>
-              held.sandbox.fs.downloadFile(path).then((content) => new Uint8Array(content)),
-            catch: (cause) =>
-              missingFile(cause)
-                ? new ProviderError({
-                  code: "not_found",
-                  message: `daytona-sandbox: no file exists at ${path}`,
-                  cause
-                })
-                : providerFailure("unknown", `daytona-sandbox: could not download ${path}`)(cause)
+            try: async () => {
+              try {
+                return { sandbox: await options.sdk.get(name), attached: true }
+              } catch (cause) {
+                if (!missingSandbox(cause)) throw cause
+                return { sandbox: await options.sdk.create({ name }), attached: false }
+              }
+            },
+            catch: providerFailure("unavailable", `daytona-sandbox: could not acquire ${name}`)
           }),
-        writeFile,
-        ping: Effect.gen(function*() {
-          const result = yield* execute("true", workdir)
-          yield* checked(result, "unavailable", `daytona-sandbox: ${name} did not answer`)
+          ({ sandbox }) =>
+            finalizeWithin(
+              Effect.ignore(
+                attempt(
+                  () => options.sdk.delete(sandbox, options.deleteTimeoutSeconds ?? 60, true),
+                  "unknown",
+                  `could not delete ${name}`
+                ).pipe(Effect.tapError((error) => warnTeardown("daytona", "delete", error)))
+              ),
+              `daytona sandbox ${name}`
+            )
+        )
+        if (held.attached) {
+          yield* attempt(
+            () => options.sdk.start(held.sandbox, options.startTimeoutSeconds),
+            "unavailable",
+            `could not start ${name}`
+          )
+        }
+        const discovered = options.workdir === undefined
+          ? yield* attempt(() => held.sandbox.getWorkDir(), "unavailable", `could not discover ${name}'s workdir`)
+          : options.workdir
+        if (discovered === undefined || !discovered.startsWith("/")) {
+          return yield* Effect.fail(
+            new ProviderError({
+              code: "unavailable",
+              message: `daytona-sandbox: ${name} did not report an absolute workdir`
+            })
+          )
+        }
+        const workdir = discovered
+        const execute = (
+          command: string,
+          cwd?: string,
+          env?: Record<string, string>
+        ): Effect.Effect<ExecuteResponse, ProviderError> =>
+          attempt(
+            () => held.sandbox.process.executeCommand(command, cwd, env),
+            "spawn_error",
+            `could not execute ${command}`
+          )
+        const prepare = yield* execute(`mkdir -p ${CommandLine.quote(workdir)}`)
+        yield* checked(prepare, "unavailable", `daytona-sandbox: could not prepare ${workdir}`)
+
+        const writeFile: Session["writeFile"] = (path, content) =>
+          Effect.gen(function*() {
+            const parent = parentOf(path)
+            if (parent !== undefined) {
+              const result = yield* execute(`mkdir -p ${CommandLine.quote(parent)}`)
+              yield* checked(result, "unknown", `daytona-sandbox: could not create ${parent}`)
+            }
+            yield* attempt(
+              // The SDK may retain or mutate its upload buffer after accepting it.
+              () => held.sandbox.fs.uploadFileStream(content.slice(), path),
+              "unknown",
+              `could not upload ${path}`
+            )
+          })
+        // `executeCommand` takes a command line and nothing else, so a
+        // command's standard input is staged as a workspace file and the line
+        // is rewritten to read from it.
+        const redirect = stdinRedirect({
+          workdir,
+          writeFile,
+          remove: (path) =>
+            Effect.asVoid(Effect.flatMap(execute(`rm -f ${CommandLine.quote(path)}`), (result) =>
+              checked(result, "unknown", `daytona-sandbox: could not remove ${path}`)))
         })
-      }
-      return session
-    })
-})
+        const resolveCwd = rootedAt(workdir)
+        const session: Session = {
+          id: sessionKey,
+          remoteId: held.sandbox.id,
+          workdir,
+          spawn: (command, spawnOptions) =>
+            Effect.flatMap(
+              Effect.andThen(checkEnvironmentNames(spawnOptions.env), redirect(command, spawnOptions.stdin)),
+              (fed) => {
+                const guest = environmentCommand(fed, { ...options.commandEnv, ...spawnOptions.env })
+                return Effect.map(
+                  execute(
+                    guest.command,
+                    resolveCwd(spawnOptions.cwd ?? ""),
+                    guest.env
+                  ),
+                  (result) => ({
+                    // `result` is the command's combined output: the wire
+                    // response has no stderr field and the endpoint merges
+                    // standard error into it, so the merged text is delivered on
+                    // stdout and stderr stays honestly empty.
+                    stdout: Stream.make(encoder.encode(result.result)),
+                    stderr: Stream.empty,
+                    exitCode: Effect.succeed(result.exitCode)
+                  })
+                )
+              }
+            ),
+          readFile: (path) =>
+            Effect.tryPromise({
+              try: () =>
+                held.sandbox.fs.downloadFile(path).then((content) => new Uint8Array(content)),
+              catch: (cause) =>
+                missingFile(cause)
+                  ? new ProviderError({
+                    code: "not_found",
+                    message: `daytona-sandbox: no file exists at ${path}`,
+                    cause
+                  })
+                  : providerFailure("unknown", `daytona-sandbox: could not download ${path}`)(cause)
+            }),
+          writeFile,
+          ping: Effect.gen(function*() {
+            const result = yield* execute("true", workdir)
+            yield* checked(result, "unavailable", `daytona-sandbox: ${name} did not answer`)
+          })
+        }
+        return session
+      })
+  }
+}

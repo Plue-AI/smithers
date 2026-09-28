@@ -21,6 +21,7 @@ import { sessionSlug } from "../src/internal/sessionSlug.ts"
 import { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderError.ts"
 import type { Session } from "../src/Sandbox/Session.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
+import { untouchable } from "./helpers/untouchable.ts"
 import { stalledFinalizer } from "./stalledFinalizer.ts"
 
 const encoder = new TextEncoder()
@@ -259,6 +260,15 @@ const output = (session: Session, command: string, options: Parameters<Session["
   )
 
 describe("DaytonaSandbox", () => {
+  it("refuses every network policy at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (const network of ["none", { allow: ["example.com"] }] as const) {
+      expect(() => DaytonaSandbox.make({ sdk: deps.value, network }))
+        .toThrow("daytona-sandbox: cannot enforce a network policy; omit `network`")
+    }
+    expect(deps.touched).toEqual([])
+  })
+
   for (const operation of ["remove", "release"] as const) {
     it.effect(`bounds stalled ${operation} on the platform timer`, () =>
       stalledFinalizer((stall) => {

@@ -22,6 +22,7 @@ import { warnTeardown } from "../internal/teardownWarning.ts"
 import type { RemoteProcess } from "../RemoteChildProcessSpawner/Provider.ts"
 import type { ProviderErrorCode } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
+import { type NetworkPolicy as GuestNetworkPolicy, validateNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import { holderLabel, ownerLabel, providerLabel, providerName } from "./labels.ts"
@@ -131,11 +132,15 @@ export interface MicrosandboxSandboxOptions {
   readonly scripts?: Readonly<Record<string, string>> | undefined
   /** Run detached from the host process. Sticky sessions default to detached. */
   readonly detached?: boolean | undefined
-  /** Boot without guest networking. Takes precedence over `networkPolicy`. */
-  readonly disableNetwork?: boolean | undefined
   /**
-   * The guest network policy, such as deny-by-default egress with a domain
-   * allowlist. Default: the vendor's own policy.
+   * The guest network. `"none"` boots without networking; `{ allow }` denies
+   * ingress and all egress but DNS and the listed hosts. Default: the
+   * vendor's own policy. Exclusive with `networkPolicy`.
+   */
+  readonly network?: GuestNetworkPolicy | undefined
+  /**
+   * The guest network policy in the vendor's own rule shape, for rules the
+   * neutral `network` cannot say. Exclusive with `network`.
    */
   readonly networkPolicy?: NetworkPolicy | undefined
   /**
@@ -213,9 +218,50 @@ const retrying = <A>(effect: Effect.Effect<A, ProviderError>): Effect.Effect<A, 
   return from(0)
 }
 
+/**
+ * The label recording a machine's requested network, so a reattach under a
+ * network option can refuse a machine created with another.
+ */
+const networkLabel = "smithers.network"
+
+/** The builder network a machine boots with: none, a vendor policy, or the vendor's default. */
+type GuestNetwork = "none" | NetworkPolicy | undefined
+
+const guestNetwork = (options: MicrosandboxSandboxOptions): GuestNetwork => {
+  if (options.network === undefined) return options.networkPolicy
+  if (options.networkPolicy !== undefined) {
+    throw new TypeError("microsandbox: network and networkPolicy are exclusive; name one")
+  }
+  const network = validateNetworkPolicy("microsandbox", options.network)
+  if (network === "none") return "none"
+  const egress = (destination: NetworkPolicy["rules"][number]["destination"]) => ({
+    direction: "egress" as const,
+    destination,
+    protocols: [],
+    ports: [],
+    action: "allow" as const
+  })
+  return {
+    defaultEgress: "deny",
+    defaultIngress: "deny",
+    rules: [
+      // Resolving an allowed name needs DNS.
+      { ...egress({ kind: "any" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
+      ...network.allow.map((host) =>
+        egress(
+          host.startsWith("*.")
+            ? { kind: "domainSuffix", suffix: host.slice(2) }
+            : { kind: "domain", domain: host }
+        )
+      )
+    ]
+  }
+}
+
 const configure = (
   builder: Builder,
   options: MicrosandboxSandboxOptions,
+  network: GuestNetwork,
   sticky: boolean,
   ownership: Record<string, string>
 ): Builder => {
@@ -235,11 +281,8 @@ const configure = (
   if (options.scripts !== undefined) configured = configured.scripts({ ...options.scripts })
   if (options.maxDurationSecs !== undefined) configured = configured.maxDuration(options.maxDurationSecs)
   if (options.idleTimeoutSecs !== undefined) configured = configured.idleTimeout(options.idleTimeoutSecs)
-  if (options.disableNetwork === true) configured = configured.disableNetwork()
-  else if (options.networkPolicy !== undefined) {
-    const policy = options.networkPolicy
-    configured = configured.network((network) => network.policy(policy))
-  }
+  if (network === "none") configured = configured.disableNetwork()
+  else if (network !== undefined) configured = configured.network((builder) => builder.policy(network))
   return configured.ephemeral(!sticky).detached(options.detached ?? sticky)
 }
 
@@ -247,6 +290,7 @@ const isAlreadyExists = (cause: unknown): boolean => Reflect.get(Object(cause), 
 
 const openMachine = (
   options: MicrosandboxSandboxOptions,
+  network: GuestNetwork,
   name: string,
   sticky: boolean,
   ownership: Record<string, string>
@@ -255,12 +299,20 @@ const openMachine = (
     async () => {
       try {
         return {
-          sandbox: await configure(options.sdk.Sandbox.builder(name), options, sticky, ownership).create(),
+          sandbox: await configure(options.sdk.Sandbox.builder(name), options, network, sticky, ownership).create(),
           created: true
         }
       } catch (cause) {
         if (!isAlreadyExists(cause)) throw cause
         const handle = await options.sdk.Sandbox.get(name)
+        // A reattached machine keeps the network it booted with.
+        if (
+          ownership[networkLabel] !== undefined &&
+          Reflect.get(Object(Reflect.get(Object(JSON.parse(handle.configJson)), "labels")), networkLabel) !==
+            ownership[networkLabel]
+        ) {
+          throw new Error(`${name} was created with another network; remove it or acquire another session`)
+        }
         // The machine now belongs to this holder. Microsandbox cannot relabel
         // a running machine live, but a next-start modification is recorded
         // at once, and the recorded labels are what `reap` reads, so a sweep
@@ -429,10 +481,12 @@ const requireLocalBackend = (sdk: Sdk): Effect.Effect<void, ProviderError> =>
  * @since 0.1.0
  */
 export const make = (options: MicrosandboxSandboxOptions): Provider => {
+  const network = guestNetwork(options)
   const ownership: Record<string, string> = {
     [providerLabel]: providerName,
     [ownerLabel]: options.owner ?? defaultOwner,
-    [holderLabel]: options.holder ?? globalThis.crypto.randomUUID()
+    [holderLabel]: options.holder ?? globalThis.crypto.randomUUID(),
+    ...network === undefined ? {} : { [networkLabel]: network === "none" ? "none" : JSON.stringify(network) }
   }
   const local = options.backend !== "any"
   return {
@@ -454,7 +508,7 @@ export const make = (options: MicrosandboxSandboxOptions): Provider => {
 
         let prepared = false
         const opened = yield* Effect.acquireRelease(
-          openMachine(options, name, sticky, ownership),
+          openMachine(options, network, name, sticky, ownership),
           ({ created, sandbox }) =>
             !sticky || created && !prepared
               ? finalizeWithin(

@@ -18,6 +18,7 @@ import { rootedAt } from "../internal/rootedPath.ts"
 import { stdinRedirect } from "../internal/stdinRedirect.ts"
 import { warnTeardown } from "../internal/teardownWarning.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
+import { type NetworkPolicy, validateNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { Credentials } from "./Credentials.ts"
@@ -45,6 +46,12 @@ export interface VercelSandboxOptions extends Credentials {
   readonly commandEnv?: Readonly<Record<string, string>> | undefined
   /** Prefix for deterministic Vercel sandbox names. Default `smthrs-`. */
   readonly namePrefix?: string | undefined
+  /**
+   * The guest network, enforced by Vercel's egress firewall: `"none"` is
+   * `deny-all`, `{ allow }` its domain allowlist. Default: Vercel's own,
+   * full internet access.
+   */
+  readonly network?: NetworkPolicy | undefined
 }
 
 type VendorSandbox = Awaited<ReturnType<Sdk["Sandbox"]["getOrCreate"]>>
@@ -72,6 +79,9 @@ const decodeFile = async (
   }
   return concat(chunks)
 }
+
+const vendorPolicy = (policy: NetworkPolicy): "deny-all" | { allow: Array<string> } =>
+  policy === "none" ? "deny-all" : { allow: [...policy.allow] }
 
 const resolveCredentials = (
   input: Credentials,
@@ -125,147 +135,163 @@ const resolveCredentials = (
  * @category constructors
  * @since 0.1.0
  */
-export const make = (options: VercelSandboxOptions): Provider => ({
-  acquire: (sessionKey) =>
-    Effect.gen(function*() {
-      const desiredMs = options.timeoutMs ?? createCeilingMillis
-      if (!Number.isFinite(desiredMs) || desiredMs <= 0) {
-        return yield* Effect.fail(
-          new ProviderError({
-            code: "spawn_error",
-            message: "vercel-sandbox: timeoutMs must be a positive number of milliseconds"
-          })
-        )
-      }
-      if (options.maxDurationMs !== undefined && desiredMs > options.maxDurationMs) {
-        return yield* Effect.fail(
-          new ProviderError({
-            code: "spawn_error",
-            message:
-              `vercel-sandbox: requested duration ${desiredMs}ms exceeds maxDurationMs ${options.maxDurationMs}ms`
-          })
-        )
-      }
-      const workdir = options.workdir ?? defaultWorkdir
-      if (!workdir.startsWith("/")) {
-        return yield* Effect.fail(
-          new ProviderError({ code: "spawn_error", message: `vercel-sandbox: workdir must be absolute: ${workdir}` })
-        )
-      }
-      const createMs = Math.min(desiredMs, createCeilingMillis)
-      const name = machineName(options.namePrefix ?? "smthrs-", sessionKey)
-      const credentials = resolveCredentials(options, options.env ?? {})
-      const sandbox = yield* Effect.acquireRelease(
-        attempt(
-          () =>
-            options.sdk.Sandbox.getOrCreate({
-              ...credentials,
-              name,
-              timeout: createMs,
-              persistent: true,
-              resume: true,
-              ...options.runtime === undefined ? {} : { runtime: options.runtime }
-            }),
-          "unavailable",
-          `could not acquire ${name}`
-        ),
-        (sandbox) =>
-          finalizeWithin(
-            Effect.ignore(
-              attempt(() => sandbox.stop(), "unknown", `could not stop ${name}`).pipe(
-                Effect.tapError((error) => warnTeardown("vercel", "stop", error))
-              )
-            ),
-            `vercel sandbox ${name}`
+export const make = (options: VercelSandboxOptions): Provider => {
+  const networkPolicy = options.network === undefined
+    ? undefined
+    : vendorPolicy(validateNetworkPolicy("vercel-sandbox", options.network))
+  return {
+    acquire: (sessionKey) =>
+      Effect.gen(function*() {
+        const desiredMs = options.timeoutMs ?? createCeilingMillis
+        if (!Number.isFinite(desiredMs) || desiredMs <= 0) {
+          return yield* Effect.fail(
+            new ProviderError({
+              code: "spawn_error",
+              message: "vercel-sandbox: timeoutMs must be a positive number of milliseconds"
+            })
           )
-      )
-      if (desiredMs > createMs) {
-        yield* attempt(
-          () => sandbox.extendTimeout(desiredMs - createMs),
-          "unavailable",
-          `could not extend ${name}`
-        )
-      }
-      const prepare = yield* attempt(
-        () => sandbox.runCommand({ cmd: "mkdir", args: ["-p", workdir] }),
-        "unavailable",
-        `could not prepare ${workdir}`
-      )
-      yield* checked(prepare, "unavailable", `vercel-sandbox: could not prepare ${workdir}`)
-
-      const run = (params: Parameters<VendorSandbox["runCommand"]>[0]) =>
-        attempt(() => sandbox.runCommand(params), "spawn_error", `could not run ${params.cmd}`)
-      const writeFile: Session["writeFile"] = (path, content) =>
-        Effect.gen(function*() {
-          const parent = parentOf(path)
-          if (parent !== undefined) {
-            const result = yield* run({ cmd: "mkdir", args: ["-p", parent] })
-            yield* checked(result, "unknown", `vercel-sandbox: could not create ${parent}`)
-          }
-          yield* attempt(
-            // The SDK may retain or mutate its upload buffer after accepting it.
-            () => sandbox.writeFiles([{ path, content: content.slice() }]),
-            "unknown",
-            `could not write ${path}`
+        }
+        if (options.maxDurationMs !== undefined && desiredMs > options.maxDurationMs) {
+          return yield* Effect.fail(
+            new ProviderError({
+              code: "spawn_error",
+              message:
+                `vercel-sandbox: requested duration ${desiredMs}ms exceeds maxDurationMs ${options.maxDurationMs}ms`
+            })
           )
-        })
-      // `runCommand` takes no standard input (verified against the
-      // `@vercel/sandbox` 3.2.1 typings), so a command's input is staged as
-      // a workspace file and the command line is rewritten to read from it.
-      const redirect = stdinRedirect({
-        workdir,
-        writeFile,
-        remove: (path) =>
-          Effect.asVoid(
-            Effect.flatMap(
-              run({ cmd: "rm", args: ["-f", path] }),
-              (result) => checked(result, "unknown", `vercel-sandbox: could not remove ${path}`)
-            )
+        }
+        const workdir = options.workdir ?? defaultWorkdir
+        if (!workdir.startsWith("/")) {
+          return yield* Effect.fail(
+            new ProviderError({ code: "spawn_error", message: `vercel-sandbox: workdir must be absolute: ${workdir}` })
           )
-      })
-      const resolveCwd = rootedAt(workdir)
-      const session: Session = {
-        id: sessionKey,
-        remoteId: sandbox.name,
-        workdir,
-        spawn: (command, spawnOptions) =>
-          Effect.flatMap(
-            Effect.andThen(checkEnvironmentNames(spawnOptions.env), redirect(command, spawnOptions.stdin)),
-            (fed) => {
-              const guest = environmentCommand(fed, { ...options.commandEnv, ...spawnOptions.env })
-              return Effect.map(
-                run({
-                  cmd: "sh",
-                  // `-c`, never `-lc`: profile output from a login shell would
-                  // precede the command's own stdout on this transport.
-                  args: ["-c", guest.command],
-                  cwd: resolveCwd(spawnOptions.cwd ?? ""),
-                  env: guest.env
-                }),
-                (result) => ({
-                  stdout: output(() => result.stdout(), "could not read command stdout"),
-                  stderr: output(() => result.stderr(), "could not read command stderr"),
-                  exitCode: Effect.succeed(result.exitCode)
-                })
-              )
-            }
+        }
+        const createMs = Math.min(desiredMs, createCeilingMillis)
+        const name = machineName(options.namePrefix ?? "smthrs-", sessionKey)
+        const credentials = resolveCredentials(options, options.env ?? {})
+        const sandbox = yield* Effect.acquireRelease(
+          attempt(
+            () =>
+              options.sdk.Sandbox.getOrCreate({
+                ...credentials,
+                name,
+                timeout: createMs,
+                persistent: true,
+                resume: true,
+                ...options.runtime === undefined ? {} : { runtime: options.runtime },
+                ...networkPolicy === undefined ? {} : { networkPolicy }
+              }),
+            "unavailable",
+            `could not acquire ${name}`
           ),
-        readFile: (path) =>
-          Effect.flatMap(
-            attempt(() => sandbox.readFile({ path }), "unknown", `could not read ${path}`),
-            (stream) =>
-              stream === null
-                ? Effect.fail(
-                  new ProviderError({ code: "not_found", message: `vercel-sandbox: no file exists at ${path}` })
+          (sandbox) =>
+            finalizeWithin(
+              Effect.ignore(
+                attempt(() => sandbox.stop(), "unknown", `could not stop ${name}`).pipe(
+                  Effect.tapError((error) => warnTeardown("vercel", "stop", error))
                 )
-                : attempt(() => decodeFile(stream), "unknown", `could not drain ${path}`)
-          ),
-        writeFile,
-        ping: Effect.gen(function*() {
-          const result = yield* run({ cmd: "true", cwd: workdir })
-          yield* checked(result, "unavailable", `vercel-sandbox: ${name} did not answer`)
+              ),
+              `vercel sandbox ${name}`
+            )
+        )
+        // `getOrCreate` applies a policy only when it creates; a resumed
+        // sandbox keeps its own until updated, so the policy is set again
+        // before any guest command runs.
+        if (networkPolicy !== undefined) {
+          yield* attempt(
+            () => sandbox.update({ networkPolicy }),
+            "unavailable",
+            `could not apply the network policy to ${name}`
+          )
+        }
+        if (desiredMs > createMs) {
+          yield* attempt(
+            () => sandbox.extendTimeout(desiredMs - createMs),
+            "unavailable",
+            `could not extend ${name}`
+          )
+        }
+        const prepare = yield* attempt(
+          () => sandbox.runCommand({ cmd: "mkdir", args: ["-p", workdir] }),
+          "unavailable",
+          `could not prepare ${workdir}`
+        )
+        yield* checked(prepare, "unavailable", `vercel-sandbox: could not prepare ${workdir}`)
+
+        const run = (params: Parameters<VendorSandbox["runCommand"]>[0]) =>
+          attempt(() => sandbox.runCommand(params), "spawn_error", `could not run ${params.cmd}`)
+        const writeFile: Session["writeFile"] = (path, content) =>
+          Effect.gen(function*() {
+            const parent = parentOf(path)
+            if (parent !== undefined) {
+              const result = yield* run({ cmd: "mkdir", args: ["-p", parent] })
+              yield* checked(result, "unknown", `vercel-sandbox: could not create ${parent}`)
+            }
+            yield* attempt(
+              // The SDK may retain or mutate its upload buffer after accepting it.
+              () => sandbox.writeFiles([{ path, content: content.slice() }]),
+              "unknown",
+              `could not write ${path}`
+            )
+          })
+        // `runCommand` takes no standard input (verified against the
+        // `@vercel/sandbox` 3.2.1 typings), so a command's input is staged as
+        // a workspace file and the command line is rewritten to read from it.
+        const redirect = stdinRedirect({
+          workdir,
+          writeFile,
+          remove: (path) =>
+            Effect.asVoid(
+              Effect.flatMap(
+                run({ cmd: "rm", args: ["-f", path] }),
+                (result) => checked(result, "unknown", `vercel-sandbox: could not remove ${path}`)
+              )
+            )
         })
-      }
-      return session
-    })
-})
+        const resolveCwd = rootedAt(workdir)
+        const session: Session = {
+          id: sessionKey,
+          remoteId: sandbox.name,
+          workdir,
+          spawn: (command, spawnOptions) =>
+            Effect.flatMap(
+              Effect.andThen(checkEnvironmentNames(spawnOptions.env), redirect(command, spawnOptions.stdin)),
+              (fed) => {
+                const guest = environmentCommand(fed, { ...options.commandEnv, ...spawnOptions.env })
+                return Effect.map(
+                  run({
+                    cmd: "sh",
+                    // `-c`, never `-lc`: profile output from a login shell would
+                    // precede the command's own stdout on this transport.
+                    args: ["-c", guest.command],
+                    cwd: resolveCwd(spawnOptions.cwd ?? ""),
+                    env: guest.env
+                  }),
+                  (result) => ({
+                    stdout: output(() => result.stdout(), "could not read command stdout"),
+                    stderr: output(() => result.stderr(), "could not read command stderr"),
+                    exitCode: Effect.succeed(result.exitCode)
+                  })
+                )
+              }
+            ),
+          readFile: (path) =>
+            Effect.flatMap(
+              attempt(() => sandbox.readFile({ path }), "unknown", `could not read ${path}`),
+              (stream) =>
+                stream === null
+                  ? Effect.fail(
+                    new ProviderError({ code: "not_found", message: `vercel-sandbox: no file exists at ${path}` })
+                  )
+                  : attempt(() => decodeFile(stream), "unknown", `could not drain ${path}`)
+            ),
+          writeFile,
+          ping: Effect.gen(function*() {
+            const result = yield* run({ cmd: "true", cwd: workdir })
+            yield* checked(result, "unavailable", `vercel-sandbox: ${name} did not answer`)
+          })
+        }
+        return session
+      })
+  }
+}

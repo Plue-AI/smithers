@@ -4,6 +4,12 @@
 
 ### Added
 
+- Every provider takes `network: "none" | { allow: string[] }` (`Sandbox.NetworkPolicy`) (#1788). `VercelSandbox`
+  maps it to `networkPolicy` and re-applies it to a resumed sandbox; `MicrosandboxSandbox` maps it to
+  `disableNetwork()` or a deny-by-default policy and refuses to reattach a machine created under another;
+  `ContainerSandbox` accepts `"none"`. Every provider that cannot enforce a policy throws at `make`.
+  `MicrosandboxSandbox`'s `disableNetwork` is removed; use `network: "none"`.
+
 - `MicrosandboxSandbox.make` takes `networkPolicy` (for example deny-by-default egress with a domain allowlist) and
   `rootDiskMib`; `captureSnapshot`, `hasSnapshot`, and `pruneSnapshots` capture a prepared machine's disk and manage
   the named snapshots machines boot from. The `Sdk` slice gains `rootDisk`, `network`, a handle's `stop` and

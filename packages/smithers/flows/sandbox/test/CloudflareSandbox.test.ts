@@ -11,6 +11,7 @@ import type { RemoteProcess } from "../src/RemoteChildProcessSpawner/Provider.ts
 import { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderError.ts"
 import type { Session } from "../src/Sandbox/Session.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
+import { untouchable } from "./helpers/untouchable.ts"
 import { stalledFinalizer } from "./stalledFinalizer.ts"
 
 interface SandboxOptions {
@@ -296,6 +297,15 @@ const output = (
   })
 
 describe("CloudflareSandbox", () => {
+  it("refuses every network policy at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (const network of ["none", { allow: ["example.com"] }] as const) {
+      expect(() => CloudflareSandbox.make({ sdk: deps.value, binding: deps.value, network }))
+        .toThrow("cloudflare-sandbox: cannot enforce a network policy; omit `network`")
+    }
+    expect(deps.touched).toEqual([])
+  })
+
   for (const operation of ["remove", "release"] as const) {
     it.effect(`bounds stalled ${operation} on the platform timer`, () =>
       stalledFinalizer((stall) => {
