@@ -1084,22 +1084,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// handler returns 404 without calling into the service.
 	// Ticket 0134: wire the AuditService into ApprovalsService so every
 	// create/decide transition emits an immutable audit row.
-	var approvalPushNotifier services.ApprovalPushNotifier
-	if strings.EqualFold(os.Getenv("SMITHERS_APNS_ENABLED"), "true") || os.Getenv("SMITHERS_APNS_ENABLED") == "1" {
-		approvalPushNotifier = services.NewApprovalPushDispatcher(
-			poolStatsCtx,
-			queries,
-			services.NewLoggingAPNSClient(slog.Default()),
-			0,
-			slog.Default(),
-		)
-		slog.Info("APNS approval push logging client enabled")
-	}
-	approvalsService := services.NewApprovalsServiceWithAudit(
-		queries,
-		auditService,
-		services.WithApprovalPushNotifier(approvalPushNotifier),
-	)
+	approvalsService := services.NewApprovalsServiceWithAudit(queries, auditService)
 	approvalsHandler := &routes.ApprovalsHandler{
 		Service: approvalsService,
 		Enabled: cfg.FeatureFlags.ApprovalsFlowEnabled,

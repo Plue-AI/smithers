@@ -151,6 +151,11 @@ type ApprovalResponse struct {
 	Payload      []byte     `json:"payload,omitempty"`
 }
 
+// ApprovalPushNotifier is a seam for future durable push delivery.
+type ApprovalPushNotifier interface {
+	EnqueueApprovalPush(userID int64, approval ApprovalResponse)
+}
+
 // ApprovalsService owns the approvals lifecycle. Construct via
 // NewApprovalsService.
 type ApprovalsService struct {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,14 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 )
+
+// The retired APNs flag must never wire a logging-only, non-delivering client.
+func TestAPNSFlagNeverWiresLoggingClient(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	require.NoError(t, err)
+	assert.NotContains(t, string(src), "SMITHERS_APNS_ENABLED")
+	assert.NotContains(t, string(src), "NewLoggingAPNSClient")
+}
 
 func TestInitializeBlobStore_FilesystemDefault(t *testing.T) {
 	t.Setenv("SMITHERS_ENV", "development")

@@ -503,8 +503,6 @@ func TestRun_FullyConfigured(t *testing.T) {
 	// Linear integration.
 	env["SMITHERS_AUTH_LINEAR_CLIENT_ID"] = "lin-id"
 	env["SMITHERS_AUTH_LINEAR_CLIENT_SECRET"] = "lin-secret"
-	// APNS approval push dispatcher.
-	env["SMITHERS_APNS_ENABLED"] = "true"
 	// Alert remediation worker (registry loads from embedded JSON).
 	env["SMITHERS_ALERT_REMEDIATION_REPOSITORY_ID"] = "1"
 	// E2E dev auto-authorize.
