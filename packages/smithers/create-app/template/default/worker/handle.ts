@@ -4,9 +4,11 @@
  *
  * `/api/routes` reports what the router found, which is the cheapest way to
  * confirm a deploy is serving the app you think it is. `/api/turn` runs one
- * chat turn and streams it back as `TurnFrame` NDJSON. Everything else is
- * served from the assets bucket.
+ * chat turn and streams it back as `TurnFrame` NDJSON, for a request carrying
+ * `Authorization: Bearer <APP_API_TOKEN>`: every turn spends the seat's model
+ * key. Everything else is served from the assets bucket.
  */
+import { authorized } from "@smthrs/create-app/http"
 import { type TurnHost, type TurnRoute, turnResponse } from "@smthrs/create-app/worker"
 import type * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import type * as Layer from "effect/Layer"
@@ -20,7 +22,10 @@ export interface Env {
   readonly ANTHROPIC_API_KEY?: string
   /** Credential for an `openai:<model>` seat. */
   readonly OPENAI_API_KEY?: string
-  /** The Vercel AI Gateway key the completion judge runs on. */
+  /** The bearer token `/api/turn` requires. Unset, every turn is refused. */
+  readonly APP_API_TOKEN?: string | undefined
+  /** `1` admits turns without a token when none is set. Local development only. */
+  readonly APP_API_OPEN?: string | undefined
 }
 
 const json = (body: unknown, status = 200): Response =>
@@ -53,6 +58,7 @@ export const handle = async (
         OPENAI_API_KEY: env.OPENAI_API_KEY,
       },
       sandboxVariant,
+      authorize: (request) => authorized(request, env.APP_API_TOKEN, env.APP_API_OPEN),
       // Each turn gets its own `ui` source, so the cards it paints stream back
       // on this response rather than into the test sink TOOLS.ts binds.
       tools: (route, cards) => ({

@@ -37,5 +37,7 @@
   // The same seat judges completions; `/api/turn` answers 503 until connected:
   //   ANTHROPIC_API_KEY  — credential for an `anthropic:<model>` seat
   //   OPENAI_API_KEY     — credential for an `openai:<model>` seat
+  //   APP_API_TOKEN      — bearer token `/api/turn` requires; unset, every turn
+  //                        answers 401. Never set APP_API_OPEN on a deploy.
   "observability": { "enabled": true }
 }

@@ -420,12 +420,41 @@ const readFixture = (path: string): Effect.Effect<typeof Fixture.Type> =>
     Effect.orDie
   )
 
+/** An environment variable whose name marks it as a credential. */
+const credentialName = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i
+
+/**
+ * The credential variables in `env` whose value appears in `text`.
+ *
+ * A fixture is committed, and it stores every system prompt, tool result, and
+ * provider message verbatim, so a tool that echoed a key while recording would
+ * publish it. The value is also matched as JSON escapes it. Values under eight
+ * characters are skipped: they are flags, not keys, and would match by chance.
+ */
+const leakedCredentials = (text: string, env: Readonly<Record<string, string>>): ReadonlyArray<string> =>
+  Object.entries(env)
+    .filter(([name, value]) =>
+      credentialName.test(name) && value.length >= 8
+      && (text.includes(value) || text.includes(JSON.stringify(value).slice(1, -1)))
+    )
+    .map(([name]) => name)
+    .sort()
+
 const writeFixture = (path: string, calls: ReadonlyArray<RecordedCall>): void => {
+  const text = `${JSON.stringify({ calls }, null, 2)}\n`
+  // A `process.env` entry is never `undefined` at runtime; only its type says so.
+  const leaked = leakedCredentials(text, process.env as Record<string, string>)
+  if (leaked.length > 0) {
+    throw new Error(
+      `the recording of ${path} contains the value of ${leaked.join(", ")}; it was not written. `
+        + "Keep credentials out of prompts and tool results, then record again."
+    )
+  }
   mkdirSync(dirname(path), { recursive: true })
   // Written through a neighbouring temporary file and renamed, so an
   // interrupted process cannot leave the committed fixture truncated.
   const staging = `${path}.recording`
-  writeFileSync(staging, `${JSON.stringify({ calls }, null, 2)}\n`)
+  writeFileSync(staging, text)
   renameSync(staging, path)
 }
 

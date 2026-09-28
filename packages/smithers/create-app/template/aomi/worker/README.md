@@ -12,7 +12,7 @@ second deployable and no origin server.
 | `index.ts` | The entry point. Exports the Durable Object class, so it is the only module here that imports `cloudflare:workers` |
 | `router.ts` | The router. One switch over `Routes` from `src/api.ts`; everything else falls through to `ASSETS`. Free of `cloudflare:workers`, so `test/worker.test.ts` drives it on plain Node |
 | `registry.ts` | Which Durable Object holds a session, and the one well-known object that holds the session list |
-| `guard.ts` | Request admission: credential, browser origin, JSON media type, body size, session-id shape |
+| `guard.ts` | Request admission: browser origin and session-id shape. The credential, JSON media type, and body cap come from `@smthrs/create-app/http` |
 | `stream.ts` | Streamed-response bookkeeping that runs once on close, source error, and cancel |
 | `env.ts` | The bindings, as an interface. Nothing else reads configuration |
 | `AppSession.ts` | One Durable Object per session: transcript, cards, saved flows |
@@ -126,8 +126,8 @@ dashboard.
 ## Security
 
 `CreateApp` ships `deploy` as a first-class target with a custom domain, so what
-a deployed instance is bounded by is worth stating plainly. `guard.ts` owns all
-request checks; `test/guard.test.ts` and `test/worker.test.ts` drive them.
+a deployed instance is bounded by is worth stating plainly. `guard.ts` and
+`@smthrs/create-app/http` own the request checks; `test/guard.test.ts` and `test/worker.test.ts` drive them.
 
 | Bound | What it does | Default |
 | --- | --- | --- |

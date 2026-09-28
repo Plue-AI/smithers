@@ -96,6 +96,11 @@ Each `googleFonts` entry is a `family=` specification, so
 The imports are emitted ahead of the rule, because CSS ignores an `@import`
 that follows one.
 
+Values are written into the sheet verbatim, so the plugin refuses a token or
+font value containing `;`, `{`, `}`, `<`, a backslash, a line break, or `/*`,
+and a `googleFonts` entry with any character outside letters, digits, and
+`+:@;,.-`. Either would let a copied theme add its own rules or imports.
+
 ## What the plugin serves
 
 Add the plugin to `vite.config.ts`:

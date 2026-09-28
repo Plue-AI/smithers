@@ -86,6 +86,24 @@ describe("brandCss", () => {
     expect(lines.indexOf(":root:root:root:root, :root:root:root [data-theme] {")).toBe(2)
   })
 
+  it("refuses a value that could close the declaration or the rule", () => {
+    const escapes = ["red; } body { display: none", "red\n}", "a{b", "red /* x", "\\7d", "</style>"]
+    for (const value of escapes) {
+      expect(() => brandCss({ name: "t", tokens: { accent: value } })).toThrow("brand token accent")
+      expect(() => brandCss({ ...minimal, fonts: { mono: value } })).toThrow("brand font mono")
+    }
+    const stack = "\"Geist Mono\", 'PT Serif', ui-monospace"
+    expect(brandCss({ ...minimal, fonts: { mono: stack } })).toContain(`--font-mono: ${stack};`)
+  })
+
+  it("refuses a Google Fonts entry outside the family= grammar", () => {
+    for (const family of ["Geist\");@import url(\"https://evil.example/x.css", "Geist&text=x", "Geist\n"]) {
+      expect(() => brandCss({ ...minimal, fonts: { googleFonts: [family] } })).toThrow("is not a Google Fonts")
+    }
+    const css = brandCss({ ...minimal, fonts: { googleFonts: ["PT+Serif:ital,wght@0,400;1,100..900"] } })
+    expect(css).toContain("family=PT+Serif:ital,wght@0,400;1,100..900&display=swap")
+  })
+
   it("emits no @import when the brand names no Google fonts", () => {
     expect(brandCss(minimal)).not.toContain("@import")
   })

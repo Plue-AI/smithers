@@ -6,6 +6,10 @@
  * back: `delta` text becomes the answer, each `card` renders through the pane
  * registry, and an `error` frame or a refused request shows as one line.
  *
+ * A deployed Worker refuses a turn without `APP_API_TOKEN`. Open the app once
+ * as `/#token=<value>`: the fragment never leaves the browser, and
+ * {@link authHeaders} moves it into this tab's sessionStorage.
+ *
  * The registry comes from `routes.ui.gen.ts`, imported when a turn starts: that
  * module imports this page, so a top-level import would close a cycle.
  */
@@ -32,6 +36,27 @@ const apply = (turn: Turn, frame: TurnFrame): Turn => {
       return { ...turn, error: frame.message }
     default:
       return turn
+  }
+}
+
+const tokenKey = "app.api-token"
+
+/** The `Authorization` header for `/api/turn`, claiming `#token=` on first use. */
+const authHeaders = (): Record<string, string> => {
+  try {
+    const fragment = new URLSearchParams(window.location.hash.slice(1))
+    const supplied = fragment.get("token")
+    if (supplied !== null) {
+      fragment.delete("token")
+      const url = new URL(window.location.href)
+      url.hash = fragment.toString()
+      window.history.replaceState(window.history.state, "", url)
+      if (supplied !== "") window.sessionStorage.setItem(tokenKey, supplied)
+    }
+    const token = window.sessionStorage.getItem(tokenKey)
+    return token === null ? {} : { authorization: `Bearer ${token}` }
+  } catch {
+    return {}
   }
 }
 
@@ -62,7 +87,7 @@ export default function Page() {
       setPanes((await import("../routes.ui.gen.ts")).panes)
       const response = await fetch("/api/turn", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ flow: "chat", payload: { message } })
       })
       if (!response.ok || response.body === null) {

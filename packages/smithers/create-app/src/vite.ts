@@ -87,6 +87,23 @@ const houseName = (token: string): string =>
 const brandSelector = ":root:root:root:root, :root:root:root [data-theme]"
 
 /**
+ * What a declaration value may not contain: a character that ends the
+ * declaration or the rule, a line break, or a comment opener. Quotes stay
+ * legal, because a font stack needs them.
+ */
+const unsafeValue = /[;{}\r\n\\<]|\/\*/
+
+/** A Google Fonts `family=` specification: `PT+Serif:ital,wght@0,400;1,700..900`. */
+const googleFamily = /^[A-Za-z0-9+:@;,.-]+$/
+
+const declared = (name: string, value: string): string => {
+  if (unsafeValue.test(value)) {
+    throw new Error(`brand ${name} must be one CSS value; ${JSON.stringify(value)} could end the rule`)
+  }
+  return value
+}
+
+/**
  * Renders a brand as one CSS rule of custom properties.
  *
  * A token the brand did not declare is not emitted, so the styleguide default
@@ -96,24 +113,36 @@ const brandSelector = ":root:root:root:root, :root:root:root [data-theme]"
  * Google Fonts `@import` rules come first, because CSS ignores an `@import`
  * that follows a rule.
  *
+ * Every value is written verbatim, so one that could close the declaration or
+ * the rule, or a font family outside the Google Fonts `family=` grammar,
+ * throws rather than inject a rule or an `@import` into every page.
+ *
  * @category constructors
  * @since 0.1.0
  */
 export const brandCss = (brand: Brand): string => {
   const declarations: Array<string> = []
-  for (const [token, value] of Object.entries(brand.tokens)) {
+  for (const [token, raw] of Object.entries(brand.tokens)) {
+    const value = declared(`token ${token}`, raw)
     declarations.push(`  ${houseName(token)}: ${value};`)
     for (const name of styleguide[token as BrandToken] ?? []) declarations.push(`  ${name}: ${value};`)
   }
   const fonts = brand.fonts ?? {}
-  if (fonts.body !== undefined) declarations.push(`  --house-font-ui: ${fonts.body};`, `  --font-sans: ${fonts.body};`)
-  if (fonts.mono !== undefined) {
-    declarations.push(`  --house-font-mono: ${fonts.mono};`, `  --font-mono: ${fonts.mono};`)
+  const font = (role: "body" | "mono" | "display" | "wordmark", names: ReadonlyArray<string>): void => {
+    const value = fonts[role]
+    if (value === undefined) return
+    for (const name of names) declarations.push(`  ${name}: ${declared(`font ${role}`, value)};`)
   }
-  if (fonts.display !== undefined) declarations.push(`  --house-font-display: ${fonts.display};`)
-  if (fonts.wordmark !== undefined) declarations.push(`  --house-font-wordmark: ${fonts.wordmark};`)
-  const imports = (fonts.googleFonts ?? [])
-    .map((family) => `@import url("https://fonts.googleapis.com/css2?family=${family}&display=swap");`)
+  font("body", ["--house-font-ui", "--font-sans"])
+  font("mono", ["--house-font-mono", "--font-mono"])
+  font("display", ["--house-font-display"])
+  font("wordmark", ["--house-font-wordmark"])
+  const imports = (fonts.googleFonts ?? []).map((family) => {
+    if (!googleFamily.test(family)) {
+      throw new Error(`brand googleFonts entry ${JSON.stringify(family)} is not a Google Fonts family= specification`)
+    }
+    return `@import url("https://fonts.googleapis.com/css2?family=${family}&display=swap");`
+  })
   return [...imports, `${brandSelector} {`, ...declarations, "}", ""].join("\n")
 }
 

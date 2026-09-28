@@ -20,7 +20,8 @@
  *
  * `CreateApp` ships `deploy` as a first-class target with a custom domain, so
  * read this before you point one at it. Request checks run ahead of the routes;
- * `worker/guard.ts` owns them:
+ * `@smthrs/create-app/http` owns the credential, media-type, and size checks;
+ * `worker/guard.ts` owns origin and session-id shape:
  *
  * - **Credential.** `APP_API_TOKEN` is a Worker secret. Every `/api/*` path
  *   but `GET /api/health` requires its bearer header. Missing or empty tokens
@@ -40,6 +41,7 @@
  * token reaches every session. `worker/README.md` says the same in its Security
  * section.
  */
+import { authorized, readJson } from "@smthrs/create-app/http"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import {
@@ -50,7 +52,7 @@ import {
   TurnRequest
 } from "../src/api.ts"
 import type { Env } from "./env.ts"
-import { authorized, isSessionId, readJson, sameOrigin } from "./guard.ts"
+import { isSessionId, sameOrigin } from "./guard.ts"
 import { indexSession, sessionOf } from "./registry.ts"
 
 /** The build this Worker was cut from. Vite replaces it; dev leaves the default. */

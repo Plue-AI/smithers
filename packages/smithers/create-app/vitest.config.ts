@@ -9,7 +9,8 @@ export default defineConfig({
     // need this package's source entry when exercised by the unit suite.
     alias: {
       "@smthrs/create-app/app": fileURLToPath(new URL("./src/app.ts", import.meta.url)),
-      "@smthrs/create-app/worker": fileURLToPath(new URL("./src/worker.ts", import.meta.url))
+      "@smthrs/create-app/worker": fileURLToPath(new URL("./src/worker.ts", import.meta.url)),
+      "@smthrs/create-app/http": fileURLToPath(new URL("./src/http.ts", import.meta.url))
     }
   },
   test: {

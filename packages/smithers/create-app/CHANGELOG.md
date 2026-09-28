@@ -15,6 +15,19 @@
 
 ### Fixed
 
+- Security: `turnResponse` takes a `TurnEndpoint` whose required `authorize`
+  runs before the body is read (401), and reads the body through a 64 KiB cap
+  (413) as `application/json` only (415). The `default` template requires
+  `Authorization: Bearer <APP_API_TOKEN>` on `/api/turn`. The new
+  `@smthrs/create-app/http` subpath exports `authorized`, `readJson`, and
+  `MAX_BODY_BYTES`, which the `aomi` template now uses instead of its own copy.
+- Security: an `error` frame or `host_unconfigured` body carries only a typed
+  error's message; a defect or host-callback throw is logged on the server and
+  reaches the reader as `The turn failed.`
+- Security: `brandCss` refuses a token or font value that could end its
+  declaration or rule, and a `googleFonts` entry outside the `family=` grammar.
+- Security: a recording whose text contains the value of a credential-named
+  environment variable is not written as a fixture.
 - The `default` template's `/api/turn` runs the chat flow instead of answering
   HTTP 501. It answers 503 `host_unconfigured` until the seat's provider key
   and `AI_GATEWAY_API_KEY` are set.

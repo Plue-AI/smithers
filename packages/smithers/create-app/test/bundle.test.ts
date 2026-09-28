@@ -59,9 +59,12 @@ const unresolvedBuiltins = async (entry: string): Promise<ReadonlyArray<string>>
 }
 
 describe("browser and workerd entry points", () => {
-  it.each(["app", "ui", "runtime", "worker"])("bundles @smthrs/create-app/%s with no node builtin", async (entry) => {
-    expect(await unresolvedBuiltins(entry)).toEqual([])
-  })
+  it.each(["app", "ui", "runtime", "worker", "http"])(
+    "bundles @smthrs/create-app/%s with no node builtin",
+    async (entry) => {
+      expect(await unresolvedBuiltins(entry)).toEqual([])
+    }
+  )
 })
 
 describe("Node-only entry points", () => {

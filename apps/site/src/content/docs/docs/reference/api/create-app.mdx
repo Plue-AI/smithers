@@ -31,6 +31,7 @@ runtime class. Import the one whose class matches the file doing the importing.
 | `@smthrs/create-app/ui`        | browser, workerd, Node |
 | `@smthrs/create-app/runtime`   | browser, workerd, Node |
 | `@smthrs/create-app/worker`    | workerd, Node          |
+| `@smthrs/create-app/http`      | browser, workerd, Node |
 | `@smthrs/create-app/package`   | Node                   |
 | `@smthrs/create-app/router`    | Node                   |
 | `@smthrs/create-app/vite`      | Node                   |
@@ -38,8 +39,9 @@ runtime class. Import the one whose class matches the file doing the importing.
 | `@smthrs/create-app/routesBin` | Node                   |
 
 `routes.gen.ts` pulls `./app` and `./runtime` into the Worker bundle,
-`worker/handle.ts` pulls `./worker` in beside them, and `routes.ui.gen.ts`
-pulls `./ui` into the browser bundle, so those four carry no `node:` import. The rest are build and test tooling and reach the
+`worker/handle.ts` pulls `./worker` and `./http` in beside them, and
+`routes.ui.gen.ts` pulls `./ui` into the browser bundle, so those five carry no
+`node:` import. The rest are build and test tooling and reach the
 filesystem.
 
 The root entry point re-exports `./app` and `./package` flat, rather than as
@@ -308,14 +310,36 @@ The turn host a Worker serves `POST /api/turn` with. It composes
 ### turnResponse
 
 ```ts
-const turnResponse: (request: Request, host: TurnHost) => Promise<Response>
+const turnResponse: (request: Request, host: TurnEndpoint) => Promise<Response>
+
+interface TurnEndpoint extends TurnHost {
+  readonly authorize: (request: Request) => boolean
+  readonly maxBodyBytes?: number
+}
 ```
 
-Decodes a `{ flow, payload }` body and answers `200 application/x-ndjson`: one
-`TurnFrame` per line, ending in exactly one `done` or `error` frame. A turn
-that cannot start is refused before any stream opens, as JSON with `error` and
-`message`: `400 invalid_request`, `400 flow_not_routed` (with `known`),
-`400 flow_not_chat`, or `503 host_unconfigured` when the selected seat is unavailable. The request's signal cancels the run.
+Every turn spends the host's model keys, so the endpoint has no anonymous
+default. `authorize` decides each request first and a refusal answers
+`401 unauthorized` before the body is read. The body must be
+`application/json` (`415` otherwise) and at most `maxBodyBytes`, 64 KiB by
+default (`413` past it, whether or not `content-length` was declared).
+`authorized(request, env.APP_API_TOKEN, env.APP_API_OPEN)` from
+[`@smthrs/create-app/http`](#smthrscreate-apphttp) is the bearer check the
+templates pass.
+
+Then it decodes a `{ flow, payload }` body and answers
+`200 application/x-ndjson`: one `TurnFrame` per line, ending in exactly one
+`done` or `error` frame. A turn that cannot start is refused before any stream
+opens, as JSON with `error` and `message`: `400 invalid_request`,
+`400 flow_not_routed` (with `known`), `400 flow_not_chat`, or
+`503 host_unconfigured` when the selected seat is unavailable. The request's
+signal cancels the run.
+
+A refusal or `error` frame carries a typed error's own message (a payload the
+flow's schema rejects, a provider refusal, a seat with no key). Any other
+failure, including a throw from a host callback such as `tools` or `observe`,
+is logged on the server with `Effect.logError` and reaches the reader as
+`The turn failed.`
 
 | `TurnHost` field | Type                                                       |
 | ---------------- | ---------------------------------------------------------- |
@@ -336,15 +360,38 @@ exactly one terminal frame even after the reader hangs up, so a host can
 persist a run without depending on its reader. A throw while observing the
 terminal frame replaces it with an `error` frame.
 
+A turn's model spend is bounded by the agent's `maxFrames` (default 8), the
+per-cell call limit, and each request's `maxTokens`; there is no ceiling across
+turns, so `authorize` is what stands between the internet and the keys.
+
 ### The rest
 
-`runTurn` is `turnResponse` without the HTTP: it returns the stream or the
-refusal. `runFlow` is the same for a pipeline flow, refusing a chat flow with
+`runTurn` is `turnResponse` without the HTTP, the authorization, or the body
+cap: it returns the stream or the refusal, and its caller must admit the
+request first. `runFlow` is the same for a pipeline flow, refusing a chat flow with
 `400 flow_not_pipeline`. `resolveChatFlow` and `resolvePipelineFlow` are the
 routing checks alone. `seatsFromEnv` resolves
 `anthropic:<model>` and `openai:<model>` seats over `fetch` from
 `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`. `layerCryptoWeb` is `effect/Crypto`
 over WebCrypto.
+
+## @smthrs/create-app/http
+
+Request admission for a Worker route, with no imports, so a router can guard
+its routes without loading the agent runtime.
+
+| Export           | Signature                                                                  |
+| ---------------- | -------------------------------------------------------------------------- |
+| `authorized`     | `(request: Request, token: string \| undefined, open?: string) => boolean` |
+| `readJson`       | `(request: Request, limit?: number) => Promise<BodyResult>`                |
+| `MAX_BODY_BYTES` | `65536`                                                                    |
+
+`authorized` admits `Authorization: Bearer <token>` only, compared without an
+early exit. A missing or empty `token` refuses every request unless `open` is
+`"1"`, the local-development opt-in; a configured token always wins over it.
+`readJson` requires `application/json` (`415`), refuses a declared or counted
+body past `limit` (`413`) without buffering more than the cap, and answers
+`400` for a body that is missing, unreadable, or not JSON.
 
 ## @smthrs/create-app/router
 
@@ -469,7 +516,10 @@ while `@smthrs/ui` renders its own `<style>` in the tree, so only specificity
 can carry the brand over the styleguide's token rules. A token the brand did
 not declare is not emitted, so the styleguide default survives; an app never
 needs a second sheet aliasing these names. Google Fonts `@import` rules come
-first, because CSS ignores an `@import` that follows a rule.
+first, because CSS ignores an `@import` that follows a rule. It throws on a
+token or font value containing `;`, `{`, `}`, `<`, a backslash, a line break,
+or `/*`, and on a `googleFonts` entry outside letters, digits, and `+:@;,.-`,
+because either could inject a rule or an `@import`.
 
 ### loadManifest
 
@@ -531,7 +581,10 @@ Replay is the default: the fixture is decoded with
 live model from `live`, captures every request and event, and rewrites the
 fixture after a run that reached its assertions. A recording that failed leaves
 the committed fixture untouched, and the write goes through a temporary file
-and a rename, so an interrupted process cannot truncate it.
+and a rename, so an interrupted process cannot truncate it. A recording whose
+text contains the value of a credential-named environment variable (`KEY`,
+`TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`, eight characters or more) is not
+written; the error names the variable.
 
 A recorded provider refusal is stored whole, retry metadata included, and
 reconstructed field for field on replay. A kernel permission decision is not

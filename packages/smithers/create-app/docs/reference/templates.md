@@ -90,8 +90,11 @@ The Worker serves `GET /api/routes`, which reports what the router found, and
 runs `POST /api/turn` through `turnResponse` from `@smthrs/create-app/worker`:
 the chat flow on the seat in `AGENT.ts`, in a QuickJS sandbox built from the
 WebAssembly module `worker/index.ts` imports, streamed back as `TurnFrame`
-NDJSON. It needs the seat's provider connection, and answers
-HTTP 503 `host_unconfigured` until the seat is connected. See
+NDJSON. It answers 401 unless the request carries
+`Authorization: Bearer <APP_API_TOKEN>` (or `APP_API_OPEN=1` is set locally
+with no token), and the page sends the token it claims from `/#token=<value>`.
+It needs the seat's provider connection, and answers HTTP 503
+`host_unconfigured` until the seat is connected. See
 [Run a routed flow from your own host](../guides/host-a-turn.md).
 
 The template ships no live model, so it has no `test:record` script. Add a

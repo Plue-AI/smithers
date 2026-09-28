@@ -4,6 +4,7 @@ import { type Env, handle } from "../worker/handle.ts"
 
 const env: Env = {
   APP_NAME: "app",
+  APP_API_TOKEN: "s3cret",
   ASSETS: { fetch: async () => new Response("asset") }
 }
 
@@ -12,7 +13,7 @@ const turn = (body: unknown, overrides: Partial<Env> = {}) =>
     new Request("https://app.test/api/turn", {
       method: "POST",
       body: typeof body === "string" ? body : JSON.stringify(body),
-      headers: { "content-type": "application/json" }
+      headers: { "content-type": "application/json", authorization: "Bearer s3cret" }
     }),
     { ...env, ...overrides },
     QuickJSSandbox.layerVariantLive
@@ -33,6 +34,19 @@ describe("worker routes", () => {
   test("everything else is served from the assets bucket", async () => {
     const response = await handle(new Request("https://app.test/"), env, QuickJSSandbox.layerVariantLive)
     expect(await response.text()).toBe("asset")
+  })
+
+  test("/api/turn refuses a request without the token before reading the body", async () => {
+    for (const overrides of [{ APP_API_TOKEN: "other" }, { APP_API_TOKEN: undefined }]) {
+      const response = await turn(chat, overrides)
+      expect(response.status).toBe(401)
+      expect(await response.json()).toMatchObject({ error: "unauthorized" })
+    }
+  })
+
+  test("/api/turn admits a tokenless request only under APP_API_OPEN=1", async () => {
+    const response = await turn(chat, { APP_API_TOKEN: undefined, APP_API_OPEN: "1" })
+    expect(response.status).toBe(503)
   })
 
   test("/api/turn names the seat key it is missing", async () => {

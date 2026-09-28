@@ -26,7 +26,7 @@ export interface Env {
    * The shared credential every `/api/*` route but `GET /api/health` requires.
    *
    * Missing or empty refuses requests unless APP_API_OPEN=1. Set the secret
-   * before deploy with `wrangler secret put APP_API_TOKEN`. See `guard.ts`.
+   * before deploy with `wrangler secret put APP_API_TOKEN`. See `authorized` in `@smthrs/create-app/http`.
    */
   readonly APP_API_TOKEN?: string
   /** Local-only opt-in to requests without a token. Never configure on deploy. */

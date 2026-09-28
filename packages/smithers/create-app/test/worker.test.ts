@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { readFileSync } from "node:fs"
 import { defineFlow } from "../src/app.ts"
+import { authorized } from "../src/http.ts"
 import type { SeatProvider } from "../src/runtime.ts"
 import { preparedRequest, replayModelError } from "../src/testing.ts"
 import type { TurnFrame } from "../src/ui.ts"
@@ -29,6 +30,7 @@ import {
   runFlow,
   runTurn,
   seatsFromEnv,
+  type TurnEndpoint,
   type TurnHost,
   turnResponse,
   type TurnRoute
@@ -206,7 +208,8 @@ describe("runTurn", () => {
     )
     if (!(stream instanceof ReadableStream)) throw new Error("refused")
     const frames = await read(stream)
-    expect(frames.at(-1)).toEqual({ type: "error", message: "could not persist the answer" })
+    // The observer is host code, so its text stays on the server.
+    expect(frames.at(-1)).toEqual({ type: "error", message: "The turn failed." })
     expect(frames.filter((frame) => frame.type === "done" || frame.type === "error")).toHaveLength(1)
   })
 
@@ -219,7 +222,24 @@ describe("runTurn", () => {
       }),
       question
     )
-    expect(refused).toEqual({ status: 503, error: "host_unconfigured", message: "no tools" })
+    expect(refused).toEqual({ status: 503, error: "host_unconfigured", message: "The turn failed." })
+  })
+
+  it("keeps a thrown host error's text off the wire and shows a typed error's message", async () => {
+    const secret = new Error("postgres://admin:hunter2@10.0.0.4/app refused the connection")
+    const refused = await runTurn(
+      await host({
+        tools: () => {
+          throw secret
+        }
+      }),
+      question
+    )
+    expect(JSON.stringify(refused)).not.toContain("hunter2")
+    const stream = await runTurn(await host(), { flow: "chat", payload: { message: 42 } })
+    if (!(stream instanceof ReadableStream)) throw new Error("refused")
+    const frames = await read(stream)
+    expect(frames).toEqual([{ type: "error", message: "Expected string\n  at [\"message\"]" }])
   })
 
   it("refuses a seat with no credential before opening a stream", async () => {
@@ -296,15 +316,49 @@ describe("runFlow", () => {
 })
 
 describe("turnResponse", () => {
-  const post = (body: string, method = "POST") =>
+  const post = (body: string, method = "POST", headers: Record<string, string> = {}) =>
     new Request("https://app.test/api/turn", {
       method,
       ...(method === "POST" ? { body } : {}),
-      headers: { "content-type": "application/json" }
+      headers: { "content-type": "application/json", authorization: "Bearer s3cret", ...headers }
     })
+  const endpoint = async (overrides: Partial<TurnEndpoint> = {}): Promise<TurnEndpoint> => ({
+    ...await host(),
+    authorize: (request) => authorized(request, "s3cret"),
+    ...overrides
+  })
+
+  it("refuses an unauthorized request before reading its body or resolving a seat", async () => {
+    let resolved = 0
+    const seats: SeatProvider = {
+      resolve: () =>
+        Effect.sync(() => {
+          resolved += 1
+        }).pipe(Effect.andThen(Effect.never))
+    }
+    const request = post(JSON.stringify(question), "POST", { authorization: "Bearer wrong" })
+    const response = await turnResponse(request, await endpoint({ seats }))
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ error: "unauthorized" })
+    expect(request.bodyUsed).toBe(false)
+    expect(resolved).toBe(0)
+  })
+
+  it("refuses a body past the cap with 413 and a non-JSON media type with 415", async () => {
+    const big = JSON.stringify({ flow: "chat", payload: { message: "x".repeat(64 * 1024) } })
+    expect((await turnResponse(post(big), await endpoint())).status).toBe(413)
+    const small = await turnResponse(post(JSON.stringify(question)), await endpoint({ maxBodyBytes: 16 }))
+    expect(small.status).toBe(413)
+    expect(await small.json()).toMatchObject({ error: "invalid_request" })
+    const text = await turnResponse(
+      post(JSON.stringify(question), "POST", { "content-type": "text/plain" }),
+      await endpoint()
+    )
+    expect(text.status).toBe(415)
+  })
 
   it("serves the turn as NDJSON", async () => {
-    const response = await turnResponse(post(JSON.stringify(question)), await host())
+    const response = await turnResponse(post(JSON.stringify(question)), await endpoint())
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("application/x-ndjson")
     const frames = await read(response.body!)
@@ -312,7 +366,7 @@ describe("turnResponse", () => {
   })
 
   it("refuses a non-chat or unrouted flow with a typed 400", async () => {
-    const response = await turnResponse(post(JSON.stringify({ flow: "nope", payload: {} })), await host())
+    const response = await turnResponse(post(JSON.stringify({ flow: "nope", payload: {} })), await endpoint())
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: "flow_not_routed",
@@ -323,14 +377,14 @@ describe("turnResponse", () => {
 
   it("refuses a body that is not a turn request", async () => {
     for (const body of ["not json", JSON.stringify({ payload: {} })]) {
-      const response = await turnResponse(post(body), await host())
+      const response = await turnResponse(post(body), await endpoint())
       expect(response.status).toBe(400)
       expect(await response.json()).toMatchObject({ error: "invalid_request" })
     }
   })
 
   it("refuses a method other than POST", async () => {
-    const response = await turnResponse(post("", "GET"), await host())
+    const response = await turnResponse(post("", "GET"), await endpoint())
     expect(response.status).toBe(405)
   })
 })
@@ -338,12 +392,20 @@ describe("turnResponse", () => {
 describe("the default template's Worker", () => {
   const env: Env = {
     APP_NAME: "ledger",
+    APP_API_TOKEN: "s3cret",
     ASSETS: { fetch: async () => new Response("asset", { status: 200 }) }
   }
   const turn = new Request("https://app.test/api/turn", {
     method: "POST",
     body: JSON.stringify(question),
-    headers: { "content-type": "application/json" }
+    headers: { "content-type": "application/json", authorization: "Bearer s3cret" }
+  })
+
+  it("refuses a turn without the token before it resolves a seat", async () => {
+    const anonymous = new Request(turn.clone(), { headers: { "content-type": "application/json" } })
+    expect((await handle(anonymous, env, QuickJSSandbox.layerVariantLive)).status).toBe(401)
+    const { APP_API_TOKEN: _, ...unset } = env
+    expect((await handle(turn.clone(), unset, QuickJSSandbox.layerVariantLive)).status).toBe(401)
   })
 
   it("runs the chat flow at /api/turn and streams the pane card back", async () => {

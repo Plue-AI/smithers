@@ -139,6 +139,7 @@ writes into the response rather than into a module-level array. See
 ```ts
 import wasmfile from "@jitl/quickjs-wasmfile-release-sync"
 import wasmModule from "@jitl/quickjs-wasmfile-release-sync/wasm"
+import { authorized } from "@smthrs/create-app/http"
 import { turnResponse, type TurnRoute } from "@smthrs/create-app/worker"
 import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import { newVariant, type QuickJSSyncVariant } from "quickjs-emscripten-core"
@@ -150,7 +151,12 @@ const sandboxVariant = QuickJSSandbox.layerVariant(
 
 export default {
   fetch: (request: Request, env: Record<string, string | undefined>) =>
-    turnResponse(request, { flows: flows as unknown as ReadonlyArray<TurnRoute>, env, sandboxVariant })
+    turnResponse(request, {
+      flows: flows as unknown as ReadonlyArray<TurnRoute>,
+      env,
+      sandboxVariant,
+      authorize: (request) => authorized(request, env.APP_API_TOKEN, env.APP_API_OPEN)
+    })
 }
 ```
 
@@ -159,12 +165,20 @@ is imported as a module and `wrangler.jsonc` carries a `CompiledWasm` rule for
 it. `env` supplies the seat's provider key (`ANTHROPIC_API_KEY` or
 `OPENAI_API_KEY`). The resolved seat also judges completions.
 
+Every turn spends that key, so `authorize` is required. `authorized` admits
+`Authorization: Bearer <APP_API_TOKEN>` and refuses everything when the token
+is unset, unless local development sets `APP_API_OPEN=1`. Never set
+`APP_API_OPEN` on a deploy.
+
 The response is `200 application/x-ndjson`: one `TurnFrame` per line, ending in
 exactly one `done` or `error` frame. A turn that cannot start is refused before
 any stream opens:
 
 | Status | `error`             | When                                           |
 | ------ | ------------------- | ---------------------------------------------- |
+| 401    | `unauthorized`      | `authorize` refused the request                |
+| 413    | `invalid_request`   | The body is past `maxBodyBytes` (64 KiB)       |
+| 415    | `invalid_request`   | The body is not `application/json`             |
 | 400    | `invalid_request`   | The body is not `{ flow, payload }` JSON       |
 | 400    | `flow_not_routed`   | No routed flow has that id; `known` lists them |
 | 400    | `flow_not_chat`     | The flow is not declared `chat: true`          |
@@ -174,6 +188,10 @@ Pass `tools` to rebind a route's `ui` source to the turn's `TurnCards`, so each
 card a tool paints becomes a `card` frame. `seats`, `evaluator`, and `crypto`
 default to `seatsFromEnv(env)`, the resolved agent seat for judgment, and `layerCryptoWeb`; tests
 replace them.
+
+An `error` frame or `host_unconfigured` body carries a typed error's message.
+A defect or a throw from `tools` or `observe` is logged on the server and the
+reader sees `The turn failed.`
 
 ## Refusals to expect
 

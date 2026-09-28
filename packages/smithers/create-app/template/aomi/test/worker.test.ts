@@ -15,6 +15,7 @@
  * `listFlows` here return whatever a test planted, so an assertion on them
  * proves only that the router reached the right object.
  */
+import { authorized, MAX_BODY_BYTES } from "@smthrs/create-app/http"
 import type { FlowRunCard } from "@smthrs/create-app/ui"
 import * as Schema from "effect/Schema"
 import { beforeEach, describe, expect, test } from "vitest"
@@ -31,7 +32,7 @@ import {
 } from "../src/api.ts"
 import type { Env } from "../worker/env.ts"
 import { type Phase, runFlowRun } from "../worker/flowRunImpl.ts"
-import { authorized, isSessionId, MAX_BODY_BYTES } from "../worker/guard.ts"
+import { isSessionId } from "../worker/guard.ts"
 import { INDEX_SESSION } from "../worker/registry.ts"
 import { handle } from "../worker/router.ts"
 import { nodeHost, scriptedSeat } from "./support/recordedHost.ts"

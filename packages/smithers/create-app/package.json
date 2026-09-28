@@ -44,6 +44,7 @@
     "./ui": "./src/ui.ts",
     "./runtime": "./src/runtime.ts",
     "./worker": "./src/worker.ts",
+    "./http": "./src/http.ts",
     "./router": "./src/router.ts",
     "./vite": "./src/vite.ts",
     "./testing": {
@@ -132,6 +133,16 @@
         "require": {
           "types": "./dist/cjs/worker.d.ts",
           "default": "./dist/cjs/worker.js"
+        }
+      },
+      "./http": {
+        "import": {
+          "types": "./dist/esm/http.d.ts",
+          "default": "./dist/esm/http.js"
+        },
+        "require": {
+          "types": "./dist/cjs/http.d.ts",
+          "default": "./dist/cjs/http.js"
         }
       },
       "./router": {

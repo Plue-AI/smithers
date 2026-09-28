@@ -150,6 +150,45 @@ describe("cachedModelTest", () => {
   })
 })
 
+describe("recording a credential", () => {
+  it("records nothing when the recording contains a credential's value, plain or JSON-escaped", async () => {
+    const path = join(dir, "leaked.json")
+    const plain = "sk-live-0123456789"
+    const quoted = "pass\"word\\1234"
+    process.env["SMTHRS_RECORD"] = "1"
+    process.env["TEST_PLAIN_API_KEY"] = plain
+    process.env["TEST_QUOTED_PASSWORD"] = quoted
+    process.env["TEST_SHORT_TOKEN"] = "abc"
+    process.env["TEST_UNUSED_SECRET"] = "never-in-the-fixture"
+    try {
+      await expect(
+        runCachedModelTest<{ topic: string }, Output>("leak", {
+          fixture: pathToFileURL(path),
+          flow: "echo",
+          payload: { topic: `${plain} ${quoted} abc` },
+          live: scripted,
+          routes: async () => routed,
+          expect: expectAnswer
+        })
+      ).rejects.toThrow(`contains the value of TEST_PLAIN_API_KEY, TEST_QUOTED_PASSWORD; it was not written`)
+    } finally {
+      for (
+        const name of [
+          "SMTHRS_RECORD",
+          "TEST_PLAIN_API_KEY",
+          "TEST_QUOTED_PASSWORD",
+          "TEST_SHORT_TOKEN",
+          "TEST_UNUSED_SECRET"
+        ]
+      ) {
+        delete process.env[name]
+      }
+    }
+    expect(existsSync(path)).toBe(false)
+    expect(existsSync(`${path}.recording`)).toBe(false)
+  })
+})
+
 describe("the default routes loader", () => {
   // The layer files export plain objects with the right shape rather than
   // calling the constructors, so the throwaway tree needs no resolvable

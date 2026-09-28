@@ -117,6 +117,13 @@ transcript that made it red.
 The write goes through a neighbouring temporary file and a rename, so an
 interrupted process cannot leave a truncated fixture behind.
 
+A fixture stores every system prompt, message, and tool result verbatim, and
+you commit it. Before writing, the recording checks the text against every
+environment variable whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD`,
+or `CREDENTIAL` and whose value is at least eight characters. A match refuses
+the write and names the variable. That check cannot see a secret that is not in
+the environment, so read the fixture before you commit it.
+
 ## Common refusals
 
 | Message                                                                | Cause                                                                                 |
@@ -126,6 +133,7 @@ interrupted process cannot leave a truncated fixture behind.
 | `cachedModelTest cannot run <file>: a markdown flow has no loader yet` | The flow is a `flow.mdx`                                                              |
 | `SMTHRS_RECORD=1 needs a live model`                                   | Recording a test that declares no `live`                                              |
 | `recording produced no model calls`                                    | The run finished without reaching the model                                           |
+| `the recording of <path> contains the value of <NAME>`                 | A prompt or tool result echoed a credential; the fixture was not written              |
 | `<path> is not a @smthrs/testing fixture`                              | The fixture drifted from the schema; record it again                                  |
 
 Each one is expanded in [Troubleshooting](/troubleshooting/).

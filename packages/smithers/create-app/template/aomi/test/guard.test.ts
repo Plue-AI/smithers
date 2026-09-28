@@ -1,7 +1,7 @@
+import { authorized, readJson } from "@smthrs/create-app/http"
 import { describe, expect, test, vi } from "vitest"
 import { Routes } from "../src/api.ts"
 import type { Env } from "../worker/env.ts"
-import { authorized, readJson } from "../worker/guard.ts"
 import { handle } from "../worker/router.ts"
 
 const origin = "https://aomi.smithers.sh"

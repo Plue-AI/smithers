@@ -90,14 +90,23 @@ Every turn uses the resolved seat for completion judgments too. No separate
 judge credential is required. Until the seat is connected, the `default` template's `POST /api/turn` answers HTTP 503
 `host_unconfigured` and names the missing binding.
 
-The `aomi` template also requires `APP_API_TOKEN` as a Worker secret before the
-first public deploy. Without a nonempty token, every `/api/*` route except
-`GET /api/health` refuses requests with 401. Health reports `{ ok, build, app }`
-without disclosing authentication configuration.
+Both templates require `APP_API_TOKEN` as a Worker secret before the first
+public deploy, because every turn spends the seat's key:
 
-Local development reads values from the gitignored `.dev.vars`. Copy the
-`aomi` template's `.dev.vars.example`, which explicitly opts into token-free
-local requests with `APP_API_OPEN=1`. Never add that opt-in to deployed vars or
+```bash
+wrangler secret put APP_API_TOKEN --config worker/wrangler.jsonc
+```
+
+Without a nonempty token, the `default` template's `POST /api/turn` and every
+`aomi` `/api/*` route except `GET /api/health` refuse requests with 401. Open
+the deployed app once as `https://<host>/#token=<APP_API_TOKEN>`; the page keeps
+the token in this tab's sessionStorage and strips it from the address bar.
+Health reports `{ ok, build, app }` without disclosing authentication
+configuration.
+
+Local development reads values from the gitignored `.dev.vars`. Set
+`APP_API_OPEN=1` there (the `aomi` template's `.dev.vars.example` does) to
+admit token-free local requests. Never add that opt-in to deployed vars or
 secrets. A configured token always requires a matching bearer header.
 
 API requests with an `Origin` or `Sec-Fetch-Site` header must identify the same

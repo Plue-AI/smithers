@@ -62,6 +62,19 @@ resolves them from the registry without overrides, local links, or vendoring.
 
 Set them with `wrangler secret put <NAME>`, or in `.dev.vars` for `pnpm dev`.
 
+Every turn spends the seat's key, so `/api/turn` answers 401 unless the
+request carries `Authorization: Bearer <APP_API_TOKEN>`:
+
+| Secret or var    | When                                                              |
+| ---------------- | ----------------------------------------------------------------- |
+| `APP_API_TOKEN`  | Always on a deploy. Unset, every turn is refused                  |
+| `APP_API_OPEN=1` | `.dev.vars` only: admits turns when no token is set               |
+
+Open the deployed app once as `https://<host>/#token=<APP_API_TOKEN>`. The
+fragment never reaches the server; the page moves it into this tab's
+sessionStorage and strips it from the address bar. The body must be
+`application/json` and at most 64 KiB (415 and 413 otherwise).
+
 ## Adding things
 
 A layer file applies to its own directory and everything below it. The nearest
@@ -87,7 +100,7 @@ pnpm build
 pnpm deploy
 ```
 
-Set the secrets above before the first turn.
+Set the secrets above, `APP_API_TOKEN` included, before the first turn.
 
 `domain` in `PACKAGE.ts` and the `routes` entry in `worker/wrangler.jsonc` name
 the same hostname. Point both at a zone your Cloudflare account owns before the

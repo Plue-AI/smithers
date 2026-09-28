@@ -39,6 +39,7 @@ import type * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import type { AgentSpec, AnyFlowSpec, SandboxSpec, ToolsSpec } from "./app.ts"
+import { readJson } from "./http.ts"
 import { layerFor, materializeFlow, type SeatProvider } from "./runtime.ts"
 import type { AppCard, TurnFrame } from "./ui.ts"
 
@@ -273,10 +274,29 @@ export type TurnRequest = typeof TurnRequest.Type
 
 const encoder = new TextEncoder()
 
-const messageOf = (cause: unknown): string =>
-  typeof cause === "object" && cause !== null && "message" in cause && typeof cause.message === "string"
-    ? cause.message
-    : String(cause)
+/** What the reader sees for a failure that is not a typed error. */
+const failedMessage = "The turn failed."
+
+/**
+ * The message a turn's reader may see for `cause`.
+ *
+ * A typed error (a `_tag` and a `message`, as every `Schema.TaggedError` and
+ * `Data.TaggedError` carries) was written to be read: a payload the flow's
+ * schema rejects, a provider refusal, a seat with no key. Anything else is a
+ * defect or a host callback's throw, whose text can name the deployment's own
+ * configuration, so it is logged on the server (`Effect.logError`) and the reader gets
+ * {@link failedMessage}.
+ */
+const publicMessage = (cause: unknown): string => {
+  if (
+    typeof cause === "object" && cause !== null && "_tag" in cause && typeof cause._tag === "string"
+    && "message" in cause && typeof cause.message === "string"
+  ) {
+    return cause.message
+  }
+  Effect.runSync(Effect.logError("@smthrs/create-app/worker: turn failed", cause))
+  return failedMessage
+}
 
 /** The one `delta`, `cell`, or `call` frame an agent event projects to, if any. */
 const frameOf = (
@@ -381,7 +401,7 @@ const execute = async (
       ...(host.evaluator === undefined ? {} : { evaluator: host.evaluator })
     })
   } catch (cause) {
-    return { status: 503, error: "host_unconfigured", message: messageOf(cause) }
+    return { status: 503, error: "host_unconfigured", message: publicMessage(cause) }
   }
 
   const materialized = materializeFlow(route.id, route.spec, route.agent)
@@ -425,7 +445,7 @@ const execute = async (
         try {
           host.observe?.(frame)
         } catch (cause) {
-          write({ type: "error", message: messageOf(cause) })
+          write({ type: "error", message: publicMessage(cause) })
           return
         }
         write(frame)
@@ -437,7 +457,7 @@ const execute = async (
         const output = await Effect.runPromise(program, { signal: aborted.signal })
         finish({ type: "done", output })
       } catch (cause) {
-        finish({ type: "error", message: aborted.signal.aborted ? "The turn was cancelled." : messageOf(cause) })
+        finish({ type: "error", message: aborted.signal.aborted ? "The turn was cancelled." : publicMessage(cause) })
       } finally {
         signal?.removeEventListener("abort", onAbort)
         try {
@@ -457,18 +477,44 @@ const json = (body: unknown, status: number): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
 /**
+ * A {@link TurnHost} served over HTTP.
+ *
+ * Every turn spends the host's model credentials, so the endpoint has no
+ * anonymous default: `authorize` decides each request before its body is
+ * read. `authorized` from `@smthrs/create-app/http` is the bearer-token check
+ * the templates use. `maxBodyBytes` bounds the body and defaults to
+ * `MAX_BODY_BYTES` from the same module.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface TurnEndpoint extends TurnHost {
+  readonly authorize: (request: Request) => boolean
+  readonly maxBodyBytes?: number | undefined
+}
+
+/**
  * Serves one `POST /api/turn`: the NDJSON turn stream, or a typed JSON
  * refusal. The request's own signal cancels the run when the client hangs up.
+ *
+ * A request `authorize` refuses answers 401 before its body is read. The body
+ * must be `application/json` (415) no larger than `maxBodyBytes` (413).
  *
  * @category constructors
  * @since 1.0.0
  */
-export const turnResponse = async (request: Request, host: TurnHost): Promise<Response> => {
+export const turnResponse = async (request: Request, host: TurnEndpoint): Promise<Response> => {
   if (request.method !== "POST") {
     return json({ error: "invalid_request", message: "POST a { flow, payload } body" }, 405)
   }
-  const body = await request.json().catch(() => undefined)
-  const decoded = Schema.decodeUnknownExit(TurnRequest)(body)
+  if (!host.authorize(request)) {
+    return json({ error: "unauthorized", message: "This endpoint requires authorization." }, 401)
+  }
+  const read = await readJson(request, host.maxBodyBytes)
+  if (!read.ok) {
+    return json({ error: "invalid_request", message: read.message }, read.status)
+  }
+  const decoded = Schema.decodeUnknownExit(TurnRequest)(read.value)
   if (decoded._tag === "Failure") {
     return json({ error: "invalid_request", message: "Expected a { flow, payload } JSON body" }, 400)
   }
@@ -476,6 +522,6 @@ export const turnResponse = async (request: Request, host: TurnHost): Promise<Re
   if (turn instanceof ReadableStream) {
     return new Response(turn, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" } })
   }
-  const { status, ...body_ } = turn
-  return json(body_, status)
+  const { status, ...body } = turn
+  return json(body, status)
 }

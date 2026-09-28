@@ -183,8 +183,10 @@ same process. Three things are worth trying:
   runs, so the dev server never serves a stale table.
 
 `POST /api/turn` runs the `chat` flow and streams `TurnFrame` NDJSON back to
-the page. It answers HTTP 503 `host_unconfigured` until `.dev.vars` holds the
-seat's provider connection; see the template README.
+the page. It answers HTTP 401 until `.dev.vars` sets `APP_API_TOKEN` (open the
+page as `/#token=<value>`) or, for local development only, `APP_API_OPEN=1`. It
+answers HTTP 503 `host_unconfigured` until `.dev.vars` holds the seat's
+provider connection; see the template README.
 [Run a routed flow from your own host](/guides/host-a-turn/) explains the
 host underneath.
 
