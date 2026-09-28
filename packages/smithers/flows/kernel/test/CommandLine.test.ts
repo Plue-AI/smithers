@@ -152,3 +152,94 @@ describe("CommandLine.cwd and CommandLine.env", () => {
     expect(CommandLine.env(pipeline)).toEqual({ SIDE: "left" })
   })
 })
+
+describe("CommandLine.resource", () => {
+  it("equals the rendered line for argv commands and simple shell lines", () => {
+    expect(CommandLine.resource(ChildProcess.make("git", ["status", "a;b"]))).toBe("git status 'a;b'")
+    expect(CommandLine.resource(ChildProcess.make("git status --short", { shell: true }))).toBe("git status --short")
+    expect(CommandLine.resource(ChildProcess.make("echo", ["a b"], { shell: "/bin/sh" })))
+      .toBe("/bin/sh -c 'echo a b'")
+  })
+
+  it("marks a shell line holding control syntax as the explicit sh -c it runs", () => {
+    for (const operator of [";", "&", "|", "`", "$", "<", ">", "(", ")", "\n", "\r"]) {
+      const line = `git status ${operator} id`
+      expect(CommandLine.resource(ChildProcess.make(line, { shell: true }))).toBe(`sh -c ${CommandLine.quote(line)}`)
+    }
+  })
+
+  it("keeps fd duplications and discards to /dev/null out of the control syntax", () => {
+    for (const line of ["git status 2>&1", "git status >&2", "git status 2>/dev/null", "git status > /dev/null 2>&1"]) {
+      expect(CommandLine.resource(ChildProcess.make(line, { shell: true })), line).toBe(line)
+    }
+    for (
+      const line of [
+        "git status 2>&1; id",
+        "git status 2>&1-",
+        "git status 2>/dev/nullx",
+        "git status >& file",
+        "git status > out",
+        "git status 2>&1 | sh",
+        "git status >\n/dev/null",
+        "git status 2>\r/dev/null"
+      ]
+    ) {
+      expect(CommandLine.resource(ChildProcess.make(line, { shell: true })), line).toBe(
+        `sh -c ${CommandLine.quote(line)}`
+      )
+    }
+  })
+
+  it("names environment overrides the child would not inherit, never their values", () => {
+    const command = ChildProcess.make("git", ["fetch"], {
+      env: { PATH: "/bin", HOME: "/h", LC_ALL: "C", NODE_OPTIONS: "--require x", GIT_SSH_COMMAND: "s", GONE: undefined }
+    })
+    const ambient = { PATH: "/bin", HOME: "/h", LC_ALL: "C" }
+    expect(CommandLine.resource(command, { ambient })).toBe("env GIT_SSH_COMMAND NODE_OPTIONS -- git fetch")
+    expect(CommandLine.resource(ChildProcess.make("git", [], { env: { PATH: "/bin" } }), { ambient })).toBe("git")
+  })
+
+  it("names a bootstrap override whose value differs from the ambient one", () => {
+    const command = ChildProcess.make("git", ["status"], { env: { PATH: "/workspace/evil:/bin", HOME: "/h" } })
+    expect(CommandLine.resource(command, { ambient: { PATH: "/bin", HOME: "/h" } })).toBe("env PATH -- git status")
+    expect(CommandLine.resource(command, { ambient: { PATH: "/bin" } })).toBe("env HOME PATH -- git status")
+    expect(CommandLine.resource(command)).toBe("env HOME PATH -- git status")
+  })
+
+  it("names a working directory the context does not contain", () => {
+    const command = ChildProcess.make("git", ["status"], { cwd: "/tmp/other repo" })
+    expect(CommandLine.resource(command)).toBe("cwd '/tmp/other repo' -- git status")
+    expect(CommandLine.resource(command, { contains: () => false })).toBe("cwd '/tmp/other repo' -- git status")
+    expect(CommandLine.resource(command, { contains: () => true })).toBe("git status")
+    expect(
+      CommandLine.resource(
+        ChildProcess.make("git", ["status"], { cwd: "/elsewhere", env: { GIT_DIR: "x" } }),
+        { contains: () => false }
+      )
+    ).toBe("cwd /elsewhere -- env GIT_DIR -- git status")
+  })
+
+  it("renders a literal env or cwd command like the prefix it aliases", () => {
+    // Pinned aliasing: the literal command runs a program named PATH or cwd,
+    // never git, so a grant for the prefixed resource admits nothing more.
+    const overridden = ChildProcess.make("git", ["status"], { env: { PATH: "/evil" } })
+    expect(CommandLine.resource(ChildProcess.make("env", ["PATH", "--", "git", "status"]), { ambient: {} })).toBe(
+      CommandLine.resource(overridden, { ambient: { PATH: "/bin" } })
+    )
+    expect(CommandLine.resource(ChildProcess.make("cwd", ["/elsewhere", "--", "git", "status"]))).toBe(
+      CommandLine.resource(ChildProcess.make("git", ["status"], { cwd: "/elsewhere" }))
+    )
+  })
+
+  it("lists every pipeline stage from left to right", () => {
+    const first = ChildProcess.make("git", ["log"])
+    const second = ChildProcess.make("grep a; id", { shell: true })
+    const third = ChildProcess.make("wc")
+    expect(CommandLine.stages(first)).toEqual([first])
+    expect(CommandLine.stages(first.pipe(ChildProcess.pipeTo(second), ChildProcess.pipeTo(third)))).toEqual([
+      first,
+      second,
+      third
+    ])
+  })
+})

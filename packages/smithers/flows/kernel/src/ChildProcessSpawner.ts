@@ -23,7 +23,7 @@
  */
 
 import { toPlatformError } from "@smthrs/capability/Permission"
-import { Effect, Layer, Path } from "effect"
+import { Effect, FileSystem, Layer, Option, Path } from "effect"
 import { systemError } from "effect/PlatformError"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -170,8 +170,17 @@ const snapshotCommand = (command: ChildProcess.Command): ChildProcess.Command =>
 
 const maximumEnvironmentNames = 64
 
-const environmentNames = (command: ChildProcess.Command): ReadonlyArray<string> | undefined => {
-  const environment = CommandLine.env(command)
+/**
+ * The environment this process holds, which a child built with
+ * `ChildProcessEnvironment.make` inherits its bootstrap names from. Empty on a
+ * host with no process environment, so every declared bootstrap name counts
+ * as an override there.
+ */
+const ambientEnvironment = (): Readonly<Record<string, string | undefined>> =>
+  (globalThis as { readonly process?: { readonly env?: Record<string, string | undefined> } }).process?.env ?? {}
+
+const environmentNames = (command: ChildProcess.StandardCommand): ReadonlyArray<string> | undefined => {
+  const environment = command.options.env
   if (environment === undefined) return undefined
   const names = Object.entries(environment)
     .filter(([, value]) => value !== undefined)
@@ -243,23 +252,29 @@ export const layerNoop = (
  *
  * The check is suspended into the spawn itself, so building a `Command` or a
  * stream neither requests permission nor starts a process; only running one
- * does. The capability resource is the command line `CommandLine.render`
- * produces, which is also what line-oriented adapters execute for commands
- * they support. Custom shell paths are included explicitly in the resource;
- * browser and remote adapters reject them rather than silently substituting a
- * different shell.
+ * does. Every pipeline stage is checked as its own capability, left to right,
+ * and no stage starts until all pass. A stage's resource is
+ * `CommandLine.resource`: the command line `CommandLine.render` produces, with
+ * a `shell: true` line that holds shell control syntax marked as
+ * `sh -c '<line>'`, any environment variable the child would not inherit from
+ * this process named in an `env <NAME>… -- ` prefix, and a working directory
+ * outside `Workspace.root` named in a `cwd <path> -- ` prefix. Custom shell
+ * paths are included explicitly in the resource; browser and remote adapters
+ * reject them rather than silently substituting a different shell.
  *
- * The capability resource is the rendered line alone, so the working
- * directory, environment overrides, and pipeline `from`/`to` routing remain
- * outside the grant. The working directory and overridden environment names
- * reach attended surfaces as display metadata only; environment values do not.
+ * Pipeline `from`/`to` routing remains outside the grant. The working
+ * directory and overridden environment names also reach attended surfaces as
+ * display metadata; environment values never leave the command.
  *
  * The layer provides the tag it also requires: compose it over a host spawner
  * layer with `Layer.provide` and a `ChildProcess.Command` run as a plain
  * `Effect` is checked too.
  *
  * A command with no `cwd`, or a relative one, runs in `Workspace.root`, never
- * the process's own directory; the check sees that resolved directory.
+ * the process's own directory; the check sees that resolved directory. When
+ * the host filesystem is in the layer's context, the working directory and
+ * `Workspace.root` are compared by real path, so a symlink inside the
+ * workspace that leads out of it is named, as its target, in the `cwd` prefix.
  *
  * @category layers
  * @since 1.0.0-rc.0
@@ -275,13 +290,45 @@ export const layer: Layer.Layer<
     const grants = yield* GrantStore
     const path = yield* Path.Path
     const rooted = Rooted.path(path, path.resolve((yield* Workspace).root))
-    const check = (command: ChildProcess.Command) => {
-      const rendered = CommandLine.render(command)
-      const environment = environmentNames(command)
+    const root = rooted.resolve(".")
+    // The raw host filesystem this layer is composed over, when there is one.
+    // A symlink inside the workspace can lead out of it, so containment is
+    // judged on real paths; a directory that cannot be resolved (it does not
+    // exist, or the host has no filesystem) is judged lexically.
+    const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem)
+    const real = (directory: string) =>
+      Option.match(fileSystem, {
+        onNone: () => Effect.succeed(directory),
+        onSome: (fs) => fs.realPath(directory).pipe(Effect.orElseSucceed(() => directory))
+      })
+    const within = (base: string) => (directory: string) => {
+      const relative = path.relative(base, directory)
+      return relative.split(path.sep)[0] !== ".." && !path.isAbsolute(relative)
+    }
+    const checkStage = (stage: ChildProcess.StandardCommand) =>
+      Effect.gen(function*() {
+        // Rooted.command gives every stage an absolute cwd.
+        const cwd = stage.options.cwd!
+        const realRoot = yield* real(root)
+        const resolvedCwd = yield* real(cwd)
+        const contains = resolvedCwd === cwd
+          ? (directory: string) => within(root)(directory) || within(realRoot)(directory)
+          : within(realRoot)
+        return yield* checkResolved(
+          stage,
+          CommandLine.resource(stage, {
+            ambient: ambientEnvironment(),
+            contains,
+            resolvedCwd
+          })
+        )
+      })
+    const checkResolved = (stage: ChildProcess.StandardCommand, rendered: string) => {
+      const environment = environmentNames(stage)
       return makeCapability("proc:spawn", rendered).pipe(
         Effect.flatMap((capability) =>
           grants.check(capability, {
-            cwd: CommandLine.cwd(command),
+            cwd: stage.options.cwd,
             ...(environment === undefined ? {} : { env: environment })
           })
         ),
@@ -295,6 +342,8 @@ export const layer: Layer.Layer<
         )
       )
     }
+    const check = (command: ChildProcess.Command) =>
+      Effect.forEach(CommandLine.stages(command), checkStage, { discard: true })
     return Containment.inherit(
       spawner,
       makeSpawner(

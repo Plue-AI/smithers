@@ -101,7 +101,7 @@ describe("ChildProcessSpawner", () => {
       expect(
         denial(
           yield* Effect.flip(
-            spawner.string(ChildProcess.make("blocked", ["--now"], { cwd: "/work" }))
+            spawner.string(ChildProcess.make("blocked", ["--now"], { cwd: "/workspace/work" }))
           )
         )
       ).toMatchObject({
@@ -227,7 +227,7 @@ describe("ChildProcessSpawner", () => {
         })
         const args = ["safe"]
         const env: Record<string, string> = { MODE: "safe" }
-        const options: ChildProcess.CommandOptions = { cwd: "/safe", env, shell: false }
+        const options: ChildProcess.CommandOptions = { cwd: "/workspace/safe", env, shell: false }
         const command = ChildProcess.make("tool", args, options)
 
         const running = yield* Effect.gen(function*() {
@@ -257,12 +257,12 @@ describe("ChildProcessSpawner", () => {
         yield* Deferred.succeed(release, undefined)
 
         expect(yield* Fiber.join(running)).toBe("ok")
-        expect(checked).toEqual([["tool safe", { cwd: "/safe", env: ["MODE"] }]])
+        expect(checked).toEqual([["env MODE -- tool safe", { cwd: "/workspace/safe", env: ["MODE"] }]])
         expect(delegated).toMatchObject({
           _tag: "StandardCommand",
           command: "tool",
           args: ["safe"],
-          options: { cwd: "/safe", env: { MODE: "safe" }, shell: false }
+          options: { cwd: "/workspace/safe", env: { MODE: "safe" }, shell: false }
         })
       })
     ))
@@ -344,16 +344,26 @@ describe("ChildProcessSpawner", () => {
 
     return Effect.gen(function*() {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      yield* spawner.string(ChildProcess.make("tool", [], { cwd: "/work" }))
-      yield* spawner.string(ChildProcess.make("tool", [], { cwd: "/work", env: { OMITTED: undefined } }))
+      yield* spawner.string(ChildProcess.make("tool", [], { cwd: "/workspace/work" }))
+      yield* spawner.string(ChildProcess.make("tool", [], { cwd: "/workspace/work", env: { OMITTED: undefined } }))
+      yield* spawner.string(ChildProcess.make("tool", [], { cwd: "/elsewhere" }))
+      yield* spawner.string(ChildProcess.make("tool", [], { cwd: "/workspace-sibling" }))
       expect(seen).toEqual([
         {
           capability: { action: "proc:spawn", resource: "tool" },
-          context: { cwd: "/work" }
+          context: { cwd: "/workspace/work" }
         },
         {
           capability: { action: "proc:spawn", resource: "tool" },
-          context: { cwd: "/work" }
+          context: { cwd: "/workspace/work" }
+        },
+        {
+          capability: { action: "proc:spawn", resource: "cwd /elsewhere -- tool" },
+          context: { cwd: "/elsewhere" }
+        },
+        {
+          capability: { action: "proc:spawn", resource: "cwd /workspace-sibling -- tool" },
+          context: { cwd: "/workspace-sibling" }
         }
       ])
     }).pipe(
@@ -381,7 +391,7 @@ describe("ChildProcessSpawner", () => {
         env: { Z_TOKEN: "secret-z", OMITTED: undefined, A_PATH: "secret-a" }
       }))
       expect(seen).toEqual([{
-        capability: { action: "proc:spawn", resource: "tool" },
+        capability: { action: "proc:spawn", resource: "env A_PATH Z_TOKEN -- tool" },
         context: { cwd: "/workspace", env: ["A_PATH", "Z_TOKEN"] }
       }])
       expect(JSON.stringify(seen)).not.toContain("secret")
@@ -482,9 +492,9 @@ describe("ChildProcessSpawner", () => {
     )
   })
 
-  itEffect("checks a shell command under the exact unquoted line the shell executes", () => {
+  itEffect("checks a chained shell command as the explicit sh -c line the shell executes", () => {
     const checks: Array<Capability.Capability> = []
-    const line = "echo safe; run privileged"
+    const line = "sh -c 'echo safe; run privileged'"
 
     return Effect.gen(function*() {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -525,7 +535,7 @@ describe("ChildProcessSpawner", () => {
     const left = ChildProcess.make("producer", ["safe"], {
       killSignal: "SIGTERM",
       forceKillAfter: "1 second",
-      cwd: "/work",
+      cwd: "/workspace/work",
       env: environment,
       extendEnv: false,
       shell: false,
@@ -557,7 +567,7 @@ describe("ChildProcessSpawner", () => {
           command: "producer",
           args: ["safe"],
           options: {
-            cwd: "/work",
+            cwd: "/workspace/work",
             env: { MODE: "safe", OPTIONAL: undefined },
             stdin: { stream: "ignore", endOnDone: false, encoding: "utf8" },
             additionalFds: {
@@ -572,14 +582,20 @@ describe("ChildProcessSpawner", () => {
       })
       expect(delegated).not.toBe(pipeline)
       expect((delegated as ChildProcess.PipedCommand).left).not.toBe(left)
-      expect(checks).toEqual([{ action: "proc:spawn", resource: "producer safe | consumer safe" }])
+      expect(checks).toEqual([
+        { action: "proc:spawn", resource: "env MODE -- producer safe" },
+        { action: "proc:spawn", resource: "consumer safe" }
+      ])
     }).pipe(
       Effect.provide(guarded),
       Effect.provideService(
         HostChildProcessSpawner,
         hostSpawner({ stdout: "ok", onSpawn: (command) => (delegated = command) })
       ),
-      Effect.provideService(GrantStore, scriptedStore(new Set(["proc:spawn:producer safe | consumer safe"]), checks))
+      Effect.provideService(
+        GrantStore,
+        scriptedStore(new Set(["proc:spawn:env MODE -- producer safe", "proc:spawn:consumer safe"]), checks)
+      )
     )
   })
 
@@ -589,11 +605,14 @@ describe("ChildProcessSpawner", () => {
     return Effect.gen(function*() {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       expect(yield* spawner.string(pipeline)).toBe("ok")
-      expect(checks).toEqual([{ action: "proc:spawn", resource: "left | right" }])
+      expect(checks).toEqual([
+        { action: "proc:spawn", resource: "left" },
+        { action: "proc:spawn", resource: "right" }
+      ])
     }).pipe(
       Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "ok" })),
-      Effect.provideService(GrantStore, scriptedStore(new Set(["proc:spawn:left | right"]), checks))
+      Effect.provideService(GrantStore, scriptedStore(new Set(["proc:spawn:left", "proc:spawn:right"]), checks))
     )
   })
 

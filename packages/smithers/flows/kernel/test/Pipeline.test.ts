@@ -62,14 +62,15 @@ const fixture = (failures: ReadonlyArray<string> = []) => {
 }
 
 describe("contained pipeline wiring", () => {
-  for (const allowed of [true, false]) {
-    it.effect(`authorizes the entire pipeline before spawning either leg (allowed=${allowed})`, () => {
+  for (const denied of [undefined, "first", "last"] as const) {
+    const allowed = denied === undefined
+    it.effect(`authorizes every pipeline leg before spawning either (denied=${denied ?? "none"})`, () => {
       const test = fixture()
       const checks: Array<string> = []
       const store = GrantStore.of({
         check: (capability) => {
           checks.push(capability.resource)
-          return allowed && capability.resource === "first | last"
+          return capability.resource !== denied
             ? Effect.void
             : Effect.fail(Permission.permissionDenied(capability, "pipeline not approved"))
         },
@@ -83,7 +84,7 @@ describe("contained pipeline wiring", () => {
           spawner.spawn(ChildProcess.pipeTo(ChildProcess.make("first"), ChildProcess.make("last")))
         )
         expect(Exit.isSuccess(result)).toBe(allowed)
-        expect(checks).toEqual(["first | last"])
+        expect(checks).toEqual(denied === "first" ? ["first"] : ["first", "last"])
         expect(test.commands.map((command) => command.command)).toEqual(allowed ? ["first", "last"] : [])
       }).pipe(
         Effect.provide(GuardedSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer]))),

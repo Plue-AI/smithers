@@ -29,10 +29,10 @@ const policy = [
     effect: "deny",
     pattern: new Capability.CapabilityPattern({ action: "fs:write", resource: "/workspace/pnpm-lock.yaml" })
   }),
-  // Any npm command, with or without arguments.
+  // Exactly `npm test`, nothing appended.
   new Permission.Rule({
     effect: "allow",
-    pattern: new Capability.CapabilityPattern({ action: "proc:spawn", resource: "npm *" })
+    pattern: new Capability.CapabilityPattern({ action: "proc:spawn", resource: "npm test" })
   })
 ]
 
@@ -49,24 +49,31 @@ the allows.
 A rule only fires if its resource glob matches the resource the decorator
 built. These are the resources the kernel names:
 
-| Action                    | Resource                                                                                                                   |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `fs:read`, `fs:write`     | The canonical absolute path, with an inside-workspace path mapped back to the logical workspace root.                      |
-| `proc:spawn`              | `CommandLine.render(command)`: the rendered command line, with a custom shell path explicit and a pipeline joined by `\|`. |
-| `net:get`, `net:post`     | The lowercased URL host for `https:`, and `<scheme>//<lowercased host>` for anything else.                                 |
-| `model:call`              | The same, with `/<model id>` appended.                                                                                     |
-| `jj:status`               | `"."`                                                                                                                      |
-| `jj:diff`                 | `<from>:<to>`                                                                                                              |
-| `jj:snapshot`             | The commit message, or `""` when none was given.                                                                           |
-| `jj:restore`, `jj:revert` | The change id.                                                                                                             |
-| `jj:workspace-add`        | The canonicalized destination. This one also requires `fs:write` on the same resource.                                     |
-| `jj:workspace-forget`     | The workspace name.                                                                                                        |
-| `jj:op-restore`           | The operation id.                                                                                                          |
-| `jj:root`                 | The canonicalized starting directory.                                                                                      |
+| Action                    | Resource                                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fs:read`, `fs:write`     | The canonical absolute path, with an inside-workspace path mapped back to the logical workspace root.                                                   |
+| `proc:spawn`              | `CommandLine.resource(command)`: the rendered line; a chained shell line as `sh -c '<line>'`; `env <NAME>… --` for non-bootstrap environment overrides. |
+| `net:get`, `net:post`     | The lowercased URL host for `https:`, and `<scheme>//<lowercased host>` for anything else.                                                              |
+| `model:call`              | The same, with `/<model id>` appended.                                                                                                                  |
+| `jj:status`               | `"."`                                                                                                                                                   |
+| `jj:diff`                 | `<from>:<to>`                                                                                                                                           |
+| `jj:snapshot`             | The commit message, or `""` when none was given.                                                                                                        |
+| `jj:restore`, `jj:revert` | The change id.                                                                                                                                          |
+| `jj:workspace-add`        | The canonicalized destination. This one also requires `fs:write` on the same resource.                                                                  |
+| `jj:workspace-forget`     | The workspace name.                                                                                                                                     |
+| `jj:op-restore`           | The operation id.                                                                                                                                       |
+| `jj:root`                 | The canonicalized starting directory.                                                                                                                   |
 
 Because `https` is the implicit scheme, a grant for `api.example.com` never
 authorizes `http://api.example.com`. That is the point: a host grant cannot be
 downgraded into a cleartext one.
+
+A `*` in a `proc:spawn` resource matches any text, including `;` and line
+breaks. A `shell: true` line with control syntax is checked as
+`sh -c '<line>'`, and every pipeline stage is checked on its own, so `npm *`
+covers the `npm` stage of `npm test | sh` but not the `sh` stage. Grant exact
+command lines; `npm *` still runs any npm subcommand, including
+`npm exec <anything>`.
 
 The glob grammar has no escape character, so a resource that genuinely
 contains `*` or `?` cannot be named exactly. Never build a pattern by

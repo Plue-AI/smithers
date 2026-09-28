@@ -19,9 +19,9 @@ const securityReview = Smithers.SecurityReview({
       threat: "A flow granted one command line runs a different program, arguments, or shell on the host.",
       lookFor: [
         "A command field read for the capability check and read again (getter, proxy, mutation) for the actual spawn instead of from one frozen snapshot.",
-        "CommandLine.render producing the same resource for two commands that execute differently (shell: true vs argv, custom shell, pipeline sides).",
+        "CommandLine.resource producing the same resource for two commands that execute differently (shell: true vs argv, custom shell), a chained shell line that a prefix grant still matches, or a pipeline checked as one joined resource instead of once per CommandLine.stages entry.",
         "A spawner method (string, lines, exitCode, stream*) or pipeline leg that reaches the host spawner without passing the guarded spawn.",
-        "Env overrides such as PATH, LD_PRELOAD, GIT_* or NODE_OPTIONS, or a cwd, that change what a granted line executes while staying outside the grant."
+        "An env override the child would not inherit (a name outside ChildProcessEnvironment.isInheritedName such as LD_PRELOAD, GIT_*, NODE_OPTIONS, or a PATH/HOME value that differs from the ambient one) missing from the CommandLine.resource env prefix, or a cwd outside Workspace.root missing its cwd prefix, so it changes what a granted line executes while staying outside the grant."
       ],
       paths: ["src/ChildProcessSpawner.ts", "src/CommandLine.ts", "src/Rooted.ts", "src/internal/Pipeline.ts"]
     },

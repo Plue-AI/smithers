@@ -20,6 +20,7 @@
  */
 
 import type * as ChildProcess from "effect/unstable/process/ChildProcess"
+import { isInheritedName } from "./ChildProcessEnvironment.ts"
 
 /** Tokens made only of these characters need no quoting in a POSIX shell. */
 const SAFE = /^[A-Za-z0-9_@%+=:,./-]+$/
@@ -47,10 +48,8 @@ export const quote = (token: string): string =>
  * with `/d /s /c` rather than `-c`, so the rendered line describes the POSIX
  * invocation, not a cmd.exe one.
  *
- * The capability resource is the rendered line alone, so `cwd`, environment
- * overrides, and pipeline `from`/`to` routing remain outside the grant. The
- * spawner sends `cwd` and overridden environment names to attended surfaces as
- * display metadata only.
+ * The `proc:spawn` capability resource is {@link resource}, which starts from
+ * this line and adds what the line alone cannot show.
  *
  * A `PipedCommand` renders with `|` between its sides. That is a faithful
  * rendering of what the pipeline does, and it is the only form an interpreter
@@ -70,6 +69,130 @@ export const render = (command: ChildProcess.Command): string =>
       ? [command.command, ...command.args].join(" ")
       : `${quote(command.options.shell)} -c ${quote([command.command, ...command.args].join(" "))}`
     : `${render(command.left)} | ${render(command.right)}`
+
+/**
+ * Shell syntax that chains, substitutes, groups, or redirects: everything that
+ * lets one shell line run or write more than a single simple command.
+ */
+const shellControl = /[;&|`$<>()\n\r]/
+
+/**
+ * Redirections that neither run nor write anything a grant should see: an fd
+ * duplication such as `2>&1` and a discard to `/dev/null`. They are removed
+ * before {@link shellControl} is tested, so `git status 2>&1` keeps its
+ * verbatim resource. Only a space or tab may sit between `>` and `/dev/null`:
+ * `>` followed by a line break is not a discard, so it stays control syntax.
+ */
+const harmlessRedirect = /(^|\s)(?:\d*>&\d+|\d*>[ \t]*\/dev\/null)(?=\s|$)/g
+
+/**
+ * What {@link resource} compares a stage against, supplied by the spawner that
+ * checks it.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface ResourceContext {
+  /**
+   * The environment the spawning process itself holds. A bootstrap name
+   * (`PATH`, `HOME`, ...) whose declared value equals the ambient value is the
+   * inherited default and stays out of the resource; one set to anything else
+   * is named. Omitted, every declared bootstrap name is named.
+   */
+  readonly ambient?: Readonly<Record<string, string | undefined>> | undefined
+  /**
+   * Whether a stage's working directory is inside the directory the flow
+   * already governs. A `cwd` it rejects is named in the resource. Omitted,
+   * every `cwd` a stage sets is named.
+   */
+  readonly contains?: ((directory: string) => boolean) | undefined
+  /**
+   * The stage `cwd` with every symlink resolved, when the host could resolve
+   * it. It replaces the lexical `cwd` both for `contains` and in the
+   * `cwd <path> -- ` prefix, so a symlink inside the governed directory that
+   * leads out of it is judged, and shown, by where the command really runs.
+   */
+  readonly resolvedCwd?: string | undefined
+}
+
+/**
+ * Names of the environment variables a stage sets that the child would not
+ * otherwise inherit: every name outside the bootstrap set, and a bootstrap
+ * name whose value differs from the ambient one.
+ */
+const overriddenNames = (
+  command: ChildProcess.StandardCommand,
+  ambient: Readonly<Record<string, string | undefined>>
+): ReadonlyArray<string> =>
+  Object.entries(command.options.env ?? {})
+    .filter(([name, value]) => value !== undefined && (!isInheritedName(name) || ambient[name] !== value))
+    .map(([name]) => name)
+    .sort()
+
+/**
+ * The stages of a command in execution order: the command itself, or every
+ * `StandardCommand` of a pipeline from left to right. The spawner checks each
+ * stage as its own `proc:spawn` capability.
+ *
+ * @category rendering
+ * @since 1.0.0-rc.1
+ */
+export const stages = (command: ChildProcess.Command): ReadonlyArray<ChildProcess.StandardCommand> =>
+  command._tag === "StandardCommand" ? [command] : [...stages(command.left), ...stages(command.right)]
+
+/**
+ * The `proc:spawn` capability resource for one stage: {@link render}, with
+ * three additions that keep a prefix grant from authorizing code the stage
+ * never named.
+ *
+ *  - A `shell: true` stage whose line holds shell control syntax (`;`, `&`,
+ *    `|`, `` ` ``, `$`, `<`, `>`, `(`, `)`, or a line break) is marked as the
+ *    explicit `sh -c '<line>'` it is. A grant such as `git status *` then
+ *    cannot match `git status; curl x | sh`, while a simple shell line such as
+ *    `git status --short` keeps its verbatim resource. An fd duplication such
+ *    as `2>&1` and a discard to `/dev/null` do not count as control syntax.
+ *  - A stage that sets an environment variable the child would not otherwise
+ *    inherit is prefixed with `env <NAME>… -- `, sorted names only. That is
+ *    every name outside the bootstrap set `ChildProcessEnvironment` inherits
+ *    (`PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR`, `SHELL`, `LC_*`), and a
+ *    bootstrap name whose value differs from `context.ambient`. A grant for
+ *    `git status` covers neither `env GIT_SSH_COMMAND -- git status` nor
+ *    `env PATH -- git status`. Values never enter the resource because they
+ *    often carry credentials.
+ *  - A stage whose `cwd` `context.contains` rejects is prefixed with
+ *    `cwd <path> -- `, so a grant does not follow the command into a
+ *    directory whose configuration the flow does not govern. When
+ *    `context.resolvedCwd` is given, that real path is judged and named
+ *    instead of the lexical `cwd`.
+ *
+ * A pipeline has no single resource: the spawner checks every one of its
+ * {@link stages}, so `git status | sh` needs a grant for `sh` too.
+ *
+ * The `env` and `cwd` prefixes share their spelling with a literal command:
+ * `make("env", ["PATH", "--", "git", "status"])` renders as
+ * `env PATH -- git status`, the resource of `git status` with `PATH`
+ * overridden. The alias grants nothing extra. The literal command runs a
+ * program named `PATH` (or `cwd`) from the ambient `PATH`, not `git`. A grant
+ * with `*` inside the prefix, such as `env * -- git status`, also matches
+ * `env -C /x -- git status`, but it already admits any variable name,
+ * including `GIT_SSH_COMMAND` and `LD_PRELOAD`, which run arbitrary code.
+ * Grant a prefixed resource exactly as the request shows it.
+ *
+ * @category rendering
+ * @since 1.0.0-rc.1
+ */
+export const resource = (command: ChildProcess.StandardCommand, context: ResourceContext = {}): string => {
+  const line = render(command)
+  const shown = command.options.shell === true && shellControl.test(line.replace(harmlessRedirect, "$1"))
+    ? `sh -c ${quote(line)}`
+    : line
+  const names = overriddenNames(command, context.ambient ?? {})
+  const withEnv = names.length === 0 ? shown : `env ${names.map(quote).join(" ")} -- ${shown}`
+  const directory = command.options.cwd === undefined ? undefined : context.resolvedCwd ?? command.options.cwd
+  return directory === undefined || context.contains?.(directory) === true
+    ? withEnv
+    : `cwd ${quote(directory)} -- ${withEnv}`
+}
 
 /** The leading token of a shell line, which is the program the line runs. */
 const program = (line: string): string => {

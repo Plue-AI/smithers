@@ -147,7 +147,7 @@ describe("ContainedSpawner", () => {
         const store = GrantStore.of({
           check: (capability) => {
             checks.push(capability.resource)
-            return allowed && capability.resource === "agent --run"
+            return allowed && capability.resource === "env DECLARED -- agent --run"
               ? Effect.void
               : Effect.fail(Permission.permissionDenied(capability, "original command denied"))
           },
@@ -171,7 +171,7 @@ describe("ContainedSpawner", () => {
           Effect.provideService(ProcessLedger.ProcessLedger, ledger),
           Effect.scoped
         )
-        expect(checks).toEqual(["agent --run"])
+        expect(checks).toEqual(["env DECLARED -- agent --run"])
         expect(spawned.map((command) => command._tag === "StandardCommand" && command.command)).toEqual(
           allowed ? ["prepared-owner"] : []
         )

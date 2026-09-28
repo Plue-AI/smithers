@@ -17,7 +17,7 @@ export const security = {
       lookFor: [
         "A proc:spawn CapabilityPattern whose resource contains `*` (including a trailing ` *` such as `npm *`) without prose saying `*` also matches `|`, `;`, and newlines per //packages/smithers/flows/capability/src/matches.ts, so `npm *` admits `npm x | sh`.",
         "A comment such as \"Any npm command\" beside a `npm *` grant that implies the grant stops at npm.",
-        "A statement that a pipeline's sides are checked separately, contradicting //packages/smithers/flows/kernel/src/ChildProcessSpawner.ts, which checks one CommandLine.render string.",
+        "A statement that a pipeline is checked as one joined command line, or that a grant for its first stage covers the rest, contradicting //packages/smithers/flows/kernel/src/ChildProcessSpawner.ts, which checks every CommandLine.stages entry with CommandLine.resource, so `git status | sh` needs a grant for `sh` too.",
         "A shell-enabled command example (`shell: true` or a shell path) granted by a prefix pattern."
       ],
       paths: ["src/content/docs/guides/**", "src/content/docs/concepts/process-containment.md", "src/content/docs/quickstart.md", "src/content/docs/index.md"]

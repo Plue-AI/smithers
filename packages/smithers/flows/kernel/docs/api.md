@@ -825,10 +825,19 @@ const layer: Layer.Layer<
 
 The decorator. The check is suspended into the spawn itself, so building a
 `Command` or a stream neither requests permission nor starts a process. The
-capability resource is `CommandLine.render(command)` alone: the working
-directory, environment overrides, and pipeline `from`/`to` routing are not part
-of what a grant authorizes. `cwd` and the **names** of overridden environment
-variables reach an attended surface as display metadata; the values do not. A
+check runs once per pipeline stage, left to right, before any stage starts.
+Each stage's resource is `CommandLine.resource(stage, context)`: the rendered
+line, with a `shell: true` line that holds shell control syntax marked as
+`sh -c '<line>'`, environment overrides the child would not inherit named in an
+`env <NAME>… --` prefix, and a working directory outside `Workspace.root`
+named in a `cwd <path> --` prefix. When the host filesystem is in the layer's
+context, both are compared by real path: a symlink inside the workspace that
+leads out of it is named as its target, and a root reached through
+`/private` on macOS still counts as inside. The spawner passes this process's
+environment as `context.ambient`. Pipeline `from`/`to` routing is not part of
+what a grant authorizes. `cwd` and the **names** of overridden environment
+variables also reach an attended surface as display metadata; the values do
+not. A
 command that cannot be snapshotted fails with an `InvalidData` `PlatformError`.
 A command with no `cwd`, or a relative one, runs in `Workspace.root`, never the
 process's own directory, and the check sees that resolved directory.
@@ -842,6 +851,7 @@ Least-authority construction for a child process's replacement environment.
 | `inheritedNames`        | `ReadonlyArray<string>`                          | `PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR`, and `SHELL`; `LC_*` is admitted by prefix.                                                       |
 | `credentialNamePattern` | `RegExp`                                         | The credential-name rule shared with `@smthrs/model/Auth`, including complete or separator-delimited `token`, `key`, `key_id`, and `pat` suffixes. |
 | `isCredentialName`      | `(name: string) => boolean`                      | Tests one name against that rule.                                                                                                                  |
+| `isInheritedName`       | `(name: string) => boolean`                      | Tests one name against `inheritedNames` and the `LC_*` prefix, case-insensitively.                                                                 |
 | `make`                  | `(ambient, declared?) => Record<string, string>` | Selects bootstrap names, withholds sensitive ambient names, and overlays explicit declarations.                                                    |
 
 `make` returns a null-prototype record suitable for `CommandOptions.env` with
@@ -1046,7 +1056,8 @@ forms keep only the current incarnation's bookkeeping and inherit nothing.
 
 One renderer shared by the `proc:spawn` capability resource and the
 interpreters that execute the line, so a granted capability and the command a
-browser actually runs cannot drift apart. The module is pure string handling.
+browser actually runs cannot drift apart. `resource` builds the grant identity
+from that same line. The module is pure string handling.
 
 ### CommandLine.quote
 
@@ -1070,6 +1081,46 @@ renders its tokens verbatim; a custom shell renders as an explicit
 `PipedCommand` renders with `|` between its sides. `from` and `to` pipe options
 are not expressible this way and are ignored, so capability checks see the
 commands and never the plumbing. The rendering is POSIX-only by contract.
+
+### CommandLine.resource
+
+```ts
+interface ResourceContext {
+  readonly ambient?: Readonly<Record<string, string | undefined>>
+  readonly contains?: (directory: string) => boolean
+}
+const resource: (command: ChildProcess.StandardCommand, context?: ResourceContext) => string
+const stages: (command: ChildProcess.Command) => ReadonlyArray<ChildProcess.StandardCommand>
+```
+
+The `proc:spawn` capability resource for one stage: `render`, with three
+additions so a prefix grant such as `git status *` authorizes only what the
+stage names.
+
+- A `shell: true` stage whose line holds `;`, `&`, `|`, a backtick, `$`, `<`,
+  `>`, `(`, `)`, or a line break is marked as `sh -c '<line>'`. `git status *`
+  therefore does not match `git status; curl x | sh`. A simple shell line such
+  as `git status --short` keeps its verbatim resource, and so does one that
+  only adds an fd duplication (`2>&1`, `>&2`) or a discard to `/dev/null`.
+- A stage that sets an environment variable the child would not otherwise
+  inherit is prefixed with `env <NAME>… --`, sorted names only. That is every
+  name outside the bootstrap set (`ChildProcessEnvironment.isInheritedName`)
+  and a bootstrap name (`PATH`, `HOME`, and the rest) whose value differs from
+  `context.ambient`. A grant for `git status` does not cover `git status` run
+  with `GIT_CONFIG_PARAMETERS`, `GIT_SSH_COMMAND`, `LD_PRELOAD`,
+  `NODE_OPTIONS`, or a `PATH` or `HOME` pointing somewhere new; grant
+  `env GIT_SSH_COMMAND -- git fetch` to allow that override. Values never
+  enter the resource. Omitted, `context.ambient` is empty and every declared
+  bootstrap name is named.
+- A stage whose `cwd` `context.contains` rejects is prefixed with
+  `cwd <path> --`. The spawner's `contains` accepts `Workspace.root` and
+  everything below it. Omitted, every `cwd` is named. `context.resolvedCwd`,
+  the `cwd` with symlinks resolved, replaces the lexical `cwd` for that check
+  and in the prefix.
+
+`stages` lists a command's stages from left to right. A pipeline has no single
+resource: the spawner checks every stage, so `git status | sh` needs a grant
+for `sh` too.
 
 ### CommandLine.executable
 

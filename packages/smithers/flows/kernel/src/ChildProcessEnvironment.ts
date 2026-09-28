@@ -48,7 +48,15 @@ export const inheritedNames: ReadonlyArray<string> = Object.freeze([
 
 const inherited = new Set(inheritedNames)
 
-const isInherited = (name: string): boolean => {
+/**
+ * Reports whether a variable belongs to the bootstrap set {@link make}
+ * inherits: one of {@link inheritedNames} or a locale `LC_` category,
+ * compared case-insensitively.
+ *
+ * @category predicates
+ * @since 1.0.0-rc.1
+ */
+export const isInheritedName = (name: string): boolean => {
   const canonical = name.toUpperCase()
   return inherited.has(canonical) || canonical.startsWith("LC_")
 }
@@ -80,7 +88,7 @@ export const make = (
 ): Record<string, string> => {
   const environment = Object.create(null) as Record<string, string>
   for (const [name, value] of Object.entries(ambient)) {
-    if (value !== undefined && isInherited(name) && !isCredentialName(name)) environment[name] = value
+    if (value !== undefined && isInheritedName(name) && !isCredentialName(name)) environment[name] = value
   }
   for (const [name, value] of Object.entries(declared)) {
     remove(environment, name)
