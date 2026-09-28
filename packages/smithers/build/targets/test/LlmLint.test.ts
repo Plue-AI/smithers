@@ -415,6 +415,54 @@ describe("LlmLint key material", () => {
   })
 })
 
+describe("LlmLint.review all scope", () => {
+  it("reviews every included file, tracked or untracked, whether or not it changed", async () => {
+    await write("src/new.ts", "export const fresh = 1\n")
+    await write("src/ignored.ts", "export const ignored = 1\n")
+    await write(".gitignore", "src/ignored.ts\n")
+    const cli = await fakeCli("claude", claudeEnvelope("[]"))
+    const report = await Effect.runPromise(
+      LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload({ scope: "all" }))
+    )
+    expect(report.files).toEqual(["src/a.ts", "src/b.ts", "src/new.ts"])
+  })
+
+  it("narrows the git listing to the include prefix so a large repository stays under the path cap", async () => {
+    await Promise.all(
+      Array.from(
+        { length: LlmLint.maximumReviewFiles + 8 },
+        (_, index) => Fs.writeFile(NodePath.join(root, `bulk-${index}.txt`), "x\n")
+      )
+    )
+    await write("src/a.ts", "export const a = 3\n")
+    const cli = await fakeCli("claude", claudeEnvelope("[]"))
+    const changed = await Effect.runPromise(
+      LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload())
+    )
+    expect(changed.files).toEqual(["src/a.ts"])
+    const all = await Effect.runPromise(
+      LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload({ scope: "all" }))
+    )
+    expect(all.files).toEqual(["src/a.ts", "src/b.ts"])
+  })
+
+  it("defaults the declared scope to changed and carries all to the action", () => {
+    const declare = (scope?: "changed" | "all") =>
+      Target.metadata(LlmLint.LlmLint({
+        changes: Input.gitDiff("HEAD"),
+        include: [Input.glob("src/**")],
+        deps: [],
+        prompt: "p",
+        rubric: "r",
+        model: "m",
+        batchSize: 1,
+        ...(scope === undefined ? {} : { scope })
+      })).attrs as LlmLint.Attrs
+    expect(declare().scope).toBe("changed")
+    expect(declare("all").scope).toBe("all")
+  })
+})
+
 describe("LlmLint.review changed-file filtering", () => {
   it("reviews only the changed paths matching an include glob", async () => {
     await write("src/a.ts", "export const a = 3\n")
@@ -595,7 +643,7 @@ describe("LlmLint.review engines", () => {
       "--disable-slash-commands",
       "--strict-mcp-config",
       "--mcp-config",
-      "{}",
+      "{\"mcpServers\":{}}",
       "--setting-sources",
       "",
       "--no-chrome"

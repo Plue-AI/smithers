@@ -275,7 +275,13 @@ export const Payload = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
     Schema.isLessThanOrEqualTo(maximumLlmBatchSize)
   ),
-  failOn: Severity
+  failOn: Severity,
+  /**
+   * `changed` (the default) reviews the paths that differ from `base`. `all`
+   * reviews every tracked or untracked, non-ignored path the include globs
+   * match, whether or not it changed; `base` is then unused.
+   */
+  scope: Schema.optional(Schema.Literals(["changed", "all"]))
 })
 
 /**
@@ -575,11 +581,36 @@ const gitPaths = (
   )
 
 /**
- * Lists changed paths against the base revision, filtered by include globs.
+ * The git pathspecs that narrow a listing to the include globs' static
+ * directory prefixes, or none when any glob is rooted at the workspace.
  *
- * A path counts as changed when `git diff` reports it against the base or it
- * is new and untracked but not ignored, so a file added in a jj-colocated
- * checkout is reviewed before git knows about it.
+ * The listing stays a superset of the include set, and minimatch still decides
+ * membership. Narrowing at the source keeps an `all`-scope listing under
+ * {@link maximumReviewFiles} for one package instead of counting every file in
+ * the repository.
+ */
+const includePathspecs = (include: ReadonlyArray<Input.Glob>): ReadonlyArray<string> => {
+  const prefixes = new Set<string>()
+  for (const declaration of include) {
+    const kept: Array<string> = []
+    for (const segment of workspacePattern(declaration.pattern).split("/")) {
+      if (/[*?{}[\]!]/.test(segment)) break
+      kept.push(segment)
+    }
+    const prefix = kept.join("/")
+    if (prefix === "" || prefix === ".") return []
+    prefixes.add(`:(literal)${prefix}`)
+  }
+  return [...prefixes].sort()
+}
+
+/**
+ * Lists the reviewed paths, filtered by include globs.
+ *
+ * In the `changed` scope a path counts when `git diff` reports it against the
+ * base or it is new and untracked but not ignored, so a file added in a
+ * jj-colocated checkout is reviewed before git knows about it. In the `all`
+ * scope every tracked path and every untracked, non-ignored path counts.
  */
 const changedFiles = (
   workspaceRoot: string,
@@ -591,32 +622,51 @@ const changedFiles = (
     try: () => Input.validateGitBase(payload.base),
     catch: (cause) => new LlmReviewError({ phase: "diff", message: failureMessage(cause) })
   }).pipe(
-    Effect.flatMap((base) =>
-      gitPaths(
-        workspaceRoot,
-        [
-          "diff",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--no-renames",
-          "--name-only",
-          "-z",
-          "--end-of-options",
-          base,
-          "--"
-        ],
-        timeoutMs,
-        sensitiveEnv
-      )
-    ),
-    Effect.flatMap((tracked) =>
-      gitPaths(
-        workspaceRoot,
-        ["ls-files", "--others", "--exclude-standard", "--full-name", "-z", "--"],
-        timeoutMs,
-        sensitiveEnv
-      )
-        .pipe(Effect.map((untracked) => [...tracked, ...untracked]))
+    Effect.map((base) => ({ base, pathspecs: includePathspecs(payload.include) })),
+    Effect.flatMap(({ base, pathspecs }) =>
+      payload.scope === "all" ?
+        gitPaths(
+          workspaceRoot,
+          [
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--deduplicate",
+            "--full-name",
+            "-z",
+            "--",
+            ...pathspecs
+          ],
+          timeoutMs,
+          sensitiveEnv
+        ) :
+        gitPaths(
+          workspaceRoot,
+          [
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            "--end-of-options",
+            base,
+            "--",
+            ...pathspecs
+          ],
+          timeoutMs,
+          sensitiveEnv
+        ).pipe(
+          Effect.flatMap((tracked) =>
+            gitPaths(
+              workspaceRoot,
+              ["ls-files", "--others", "--exclude-standard", "--full-name", "-z", "--", ...pathspecs],
+              timeoutMs,
+              sensitiveEnv
+            ).pipe(Effect.map((untracked) => [...tracked, ...untracked]))
+          )
+        )
     ),
     Effect.flatMap((paths) =>
       Effect.try({
@@ -808,6 +858,8 @@ interface EngineAdapter {
 const adapters: Record<Engine, EngineAdapter> = {
   claude: {
     executable: "claude",
+    // `--mcp-config` takes a config document; Claude Code rejects a bare `{}`
+    // with "mcpServers: Invalid input", so the empty set is spelled out.
     args: (model) => [
       "-p",
       "--output-format",
@@ -821,7 +873,7 @@ const adapters: Record<Engine, EngineAdapter> = {
       "--disable-slash-commands",
       "--strict-mcp-config",
       "--mcp-config",
-      "{}",
+      "{\"mcpServers\":{}}",
       "--setting-sources",
       "",
       "--no-chrome"
@@ -1237,7 +1289,17 @@ export const Attrs = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
     Schema.isLessThanOrEqualTo(maximumLlmBatchSize)
   ),
-  failOn: Severity.pipe(Schema.withConstructorDefault(Effect.succeed("error" as const)))
+  failOn: Severity.pipe(Schema.withConstructorDefault(Effect.succeed("error" as const))),
+  /**
+   * `changed` (the default) reviews the files that differ from
+   * `changes.base`; `all` reviews every included file.
+   */
+  scope: Schema.Literals(["changed", "all"]).pipe(Schema.withConstructorDefault(Effect.succeed("changed" as const))),
+  /**
+   * Whether a bare wildcard skips this review; a label or a named subtree
+   * pattern (`//pkg/...:name`) still selects it. Defaults to false.
+   */
+  manual: Schema.Boolean.pipe(Schema.withConstructorDefault(Effect.succeed(false)))
 })
 
 /**
@@ -1294,6 +1356,7 @@ export const LlmLint = Target.make("LlmLint", {
   success: Report,
   error: ReviewError,
   cache: false,
+  manual: (attrs) => attrs.manual,
   implementation: (attrs) =>
     LlmReview.call({
       base: attrs.changes.base,
@@ -1304,6 +1367,7 @@ export const LlmLint = Target.make("LlmLint", {
       engine: attrs.engine,
       model: attrs.model,
       batchSize: attrs.batchSize,
-      failOn: attrs.failOn
+      failOn: attrs.failOn,
+      scope: attrs.scope
     })
 })

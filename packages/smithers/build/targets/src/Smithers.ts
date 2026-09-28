@@ -238,6 +238,8 @@ export { TypedocDocs } from "./TypedocDocumentation.ts"
 export { LlmLint } from "./LlmLint.ts"
 /** @category actions @since 0.1.0 */
 export { FindingsError, LlmReview, LlmReviewError, ModelCliMissing } from "./LlmLint.ts"
+/** @category macros @since 1.0.0 */
+export { SecurityReview } from "./SecurityReview.ts"
 /** @category targets @since 0.1.0 */
 export { Clean } from "./Compose.ts"
 /** @category targets @since 0.1.0 */

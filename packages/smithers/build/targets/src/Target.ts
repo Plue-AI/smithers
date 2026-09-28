@@ -349,6 +349,11 @@ export interface Metadata {
   readonly verbGate: ReadonlyArray<Kind> | undefined
   /** The host platforms the target runs on, or undefined for every host. */
   readonly hosts: ReadonlyArray<string> | undefined
+  /**
+   * Whether a bare wildcard (`//...`, `//pkg/...`) skips the target. A label
+   * or a named subtree pattern (`//pkg/...:name`) still selects it.
+   */
+  readonly manual: boolean
   readonly sourceFile: string | undefined
   /** The declaration's one-line summary, when it carries one; see {@link Presentation}. */
   readonly summary: string | undefined
@@ -852,6 +857,13 @@ export interface MakeOptions<
    * refuses it by name there.
    */
   readonly hosts?: ((attrs: Attrs["Type"]) => ReadonlyArray<string> | undefined) | undefined
+  /**
+   * Whether a declaration is manual: the package planner omits it from bare
+   * wildcard selections (`//...`, `//pkg/...`) and selects it only by label or
+   * by a named subtree pattern (`//pkg/...:name`), the way Bazel treats a
+   * `manual` tag. Use it for an expensive target a person asks for by name.
+   */
+  readonly manual?: ((attrs: Attrs["Type"]) => boolean) | undefined
   readonly verbGate?:
     | ReadonlyArray<Kind>
     | ((attrs: Attrs["Type"]) => ReadonlyArray<Kind> | undefined)
@@ -1395,6 +1407,7 @@ export const make = <
     inputs: functionIdentity(options.inputs),
     outputs: functionIdentity(options.outputs),
     hosts: functionIdentity(options.hosts),
+    manual: functionIdentity(options.manual),
     verbGate: typeof options.verbGate === "function"
       ? sourceIdentity(options.verbGate)
       : options.verbGate ?? null,
@@ -1495,6 +1508,7 @@ export const make = <
       outputs: baseView.outputs,
       verbGate: verbGate === undefined ? undefined : Object.freeze(verbGate),
       hosts: hosts === undefined ? undefined : Object.freeze([...hosts]),
+      manual: options.manual?.(attrs) === true,
       sourceFile: declarationSourceFile,
       summary: presentation.summary,
       featured: presentation.featured,

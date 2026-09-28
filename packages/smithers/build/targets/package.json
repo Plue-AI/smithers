@@ -110,6 +110,7 @@
     "./SafeFs": "./src/SafeFs.ts",
     "./Secret": "./src/Secret.ts",
     "./SecretProxy": "./src/SecretProxy.ts",
+    "./SecurityReview": "./src/SecurityReview.ts",
     "./Shell": "./src/Shell.ts",
     "./Smithers": "./src/Smithers.ts",
     "./SortPackageJson": "./src/SortPackageJson.ts",
@@ -870,6 +871,16 @@
         "require": {
           "types": "./dist/cjs/SecretProxy.d.ts",
           "default": "./dist/cjs/SecretProxy.js"
+        }
+      },
+      "./SecurityReview": {
+        "import": {
+          "types": "./dist/esm/SecurityReview.d.ts",
+          "default": "./dist/esm/SecurityReview.js"
+        },
+        "require": {
+          "types": "./dist/cjs/SecurityReview.d.ts",
+          "default": "./dist/cjs/SecurityReview.js"
         }
       },
       "./Shell": {

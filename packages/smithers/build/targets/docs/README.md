@@ -114,7 +114,7 @@ The catalog holds 105 rules. They group roughly like this:
 | Containers and services | `Docker.Build`, `Docker.Bake`, `Docker.Serve`, `Shell.Serve`                   |
 | Publishing              | `Npm.Pack`, `JsrPublish`, `Changesets.Version` (`Npm.Publish` is unsupported)  |
 | Generated files         | `Generate`, `Tsconfig`, `FactoryProjection`, `TargetIndex`, `PackageJsonWrite` |
-| Agents and model review | `Agent.Lint`, `Agent.Diff`, `Agent.Pr`, `LlmLint`                              |
+| Agents and model review | `Agent.Lint`, `Agent.Diff`, `Agent.Pr`, `LlmLint`, `SecurityReview`            |
 | Composition             | `Filegroup`, `Suite`, `Alias`, `Test`, `Materialize`                           |
 
 [Catalog rules](./rules.md) lists all 105 with the verbs each one joins,
@@ -183,3 +183,5 @@ present.
 - [Workspace toolchains](./guides/toolchains.md), what `S.Workspace` accepts.
 - [Nested repositories](./guides/local-repositories.md), for a workspace that
   contains other workspaces.
+- [Security review](./guides/security-review.md), a package's security checks
+  as a diff review and a manual full audit.
