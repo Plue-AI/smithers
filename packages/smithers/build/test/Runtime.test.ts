@@ -77,6 +77,56 @@ describe("Runtime.satisfies", () => {
     expect(Runtime.satisfies(">=1.0.0-rc.2", "0.9.0")).toBe(false)
   })
 
+  it("orders prerelease identifiers by numeric value, kind, and length", () => {
+    expect(Runtime.satisfies("<1.0.0-rc.2", "1.0.0-rc.1.alpha")).toBe(true)
+    expect(Runtime.satisfies(">1.0.0-rc.1", "1.0.0-rc.1.alpha")).toBe(true)
+    expect(Runtime.satisfies("<1.0.0-rc.alpha", "1.0.0-rc.9")).toBe(true)
+    expect(Runtime.satisfies(">1.0.0-rc.9", "1.0.0-rc.alpha")).toBe(true)
+    expect(Runtime.satisfies("<1.0.0-rc.zeta", "1.0.0-rc.alpha")).toBe(true)
+    expect(Runtime.satisfies(">1.0.0-rc.alpha", "1.0.0-rc.zeta")).toBe(true)
+  })
+
+  it("orders arbitrarily long prerelease numbers exactly, including zero", () => {
+    const beyondNumberRange = "9".repeat(310)
+    const nextMagnitude = `1${"0".repeat(310)}`
+    for (
+      const [requirement, measured, expected] of [
+        [">=1.0.0-rc.9007199254740993", "1.0.0-rc.9007199254740992", false],
+        [">1.0.0-rc.9007199254740992", "1.0.0-rc.9007199254740993", true],
+        ["<1.0.0-rc.1000000000000000000000", "1.0.0-rc.999999999999999999999", true],
+        [">1.0.0-rc.999999999999999999999", "1.0.0-rc.1000000000000000000000", true],
+        ["<1.0.0-rc.1000000000000000000001", "1.0.0-rc.1000000000000000000000", true],
+        ["<=1.0.0-rc.1000000000000000000000", "1.0.0-rc.1000000000000000000000", true],
+        ["=1.0.0-rc.9007199254740993", "1.0.0-rc.9007199254740993", true],
+        ["=1.0.0-rc.9007199254740993", "1.0.0-rc.9007199254740992", false],
+        [">1.0.0-rc.0", "1.0.0-rc.1", true],
+        ["<1.0.0-rc.1", "1.0.0-rc.0", true],
+        ["<1.0.0-rc.0.beta", "1.0.0-rc.0.alpha", true],
+        ["<1.0.0-rc.alpha", "1.0.0-rc.9007199254740993", true],
+        ["<1.0.0-rc.a", "1.0.0-rc.Z", true],
+        [`<1.0.0-rc.${nextMagnitude}`, `1.0.0-rc.${beyondNumberRange}`, true]
+      ] as const
+    ) {
+      expect(Runtime.satisfies(requirement, measured), `${measured} vs ${requirement}`).toBe(expected)
+    }
+  })
+
+  it("keeps accepted zero-padded suffixes distinct for exact pins while comparing numeric rank", () => {
+    expect(Runtime.satisfies("<=1.0.0-rc.2", "1.0.0-rc.02")).toBe(true)
+    expect(Runtime.satisfies(">=1.0.0-rc.2", "1.0.0-rc.02")).toBe(true)
+    expect(Runtime.satisfies("<1.0.0-rc.2", "1.0.0-rc.02")).toBe(false)
+    expect(Runtime.satisfies(">1.0.0-rc.2", "1.0.0-rc.02")).toBe(false)
+    expect(Runtime.satisfies("<1.0.0-rc.2.2", "1.0.0-rc.0002.1")).toBe(true)
+    expect(Runtime.satisfies(">1.0.0-rc.2.0", "1.0.0-rc.0002.1")).toBe(true)
+    expect(Runtime.satisfies("=1.0.0-rc.2.1", "1.0.0-rc.0002.1")).toBe(false)
+    expect(Runtime.satisfies("=1.0.0-rc.0002.1", "1.0.0-rc.0002.1")).toBe(true)
+  })
+
+  it("refuses a version component outside JavaScript's exact integer range", () => {
+    expect(Runtime.satisfies(">=1.0.0", "9007199254740992.0.0")).toBe("unsupported_requirement")
+    expect(Runtime.satisfies(">=9007199254740992", "1.0.0")).toBe("unsupported_requirement")
+  })
+
   it("compares a prerelease as its release version under a comparator", () => {
     expect(Runtime.satisfies(">=1.4.0", "1.4.0-canary.2")).toBe(true)
     expect(Runtime.satisfies("<1.5.0", "1.4.0-canary.2")).toBe(true)

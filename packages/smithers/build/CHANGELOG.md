@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Runtime version requirements compare numeric prerelease identifiers exactly,
+  including values beyond JavaScript's safe integer range. Adjacent large
+  identifiers no longer admit an older runtime through rounding.
 - Breaking: install linking declares `irreversible`, not `sealed`. The planner
   now accepts that honest tier. Link uses a run-local identity, never publishes
   shared cache, and does not promise rollback of ignored dependency files.

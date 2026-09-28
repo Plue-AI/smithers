@@ -242,10 +242,8 @@ const comparators = [">=", "<=", ">", "<", "="] as const
  * Splits a dotted numeric version into comparable parts.
  *
  * A trailing prerelease or build suffix is dropped, so `1.3.0-canary.2` and
- * `1.3.0+build.7` both compare as `1.3.0`. Ordering prereleases correctly is a
- * semver problem this seam does not need. What it does need is that an exact
- * stable pin never accepts one, and {@link satisfies} states that separately rather
- * than by pretending the suffix was not there.
+ * `1.3.0+build.7` both contribute the core `1.3.0`. {@link satisfies} handles
+ * prerelease identity and precedence separately from these core numbers.
  */
 const numericParts = (value: string): ReadonlyArray<number> | undefined => {
   const token = value.trim()
@@ -306,7 +304,13 @@ const comparePrerelease = (left: string, right: string): number => {
     if (x === y) continue
     const xNumeric = /^\d+$/.test(x)
     const yNumeric = /^\d+$/.test(y)
-    if (xNumeric && yNumeric) return Number(x) < Number(y) ? -1 : 1
+    if (xNumeric && yNumeric) {
+      // SemVer numeric prerelease identifiers have no safe-integer ceiling.
+      const xValue = BigInt(x)
+      const yValue = BigInt(y)
+      if (xValue !== yValue) return xValue < yValue ? -1 : 1
+      continue
+    }
     if (xNumeric !== yNumeric) return xNumeric ? -1 : 1
     return x < y ? -1 : 1
   }
