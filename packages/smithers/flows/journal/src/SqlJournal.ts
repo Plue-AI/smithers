@@ -1018,14 +1018,17 @@ export const layer = (
             )
           }
           // Redaction happens here, at the single point every channel funnels
-          // through, so no write path can bypass it (issue #46).
+          // through, so no write path can bypass it (issue #46). A redaction
+          // failure carries no cause: whatever the redactor or a hostile getter
+          // threw can quote the unredacted value, and that value never reached
+          // the journal, so the error must not be the place it leaks from.
           const redactedPayload = yield* Result.try({
             try: () => redact(validated.payload),
-            catch: (cause) => error("invalid_event", "payload could not be redacted", cause)
+            catch: () => error("invalid_event", "payload could not be redacted")
           })
           const redactedMeta = yield* Result.try({
             try: () => redact(validated.meta ?? null),
-            catch: (cause) => error("invalid_event", "meta could not be redacted", cause)
+            catch: () => error("invalid_event", "meta could not be redacted")
           })
           const payloadJson = yield* encodeFingerprint(redactedPayload, "payload")
           const metaJson = yield* encodeFingerprint(redactedMeta, "meta")

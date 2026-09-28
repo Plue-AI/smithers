@@ -66,6 +66,18 @@ const redactionHazards: ReadonlyArray<RedactionHazard> = [
     })
   },
   {
+    // A thrown value that quotes the payload must not ride out on the
+    // JournalError cause: the payload never persisted, so the error is the
+    // only place it could leak from.
+    id: "throw-quoting-secret",
+    field: "payload",
+    make: (secret) => ({
+      get boom(): never {
+        throw new Error(`cannot read ${secret}`)
+      }
+    })
+  },
+  {
     id: "hostile-proxy",
     field: "payload",
     make: (secret) =>
@@ -108,6 +120,7 @@ const assertHazardFailures = (channel: "durable" | "lossy"): Effect.Effect<void,
       expect(failure.code).toBe("invalid_event")
       expect(failure.message).toBe(`${hazard.field} could not be redacted`)
       expect(JSON.stringify(failure)).not.toContain(secret)
+      expect(inspect(failure, { depth: null })).not.toContain(secret)
 
       const good = input(run, sourceId("healthy"), "healthy", { status: "ok" })
       if (channel === "durable") {

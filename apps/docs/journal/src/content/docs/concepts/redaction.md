@@ -114,6 +114,11 @@ than trusted to terminate:
   nested quantifier and no alternation inside a repetition, so each is linear
   in the length of the value and no input backtracks catastrophically.
 
+A redaction that throws, from the redactor itself or from a getter or proxy
+trap on the value, fails the write as `invalid_event` with no `cause`. The
+thrown value can quote the unredacted input, so the error carries only which
+field, `payload` or `meta`, could not be redacted.
+
 Values a JSON row cannot hold are named rather than dropped:
 `Redaction.binaryMarker`, `Redaction.functionMarker`,
 `Redaction.symbolMarker`, and `Redaction.depthMarker`.
