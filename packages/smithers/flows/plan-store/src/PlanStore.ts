@@ -89,7 +89,10 @@ export interface Service {
   readonly record: (plan: Plan.Plan, createdAtMs: number) => Effect.Effect<RecordResult, PlanStoreError>
   /** Appends the newest generation's nodes and edges and advances the digest. */
   readonly append: (plan: Plan.Plan) => Effect.Effect<void, PlanStoreError>
-  /** Reads the whole plan back, nodes in recorded order. */
+  /**
+   * Reads the whole plan back, nodes in recorded order. Dependencies come from
+   * each verified node's `dependsOn`; `flows_plan_edges` is never read.
+   */
   readonly get: (planId: string) => Effect.Effect<Option.Option<Plan.Plan>, PlanStoreError>
 }
 
@@ -169,6 +172,10 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
             firstOrdinal + index
           }, ${node.kind}, ${node.key}, ${json})
         `
+          // Edge rows are a derived, unverified index of `node.dependsOn` for
+          // SQL inspection. Nothing reads them back: `get` rebuilds the graph
+          // from the verified `node_json`, so a forged edge row cannot add or
+          // remove a dependency. A future reader must do the same.
           for (const dependency of node.dependsOn) {
             yield* sql`
             INSERT INTO flows_plan_edges (plan_id, from_node, to_node) VALUES (${planId}, ${dependency}, ${node.id})

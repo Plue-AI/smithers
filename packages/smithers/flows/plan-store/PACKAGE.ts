@@ -35,7 +35,8 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "A get path that returns an Option.some plan without decodePlanRow, decodeNode, and verified all succeeding.",
         "Envelope and node rows read by separate statements, letting a concurrent append mix generations in one returned plan.",
-        "A decode or integrity failure mapped to Option.none instead of a decode_failed error."
+        "A decode or integrity failure mapped to Option.none instead of a decode_failed error.",
+        "A reader that builds dependencies from flows_plan_edges rows, which nothing verifies, instead of the verified node dependsOn."
       ],
       paths: ["src/PlanStore.ts"]
     },

@@ -345,6 +345,35 @@ describe("PlanStore", () => {
       expect(failures[4]).toBe("a plan only grows")
     }))
 
+  it.effect("reads dependencies from verified node rows and ignores forged edge rows", () =>
+    Effect.gen(function*() {
+      const plan = yield* withCrypto(samplePlan())
+      const { edges, read } = yield* withStore((store) =>
+        Effect.gen(function*() {
+          const sql = yield* SqlClient.SqlClient
+          yield* store.record(plan, 1)
+          // A direct SQL writer can append edge rows nothing verifies: a
+          // reversed edge, a self edge, and an edge to a node that does not exist.
+          yield* sql`INSERT INTO flows_plan_edges (plan_id, from_node, to_node) VALUES
+            (${plan.planId}, 'child', 'root'),
+            (${plan.planId}, 'root', 'root'),
+            (${plan.planId}, 'ghost', 'child')`
+          const edges = yield* sql<{ readonly from_node: string }>`
+            SELECT from_node FROM flows_plan_edges WHERE plan_id = ${plan.planId}
+          `
+          const read = yield* store.get(plan.planId)
+          return { edges, read }
+        })
+      )
+      expect(edges.length).toBe(4)
+      // The graph get returns is the verified dependsOn graph, not the edge rows.
+      expect(Option.getOrThrow(read)).toEqual(plan)
+      expect(Option.getOrThrow(read).nodes.map((node) => [node.id, node.dependsOn])).toEqual([
+        ["root", []],
+        ["child", ["root"]]
+      ])
+    }))
+
   it.effect("refuses deleting a recorded plan row", () =>
     Effect.gen(function*() {
       const plan = yield* withCrypto(samplePlan())

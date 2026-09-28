@@ -111,6 +111,12 @@ reader-after-writer edges can point to later ordinals. Schedule nodes from the
 complete `dependsOn` graph. `(plan_id, ordinal)` is unique in SQL, so recorded
 order is stable across reads.
 
+`get` builds each node's dependencies from its verified `node_json`.
+`flows_plan_edges` is a derived index of those `dependsOn` lists for SQL
+inspection; nothing verifies it and `get` never reads it, so an edge row
+written by anything other than `record` or `append` cannot add or remove a
+dependency. Read the graph through `get`, never from the edge table.
+
 This clarification preserves existing ordinals, keys, and approval digests.
 `append` retains the recorded prefix and adds new nodes in material-dependency
 order; `verify` checks that same order without sorting inferred edges. Existing
