@@ -70,6 +70,7 @@ type mythicalWikiPage struct {
 	Title       string `json:"title"`
 	Kind        string `json:"kind"`
 	Body        string `json:"body"`
+	Ref         string `json:"ref,omitempty"`
 	BodyDigest  string `json:"bodyDigest"`
 	InputDigest string `json:"inputDigest"`
 	Revision    int64  `json:"revision"`
@@ -348,7 +349,7 @@ func (s *MythicalService) settleWiki(ctx context.Context, r *mythicalRun, row db
 				next.State, next.Outcome, next.Result, next.Error, next.Attempt = "idle", "", nil, "", 0
 				next.PublishedCommit, next.PublishedBase = row.CommitID, row.BaseCommit
 				next.PublishedAt = pgtype.Timestamptz{Time: now, Valid: true}
-				next.Pages, next.Receipt = encoded, mythicalWikiReceipt(row, result)
+				next.Pages, next.Receipt = encoded, mythicalWikiReceipt(row, result, pages)
 				if len(result.Pool) > 0 && string(result.Pool) != "null" {
 					next.Pool = result.Pool
 				}
@@ -409,7 +410,7 @@ func mythicalWikiBackoff(attempt int32) time.Duration {
 // or reused an earlier review, the retired source-index pages migration 0037
 // removed, and per page its review and exact sources. The review evidence
 // itself stays in the run's journal.
-func mythicalWikiReceipt(row db.MythicalWiki, result mythicalWikiResult) json.RawMessage {
+func mythicalWikiReceipt(row db.MythicalWiki, result mythicalWikiResult, published []mythicalWikiPage) json.RawMessage {
 	type page struct {
 		ID            string  `json:"id"`
 		InputDigest   string  `json:"inputDigest"`
@@ -421,10 +422,29 @@ func mythicalWikiReceipt(row db.MythicalWiki, result mythicalWikiResult) json.Ra
 	for _, p := range result.Pages {
 		pages = append(pages, page{ID: p.ID, InputDigest: p.InputDigest, ContentDigest: p.ContentDigest, ReviewDigest: p.ReviewDigest, Sources: p.Sources})
 	}
+	// Compare with the last saved refresh so a retried publication reports
+	// the same counts even when an earlier attempt already wrote its pages.
+	var previous []mythicalWikiPage
+	_ = json.Unmarshal(row.Pages, &previous)
+	revisions := make(map[string]int64, len(previous))
+	for _, p := range previous {
+		revisions[p.ID] = p.Revision
+	}
+	rewritten, unchanged := 0, 0
+	for _, p := range published {
+		if p.Edited {
+			continue
+		}
+		if revision, had := revisions[p.ID]; had && revision == p.Revision {
+			unchanged++
+		} else {
+			rewritten++
+		}
+	}
 	receipt := map[string]any{"runId": row.RunID, "wikiRunId": result.WikiRunID, "commit": row.CommitID,
 		"reviewedCommit": result.CommitID, "artifactDigest": result.ArtifactDigest, "sourceRevision": result.Receipt.SourceRevision,
 		"inputDigest": result.Receipt.InputDigest, "verification": result.Receipt.Verification, "reviews": result.Reviews,
-		"legacyPagesRemoved": row.LegacyPagesRemoved, "pages": pages}
+		"legacyPagesRemoved": row.LegacyPagesRemoved, "pages": pages, "rewritten": rewritten, "unchanged": unchanged}
 	if result.Reviews == nil {
 		delete(receipt, "reviews")
 	}
@@ -487,12 +507,25 @@ func (s *MythicalService) publishWiki(ctx context.Context, r *mythicalRun, row d
 	declared := map[string]bool{}
 	for _, page := range result.Pages {
 		declared[page.ID] = true
-		page.Body = mythicalWikiBody(page.Body, r.owner, r.repo, row.CommitID)
+		prev, had := previous[page.ID]
+		ref, priorRef := row.CommitID, prev.Ref
+		if priorRef == "" {
+			// Older receipts rewrote every citation at the published commit.
+			priorRef = row.PublishedCommit
+		}
+		if had && !prev.Edited && page.InputDigest != "" && page.InputDigest == prev.InputDigest &&
+			mythicalWikiDigest(prev.Body) == prev.BodyDigest && mythicalWikiBody(page.Body, r.owner, r.repo, priorRef) == prev.Body {
+			// Keep immutable source refs only when both reviewed inputs and
+			// rendered text match: cross-page labels can change independently.
+			page.Body = prev.Body
+			ref = priorRef
+		} else {
+			page.Body = mythicalWikiBody(page.Body, r.owner, r.repo, row.CommitID)
+		}
 		slug := mythicalWikiSlugPrefix + page.ID
 		title := strings.TrimSpace(page.Title)
 		digest := mythicalWikiDigest(page.Body)
-		prev, had := previous[page.ID]
-		entry := mythicalWikiPage{ID: page.ID, Slug: slug, Title: title, Kind: page.Kind, Body: page.Body, InputDigest: page.InputDigest,
+		entry := mythicalWikiPage{ID: page.ID, Slug: slug, Title: title, Kind: page.Kind, Body: page.Body, Ref: ref, InputDigest: page.InputDigest,
 			BodyDigest: prev.BodyDigest, Revision: prev.Revision, Edited: prev.Edited}
 		existing, err := s.wikiStore.GetWikiPage(ctx, &actor, r.owner, r.repo, slug)
 		switch {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -138,6 +140,16 @@ func wikiResult(commit, pool string, pages ...string) string {
 	return string(encoded)
 }
 
+func wikiResultWithoutInputDigest(t *testing.T, commit, body string) string {
+	t.Helper()
+	var result map[string]any
+	require.NoError(t, json.Unmarshal([]byte(wikiResult(commit, `null`, "runtime", body)), &result))
+	delete(result["pages"].([]any)[0].(map[string]any), "inputDigest")
+	encoded, err := json.Marshal(result)
+	require.NoError(t, err)
+	return string(encoded)
+}
+
 func (o *mythicalOrchestration) wiki() db.MythicalWiki {
 	o.t.Helper()
 	row, err := db.New(o.pool).GetMythicalWiki(context.Background(), o.repoID)
@@ -166,6 +178,25 @@ func (o *mythicalOrchestration) declareWiki() string {
 	return o.publish()
 }
 
+// wikiGitContentsHost transports content from the fixture's real bare Git
+// repository. The embedded interface supplies only methods this read never uses.
+type wikiGitContentsHost struct {
+	RepoHostClient
+	o *mythicalOrchestration
+}
+
+func (h wikiGitContentsHost) ListBookmarks(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error) {
+	return h.o.host.ListBookmarks(ctx, owner, repo, cursor, limit)
+}
+
+func (h wikiGitContentsHost) GetFileAtChange(ctx context.Context, _, _, changeID, path string) (repohost.FileContent, error) {
+	output, err := exec.CommandContext(ctx, "git", "--git-dir", h.o.hostDir, "show", changeID+":"+path).Output()
+	if err != nil {
+		return repohost.FileContent{}, err
+	}
+	return repohost.FileContent{Path: path, Content: string(output)}, nil
+}
+
 func TestMythicalWikiPublishesCitationsAtFoldedMain(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
@@ -187,16 +218,269 @@ func TestMythicalWikiPublishesCitationsAtFoldedMain(t *testing.T) {
 	assert.Equal(t, expected, pages[0].Body)
 	assert.Equal(t, mythicalWikiDigest(expected), pages[0].BodyDigest)
 
-	// An unchanged explanation refreshes its citation revision in the same page.
+	// An unrelated fold keeps the page and its source citation pinned.
 	o.commit("✨ feat: more source", "more.txt", "more\n")
 	nextMain := o.publish()
 	nextStack := o.wake()
 	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-citations-2", wikiResult(nextStack.TipCommit, `null`, "runtime", body))
 	o.wake()
 	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
-	assert.Equal(t, strings.ReplaceAll(expected, main, nextMain), store.body("generated-runtime"))
-	assert.Equal(t, int64(2), store.pages["generated-runtime"].Revision)
+	assert.NotEqual(t, main, nextMain)
+	assert.Equal(t, expected, store.body("generated-runtime"))
+	assert.Equal(t, int64(1), store.pages["generated-runtime"].Revision)
 	assert.Len(t, store.pages, 1)
+}
+
+// A refresh at B with the same reviewed input must leave the stored wiki
+// revision and its citation at A. The source at A remains readable after B.
+func TestMythicalWikiUnchangedPageKeepsRevision(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%t", legacy), func(t *testing.T) {
+			o := newMythicalOrchestration(t)
+			ctx := context.Background()
+			q := db.New(o.pool)
+			wiki := newTestWikiService(q, nil)
+			o.service.SetWiki(wiki)
+			actor, err := q.GetUserByID(ctx, o.userID)
+			require.NoError(t, err)
+
+			commitA := o.declareWiki()
+			stack := o.wake()
+			body := "# Runtime\n\n[project](../sources/.smithers/coding-project.json#L1)\n"
+			o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-a", wikiResult(stack.TipCommit, `null`, "runtime", body))
+			o.wake()
+			require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+			before, err := wiki.GetWikiPage(ctx, &actor, "smithers-canary", "smithers", "generated-runtime")
+			require.NoError(t, err)
+			require.Equal(t, int64(1), before.Revision)
+			citation := "/api/repos/smithers-canary/smithers/contents/.smithers/coding-project.json?ref=" + commitA + "#L1"
+			require.Contains(t, before.Body, citation)
+			if legacy {
+				// Pre-upgrade receipts have no per-page citation ref.
+				_, err = o.pool.Exec(ctx, `UPDATE mythical_wikis SET pages = jsonb_set(pages, '{0}', (pages->0) - 'ref') WHERE repository_id = $1`, o.repoID)
+				require.NoError(t, err)
+			}
+
+			o.commit("✨ feat: unrelated", "unrelated.txt", "unrelated\n")
+			commitB := o.publish()
+			require.NotEqual(t, commitA, commitB)
+			stack = o.wake()
+			o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-b", wikiResult(stack.TipCommit, `null`, "runtime", body))
+			o.wake()
+			require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+			after, err := wiki.GetWikiPage(ctx, &actor, "smithers-canary", "smithers", "generated-runtime")
+			require.NoError(t, err)
+			assert.Equal(t, before.ID, after.ID)
+			assert.Equal(t, before.Body, after.Body)
+			assert.Equal(t, before.Title, after.Title)
+			assert.Equal(t, before.Revision, after.Revision)
+			assert.Contains(t, after.Body, citation)
+			assert.NotContains(t, after.Body, "ref="+commitB)
+			assert.Equal(t, wikiProject, o.git(o.hostDir, "show", commitA+":.smithers/coding-project.json"))
+			o.git(o.hostDir, "merge-base", "--is-ancestor", commitA, "refs/heads/main")
+			contents, err := NewRepoService(q, wikiGitContentsHost{o: o}, DefaultStorageSetID).GetRepoContents(
+				ctx, &actor, "smithers-canary", "smithers", commitA, ".smithers/coding-project.json")
+			require.NoError(t, err)
+			assert.Equal(t, ".smithers/coding-project.json", contents.Path)
+			assert.Equal(t, wikiProject, contents.Content, "the retained citation reads A through the repository contents service after B")
+			assert.Equal(t, int64(len(wikiProject)), contents.Size)
+			assert.Equal(t, commitB, o.wiki().PublishedCommit)
+			var pages []mythicalWikiPage
+			require.NoError(t, json.Unmarshal(o.wiki().Pages, &pages))
+			require.Len(t, pages, 1)
+			assert.Equal(t, after.Revision, pages[0].Revision)
+			assert.Equal(t, after.Body, pages[0].Body)
+			assert.Equal(t, commitA, pages[0].Ref)
+			var receipt map[string]any
+			require.NoError(t, json.Unmarshal(o.wiki().Receipt, &receipt))
+			assert.Equal(t, float64(0), receipt["rewritten"])
+			assert.Equal(t, float64(1), receipt["unchanged"])
+		})
+	}
+}
+
+// Only the page whose input changed gets a fresh citation and wiki revision.
+// A generated title change on stable input still updates the title.
+func TestMythicalWikiChangedSourceMovesOnlyItsPage(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	q := db.New(o.pool)
+	wiki := newTestWikiService(q, nil)
+	o.service.SetWiki(wiki)
+	actor, err := q.GetUserByID(ctx, o.userID)
+	require.NoError(t, err)
+	read := func(slug string) WikiPageResponse {
+		t.Helper()
+		page, err := wiki.GetWikiPage(ctx, &actor, "smithers-canary", "smithers", slug)
+		require.NoError(t, err)
+		return page
+	}
+	runtimeBody := "# Runtime\n\n[a](../sources/a.txt#L1)\n"
+	flowsBody := "# Flows\n\n[b](../sources/b.txt#L1)\n"
+	commitA := o.declareWiki()
+	stack := o.wake()
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-a", wikiResult(stack.TipCommit, `null`,
+		"runtime", runtimeBody, "flows", flowsBody))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	runtimeA, flowsA := read("generated-runtime"), read("generated-flows")
+	require.Equal(t, int64(1), runtimeA.Revision)
+	require.Equal(t, int64(1), flowsA.Revision)
+	require.Contains(t, runtimeA.Body, "?ref="+commitA+"#L1")
+	require.Contains(t, flowsA.Body, "?ref="+commitA+"#L1")
+
+	o.commit("✨ feat: change runtime source", "a.txt", "runtime changed\n")
+	commitB := o.publish()
+	stack = o.wake()
+	result := wikiResult(stack.TipCommit, `null`, "runtime", runtimeBody, "flows", flowsBody)
+	var output map[string]any
+	require.NoError(t, json.Unmarshal([]byte(result), &output))
+	answerPages := output["pages"].([]any)
+	answerPages[0].(map[string]any)["inputDigest"] = "sha-runtime-source-b"
+	encoded, err := json.Marshal(output)
+	require.NoError(t, err)
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-b", string(encoded))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	runtimeB, flowsB := read("generated-runtime"), read("generated-flows")
+	assert.Equal(t, runtimeA.ID, runtimeB.ID)
+	assert.Equal(t, runtimeA.Revision+1, runtimeB.Revision)
+	assert.Contains(t, runtimeB.Body, "?ref="+commitB+"#L1")
+	assert.NotContains(t, runtimeB.Body, "?ref="+commitA)
+	assert.Equal(t, flowsA, flowsB)
+	assert.Equal(t, "a", o.git(o.hostDir, "show", commitA+":a.txt"))
+	assert.Equal(t, "runtime changed", o.git(o.hostDir, "show", commitB+":a.txt"))
+	o.git(o.hostDir, "merge-base", "--is-ancestor", commitA, "refs/heads/main")
+	var receipt map[string]any
+	require.NoError(t, json.Unmarshal(o.wiki().Receipt, &receipt))
+	assert.Equal(t, float64(1), receipt["rewritten"])
+	assert.Equal(t, float64(1), receipt["unchanged"])
+
+	// The reviewed input and citation stay fixed while only the title changes.
+	o.commit("✨ feat: unrelated again", "other.txt", "other\n")
+	o.publish()
+	stack = o.wake()
+	result = wikiResult(stack.TipCommit, `null`, "runtime", runtimeBody, "flows", flowsBody)
+	require.NoError(t, json.Unmarshal([]byte(result), &output))
+	answerPages = output["pages"].([]any)
+	answerPages[0].(map[string]any)["inputDigest"] = "sha-runtime-source-b"
+	answerPages[0].(map[string]any)["title"] = "Runtime renamed"
+	encoded, err = json.Marshal(output)
+	require.NoError(t, err)
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-title", string(encoded))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	runtimeTitle, flowsTitle := read("generated-runtime"), read("generated-flows")
+	assert.Equal(t, "Runtime renamed", runtimeTitle.Title)
+	assert.Equal(t, runtimeB.Body, runtimeTitle.Body)
+	assert.Equal(t, runtimeB.Revision+1, runtimeTitle.Revision)
+	assert.Equal(t, flowsB, flowsTitle)
+	require.NoError(t, json.Unmarshal(o.wiki().Receipt, &receipt))
+	assert.Equal(t, float64(1), receipt["rewritten"])
+	assert.Equal(t, float64(1), receipt["unchanged"])
+}
+
+func TestMythicalWikiChangedExplanationWithSameInputsPublishes(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
+	o.service.SetWiki(store)
+	commitA := o.declareWiki()
+	stack := o.wake()
+	oldBody := "# Runtime\n\n[project](../sources/.smithers/coding-project.json#L1)\n\n[[generated-flows|Old title]]\n"
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-a", wikiResult(stack.TipCommit, `null`, "runtime", oldBody))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	before := store.pages["generated-runtime"]
+	require.Equal(t, int64(1), before.Revision)
+	require.Contains(t, before.Body, "[[generated-flows|Old title]]")
+	require.Contains(t, before.Body, "?ref="+commitA+"#L1")
+	var published []mythicalWikiPage
+	require.NoError(t, json.Unmarshal(o.wiki().Pages, &published))
+	require.Len(t, published, 1)
+	require.NotEmpty(t, published[0].InputDigest)
+	store.takeWrites()
+
+	o.commit("✨ feat: unrelated", "extra.txt", "extra\n")
+	commitB := o.publish()
+	require.NotEqual(t, commitA, commitB)
+	stack = o.wake()
+	newBody := strings.Replace(oldBody, "Old title", "New title", 1)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal([]byte(wikiResult(stack.TipCommit, `null`, "runtime", newBody)), &result))
+	page := result["pages"].([]any)[0].(map[string]any)
+	page["inputDigest"] = published[0].InputDigest
+	encoded, err := json.Marshal(result)
+	require.NoError(t, err)
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-b", string(encoded))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	after := store.pages["generated-runtime"]
+	assert.Contains(t, after.Body, "[[generated-flows|New title]]")
+	assert.NotContains(t, after.Body, "Old title")
+	assert.Contains(t, after.Body, "?ref="+commitB+"#L1")
+	assert.NotContains(t, after.Body, "?ref="+commitA)
+	assert.Equal(t, before.Revision+1, after.Revision)
+	assert.Equal(t, []string{"update generated-runtime"}, store.takeWrites())
+	var receipt map[string]any
+	require.NoError(t, json.Unmarshal(o.wiki().Receipt, &receipt))
+	assert.Equal(t, float64(1), receipt["rewritten"])
+	assert.Equal(t, float64(0), receipt["unchanged"])
+}
+
+func TestMythicalWikiSameInputKeepsPersonEditAcrossRefreshes(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
+	o.service.SetWiki(store)
+	o.declareWiki()
+	stack := o.wake()
+	body := "# Runtime\n\n[a](../sources/a.txt#L1)\n"
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-a", wikiResult(stack.TipCommit, `null`, "runtime", body))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	store.takeWrites()
+	store.personEdits("generated-runtime", "Person's runtime")
+
+	for _, name := range []string{"b", "c"} {
+		o.commit("✨ feat: unrelated "+name, name+"-extra.txt", name+"\n")
+		o.publish()
+		stack = o.wake()
+		o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-"+name, wikiResult(stack.TipCommit, `null`, "runtime", body))
+		o.wake()
+		require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+		assert.Empty(t, store.takeWrites(), "an edited page must never be updated")
+		assert.Equal(t, "Person's runtime", store.body("generated-runtime"))
+		assert.Equal(t, int64(2), store.pages["generated-runtime"].Revision)
+		var pages []mythicalWikiPage
+		require.NoError(t, json.Unmarshal(o.wiki().Pages, &pages))
+		require.Len(t, pages, 1)
+		assert.True(t, pages[0].Edited, "the prior Edited row remains edited")
+		assert.Equal(t, 1, o.wikiView().Edited)
+	}
+}
+
+func TestMythicalWikiMissingInputDigestDoesNotReuseBody(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
+	o.service.SetWiki(store)
+	commitA := o.declareWiki()
+	stack := o.wake()
+	body := "# Runtime\n\n[a](../sources/a.txt#L1)\n"
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-a", wikiResultWithoutInputDigest(t, stack.TipCommit, body))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	require.Contains(t, store.body("generated-runtime"), "?ref="+commitA+"#L1")
+	store.takeWrites()
+
+	o.commit("✨ feat: unrelated", "extra.txt", "extra\n")
+	commitB := o.publish()
+	stack = o.wake()
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-b", wikiResultWithoutInputDigest(t, stack.TipCommit, body))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	assert.Equal(t, []string{"update generated-runtime"}, store.takeWrites())
+	assert.Contains(t, store.body("generated-runtime"), "?ref="+commitB+"#L1")
+	assert.NotContains(t, store.body("generated-runtime"), "?ref="+commitA)
+	assert.Equal(t, int64(2), store.pages["generated-runtime"].Revision)
 }
 
 func TestMythicalWikiRefreshesAfterEveryFoldAndKeepsEdits(t *testing.T) {
