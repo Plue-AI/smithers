@@ -219,10 +219,10 @@ let
   # Checksum: https://go.dev/dl/?mode=json&include=all.
   go = pkgs.stdenvNoCC.mkDerivation rec {
     pname = "go";
-    version = "1.26.0";
+    version = "1.26.8";
     src = fetchurl {
       url = "https://go.dev/dl/go${version}.linux-amd64.tar.gz";
-      sha256 = "aac1b08a0fb0c4e0a7c1555beb7b59180b05dfc5a3d62e40e9de90cd42f88235";
+      sha256 = "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b";
     };
     dontBuild = true;
     dontStrip = true;
