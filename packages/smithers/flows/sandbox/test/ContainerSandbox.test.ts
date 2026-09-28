@@ -490,6 +490,31 @@ describe("ContainerSandbox", () => {
       expect(labelOf(create)).not.toBe(labelOf(unlimited.calls[0]!.args))
     }))
 
+  it("refuses createArgs that would override a neutral ceiling when make is called", () => {
+    const { calls, spawner } = engine()
+    const make =
+      (limits: ContainerSandbox.ContainerSandboxOptions["limits"], createArgs: ReadonlyArray<string>) => () =>
+        ContainerSandbox.make({ spawner, image: "img", workdir, limits, createArgs })
+    const both = { cpus: 0.5, memoryMib: 64 }
+    expect(make(both, ["--cpus", "2", "--memory", "128m"])).toThrow(
+      "container-sandbox: createArgs --cpus would override limits.cpus; name one"
+    )
+    for (const [flag, args] of [["--cpus", ["--cpus=2"]], ["--cpu-quota", ["--cpu-quota", "200000"]]] as const) {
+      expect(make({ cpus: 0.5 }, args)).toThrow(`createArgs ${flag} would override limits.cpus`)
+    }
+    for (const args of [["--memory=128m"], ["-m", "128m"], ["-m128m"], ["-itm", "128m"]]) {
+      expect(make({ memoryMib: 64 }, args)).toThrow("createArgs -")
+      expect(make({ memoryMib: 64 }, args)).toThrow("would override limits.memoryMib")
+    }
+    expect(make({ timeoutSecs: 60 }, ["--entrypoint", "/bin/sh"])).toThrow(
+      "createArgs --entrypoint would override limits.timeoutSecs"
+    )
+    // A flag for a ceiling that is not set, or an unrelated flag, stays allowed.
+    expect(make({ cpus: 0.5 }, ["--memory", "1g", "--cpu-shares", "512", "-e", "M=1"])).not.toThrow()
+    expect(make(undefined, ["--cpus", "2", "--entrypoint", "/bin/sh"])).not.toThrow()
+    expect(calls).toEqual([])
+  })
+
   it("refuses a limit that is not a positive number when make is called", () => {
     const { spawner } = engine()
     for (const limits of [{ cpus: 0 }, { cpus: Number.NaN }, { memoryMib: 1.5 }, { timeoutSecs: -1 }]) {

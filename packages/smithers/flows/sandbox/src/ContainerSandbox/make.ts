@@ -56,8 +56,10 @@ export interface ContainerSandboxOptions {
    * so the container stops, ending every command in it, once that many
    * seconds have passed since it last started. The limits enter the
    * configuration fingerprint, so a leftover container with other limits is
-   * refused rather than reattached. Rootless podman on cgroup v1 ignores
-   * `--cpus` and `--memory`.
+   * refused rather than reattached. A `createArgs` flag that would override
+   * a set ceiling (`--cpus`, `--cpu-quota`, `--cpu-period`, `--memory`,
+   * `-m`, or `--entrypoint` beside `timeoutSecs`) is refused when `make` is
+   * called. Rootless podman on cgroup v1 ignores `--cpus` and `--memory`.
    */
   readonly limits?: ResourceLimits | undefined
   /** Extra `create` arguments, an escape hatch for engine-specific shaping. */
@@ -67,6 +69,34 @@ export interface ContainerSandboxOptions {
 }
 
 const fingerprintLabel = "smithers.dev/sandbox-fingerprint"
+
+/**
+ * The engine `create` flags that would override each neutral ceiling: a later
+ * `--cpus` or `--memory` replaces the earlier one, CPU quota flags set the
+ * same CFS bandwidth, and `--entrypoint` wraps the `sleep` the lifetime is.
+ */
+const ceilingFlags: Record<keyof ResourceLimits, ReadonlyArray<string>> = {
+  cpus: ["--cpus", "--cpu-quota", "--cpu-period"],
+  memoryMib: ["--memory", "-m"],
+  timeoutSecs: ["--entrypoint"]
+}
+
+const flagsOf = (arg: string): ReadonlyArray<string> => {
+  if (arg.startsWith("--")) return [arg.split("=")[0]!]
+  // A single-dash cluster such as `-itm` or `-m512m` carries `-m` too.
+  const cluster = /^-([A-Za-z]+)/.exec(arg)?.[1] ?? ""
+  return [...cluster].map((letter) => `-${letter}`)
+}
+
+const refuseOverriddenCeilings = (limits: ResourceLimits, createArgs: ReadonlyArray<string>): void => {
+  for (const name of Object.keys(ceilingFlags) as Array<keyof ResourceLimits>) {
+    if (limits[name] === undefined) continue
+    const flag = createArgs.flatMap(flagsOf).find((flag) => ceilingFlags[name].includes(flag))
+    if (flag !== undefined) {
+      throw new TypeError(`container-sandbox: createArgs ${flag} would override limits.${name}; name one`)
+    }
+  }
+}
 const inspectedContainer = Schema.Array(Schema.Struct({
   Config: Schema.Struct({
     Image: Schema.String,
@@ -131,6 +161,7 @@ export const make = (options: ContainerSandboxOptions): Provider => {
   }
   const network = options.network ?? "none"
   const limits = options.limits === undefined ? {} : validateResourceLimits("container-sandbox", options.limits)
+  refuseOverriddenCeilings(limits, options.createArgs ?? [])
   const prefix = options.namePrefix ?? "smthrs-sbx-"
   const run = (args: ReadonlyArray<string>, stdin?: Uint8Array): Effect.Effect<GatheredRun, ProviderError> =>
     Effect.scoped(
