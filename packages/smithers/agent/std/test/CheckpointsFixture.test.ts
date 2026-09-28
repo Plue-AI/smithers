@@ -19,6 +19,9 @@ import { Deferred, Effect, Fiber, Layer } from "effect"
 import type * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { execFileSync } from "node:child_process"
 import {
+  accessSync,
+  chmodSync,
+  constants,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -26,6 +29,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync
 } from "node:fs"
@@ -471,6 +475,122 @@ describe("Checkpoints over a real repository", () => {
     expect(readdirSync(victim)).toEqual(["mod.py"])
     expect(readdirSync(dirname(root)).filter((entry) => entry.startsWith(".smithers-checkout-"))).toEqual([])
   }, 60_000)
+
+  it("refuses a checkout whose parent the agent swapped for a symlink out of the workspace", async () => {
+    const root = repository()
+    const victim = realpathSync(mkdtempSync(join(tmpdir(), "flows-checkpoint-victim-")))
+    const scratch = join(root, Checkpoints.scratchDirectory)
+    let raced = false
+    let entered = false
+    // Just before the harness measures the checkout's parent, the agent points
+    // that parent at a host directory.
+    const racing = Effect.gen(function*() {
+      const real = yield* ChildProcessSpawner.ChildProcessSpawner
+      return ChildProcessSpawner.makeNoop({
+        spawn: (command) =>
+          Effect.suspend(() => {
+            const standard = command as ChildProcess.StandardCommand
+            if (standard.command === "sh" && standard.args.some((arg) => arg.includes("stat -c %d")) && !raced) {
+              rmSync(scratch, { recursive: true, force: true })
+              symlinkSync(victim, scratch)
+              raced = true
+            }
+            return real.spawn(command)
+          })
+      })
+    })
+
+    const exit = await Effect.runPromise(Effect.exit(
+      Effect.gen(function*() {
+        const spawner = yield* racing
+        const checkpoints = yield* Checkpoints.makeGit({ root }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
+        )
+        yield* checkpoints.capture("cp-parent")
+        return yield* checkpoints.materialize("cp-parent", () => Effect.sync(() => (entered = true)))
+      }).pipe(Effect.provide(NodeServices.layer))
+    ))
+
+    expect(raced).toBe(true)
+    expect(exit._tag).toBe("Failure")
+    expect(JSON.stringify(exit)).toContain("outside the workspace")
+    expect(entered).toBe(false)
+    expect(readdirSync(victim)).toEqual([])
+  }, 60_000)
+
+  it(
+    "stages under the host cache when the temporary directory is another filesystem and the root's parent is read-only",
+    async () => {
+      if (process.getuid?.() === 0) return
+      const outer = realpathSync(mkdtempSync(join(tmpdir(), "flows-checkpoint-outer-")))
+      const root = join(outer, "repo")
+      mkdirSync(root)
+      const initial = repository()
+      rmSync(root, { recursive: true, force: true })
+      execFileSync("mv", [initial, root])
+      const cache = realpathSync(mkdtempSync(join(tmpdir(), "flows-checkpoint-cache-")))
+      // A real second filesystem where the host has one (tmpfs /dev/shm on
+      // Linux). Elsewhere the measurement is told the shadow lives on devfs,
+      // which is the one fact a test cannot create here without root.
+      const shm = ["/dev/shm", "/run/shm"].find((path) => {
+        try {
+          return statSync(path).dev !== statSync(root).dev && (accessSync(path, constants.W_OK), true)
+        } catch {
+          return false
+        }
+      })
+      const saved = { TMPDIR: process.env.TMPDIR, XDG_CACHE_HOME: process.env.XDG_CACHE_HOME }
+      if (shm !== undefined) process.env.TMPDIR = shm
+      process.env.XDG_CACHE_HOME = cache
+      let seen = ""
+      const elsewhere = Effect.gen(function*() {
+        const real = yield* ChildProcessSpawner.ChildProcessSpawner
+        return ChildProcessSpawner.makeNoop({
+          spawn: (command) =>
+            Effect.suspend(() => {
+              const standard = command as ChildProcess.StandardCommand
+              if (
+                shm === undefined && standard.command === "sh" &&
+                standard.args.some((arg) => arg.includes("stat -c %d"))
+              ) {
+                const args = [...standard.args]
+                args[4] = "/dev"
+                return real.spawn({ ...standard, args } as ChildProcess.StandardCommand)
+              }
+              return real.spawn(command)
+            })
+        })
+      })
+      chmodSync(outer, 0o555)
+      try {
+        const exit = await Effect.runPromise(Effect.exit(
+          Effect.gen(function*() {
+            const spawner = yield* elsewhere
+            const checkpoints = yield* Checkpoints.makeGit({ root }).pipe(
+              Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
+            )
+            yield* checkpoints.capture("cp-cache")
+            return yield* checkpoints.materialize("cp-cache", (found) =>
+              Effect.sync(() => {
+                seen = readFileSync(join(found.host, "mod.py"), "utf8")
+              }))
+          }).pipe(Effect.provide(NodeServices.layer))
+        ))
+        expect(exit._tag, JSON.stringify(exit)).toBe("Success")
+      } finally {
+        chmodSync(outer, 0o755)
+        process.env.TMPDIR = saved.TMPDIR
+        if (saved.TMPDIR === undefined) delete process.env.TMPDIR
+        process.env.XDG_CACHE_HOME = saved.XDG_CACHE_HOME
+        if (saved.XDG_CACHE_HOME === undefined) delete process.env.XDG_CACHE_HOME
+      }
+
+      expect(seen).toBe("value = 'pristine'\n")
+      expect(readdirSync(join(cache, "smithers"))).toEqual([])
+      expect(readdirSync(outer)).toEqual(["repo"])
+    },
+    60_000
+  )
 
   it("runs a real command against the pinned tree, through the container's own path", async () => {
     const root = repository("flows checkpoint's-")

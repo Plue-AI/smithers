@@ -286,25 +286,62 @@ const succeeded = (result: Exec.ExecResult, message: string) =>
   result.exitCode === 0 ? Effect.void : Effect.fail(failed(`${message}: ${result.stderr.trim()}`))
 
 /**
- * Prints the device of each argument, one per line. `stat -c` is GNU and
- * BusyBox, `stat -f` is BSD; an empty line means neither answered.
+ * Measures which staging directory shares the filesystem of the checkout's
+ * parent `$1`: the shadow `$2`, the workspace root's parent `$3`, or the host
+ * cache directory `$4`. Prints one line each for the parent, the shadow, the
+ * root's parent (`unwritable` when the host user cannot create a stage there)
+ * and the cache (empty unless both others missed and it could be created).
+ * `stat -c` is GNU and BusyBox, `stat -f` is BSD; an empty line means neither
+ * answered.
  */
-const devices =
-  "for path in \"$@\"; do stat -c %d -- \"$path\" 2>/dev/null || stat -f %d -- \"$path\" 2>/dev/null || echo; done"
+const measure = [
+  "set -e",
+  "mkdir -p -- \"$1\"",
+  "dev() { stat -c %d -- \"$1\" 2>/dev/null || stat -f %d -- \"$1\" 2>/dev/null || echo; }",
+  "t=$(dev \"$1\")",
+  "s=$(dev \"$2\")",
+  "if [ -w \"$3\" ]; then b=$(dev \"$3\"); else b=unwritable; fi",
+  "c=",
+  "if [ -n \"$t\" ] && [ \"$t\" != \"$s\" ] && [ \"$t\" != \"$b\" ] && [ -n \"$4\" ] && mkdir -p -m 700 -- \"$4\" 2>/dev/null; then c=$(dev \"$4\"); fi",
+  "printf '%s\\n' \"$t\" \"$s\" \"$b\" \"$c\""
+].join("; ")
 
 /**
- * Moves the staged checkout `$1` to the new name `$2` in one `rename`, then
- * proves the directory at `$2` is the one that was staged. The staging
- * directory is on the same filesystem, so `mv` renames and never copies.
+ * The host user's cache directory for checkout stages: `$XDG_CACHE_HOME`, or
+ * `~/.cache`, under `smithers`. Empty when neither is an absolute path.
+ */
+const cacheRoot = (): string => {
+  const env = globalThis.process?.env
+  const xdg = env?.XDG_CACHE_HOME?.replace(/\/+$/, "")
+  if (xdg !== undefined && xdg.startsWith("/")) return `${xdg}/smithers`
+  const home = env?.HOME?.replace(/\/+$/, "")
+  return home !== undefined && home.startsWith("/") ? `${home}/.cache/smithers` : ""
+}
+
+/**
+ * Moves the staged checkout `$1` into the directory `$2` under the name `$3`
+ * in one `rename`, then proves the directory there is the one that was staged.
+ * The staging directory is on the same filesystem, so `mv` renames and never
+ * copies.
+ *
+ * The shell first enters `$2` by its physical path and refuses unless that
+ * lies under the real path of the workspace root `$4`. The rename then names
+ * the target relative to that directory, so a parent the agent swaps for a
+ * symlink, before or after the check, cannot carry the checkout out of the
+ * workspace.
  */
 const publish = [
   "set -e",
-  "if [ -e \"$2\" ] || [ -L \"$2\" ]; then echo \"$2 already exists\" >&2; exit 1; fi",
+  "root=$(cd -P -- \"$4\" && pwd -P)",
+  "cd -P -- \"$2\"",
+  "here=$(pwd -P)",
+  "case \"$here\" in \"$root\"|\"$root\"/*) ;; *) echo \"$2 resolves to $here, outside the workspace $root\" >&2; exit 1 ;; esac",
+  "if [ -e \"./$3\" ] || [ -L \"./$3\" ]; then echo \"$2/$3 already exists\" >&2; exit 1; fi",
   "staged=$(ls -di -- \"$1\" | awk '{print $1}')",
-  "mv -- \"$1\" \"$2\"",
-  "if [ -L \"$2\" ] || [ ! -d \"$2\" ]; then echo \"$2 was replaced while it was written\" >&2; exit 1; fi",
-  "moved=$(ls -di -- \"$2\" | awk '{print $1}')",
-  "if [ \"$staged\" != \"$moved\" ]; then echo \"$2 was replaced while it was written\" >&2; exit 1; fi"
+  "mv -- \"$1\" \"./$3\"",
+  "if [ -L \"./$3\" ] || [ ! -d \"./$3\" ]; then echo \"$2/$3 was replaced while it was written\" >&2; exit 1; fi",
+  "moved=$(ls -di -- \"./$3\" | awk '{print $1}')",
+  "if [ \"$staged\" != \"$moved\" ]; then echo \"$2/$3 was replaced while it was written\" >&2; exit 1; fi"
 ].join("; ")
 
 /**
@@ -313,12 +350,12 @@ const publish = [
  *
  * Host git never writes into an agent-writable directory. The tree and its
  * `.git` are written into a staging directory the agent cannot reach: inside
- * the shadow, or beside the workspace root when the host's temporary directory
- * is another filesystem. One `rename` then gives the finished directory its
- * name under the workspace. A path the agent swaps for a symlink cannot
- * redirect a file write: a symlink at `host` fails the call before the rename,
- * and a symlinked parent can only receive the new directory under its own
- * random name, never overwrite a file.
+ * the shadow, or, when the host's temporary directory is another filesystem,
+ * beside the workspace root or under the host user's cache directory. One
+ * `rename` then gives the finished directory its name under the workspace. A
+ * path the agent swaps for a symlink cannot redirect a write: a symlink at
+ * `host` fails the call before the rename, and a parent that resolves outside
+ * the workspace root fails it before the rename too.
  */
 const checkout = (shadow: Shadow, host: string, commit: string) =>
   Effect.gen(function*() {
@@ -326,28 +363,32 @@ const checkout = (shadow: Shadow, host: string, commit: string) =>
     const parent = host.slice(0, host.lastIndexOf("/"))
     const name = host.slice(host.lastIndexOf("/") + 1)
     const beside = repository.root.slice(0, repository.root.lastIndexOf("/")) || "/"
-    const scratch = `${beside.replace(/\/+$/, "")}/.smithers-checkout-${globalThis.crypto.randomUUID()}`
-    const measured = yield* run("sh", [
-      "-c",
-      `set -e; mkdir -p -- "$1"; ${devices}`,
-      "sh",
-      parent,
-      shadow.path,
-      beside
-    ])
+    const cache = cacheRoot()
+    const stage = `checkout-${globalThis.crypto.randomUUID()}`
+    const besideStage = `${beside.replace(/\/+$/, "")}/.smithers-${stage}`
+    const cacheStage = `${cache}/${stage}`
+    const measured = yield* run("sh", ["-c", measure, "sh", parent, shadow.path, beside, cache])
     yield* succeeded(measured, `Could not check out ${commit}`)
-    const [target, inShadow, besideRoot] = measured.stdout.split("\n").map((line) => line.trim())
+    const [target, inShadow, besideRoot, inCache] = measured.stdout.split("\n").map((line) => line.trim())
+    const scratch = target === undefined || target === "" || target === inShadow
+      ? undefined
+      : target === besideRoot
+      ? besideStage
+      : target === inCache
+      ? cacheStage
+      : undefined
     const base = target === undefined || target === ""
       ? undefined
       : target === inShadow
       ? shadow.path
-      : target === besideRoot
-      ? scratch
-      : undefined
+      : scratch
     if (base === undefined) {
+      const unwritable = besideRoot === "unwritable" ? " (not writable by this user)" : ""
       return yield* Effect.fail(
         failed(
-          `Could not check out ${commit}: neither ${shadow.path} nor ${beside} is on the filesystem of ${parent}`
+          `Could not check out ${commit}: neither ${shadow.path} nor ${beside}${unwritable} nor ${
+            cache === "" ? "a cache directory" : cache
+          } is on the filesystem of ${parent}`
         )
       )
     }
@@ -361,7 +402,7 @@ const checkout = (shadow: Shadow, host: string, commit: string) =>
         "-c",
         [
           "set -eC",
-          ...(base === scratch ? ["mkdir -m 700 -- \"$1\""] : []),
+          ...(scratch !== undefined ? ["mkdir -m 700 -- \"$1\""] : []),
           "mkdir -- \"$2\" \"$2/.git\" \"$2/.git/objects\" \"$2/.git/objects/info\" \"$2/.git/refs\"",
           "printf '%s\\n' \"$3\" > \"$2/.git/HEAD\"",
           "printf '%s\\n' \"$4\" > \"$2/.git/objects/info/alternates\"",
@@ -385,10 +426,10 @@ const checkout = (shadow: Shadow, host: string, commit: string) =>
         `${staged}/.git/index`
       ])
       yield* succeeded(indexed, `Could not check out ${commit}`)
-      const moved = yield* run("sh", ["-c", publish, "sh", staged, host])
+      const moved = yield* run("sh", ["-c", publish, "sh", staged, parent, name, repository.root])
       yield* succeeded(moved, `Could not check out ${commit}`)
     })
-    return yield* base === scratch
+    return yield* scratch !== undefined
       ? write.pipe(Effect.ensuring(remove(scratch).pipe(Effect.ignore)))
       : write
   })

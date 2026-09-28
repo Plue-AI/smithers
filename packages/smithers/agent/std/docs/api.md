@@ -337,12 +337,15 @@ A materialize never has host git write into an agent-writable directory. It
 writes the checkout and its `.git` into a staging directory the agent cannot
 reach, inside the temporary shadow or, when the host's temporary directory is
 another filesystem, a `.smithers-checkout-<uuid>` directory beside the
-workspace root. One `rename` then gives the finished directory its name under
-the workspace. A checkout name the agent swaps for a symlink fails the call
-before anything is written through it; a parent the agent swaps for a symlink
-can only receive the new directory under its random name, never overwrite a
-file. When neither staging directory shares the checkout's filesystem, the
-materialize is refused rather than copied.
+workspace root, or `checkout-<uuid>` under `$XDG_CACHE_HOME/smithers` (default
+`~/.cache/smithers`) when the root's parent is not writable. One `rename` then
+gives the finished directory its name under the workspace. A checkout name the
+agent swaps for a symlink fails the call before anything is written through
+it. The rename runs from inside the checkout's parent, entered by its physical
+path, and a parent that resolves outside the workspace root's real path fails
+the call before the rename. When no staging directory shares the checkout's
+filesystem, the materialize is refused rather than copied, and the refusal
+names each candidate, including a root parent that is not writable.
 
 Two data-write residuals remain, neither of which runs a program. First, host
 writes into agent-writable `.git` paths (new objects, the checkpoint's config

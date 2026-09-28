@@ -286,7 +286,8 @@ describe("TestRun", () => {
     expect(lines[1]).toBe(
       `git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C /repo rev-parse --verify --quiet ${TestRunner.captureBase}^{commit}`
     )
-    const scratch = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mv --"))?.[5]
+    const published = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mv --"))
+    const scratch = published === undefined ? undefined : `${published[5]}/${published[6]}`
     expect(scratch).toMatch(/^\/repo\/\.flows-test-base\/run-[0-9a-f-]{36}$/)
     // The baseline tree is written from a shadow GIT_DIR, never by a worktree
     // of the workspace repository, whose `.git` the agent can write.

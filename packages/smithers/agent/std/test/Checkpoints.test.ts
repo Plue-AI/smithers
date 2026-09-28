@@ -93,7 +93,8 @@ const lines = (spawns: ReadonlyArray<ReadonlyArray<string>>) =>
 
 /** The exact allocated path must be used for checkout, relocation and removal. */
 const checkoutPath = (spawns: ReadonlyArray<ReadonlyArray<string>>) => {
-  const path = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mv --"))?.[5]
+  const published = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mv --"))
+  const path = published === undefined ? undefined : `${published[5]}/${published[6]}`
   expect(path).toMatch(/^\/work\/repo\/\.flows-checkpoints\/[a-z0-9-]+-[0-9a-f-]{36}$/)
   return path!
 }
@@ -116,24 +117,50 @@ const checkout = (path: string, commit: string) => {
   return [
     ...opened,
     init,
-    `sh -c set -e; mkdir -p -- "$1"; for path in "$@"; do stat -c %d -- "$path" 2>/dev/null || stat -f %d -- "$path" 2>/dev/null || echo; done sh /work/repo/.flows-checkpoints <shadow> /work`,
+    `sh -c ${measureScript} sh /work/repo/.flows-checkpoints <shadow> /work ${cacheRoot}`,
     `sh -c set -eC; mkdir -- "$2" "$2/.git" "$2/.git/objects" "$2/.git/objects/info" "$2/.git/refs"; printf '%s\\n' "$3" > "$2/.git/HEAD"; printf '%s\\n' "$4" > "$2/.git/objects/info/alternates"; printf '%s' "$5" > "$2/.git/config" sh <shadow> <shadow>/${name} ${commit} ../../../../.git/objects [core]\n\trepositoryformatversion = 0\n\tbare = false\n`,
     `${shadow} --work-tree=<shadow>/${name} ${guarded} read-tree --reset -u ${commit}`,
     `sh -c set -C; cat -- "$1" > "$2" sh <shadow>/index <shadow>/${name}/.git/index`,
-    `sh -c ${publishScript} sh <shadow>/${name} ${path}`,
+    `sh -c ${publishScript} sh <shadow>/${name} ${path.slice(0, path.lastIndexOf("/"))} ${name} /work/repo`,
     "rm -rf -- <shadow>"
   ]
 }
 
-/** Renames the staged checkout into the workspace and proves the directory there is the one staged. */
+/** The host cache the stage falls back to, from this process's environment. */
+const cacheRoot = process.env.XDG_CACHE_HOME?.startsWith("/")
+  ? `${process.env.XDG_CACHE_HOME.replace(/\/+$/, "")}/smithers`
+  : `${process.env.HOME?.replace(/\/+$/, "")}/.cache/smithers`
+
+/** Finds which staging directory shares the checkout parent's filesystem. */
+const measureScript = [
+  "set -e",
+  `mkdir -p -- "$1"`,
+  `dev() { stat -c %d -- "$1" 2>/dev/null || stat -f %d -- "$1" 2>/dev/null || echo; }`,
+  `t=$(dev "$1")`,
+  `s=$(dev "$2")`,
+  `if [ -w "$3" ]; then b=$(dev "$3"); else b=unwritable; fi`,
+  "c=",
+  `if [ -n "$t" ] && [ "$t" != "$s" ] && [ "$t" != "$b" ] && [ -n "$4" ] && mkdir -p -m 700 -- "$4" 2>/dev/null; then c=$(dev "$4"); fi`,
+  `printf '%s\\n' "$t" "$s" "$b" "$c"`
+].join("; ")
+
+/**
+ * Enters the checkout's parent by its physical path, refuses one outside the
+ * workspace root, renames the staged checkout in relative to it and proves the
+ * directory there is the one staged.
+ */
 const publishScript = [
   "set -e",
-  `if [ -e "$2" ] || [ -L "$2" ]; then echo "$2 already exists" >&2; exit 1; fi`,
+  `root=$(cd -P -- "$4" && pwd -P)`,
+  `cd -P -- "$2"`,
+  "here=$(pwd -P)",
+  `case "$here" in "$root"|"$root"/*) ;; *) echo "$2 resolves to $here, outside the workspace $root" >&2; exit 1 ;; esac`,
+  `if [ -e "./$3" ] || [ -L "./$3" ]; then echo "$2/$3 already exists" >&2; exit 1; fi`,
   `staged=$(ls -di -- "$1" | awk '{print $1}')`,
-  `mv -- "$1" "$2"`,
-  `if [ -L "$2" ] || [ ! -d "$2" ]; then echo "$2 was replaced while it was written" >&2; exit 1; fi`,
-  `moved=$(ls -di -- "$2" | awk '{print $1}')`,
-  `if [ "$staged" != "$moved" ]; then echo "$2 was replaced while it was written" >&2; exit 1; fi`
+  `mv -- "$1" "./$3"`,
+  `if [ -L "./$3" ] || [ ! -d "./$3" ]; then echo "$2/$3 was replaced while it was written" >&2; exit 1; fi`,
+  `moved=$(ls -di -- "./$3" | awk '{print $1}')`,
+  `if [ "$staged" != "$moved" ]; then echo "$2/$3 was replaced while it was written" >&2; exit 1; fi`
 ].join("; ")
 
 describe("Checkpoints.makeGit capture", () => {
@@ -505,6 +532,32 @@ describe("Checkpoints.makeGit staging", () => {
 
     expect(failureOf(exit)?.message).toContain("is on the filesystem of /work/repo/.flows-checkpoints")
     expect(lines(spawns).some((line) => line.includes("read-tree"))).toBe(false)
+  })
+
+  it("stages under the host cache when only that shares the filesystem, and names an unwritable root parent", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    await Effect.runPromise(Effect.gen(function*() {
+      const checkpoints = yield* store(spawns, [
+        ["--get flows-checkpoint", { stdout: "abc123\n" }],
+        ["stat -c %d", { stdout: "1\n2\nunwritable\n1\n" }]
+      ])
+      return yield* checkpoints.materialize("cp-0-1", () => Effect.void)
+    }))
+
+    const stage = `${cacheRoot}/checkout-`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const written = lines(spawns).find((line) => line.includes("read-tree"))
+    expect(written).toMatch(new RegExp(`--work-tree=${stage}[0-9a-f-]{36}/cp-0-1-[0-9a-f-]{36} `))
+    expect(lines(spawns)).toContainEqual(expect.stringMatching(new RegExp(`^rm -rf -- ${stage}[0-9a-f-]{36}$`)))
+
+    const refused: Array<ReadonlyArray<string>> = []
+    const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
+      const checkpoints = yield* store(refused, [
+        ["--get flows-checkpoint", { stdout: "abc123\n" }],
+        ["stat -c %d", { stdout: "1\n2\nunwritable\n\n" }]
+      ])
+      return yield* checkpoints.materialize("cp-0-1", () => Effect.void)
+    })))
+    expect(failureOf(exit)?.message).toContain("nor /work (not writable by this user) nor")
   })
 
   it("stages beside the workspace root when only that shares its filesystem, and removes the stage", async () => {
