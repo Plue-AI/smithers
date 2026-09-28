@@ -52,17 +52,17 @@ crossed the seam.
 
 ## What each provider's boundary actually is
 
-| Provider              | The boundary                                                                            | Shaping options it forwards                                                                                    |
-| --------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `DirectorySandbox`    | no filesystem, user, or network boundary. Real host processes with a narrow environment | child env inherits `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, and `SHELL`, plus declared names  |
-| `JustBashSandbox`     | none. Commands are interpreted in process against a shared virtual filesystem           | none                                                                                                           |
-| `ContainerSandbox`    | the container runtime's                                                                 | `image`, `network` (`none` by default; another mode opts into egress), `env`, `createArgs`                     |
-| `KubernetesSandbox`   | the cluster's: the image, the service account, and the namespace's policies             | `image`, `serviceAccount`, `namespace`, `nodeSelector`, `resources`, `labels`, `createArgs`                    |
-| `MicrosandboxSandbox` | a local microVM                                                                         | `image` or `snapshot`, `cpus`, `memoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `disableNetwork` |
-| `VercelSandbox`       | Vercel's sandbox tenancy                                                                | `runtime`, `timeoutMs`, `maxDurationMs`                                                                        |
-| `DaytonaSandbox`      | Daytona's sandbox tenancy                                                               | `startTimeoutSeconds`, `deleteTimeoutSeconds`                                                                  |
-| `AwsSandbox`          | the Fargate task, its task role, and its security groups                                | `image` or `taskDefinition`, `taskRoleArn`, `securityGroups`, `subnets`, `assignPublicIp`, `cpu`, `memory`     |
-| `CloudflareSandbox`   | the Durable Object and its container, deployed by you                                   | `sleepAfter`, `keepAlive`                                                                                      |
+| Provider              | The boundary                                                                            | Shaping options it forwards                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `DirectorySandbox`    | no filesystem, user, or network boundary. Real host processes with a narrow environment | child env inherits `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, and `SHELL`, plus declared names |
+| `JustBashSandbox`     | none. Commands are interpreted in process against a shared virtual filesystem           | none                                                                                                          |
+| `ContainerSandbox`    | the container runtime's                                                                 | `image`, `network` (`none` by default; another mode opts into egress), `env`, `createArgs`                    |
+| `KubernetesSandbox`   | the cluster's: the image, the service account, and the namespace's policies             | `image`, `serviceAccount`, `namespace`, `nodeSelector`, `resources`, `labels`, `createArgs`                   |
+| `MicrosandboxSandbox` | a local microVM                                                                         | `image` or `snapshot`, `cpus`, `memoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `network`       |
+| `VercelSandbox`       | Vercel's sandbox tenancy                                                                | `runtime`, `timeoutMs`, `maxDurationMs`, `network`                                                            |
+| `DaytonaSandbox`      | Daytona's sandbox tenancy                                                               | `startTimeoutSeconds`, `deleteTimeoutSeconds`                                                                 |
+| `AwsSandbox`          | the Fargate task, its task role, and its security groups                                | `image` or `taskDefinition`, `taskRoleArn`, `securityGroups`, `subnets`, `assignPublicIp`, `cpu`, `memory`    |
+| `CloudflareSandbox`   | the Durable Object and its container, deployed by you                                   | `sleepAfter`, `keepAlive`                                                                                     |
 
 The first two rows say there is no confinement deliberately. `DirectorySandbox`
 is a trusted local workspace backend and the conformance reference; its child
@@ -72,6 +72,28 @@ still address whatever its host user, filesystem, and network permit.
 boundary for hosts that cannot spawn at all; an interpreted command can address
 anything its shared virtual filesystem permits. Neither is a security boundary,
 and neither becomes one by being wrapped in `Sandbox.layerHost`.
+
+## Network policy
+
+Every provider takes the neutral option
+`network: "none" | { allow: string[] }`. `"none"` gives the guest no network.
+`{ allow }` denies egress except to the listed hosts: exact DNS names such as
+`registry.npmjs.org`, or `*.` and a name, such as `*.npmjs.org`, for every name
+below it. An empty list denies all egress. A provider that cannot enforce the
+policy throws when `make` is called, before any machine exists.
+
+| Provider              | `"none"`                  | `{ allow }`                                               | Reattaching an existing machine                     |
+| --------------------- | ------------------------- | --------------------------------------------------------- | --------------------------------------------------- |
+| `VercelSandbox`       | `networkPolicy: deny-all` | Vercel's egress firewall `networkPolicy: { allow }`       | the policy is updated before any guest command runs |
+| `MicrosandboxSandbox` | boots without networking  | deny ingress; deny egress but DNS (port 53) and the hosts | refused unless it was created with the same policy  |
+| `ContainerSandbox`    | `--network none`          | refused: an engine network mode is not a host firewall    | the network mode is part of the fingerprint         |
+| every other provider  | refused                   | refused                                                   | not applicable                                      |
+
+`ContainerSandbox` also accepts a raw engine network mode string, which opts
+into that mode's egress. `MicrosandboxSandbox` also accepts `networkPolicy` in
+the vendor's own rule shape; it and `network` are exclusive. Under `{ allow }`
+the Microsandbox guest can still send DNS queries to any resolver, so the
+allowlist does not stop exfiltration over DNS.
 
 ## What no provider here prevents
 
@@ -137,7 +159,7 @@ Ask the question in this order.
    legitimate use.
 2. **Do you need the code contained on this machine?** Use
    `ContainerSandbox` (which defaults to `network: "none"`) or `MicrosandboxSandbox` with
-   `disableNetwork`, and accept the boundary each one actually has: a container
+   `network: "none"`, and accept the boundary each one actually has: a container
    shares the host kernel, and a microVM does not.
 3. **Do you need it off this machine?** Use `KubernetesSandbox`,
    `AwsSandbox`, `VercelSandbox`, `DaytonaSandbox`, or `CloudflareSandbox`, and

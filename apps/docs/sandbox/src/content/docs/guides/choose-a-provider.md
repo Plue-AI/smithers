@@ -61,7 +61,7 @@ const microVm = MicrosandboxSandbox.make({
   persistence: "sticky",
   cpus: 2,
   memoryMib: 2048,
-  disableNetwork: true
+  network: "none"
 })
 ```
 

@@ -28,7 +28,7 @@ export const security = {
       threat: "A developer who copies a snippet runs untrusted agent commands on the host, a hosted backend, or an open network without knowing it.",
       lookFor: [
         "A snippet using `backend: \"any\"`, `DirectorySandbox`, `JustBashSandbox`, or `shell: true` with interpolated caller input and no adjacent sentence stating the weaker boundary.",
-        "A snippet that omits `disableNetwork` or a deny-by-default `networkPolicy` while the prose claims the machine is isolated from the network.",
+        "A snippet that omits `network: \"none\"`, a `network: { allow }` allowlist, or a deny-by-default `networkPolicy` while the prose claims the machine is isolated from the network.",
         "A command line built by string concatenation in an example rather than an argv array."
       ],
       paths: ["src/content/docs/**"]
