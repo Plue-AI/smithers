@@ -180,7 +180,7 @@ func (g *mythicalGitHubAPI) Maintainer(ctx context.Context, gh mythicalGitHubRep
 	return g.text.personIsMaintainer(ctx, gh.Token, gh.Owner, gh.Name, &account)
 }
 
-// OpenIssues lists every open issue, bounded to 20 pages of 100.
+// OpenIssues lists open issues only when the bounded listing is complete.
 func (g *mythicalGitHubAPI) OpenIssues(ctx context.Context, gh mythicalGitHubRepo) ([]mythicalIssue, error) {
 	var out []mythicalIssue
 	for page := 1; page <= 20; page++ {
@@ -200,7 +200,9 @@ func (g *mythicalGitHubAPI) OpenIssues(ctx context.Context, gh mythicalGitHubRep
 			return out, nil
 		}
 	}
-	return out, nil
+	// A full last page does not establish that there are no more issues.
+	// Never let backfill reconcile absent items against this partial list.
+	return nil, pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub open issue listing exceeds 20 pages; backfill cannot reconcile incomplete issues")
 }
 
 type mythicalGitHubPull struct {

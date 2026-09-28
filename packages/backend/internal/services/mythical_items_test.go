@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -43,6 +45,54 @@ type fakeMythicalGitHub struct {
 	readOnly map[string]bool
 	// unanswered issues' writers GitHub does not answer for.
 	unanswered map[int64]bool
+}
+
+// pagedMythicalGitHub uses the real issue listing while retaining the fixture's
+// local Git repository and admission behavior.
+type pagedMythicalGitHub struct {
+	*fakeMythicalGitHub
+	api *mythicalGitHubAPI
+}
+
+func (g *pagedMythicalGitHub) OpenIssues(ctx context.Context, gh mythicalGitHubRepo) ([]mythicalIssue, error) {
+	return g.api.OpenIssues(ctx, gh)
+}
+
+func TestMythicalBackfillKeepsOpenIssueBeyondTwentyPages(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 2001, Title: "Later issue", Body: "work", State: "open", TextByMaintainer: true}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{}))
+	require.Equal(t, "queued", o.item(issue.Number).State)
+
+	pages := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		page, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err != nil || page < 1 || page > 22 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var issues []mythicalGitHubIssue
+		if page <= 20 {
+			for i := 1; i <= 100; i++ {
+				issues = append(issues, mythicalGitHubIssue{Number: int64((page-1)*100 + i), PullRequest: &struct{}{}})
+			}
+		} else if page == 21 {
+			issues = []mythicalGitHubIssue{{Number: issue.Number, Title: issue.Title, State: issue.State}}
+		}
+		_ = json.NewEncoder(w).Encode(issues)
+	}))
+	defer server.Close()
+	o.service.SetOrchestration(&pagedMythicalGitHub{fakeMythicalGitHub: o.github, api: &mythicalGitHubAPI{
+		api: &landingGitHubAPI{client: server.Client(), baseURL: func() string { return server.URL }},
+	}}, o.launcher, o.lanes)
+	counts, err := o.service.Backfill(ctx, o.repoID)
+	require.ErrorContains(t, err, "listing exceeds 20 pages")
+	assert.Equal(t, 20, pages)
+	assert.Equal(t, 0, counts.Open)
+	assert.Equal(t, 0, counts.Cancelled)
+	assert.Equal(t, "queued", o.item(issue.Number).State)
 }
 
 func (g *fakeMythicalGitHub) Maintainer(_ context.Context, _ mythicalGitHubRepo, account gitHubActor) (bool, error) {
