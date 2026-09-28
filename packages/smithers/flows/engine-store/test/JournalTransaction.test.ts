@@ -86,6 +86,41 @@ describe("Journal.transact across the journal and run stores", () => {
       }))
   )
 
+  effect("finishes a claimed run with the guide's fenced completion transaction", () =>
+    withStack(Effect.gen(function*() {
+      const journal = yield* Journal
+      const runs = yield* RunStore.RunStore
+      const sql = yield* Effect.service(SqlClient.SqlClient)
+      const runId = "guide-finish" as RunId
+      const sourceId = "driver" as SourceId
+      const owner = { hostId: "guide-host", pid: 101, nonce: "guide-owner" }
+      yield* runs.create(runId, "{}")
+      const claimed = yield* runs.claimAndOwn(
+        runId, { status: "pending", owner: null, heartbeatAtMs: null }, owner, 0
+      )
+      expect(claimed._tag).toBe("Activated")
+
+      // Keep the transaction body aligned with docs/guides/commit-state-and-entry.md.
+      const finish = Effect.gen(function*() {
+        const journal = yield* Journal
+        const runs = yield* RunStore.RunStore
+        return yield* journal.transact(Effect.gen(function*() {
+          const receipt = yield* journal.emitDurable({
+            runId, sourceId, sourceSeq: 7 as SourceSeq,
+            eventType: "run.finished", payload: { outcome: "succeeded" }
+          }, owner)
+          const result = yield* runs.transitionOwned(runId, owner, "completed")
+          if (result._tag !== "Transitioned") return yield* Effect.fail(result)
+          return receipt
+        }))
+      })
+      const receipt = yield* finish
+      expect(receipt._tag).toBe("Accepted")
+      expect((yield* runs.get(runId)).status).toBe("completed")
+      expect((yield* rowsOf(sql, runId)).map((entry) => entry.event_type)).toEqual(["run.finished"])
+    }))
+  )
+
   effect("rolls the lifecycle entry back with the state write it describes", () =>
     withStack(Effect.gen(function*() {
       const journal = yield* Journal

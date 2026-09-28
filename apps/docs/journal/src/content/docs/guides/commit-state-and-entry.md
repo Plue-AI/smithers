@@ -21,29 +21,33 @@ does.
 
 ```ts
 import { Journal, JournalEvent } from "@smthrs/journal"
+import { RunStore } from "@smthrs/run-store"
 import * as Effect from "effect/Effect"
 
 const finish = Effect.gen(function*() {
   const journal = yield* Journal.Journal
+  const runs = yield* RunStore.RunStore
 
   return yield* journal.transact(Effect.gen(function*() {
-    yield* saveRunStatus(runId, "succeeded")
-    return yield* journal.emitDurable({
+    const receipt = yield* journal.emitDurable({
       runId,
       sourceId,
       sourceSeq: 7 as JournalEvent.SourceSeq,
       eventType: "run.finished",
       payload: { outcome: "succeeded" }
     }, owner)
+    const result = yield* runs.transitionOwned(runId, owner, "completed")
+    if (result._tag !== "Transitioned") return yield* Effect.fail(result)
+    return receipt
   }))
 })
 ```
 
-`saveRunStatus` stands for your own store write, whatever it is. The other
-stores write through the same `DurableWriter`, so their writes join
-this transaction as savepoints. The row and its lifecycle entry commit together
-or roll back together. That is what makes the journal an account of
-record rather than a best-effort echo.
+The fenced append runs while the owned row is still running. Transitioning to
+`completed` first invalidates the journal fence. Both stores write through
+the same `DurableWriter`, so the entry and terminal transition join this
+transaction as savepoints and commit or roll back together. If the transition
+is rejected, the entry rolls back too.
 
 ## Three rules the transaction keeps
 
