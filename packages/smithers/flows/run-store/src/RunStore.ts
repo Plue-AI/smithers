@@ -799,10 +799,24 @@ const inertFields = (input: unknown, required: ReadonlyArray<string>): input is 
   }
 }
 
+// Admission ties ownership to status; internal consumers never see the
+// impossible combinations permitted by the public input record.
+type RunningSnapshot = {
+  readonly status: "running"
+  readonly owner: OwnerId
+  readonly heartbeatAtMs: number
+}
+
+type AdmittedSnapshot = RunningSnapshot | {
+  readonly status: Exclude<RunStatus, "running">
+  readonly owner: null
+  readonly heartbeatAtMs: null
+}
+
 const snapshotExpected = (
   method: string,
   input: unknown
-): Effect.Effect<RunSnapshot, RunStoreError> =>
+): Effect.Effect<AdmittedSnapshot, RunStoreError> =>
   Effect.gen(function*() {
     if (!inertFields(input, ["status", "owner", "heartbeatAtMs"])) {
       return yield* Effect.fail(invalidRunError(method, "expected", "must be an inert snapshot record"))
@@ -817,14 +831,17 @@ const snapshotExpected = (
       return yield* Effect.fail(invalidRunError(method, "expected", "contains an invalid status or heartbeat"))
     }
     const owner = rawOwner === null ? null : yield* snapshotOwner(method, "expected.owner", rawOwner)
-    if (
-      status === "running"
-        ? owner === null || heartbeatAtMs === null
-        : owner !== null || heartbeatAtMs !== null
-    ) {
-      return yield* Effect.fail(invalidRunError(method, "expected", "violates ownership invariants"))
+    if (status === "running") {
+      if (owner === null || heartbeatAtMs === null) {
+        return yield* Effect.fail(invalidRunError(method, "expected", "violates ownership invariants"))
+      }
+      return Object.freeze({ status, owner, heartbeatAtMs })
+    } else {
+      if (owner !== null || heartbeatAtMs !== null) {
+        return yield* Effect.fail(invalidRunError(method, "expected", "violates ownership invariants"))
+      }
+      return Object.freeze({ status, owner, heartbeatAtMs })
     }
-    return Object.freeze({ status, owner, heartbeatAtMs })
   })
 
 const snapshotEvidence = (
@@ -884,11 +901,11 @@ const rowMatchesClaim = (row: DatabaseRunRow, claimant: OwnerId, claimedAtMs: nu
   row.claimNonce === claimant.nonce &&
   row.claimedAtMs === claimedAtMs
 
-const rowMatchesSnapshot = (row: DatabaseRunRow, expected: RunSnapshot): boolean =>
+const rowMatchesSnapshot = (row: DatabaseRunRow, expected: RunningSnapshot): boolean =>
   row.status === expected.status &&
-  row.ownerHostId === (expected.owner?.hostId ?? null) &&
-  row.ownerPid === (expected.owner?.pid ?? null) &&
-  row.ownerNonce === (expected.owner?.nonce ?? null) &&
+  row.ownerHostId === expected.owner.hostId &&
+  row.ownerPid === expected.owner.pid &&
+  row.ownerNonce === expected.owner.nonce &&
   row.heartbeatAtMs === expected.heartbeatAtMs
 
 const decodeRunRow = (method: string, runId: string, input: unknown): Effect.Effect<RunRow, RunStoreError> =>
@@ -1380,11 +1397,11 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         : yield* snapshotEvidence("claimAndOwn", evidenceInput)
       yield* Effect.annotateCurrentSpan({ runId, ownerHostId: owner.hostId })
       return yield* Effect.suspend((): Effect.Effect<ClaimAndOwnOutcome, RunStoreError> => {
-        const canReplaceExpectedOwner = expected.status !== "running" ||
-          (expected.owner !== null && sameOwner(expected.owner, owner)) ||
-          (evidence !== undefined && evidenceMatches(expected, owner, nowMs, evidence))
-
-        if (!canReplaceExpectedOwner) {
+        if (
+          expected.status === "running" &&
+          !sameOwner(expected.owner, owner) &&
+          !(evidence !== undefined && evidenceMatches(expected, owner, nowMs, evidence))
+        ) {
           return read("claimAndOwn", selectRun(sql, runId)).pipe(
             Effect.map((current) => {
               const row = current[0]

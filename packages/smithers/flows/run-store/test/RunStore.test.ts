@@ -452,6 +452,48 @@ describe("RunStore", () => {
       expect(result.row.status).toBe("running")
     }))
 
+  it.effect("rejects incomplete ownership pairs in expected snapshots without changing the row", () =>
+    migrated(Effect.gen(function*() {
+      const store = yield* RunStore
+      yield* store.create("run-invalid-owner-pairs", "{}")
+      const before = yield* store.get("run-invalid-owner-pairs")
+      const candidates: ReadonlyArray<RunSnapshot> = [
+        { status: "running", owner: ownerA, heartbeatAtMs: null },
+        { status: "running", owner: null, heartbeatAtMs: 0 },
+        { status: "pending", owner: null, heartbeatAtMs: 0 },
+        { status: "suspended", owner: ownerA, heartbeatAtMs: 0 }
+      ]
+      for (const expected of candidates) {
+        const error = yield* Effect.flip(store.claimAndOwn(before.runId, expected, ownerB, 0))
+        expect(error.code).toBe("invalid_run")
+        expect(error.cause).toEqual({ field: "expected", detail: "violates ownership invariants" })
+        expect(yield* store.get(before.runId)).toEqual(before)
+      }
+    })))
+
+  it.effect("compares every stale ownership field before requesting liveness evidence", () =>
+    migrated(Effect.gen(function*() {
+      const store = yield* RunStore
+      const running = yield* activateNew(store, "run-no-evidence-fields", ownerA)
+      yield* TestClock.adjust(Duration.millis(Duration.toMillis(heartbeatStaleAfter) + 1))
+      const nowMs = yield* Clock.currentTimeMillis
+      const unchanged = snapshot(running)
+      const variants: ReadonlyArray<RunSnapshot> = [
+        { ...unchanged, owner: { ...ownerA, hostId: "other-host" } },
+        { ...unchanged, owner: { ...ownerA, pid: ownerA.pid + 1 } },
+        { ...unchanged, owner: { ...ownerA, nonce: "other-nonce" } },
+        { ...unchanged, heartbeatAtMs: 1 }
+      ]
+      for (const expected of variants) {
+        expect(yield* store.claimAndOwn(running.runId, expected, ownerB, nowMs))
+          .toEqual({ _tag: "SnapshotChanged" })
+        expect(yield* store.get(running.runId)).toEqual(running)
+      }
+      expect(yield* store.claimAndOwn(running.runId, unchanged, ownerB, nowMs))
+        .toEqual({ _tag: "EvidenceRequired" })
+      expect(yield* store.get(running.runId)).toEqual(running)
+    })))
+
   it.effect("reports SnapshotChanged when a no-evidence claim-and-own snapshot was suspended", () =>
     Effect.gen(function*() {
       const result = yield* migrated(Effect.gen(function*() {
