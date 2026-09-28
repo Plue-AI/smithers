@@ -56,7 +56,7 @@ filesystem. See [Run jj in a browser tab](./guides/run-jj-in-a-browser.md). If
 the host genuinely cannot, this is the intended answer and callers should treat
 the code as "unsupported here".
 
-### "not_installed: Jj.<method>: jj is not available on this host"
+### "not_installed: Jj.\<method>: jj is not available on this host"
 
 **What happened.** A test reached a method that `makeNoop` or `layerNoop` did
 not override. The failing default is deliberate: it names the call the test
@@ -68,7 +68,7 @@ under test if the call was not supposed to happen. See
 
 ## invalid_ref
 
-### "jj <method>: empty revision string"
+### "jj \<method>: empty revision string"
 
 **What happened.** An empty string was passed as a revision to `restore`,
 `diff`, `revert`, or `workspaceAdd`. It is refused before jj is spawned,
@@ -76,15 +76,48 @@ because jj's own answer would be an argument-parser usage error that classifies
 as `unknown`, and the two layers must agree on durable error identity. The
 `command` names the operation that would have run.
 
-**What to change.** Pass a real change id, or a revision expression such as `@`
-or `@-`. Check the upstream code path that produced the empty string: a change
+**What to change.** Pass a commit id, a change id, `@`, or `@-`. Check the upstream code path that produced the empty string: a change
 id read from an empty journal field is the usual source.
+
+### "jj \<method>: \"...\" is not a commit id or change id"
+
+**What happened.** The revision was neither `@`, `@-`, a hex commit id, nor a
+reverse-hex (`k`-`z`) change id. The Node and Bun layers refuse it before jj is
+spawned, because jj would read it as a revset and could act on commits other
+than the one the journal recorded.
+
+**What to change.** Pass the `commitId` that `snapshot` returned. Resolve a
+bookmark or revset to its commit id yourself before handing it to `Jj`.
+
+### "jj \<method>: refusing to run with unmigrated repository config"
+
+**What happened.** The checkout holds `.jj/repo/config.toml` without
+`.jj/repo/config-id`, or `.jj/workspace-config.toml` without
+`.jj/workspace-config-id`. jj would import that file into its trusted config
+store on its next command. Anything running in the checkout can write it, so
+the Node and Bun layers refuse to run rather than let it choose aliases or
+templates for the engine's commands.
+
+**What to change.** Read the named file. If you wrote it, run any jj command in
+the checkout yourself to import it, then retry. Otherwise delete it.
+
+### "jj snapshot: ... are not a commit id, change id, and operation id"
+
+**What happened.** jj printed something other than ids for `snapshot`'s
+templates. A `template-aliases` entry in jj's config for this repository
+redefines `commit_id` or `change_id`.
+
+**What to change.** Run `jj config path --repo` and remove the alias.
 
 ### A revision that does not resolve
 
-**What happened.** The change id or revset does not name anything in this
-repository. Both a well-formed id that matches nothing and a malformed revset
-(`@@@bad`) land here.
+**What happened.** The id does not name exactly one commit in this repository:
+it matches nothing, a prefix matches several, or a change id is divergent. The
+Node and Bun layers look an id up with `exactly(commit_id(…), 1)` or
+`exactly(change_id(…), 1)`, so a bookmark or tag named after the id is never
+used in its place. A `revset-aliases` entry for `commit_id(x)` or `change_id(x)`
+in jj's config for this repository does change the lookup; check
+`jj config list revset-aliases`.
 
 **What to change.** Confirm the id exists in the repository the layer is bound
 to. A bound layer and an unbound one can be looking at different checkouts;
@@ -148,7 +181,7 @@ repository.
 repository root with `NodeJj.layerAt(root)`. The browser layer behaves
 differently on purpose and creates a repository instead.
 
-### "jj <method>: cannot run in <path>: not a directory"
+### "jj \<method>: cannot run in \<path>: not a directory"
 
 **What happened.** The bound repository root is gone, or names a file. The
 adapter probes the working directory before it blames the binary, because
@@ -158,7 +191,7 @@ from a missing binary.
 **What to change.** Fix the path passed to `layerAt` or `layerSpawnerAt`, or
 recreate the checkout.
 
-### "jj <method>: output exceeded the 67108864-byte ceiling"
+### "jj \<method>: output exceeded the 67108864-byte ceiling"
 
 **What happened.** One invocation produced more than 64 MiB on a single output
 stream. The child was killed rather than read further. The engine is a

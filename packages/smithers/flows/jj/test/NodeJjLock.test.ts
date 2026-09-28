@@ -45,7 +45,7 @@ if [ "$1" = "--version" ]; then echo "jj 0.39.0"; exit 0; fi
 printf '%s\\n' "$*" >> calls
 : > started
 while [ -f hold ]; do /bin/sleep 0.01; done
-echo snapshotid
+if [ "$1" = op ]; then echo 0abc; else printf "0abc\\nkkkk\\n"; fi
 `
       )
       await chmod(binary, 0o755)
@@ -89,7 +89,7 @@ if [ "$1" = "--version" ]; then
   echo "$version"
 else
   : > started
-  echo snapshotid
+  if [ "$1" = op ]; then echo 0abc; else printf "0abc\\nkkkk\\n"; fi
 fi
 `
           )
@@ -132,7 +132,7 @@ fi
       Effect.gen(function*() {
         yield* Effect.promise(() => rm(join(root, ".jj"), { recursive: true }))
         const jj = yield* Effect.provide(Jj, NodeJj.layerAt(root))
-        expect((yield* jj.snapshot()).commitId).toBe("snapshotid")
+        expect((yield* jj.snapshot()).commitId).toBe("0abc")
       })
     ))
 
@@ -140,7 +140,7 @@ fi
     fixture((root) =>
       Effect.gen(function*() {
         const jj = yield* Effect.provide(Jj, NodeJj.layerAt(join(root, "nested")))
-        expect((yield* jj.snapshot()).commitId).toBe("snapshotid")
+        expect((yield* jj.snapshot()).commitId).toBe("0abc")
         expect(existsSync(join(root, ".jj", "smithers.lock"))).toBe(false)
       })
     ))
@@ -166,7 +166,7 @@ fi
           const jj = yield* Effect.provide(Jj, NodeJj.layerAt(root))
           vi.mocked(rename).mockRejectedValueOnce(errno(code))
           vi.mocked(readdir).mockRejectedValueOnce(errno("ENOENT"))
-          expect((yield* jj.snapshot()).commitId).toBe("snapshotid")
+          expect((yield* jj.snapshot()).commitId).toBe("0abc")
         })
       ))
   }
@@ -199,7 +199,7 @@ fi
           await actualFs.rmdir(path)
           throw errno("ENOENT")
         })
-        expect((yield* jj.snapshot()).commitId).toBe("snapshotid")
+        expect((yield* jj.snapshot()).commitId).toBe("0abc")
       })
     ))
 
@@ -233,7 +233,7 @@ fi
         Effect.gen(function*() {
           const jj = yield* Effect.provide(Jj, NodeJj.layerAt(root))
           vi.mocked(operation).mockRejectedValueOnce(errno("EACCES"))
-          expect((yield* jj.snapshot()).commitId).toBe("snapshotid")
+          expect((yield* jj.snapshot()).commitId).toBe("0abc")
         })
       ))
   }
@@ -293,7 +293,7 @@ fi
         yield* Fiber.interrupt(pending)
         expect(existsSync(join(root, ".jj", "smithers.lock"))).toBe(false)
         yield* Effect.promise(() => rm(join(root, "hold")))
-        expect((yield* jj.snapshot()).commitId).toBe("snapshotid")
+        expect((yield* jj.snapshot()).commitId).toBe("0abc")
       })
     ))
 
@@ -306,7 +306,7 @@ fi
           await writeFile(join(lock, `${hostname()}-${process.pid}-other`), "")
         })
         const pending = yield* Effect.forkChild(
-          Effect.flatMap(Jj, (jj) => jj.restore("saved")).pipe(Effect.provide(NodeJj.layerAt(root)))
+          Effect.flatMap(Jj, (jj) => jj.restore("5a7ed")).pipe(Effect.provide(NodeJj.layerAt(root)))
         )
         yield* until(async () => (await readdir(join(root, ".jj"))).some((name) => name.startsWith(".smithers-lock-")))
         yield* Fiber.interrupt(pending)
@@ -325,7 +325,7 @@ fi
         const snapshot = yield* Effect.forkChild(first.snapshot("held"), { startImmediately: true })
         yield* until(async () => existsSync(join(root, "started")))
         const followers = yield* Effect.forkChild(
-          Effect.all([second.restore("saved"), second.diff("saved", "@"), second.revert!("saved")], {
+          Effect.all([second.restore("5a7ed"), second.diff("5a7ed", "@"), second.revert!("5a7ed")], {
             concurrency: "unbounded"
           })
         )

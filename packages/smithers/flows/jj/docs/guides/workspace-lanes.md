@@ -97,7 +97,12 @@ channel, because it canonicalizes the destination against the workspace root
 before asking for the `jj:workspace-add` and `fs:write` grants, and resolving a
 path is itself a filesystem operation that can fail. It canonicalizes a second
 time after the checks and refuses with a permission error if the answer moved,
-so a symlink planted between the check and the call cannot redirect the lane.
+so a symlink that already exists, or one planted before that second resolution,
+cannot redirect the lane. The second resolution narrows the race without closing
+it: jj receives a path, not a directory handle, so a process that can write in
+the workspace and swaps a path component after the second resolution and before
+jj creates the directory can still place the lane elsewhere. Do not share a lane
+parent directory with a writer you do not trust.
 
 Narrow with `isJjError` before reading a `code` off that channel:
 

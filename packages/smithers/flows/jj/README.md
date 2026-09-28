@@ -118,6 +118,19 @@ Node and Bun snapshots disable jj's default new-file size limit with
 included. Any command that still warns `Refused to snapshot some files` fails
 with `JjError.code = "snapshot_refused"`, even when jj exits successfully.
 
+Every Node and Bun command also passes `--config signing.behavior=keep` and
+`--config fsmonitor.backend=none`. Anything running in the checkout can write
+`.jj/`, and jj migrates a planted `.jj/repo/config.toml` into its secure
+config once `.jj/repo/config-id` is gone, so a signing program or fsmonitor
+backend named there would otherwise run with the host's privileges on the next
+snapshot. `--config` outranks every config file.
+
+A revision passed to `restore`, `diff`, `revert`, or `workspaceAdd` must be `@`,
+`@-`, a hex commit id, or a reverse-hex change id; any other string fails
+`invalid_ref` before jj is spawned. The Node and Bun layers look an id up as
+`exactly(commit_id(id), 1)` or `exactly(change_id(id), 1)`, so a bookmark or
+tag named after a recorded commit id cannot redirect a restore.
+
 One invocation buffers at most **64 MiB of each output stream**, counted in
 bytes as they arrive rather than in decoded characters. jj is not an attacker,
 but the engine outlives any one command, so a child that never stops printing is

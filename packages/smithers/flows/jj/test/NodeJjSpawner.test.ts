@@ -278,7 +278,7 @@ describe.skipIf(process.platform === "win32")("NodeJj.layerSpawner", () => {
 
   it.effect("fails typed on refused-file warnings through the host spawner", () =>
     Effect.gen(function*() {
-      const error = yield* run(Effect.flip(Effect.flatMap(Jj, (jj) => jj.restore("saved"))), realSpawner)
+      const error = yield* run(Effect.flip(Effect.flatMap(Jj, (jj) => jj.restore("5a7ed"))), realSpawner)
       expect(error.code).toBe("snapshot_refused")
       expect(error.message).toContain("Refused to snapshot")
     }))
@@ -456,7 +456,8 @@ describe.skipIf(process.platform === "win32")("NodeJj.layerSpawner", () => {
       expect(error).toMatchObject({
         module: "NodeJj",
         method: "status",
-        command: "jj status --color=never --config snapshot.max-new-file-size=0"
+        command:
+          "jj status --color=never --config snapshot.max-new-file-size=0 --config signing.behavior=drop --config signing.backends.gpg.program=/dev/null --config signing.backends.gpgsm.program=/dev/null --config signing.backends.ssh.program=/dev/null --config fsmonitor.backend=none"
       })
     }))
 

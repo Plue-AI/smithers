@@ -294,7 +294,13 @@ describe.skipIf(process.platform === "win32")("BunHost.layerContained", () => {
         }).pipe(Effect.provide(host), Effect.scoped)
 
         expect(status.trim()).toBe(realpathSync(directory))
-        expect(invocations()).toEqual(["--version", "status --color=never --config snapshot.max-new-file-size=0"])
+        // NodeJj pins the signing and fsmonitor settings a repository config could point at a program.
+        expect(invocations()).toEqual([
+          "--version",
+          "status --color=never --config snapshot.max-new-file-size=0 --config signing.behavior=drop " +
+          "--config signing.backends.gpg.program=/dev/null --config signing.backends.gpgsm.program=/dev/null " +
+          "--config signing.backends.ssh.program=/dev/null --config fsmonitor.backend=none"
+        ])
         expect(recorded).toEqual([binary, binary])
         // The invocation finished, so the record was retired with it.
         expect(yield* ledger.live).toEqual([])

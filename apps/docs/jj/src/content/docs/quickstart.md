@@ -96,9 +96,9 @@ process restart, and is what Smithers stores in the journal. The change id is
 a display name that follows later rewrites of the change.
 
 `diff(from, to)` asked jj for a git-format unified diff between two revisions.
-Both arguments go through jj's revision language, so `@`, `@-`, a commit id, and a
-change id are all accepted, and an unresolvable one fails with `invalid_ref` rather than
-producing an empty diff.
+Each argument is `@`, `@-`, a commit id, or a change id. Any other string, such
+as a revset, fails with `invalid_ref` before jj runs, and an id that resolves to
+nothing fails with `invalid_ref` rather than producing an empty diff.
 
 `restore(commitId)` replaced the working copy with the tree recorded at that
 commit. It is a replacement, not a merge: uncommitted edits are overwritten and

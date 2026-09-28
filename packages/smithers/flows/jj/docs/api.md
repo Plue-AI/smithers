@@ -242,6 +242,28 @@ with `JjError.code = "snapshot_refused"`, even when jj exits successfully.
 Every Node and Bun command passes `--color=never`, so a user config that sets
 `ui.color = "always"` cannot put ANSI escapes into change ids, diffs, or roots.
 
+Every Node and Bun command also passes `--config signing.behavior=drop`,
+`--config fsmonitor.backend=none`, and `--config
+signing.backends.<gpg|gpgsm|ssh>.program=/dev/null`, so no config file can
+make jj start a signing, verification, or fsmonitor program. `--config`
+outranks every config file. A commit these layers rewrite, such as a
+snapshotted `@`, comes out unsigned.
+
+Anything running in the checkout can write `.jj/`. When `.jj/repo/config-id`
+or `.jj/workspace-config-id` is missing, jj imports `.jj/repo/config.toml` or
+`.jj/workspace-config.toml` into its trusted config store on the next command.
+The Node and Bun layers refuse to run while either file is waiting to be
+imported, because a planted file could redefine `commit_id(x)` or the
+templates `snapshot` reads. `snapshot` fails `unknown` if the values jj prints
+are not a commit id, change id, and operation id.
+
+A revision passed to `restore`, `diff`, `revert`, or `workspaceAdd` must be `@`,
+`@-`, a hex commit id, or a reverse-hex change id; any other string fails
+`invalid_ref` before jj is spawned. The Node and Bun layers look an id up as
+`exactly(commit_id(id), 1)` or `exactly(change_id(id), 1)`, so a bookmark or
+tag named after a recorded commit id cannot redirect a restore. Aliases already
+in jj's trusted config store are the operator's and still apply.
+
 One invocation buffers at most 64 MiB of each output stream, counted in bytes as
 they arrive rather than in decoded characters, and past the ceiling the child is
 killed and the operation fails `unknown`. The `command` recorded on a failure is

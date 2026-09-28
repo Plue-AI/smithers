@@ -124,7 +124,9 @@ describe.skipIf(process.platform === "win32")("NodeJj failure classification", (
       const error = yield* status("refused")
       expect(error.code).toBe("snapshot_refused")
       expect(error.message).toContain("artifact.bin")
-      expect(asJjError(error).command).toBe("jj status --color=never --config snapshot.max-new-file-size=0")
+      expect(asJjError(error).command).toBe(
+        "jj status --color=never --config snapshot.max-new-file-size=0 --config signing.behavior=drop --config signing.backends.gpg.program=/dev/null --config signing.backends.gpgsm.program=/dev/null --config signing.backends.ssh.program=/dev/null --config fsmonitor.backend=none"
+      )
     }))
 
   it.live("classifies conflict vocabulary as `conflict`", () =>
@@ -338,7 +340,8 @@ describe.skipIf(process.platform === "win32")("NodeJj failure classification", (
       expect(error).toMatchObject({
         module: "NodeJj",
         method: "status",
-        command: "jj status --color=never --config snapshot.max-new-file-size=0"
+        command:
+          "jj status --color=never --config snapshot.max-new-file-size=0 --config signing.behavior=drop --config signing.backends.gpg.program=/dev/null --config signing.backends.gpgsm.program=/dev/null --config signing.backends.ssh.program=/dev/null --config fsmonitor.backend=none"
       })
       // Refusing the output is only half the answer: the child has to be gone,
       // not left filling a pipe nobody reads.

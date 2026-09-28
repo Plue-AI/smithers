@@ -36,7 +36,7 @@ import * as Stream from "effect/Stream"
 import * as EffectChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as ChildProcess from "node:child_process"
-import { realpathSync, statSync } from "node:fs"
+import { readFileSync, realpathSync, statSync } from "node:fs"
 import { mkdtemp, readdir, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises"
 import { hostname } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
@@ -104,7 +104,9 @@ const REVISION_VOCABULARY = [
   /revision not found/,
   /failed to parse revset/,
   /\b(?:revision|change)\b[^\n]*doesn't exist/,
-  /no operation id matching/
+  /no operation id matching/,
+  // `exactly(commit_id(x), 1)` matching nothing, or an ambiguous prefix.
+  /the revset has (?:fewer|more) than the expected/
 ]
 
 /**
@@ -153,14 +155,42 @@ const classify = (method: string, args: ReadonlyArray<string>, output: Output): 
 }
 
 /**
+ * A revision this adapter hands to jj: `@`, `@-`, a hex commit id (prefix), or a
+ * reverse-hex change id (prefix). Anything else is refused before argv exists.
+ *
+ * jj reads a revision argument as a revset, so an unchecked string such as
+ * `root()` or `x) | root() | (x` would restore, diff, revert, or pin a lane to
+ * a tree other than the one the journal recorded.
+ */
+const REVISION_SHAPE = /^(?:@-?|[0-9a-f]+|[k-z]+)$/
+
+/**
+ * The revset for one validated revision. An id is wrapped in `commit_id()` or
+ * `change_id()` because a bare symbol resolves a bookmark or tag of the same
+ * name first, and anyone who can write the repository can create one named
+ * after a recorded commit id. A `revset-aliases` entry can still redefine
+ * `commit_id(x)`; the adapter refuses to run while the checkout holds config jj
+ * would import ({@link unmigratedConfig}), so only config already in jj's
+ * trusted store, which the operator controls, can do that. `exactly(…, 1)` keeps an ambiguous prefix or a
+ * divergent change from widening to several revisions, as the wasm layer's
+ * `resolve_revision` (`crates/flows-jj`) refuses both.
+ */
+const revsetOf = (revision: string): string =>
+  revision.startsWith("@")
+    ? revision
+    : `exactly(${/^[0-9a-f]+$/.test(revision) ? "commit_id" : "change_id"}(${revision}), 1)`
+
+/**
  * Mirrors the wasm layer's guard in `resolve_revision` (`crates/flows-jj`):
  * an empty revision string is `invalid_ref` before anything is spawned —
  * `jj`'s own answer would be a clap usage error that classifies `unknown`,
- * and the two layers must agree on durable error identity.
+ * and the two layers must agree on durable error identity. A string that is
+ * not a revision shape ({@link REVISION_SHAPE}) is refused the same way.
  */
 const requireRevision = (method: string, command: string, revision: string): Effect.Effect<string, JjError> =>
-  revision.length === 0
-    ? Effect.fail(
+  REVISION_SHAPE.test(revision)
+    ? Effect.succeed(revsetOf(revision))
+    : Effect.fail(
       new JjError({
         code: "invalid_ref",
         module: MODULE,
@@ -169,10 +199,11 @@ const requireRevision = (method: string, command: string, revision: string): Eff
         // the operation WOULD have run. A failure without it would be the only
         // one this adapter produces that a caller cannot attribute.
         command,
-        message: `jj ${method}: empty revision string`
+        message: revision.length === 0
+          ? `jj ${method}: empty revision string`
+          : `jj ${method}: ${JSON.stringify(revision.slice(0, 80))} is not a commit id or change id`
       })
     )
-    : Effect.succeed(revision)
 
 /** The absolute executable selected once for a layer and its diagnostic hint. */
 interface Binary {
@@ -408,6 +439,107 @@ const withRepositoryLock = <A, E, R>(
     )
   })
 
+/**
+ * Overrides every Node and Bun jj command carries so repository config cannot
+ * start a program on the host. `--config` outranks every config file.
+ *
+ * `signing.behavior=drop` stops jj from signing: `keep` still re-signs a
+ * rewritten commit that was already signed, which a snapshot of a signed `@`
+ * does. Each signing backend's program is pinned to `/dev/null`, which cannot
+ * be executed, because jj also starts the backend program to VERIFY a
+ * signature whenever a template asks for one, and a template alias can ask.
+ * The cost is that a commit this adapter rewrites comes out unsigned.
+ */
+const HOST_ONLY_CONFIG: ReadonlyArray<string> = [
+  "--config",
+  "signing.behavior=drop",
+  "--config",
+  "signing.backends.gpg.program=/dev/null",
+  "--config",
+  "signing.backends.gpgsm.program=/dev/null",
+  "--config",
+  "signing.backends.ssh.program=/dev/null",
+  "--config",
+  "fsmonitor.backend=none"
+]
+
+const isFile = (path: string): boolean => {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The legacy config file jj would import from inside the checkout on its next
+ * command, or `undefined` when there is none.
+ *
+ * jj keeps repository and workspace config in the user's config directory,
+ * keyed by `.jj/repo/config-id` and `.jj/workspace-config-id`. When an id file
+ * is missing and the legacy `.jj/repo/config.toml` or
+ * `.jj/workspace-config.toml` exists, jj migrates that file into its trusted
+ * store. Both files are writable by whatever runs in the checkout, so a planted
+ * file would supply signing programs, revset aliases that make
+ * `commit_id(x)` resolve to `root()`, and template aliases that rewrite what
+ * `snapshot` reads. The workspace is found the way jj finds it: the nearest
+ * ancestor holding a `.jj` directory. A secondary workspace's `.jj/repo` is a
+ * file naming the repository directory relative to its `.jj`.
+ *
+ * The check runs just before the spawn, so a writer that races it can still
+ * slip a file past; {@link HOST_ONLY_CONFIG} keeps that race from starting a
+ * program, but aliases would apply to that one command.
+ */
+const unmigratedConfig = (directory: string): string | undefined => {
+  let current = resolve(directory)
+  for (;;) {
+    const dotJj = join(current, ".jj")
+    if (isDirectory(dotJj)) {
+      if (isFile(join(dotJj, "workspace-config.toml")) && !isFile(join(dotJj, "workspace-config-id"))) {
+        return join(dotJj, "workspace-config.toml")
+      }
+      let repository = join(dotJj, "repo")
+      if (isFile(repository)) {
+        try {
+          repository = resolve(dotJj, stripLineEnding(readFileSync(repository, "utf8")))
+        } catch {
+          return undefined
+        }
+      }
+      return isFile(join(repository, "config.toml")) && !isFile(join(repository, "config-id"))
+        ? join(repository, "config.toml")
+        : undefined
+    }
+    const parent = dirname(current)
+    if (parent === current) return undefined
+    current = parent
+  }
+}
+
+/**
+ * Refuses a command in a checkout whose `.jj` holds config jj would import.
+ * An operator who wrote that file themselves runs any jj command once to
+ * migrate it; the engine never does so on the checkout's behalf.
+ */
+const refuseUnmigratedConfig = (
+  method: string,
+  args: ReadonlyArray<string>,
+  cwd: string | undefined
+): Effect.Effect<void, JjError> =>
+  Effect.suspend(() => {
+    const planted = unmigratedConfig(cwd ?? process.cwd())
+    return planted === undefined ? Effect.void : Effect.fail(
+      new JjError({
+        code: "unknown",
+        module: MODULE,
+        method,
+        command: commandOf(args),
+        message: `jj ${method}: refusing to run with unmigrated repository config ${planted}; `
+          + "jj would import it from the checkout. Review it, then run any jj command yourself to migrate it"
+      })
+    )
+  })
+
 /** How one `jj` invocation reaches the operating system. */
 type Run = (method: string, args: ReadonlyArray<string>, cwd?: string) => Effect.Effect<string, JjError>
 
@@ -562,7 +694,9 @@ const viaSpawner = (spawner: ChildProcessSpawner["Service"]) => (binary: Binary)
  * a jj child that goes through a host spawner must behave the same as one that
  * does not, or the containment story would be bought with a behavior change.
  */
-const operations = (run: Run, repositoryRoot?: string) => {
+const operations = (spawn: Run, repositoryRoot?: string) => {
+  const run: Run = (method, args, cwd) =>
+    Effect.flatMap(refuseUnmigratedConfig(method, args, cwd ?? repositoryRoot), () => spawn(method, args, cwd))
   const inRepository = (method: string, args: ReadonlyArray<string>) => {
     // jj can snapshot on any repository command. Keep global options before
     // the positional delimiter used to protect opaque workspace names.
@@ -572,7 +706,14 @@ const operations = (run: Run, repositoryRoot?: string) => {
     const at = delimiter === -1 ? args.length : delimiter
     return run(
       method,
-      [...args.slice(0, at), "--color=never", "--config", "snapshot.max-new-file-size=0", ...args.slice(at)],
+      [
+        ...args.slice(0, at),
+        "--color=never",
+        "--config",
+        "snapshot.max-new-file-size=0",
+        ...HOST_ONLY_CONFIG,
+        ...args.slice(at)
+      ],
       repositoryRoot
     )
   }
@@ -612,6 +753,20 @@ const operations = (run: Run, repositoryRoot?: string) => {
           "commit_id ++ \"\\n\" ++ change_id.short()"
         ])
         const [commitId = "", changeId = ""] = output.split("\n").map((line) => line.trim())
+        // Template aliases can rewrite what these templates print. A value that
+        // is not an id is refused here instead of being journaled as one.
+        if (!/^[0-9a-f]+$/.test(commitId) || !/^[k-z]+$/.test(changeId) || !/^[0-9a-f]+$/.test(operationId)) {
+          return yield* Effect.fail(
+            new JjError({
+              code: "unknown",
+              module: MODULE,
+              method: "snapshot",
+              command: "jj log",
+              message: `jj snapshot: ${JSON.stringify(output.slice(0, 200))} and operation `
+                + `${JSON.stringify(operationId.slice(0, 200))} are not a commit id, change id, and operation id`
+            })
+          )
+        }
         return { commitId, changeId, operationId }
       })
     )
@@ -662,7 +817,15 @@ const operations = (run: Run, repositoryRoot?: string) => {
             Effect.andThen(
               run(
                 "workspaceAdd",
-                ["restore", "--from", pinned, "--color=never", "--config", "snapshot.max-new-file-size=0"],
+                [
+                  "restore",
+                  "--from",
+                  pinned,
+                  "--color=never",
+                  "--config",
+                  "snapshot.max-new-file-size=0",
+                  ...HOST_ONLY_CONFIG
+                ],
                 resolve(repositoryRoot ?? process.cwd(), path)
               )
             )
@@ -692,7 +855,7 @@ const operations = (run: Run, repositoryRoot?: string) => {
   const root = (from: string) =>
     Effect.flatMap(
       Effect.sync(() => directoryOf(from)),
-      (directory) => Effect.map(run("root", ["root", "--color=never"], directory), stripLineEnding)
+      (directory) => Effect.map(run("root", ["root", "--color=never", ...HOST_ONLY_CONFIG], directory), stripLineEnding)
     )
 
   /**

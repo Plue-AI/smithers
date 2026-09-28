@@ -154,6 +154,14 @@ stay registered: the caller is told about the pin failure, which is the one it
 can act on, and turning one error into two would hide it. Only a single ABI
 operation can close that gap.
 
+### Lane names and paths are checked
+
+The reactor refuses a `workspaceAdd` or `workspaceForget` name outside
+`[A-Za-z0-9._-]`, an empty name, and one that starts with `.`. It refuses a
+`workspaceAdd` path that is relative or has a `.`, `..`, or `.jj` component.
+Each refusal fails `unknown` before any directory or repository state is
+written. The CLI layers pass names and paths to jj unchanged.
+
 ### `root(from)` answers for its own slice
 
 The layer owns one workspace, so it answers the configured root for any path
@@ -192,7 +200,11 @@ serial execution, which is correct but not parallel.
 `status` and `diff` are rendered by the WebAssembly module this package ships
 rather than by jj's command-line interface. `diff` is git-format unified diff and `status` is a
 concise change-id listing with A, M, and D markers. Both are stable and tested,
-and neither is byte identical to what the CLI prints.
+and neither is byte identical to what the CLI prints. A path that holds a
+control character, `"`, or `\` is C-quoted in both, the way git quotes it, so
+a newline or escape byte in a file name cannot forge a header or status line.
+File contents in hunks are printed as is. A `diff` whose text passes 64 MiB
+fails `unknown`, the same ceiling the CLI layers put on jj's output.
 
 Finally, `not_installed` here means "this host cannot do that", never "jj is
 missing from your `PATH`". The wasm module itself produces only `conflict`,

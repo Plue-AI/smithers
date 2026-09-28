@@ -219,6 +219,13 @@ export type ChangeId = string
  * both forms resolve unchanged and need no migration; the older rows keep the
  * weaker change-id semantics.
  *
+ * A revision is `@`, `@-`, a commit id prefix, or a change id prefix, never a
+ * revset: the CLI layers refuse any other string with `invalid_ref` before
+ * spawning jj, and resolve an id by id so a bookmark or tag of the same name
+ * cannot stand in for it. A `revset-aliases` entry in jj's trusted config
+ * store can still redefine that lookup; the CLI layers refuse to run while the
+ * checkout holds config jj would import into that store.
+ *
  * @category models
  * @since 1.0.0
  */
