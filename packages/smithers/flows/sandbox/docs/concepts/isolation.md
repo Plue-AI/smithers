@@ -59,7 +59,7 @@ crossed the seam.
 | `KubernetesSandbox`   | the cluster's: the image, the service account, and the namespace's policies             | `image`, `serviceAccount`, `namespace`, `nodeSelector`, `resources`, `labels`, `createArgs`                   |
 | `MicrosandboxSandbox` | a local microVM                                                                         | `image` or `snapshot`, `cpus`, `memoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `network`       |
 | `VercelSandbox`       | Vercel's sandbox tenancy                                                                | `runtime`, `timeoutMs`, `maxDurationMs`, `network`                                                            |
-| `DaytonaSandbox`      | Daytona's sandbox tenancy                                                               | `startTimeoutSeconds`, `deleteTimeoutSeconds`                                                                 |
+| `DaytonaSandbox`      | Daytona's sandbox tenancy                                                               | `startTimeoutSeconds`, `deleteTimeoutSeconds`, `network`                                                      |
 | `AwsSandbox`          | the Fargate task, its task role, and its security groups                                | `image` or `taskDefinition`, `taskRoleArn`, `securityGroups`, `subnets`, `assignPublicIp`, `cpu`, `memory`    |
 | `CloudflareSandbox`   | the Durable Object and its container, deployed by you                                   | `sleepAfter`, `keepAlive`                                                                                     |
 
@@ -78,21 +78,24 @@ Every provider takes the neutral option
 `network: "none" | { allow: string[] }`. `"none"` gives the guest no network.
 `{ allow }` denies egress except to the listed hosts: exact DNS names such as
 `registry.npmjs.org`, or `*.` and a name, such as `*.npmjs.org`, for every name
-below it. An empty list denies all egress. A provider that cannot enforce the
-policy throws when `make` is called, before any machine exists.
+below it. Microsandbox also admits the apex of a `*.` entry; Vercel and
+Daytona do not document whether they do, so list the apex separately when it
+must be reachable. An empty list denies all egress. A provider that cannot
+enforce the policy throws when `make` is called, before any machine exists.
 
-| Provider              | `"none"`                  | `{ allow }`                                               | Reattaching an existing machine                     |
-| --------------------- | ------------------------- | --------------------------------------------------------- | --------------------------------------------------- |
-| `VercelSandbox`       | `networkPolicy: deny-all` | Vercel's egress firewall `networkPolicy: { allow }`       | the policy is updated before any guest command runs |
-| `MicrosandboxSandbox` | boots without networking  | deny ingress; deny egress but DNS (port 53) and the hosts | refused unless it was created with the same policy  |
-| `ContainerSandbox`    | `--network none`          | refused: an engine network mode is not a host firewall    | the network mode is part of the fingerprint         |
-| every other provider  | refused                   | refused                                                   | not applicable                                      |
+| Provider              | `"none"`                  | `{ allow }`                                            | Reattaching an existing machine                     |
+| --------------------- | ------------------------- | ------------------------------------------------------ | --------------------------------------------------- |
+| `VercelSandbox`       | `networkPolicy: deny-all` | Vercel's egress firewall `networkPolicy: { allow }`    | the policy is updated before any guest command runs |
+| `DaytonaSandbox`      | `networkBlockAll: true`   | the runner's iptables `domainAllowList`                | the policy is updated before any guest command runs |
+| `MicrosandboxSandbox` | boots without networking  | deny ingress; deny egress but host DNS and the hosts   | refused unless it was created with the same policy  |
+| `ContainerSandbox`    | `--network none`          | refused: an engine network mode is not a host firewall | the network mode is part of the fingerprint         |
+| every other provider  | refused                   | refused                                                | not applicable                                      |
 
 `ContainerSandbox` also accepts a raw engine network mode string, which opts
 into that mode's egress. `MicrosandboxSandbox` also accepts `networkPolicy` in
 the vendor's own rule shape; it and `network` are exclusive. Under `{ allow }`
-the Microsandbox guest can still send DNS queries to any resolver, so the
-allowlist does not stop exfiltration over DNS.
+the Microsandbox guest sends DNS only to the host resolver on port 53, the
+vendor's own `Rule.allowDns()` rule.
 
 ## What no provider here prevents
 
