@@ -4,11 +4,68 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { test } from "node:test"
-import { repoRoot, workspacePackages } from "./workspace-packages.mjs"
+import { readWorkspacePatterns, repoRoot, workspacePackages } from "./workspace-packages.mjs"
 
 const script = join(repoRoot, "scripts", "workspace-packages.mjs")
 
 const run = (entry, cwd) => execFileSync(process.execPath, [entry], { cwd, encoding: "utf8", timeout: 30_000 })
+
+for (const [label, source, expected] of [
+  ["single quoted escape", String.raw`packages:
+  - '\!packages/**'
+`, [String.raw`\!packages/**`]],
+  ["double quoted escape", String.raw`packages:
+  - "\\!packages/**"
+`, [String.raw`\!packages/**`]],
+  ["single quoted apostrophe", "packages:\n  - 'packages/it''s'\n", ["packages/it's"]],
+  ["double quoted unicode", String.raw`packages: ["packages/\u0061"]`, ["packages/a"]],
+  ["inline list and literal hash", "packages: ['packages/#tag', packages/plain]\n", ["packages/#tag", "packages/plain"]],
+  ["comments and following settings", "# workspace\npackages:\n  # members\n  - packages/* # comment\nlinkWorkspacePackages: true\n", ["packages/*"]]
+]) {
+  test(`workspace YAML decodes ${label}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), "smithers-workspace-yaml-"))
+    try {
+      const path = join(root, "pnpm-workspace.yaml")
+      await writeFile(path, source)
+      assert.deepEqual(readWorkspacePatterns(path), expected)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const source of [
+  "", "null\n", "[]\n", "packages: null\n", "packages: packages/*\n",
+  "packages: {}\n", "packages: []\n", "packages: [null]\n", "packages: [true]\n",
+  "packages: [1]\n", "packages: [{}]\n", "packages: [[]]\n", "packages: ['']\n",
+  "packages: [packages/*, null]\n", "packages: [unterminated\n",
+  "packages: [packages/a]\npackages: [packages/b]\n"
+]) {
+  test(`workspace YAML refuses invalid package patterns ${JSON.stringify(source)}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), "smithers-workspace-yaml-invalid-"))
+    try {
+      const path = join(root, "pnpm-workspace.yaml")
+      await writeFile(path, source)
+      assert.throws(() => readWorkspacePatterns(path))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const item of [String.raw`'\!packages/**'`, String.raw`"\\!packages/**"`]) {
+  test(`workspace membership decodes quoted escaped bang ${item}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), "smithers-workspace-quoted-"))
+    try {
+      await writeFile(join(root, "pnpm-workspace.yaml"), `packages:\n  - ${item}\n`)
+      await mkdir(join(root, "!packages/one"), { recursive: true })
+      await writeFile(join(root, "!packages/one/package.json"), '{"name":"fixture-member"}')
+      assert.deepEqual(workspacePackages(root).map(({ dir, name }) => ({ dir, name })), [{ dir: "!packages/one", name: "fixture-member" }])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}
 
 for (const patterns of [["packages/*", "!packages/omitted"], ["!packages/omitted", "packages/*"]]) {
   test(`workspace membership respects exclusions in ${JSON.stringify(patterns)}`, async () => {

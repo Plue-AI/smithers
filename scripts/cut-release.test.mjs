@@ -57,7 +57,9 @@ const seed = () => {
   for (const script of copiedScripts) copyFileSync(join(scriptsDirectory, script), join(root, "scripts", script))
   // Membership is a dependency-backed operation even in this isolated release.
   mkdirSync(join(root, "node_modules"))
-  symlinkSync(realpathSync(join(scriptsDirectory, "../node_modules/tinyglobby")), join(root, "node_modules/tinyglobby"), "junction")
+  for (const dependency of ["tinyglobby", "yaml"]) {
+    symlinkSync(realpathSync(join(scriptsDirectory, "../node_modules", dependency)), join(root, "node_modules", dependency), "junction")
+  }
   write(root, ".gitignore", "node_modules/\n")
   write(root, "pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\nlinkWorkspacePackages: true\n")
   write(

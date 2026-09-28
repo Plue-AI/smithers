@@ -39,28 +39,19 @@ export const isMain = (meta) => {
 }
 
 /**
- * The membership globs `pnpm-workspace.yaml` declares, in file order.
- *
- * The parser is deliberately small: a `packages:` heading, then one `- pattern`
- * item per line, quoted or bare, until the indentation returns. Comment and
- * blank lines inside the block are skipped, so the rationale for the shape of
- * this list can live beside it.
+ * The membership globs `pnpm-workspace.yaml` declares, decoded in file order.
+ * The list must contain at least one nonempty string. YAML quoting and escaping
+ * belong to the shared YAML parser, not to the glob matcher.
  */
 export const readWorkspacePatterns = (path = join(repoRoot, "pnpm-workspace.yaml")) => {
-  const lines = readFileSync(path, "utf8").split(/\r?\n/)
-  const heading = lines.findIndex((line) => /^\s*packages\s*:\s*(?:#.*)?$/.test(line))
-  if (heading < 0) throw new Error(`${path} has no packages list`)
-  const indentation = lines[heading].match(/^\s*/)[0].length
-  const patterns = []
-  for (const line of lines.slice(heading + 1)) {
-    if (/^\s*(?:#.*)?$/.test(line)) continue
-    const currentIndentation = line.match(/^\s*/)[0].length
-    if (currentIndentation <= indentation) break
-    const item = line.match(/^\s*-\s*(?:"([^"]+)"|'([^']+)'|([^#\s]+))\s*(?:#.*)?$/)
-    if (item === null) throw new Error(`unsupported packages entry in ${path}: ${line.trim()}`)
-    patterns.push(item[1] ?? item[2] ?? item[3])
-  }
+  const { parse } = createRequire(import.meta.url)("yaml")
+  const manifest = parse(readFileSync(path, "utf8"))
+  const patterns = manifest?.packages
+  if (!Array.isArray(patterns)) throw new Error(`${path} has no packages list`)
   if (patterns.length === 0) throw new Error(`${path} has an empty packages list`)
+  if (patterns.some((pattern) => typeof pattern !== "string" || pattern.length === 0)) {
+    throw new Error(`${path} packages must contain nonempty strings`)
+  }
   return patterns
 }
 
