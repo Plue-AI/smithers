@@ -92,13 +92,21 @@ const api = async (path, options = {}) => {
   return response.status === 204 ? undefined : response.json()
 }
 
-export async function prepare(kind, eventPath = process.env.GITHUB_EVENT_PATH) {
+// The triggering event names the one issue or PR this run may write to. apply
+// reads it again instead of trusting .triage/context.json, which sits in the
+// tree the triage flow and the tests it runs can rewrite.
+async function readSubject(kind, eventPath) {
   if (!eventPath) throw new Error("GITHUB_EVENT_PATH is required")
   const event = JSON.parse(await readFile(eventPath, "utf8"))
   const repository = process.env.GITHUB_REPOSITORY ?? event.repository?.full_name
   if (!repository) throw new Error("GITHUB_REPOSITORY is required")
   const subject = kind === "issue" ? event.issue : event.pull_request
   if (!object(subject) || !Number.isSafeInteger(subject.number)) throw new Error(`event has no ${kind}`)
+  return { repository, subject }
+}
+
+export async function prepare(kind, eventPath = process.env.GITHUB_EVENT_PATH) {
+  const { repository, subject } = await readSubject(kind, eventPath)
 
   let comments = []
   if (kind === "issue") {
@@ -149,8 +157,32 @@ const ensureLabel = async (repository, name) => {
   }
 }
 
-export async function apply(kind) {
-  const context = JSON.parse(await readFile(CONTEXT_PATH, "utf8"))
+// The login GitHub gives comments written with the workflow's GITHUB_TOKEN.
+export const BOT_LOGIN = "github-actions[bot]"
+
+// Keeps model-written text from pinging people. GitHub resolves `@name` in the
+// rendered text nodes whenever a non-word character (or nothing) precedes the
+// `@`, after markdown and HTML entities are processed, so `.@a`, `_@a_`,
+// `x*@a*` and `&#64;a` all ping. Decode every `@` entity, then put a
+// zero-width space after each `@` not directly preceded by a letter or digit.
+// A letter or digit cannot end a markdown construct, so it stays in the same
+// text node and GitHub skips the `@` (an email address keeps its shape).
+const AT_ENTITY = /&(?:#0*64;?|#x0*40;?|commat;)/gi
+export const neutralizeMentions = (value) => value.replace(AT_ENTITY, "@").replace(/(?<![A-Za-z0-9])@/g, "@\u200b")
+
+// The bot's own earlier triage comment, never one a user wrote with the marker.
+export const findOwnComment = (comments, marker) =>
+  comments.find((comment) => comment.user?.login === BOT_LOGIN && typeof comment.body === "string" && comment.body.includes(marker))
+
+// `expectedNumber` is the issue or PR number the workflow bakes into the
+// command line (`${{ github.event.issue.number }}`). The event file lives on
+// the runner's disk, where the tests the flow runs could rewrite it, so apply
+// refuses to write anywhere unless both agree.
+export async function apply(kind, expectedNumber, eventPath = process.env.GITHUB_EVENT_PATH) {
+  if (!Number.isSafeInteger(expectedNumber) || expectedNumber <= 0) throw new Error("apply needs the issue or PR number as an argument")
+  const { repository, subject } = await readSubject(kind, eventPath)
+  if (subject.number !== expectedNumber) throw new Error(`event names ${kind} ${subject.number}, not ${expectedNumber}`)
+  const context = { repository, number: subject.number }
   let report
   try {
     const decoded = JSON.parse(await readFile(REPORT_PATH, "utf8"))
@@ -166,23 +198,23 @@ export async function apply(kind) {
   })
 
   const marker = `<!-- smithers-${kind}-triage -->`
-  const body = `${marker}\n## Smithers ${kind === "issue" ? "issue" : "PR"} triage\n\n${report.comment}\n\n<sub>${report.summary}</sub>`
+  const body = `${marker}\n## Smithers ${kind === "issue" ? "issue" : "PR"} triage\n\n${neutralizeMentions(report.comment)}\n\n<sub>${neutralizeMentions(report.summary)}</sub>`
   const comments = await api(`/repos/${context.repository}/issues/${context.number}/comments?per_page=100`)
-  const existing = comments.find((comment) => typeof comment.body === "string" && comment.body.includes(marker))
+  const existing = findOwnComment(comments, marker)
   await api(existing ? `/repos/${context.repository}/issues/comments/${existing.id}` : `/repos/${context.repository}/issues/${context.number}/comments`, {
     method: existing ? "PATCH" : "POST",
     body: JSON.stringify({ body }),
     headers: { "content-type": "application/json" }
   })
-  return report
+  return { ...report, number: context.number }
 }
 
 async function main() {
-  const [command, kind] = process.argv.slice(2)
-  if (!["prepare", "apply"].includes(command) || !["issue", "pr"].includes(kind)) {
-    throw new Error("usage: github-triage.mjs <prepare|apply> <issue|pr>")
-  }
-  const result = command === "prepare" ? await prepare(kind) : await apply(kind)
+  const [command, kind, number] = process.argv.slice(2)
+  const usage = "usage: github-triage.mjs prepare <issue|pr> | apply <issue|pr> <number>"
+  if (!["prepare", "apply"].includes(command) || !["issue", "pr"].includes(kind)) throw new Error(usage)
+  if (command === "apply" && !/^[1-9][0-9]*$/.test(number ?? "")) throw new Error(usage)
+  const result = command === "prepare" ? await prepare(kind) : await apply(kind, Number(number))
   process.stdout.write(`${JSON.stringify({ ok: true, kind, number: result.number })}\n`)
 }
 

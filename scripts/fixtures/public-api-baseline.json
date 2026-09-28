@@ -5846,7 +5846,7 @@
       "declarations": {
         "DerivedKey.d.ts": "2473eb40f25e4e028cacd10268bf4ae35b53fae4a8a34de45a7d20b780a8d935",
         "Key.d.ts": "c6350c9856070967ec4c49a8925a5efcb60741fc243d454480f92f937033bc7d",
-        "KeyDerivationError.d.ts": "a88a8aa3f21e1abf47efdd88990e17ae9c0f285cb271b9215f2a4e18d7c7f1ca",
+        "KeyDerivationError.d.ts": "dfe321c81859494f8ed5c25fecde8aa28e1e870d36e575d349ee332ee1340445",
         "KeyV1.d.ts": "d99e0704ff838a1a1517bfcba104ab38af3c33d3d32837d6df5ee1a8480cf217",
         "StoredKey.d.ts": "9291d309c7fc974c8d156ecc8c5209b7b55631b2aa5da18deee1f2fbeba66b68",
         "deriveKey.d.ts": "af4cb04656f99efbeb2158b2d2d7b84e9fc7fd94bb1777f32ba78b5f40b7a8f9",
@@ -9393,9 +9393,9 @@
       "declarations": {
         "BranchCommands.d.ts": "96cd0fa26d03d8c094e98a1af96d203b1f76854d473a9530baf0be37986dda24",
         "BranchIds.d.ts": "7b3453491f5e839faba8e486180583cb009c33dc5812ff4a7e7e1375218395dc",
-        "BranchPresence.d.ts": "0d07a0e64b26a537b04aaba7cc9e3243193d0c5be0f09c0340c1950e07ec5465",
-        "BranchProjection.d.ts": "1a02bc8207fb62c3303b44febeb22509d6f4cb39f593af849f9fb747a8ed3ab1",
-        "BranchProtocol.d.ts": "c385cba77c56d8278e42ae5d1d5d22198a88c814772a2f7e6e2543ee40d8f183",
+        "BranchPresence.d.ts": "cc535882e1778838456aa27a09137c1e068f1d7ae16e6b84fe5199ad7cd77299",
+        "BranchProjection.d.ts": "ef1e6daca809fe24502fd22b22ceef5e771e3b237efb3ce84cfcded13d3e26be",
+        "BranchProtocol.d.ts": "1af02c97b33fe790bc6a80652948f86d18b05ece82faf2bce381800bbb2f89ca",
         "BranchRpcs.d.ts": "1476c49428f742d437db60c5c4b7c17d769af0a5b20d43f96dadbbdac7902827",
         "BranchServer.d.ts": "ac43c1a05b449b98703ef5b3bf8397b4308e4a2934766d70a6a016ef307313f2",
         "BranchShare.d.ts": "c816785ec497d62d893d0bf8332945a35d3d0da093830131e517957ec72c33d6",
@@ -9414,10 +9414,10 @@
         "internal/JournalErrorCode.d.ts": "26192c54b95f81d9ab5f2dcd8709423767eecd3714d20e68ad99642fbac13dc5",
         "internal/PolicyOptions.d.ts": "a1710fbaf64bbea13eef6655e355f79ca9c54b270c601d02ddd65467dee2b1c3",
         "internal/ProtocolVersion.d.ts": "c88dd7001fddeadf86ced9f2214499685e99e626e939b14a550238f0bb24cda2",
-        "internal/ShareSigner.d.ts": "4ff0730878ce0de90b7b0906b6f0f141a6f1e9fd6f4ebcfa95987d8fad14b3e7",
+        "internal/ShareSigner.d.ts": "4e0e3813ee460c6c95f9ec0e5727cb90d5c0824ceba3f44959d40cd901fab560",
         "internal/SnapshotBoundary.d.ts": "e983dade7ca9336fa245ce240a6fdbe9ea7b302f489b79c1ae1b3b154975b6da",
         "test/TestSocket.d.ts": "2ff85af8f93f3d60982ab225b1183ff2e286115f81b5acf324000dfea256eb80",
-        "test/TestSync.d.ts": "cec7d0fcd157be424a300a9cec140631c04726cde41bfee693759bb0d4901495"
+        "test/TestSync.d.ts": "fe07150ae3a419e39978d005e49e0f73ba8aea87491c5a6365677d3fec38bf6e"
       }
     },
     "@smthrs/targets": {

@@ -1052,6 +1052,17 @@
       "reason": "Turn host a scaffolded Worker serves POST /api/turn with; the default template imports it so a new app answers its first chat turn (b6875f96e)."
     },
     {
+      "name": "@smthrs/create-app",
+      "subpath": "./http",
+      "development": "./src/http.ts",
+      "published": {
+        "types": "./dist/esm/http.d.ts",
+        "import": "./dist/esm/http.js",
+        "require": "./dist/cjs/http.js"
+      },
+      "reason": "Bearer check and capped JSON body read that turnResponse requires; import-free so a template's Worker router guards its routes without loading the agent runtime (security fix: unauthenticated paid turns)."
+    },
+    {
       "name": "@smthrs/artifacts",
       "subpath": "./FileLease",
       "development": "./src/FileLease.ts",

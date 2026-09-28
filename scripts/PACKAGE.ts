@@ -505,7 +505,7 @@ const localSmithersUnit = Smithers.NodeTest({
  * @category test
  */
 const githubTriage = Smithers.NodeTest({
-  summary: "GitHub triage publishes only validated labels and useful fallback requests.",
+  summary: "GitHub triage publishes only validated labels and mention-free comments to the event's own issue, updating only its own comment.",
   featured: true,
   runner: Smithers.testRunner([Smithers.file("//scripts/github-triage.test.mjs")]),
   srcs: [
@@ -681,7 +681,8 @@ const securityReview = Smithers.SecurityReview({
       threat: "An issue or PR author steers the triage model or code it runs into labeling, commenting on, or redirecting writes to issues the GitHub token can reach.",
       lookFor: [
         "apply() reading repository and number from .triage/context.json, a file the model step or the `pnpm test` it may spawn can rewrite before apply runs.",
-        "A report comment posted verbatim with attacker-influenced @mentions, links or markdown that impersonates a maintainer verdict.",
+        "A report comment posted with a live @mention: any `@` after a non-alphanumeric character, inside emphasis, or spelled as an HTML entity (&#64;, &#x40;, &commat;) that neutralizeMentions leaves unbroken.",
+        "apply() writing without the issue or PR number passed on its command line, or without refusing an event file that names a different number.",
         "A label, comment or PATCH target not checked against LABELS, the event's own number, or a comment authored by the triage bot itself.",
         "GH_TOKEN or GitHub error bodies echoed into the fallback comment or stdout."
       ],
@@ -738,7 +739,7 @@ const securityReview = Smithers.SecurityReview({
       title: "Every tool the Cloud CI bootstrap downloads and executes is pinned by version and digest",
       threat: "A compromised or spoofed release host swaps a jj, ripgrep, Foundry, rustup or Node binary that then runs with the CI task's repository access.",
       lookFor: [
-        "A download() or curl followed by tar/chmod/exec with no sha256sum -c against a pinned digest; ensure_node pins one, while the jj, ripgrep, Foundry and rustup-init downloads trust HTTPS alone.",
+        "A download() or curl that reaches tar/chmod/exec without download_verified, which checks node_digest or tool_digest with sha256sum -c and exits on a mismatch.",
         "A version read from a repository file used unvalidated in a URL or shell word.",
         "apt or npm installs that run lifecycle scripts or use sudo in a Cloud task."
       ],

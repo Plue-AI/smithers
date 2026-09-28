@@ -182,8 +182,7 @@ ensure_node() {
   sha="$(node_digest "$version" "$arch")" || exit 1
   local tarball="$tools_dir/node-v$version-linux-$arch.tar.gz"
   mkdir -p "$tools_dir/node"
-  download "https://nodejs.org/dist/v$version/node-v$version-linux-$arch.tar.gz" "$tarball"
-  echo "$sha  $tarball" | sha256sum -c -
+  download_verified "https://nodejs.org/dist/v$version/node-v$version-linux-$arch.tar.gz" "$tarball" "$sha"
   tar -xzf "$tarball" -C "$tools_dir/node" --strip-components=1
   # The global prefix stays ahead of the tarball's bundled npm so the certified
   # npm below still wins, while `node` now resolves to the version just added.
@@ -234,9 +233,42 @@ download() {
   curl --proto '=https' --tlsv1.2 --retry 3 -fsSL "$1" -o "$2"
 }
 
+# Downloads one artifact and refuses it unless it matches the pinned SHA-256.
+# A version pin in the URL names a release; only the digest proves the bytes are
+# the ones reviewed, so nothing downloaded here is unpacked or run before this.
+download_verified() {
+  download "$1" "$2" || exit 1
+  if ! echo "$3  $2" | sha256sum -c -; then
+    rm -f "$2"
+    echo "Refusing $1: its SHA-256 does not match the pinned digest" >&2
+    exit 1
+  fi
+}
+
+# The SHA-256 of one pinned tool artifact, keyed by tool and architecture. The
+# values come from each release's published checksums: the GitHub release
+# asset `digest` for jj and Foundry, the `.sha256` file beside each ripgrep and
+# rustup-init asset. A tool with no row fails instead of downloading.
+tool_digest() {
+  case "$1:$2" in
+    jj-0.39.0:x86_64) printf '8da8d96e9c8696c21ad47847a63d533e249acb0449d9af0f0562b5ea7b024f04\n' ;;
+    jj-0.39.0:aarch64) printf '15bbb0199adf57929d1e3cd90ae0b47356858cbe374814769815a1fb87d5ad1d\n' ;;
+    ripgrep-14.1.1:x86_64-unknown-linux-musl) printf '4cf9f2741e6c465ffdb7c26f38056a59e2a2544b51f7cc128ef28337eeae4d8e\n' ;;
+    ripgrep-14.1.1:aarch64-unknown-linux-gnu) printf 'c827481c4ff4ea10c9dc7a4022c8de5db34a5737cb74484d62eb94a95841ab2f\n' ;;
+    foundry-1.8.1:amd64) printf '37b45855232e57624d90113b049ca54f0c92055bb5c1997fcbdc3076c7b89c10\n' ;;
+    foundry-1.8.1:arm64) printf '27a32bd282d73018ab4d043de15ab0320b561c71b4bf3a549b130a0806e79f5c\n' ;;
+    rustup-init-1.28.2:x86_64) printf '20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c\n' ;;
+    rustup-init-1.28.2:aarch64) printf 'e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c\n' ;;
+    *)
+      echo "No pinned SHA-256 digest for $1 on $2; add it from that release's published checksums" >&2
+      return 1
+      ;;
+  esac
+}
+
 ensure_jj() {
   apt_install ca-certificates curl git xz-utils bubblewrap
-  local arch
+  local arch sha
   case "$(uname -m)" in
     x86_64) arch=x86_64 ;;
     aarch64|arm64) arch=aarch64 ;;
@@ -244,14 +276,16 @@ ensure_jj() {
   esac
   mkdir -p "$tools_dir/bin"
   if ! command -v jj >/dev/null || [ "$(jj --version)" != 'jj 0.39.0' ]; then
-    download "https://github.com/jj-vcs/jj/releases/download/v0.39.0/jj-v0.39.0-${arch}-unknown-linux-musl.tar.gz" "$tools_dir/jj.tar.gz"
+    sha="$(tool_digest jj-0.39.0 "$arch")" || exit 1
+    download_verified "https://github.com/jj-vcs/jj/releases/download/v0.39.0/jj-v0.39.0-${arch}-unknown-linux-musl.tar.gz" "$tools_dir/jj.tar.gz" "$sha"
     tar -xzf "$tools_dir/jj.tar.gz" -C "$tools_dir/bin" ./jj
   fi
   # rg's native implementation is exercised by the std conformance suite.
   if ! command -v rg >/dev/null || [[ "$(rg --version)" != 'ripgrep 14.1.1'* ]]; then
     local rg_target="${arch}-unknown-linux-gnu"
     if [ "$arch" = x86_64 ]; then rg_target=x86_64-unknown-linux-musl; fi
-    download "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-${rg_target}.tar.gz" "$tools_dir/rg.tar.gz"
+    sha="$(tool_digest ripgrep-14.1.1 "$rg_target")" || exit 1
+    download_verified "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-${rg_target}.tar.gz" "$tools_dir/rg.tar.gz" "$sha"
     tar -xzf "$tools_dir/rg.tar.gz" -C "$tools_dir"
     ln -sf "$tools_dir/ripgrep-14.1.1-${rg_target}/rg" "$tools_dir/bin/rg"
   fi
@@ -270,13 +304,14 @@ ensure_jj() {
 }
 
 ensure_foundry() {
-  local arch
+  local arch sha
   case "$(uname -m)" in
     x86_64) arch=amd64 ;;
     aarch64|arm64) arch=arm64 ;;
     *) echo 'Unsupported Foundry architecture' >&2; exit 1 ;;
   esac
-  download "https://github.com/foundry-rs/foundry/releases/download/v1.8.1/foundry_v1.8.1_linux_${arch}.tar.gz" "$tools_dir/foundry.tar.gz"
+  sha="$(tool_digest foundry-1.8.1 "$arch")" || exit 1
+  download_verified "https://github.com/foundry-rs/foundry/releases/download/v1.8.1/foundry_v1.8.1_linux_${arch}.tar.gz" "$tools_dir/foundry.tar.gz" "$sha"
   tar -xzf "$tools_dir/foundry.tar.gz" -C "$tools_dir/bin"
 }
 
@@ -292,13 +327,14 @@ ensure_rust() {
   export CARGO_HOME="${CARGO_HOME:-$tools_dir/cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$tools_dir/rustup}"
   export PATH="$CARGO_HOME/bin:$PATH"
   if [ ! -x "$CARGO_HOME/bin/rustup" ]; then
-    local arch
+    local arch sha
     case "$(uname -m)" in
       x86_64) arch=x86_64 ;;
       aarch64|arm64) arch=aarch64 ;;
       *) echo 'Unsupported Rust architecture' >&2; exit 1 ;;
     esac
-    download "https://static.rust-lang.org/rustup/archive/1.28.2/${arch}-unknown-linux-gnu/rustup-init" "$tools_dir/rustup-init"
+    sha="$(tool_digest rustup-init-1.28.2 "$arch")" || exit 1
+    download_verified "https://static.rust-lang.org/rustup/archive/1.28.2/${arch}-unknown-linux-gnu/rustup-init" "$tools_dir/rustup-init" "$sha"
     chmod +x "$tools_dir/rustup-init"
     "$tools_dir/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
   fi

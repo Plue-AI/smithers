@@ -320,6 +320,70 @@ describe("Smithers Cloud CI", () => {
     })
   })
 
+  describe("tool downloads", () => {
+    // jj, ripgrep, Foundry and rustup-init run inside a task holding the
+    // checkout, so a swapped release asset is code execution there: each one
+    // must match a pinned SHA-256 before tar or exec touches it.
+    const probe = new URL("cloud.tool-probe.tmp.sh", import.meta.url)
+    const marker = 'if [ "${1:-}" = group ]; then'
+    afterAll(() => rmSync(probe, { force: true }))
+    const run = (machine: string, installer: string, extra: string[] = []) => {
+      writeFileSync(probe, shell.replace(marker, [
+        `uname() { case "$1" in -m) echo ${machine} ;; *) echo Linux ;; esac; }`,
+        'apt_install() { :; }',
+        // A spoofed asset: whatever bytes arrive, they are not the pinned release.
+        'download() { echo "DOWNLOAD $1"; printf tampered > "$2"; }',
+        'tar() { echo "TAR $*"; }',
+        'chmod() { echo "CHMOD $*"; }',
+        'command() { case "${1:-} ${2:-}" in "-v jj"|"-v rg") return 1 ;; esac; builtin command "$@"; }',
+        `tools_dir="$(mktemp -d)"`,
+        `CARGO_HOME="$tools_dir/cargo"`,
+        ...extra,
+        installer,
+        'echo "INSTALLED"',
+        "exit 0",
+        "",
+        marker
+      ].join("\n")))
+      return spawnSync("bash", ["scripts/ci/cloud.tool-probe.tmp.sh"], { cwd: root, encoding: "utf8" })
+    }
+
+    test("no artifact is downloaded without its digest check", () => {
+      const calls = shell.split("\n").filter((line) => /^\s*download\s/.test(line))
+      expect(calls).toEqual(['  download "$1" "$2" || exit 1'])
+    })
+
+    for (const [installer, machines] of [
+      ["ensure_jj", ["x86_64", "aarch64"]],
+      ["ensure_foundry", ["x86_64", "aarch64"]],
+      ["ensure_rust", ["x86_64", "aarch64"]]
+    ] as const) {
+      for (const machine of machines) {
+        test(`${installer} on ${machine} refuses a tampered download before unpacking or running it`, () => {
+          const result = run(machine, installer)
+          expect(result.status).toBe(1)
+          expect(result.stdout).toContain("DOWNLOAD https://")
+          expect(result.stderr).toContain("does not match the pinned digest")
+          expect(result.stderr).not.toContain("No pinned SHA-256 digest")
+          for (const absent of ["TAR ", "CHMOD ", "INSTALLED"]) expect(result.stdout).not.toContain(absent)
+        })
+      }
+    }
+
+    test("a download matching its pinned digest is unpacked", () => {
+      const result = run("x86_64", "ensure_foundry", [`tool_digest() { printf '%s\\n' "$(printf tampered | sha256sum | cut -d' ' -f1)"; }`])
+      expect(result.status).toBe(0)
+      expect(result.stdout).toContain("TAR -xzf")
+      expect(result.stdout).toContain("INSTALLED")
+    })
+
+    test("a tool with no pinned digest fails instead of downloading", () => {
+      const result = run("x86_64", 'tool_digest jj-9.9.9 x86_64 && echo "UNVERIFIED"')
+      expect(result.stdout).not.toContain("UNVERIFIED")
+      expect(result.stderr).toContain("No pinned SHA-256 digest for jj-9.9.9 on x86_64")
+    })
+  })
+
   describe("group mode", () => {
     // The real gate_tools, bootstrap_for, run_gate and run_group run; only the
     // installers and the gate commands themselves are stubbed out.
