@@ -126,3 +126,20 @@ test.each(["inventory", "diagnosis"])("bounds and cancels an oversized %s body",
   expect(response.status).toBe(502)
   expect(cancelled).toBe(true)
 })
+
+test("an inventory row with dot segments never resolves the access read to another Cloud path", async () => {
+  const seen: Array<string> = []
+  const response = await Effect.runPromise(handleGitHubAppInstall(new Request("https://app.test/api/user/github-app/installations", {
+    headers: { cookie: "smithers_session=test" }
+  })).pipe(Effect.provide(configLayer({ IDENTITY_UPSTREAM_URL: "https://identity.test", IDENTITY_SERVICE_TOKEN: "svc", SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test" })),
+  Effect.provide(transportLayer(async (input) => {
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    if (url.pathname === "/api/identity/validate") return Response.json({ login: "ada", allowlisted: true, admin: false, scopes: [] })
+    if (url.pathname === "/api/identity/cloud-token") return Response.json({ found: true, token: "ada-cloud-token" })
+    seen.push(url.pathname)
+    if (url.pathname === "/api/user/github-repos") return Response.json([{ full_name: "../.." }, { full_name: "ada/.." }, { full_name: "./x" }, { full_name: "ada/hello" }])
+    return Response.json({ verdict: "ok", installation_id: 42, detail: "" })
+  }))))
+  expect(response.status).toBe(200)
+  expect(seen).toEqual(["/api/user/github-repos", "/api/user/github-access/ada/hello"])
+})

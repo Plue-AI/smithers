@@ -268,8 +268,26 @@ export const STRIPPED_IDENTITY_HEADERS = [
  */
 export const SIBLING_ADMIN_ROUTE_PREFIXES = ["/api/identity/admin/", "/api/billing/admin/"] as const
 
-export const siblingAdminRoute = (pathname: string): boolean =>
-  SIBLING_ADMIN_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+/**
+ * The path a lenient upstream router could resolve `pathname` to: percent
+ * escapes decoded, repeated slashes collapsed, dot segments resolved, and
+ * lowercased. The admin test runs on this form so `//admin/`, `%61dmin`,
+ * `./admin` and `ADMIN` cannot slip a sibling's admin route past it.
+ */
+const canonicalRoutePath = (pathname: string): string => {
+  let decoded = pathname
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    // A malformed escape stays literal; the remaining steps still apply.
+  }
+  return new URL(decoded.replace(/[\\/]+/g, "/").replace(/\?/g, "%3F").replace(/#/g, "%23"), "http://route.invalid").pathname.replace(/\/{2,}/g, "/").toLowerCase()
+}
+
+export const siblingAdminRoute = (pathname: string): boolean => {
+  const canonical = canonicalRoutePath(pathname)
+  return SIBLING_ADMIN_ROUTE_PREFIXES.some((prefix) => canonical.startsWith(prefix) || canonical === prefix.slice(0, -1))
+}
 
 /**
  * Both sibling workers gate on the browser `Origin` (`ALLOWED_ORIGINS`), and a

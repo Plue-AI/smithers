@@ -36,6 +36,7 @@ import type { BodyUnreadable } from "./Failures"
 import { fetchWithDeadline, readJsonOrUndefined, readRefusalDetail, readText, Transport } from "./Http"
 import type { ValidatedIdentity } from "./identity"
 import { paidBy } from "./modelPayer"
+import { anonymousTurnKey } from "./turnLimit"
 import {
   causeMessage,
   ISOLATION_HEADERS,
@@ -84,9 +85,10 @@ interface TurnCancelState {
   readonly generation?: string
   readonly at: number
   /**
-   * The validated login that registered the run, when the deployment has an
-   * identity seam. Only the owner may cancel an owned registration; an
-   * ownerless one (local dev, no seam) is cancellable by anyone, as before.
+   * Who registered the run: the validated login, or for a signed-out visitor
+   * the salted address bucket (`anonymous:<sha256>`, turnOwner). Only the
+   * owner may cancel an owned registration. Only a record written before
+   * owners existed is ownerless, and that one stays cancellable by anyone.
    */
   readonly owner?: string
 }
@@ -701,6 +703,19 @@ export const readStartTurn = (request: Request): Effect.Effect<TurnRequest | Res
 export type TurnServices = Transport | ServerConfig | TurnCancels | ExecutionContext | RecommendLogStore
 
 /**
+ * The registry owner of a turn: the validated login, or for a visitor the
+ * salted address bucket the anonymous ceiling spends (turnLimit.ts). The
+ * `anonymous:` prefix never collides with a GitHub login, so a visitor can
+ * cancel only a turn started from its own address, never another visitor's.
+ */
+const turnOwner = (request: Request, session: ValidatedIdentity | undefined): Effect.Effect<string, never, ServerConfig> =>
+  Effect.gen(function* () {
+    if (session !== undefined) return session.login
+    const config = yield* ServerConfig
+    return yield* anonymousTurnKey(request, config.anonymousTurnSalt === undefined ? undefined : Redacted.value(config.anonymousTurnSalt))
+  })
+
+/**
  * One turn: registered under its runId, forwarded to the chat upstream with a
  * server-owned charge id, and streamed back re-tagged. The client's own
  * disconnect is fiber interruption (the native adapter wires the request's
@@ -744,7 +759,7 @@ const handleTransientTurn = (
     if (routed !== undefined) return routed
     const cancels = yield* TurnCancels
     // The registry is the cross-isolate authority on duplicate turns.
-    const registered = yield* Effect.result(cancels.register(body.runId, session?.login))
+    const registered = yield* Effect.result(cancels.register(body.runId, yield* turnOwner(request, session)))
     if (Result.isFailure(registered)) {
       yield* Effect.sync(() => console.error("turn registry register failed:", registered.failure.cause))
       return registryUnreachable(registered.failure)
@@ -986,7 +1001,7 @@ export const handleModelStream = (
 export const handleCancel = (
   request: Request,
   session: ValidatedIdentity | undefined
-): Effect.Effect<Response, never, TurnCancels> =>
+): Effect.Effect<Response, never, TurnCancels | ServerConfig> =>
   Effect.gen(function* () {
     const body = yield* readBody(request)
     if (body instanceof Response) return body
@@ -995,7 +1010,7 @@ export const handleCancel = (
       return refuse("request_invalid", "runId is required.")
     }
     const cancels = yield* TurnCancels
-    const outcome = yield* Effect.result(cancels.cancel(runId, session?.login))
+    const outcome = yield* Effect.result(cancels.cancel(runId, yield* turnOwner(request, session)))
     if (Result.isFailure(outcome)) {
       yield* Effect.sync(() => console.error("turn registry cancel failed:", outcome.failure.cause))
       return registryUnreachable(outcome.failure)

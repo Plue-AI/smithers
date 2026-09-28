@@ -286,6 +286,26 @@ describe("handleTurn over the registry", () => {
     }
   })
 
+  test("an anonymous turn is cancellable only from the address bucket that started it", async () => {
+    const cancels = memoryCancels()
+    const upstream = silentUpstream()
+    const layers = layersFor(upstream.response, cancels.namespace)
+    const from = (ip: string, body: unknown): Request =>
+      new Request("https://mvp.test/api/agent/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": ip },
+        body: JSON.stringify(body)
+      })
+    const first = await run(handleTurn(from("198.51.100.9", TURN)), layers)
+    expect(first.status).toBe(200)
+    const stranger = await run(handleCancel(from("203.0.113.7", { runId: "run-effect" }), undefined), layers)
+    expect(stranger.status).toBe(403)
+    expect(await cancels.stateOf("run-effect")).toBe("active")
+    const mine = await run(handleCancel(from("198.51.100.9", { runId: "run-effect" }), undefined), layers)
+    expect(await mine.json()).toEqual({ status: "cancelled" })
+    await first.body!.cancel()
+  })
+
   test("the registry refuses a duplicate turn and lets only its owner cancel it", async () => {
     const cancels = memoryCancels()
     const upstream = silentUpstream()

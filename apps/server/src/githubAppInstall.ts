@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import { ServerConfig } from "./Config"
-import { cloudTokenRefusal, fetchCloudToken } from "./cloudToken"
+import { cloudTokenRefusal, fetchCloudToken, isRelayRepoName } from "./cloudToken"
 import { discardBody, fetchWithDeadline, readBoundedJson } from "./Http"
 import { requireTurnSession } from "./identity"
 import { json, refuse, upstreamUnreachable } from "./Responses"
@@ -51,7 +51,8 @@ export const handleGitHubAppInstall = (request: Request, installationId?: string
     candidates.push(...rows.flatMap(row => {
       if (!record(row)) return []
       const name = typeof row.full_name === "string" ? row.full_name : undefined
-      if (name === undefined || !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(name) || seen.has(name)) return []
+      // A dot segment would resolve the access read to another Cloud path under the user's bearer.
+      if (name === undefined || !isRelayRepoName(name) || seen.has(name)) return []
       seen.add(name)
       return [{ name, pushedAt: typeof row.pushed_at === "string" ? row.pushed_at : "" }]
     }))

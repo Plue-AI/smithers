@@ -32,7 +32,9 @@ The host must compute the owner hash from validated identity, and require the
 read capability as well. Public input must never be trusted to supply its own
 owner hash. Anonymous turns need a fresh unpredictable capability persisted
 before the initial request. Ownerless historical cancellation records do not
-authorize output replay. The current internal endpoint is reachable through
+authorize output replay. A signed-out turn's cancel registration is owned by
+the salted address bucket its anonymous ceiling spends, so only a visitor at
+that address can cancel it. The current internal endpoint is reachable through
 the namespace binding, not the public HTTP router.
 
 Acceptance is one durable head write. A matching repeat returns `existing`,

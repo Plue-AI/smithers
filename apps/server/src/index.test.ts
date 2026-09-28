@@ -2947,7 +2947,7 @@ describe("the browser tool route (§2d)", () => {
 
   test("methods outside the platform-proxy allowlist stay the canonical 404", async () => {
     // GET /api/billing/checkout is NOT here: off the proxy allowlist it falls
-    // through to the /api/billing/ prefix, which the product billing worker owns.
+    // through to the /api/billing/ prefix, whose seam forwards only the balance read.
     const cases: ReadonlyArray<readonly [string, string]> = [
       ["GET", "/api/linear"],
       ["POST", "/api/linear"],
@@ -4089,6 +4089,70 @@ describe("sibling admin surfaces are unreachable through the transparent proxies
           expect(await response.json()).toEqual({ status: "error", code: "route_not_found", message: "Not found." })
         }
         expect(forwarded).toEqual([])
+      }
+    )
+  })
+
+  test("spellings a lenient upstream router resolves to an admin path answer the canonical 404", async () => {
+    const forwarded: Array<string> = []
+    await withMockedFetch(
+      (request) => {
+        const url = new URL(request.url)
+        if (url.hostname !== "identity.test") return undefined
+        forwarded.push(url.pathname)
+        return new Response("{}", { status: 200 })
+      },
+      async () => {
+        for (const path of [
+          "/api/identity//admin/allowlist",
+          "/api/identity/admin",
+          "/api/identity/ADMIN/allowlist",
+          "/api/identity/%61dmin/allowlist",
+          "/api/identity/%2e/admin/allowlist",
+          "/api/identity/x/%2e%2e/admin/allowlist",
+          "/api/identity/admin%2fallowlist"
+        ]) {
+          const response = await worker.fetch(new Request(`https://mvp.test${path}`, { headers: { cookie: "smithers_session=abc" } }), env)
+          expect(`${path} → ${response.status}`).toBe(`${path} → 404`)
+        }
+        expect(forwarded).toEqual([])
+      }
+    )
+  })
+
+  test("the billing proxy forwards only GET /api/billing/balance; every other billing route stays home", async () => {
+    const forwarded: Array<string> = []
+    await withMockedFetch(
+      (request) => {
+        const url = new URL(request.url)
+        if (url.hostname === "identity.test" && url.pathname === "/api/identity/validate") {
+          return Response.json({ login: "ada", allowlisted: false, admin: false, scopes: [] })
+        }
+        if (url.hostname !== "billing.test") return undefined
+        forwarded.push(`${request.method} ${url.pathname}`)
+        return new Response("{}", { status: 200 })
+      },
+      async () => {
+        for (const [method, path] of [
+          ["POST", "/api/billing/charges"],
+          ["POST", "/api/billing/authorize"],
+          ["POST", "/api/billing/topup"],
+          ["POST", "/api/billing/balance"],
+          ["GET", "/api/billing/usage"],
+          ["GET", "/api/billing/balance/extra"],
+          ["GET", "/api/billing//admin/grants"],
+          ["GET", "/api/billing/checkout"]
+        ] as const) {
+          const response = await worker.fetch(
+            new Request(`https://mvp.test${path}`, { method, headers: { cookie: "smithers_session=abc" } }),
+            env
+          )
+          expect(`${method} ${path} → ${response.status}`).toBe(`${method} ${path} → 404`)
+        }
+        expect(forwarded).toEqual([])
+        const balance = await worker.fetch(new Request("https://mvp.test/api/billing/balance", { headers: { cookie: "smithers_session=abc" } }), env)
+        expect(balance.status).toBe(200)
+        expect(forwarded).toEqual(["GET /api/billing/balance"])
       }
     )
   })

@@ -3,7 +3,8 @@ import * as Redacted from "effect/Redacted"
 import { ServerConfig } from "./Config"
 import type { Transport } from "./Http"
 import { forwardUnderDeadline, validateSession } from "./identity"
-import { notConfigured, notFound, refuse, siblingAdminRoute, strippedHeaders, withProxyOrigin } from "./Responses"
+import { BILLING_BALANCE_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { notConfigured, notFound, refuse, strippedHeaders, withProxyOrigin } from "./Responses"
 
 /**
  * Billing reads dollars for one authenticated account. Wave 13: a SIGNED-IN
@@ -20,6 +21,12 @@ import { notConfigured, notFound, refuse, siblingAdminRoute, strippedHeaders, wi
  * so the seam answers an honest 501 and never forwards, and a signed-out
  * request is refused. A signed-in request with no service token configured is
  * an honest 501 — never a silent fall back onto the shared account.
+ *
+ * The seam forwards exactly one route: GET /api/billing/balance, the only
+ * billing-worker read the product calls. Every other path and method under
+ * /api/billing/ (charges, authorize, top-ups, admin) answers the canonical
+ * 404 and never leaves with the service token, which the billing worker
+ * trusts to act as the named user.
  */
 export const proxyToBilling = (request: Request): Effect.Effect<Response, never, Transport | ServerConfig> =>
   Effect.gen(function* () {
@@ -28,13 +35,13 @@ export const proxyToBilling = (request: Request): Effect.Effect<Response, never,
       return notConfigured("The billing seam", "BILLING_UPSTREAM_URL is unset. Balance is unavailable")
     }
     const url = new URL(request.url)
-    if (siblingAdminRoute(url.pathname)) return notFound()
     if (config.identityUpstreamUrl === undefined) {
       return notConfigured(
         "The billing seam",
         "IDENTITY_UPSTREAM_URL is unset. Billing reads one signed-in user's account, and no identity service can validate a session"
       )
     }
+    if (request.method !== "GET" || url.pathname !== BILLING_BALANCE_PATH) return notFound()
     const target = new URL(url.pathname + url.search, config.billingUpstreamUrl)
     const headers = strippedHeaders(request)
 
