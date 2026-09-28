@@ -34,14 +34,26 @@ describe("public host service plans and unavailable routes", () => {
           "exec",
           ...(stdin ? ["-i"] : []),
           ...(cwd ? ["-w", "/work tree"] : []),
-          ...(env === "values" ? ["-e", "TOKEN", "-e", "MODE"] : []),
+          ...(env === "values" ? ["-e", "SMITHERS_CONTAINER_ENV_TOKEN", "-e", "SMITHERS_CONTAINER_ENV_MODE"] : []),
           "--",
           "worker name",
+          ...(env === "values"
+            ? [
+              "sh",
+              "-c",
+              `TOKEN="$SMITHERS_CONTAINER_ENV_TOKEN"; export TOKEN; unset SMITHERS_CONTAINER_ENV_TOKEN; MODE="$SMITHERS_CONTAINER_ENV_MODE"; export MODE; unset SMITHERS_CONTAINER_ENV_MODE; exec "$@"`,
+              "sh"
+            ]
+            : []),
           "python3",
           "-c",
           "print('quoted $value;')"
         ],
-        ...(environment === undefined ? {} : { env: environment })
+        ...(environment === undefined ? {} : {
+          env: Object.fromEntries(
+            Object.entries(environment).map(([key, value]) => [`SMITHERS_CONTAINER_ENV_${key}`, value])
+          )
+        })
       })
       expect(output.args.join(" ")).not.toContain("dummy secret with spaces")
     }

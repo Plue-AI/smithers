@@ -1,5 +1,10 @@
+import { NodeServices } from "@effect/platform-node"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Cause, Effect, Exit, Layer, Option, Path } from "effect"
+import { execFileSync } from "node:child_process"
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Bash from "../src/Bash.ts"
 import * as Container from "../src/Container.ts"
@@ -25,14 +30,18 @@ describe("Container.makeCommand", () => {
         "-w",
         "/work",
         "-e",
-        "MODE",
+        "SMITHERS_CONTAINER_ENV_MODE",
         "--",
         "worker-1",
+        "sh",
+        "-c",
+        `MODE="$SMITHERS_CONTAINER_ENV_MODE"; export MODE; unset SMITHERS_CONTAINER_ENV_MODE; exec "$@"`,
+        "sh",
         "bash",
         "-lc",
         "echo ready"
       ],
-      env: { MODE: "test" }
+      env: { SMITHERS_CONTAINER_ENV_MODE: "test" }
     })
   })
 
@@ -48,9 +57,75 @@ describe("Container.makeCommand", () => {
       })
     )
 
-    expect(plan.args).toContain("DATABASE_PASSWORD")
+    expect(plan.args).toContain("SMITHERS_CONTAINER_ENV_DATABASE_PASSWORD")
     expect(plan.args.join(" ")).not.toContain("s3cret-value")
-    expect(plan.env).toEqual({ DATABASE_PASSWORD: "s3cret-value" })
+    expect(plan.env).toEqual({ SMITHERS_CONTAINER_ENV_DATABASE_PASSWORD: "s3cret-value" })
+  })
+
+  it("never lets a requested variable configure the host transport process", async () => {
+    // A containerised caller's `env` used to land on the host `docker` process
+    // under its own name, so `PATH` chose which host binary ran as the
+    // transport. The planted transport below is reachable only through that
+    // PATH; it must never run.
+    const planted = mkdtempSync(join(tmpdir(), "std-container-path-"))
+    const marker = join(planted, "ran-on-host")
+    try {
+      writeFileSync(join(planted, "smithers-planted-transport"), `#!/bin/sh\n/usr/bin/touch '${marker}'\n`, {
+        mode: 0o755
+      })
+      await Effect.runPromise(
+        Effect.exit(Bash.run({
+          mode: "unhermetic",
+          container: "worker-1",
+          env: { PATH: planted, LD_PRELOAD: join(planted, "evil.so") },
+          command: "true"
+        })).pipe(
+          Effect.provide(Layer.mergeAll(
+            NodeServices.layer,
+            Layer.succeed(Container.Container)(Container.makeCommand({ program: "smithers-planted-transport" }))
+          ))
+        )
+      )
+      expect(existsSync(marker)).toBe(false)
+      const plan = await Effect.runPromise(
+        Container.makeCommand().exec({
+          ...request("worker-1"),
+          env: { PATH: planted, LD_PRELOAD: "evil.so" }
+        })
+      )
+      expect(Object.keys(plan.env ?? {})).toEqual(["SMITHERS_CONTAINER_ENV_PATH", "SMITHERS_CONTAINER_ENV_LD_PRELOAD"])
+    } finally {
+      rmSync(planted, { recursive: true, force: true })
+    }
+  })
+
+  it("renames each forwarded variable inside the container before the program runs", async () => {
+    const plan = await Effect.runPromise(
+      Container.makeCommand().exec({
+        container: "worker-1",
+        file: "sh",
+        args: ["-c", `printf '%s|%s|%s' "$MODE" "$NOTE" "\${SMITHERS_CONTAINER_ENV_MODE-unset}"`],
+        env: { MODE: "a b\nc", NOTE: "$(touch nothing)" },
+        stdin: false
+      })
+    )
+    // Everything after the container name is what `docker exec` runs in it.
+    const inside = plan.args.slice(plan.args.indexOf("worker-1") + 1)
+    const output = execFileSync(inside[0]!, inside.slice(1), {
+      env: { PATH: process.env["PATH"] ?? "", ...plan.env },
+      encoding: "utf8"
+    })
+    expect(output).toBe("a b\nc|$(touch nothing)|unset")
+  })
+
+  it.each(["-privileged", "A=B", "1A", "", "A B"])("refuses environment name %j before spawning", async (name) => {
+    const error = await Effect.runPromise(Effect.flip(
+      Container.makeCommand().exec({
+        ...request("worker-1"),
+        env: { [name]: "value" }
+      })
+    ))
+    expect(error).toMatchObject({ code: "invalid_input" })
   })
 
   it.each(["--privileged", ""])("refuses container name %j before spawning", async (container) => {

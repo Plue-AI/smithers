@@ -26,9 +26,11 @@
  * commit it prints in this repository's own git config rather than with a ref —
  * see {@link configSection} for why a ref would hand the agent its own edit back
  * as history. `stash create` is the one git command
- * that records the working tree and changes nothing else: it does not write the
- * repository's index, does not move the worktree, and does not touch the stash
- * ref. That matters more than it sounds. The agent runs `git` in this same
+ * that records the working tree and changes nothing else: it does not move the
+ * worktree and does not touch the stash ref. It runs against a shadow
+ * `GIT_DIR` over a copy of the workspace index (see `internal/GitWorktree.ts`),
+ * so it never writes the repository's index and never runs a program the
+ * workspace's `.git` names. That matters more than it sounds. The agent runs `git` in this same
  * workspace and its own `git diff` is the run's evidence, so a capture that
  * staged into the real index would be the harness editing the evidence while
  * recording it. A tree with nothing to record prints nothing, and the
@@ -38,7 +40,7 @@
  * captures a patch: `capture-patch.sh` drops paths that did not exist when the
  * agent started, so a checkpoint holds what a patch would hold.
  *
- * The materialization is a detached worktree at `<root>/.flows-checkpoints/<id>-<lease>`
+ * The materialization is a detached checkout at `<root>/.flows-checkpoints/<id>-<lease>`
  * — **inside** the workspace, which looks wrong and is the only thing that
  * works. A benchmark check runs through `docker exec` inside `/testbed`, and
  * `/testbed` is a bind mount of the live workspace. A scratch checkout anywhere
@@ -50,7 +52,7 @@
  * `evals/swebench/run-instance.sh` excludes the directory from patch capture for
  * the same reason it excludes `.flows-test-base`.
  *
- * The worktree is added and removed around **one call**, which is stricter than
+ * The checkout is added and removed around **one call**, which is stricter than
  * the frame lifetime the design asks for and much simpler: there is no cache to
  * invalidate, no id to leak, and a checkpoint used by three calls pays three
  * checkouts rather than risking one stale directory. A run that reuses a
@@ -70,7 +72,6 @@
 
 import { ChildProcessSpawner } from "@smthrs/kernel/ChildProcessSpawner"
 import { Context, Effect, Layer, Schema } from "effect"
-import * as Exec from "./internal/Exec.ts"
 import { GitWorktree } from "./internal/GitWorktree.ts"
 import { withoutTrailingSlash } from "./internal/Paths.ts"
 import * as Prune from "./internal/Prune.ts"
@@ -113,18 +114,17 @@ export const scratchDirectory = Prune.checkpointScratch
  * would reintroduce it one wave later.
  *
  * The commit object itself is unreferenced. It stays alive for the life of the
- * run — nothing in a run prunes — and `git worktree add --detach <sha>` checks
- * one out perfectly well, which is measured in `CheckpointsFixture.test.ts`. So
- * the tree is reachable by id and no command that walks refs can reach it:
+ * run — nothing in a run prunes — and a checkout by id works perfectly well,
+ * which is measured in `CheckpointsFixture.test.ts`. So the tree is reachable
+ * by id and no command that walks refs can reach it:
  * `git log`, `git log --all`, `git log -S` and `git show <ref>` all answer
  * exactly as they did before the capture.
  *
- * Two commands still see it, and both are measured rather than argued in
- * `CheckpointsFixture.test.ts`. `git fsck` reports it as a dangling commit,
- * because that is what an unreferenced commit is; and while a checkpoint is
- * checked out, `git log --all` includes the other worktree's detached `HEAD`,
- * because `--all` spans worktrees unless `--single-worktree` says otherwise.
- * Neither is reachable by a name that looks like project history, and the cell
+ * One command still sees it, measured rather than argued in
+ * `CheckpointsFixture.test.ts`: `git fsck` reports it as a dangling commit,
+ * because that is what an unreferenced commit is. A checkout is a standalone
+ * repository, not a worktree of this one, so `git log --all` does not list it
+ * even while a call runs in it. It is not reachable by a name that looks like project history, and the cell
  * contract's environment section says outright that a dangling commit is this
  * harness holding the agent's own tree — which is the half of the django-13346
  * lesson that a store cannot enforce.
@@ -282,22 +282,14 @@ const failed = (message: string, code: StdError.Code = "command_failed"): StdErr
  */
 const namable = /^[A-Za-z0-9][A-Za-z0-9-]*$/
 
-const git = (
-  root: string,
-  args: ReadonlyArray<string>
-): Effect.Effect<Exec.ExecResult, StdError.StdError, ChildProcessSpawner> =>
-  Exec.exec("git", { args: ["-C", root, ...args] }).pipe(
-    Effect.mapError((error) => failed(`git could not run: ${error.message}`))
-  )
-
 /**
  * Builds the git-backed store.
  *
- * The capture writes through a temporary index so the workspace's own index is
- * untouched — the agent's `git diff` is the run's evidence and must not move
- * because the harness recorded something. `core.fileMode=false` matches
- * `snapshot-base.sh`: a `docker cp` extraction does not preserve permission
- * bits, so the modes recorded are the image's.
+ * Every git command that records or checks out a tree runs against a shadow
+ * `GIT_DIR` the harness owns, never the workspace's `.git`, which the agent
+ * can write; see `internal/GitWorktree.ts`. The capture reads a copy of the
+ * workspace index, so the agent's own index is untouched: its `git diff` is the
+ * run's evidence and must not move because the harness recorded something.
  *
  * @category constructors
  * @since 1.0.0
@@ -331,13 +323,14 @@ const gitStore = (options: GitOptions, spawner: ChildProcessSpawner["Service"]):
    *
    * `base` is the one id nobody mints, so it is resolved from refs — the same
    * precedence `TestRun` uses. Every other id was recorded by {@link capture}
-   * into this repository's config, which is where a checkpoint is named
+   * into this repository's config file, which is where a checkpoint is named
    * *without* becoming history. See {@link configSection}.
    */
   const commitOf = (id: string) =>
     Effect.gen(function*() {
       if (id === baseId) return (yield* GitWorktree.resolveCommit(root, baseRefs)).commit
-      const found = yield* git(root, ["config", "--local", "--get", keyOf(id)])
+      const repository = yield* GitWorktree.open(root)
+      const found = yield* GitWorktree.config(repository, ["--get", keyOf(id)])
       const commit = found.stdout.trim()
       if (found.exitCode !== 0 || commit === "") {
         return yield* Effect.fail(
@@ -357,17 +350,25 @@ const gitStore = (options: GitOptions, spawner: ChildProcessSpawner["Service"]):
           failed(`A checkpoint id must match ${namable.source}; ${id} does not.`, "invalid_input")
         )
       }
-      const recorded = yield* git(root, ["stash", "create", `flows checkpoint ${id}`])
-      if (recorded.exitCode !== 0) {
-        return yield* Effect.fail(failed(`Could not record the working tree: ${recorded.stderr.trim()}`))
-      }
-      // Nothing to record means the working tree IS the commit it is on, so
-      // that commit is the checkpoint. `stash create` says so by printing
-      // nothing, which is not an error and must not be read as one.
-      const commit = recorded.stdout.trim() === ""
-        ? (yield* GitWorktree.resolveCommit(root, ["HEAD"])).commit
-        : recorded.stdout.trim()
-      const named = yield* git(root, ["config", "--local", keyOf(id), commit])
+      const repository = yield* GitWorktree.open(root)
+      const commit = yield* GitWorktree.withShadow(repository, (shadow) =>
+        Effect.gen(function*() {
+          const head = (yield* GitWorktree.resolveCommit(root, ["HEAD"])).commit
+          yield* shadow.adoptIndex
+          const pinned = yield* shadow.git(["update-ref", "--no-deref", "HEAD", head])
+          if (pinned.exitCode !== 0) {
+            return yield* Effect.fail(failed(`Could not record the working tree: ${pinned.stderr.trim()}`))
+          }
+          const recorded = yield* shadow.git(["stash", "create", `flows checkpoint ${id}`], root)
+          if (recorded.exitCode !== 0) {
+            return yield* Effect.fail(failed(`Could not record the working tree: ${recorded.stderr.trim()}`))
+          }
+          // Nothing to record means the working tree IS the commit it is on, so
+          // that commit is the checkpoint. `stash create` says so by printing
+          // nothing, which is not an error and must not be read as one.
+          return recorded.stdout.trim() === "" ? head : recorded.stdout.trim()
+        }))
+      const named = yield* GitWorktree.config(repository, [keyOf(id), commit])
       if (named.exitCode !== 0) {
         return yield* Effect.fail(failed(`Could not name the checkpoint: ${named.stderr.trim()}`))
       }

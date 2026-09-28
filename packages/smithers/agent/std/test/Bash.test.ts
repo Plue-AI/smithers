@@ -795,9 +795,13 @@ describe("Bash", () => {
         "-w",
         "/testbed",
         "-e",
-        "PYTHONHASHSEED",
+        "SMITHERS_CONTAINER_ENV_PYTHONHASHSEED",
         "--",
         "swebench-1",
+        "sh",
+        "-c",
+        `PYTHONHASHSEED="$SMITHERS_CONTAINER_ENV_PYTHONHASHSEED"; export PYTHONHASHSEED; unset SMITHERS_CONTAINER_ENV_PYTHONHASHSEED; exec "$@"`,
+        "sh",
         "bash",
         "-lc",
         `exec "$@"`,
@@ -855,11 +859,14 @@ describe("Bash", () => {
       expect(failure?.message).toBe("Command timed out: pytest")
       expect(Cause.pretty(exit.cause)).not.toContain("s3cret-value")
     }
-    expect(spawns.find((spawn) => !isFingerprint(spawn))).toContain("DATABASE_PASSWORD")
+    expect(spawns.find((spawn) => !isFingerprint(spawn))).toContain("SMITHERS_CONTAINER_ENV_DATABASE_PASSWORD")
     expect(spawns.find((spawn) => !isFingerprint(spawn))?.join(" ")).not.toContain("s3cret-value")
     // The value still has to reach the container, so it rides on the
-    // environment of the transport process the host spawns.
-    expect(environments[spawns.findIndex((spawn) => !isFingerprint(spawn))]?.["DATABASE_PASSWORD"]).toBe("s3cret-value")
+    // environment of the transport process the host spawns, under a prefixed
+    // name the transport itself never reads.
+    const transport = environments[spawns.findIndex((spawn) => !isFingerprint(spawn))]
+    expect(transport?.["SMITHERS_CONTAINER_ENV_DATABASE_PASSWORD"]).toBe("s3cret-value")
+    expect(transport?.["DATABASE_PASSWORD"]).toBeUndefined()
   })
 
   it("asks a containerised shell script for no login flag of its own", async () => {

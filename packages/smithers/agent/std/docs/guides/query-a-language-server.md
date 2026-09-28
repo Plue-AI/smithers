@@ -33,6 +33,43 @@ The child inherits only `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TERM`, `TMPDIR`
 and `SHELL`, with credential-shaped names withheld. Declare other names through
 `environment`; explicit values override the allowlist.
 
+### Keep the server's code out of the workspace
+
+The server runs on the host as the host user, so a program the workspace
+supplies would let files an agent wrote choose what the host executes. The
+layer fails with `permission_denied`, before spawning, when:
+
+- `command` resolves to a file under `cwd`, directly, through a `PATH` entry
+  such as `node_modules/.bin`, or through a symlink planted there;
+- an argument, or the value after `=` in one, names an existing file under
+  `cwd`;
+- `command` is a launcher whose arguments choose what runs: a shell
+  (`sh -c ...`), `env`, a package runner (`npx`, `pnpm exec`, `npm`, `yarn`,
+  `bunx`, `bun x`, `deno`), or `node` or `bun` given inline code or a preload
+  (`-e`, `-p`, `-r`, `--require`, `--import`, `--loader`). `npx` and
+  `pnpm exec` resolve the workspace's `node_modules/.bin` first, and inline
+  code resolves bare requires from `cwd`. Name the server's own host binary,
+  or an interpreter and a host script file, instead.
+
+The layer cannot see what the server loads after it starts. By default
+typescript-language-server runs the workspace's own `node_modules/typescript`;
+tsserver started with `--allowLocalPluginLoads` loads `tsconfig` plugins from
+the project; rust-analyzer runs build scripts and proc macros. Pin those to
+host copies, or run the server in a sandbox:
+
+```ts
+const server = NodeLanguageServer.layer({
+  command: "/opt/lsp/node_modules/.bin/typescript-language-server",
+  args: ["--stdio"],
+  cwd: "/workspace",
+  initializationOptions: { tsserver: { path: "/opt/lsp/node_modules/typescript/lib/tsserver.js" } }
+})
+```
+
+`initializationOptions` is sent on `initialize` unchanged. With `tsserver.path`
+outside the workspace and local plugin loads left off, tsserver probes for
+plugins only beside its own install.
+
 A host with no server binds `LanguageServer.layerNoop`, and every operation
 fails with `unsupported`.
 
@@ -69,7 +106,10 @@ converts to the protocol's 0-based coordinates for you.
 
 `path` must be a normalized absolute path. A relative path, or a missing one for
 any operation except `workspaceSymbols`, fails with `invalid_input`, as does a
-position operation missing `line` or `character`.
+position operation missing `line` or `character`. The server reads the file
+itself, so the flow first reads `path` through the bound `FileSystem`: a path the
+guarded filesystem denies fails with `permission_denied` before the server sees
+it.
 
 `references` includes the declaration. The two call-hierarchy directions run
 `prepareCallHierarchy` first and return an empty array when the server prepares

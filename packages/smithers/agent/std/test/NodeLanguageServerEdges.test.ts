@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import * as LanguageServer from "../src/LanguageServer.ts"
 import * as NodeLanguageServer from "../src/NodeLanguageServer.ts"
+import { hostScript } from "./hostScript.ts"
 
 const position = { path: "/workspace/a b.ts", line: 2, character: 4 }
 const positionParams = { textDocument: { uri: "file:///workspace/a%20b.ts" }, position: { line: 2, character: 4 } }
@@ -51,7 +52,7 @@ const withServer = <A>(
     Effect.scoped(Effect.gen(function*() {
       const server = yield* NodeLanguageServer.make({
         command: process.execPath,
-        args: ["-e", childScript(prepared, malformedHeader, rpcError)],
+        args: [hostScript(childScript(prepared, malformedHeader, rpcError))],
         cwd: process.cwd()
       })
       return yield* body(server)
@@ -181,7 +182,7 @@ describe("NodeLanguageServer real protocol boundaries", () => {
         return yield* server.workspaceSymbols("layer")
       }).pipe(
         Effect.provide(
-          NodeLanguageServer.layer({ command: process.execPath, args: ["-e", childScript()], cwd: process.cwd() })
+          NodeLanguageServer.layer({ command: process.execPath, args: [hostScript(childScript())], cwd: process.cwd() })
         ),
         Effect.provide(NodeServices.layer)
       )

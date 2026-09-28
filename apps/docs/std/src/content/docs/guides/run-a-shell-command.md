@@ -63,8 +63,11 @@ command. Undeclared provider keys and tokens are withheld.
 
 Containerised commands receive the `env` entries through the container
 transport; their remaining environment belongs to the container image. The
-Docker and Podman transport passes `-e KEY` and supplies each value through the
-host child environment. Timeout errors show the logical command without
+Docker and Podman transport supplies each value to the host child as
+`SMITHERS_CONTAINER_ENV_KEY`, passes `-e SMITHERS_CONTAINER_ENV_KEY`, and renames
+it to `KEY` inside the container with `sh -c`, so the container needs `sh`. A
+requested `PATH` or `LD_PRELOAD` therefore never configures the host `docker`
+process. An `env` name that is not a POSIX shell name is `invalid_input`. Timeout errors show the logical command without
 container transport arguments.
 
 ## Route it into a container

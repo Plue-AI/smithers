@@ -23,7 +23,8 @@ interface Response {
 /** Records every argv and answers each from a table keyed by a fragment. */
 const host = (
   spawns: Array<ReadonlyArray<string>>,
-  responses: ReadonlyArray<readonly [string, Response | (() => Response)]>
+  responses: ReadonlyArray<readonly [string, Response | (() => Response)]>,
+  envs: Array<Readonly<Record<string, string>> | undefined> = []
 ) =>
   Layer.succeed(ChildProcessSpawner.ChildProcessSpawner)(ChildProcessSpawner.makeNoop({
     spawn: (command) =>
@@ -31,8 +32,9 @@ const host = (
         const standard = command as ChildProcess.StandardCommand
         const argv = [standard.command, ...standard.args]
         spawns.push(argv)
+        envs.push(standard.options.env as Readonly<Record<string, string>> | undefined)
         const line = argv.join(" ")
-        const scripted = responses.find(([fragment]) => line.includes(fragment))?.[1] ?? {}
+        const scripted = [...responses, ...repository].find(([fragment]) => line.includes(fragment))?.[1] ?? {}
         const found = typeof scripted === "function" ? scripted() : scripted
         const encode = (text: string) => Stream.make(new TextEncoder().encode(text))
         const stdout = encode(found.stdout ?? "")
@@ -53,11 +55,18 @@ const host = (
       })
   }))
 
+/** What `rev-parse` reports about `/work/repo`, answered when a test's own table does not. */
+const repository: ReadonlyArray<readonly [string, Response]> = [
+  ["--show-toplevel", { stdout: "/work/repo\n/work/repo/.git\n/work/repo/.git/index\nsha1\n" }],
+  ["--get-regexp", { exitCode: 1 }]
+]
+
 const store = (
   spawns: Array<ReadonlyArray<string>>,
   responses: ReadonlyArray<readonly [string, Response | (() => Response)]>,
-  options: Checkpoints.GitOptions = { root: "/work/repo" }
-) => Effect.provide(Checkpoints.makeGit(options), host(spawns, responses))
+  options: Checkpoints.GitOptions = { root: "/work/repo" },
+  envs?: Array<Readonly<Record<string, string>> | undefined>
+) => Effect.provide(Checkpoints.makeGit(options), host(spawns, responses, envs))
 
 const failureOf = <A>(exit: Exit.Exit<A, unknown>) =>
   Exit.isFailure(exit)
@@ -72,44 +81,81 @@ const materialized: Checkpoints.Materialized = {
   guestRoot: "/testbed"
 }
 
+/** The shadow GIT_DIR is a fresh temporary path per operation; argv pins name it `<shadow>`. */
+const lines = (spawns: ReadonlyArray<ReadonlyArray<string>>) =>
+  spawns.map((argv) =>
+    argv.map((part) => part.replace(/^(--git-dir=)?\S*\/smithers-git-[0-9a-f-]{36}/, "$1<shadow>")).join(" ")
+  )
+
 /** The exact allocated path must be used for checkout, relocation and removal. */
 const checkoutPath = (spawns: ReadonlyArray<ReadonlyArray<string>>) => {
-  const path = spawns.find((argv) => argv.includes("add"))?.at(-2)
+  const path = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mkdir"))?.[5]
   expect(path).toMatch(/^\/work\/repo\/\.flows-checkpoints\/[a-z0-9-]+-[0-9a-f-]{36}$/)
   return path!
 }
 
-const checkout = (path: string, commit: string) => [
-  `git -C /work/repo -c worktree.useRelativePaths=true worktree add --detach --force ${path} ${commit}`
+const workspace = "git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C /work/repo"
+const shadow = "git --git-dir=<shadow>"
+const guarded = "-c core.hooksPath=/dev/null -c core.fsmonitor=false"
+const configFile = "git --git-dir=/dev/null config --file /work/repo/.git/config"
+
+/** Opening the workspace: paths and hashing settings, as data. */
+const opened = [
+  `${workspace} rev-parse --path-format=absolute --show-toplevel --git-common-dir --git-path index --show-object-format`,
+  `${configFile} --get-regexp ^core\\.(autocrlf|eol|safecrlf|filemode|symlinks|ignorecase|precomposeunicode)$`
 ]
 
-/**
- * The repository-format read taken before every checkout, so the store can
- * restore exactly what stood if the checkout stamps the repository.
- */
-const formatRead = [
-  "git -C /work/repo config --local --get core.repositoryformatversion",
-  "git -C /work/repo config --local --get extensions.relativeWorktrees"
+const init = "git init --quiet --bare --template= --object-format=sha1 <shadow>"
+
+const checkout = (path: string, commit: string) => [
+  ...opened,
+  init,
+  `sh -c set -eC; mkdir -p -- "$1"; mkdir -- "$2" "$2/.git" "$2/.git/objects" "$2/.git/objects/info" "$2/.git/refs"; printf '%s\\n' "$3" > "$2/.git/HEAD"; printf '%s\\n' "$4" > "$2/.git/objects/info/alternates"; printf '%s' "$5" > "$2/.git/config" sh /work/repo/.flows-checkpoints ${path} ${commit} ../../../../.git/objects [core]\n\trepositoryformatversion = 0\n\tbare = false\n`,
+  `${shadow} --work-tree=${path} ${guarded} read-tree --reset -u ${commit}`,
+  `sh -c set -C; cat -- "$1" > "$2" sh <shadow>/index ${path}/.git/index`,
+  "rm -rf -- <shadow>"
 ]
 
 describe("Checkpoints.makeGit capture", () => {
-  it("records the working tree without touching the index or the worktree", async () => {
+  it("records the working tree through a shadow GIT_DIR, without touching the index or the worktree", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
+    const envs: Array<Readonly<Record<string, string>> | undefined> = []
     const snapshot = await Effect.runPromise(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [["stash create", { stdout: "abc123\n" }]])
+      const checkpoints = yield* store(
+        spawns,
+        [
+          ["stash create", { stdout: "abc123\n" }],
+          ["HEAD^", { stdout: "head999\n" }]
+        ],
+        { root: "/work/repo" },
+        envs
+      )
       return yield* checkpoints.capture("cp-0-1")
     }))
 
-    // `stash create` and nothing else. `add`, `read-tree` and `write-tree` all
-    // write the repository's index, and the agent's own `git diff` — the run's
+    // `stash create` records; nothing writes the repository's index, because
+    // the shadow reads a copy of it. The agent's own `git diff` — the run's
     // evidence — is read off that index.
     //
     // And the commit is named in config, never with a ref: a ref is history,
     // and a checkpoint holds the agent's own edit.
-    expect(spawns.map((argv) => argv.join(" "))).toEqual([
-      "git -C /work/repo stash create flows checkpoint cp-0-1",
-      "git -C /work/repo config --local flows-checkpoint.cp-0-1 abc123"
+    expect(lines(spawns)).toEqual([
+      ...opened,
+      init,
+      `${workspace} rev-parse --verify --quiet HEAD^{commit}`,
+      "sh -c set -C; if [ -e \"$1\" ]; then cat -- \"$1\" > \"$2\"; fi sh /work/repo/.git/index <shadow>/index",
+      `${shadow} ${guarded} update-ref --no-deref HEAD head999`,
+      `${shadow} --work-tree=/work/repo ${guarded} stash create flows checkpoint cp-0-1`,
+      "rm -rf -- <shadow>",
+      `${configFile} flows-checkpoint.cp-0-1 abc123`
     ])
+    // The shadow reads no host config file and writes the workspace's objects.
+    const stash = spawns.findIndex((argv) => argv.includes("stash"))
+    expect(envs[stash]).toMatchObject({
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_OBJECT_DIRECTORY: "/work/repo/.git/objects"
+    })
     expect(snapshot).toMatchObject({ id: "cp-0-1", ref: "abc123" })
   })
 
@@ -120,17 +166,31 @@ describe("Checkpoints.makeGit capture", () => {
     const snapshot = await Effect.runPromise(Effect.gen(function*() {
       const checkpoints = yield* store(spawns, [
         ["stash create", { stdout: "" }],
-        ["rev-parse", { stdout: "head999\n" }]
+        ["HEAD^", { stdout: "head999\n" }]
       ])
       return yield* checkpoints.capture("cp-1-0")
     }))
 
-    expect(spawns.map((argv) => argv.join(" "))).toEqual([
-      "git -C /work/repo stash create flows checkpoint cp-1-0",
-      "git -C /work/repo rev-parse --verify --quiet HEAD^{commit}",
-      "git -C /work/repo config --local flows-checkpoint.cp-1-0 head999"
-    ])
+    expect(lines(spawns).at(-1)).toBe(`${configFile} flows-checkpoint.cp-1-0 head999`)
     expect(snapshot.ref).toBe("head999")
+  })
+
+  it("carries only bare-word hashing settings from the workspace config onto the shadow", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    await Effect.runPromise(Effect.gen(function*() {
+      const checkpoints = yield* store(spawns, [
+        ["--get-regexp", {
+          stdout: "core.filemode false\ncore.autocrlf true\ncore.eol $(touch /tmp/owned)\n"
+        }],
+        ["stash create", { stdout: "abc123\n" }],
+        ["HEAD^", { stdout: "head999\n" }]
+      ])
+      return yield* checkpoints.capture("cp-0-1")
+    }))
+
+    expect(lines(spawns)).toContain(
+      `${shadow} --work-tree=/work/repo ${guarded} -c core.filemode=false -c core.autocrlf=true stash create flows checkpoint cp-0-1`
+    )
   })
 
   it("refuses an id that could not safely become a ref or a directory", async () => {
@@ -144,14 +204,52 @@ describe("Checkpoints.makeGit capture", () => {
     expect(spawns).toEqual([])
   })
 
-  it("says so when git could not record the tree", async () => {
+  it("says so when git could not record the tree, and still removes the shadow", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [["stash create", { exitCode: 1 }]])
+      const checkpoints = yield* store(spawns, [
+        ["stash create", { exitCode: 1 }],
+        ["HEAD^", { stdout: "head999\n" }]
+      ])
       return yield* checkpoints.capture("cp-0-0")
     })))
 
     expect(failureOf(exit)?.message).toContain("Could not record the working tree")
+    expect(lines(spawns).at(-1)).toBe("rm -rf -- <shadow>")
+  })
+
+  it("says so when the workspace is not a git work tree", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
+      const checkpoints = yield* Effect.provide(
+        Checkpoints.makeGit({ root: "/work/repo" }),
+        Layer.succeed(ChildProcessSpawner.ChildProcessSpawner)(ChildProcessSpawner.makeNoop({
+          spawn: (command) =>
+            Effect.sync(() => {
+              const standard = command as ChildProcess.StandardCommand
+              spawns.push([standard.command, ...standard.args])
+              const empty = Stream.make(new TextEncoder().encode(""))
+              return makeHandle({
+                pid: ProcessId(1),
+                exitCode: Effect.succeed(ExitCode(128)),
+                isRunning: Effect.succeed(false),
+                kill: () => Effect.void,
+                stdin: Sink.drain,
+                stdout: empty,
+                stderr: empty,
+                all: empty,
+                getInputFd: () => Sink.drain,
+                getOutputFd: () => Stream.empty,
+                unref: Effect.succeed(Effect.void)
+              })
+            })
+        }))
+      )
+      return yield* checkpoints.capture("cp-0-0")
+    })))
+
+    expect(failureOf(exit)?.message).toContain("/work/repo is not a git work tree")
+    expect(spawns).toHaveLength(1)
   })
 
   it("says so when git could not be spawned at all", async () => {
@@ -171,7 +269,8 @@ describe("Checkpoints.makeGit capture", () => {
     const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
       const checkpoints = yield* store(spawns, [
         ["stash create", { stdout: "abc123\n" }],
-        ["config --local flows-checkpoint", { exitCode: 1 }]
+        ["HEAD^", { stdout: "head999\n" }],
+        ["config --file /work/repo/.git/config flows-checkpoint", { exitCode: 1 }]
       ])
       return yield* checkpoints.capture("cp-0-0")
     })))
@@ -187,10 +286,10 @@ describe("Checkpoints.makeGit materialize", () => {
     expect(guide).toMatch(/Otherwise it tries `TestRunner.captureBase`\s+and then `HEAD`/)
   })
 
-  it("checks the tree out beside the repository and removes it however the call ends", async () => {
+  it("checks the tree out beside the repository from a shadow GIT_DIR and removes it however the call ends", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const seen = await Effect.runPromise(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [["config --local --get", { stdout: "abc123\n" }]])
+      const checkpoints = yield* store(spawns, [["--get flows-checkpoint", { stdout: "abc123\n" }]])
       return yield* checkpoints.materialize("cp-0-1", (found) => Effect.succeed(found))
     }))
 
@@ -203,74 +302,48 @@ describe("Checkpoints.makeGit materialize", () => {
       root: "/work/repo",
       guestRoot: "/work/repo"
     })
-    // The scripted host answers every unmatched command with exit 0, so the
-    // format read reports the marker as already present — a repository that
-    // legitimately uses relative worktrees — and the store rightly leaves the
-    // format alone.
-    expect(spawns.map((argv) => argv.join(" "))).toEqual([
-      "git -C /work/repo config --local --get flows-checkpoint.cp-0-1",
-      ...formatRead,
+    expect(lines(spawns)).toEqual([
+      ...opened,
+      `${configFile} --get flows-checkpoint.cp-0-1`,
       ...checkout(checkoutPath(spawns), "abc123"),
-      `git -C /work/repo worktree remove --force ${checkoutPath(spawns)}`
+      `rm -rf -- ${checkoutPath(spawns)}`
     ])
   })
 
-  it("removes the format stamp its own checkout wrote, before the call runs", async () => {
-    // Git 2.48+ records the first relative checkout in the repository itself:
-    // `extensions.relativeWorktrees = true`, `core.repositoryformatversion`
-    // raised to 1. A pre-2.48 git that then opens the repository refuses it
-    // whole — which on the r97 wave cost 15 of 45 benchmark runs every
-    // in-container `git status` and `git diff` from the first `{ at: ctx.base }`
-    // call onward. The repair must land before the relocated call, because the
-    // call is the thing that runs git through the mount.
+  it("never registers a worktree in, or rewrites the format of, the workspace repository", async () => {
+    // Git 2.48+ stamps a repository that gains a relative worktree, and a
+    // pre-2.48 git then refuses it whole — on the r97 wave, 15 of 45 runs lost
+    // every in-container `git status` and `git diff`. The shadow checkout
+    // writes nothing into the workspace's `.git` but objects, so there is
+    // no stamp to repair.
     const spawns: Array<ReadonlyArray<string>> = []
-    let markerReads = 0
     await Effect.runPromise(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [
-        ["config --local --get flows-checkpoint", { stdout: "abc123\n" }],
-        ["--get core.repositoryformatversion", { stdout: "0\n" }],
-        // Absent before the checkout, present after it: exactly what a
-        // git 2.48+ relative `worktree add` leaves behind.
-        ["--get extensions.relativeWorktrees", () => ({ exitCode: markerReads++ === 0 ? 1 : 0, stdout: "true\n" })]
-      ])
-      return yield* checkpoints.materialize(
-        "cp-0-1",
-        () => Effect.sync(() => spawns.push(["<the relocated call runs here>"]))
-      )
+      const checkpoints = yield* store(spawns, [["--get flows-checkpoint", { stdout: "abc123\n" }]])
+      return yield* checkpoints.materialize("cp-0-1", () => Effect.void)
     }))
 
-    expect(spawns.map((argv) => argv.join(" "))).toEqual([
-      "git -C /work/repo config --local --get flows-checkpoint.cp-0-1",
-      ...formatRead,
-      ...checkout(checkoutPath(spawns), "abc123"),
-      "git -C /work/repo config --local --get extensions.relativeWorktrees",
-      "git -C /work/repo config --local --unset extensions.relativeWorktrees",
-      "git -C /work/repo config --local core.repositoryformatversion 0",
-      "<the relocated call runs here>",
-      `git -C /work/repo worktree remove --force ${checkoutPath(spawns)}`
-    ])
+    for (const line of lines(spawns)) {
+      expect(line).not.toMatch(/worktree (add|remove)|config --local|relativeWorktrees/)
+    }
   })
 
   it("allocates a new path each time the same materialization effect runs", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const paths = await Effect.runPromise(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [["config --local --get", { stdout: "abc123\n" }]])
+      const checkpoints = yield* store(spawns, [["--get flows-checkpoint", { stdout: "abc123\n" }]])
       const read = checkpoints.materialize("cp-0-1", (found) => Effect.succeed(found.host))
       return [yield* read, yield* read]
     }))
     expect(paths[0]).not.toBe(paths[1])
-    const worktrees = spawns.filter((argv) => argv.includes("worktree")).map((argv) => argv.join(" "))
-    expect(worktrees).toEqual(paths.flatMap((path) => [
-      ...checkout(path, "abc123"),
-      `git -C /work/repo worktree remove --force ${path}`
-    ]))
+    const removed = lines(spawns).filter((line) => line.startsWith("rm -rf -- /work/repo"))
+    expect(removed).toEqual(paths.map((path) => `rm -rf -- ${path}`))
   })
 
   it("keeps the caller's process service inside the callback", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const caller = ChildProcessSpawner.makeNoop()
     const seen = await Effect.runPromise(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [["config --local --get", { stdout: "abc123\n" }]])
+      const checkpoints = yield* store(spawns, [["--get flows-checkpoint", { stdout: "abc123\n" }]])
       return yield* checkpoints.materialize("cp-0-1", () => ChildProcessSpawner.ChildProcessSpawner).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, caller)
       )
@@ -281,20 +354,20 @@ describe("Checkpoints.makeGit materialize", () => {
   it("removes the checkout when the call inside it fails", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [["config --local --get", { stdout: "abc123\n" }]])
+      const checkpoints = yield* store(spawns, [["--get flows-checkpoint", { stdout: "abc123\n" }]])
       return yield* checkpoints.materialize("cp-0-1", () => Effect.fail("the call failed"))
     })))
 
     expect(Exit.isFailure(exit)).toBe(true)
     // A run killed at its wall-clock budget would otherwise leave a second
     // checkout of the whole repository inside the tree whose diff is its answer.
-    expect(spawns.at(-1)?.join(" ")).toContain("worktree remove --force")
+    expect(lines(spawns).at(-1)).toBe(`rm -rf -- ${checkoutPath(spawns)}`)
   })
 
   it("gives the container's name for the directory when the host declared one", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const seen = await Effect.runPromise(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [["config --local --get", { stdout: "abc123\n" }]], {
+      const checkpoints = yield* store(spawns, [["--get flows-checkpoint", { stdout: "abc123\n" }]], {
         root: "/work/repo",
         cwd: "/testbed"
       })
@@ -321,23 +394,28 @@ describe("Checkpoints.makeGit materialize", () => {
   it("falls back to HEAD when no capture base was recorded", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     await Effect.runPromise(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [["HEAD^", { stdout: "head999\n" }]])
+      const checkpoints = yield* store(spawns, [
+        ["capture-base", { exitCode: 1 }],
+        ["HEAD^", { stdout: "head999\n" }]
+      ])
       return yield* checkpoints.materialize(Checkpoints.baseId, () => Effect.void)
     }))
 
-    expect(spawns.map((argv) => argv.join(" "))).toEqual([
-      "git -C /work/repo rev-parse --verify --quiet refs/flows/capture-base^{commit}",
-      "git -C /work/repo rev-parse --verify --quiet HEAD^{commit}",
-      ...formatRead,
+    expect(lines(spawns)).toEqual([
+      `${workspace} rev-parse --verify --quiet refs/flows/capture-base^{commit}`,
+      `${workspace} rev-parse --verify --quiet HEAD^{commit}`,
       ...checkout(checkoutPath(spawns), "head999"),
-      `git -C /work/repo worktree remove --force ${checkoutPath(spawns)}`
+      `rm -rf -- ${checkoutPath(spawns)}`
     ])
   })
 
   it("takes only the declared base ref when the host named one", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
-      const checkpoints = yield* store(spawns, [], { root: "/work/repo", baseRef: "refs/flows/absent" })
+      const checkpoints = yield* store(spawns, [["refs/flows/absent", { exitCode: 1 }]], {
+        root: "/work/repo",
+        baseRef: "refs/flows/absent"
+      })
       return yield* checkpoints.materialize(Checkpoints.baseId, () => Effect.void)
     })))
 
@@ -345,8 +423,8 @@ describe("Checkpoints.makeGit materialize", () => {
     // a baseline against the wrong tree answers the question wrong, which is
     // worse than not answering it.
     expect(failureOf(exit)?.code).toBe("not_found")
-    expect(spawns.map((argv) => argv.join(" "))).toEqual([
-      "git -C /work/repo rev-parse --verify --quiet refs/flows/absent^{commit}"
+    expect(lines(spawns)).toEqual([
+      `${workspace} rev-parse --verify --quiet refs/flows/absent^{commit}`
     ])
   })
 
@@ -361,17 +439,32 @@ describe("Checkpoints.makeGit materialize", () => {
     expect(spawns).toEqual([])
   })
 
-  it("says so when the checkout itself failed", async () => {
+  it("refuses a checkpoint the workspace config does not name", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
+      const checkpoints = yield* store(spawns, [["--get flows-checkpoint", { exitCode: 1 }]])
+      return yield* checkpoints.materialize("cp-0-1", () => Effect.void)
+    })))
+
+    expect(failureOf(exit)?.code).toBe("not_found")
+  })
+
+  it.each([
+    ["mkdir", "the directory could not be prepared"],
+    ["read-tree", "the tree could not be written"],
+    ["cat --", "the index could not be copied"]
+  ])("says so when the checkout itself failed at %s (%s)", async (fragment) => {
     const spawns: Array<ReadonlyArray<string>> = []
     const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
       const checkpoints = yield* store(spawns, [
-        ["config --local --get", { stdout: "abc123\n" }],
-        ["worktree add", { exitCode: 128 }]
+        ["--get flows-checkpoint", { stdout: "abc123\n" }],
+        [fragment, { exitCode: 128 }]
       ])
       return yield* checkpoints.materialize("cp-0-1", () => Effect.void)
     })))
 
     expect(failureOf(exit)?.message).toContain("Could not check out abc123")
+    expect(lines(spawns).at(-1)).toMatch(/^rm -rf -- \/work\/repo\/\.flows-checkpoints\//)
   })
 })
 
@@ -412,7 +505,7 @@ describe("Checkpoints.makeNoop", () => {
         return yield* checkpoints.capture("cp-0-0")
       }).pipe(
         Effect.provide(Checkpoints.layerGit({ root: "/work/repo" })),
-        Effect.provide(host(spawns, [["stash create", { stdout: "abc123\n" }]]))
+        Effect.provide(host(spawns, [["stash create", { stdout: "abc123\n" }], ["HEAD^", { stdout: "head999\n" }]]))
       )
     )
 

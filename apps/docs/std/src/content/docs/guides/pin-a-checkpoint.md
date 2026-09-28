@@ -69,8 +69,11 @@ and then `HEAD`, matching `test`.
 ## What the git binding does, and does not do
 
 `layerGit` records with `git stash create`, which is the one git command that
-records the working tree and changes nothing else: it does not write the index,
-does not move the worktree, and does not touch the stash ref. That matters
+records the working tree and changes nothing else: it does not move the
+worktree and does not touch the stash ref. It runs against a temporary shadow
+`GIT_DIR` that shares only the workspace's objects and reads a copy of the
+workspace index, so it never writes the agent's index and never runs a hook,
+`core.fsmonitor` command or filter driver the workspace's `.git` names. That matters
 because the agent runs `git` in this same workspace and its own `git diff` is
 the run's evidence. A capture that staged into the real index would be the
 harness editing the evidence while recording it. A tree with nothing to record
@@ -82,17 +85,20 @@ The commit is named in the repository's own git config, under
 history: `git log --all` lists it, `git show` prints it, and `git log --all -S`
 searches it, so a checkpoint named by a ref would hand an agent a commit
 containing its own edit and let it read that back as if it were upstream work.
-Under config the commit object stays unreferenced, `git worktree add --detach`
-checks it out perfectly well, and no command that walks refs can reach it.
+Under config the commit object stays unreferenced, a checkout by id works
+perfectly well, and no command that walks refs can reach it.
 
-Two commands still see it. `git fsck` reports it as a dangling commit, because
-that is what an unreferenced commit is; and while a checkpoint is checked out,
-`git log --all` includes the other worktree's detached `HEAD`, because `--all`
-spans worktrees.
+One command still sees it: `git fsck` reports it as a dangling commit, because
+that is what an unreferenced commit is. A checkout is a standalone repository
+rather than a worktree of the workspace, so `git log --all` in the workspace
+does not list it even while a call runs in it.
 
 Untracked files are not in the recorded tree, which matches how a patch is
-captured. Materialization is a detached worktree at
+captured. Materialization is a detached checkout at
 `<root>/.flows-checkpoints/<id>-<lease>`, under `Checkpoints.scratchDirectory`.
+Its own `.git` names the commit in `HEAD` and reaches the workspace's objects
+through a relative `objects/info/alternates`, so git run in it through a
+container mount works.
 Each call gets a unique lease, so overlapping calls never remove each other's
 checkout. Existing checkouts are left alone; a `SIGKILL` can leave one behind.
 Inside the workspace is the only placement that works, for the same reason the

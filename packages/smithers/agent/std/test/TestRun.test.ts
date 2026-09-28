@@ -57,6 +57,19 @@ const host = (
   }))
 
 /**
+ * The shadow checkout's own commands, answered before a test's table so a
+ * fragment naming the scratch directory only ever matches the baseline run.
+ */
+const shadowCheckout: ReadonlyArray<readonly [string, Response]> = [
+  ["--show-toplevel", { stdout: "/repo\n/repo/.git\n/repo/.git/index\nsha1\n" }],
+  ["--get-regexp", { exitCode: 1 }],
+  ["init --quiet --bare", {}],
+  ["sh -c", {}],
+  ["read-tree", {}],
+  ["rm -rf --", {}]
+]
+
+/**
  * A judge that answers one attribution with the confidence it is given, so a
  * run's own attribution is a fixture rather than a reading of its output.
  */
@@ -247,9 +260,8 @@ describe("TestRun", () => {
       TestRun.run({ against: "base" }),
       Layer.merge(
         host(spawns, [
+          ...shadowCheckout,
           ["rev-parse", { stdout: "abc123\n" }],
-          ["worktree add", {}],
-          ["worktree remove", {}],
           [TestRun.scratchDirectory, { stdout: "FAILED tests/b.py::stale - old\n1 failed, 40 passed\n", exitCode: 1 }],
           ["pytest", {
             stdout: "FAILED tests/a.py::mine - new\nFAILED tests/b.py::stale - old\n2 failed, 39 passed\n",
@@ -270,16 +282,22 @@ describe("TestRun", () => {
     expect(result.preexisting).toEqual(["tests/b.py::stale"])
     expect(result.fixed).toEqual([])
     const lines = spawns.map((argv) => argv.join(" "))
-    expect(lines[1]).toBe(`git -C /repo rev-parse --verify --quiet ${TestRunner.captureBase}^{commit}`)
-    expect(lines[2]).toBe("git -C /repo config --local --get core.repositoryformatversion")
-    expect(lines[3]).toBe("git -C /repo config --local --get extensions.relativeWorktrees")
-    const scratch = spawns[4]?.at(-2)
-    expect(scratch).toMatch(/^\/repo\/\.flows-test-base\/run-[0-9a-f-]{36}$/)
-    expect(lines[4]).toBe(
-      `git -C /repo -c worktree.useRelativePaths=true worktree add --detach --force ${scratch} abc123`
+    expect(lines[1]).toBe(
+      `git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C /repo rev-parse --verify --quiet ${TestRunner.captureBase}^{commit}`
     )
-    expect(lines[5]).toBe(lines[0])
-    expect(lines[6]).toBe(`git -C /repo worktree remove --force ${scratch}`)
+    const scratch = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mkdir"))?.[5]
+    expect(scratch).toMatch(/^\/repo\/\.flows-test-base\/run-[0-9a-f-]{36}$/)
+    // The baseline tree is written from a shadow GIT_DIR, never by a worktree
+    // of the workspace repository, whose `.git` the agent can write.
+    expect(lines).toContainEqual(expect.stringMatching(
+      new RegExp(
+        `^git --git-dir=\\S+/smithers-git-[0-9a-f-]{36} --work-tree=${scratch} .* read-tree --reset -u abc123$`
+      )
+    ))
+    expect(lines.some((line) => line.includes("worktree add"))).toBe(false)
+    const baseline = spawns.findIndex((argv, index) => index > 0 && argv.join(" ") === lines[0])
+    expect(baseline).toBeGreaterThan(1)
+    expect(lines.at(-1)).toBe(`rm -rf -- ${scratch}`)
   })
 
   it("omits attribution when either side has an incomplete failure reading", async () => {
@@ -288,8 +306,8 @@ describe("TestRun", () => {
       TestRun.run({ against: "base" }),
       Layer.merge(
         host(spawns, [
+          ...shadowCheckout,
           ["rev-parse", { stdout: "abc123\n" }],
-          ["worktree add", {}],
           [TestRun.scratchDirectory, { stdout: "2 failed in 0.1s\n", exitCode: 1 }],
           ["pytest", { stdout: "FAILED tests/a.py::mine - new\n1 failed in 0.1s\n", exitCode: 1 }]
         ]),
@@ -310,6 +328,7 @@ describe("TestRun", () => {
       TestRun.run({ against: "base" }),
       Layer.merge(
         host(spawns, [
+          ...shadowCheckout,
           [`${TestRunner.captureBase}^`, { exitCode: 1 }],
           ["rev-parse", { stdout: "deadbee\n" }],
           ["pytest", { stdout: "3 passed\n" }]
@@ -348,7 +367,17 @@ describe("TestRun", () => {
           failedAt = spawns.length - 1
           return Effect.fail(new Error("spawn refused") as never)
         }
-        const stdout = Stream.make(new TextEncoder().encode(line.includes("rev-parse") ? "abc123\n" : "3 passed\n"))
+        const stdout = Stream.make(
+          new TextEncoder().encode(
+            line.includes("--show-toplevel")
+              ? "/repo\n/repo/.git\n/repo/.git/index\nsha1\n"
+              : line.includes("rev-parse")
+              ? "abc123\n"
+              : line.includes("--get-regexp")
+              ? ""
+              : "3 passed\n"
+          )
+        )
         return Effect.succeed(makeHandle({
           pid: ProcessId(1),
           exitCode: Effect.succeed(ExitCode(0)),
@@ -369,7 +398,8 @@ describe("TestRun", () => {
     )
     expect(Exit.isFailure(exit)).toBe(true)
     expect(failedAt).toBeGreaterThan(-1)
-    expect(spawns.slice(failedAt + 1).some((argv) => argv.join(" ").includes("worktree remove"))).toBe(true)
+    expect(spawns.slice(failedAt + 1).some((argv) => argv.join(" ").startsWith("rm -rf -- /repo/.flows-test-base/")))
+      .toBe(true)
   })
 
   it("routes the run through the container transport when the declaration names one", async () => {
@@ -444,11 +474,11 @@ describe("TestRun", () => {
     expect(result.command).not.toContain("s3cret-value")
     expect(result.command).toBe("bash -lc pytest \"$@\" pytest")
     expect(result.tail).toBe("")
-    expect(spawns[0]).toContain("DATABASE_PASSWORD")
+    expect(spawns[0]).toContain("SMITHERS_CONTAINER_ENV_DATABASE_PASSWORD")
     expect(spawns[0]?.join(" ")).not.toContain("s3cret-value")
     // The value still has to reach the container, so it rides on the
     // environment of the transport process the host spawns.
-    expect(environments[0]?.["DATABASE_PASSWORD"]).toBe("s3cret-value")
+    expect(environments[0]?.["SMITHERS_CONTAINER_ENV_DATABASE_PASSWORD"]).toBe("s3cret-value")
   })
 
   it("says plainly when the host declares no runner", async () => {

@@ -1,9 +1,24 @@
-import { Effect, Layer } from "effect"
+import { Effect, Layer, PlatformError } from "effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Schema from "effect/Schema"
 import { describe, expect, it } from "vitest"
 import * as LanguageServer from "../src/LanguageServer.ts"
 import * as Lsp from "../src/Lsp.ts"
 import * as StdError from "../src/StdError.ts"
+import { fileInfo } from "./TestLayers.ts"
+
+/** A guarded filesystem that authorizes `/workspace` and denies every other path. */
+const workspaceFiles = FileSystem.layerNoop({
+  stat: (path) =>
+    path.startsWith("/workspace/")
+      ? Effect.succeed(fileInfo())
+      : Effect.fail(PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "stat",
+        pathOrDescriptor: path
+      }))
+})
 
 const server = LanguageServer.make({
   hover: (position) => Effect.succeed(position),
@@ -46,7 +61,10 @@ describe("Lsp", () => {
     ] as const
   )("dispatches %s with a zero-based provider position", async (operation) => {
     const output = await Effect.runPromise(
-      Lsp.run({ operation, path: "/workspace/a.ts", line: 1, character: 1 }).pipe(Effect.provide(dispatchLayer))
+      Lsp.run({ operation, path: "/workspace/a.ts", line: 1, character: 1 }).pipe(
+        Effect.provide(dispatchLayer),
+        Effect.provide(workspaceFiles)
+      )
     )
     expect(output.result).toEqual({ operation, position: { path: "/workspace/a.ts", line: 0, character: 0 } })
   })
@@ -59,7 +77,7 @@ describe("Lsp", () => {
         Lsp.run({ operation: "diagnostics", path: "/workspace/a.ts" }),
         Lsp.run({ operation: "workspaceSymbols", query: "Builder" }),
         Lsp.run({ operation: "workspaceSymbols" })
-      ]).pipe(Effect.provide(dispatchLayer))
+      ]).pipe(Effect.provide(dispatchLayer), Effect.provide(workspaceFiles))
     )
     expect(results.map(({ result }) => result)).toEqual([
       [{ operation: "references", position: { path: "/workspace/a.ts", line: 2, character: 1 } }],
@@ -82,7 +100,7 @@ describe("Lsp", () => {
         path: "/workspace/a.ts",
         line: 1,
         character: 1
-      }).pipe(Effect.provide(Layer.succeed(LanguageServer.LanguageServer, failing)))
+      }).pipe(Effect.provide(Layer.succeed(LanguageServer.LanguageServer, failing)), Effect.provide(workspaceFiles))
     ))
     expect(failure).toBe(unavailable)
   })
@@ -92,14 +110,18 @@ describe("Lsp", () => {
     { operation: "references" as const, path: "/workspace/a.ts", character: 2 },
     { operation: "callHierarchyIncoming" as const, path: "/workspace/a.ts" }
   ])("refuses %s when a position field is missing", async (input) => {
-    const failure = await Effect.runPromise(Effect.flip(Lsp.run(input).pipe(Effect.provide(layer))))
+    const failure = await Effect.runPromise(
+      Effect.flip(Lsp.run(input).pipe(Effect.provide(layer), Effect.provide(workspaceFiles)))
+    )
     expect(failure).toMatchObject({ code: "invalid_input", message: "1-based line and character are required" })
   })
 
   it.each(["documentSymbols", "diagnostics", "hover"] as const)(
     "refuses %s without a path",
     async (operation) => {
-      const failure = await Effect.runPromise(Effect.flip(Lsp.run({ operation }).pipe(Effect.provide(layer))))
+      const failure = await Effect.runPromise(
+        Effect.flip(Lsp.run({ operation }).pipe(Effect.provide(layer), Effect.provide(workspaceFiles)))
+      )
       expect(failure).toMatchObject({ code: "invalid_input", message: "A normalized absolute path is required" })
     }
   )
@@ -107,7 +129,8 @@ describe("Lsp", () => {
   it("normalizes one-based positions before provider dispatch", async () => {
     const output = await Effect.runPromise(
       Lsp.run({ operation: "hover", path: "/workspace/a.ts", line: 2, character: 3 }).pipe(
-        Effect.provide(Layer.succeed(LanguageServer.LanguageServer, server))
+        Effect.provide(Layer.succeed(LanguageServer.LanguageServer, server)),
+        Effect.provide(workspaceFiles)
       )
     )
     expect(output.result).toEqual({ path: "/workspace/a.ts", line: 1, character: 2 })
@@ -115,7 +138,10 @@ describe("Lsp", () => {
 
   it("exposes the unsupported noop path", async () => {
     const exit = await Effect.runPromiseExit(
-      Lsp.run({ operation: "diagnostics", path: "/workspace/a.ts" }).pipe(Effect.provide(LanguageServer.layerNoop))
+      Lsp.run({ operation: "diagnostics", path: "/workspace/a.ts" }).pipe(
+        Effect.provide(LanguageServer.layerNoop),
+        Effect.provide(workspaceFiles)
+      )
     )
     expect(exit._tag).toBe("Failure")
   })
@@ -127,7 +153,7 @@ describe("Lsp", () => {
         path: "/workspace/a.ts",
         line: 4,
         character: 5
-      }).pipe(Effect.provide(Layer.succeed(LanguageServer.LanguageServer, server)))
+      }).pipe(Effect.provide(Layer.succeed(LanguageServer.LanguageServer, server)), Effect.provide(workspaceFiles))
     )
     expect(output.result).toEqual({ path: "/workspace/a.ts", line: 3, character: 4 })
   })
@@ -136,7 +162,8 @@ describe("Lsp", () => {
     const failure = await Effect.runPromise(
       Effect.flip(
         Lsp.run({ operation: "diagnostics", path: "src/a.ts" }).pipe(
-          Effect.provide(Layer.succeed(LanguageServer.LanguageServer, server))
+          Effect.provide(Layer.succeed(LanguageServer.LanguageServer, server)),
+          Effect.provide(workspaceFiles)
         )
       )
     )
@@ -156,4 +183,25 @@ describe("Lsp", () => {
     expect(fields).toHaveLength(5)
     expect(fields.every((field) => JSON.stringify(field).includes("\"description\""))).toBe(true)
   })
+
+  it.each(["documentSymbols", "diagnostics", "hover"] as const)(
+    "refuses %s on a path the guarded filesystem denies, before the server reads it",
+    async (operation) => {
+      const asked: Array<string> = []
+      const recording = LanguageServer.make({
+        ...dispatchServer,
+        documentSymbols: (path) => Effect.sync(() => asked.push(path)),
+        diagnostics: (path) => Effect.sync(() => asked.push(path)),
+        hover: (position) => Effect.sync(() => asked.push(position.path))
+      })
+      const failure = await Effect.runPromise(Effect.flip(
+        Lsp.run({ operation, path: "/home/user/.aws/credentials", line: 1, character: 1 }).pipe(
+          Effect.provide(Layer.succeed(LanguageServer.LanguageServer, recording)),
+          Effect.provide(workspaceFiles)
+        )
+      ))
+      expect(failure).toMatchObject({ code: "permission_denied", path: "/home/user/.aws/credentials" })
+      expect(asked).toEqual([])
+    }
+  )
 })

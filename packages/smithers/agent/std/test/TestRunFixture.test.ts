@@ -159,7 +159,9 @@ describe("TestRun over a real repository", () => {
     expect(existsSync(scratch)).toBe(false)
     const launched = commands.findIndex((line) => line.startsWith("bash ") && line.endsWith(scratch))
     expect(launched).toBeGreaterThan(-1)
-    expect(commands.slice(launched + 1)).toContain(`git -C ${root} worktree remove --force ${scratch} `)
+    expect(commands.slice(launched + 1)).toContain(
+      `rm -rf -- ${scratch} `
+    )
     expect(git(root, ["worktree", "list"])).not.toContain(TestRun.scratchDirectory)
   }, 60_000)
 

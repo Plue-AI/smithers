@@ -2,16 +2,19 @@
  * The `lsp` flow: one code-intelligence query per call.
  *
  * The handler checks the path and 1-based position each operation needs,
- * forwards the query to the bound `LanguageServer`, and returns the server's
- * answer unchanged in `result`.
+ * authorizes the path as a read through the guarded `FileSystem` (the server
+ * process reads the file on its own), forwards the query to the bound
+ * `LanguageServer`, and returns the server's answer unchanged in `result`.
  *
  * @since 1.0.0
  */
 
 import * as Flow from "@smthrs/core/Flow"
 import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Schema from "effect/Schema"
 import { capability, envelope } from "./internal/Declaration.ts"
+import * as FsFailure from "./internal/FsFailure.ts"
 import * as LanguageServer from "./LanguageServer.ts"
 import * as StdError from "./StdError.ts"
 
@@ -139,7 +142,7 @@ const isAbsolutePath = (path: string): boolean => path.startsWith("/") || /^[A-Z
  */
 export const run = Effect.fn("Lsp.run")(function*(
   input: typeof Input.Type
-): Effect.fn.Return<typeof Output.Type, StdError.StdError, LanguageServer.LanguageServer> {
+): Effect.fn.Return<typeof Output.Type, StdError.StdError, LanguageServer.LanguageServer | FileSystem.FileSystem> {
   const server = yield* LanguageServer.LanguageServer
   const path = input.path
   const position = path === undefined || input.line === undefined || input.character === undefined
@@ -151,6 +154,11 @@ export const run = Effect.fn("Lsp.run")(function*(
       new StdError.StdError({ code: "invalid_input", message: "A normalized absolute path is required" })
     )
   }
+  // The server reads the file itself, outside the guarded filesystem, so the
+  // path is authorized here: a read the caller could not make through `read`
+  // is not made through the language server either.
+  const fileSystem = yield* FileSystem.FileSystem
+  yield* fileSystem.stat(path).pipe(Effect.mapError(FsFailure.reading(path, `File not found: ${path}`)))
   if (input.operation === "documentSymbols") return { result: yield* server.documentSymbols(path) }
   if (input.operation === "diagnostics") return { result: yield* server.diagnostics(path) }
   if (position === undefined) {

@@ -111,6 +111,19 @@ export const makeNoop = (): Container => make({ exec: (request) => Effect.fail(u
  */
 export const layerNoop: Layer.Layer<Container> = Layer.succeed(Container, makeNoop())
 
+/** The names a forwarded environment variable may take: a POSIX shell name. */
+const environmentName = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/** The prefix a forwarded variable carries on the host transport process. */
+const forwardedPrefix = "SMITHERS_CONTAINER_ENV_"
+
+/** The in-container script that renames each forwarded variable, then runs the program. */
+const rename = (names: ReadonlyArray<string>): string =>
+  [
+    ...names.map((key) => `${key}="$${forwardedPrefix}${key}"; export ${key}; unset ${forwardedPrefix}${key}`),
+    `exec "$@"`
+  ].join("; ")
+
 /**
  * Builds a transport over a `docker exec`-compatible CLI.
  *
@@ -118,9 +131,14 @@ export const layerNoop: Layer.Layer<Container> = Layer.succeed(Container, makeNo
  * container CLI that holds stdin open for a command that never reads it makes
  * that command hang.
  *
- * Requested environment variables are forwarded by name (`-e KEY`). Their
- * values travel in {@link Plan.env}, which the host applies to the transport
- * process so Docker or Podman can forward them into the container.
+ * Requested environment variables never reach the transport process under
+ * their own names. The request's `env` is the caller's, and the transport is a
+ * host program: `PATH`, `LD_PRELOAD`, `DOCKER_HOST` or `XDG_CONFIG_HOME` set on
+ * it would choose what runs on the host. Each value therefore travels in
+ * {@link Plan.env} under `SMITHERS_CONTAINER_ENV_`, is forwarded by that name
+ * (`-e SMITHERS_CONTAINER_ENV_KEY`), and a `sh` inside the container renames it
+ * to `KEY` before `exec`ing the program. Values stay out of the argv. A name
+ * must be a POSIX shell name.
  *
  * @category constructors
  * @since 1.0.0
@@ -129,6 +147,16 @@ export const makeCommand = (options?: { readonly program?: string | undefined })
   const program = options?.program ?? "docker"
   return make({
     exec: (request) => {
+      const names = Object.keys(request.env ?? {})
+      const invalid = names.find((key) => !environmentName.test(key))
+      if (invalid !== undefined) {
+        return Effect.fail(
+          new StdError.StdError({
+            code: "invalid_input",
+            message: `Environment variable names must match ${environmentName.source}: ${invalid}`
+          })
+        )
+      }
       if (request.container === "" || request.container.startsWith("-")) {
         return Effect.fail(
           new StdError.StdError({
@@ -153,13 +181,18 @@ export const makeCommand = (options?: { readonly program?: string | undefined })
           "exec",
           ...(request.stdin ? ["-i"] : []),
           ...(request.cwd === undefined ? [] : ["-w", request.cwd]),
-          ...Object.keys(request.env ?? {}).flatMap((key) => ["-e", key]),
+          ...names.flatMap((key) => ["-e", `${forwardedPrefix}${key}`]),
           "--",
           request.container,
+          ...(names.length === 0 ? [] : ["sh", "-c", rename(names), "sh"]),
           request.file,
           ...args
         ],
-        ...(request.env === undefined ? {} : { env: request.env })
+        ...(request.env === undefined ? {} : {
+          env: Object.fromEntries(
+            Object.entries(request.env).map(([key, value]) => [`${forwardedPrefix}${key}`, value])
+          )
+        })
       })
     }
   })

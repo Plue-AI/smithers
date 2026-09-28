@@ -62,8 +62,36 @@ it("commit resolution reports Git startup failure without trying another ref and
     })
     expect(result.retry).toEqual({ ref: "HEAD", commit: committed })
     expect(commands).toEqual([
-      { command: "git", args: ["-C", root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"] },
-      { command: "git", args: ["-C", root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"] }
+      {
+        command: "git",
+        args: [
+          "-c",
+          "core.hooksPath=/dev/null",
+          "-c",
+          "core.fsmonitor=false",
+          "-C",
+          root,
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          "HEAD^{commit}"
+        ]
+      },
+      {
+        command: "git",
+        args: [
+          "-c",
+          "core.hooksPath=/dev/null",
+          "-c",
+          "core.fsmonitor=false",
+          "-C",
+          root,
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          "HEAD^{commit}"
+        ]
+      }
     ])
   } finally {
     rmSync(root, { recursive: true, force: true })

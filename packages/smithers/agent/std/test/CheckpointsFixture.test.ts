@@ -18,7 +18,7 @@ import { Deferred, Effect, Fiber, Layer } from "effect"
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Bash from "../src/Bash.ts"
 import * as Checkpoints from "../src/Checkpoints.ts"
@@ -27,14 +27,6 @@ import * as TestRunner from "../src/TestRunner.ts"
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   execFileSync("git", ["-C", root, ...args], { encoding: "utf8" })
-
-/** Whether this machine's git knows `worktree.useRelativePaths`, which is 2.48 and later. */
-const relativePathsAvailable = (): boolean => {
-  const [major, minor] = (/(\d+)\.(\d+)/.exec(execFileSync("git", ["--version"], { encoding: "utf8" })) ?? [])
-    .slice(1)
-    .map(Number)
-  return major !== undefined && minor !== undefined && (major > 2 || (major === 2 && minor >= 48))
-}
 
 /** A repository holding one file, at one commit. */
 const repository = (prefix = "flows-checkpoint-"): string => {
@@ -213,14 +205,13 @@ describe("Checkpoints over a real repository", () => {
       .toBe(snapshot.ref)
   }, 60_000)
 
-  it("is reachable by fsck and by a checked-out worktree, which is what the contract says", async () => {
-    // The two commands that do see it, measured rather than assumed, because a
+  it("is reachable by fsck alone, even while it is checked out", async () => {
+    // The one command that does see it, measured rather than assumed, because a
     // claim of invisibility that is only nearly true is how django-13346 read
     // its own snapshot back as upstream work. `fsck` reports an unreferenced
-    // commit because that is what one is; `--all` spans worktrees, so while a
-    // checkpoint is checked out its detached HEAD is one of the refs listed.
-    // Neither can be mistaken for project history by name, and the cell
-    // contract's environment section says outright what a dangling commit is.
+    // commit because that is what one is. The checkout is a standalone
+    // repository rather than a worktree of this one, so `git log --all` in the
+    // workspace does not list its HEAD even while the call runs in it.
     const root = repository()
     writeFileSync(join(root, "mod.py"), "value = 'the agent fix'\n")
 
@@ -231,13 +222,13 @@ describe("Checkpoints over a real repository", () => {
         "cp-0-0",
         () => Effect.sync(() => git(root, ["log", "--all", "--oneline"]))
       )
-      expect(during).toContain(pinned.ref.slice(0, 7))
+      expect(during).not.toContain(pinned.ref.slice(0, 7))
       return pinned
     }))
 
     expect(git(root, ["fsck", "--no-progress"])).toContain(`dangling commit ${snapshot.ref}`)
-    // And with nothing checked out, the walk is back to project history alone.
     expect(git(root, ["log", "--all", "--oneline"])).not.toContain(snapshot.ref.slice(0, 7))
+    expect(git(root, ["worktree", "list"])).not.toContain(Checkpoints.scratchDirectory)
   }, 60_000)
 
   it("holds three trees apart in one frame, and touches none of them", async () => {
@@ -323,39 +314,47 @@ describe("Checkpoints over a real repository", () => {
     expect(git(root, ["worktree", "list"])).not.toContain(Checkpoints.scratchDirectory)
   }, 60_000)
 
-  it("points the checkout at the repository by a relative path, so a container can run git in it", async () => {
-    // The checkout's `.git` is a pointer. Written absolutely it names a path
-    // that exists on this machine and nowhere inside the container, so `git`
-    // run at the checkpoint through the mount answers "not a git repository"
-    // for a directory that is one — and a suite that shells out to git during
-    // collection fails for that and not for the code under test.
-    const root = repository()
+  it(
+    "gives the checkout its own .git that names the repository by a relative path, so a container can run git in it",
+    async () => {
+      // Written absolutely, a pointer names a path that exists on this machine
+      // and nowhere inside the container, so `git` run at the checkpoint through
+      // the mount answers "not a git repository" — and a suite that shells out to
+      // git during collection fails for that and not for the code under test.
+      const root = repository()
+      writeFileSync(join(root, "mod.py"), "value = 'fixed'\n")
 
-    const [pointer, backPointer, directory] = await Effect.runPromise(Effect.gen(function*() {
-      const checkpoints = yield* store(root, { cwd: "/testbed" })
-      yield* checkpoints.capture("cp-1-0")
-      return yield* checkpoints.materialize("cp-1-0", (found) =>
-        Effect.sync(() =>
-          [
-            readFileSync(join(found.host, ".git"), "utf8").trim(),
-            readFileSync(join(root, ".git", "worktrees", basename(found.host), "gitdir"), "utf8").trim(),
-            basename(found.host)
-          ] as const
-        ))
-    }))
+      const seen = await Effect.runPromise(Effect.gen(function*() {
+        const checkpoints = yield* store(root, { cwd: "/testbed" })
+        const snapshot = yield* checkpoints.capture("cp-1-0")
+        return yield* checkpoints.materialize("cp-1-0", (found) =>
+          Effect.sync(() => {
+            // The container's git: no host config, run in the checkout itself.
+            const inside = (args: ReadonlyArray<string>) =>
+              execFileSync("git", args, {
+                cwd: found.host,
+                encoding: "utf8",
+                env: { PATH: process.env.PATH ?? "", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" }
+              })
+            return {
+              ref: snapshot.ref,
+              alternates: readFileSync(join(found.host, ".git", "objects", "info", "alternates"), "utf8").trim(),
+              head: inside(["rev-parse", "HEAD"]).trim(),
+              status: inside(["status", "--porcelain"]),
+              topLevel: realpathSync(inside(["rev-parse", "--show-toplevel"]).trim()),
+              host: realpathSync(found.host)
+            }
+          }))
+      }))
 
-    // `worktree.useRelativePaths` arrived in git 2.48. An older git does not
-    // know the key and writes the absolute pointer it always wrote, which costs
-    // that host exactly what it had before — so the assertion is on what this
-    // machine's git can do, not on which git this machine has.
-    if (relativePathsAvailable()) {
-      expect(pointer).toBe(`gitdir: ../../.git/worktrees/${directory}`)
-      expect(pointer).not.toContain(root)
-      expect(backPointer).not.toContain(root)
-    } else {
-      expect(pointer).toContain(root)
-    }
-  }, 60_000)
+      expect(seen.alternates).toBe("../../../../.git/objects")
+      expect(seen.alternates).not.toContain(root)
+      expect(seen.head).toBe(seen.ref)
+      expect(seen.status).toBe("")
+      expect(seen.topLevel).toBe(seen.host)
+    },
+    60_000
+  )
 
   it("leaves the repository format exactly as it found it, because an older git refuses the stamp", async () => {
     // Git 2.48+ records the first relative checkout in the repository itself:
@@ -365,8 +364,8 @@ describe("Checkpoints over a real repository", () => {
     // repository. The benchmark testbeds run exactly such a git against this
     // directory through a bind mount — measured on the r97 wave, 15 of 45 runs
     // lost every in-container `git status`/`git diff` from the first
-    // `{ at: ctx.base }` call onward. The store must therefore repair the
-    // format before the relocated call runs, not merely before it returns.
+    // `{ at: ctx.base }` call onward. The store checks out through a shadow
+    // repository and never writes this repository's format at all.
     const root = repository()
     const versionBefore = git(root, ["config", "--local", "--get", "core.repositoryformatversion"]).trim()
     const marker = (): string => {

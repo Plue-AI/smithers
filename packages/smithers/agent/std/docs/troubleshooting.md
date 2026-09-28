@@ -231,7 +231,21 @@ server that speaks LSP on stdio, or implement the ten-method service yourself.
 Two other `lsp` failures are input errors: `A normalized absolute path is
 required` means `path` was missing or relative for an operation that needs one,
 and `1-based line and character are required` means a position operation was
-missing its coordinates. Both are `invalid_input`.
+missing its coordinates. Both are `invalid_input`. A `path` the guarded
+filesystem denies fails with `permission_denied`.
+
+## permission_denied: Language server program is inside the workspace
+
+**What happened.** `NodeLanguageServer.make` resolved `command` to a file under
+`cwd` (a `./` path, a `PATH` entry such as `node_modules/.bin`, or a symlink
+there), an argument named a file under `cwd`, or `command` was a launcher
+(`sh -c`, `env`, `npx`, `pnpm exec`, `yarn`, `bunx`, or `node`/`bun` with `-e`,
+`-p`, `-r`, `--require`, `--import` or `--loader`) whose arguments choose what
+runs. The server would have run workspace-written code on the host.
+
+**What to change.** Install the server outside the workspace and pass its
+absolute path, not a launcher. For typescript-language-server, also pin
+`initializationOptions: { tsserver: { path } }` to a host copy.
 
 ## A write of captured output replaced a file with a log tail
 

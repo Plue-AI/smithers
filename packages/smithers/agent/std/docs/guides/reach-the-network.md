@@ -121,8 +121,9 @@ It needs [`@smthrs/control`](/api/control)'s `Credential` service and
 the standard codes: a 429 or a refusal carrying `Retry-After` becomes `timeout`
 with the advice in the message, a 401 or 403 becomes `provider_unavailable`, a
 5xx becomes `provider_unavailable` naming the status, and any other non-2xx
-becomes `request_failed`. Snippets are clipped at 2,000 characters and the
-request is bounded at 30 seconds.
+becomes `request_failed`. Snippets are clipped at 2,000 characters, the
+request is bounded at 30 seconds, and a response body over 5 MiB fails with
+`response_too_large` before it is decoded.
 
 A host with no provider binds `WebSearch.layerNoop`, and the call fails with
 `provider_unavailable`.

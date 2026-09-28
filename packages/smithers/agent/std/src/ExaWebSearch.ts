@@ -12,7 +12,7 @@ import * as Credential from "@smthrs/control/Credential"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
 import { Clock, Effect, Layer, Redacted, Schema } from "effect"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import { header } from "./internal/Http.ts"
+import { header, readBounded } from "./internal/Http.ts"
 import * as StdError from "./StdError.ts"
 import * as WebSearch from "./WebSearch.ts"
 
@@ -116,15 +116,21 @@ export const layer = (
             if (response.status < 200 || response.status >= 300) {
               return yield* Effect.fail(failure("request_failed", `Exa search returned ${response.status}`))
             }
-            const json = yield* response.json.pipe(
+            // Bound the body before decoding: an endpoint must not choose how
+            // much of it the host buffers.
+            const bytes = yield* readBounded(response.stream, "https://api.exa.ai/search").pipe(
               Effect.timeout(requestTimeoutMs),
               Effect.mapError((error) =>
                 error._tag === "TimeoutError"
                   ? failure("timeout", "Exa search response timed out")
+                  : error instanceof StdError.StdError && error.code === "response_too_large"
+                  ? failure("response_too_large", "Exa search response exceeds the 5 MiB limit")
                   : failure("request_failed", "Exa search response was invalid")
               )
             )
-            const body = yield* Schema.decodeUnknownEffect(ExaResponse)(json).pipe(
+            const body = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ExaResponse))(
+              new TextDecoder().decode(bytes)
+            ).pipe(
               Effect.mapError(() =>
                 new StdError.StdError({ code: "request_failed", message: "Exa search response was invalid" })
               )

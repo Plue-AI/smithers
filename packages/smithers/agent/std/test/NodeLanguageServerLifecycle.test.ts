@@ -6,6 +6,7 @@ import type * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ExitCode, makeHandle, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
 import { describe, expect, it } from "vitest"
 import * as NodeLanguageServer from "../src/NodeLanguageServer.ts"
+import { hostScript } from "./hostScript.ts"
 
 interface Request {
   readonly id?: number
@@ -479,7 +480,7 @@ const Receipt = Schema.Struct({ pid: Schema.Number, calls: Schema.Array(Schema.S
 const realServer = () =>
   NodeLanguageServer.make({
     command: process.execPath,
-    args: ["-e", controlledChild],
+    args: [hostScript(controlledChild)],
     cwd: process.cwd(),
     timeoutMs: 10_000
   })

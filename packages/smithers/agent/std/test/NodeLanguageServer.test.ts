@@ -1,12 +1,15 @@
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Cause, Deferred, Effect, Exit, Fiber, Queue, Sink, Stream } from "effect"
+import * as FileSystem from "effect/FileSystem"
 import type * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ExitCode, makeHandle, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
 import { describe, expect, it } from "vitest"
 import * as LanguageServer from "../src/LanguageServer.ts"
 import * as Lsp from "../src/Lsp.ts"
 import * as NodeLanguageServer from "../src/NodeLanguageServer.ts"
+import { hostScript } from "./hostScript.ts"
+import { fileInfo } from "./TestLayers.ts"
 
 const decodeFrame = (frame: Uint8Array): Readonly<Record<string, unknown>> => {
   const text = new TextDecoder().decode(frame)
@@ -141,7 +144,10 @@ describe("NodeLanguageServer", () => {
             path: "/workspace/a.ts",
             line: 2,
             character: 3
-          }).pipe(Effect.provideService(LanguageServer.LanguageServer, server))
+          }).pipe(
+            Effect.provideService(LanguageServer.LanguageServer, server),
+            Effect.provide(FileSystem.layerNoop({ stat: () => Effect.succeed(fileInfo()) }))
+          )
         })
       )
     )
@@ -395,7 +401,7 @@ describe("NodeLanguageServer diagnostics and environment", () => {
           Effect.scoped(Effect.gen(function*() {
             const server = yield* NodeLanguageServer.make({
               command: process.execPath,
-              args: ["-e", sentinelServer],
+              args: [hostScript(sentinelServer)],
               cwd: process.cwd(),
               environment: declared ? { SMITHERS_LSP_DUMMY_SECRET: "declared-dummy" } : undefined
             })
@@ -433,7 +439,9 @@ describe("NodeLanguageServer diagnostics and environment", () => {
     const result = await Effect.runPromise(
       Effect.scoped(NodeLanguageServer.make({
         command: process.execPath,
-        args: ["-e", "process.stderr.write('é'.repeat(100000) + 'configuration missing', () => process.exit(17))"],
+        args: [
+          hostScript("process.stderr.write('é'.repeat(100000) + 'configuration missing', () => process.exit(17))")
+        ],
         cwd: process.cwd()
       })).pipe(Effect.provide(NodeServices.layer), Effect.flip)
     )
@@ -461,7 +469,7 @@ describe("NodeLanguageServer diagnostics and environment", () => {
       Effect.scoped(Effect.gen(function*() {
         const server = yield* NodeLanguageServer.make({
           command: process.execPath,
-          args: ["-e", script],
+          args: [hostScript(script)],
           cwd: process.cwd()
         })
         return yield* Effect.flip(server.hover({ path: "/workspace/a.ts", line: 0, character: 0 }))

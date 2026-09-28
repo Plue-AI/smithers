@@ -7,7 +7,7 @@
  * and a list of names, not twenty kilobytes of stdout for a model to re-read.
  *
  * Second, `against: "base"`: the same selection also runs against the pristine
- * base commit in a scratch worktree, and the two failure sets are differenced
+ * base commit in a scratch checkout, and the two failure sets are differenced
  * here. That is the whole of attribution, in one call. Without it, agents pay
  * for it in frames — sphinx-8721 spent fourteen frames because a pre-existing
  * failure was never baselined, sympy-13878 spent $0.90 on the same mistake, and
@@ -60,7 +60,7 @@ export const description =
   "Run this repository's declared test runner and get {passed, failed[ids]}, not raw output. against:'base' also runs it on the pristine base commit, so a pre-existing failure is named, not investigated."
 
 /**
- * The parent directory baseline worktrees are checked out into, relative to the
+ * The parent directory baseline checkouts are written into, relative to the
  * repository root, and therefore also relative to the runner's own directory.
  *
  * @category constants
@@ -324,9 +324,10 @@ const execute = (
 /**
  * Runs the declared suite, and on request the same suite on the pristine base.
  *
- * The baseline is a detached worktree of the base commit inside the repository,
- * so a runner that reaches the repository through a mount reaches the worktree
- * the same way. It is removed when the call ends, however it ends.
+ * The baseline is a detached checkout of the base commit inside the repository,
+ * so a runner that reaches the repository through a mount reaches the checkout
+ * the same way. Host git writes it from a shadow `GIT_DIR`, never the
+ * workspace's `.git`, so no program that directory names runs on the host. It is removed when the call ends, however it ends.
  *
  * @category handlers
  * @since 1.0.0

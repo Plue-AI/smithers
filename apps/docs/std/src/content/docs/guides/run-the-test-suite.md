@@ -40,7 +40,7 @@ const runner = TestRunner.layer({
 
 `cwd` and `root` differ exactly when the runner runs in a container: the
 container sees the repository at `cwd`, the host sees it at `root`, and a
-baseline worktree created at `<root>/.flows-test-base/run-<lease>` is visible to the runner
+baseline checkout created at `<root>/.flows-test-base/run-<lease>` is visible to the runner
 at `<cwd>/.flows-test-base/run-<lease>`, because it is one directory under two names.
 
 A host with no runner binds `TestRunner.layerNoop`. The flow then fails with
@@ -108,7 +108,7 @@ whether a reproduction reproduced is worth less than no answer at all.
 ## Attribute a failure to your own edit
 
 `against: "base"` runs the same selection a second time against the pristine
-base commit, in a scratch worktree, and differences the two failure sets:
+base commit, in a scratch checkout, and differences the two failure sets:
 
 ```ts
 const result = TestRun.run({
@@ -130,13 +130,14 @@ The baseline commit is resolved from the runner's `baseRef`, then from
 `baseRef` that does not resolve is an error rather than a fallback, because a
 baseline against the wrong tree answers the attribution question wrong.
 
-The worktree is a detached checkout at `<root>/.flows-test-base/run-<lease>`, under
+The baseline is a detached checkout at `<root>/.flows-test-base/run-<lease>`, under
 `TestRun.scratchDirectory`. Each call gets a unique lease. Existing checkouts
 are left alone; a `SIGKILL` can leave one behind. Inside the repository is the only place that works:
 a runner reaching the repository through a container mount sees a scratch
 checkout anywhere else on the host as a path that does not exist. It is removed
-when the call ends, however it ends, and the repository format keys that the
-relative checkout introduced are restored.
+when the call ends, however it ends. It is written from a temporary shadow
+`GIT_DIR`, like a checkpoint, so no hook or filter driver in the workspace's
+`.git` runs on the host and the repository's format is never changed.
 
 `against: "base"` needs a repository directory. A runner declaring neither `root`
 nor `cwd` fails with `invalid_input`.

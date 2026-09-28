@@ -13,6 +13,8 @@ import * as ChildProcessEnvironment from "@smthrs/kernel/ChildProcessEnvironment
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Deferred, Effect, Fiber, Layer, Queue, type Scope, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import * as NodeFs from "node:fs"
+import * as NodePath from "node:path"
 import { pathToFileURL } from "node:url"
 import * as LanguageServer from "./LanguageServer.ts"
 import * as StdError from "./StdError.ts"
@@ -55,6 +57,14 @@ export interface Config {
   readonly args?: ReadonlyArray<string> | undefined
   readonly cwd: string
   readonly environment?: Readonly<Record<string, string>> | undefined
+  /**
+   * Sent as `initializationOptions` on `initialize`. A host pins where the
+   * server loads its own code from here, for example
+   * `{ tsserver: { path: "<host copy>/tsserver.js" } }` for
+   * typescript-language-server, which otherwise runs the workspace's own
+   * `node_modules/typescript`.
+   */
+  readonly initializationOptions?: unknown
   readonly timeoutMs?: number | undefined
 }
 
@@ -283,8 +293,143 @@ const positionParams = (position: LanguageServer.Position) => ({
 
 const firstCallHierarchyItem = (value: unknown): unknown | undefined => Array.isArray(value) ? value[0] : undefined
 
+const isFile = (path: string): boolean => {
+  try {
+    return NodeFs.statSync(path, { throwIfNoEntry: false })?.isFile() === true
+  } catch {
+    return false
+  }
+}
+
+const realPath = (path: string): string => {
+  try {
+    return NodeFs.realpathSync(path)
+  } catch {
+    return NodePath.resolve(path)
+  }
+}
+
+const isWithin = (root: string, path: string): boolean => {
+  const relative = NodePath.relative(root, path)
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${NodePath.sep}`) &&
+    !NodePath.isAbsolute(relative))
+}
+
+/**
+ * Resolves the program a spawn would execute: a command containing a path
+ * separator against `cwd`, a bare name through the child's `PATH`, where an
+ * empty or relative entry is relative to `cwd`.
+ */
+const resolveCommand = (command: string, cwd: string, path: string | undefined): string | undefined => {
+  if (command.includes("/") || command.includes(NodePath.sep)) {
+    const candidate = NodePath.resolve(cwd, command)
+    return isFile(candidate) ? candidate : undefined
+  }
+  for (const entry of (path ?? "").split(NodePath.delimiter)) {
+    const candidate = NodePath.resolve(cwd, entry, command)
+    if (!isFile(candidate)) continue
+    try {
+      NodeFs.accessSync(candidate, NodeFs.constants.X_OK)
+      return candidate
+    } catch {
+      continue
+    }
+  }
+  return undefined
+}
+
+/**
+ * Refuses a server whose program or any file-naming argument lies in the
+ * workspace. The server runs on the host as the host user, so a program the
+ * workspace supplies (its `node_modules/.bin`, a `./` script, a symlink it
+ * planted) would let workspace files choose what the host executes.
+ */
+/**
+ * Programs whose job is to run another program named in their arguments or
+ * found in the working directory: shells, `env`, and package runners. Their
+ * arguments are code or package names, not files, so the workspace check below
+ * cannot see what they would execute (`sh -c node_modules/.bin/x`, `npx x`).
+ */
+const LAUNCHERS = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "dash",
+  "ksh",
+  "fish",
+  "csh",
+  "tcsh",
+  "env",
+  "npx",
+  "pnpx",
+  "npm",
+  "pnpm",
+  "yarn",
+  "bunx",
+  "deno",
+  "cmd",
+  "powershell",
+  "pwsh"
+])
+
+/** Interpreter flags that take code or a module to load instead of a file path. */
+const CODE_FLAGS = new Set(["-e", "--eval", "-p", "--print", "-r", "--require", "--import", "--loader"])
+
+const launcher = (config: Config): string | undefined => {
+  const name = NodePath.basename(config.command).toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/, "")
+  if (LAUNCHERS.has(name)) return name
+  if (name !== "node" && name !== "bun" && name !== "nodejs") return undefined
+  const args = config.args ?? []
+  if (name === "bun" && ["x", "run", "exec"].includes(args[0] ?? "")) return `bun ${args[0]}`
+  const flag = args.find((argument) => CODE_FLAGS.has(argument.split("=")[0]!) || argument === "--experimental-loader")
+  return flag === undefined ? undefined : `${name} ${flag.split("=")[0]}`
+}
+
+const workspaceProgram = (
+  config: Config,
+  path: string | undefined
+): StdError.StdError | undefined => {
+  const launching = launcher(config)
+  if (launching !== undefined) {
+    return failure(
+      "permission_denied",
+      `Language server command runs ${launching}, which executes a program its arguments or the workspace choose; name the server's own host binary instead`
+    )
+  }
+  const lexicalRoot = NodePath.resolve(config.cwd)
+  const realRoot = realPath(lexicalRoot)
+  const inWorkspace = (file: string): boolean =>
+    isWithin(lexicalRoot, file) || isWithin(realRoot, file) || isWithin(realRoot, realPath(file)) ||
+    isWithin(lexicalRoot, realPath(file))
+  const program = resolveCommand(config.command, lexicalRoot, path)
+  if (program !== undefined && inWorkspace(program)) {
+    return failure(
+      "permission_denied",
+      `Language server program ${program} is inside the workspace ${lexicalRoot}; run a host copy instead`
+    )
+  }
+  for (const argument of config.args ?? []) {
+    for (const value of [argument, argument.slice(argument.indexOf("=") + 1)]) {
+      if (value === "") continue
+      const candidate = NodePath.resolve(lexicalRoot, value)
+      if (isFile(candidate) && inWorkspace(candidate)) {
+        return failure(
+          "permission_denied",
+          `Language server argument names ${candidate}, a file inside the workspace ${lexicalRoot}`
+        )
+      }
+    }
+  }
+  return undefined
+}
+
 /**
  * Constructs one scoped host language-server client.
+ *
+ * Fails with `permission_denied`, before spawning, when the resolved program or
+ * a file named by an argument lies under `config.cwd`, or when the command is a
+ * launcher (a shell, `env`, a package runner such as `npx` or `pnpm`, or `node`
+ * and `bun` given inline code or a preload) whose arguments choose what runs.
  *
  * @category constructors
  * @since 1.0.0
@@ -299,13 +444,16 @@ export const make = (
   Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const timeoutMs = config.timeoutMs ?? 30_000
+    const env = ChildProcessEnvironment.make(process.env, config.environment)
+    const refused = yield* Effect.sync(() => workspaceProgram(config, env.PATH))
+    if (refused !== undefined) return yield* Effect.fail(refused)
     // The process's stdin is fed from this queue for the client's lifetime, so
     // each request is one offered frame and the pipe never closes between them.
     const input = yield* Queue.bounded<Uint8Array>(MAX_QUEUED_FRAMES)
     const handle = yield* spawner.spawn(
       ChildProcess.make(config.command, config.args ?? [], {
         cwd: config.cwd,
-        env: ChildProcessEnvironment.make(process.env, config.environment),
+        env,
         extendEnv: false,
         stdin: { stream: Stream.fromQueue(input), endOnDone: false }
       })
@@ -495,7 +643,8 @@ export const make = (
     yield* request("initialize", {
       processId: null,
       rootUri: pathToFileURL(config.cwd).href,
-      capabilities: {}
+      capabilities: {},
+      ...(config.initializationOptions === undefined ? {} : { initializationOptions: config.initializationOptions })
     })
     yield* notify("initialized", {})
 

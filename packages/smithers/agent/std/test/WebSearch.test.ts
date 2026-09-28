@@ -1,6 +1,6 @@
 import * as Credential from "@smthrs/control/Credential"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
-import { Cause, Effect, Exit, Fiber, Layer, Option, Redacted, Schema, Tracer } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Option, Redacted, Schema, Stream, Tracer } from "effect"
 import { TestClock } from "effect/testing"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
@@ -264,7 +264,7 @@ describe("WebSearch", () => {
     expect(body.startPublishedDate).toBe("2026-01-01T00:00:00.000Z")
   })
 
-  it.each(["execute", "json"] as const)("times out while awaiting the provider %s phase", async (phase) => {
+  it.each(["execute", "body"] as const)("times out while awaiting the provider %s phase", async (phase) => {
     const http = phase === "execute"
       ? HttpClient.make(() => Effect.never)
       : HttpClient.make((request) => {
@@ -275,7 +275,7 @@ describe("WebSearch", () => {
         return Effect.succeed(
           new Proxy(response, {
             get(target, property, receiver) {
-              return property === "json" ? Effect.never : Reflect.get(target, property, receiver)
+              return property === "stream" ? Stream.never : Reflect.get(target, property, receiver)
             }
           })
         )

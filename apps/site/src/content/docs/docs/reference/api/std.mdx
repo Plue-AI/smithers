@@ -255,9 +255,13 @@ permission-aware spawner as everything else.
 `makeCommand` attaches `-i` only when the payload arrives on standard input,
 because a container CLI holding stdin open for a command that never reads it
 makes that command hang. A container name that is empty or starts with `-` is
-`invalid_input`. Environment values travel through `Plan.env`; argv carries
-only `-e KEY`. Custom transports return any host process environment overrides
-in `Plan.env`.
+`invalid_input`, and so is an environment name that is not a POSIX shell name.
+A requested variable never reaches the host transport process under its own
+name, so `PATH`, `LD_PRELOAD`, or `DOCKER_HOST` cannot choose what runs on the
+host: `Plan.env` carries each value as `SMITHERS_CONTAINER_ENV_KEY`, argv
+carries only `-e SMITHERS_CONTAINER_ENV_KEY`, and an `sh -c` inside the
+container renames it to `KEY` before `exec`ing the program. Custom transports
+return any host process environment overrides in `Plan.env`.
 
 ## TreeFingerprint
 
@@ -321,7 +325,35 @@ Pinned trees, and the scratch checkouts a call runs against.
 | `relocate`         | `(flow: string, input: Json, materialized: Materialized) => Relocation`    | Rewrites one call's input onto a checkpoint.                     |
 
 `capture(id)` returns a `Snapshot`. `materialize(id, use)` is scoped: it hands
-the tree to `use` and removes the checkout however that effect ends.
+the tree to `use` and removes the checkout however that effect ends. Host git
+never runs with the workspace's `.git` as its `GIT_DIR`: it records and checks
+out through a temporary shadow repository that shares only the workspace's
+objects, with host config files switched off. A hook, `core.fsmonitor` command,
+filter driver or `info/attributes` entry written into the workspace's `.git`
+therefore does not run on the host. The workspace is still read for refs, its
+index, its config file (as a file) and a few `core.*` hashing settings. A
+checkout gets its own standalone `.git`, so a container can run git in it.
+
+Two data-write residuals remain, neither of which runs a program. First, host
+writes into agent-writable paths (new objects, the checkpoint's config entry,
+the checkout directory) follow a symlink the agent races into place. The
+directories and `.git` files a materialize prepares are created exclusively,
+but the `git read-tree --reset -u` that then writes the checkpoint's files is
+not: an agent that swaps the checkout directory, or a parent of it, for a
+symlink between those two steps can have read-tree overwrite existing files in
+the symlink's target with the checkpoint's contents. Second, the repository is
+whatever `git rev-parse --git-common-dir` names: a `.git` gitfile
+(`gitdir: <path>`) or an `objects/info/alternates` entry can point it at
+another git directory on the host. Captures then write objects and the config
+entry into that directory, a checkpoint id edited in `.git/config` can name a
+commit from it, and read-tree resolves object ids across the alternate store,
+so a materialize can write another host repository's files into the checkout.
+Both residuals apply whenever the agent can write the workspace, including its
+`.git` through a container bind mount; creating `.git` in the harness does not
+help, because the agent can rewrite it afterwards. The only mitigation is a
+`.git` and checkout path the agent cannot write, such as a read-only mount of
+`.git`, or running captures and checkouts against a git directory the harness
+keeps outside the mount.
 
 ## Relocate
 
@@ -358,18 +390,37 @@ The methods are `hover`, `definition`, `references`, `implementation`,
 A host LSP client over the permission-checked process spawner, speaking framed
 JSON-RPC on ordinary stdio pipes.
 
-| Export                 | Type                                                                                 | Meaning                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| `Config`               | interface                                                                            | `command`, `args?`, `cwd`, `environment?`, `timeoutMs?`. |
-| `MAX_QUEUED_FRAMES`    | `256`                                                                                | Frames buffered for the server's standard input.         |
-| `MAX_PENDING_REQUESTS` | `512`                                                                                | Concurrent in-flight requests.                           |
-| `make`                 | `(config: Config) => Effect<LanguageServer, StdError, ChildProcessSpawner \| Scope>` |                                                          |
-| `layer`                | `(config: Config) => Layer<LanguageServer, StdError, ChildProcessSpawner>`           |                                                          |
+| Export                 | Type                                                                                 | Meaning                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `Config`               | interface                                                                            | `command`, `args?`, `cwd`, `environment?`, `initializationOptions?`, `timeoutMs?`. |
+| `MAX_QUEUED_FRAMES`    | `256`                                                                                | Frames buffered for the server's standard input.                                   |
+| `MAX_PENDING_REQUESTS` | `512`                                                                                | Concurrent in-flight requests.                                                     |
+| `make`                 | `(config: Config) => Effect<LanguageServer, StdError, ChildProcessSpawner \| Scope>` |                                                                                    |
+| `layer`                | `(config: Config) => Layer<LanguageServer, StdError, ChildProcessSpawner>`           |                                                                                    |
 
 `make` sends `initialize` with `cwd` as the root URI and then `initialized`, so
 the service is ready when it resolves. `timeoutMs` defaults to 30,000 and bounds
 every request and every write. A frame body may be 8 MiB and its headers 8 KiB.
 The child receives the host environment allowlist plus `Config.environment`.
+`initializationOptions` is sent on `initialize` unchanged.
+
+The server runs on the host as the host user. `make` fails with
+`permission_denied`, before spawning, when the program it would execute lies
+under `cwd`: a relative or absolute command there, a bare name found through a
+`PATH` entry there, or a workspace symlink to a host binary. An argument, or
+the value after `=` in one, that names an existing file under `cwd` is refused
+the same way. A launcher is refused outright, because its arguments are code or
+package names the file check cannot see: a shell (`sh -c`, `bash`, `zsh`),
+`env`, a package runner (`npx`, `pnpm`, `npm`, `yarn`, `bunx`, `bun x`,
+`deno`), or `node` and `bun` given inline code or a preload (`-e`, `--eval`,
+`-p`, `-r`, `--require`, `--import`, `--loader`). Name the server's own host
+binary, or an interpreter and a host script file. What the server loads after it starts is not checked: by default
+typescript-language-server runs the workspace's `node_modules/typescript`,
+tsserver with `--allowLocalPluginLoads` loads `tsconfig` plugins from the
+project, and rust-analyzer runs build scripts and proc macros. Pin those to
+host copies through `initializationOptions` or the server's own flags (for
+typescript-language-server, `{ tsserver: { path: "<host>/tsserver.js" } }`),
+or run the server in a sandbox.
 Request failures include `method`. JSON-RPC refusals retain `rpcError` with the
 server's numeric `code`, `message`, and optional `data`, bounded by the 8 MiB
 frame limit. Failures attach the latest stderr tail when present, capturing at

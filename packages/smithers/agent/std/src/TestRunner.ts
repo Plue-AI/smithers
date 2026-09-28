@@ -34,7 +34,7 @@ export const captureBase = "refs/flows/capture-base"
  * `cwd` is where the runner runs, and `root` is the host directory holding the
  * git repository. They differ exactly when the runner runs in a container: the
  * container sees the repository at `cwd`, the host sees it at `root`, and a
- * baseline worktree created at `<root>/<name>` is visible to the runner at
+ * baseline checkout created at `<root>/<name>` is visible to the runner at
  * `<cwd>/<name>` because it is the same directory under two names.
  *
  * @category models
