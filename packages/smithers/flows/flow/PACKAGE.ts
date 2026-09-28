@@ -134,6 +134,106 @@ const referenceDocs = Smithers.Agent.Diff({
 })
 // --- end reference docs pipeline ------------------------------------------
 
+// --- security review -------------------------------------------------------
+// `security` reviews the diff against origin/main; `securityAudit` audits every
+// source file. Both share these checks; the macro appends `general`.
+const securityReview = Smithers.SecurityReview({
+  cwd,
+  include: ["src/**"],
+  checks: [
+    {
+      id: "deferred-token-addressing",
+      title: "A completion token settles only the wait point it was minted for",
+      threat: "A caller holding any flow's token completes another execution's approval, wait, or human task with a forged value.",
+      lookFor: [
+        "A completion path that builds its deferred from the caller's token without refusing a foreign flow name, execution id, or deferred name.",
+        "HumanTask.answerableDeferred accepting a deferred name that HumanTask.deferred could not produce (non-canonical attempt suffix, missing WaitFor/ prefix, queue item address).",
+        "WaitFor accepting a token whose flowName or executionId differs from the running instance, or accepting both token and name.",
+        "TokenParsed.FromString accepting a JSON array whose members are not exactly three strings."
+      ],
+      paths: ["src/DurableDeferred.ts", "src/WaitFor.ts", "src/HumanTask.ts"]
+    },
+    {
+      id: "queue-item-trust",
+      title: "A DurableQueue worker completes only its own queue's deferreds with decoded items",
+      threat: "Anyone who can write the persisted queue store settles an arbitrary execution's deferred or injects a trace parent into another tenant's spans.",
+      lookFor: [
+        "The worker casting item_ to a typed shape instead of decoding payload, token, traceId, and spanId through a schema.",
+        "The worker completing the deferred named by item.token without checking it is this queue's DurableDeferred name.",
+        "A token-invalid or handler failure that logs the full payload or token instead of a bounded excerpt."
+      ],
+      paths: ["src/DurableQueue.ts"]
+    },
+    {
+      id: "human-answer-bounds",
+      title: "Human answers and question schemas are bounded before durable storage",
+      threat: "The person answering a task, or a flow author, exhausts the host's memory, CPU, or journal with an oversized or deeply nested answer or schema.",
+      lookFor: [
+        "An answer recorded or validated before maxAnswerBytes, maxAnswerDepth, maxAnswerNodes, or maxJsonMembers is enforced.",
+        "A JSON Schema walk that recurses without the maxSchemaDepth or maxSchemaNodes bound, or follows $ref.",
+        "A rejection reason retained longer than maxRetainedRejectionChars or echoing the whole answer."
+      ],
+      paths: ["src/HumanTask.ts", "src/internal/JsonSchemaSubset.ts", "src/internal/BoundedJson.ts"]
+    },
+    {
+      id: "execution-identity-collision",
+      title: "Derived execution and step identities cannot collide across callers or payloads",
+      threat: "A payload author makes a re-driven parent land on another invocation's child execution and read or overwrite its recorded result.",
+      lookFor: [
+        "childExecutionId or a step key built by string concatenation instead of a canonical tuple digest.",
+        "A digest input that omits the callee tag, node id, parent execution id, or canonical payload.",
+        "A structural node id or placeholder that enters a hashed value non-canonically (key order, undefined vs missing)."
+      ],
+      paths: ["src/Interpreter.ts", "src/Graph.ts"]
+    },
+    {
+      id: "recorded-content-reuse",
+      title: "Recorded results are reused only under a matching implementation version and decoded schema",
+      threat: "A code change or a tampered journal row replays a stale or forged action result into a later execution as if it were computed now.",
+      lookFor: [
+        "A sealed action with an idempotency key dispatched without the implementationVersion refusal in Interpreter.ts.",
+        "A replayed or cached value handed to downstream nodes without decoding through the action's success schema.",
+        "A replaying registration path (layerWithImplementations or its callers) that defaults callbackIdentity to \"process-local\" instead of \"stable\"."
+      ],
+      paths: ["src/Interpreter.ts", "src/Graph.ts", "src/Action/Implementations.ts"]
+    },
+    {
+      id: "graph-payload-bounds",
+      title: "Graph building and plan paging refuse cyclic, deep, or oversized payloads",
+      threat: "A flow payload supplied by a trigger or caller hangs or crashes the host that builds and hashes the plan.",
+      lookFor: [
+        "A payload walk without the maximumPayloadDepth or cycle check before hashing.",
+        "A comparison or placement loop that is not capped by maxComparisonPairs, maxPlacementDepth, or maxPlacementMembers.",
+        "A node record larger than maximumPageBytes written to the journal instead of refused."
+      ],
+      paths: ["src/Graph.ts", "src/Interpreter.ts"]
+    },
+    {
+      id: "wait-and-retry-bounds",
+      title: "Sleeps, polls, retries, and stalls reject non-finite or unbounded schedules",
+      threat: "A payload or author-supplied duration parks a run forever, busy-loops a worker, or wakes it immediately past its deadline.",
+      lookFor: [
+        "A duration or deadline accepted when NaN, Infinity, or negative in Sleep, Poll, Stall, or DurableClock.",
+        "A retry or poll loop whose attempt budget is not a safe integer of at least one, or whose backoff overflows to Infinity.",
+        "A worker loop that retries a failing store take without a pause."
+      ],
+      paths: ["src/Sleep.ts", "src/Poll.ts", "src/RetryPolicy.ts", "src/Stall.ts", "src/DurableClock.ts", "src/DurableQueue.ts"]
+    },
+    {
+      id: "file-boundary-confinement",
+      title: "Declared read, write, and remove paths stay workspace-relative",
+      threat: "A payload author makes replay delete or overwrite files outside the workspace through an absolute or upward path in a payload-derived file boundary.",
+      lookFor: [
+        "A fileBoundary produced from the payload (make.ts toLayer path) reaching the action without FileBoundary.make decoding it.",
+        "A readSet, writeSet, or removes entry typed as a plain string instead of FileSet.Pattern, Glob, or Entry.",
+        "The disjointWritesAndRemoves filter bypassed by constructing the boundary without the schema."
+      ],
+      paths: ["src/Action/FileBoundary.ts", "src/Action/FileInput.ts", "src/Action/make.ts"]
+    }
+  ]
+})
+// --- end security review ---------------------------------------------------
+
 export const Package = Smithers.Package({
   targets: {
     bunTest,
@@ -148,6 +248,7 @@ export const Package = Smithers.Package({
     docsSources,
     referenceCodeBlocks,
     referenceDocs,
-    referencePages
+    referencePages,
+    ...securityReview
   }
 })

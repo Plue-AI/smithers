@@ -43,6 +43,104 @@ const reviewTagsMigrationsAndKeys = ReviewTagsMigrationsAndKeys({ cwd: "packages
  */
 const faults = Smithers.FaultSuite({ cwd: "packages/smithers/flows/database" })
 
+/**
+ * The security review: `security` reviews the diff against origin/main and
+ * `securityAudit` audits every reviewed file.
+ *
+ * @since 1.0.0
+ * @category lint
+ */
+const securityReview = Smithers.SecurityReview({
+  cwd: "packages/smithers/flows/database",
+  include: ["src/**", "scripts/**"],
+  checks: [
+    {
+      id: "sql-identifier-injection",
+      title: "Schema, table, trigger, and JSON-path text reaches SQL only escaped or from trusted constants",
+      threat:
+        "A caller or environment that controls a schema name, table name, trigger clause, or JSON path runs arbitrary SQL against every Smithers flow table in the database.",
+      lookFor: [
+        "A sql.unsafe or sql.literal call in Dialect.ts or TestDatabase.ts whose interpolated name, table, when, body, reject, or path is exported without a check that it is a constant or a safe identifier.",
+        "Dialect.query rewriting every '?' into $n, so a template containing a '?' in a string literal or a jsonb ?-operator binds values into the wrong position.",
+        "A SET search_path, CREATE SCHEMA, or DROP SCHEMA that quotes the schema by hand instead of through sql(identifier), or omits doubling embedded quotes."
+      ],
+      paths: ["src/Dialect.ts", "src/postgres/**", "src/test/TestDatabase.ts", "src/Migrations.ts"]
+    },
+    {
+      id: "postgres-schema-isolation",
+      title: "Environment-selected PostgreSQL gives each local store its own schema",
+      threat:
+        "A second Smithers workspace or user sharing SMITHERS_POSTGRES_URL reads or overwrites another store's runs because two filenames resolve to the same schema.",
+      lookFor: [
+        "SMITHERS_POSTGRES_SCHEMA combined with basename(filename) only, so two stores named smithers.db in different directories map to one schema.",
+        "A ?schema= query parameter or SMITHERS_POSTGRES_SCHEMA value accepted without restricting it to a safe identifier or rejecting system schemas such as public or pg_catalog.",
+        "DATABASE_URL or SMITHERS_POSTGRES_URL silently redirecting a :memory:, file: URI, or explicit SQLite path to a shared PostgreSQL server."
+      ],
+      paths: ["src/internal/PostgresSelection.ts", "src/postgres/**"]
+    },
+    {
+      id: "connection-secret-leak",
+      title: "PostgreSQL connection URLs and passwords never reach errors, spans, or logs",
+      threat:
+        "Anyone who reads a Smithers error message, trace, or CI log learns the database password of the operator's PostgreSQL server.",
+      lookFor: [
+        "An Error, UnsupportedDatabase message, or span attribute that interpolates the url, parsed URL, or DATABASE_URL.",
+        "A connection URL passed to PgClient without Redacted.make, or a Redacted value unwrapped into a string.",
+        "A test-matrix child process or console line that prints SMITHERS_TEST_PG_URL with credentials."
+      ],
+      paths: ["src/internal/PostgresSelection.ts", "src/postgres/**", "scripts/test-matrix.mjs"]
+    },
+    {
+      id: "sqlite-file-permissions",
+      title: "SQLite databases and their WAL and SHM sidecars are created owner-only on every driver",
+      threat:
+        "Another local user on a shared machine reads run transcripts, prompts, and stored secrets from a world-readable smithers database file.",
+      lookFor: [
+        "BunDatabase.layer handing a plain path straight to SqliteClient.layer without the exclusive 0o600 pre-create NodeDatabase.ts does in createDatabaseFile, so the file and its -wal and -shm sidecars get the umask default (0644).",
+        "createDatabaseFile following a symlink or a pre-planted file at the target path instead of creating it exclusively.",
+        "A mode option accepted from configuration that widens permissions beyond owner read and write without a warning."
+      ],
+      paths: ["src/node/**", "src/bun/**"]
+    },
+    {
+      id: "open-guard-bypass",
+      title: "The 0.x database refusal cannot be bypassed by URI parameters or lock timing",
+      threat:
+        "A caller opening a 0.x smithers.db through a crafted file: URI or during a peer's lock silently mixes schemas and corrupts the operator's existing run history.",
+      lookFor: [
+        "A file: URI whose query (mode, immutable, vfs, repeated parameters) makes probeTarget or isMemoryModeUri inspect a different file than the client opens.",
+        "readTableNames returning undefined for an error other than not-found or not-a-database, which waves the open through.",
+        "A lock-text match on an error string that contains a caller-chosen path, so a refusal is misclassified as a transient lock."
+      ],
+      paths: ["src/internal/SqliteOpen.ts", "src/node/**", "src/bun/**"]
+    },
+    {
+      id: "migration-ledger-integrity",
+      title: "The migration ledger never runs a migration twice, skips one, or lets one package claim another's block",
+      threat:
+        "A misdeclared or malicious package migration set rewrites or drops another storage package's tables in the shared database.",
+      lookFor: [
+        "A path in Migrations.ts finish or loaderFromPlan that applies a migration in a block whose recorded ledger names are not declared by the same namespace.",
+        "previousNames accepting a name from another namespace, so a renamed migration adopts a foreign ledger row.",
+        "A retry in run that re-applies a migration after a partial commit because the ledger insert and the migration are not in one transaction."
+      ],
+      paths: ["src/Migrations.ts", "src/internal/WriteRetry.ts"]
+    },
+    {
+      id: "test-helper-production-reach",
+      title: "Constraint-disabling test helpers are unreachable from production code",
+      threat:
+        "A production store importing @smthrs/database/test/TestDatabase disables CHECK and foreign-key constraints or drops a schema in a user's real database.",
+      lookFor: [
+        "TestDatabase.layer selecting a PostgreSQL server from SMITHERS_TEST_PG_URL alone, so the variable set in a production environment points constraint-dropping helpers at a real server.",
+        "checks, foreignKeys, dropTrigger, or dropSchema reachable with a client that is not a disposable test_<uuid> schema, or dropSchema accepting a schema other than the one the layer created.",
+        "The test-matrix script starting PostgreSQL with -A trust on a TCP listener, which lets any local user on the machine connect as superuser while the suite runs, or leaving the cluster running after a failure."
+      ],
+      paths: ["src/test/**", "scripts/test-matrix.mjs"]
+    }
+  ]
+})
+
 export const Package = Smithers.Package({
-  targets: { check, circular, docs, docsFiles, reviewTagsMigrationsAndKeys, faults, fmt, lib, lint, test }
+  targets: { check, circular, docs, docsFiles, reviewTagsMigrationsAndKeys, faults, fmt, lib, lint, test, ...securityReview }
 })
