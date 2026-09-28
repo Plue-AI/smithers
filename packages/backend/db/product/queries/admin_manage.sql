@@ -46,3 +46,89 @@ metadata = metadata || '{"failure_reason":"never_started"}'::jsonb
 WHERE id = sqlc.arg(id) AND status = 'active' AND started_at IS NULL
 AND deleted_at IS NULL AND created_at < sqlc.arg(cutoff)::timestamptz
 RETURNING *;
+
+
+-- name: AdminGetUserForErasure :one
+-- Unlike GetUserByLowerUsername this also finds a suspended user, so an erase
+-- interrupted after suspension can resume.
+SELECT * FROM users WHERE lower_username = sqlc.arg(lower_username);
+
+
+-- name: AdminFindErasedUser :one
+SELECT * FROM users
+WHERE lower_username LIKE sqlc.arg(tombstone_prefix)::text || '%'
+AND deleted_at IS NOT NULL AND NOT is_active
+ORDER BY id LIMIT 1;
+
+
+-- name: AdminBlockUserLoginForErasure :execrows
+-- Blocks sign-in and revokes sessions while the erase tears down owned
+-- resources; the account stays active so repository services still resolve it.
+UPDATE users SET prohibit_login = true, updated_at = now()
+WHERE id = sqlc.arg(user_id)::bigint AND NOT prohibit_login;
+
+
+-- name: AdminListErasureWorkspaces :many
+-- Live workspaces owned by the user or running inside the user's repositories.
+SELECT w.id, w.repository_id, w.user_id FROM workspaces w
+WHERE w.deleted_at IS NULL
+AND (w.user_id = sqlc.arg(user_id)::bigint OR w.repository_id IN (SELECT r.id FROM repositories r WHERE r.user_id = sqlc.arg(user_id)::bigint))
+ORDER BY w.created_at, w.id;
+
+
+-- name: AdminListUserRepositories :many
+SELECT id, name FROM repositories WHERE user_id = sqlc.arg(user_id)::bigint ORDER BY id;
+
+
+-- name: AdminCountUserLiveResources :one
+SELECT
+  (SELECT count(*) FROM repositories r WHERE r.user_id = sqlc.arg(user_id)::bigint)::bigint AS repositories,
+  (SELECT count(*) FROM workspaces w WHERE w.user_id = sqlc.arg(user_id)::bigint AND w.deleted_at IS NULL)::bigint AS workspaces;
+
+
+-- name: AdminTombstoneUser :execrows
+UPDATE users SET
+  username = sqlc.arg(tombstone)::text, lower_username = sqlc.arg(tombstone)::text,
+  email = NULL, lower_email = NULL, display_name = 'Deleted user', bio = '',
+  avatar_url = '', wallet_address = NULL, is_active = false, is_admin = false,
+  prohibit_login = true, email_notifications_enabled = false, last_login_at = NULL,
+  deleted_at = COALESCE(deleted_at, now()), updated_at = now()
+WHERE id = sqlc.arg(user_id)::bigint;
+
+
+-- name: AdminListUserCascadeReferences :many
+-- Every single-column foreign key that deletes its row with the user: the
+-- data the schema declares the user owns.
+SELECT c.conrelid::regclass::text AS table_name, a.attname::text AS column_name
+FROM pg_catalog.pg_constraint c
+JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+WHERE c.contype = 'f' AND c.confrelid = 'public.users'::regclass
+AND c.confdeltype = 'c' AND cardinality(c.conkey) = 1
+ORDER BY 1, 2;
+
+
+-- name: AdminDeleteUserChatTurns :execrows
+DELETE FROM chat_turns WHERE user_id = sqlc.arg(user_id)::bigint OR repository_id = ANY(sqlc.arg(repository_ids)::bigint[]);
+
+
+-- name: AdminDeleteUserNotificationFacts :execrows
+DELETE FROM notification_facts WHERE user_id = sqlc.arg(user_id)::bigint;
+
+
+-- name: AdminDeleteUserIssueStateFacts :execrows
+DELETE FROM issue_state_facts WHERE audience_user_id = sqlc.arg(user_id)::bigint;
+
+
+-- name: AdminScrubUserAuditActor :execrows
+UPDATE audit_log SET actor_name = sqlc.arg(tombstone)::text
+WHERE actor_id = sqlc.arg(user_id)::bigint AND actor_name <> sqlc.arg(tombstone)::text;
+
+
+-- name: AdminScrubUserAuditTarget :execrows
+UPDATE audit_log SET target_name = sqlc.arg(tombstone)::text
+WHERE target_type = 'user' AND target_id = sqlc.arg(user_id)::bigint AND target_name <> sqlc.arg(tombstone)::text;
+
+
+-- name: AdminScrubUserWikiRevisions :execrows
+UPDATE wiki_page_revisions SET author_username = sqlc.arg(tombstone)::text
+WHERE author_id = sqlc.arg(user_id)::bigint AND author_username <> sqlc.arg(tombstone)::text;

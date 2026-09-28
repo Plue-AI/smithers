@@ -41,6 +41,7 @@ type AdminUserService struct {
 	queries      AdminUserQuerier
 	tokenCreator TokenCreator
 	auditor      AdminAuditor
+	erasure      *AccountErasure
 }
 
 type adminAuditActorContextKey struct{}

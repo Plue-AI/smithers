@@ -562,10 +562,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithIssueNotificationService(notificationService),
 		services.WithIssueOwnershipGuard(repoOwnershipFence),
 	)
-	adminUserService := services.NewAdminUserService(queries,
-		services.WithTokenCreator(authService),
-		services.WithAdminAuditor(auditService),
-	)
 	adminOrgService := services.NewAdminOrgService(queries)
 	adminRepoService := services.NewAdminRepoService(queries)
 	webhookService := services.NewWebhookService(queries, webhookSecretCodec, services.WithWebhookOwnershipGuard(repoOwnershipFence))
@@ -757,6 +753,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceAgentEnvironment(agentEnvironmentService),
 		services.WithWorkspaceProviderConnections(subscriptionPool),
 		services.WithWorkspaceProviderBootstrap(modelSeats, cfg.Sandbox.WorkspaceCodingDefaultModel),
+	)
+	adminUserService := services.NewAdminUserService(queries,
+		services.WithTokenCreator(authService),
+		services.WithAdminAuditor(auditService),
+		services.WithAccountErasure(services.AccountErasure{Pool: pool, Repos: repoService, Workspaces: workspaceService}),
 	)
 
 	// Golden sandbox snapshot: the pre-baked toolchain image fresh

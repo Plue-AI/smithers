@@ -12,6 +12,149 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const adminBlockUserLoginForErasure = `-- name: AdminBlockUserLoginForErasure :execrows
+UPDATE users SET prohibit_login = true, updated_at = now()
+WHERE id = $1::bigint AND NOT prohibit_login
+`
+
+// Blocks sign-in and revokes sessions while the erase tears down owned
+// resources; the account stays active so repository services still resolve it.
+func (q *Queries) AdminBlockUserLoginForErasure(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, adminBlockUserLoginForErasure, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminCountUserLiveResources = `-- name: AdminCountUserLiveResources :one
+SELECT
+  (SELECT count(*) FROM repositories r WHERE r.user_id = $1::bigint)::bigint AS repositories,
+  (SELECT count(*) FROM workspaces w WHERE w.user_id = $1::bigint AND w.deleted_at IS NULL)::bigint AS workspaces
+`
+
+type AdminCountUserLiveResourcesRow struct {
+	Repositories int64 `json:"repositories"`
+	Workspaces   int64 `json:"workspaces"`
+}
+
+func (q *Queries) AdminCountUserLiveResources(ctx context.Context, userID int64) (AdminCountUserLiveResourcesRow, error) {
+	row := q.db.QueryRow(ctx, adminCountUserLiveResources, userID)
+	var i AdminCountUserLiveResourcesRow
+	err := row.Scan(&i.Repositories, &i.Workspaces)
+	return i, err
+}
+
+const adminDeleteUserChatTurns = `-- name: AdminDeleteUserChatTurns :execrows
+DELETE FROM chat_turns WHERE user_id = $1::bigint OR repository_id = ANY($2::bigint[])
+`
+
+type AdminDeleteUserChatTurnsParams struct {
+	UserID        int64   `json:"user_id"`
+	RepositoryIds []int64 `json:"repository_ids"`
+}
+
+func (q *Queries) AdminDeleteUserChatTurns(ctx context.Context, arg AdminDeleteUserChatTurnsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, adminDeleteUserChatTurns, arg.UserID, arg.RepositoryIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminDeleteUserIssueStateFacts = `-- name: AdminDeleteUserIssueStateFacts :execrows
+DELETE FROM issue_state_facts WHERE audience_user_id = $1::bigint
+`
+
+func (q *Queries) AdminDeleteUserIssueStateFacts(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, adminDeleteUserIssueStateFacts, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminDeleteUserNotificationFacts = `-- name: AdminDeleteUserNotificationFacts :execrows
+DELETE FROM notification_facts WHERE user_id = $1::bigint
+`
+
+func (q *Queries) AdminDeleteUserNotificationFacts(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, adminDeleteUserNotificationFacts, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminFindErasedUser = `-- name: AdminFindErasedUser :one
+SELECT id, username, lower_username, email, lower_email, display_name, bio, search_vector, avatar_url, wallet_address, user_type, is_active, is_admin, prohibit_login, email_notifications_enabled, last_login_at, deleted_at, created_at, updated_at, is_synthetic FROM users
+WHERE lower_username LIKE $1::text || '%'
+AND deleted_at IS NOT NULL AND NOT is_active
+ORDER BY id LIMIT 1
+`
+
+func (q *Queries) AdminFindErasedUser(ctx context.Context, tombstonePrefix string) (User, error) {
+	row := q.db.QueryRow(ctx, adminFindErasedUser, tombstonePrefix)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.LowerUsername,
+		&i.Email,
+		&i.LowerEmail,
+		&i.DisplayName,
+		&i.Bio,
+		&i.SearchVector,
+		&i.AvatarUrl,
+		&i.WalletAddress,
+		&i.UserType,
+		&i.IsActive,
+		&i.IsAdmin,
+		&i.ProhibitLogin,
+		&i.EmailNotificationsEnabled,
+		&i.LastLoginAt,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsSynthetic,
+	)
+	return i, err
+}
+
+const adminGetUserForErasure = `-- name: AdminGetUserForErasure :one
+SELECT id, username, lower_username, email, lower_email, display_name, bio, search_vector, avatar_url, wallet_address, user_type, is_active, is_admin, prohibit_login, email_notifications_enabled, last_login_at, deleted_at, created_at, updated_at, is_synthetic FROM users WHERE lower_username = $1
+`
+
+// Unlike GetUserByLowerUsername this also finds a suspended user, so an erase
+// interrupted after suspension can resume.
+func (q *Queries) AdminGetUserForErasure(ctx context.Context, lowerUsername string) (User, error) {
+	row := q.db.QueryRow(ctx, adminGetUserForErasure, lowerUsername)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.LowerUsername,
+		&i.Email,
+		&i.LowerEmail,
+		&i.DisplayName,
+		&i.Bio,
+		&i.SearchVector,
+		&i.AvatarUrl,
+		&i.WalletAddress,
+		&i.UserType,
+		&i.IsActive,
+		&i.IsAdmin,
+		&i.ProhibitLogin,
+		&i.EmailNotificationsEnabled,
+		&i.LastLoginAt,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsSynthetic,
+	)
+	return i, err
+}
+
 const adminListAgentSessions = `-- name: AdminListAgentSessions :many
 
 SELECT s.id, s.repository_id, s.user_id, s.workflow_run_id, s.title, s.status, s.metadata, s.workspace_id, s.started_at, s.finished_at, s.created_at, s.updated_at, s.deleted_at, u.username AS username,
@@ -73,6 +216,40 @@ func (q *Queries) AdminListAgentSessions(ctx context.Context, arg AdminListAgent
 	return items, nil
 }
 
+const adminListErasureWorkspaces = `-- name: AdminListErasureWorkspaces :many
+SELECT w.id, w.repository_id, w.user_id FROM workspaces w
+WHERE w.deleted_at IS NULL
+AND (w.user_id = $1::bigint OR w.repository_id IN (SELECT r.id FROM repositories r WHERE r.user_id = $1::bigint))
+ORDER BY w.created_at, w.id
+`
+
+type AdminListErasureWorkspacesRow struct {
+	ID           string `json:"id"`
+	RepositoryID int64  `json:"repository_id"`
+	UserID       int64  `json:"user_id"`
+}
+
+// Live workspaces owned by the user or running inside the user's repositories.
+func (q *Queries) AdminListErasureWorkspaces(ctx context.Context, userID int64) ([]AdminListErasureWorkspacesRow, error) {
+	rows, err := q.db.Query(ctx, adminListErasureWorkspaces, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AdminListErasureWorkspacesRow{}
+	for rows.Next() {
+		var i AdminListErasureWorkspacesRow
+		if err := rows.Scan(&i.ID, &i.RepositoryID, &i.UserID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const adminListTokens = `-- name: AdminListTokens :many
 SELECT t.id, t.name, u.username, t.scopes, t.last_used_at, t.expires_at, t.created_at
 FROM access_tokens t JOIN users u ON u.id = t.user_id
@@ -122,6 +299,71 @@ func (q *Queries) AdminListTokens(ctx context.Context, arg AdminListTokensParams
 			&i.ExpiresAt,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const adminListUserCascadeReferences = `-- name: AdminListUserCascadeReferences :many
+SELECT c.conrelid::regclass::text AS table_name, a.attname::text AS column_name
+FROM pg_catalog.pg_constraint c
+JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+WHERE c.contype = 'f' AND c.confrelid = 'public.users'::regclass
+AND c.confdeltype = 'c' AND cardinality(c.conkey) = 1
+ORDER BY 1, 2
+`
+
+type AdminListUserCascadeReferencesRow struct {
+	TableName  string `json:"table_name"`
+	ColumnName string `json:"column_name"`
+}
+
+// Every single-column foreign key that deletes its row with the user: the
+// data the schema declares the user owns.
+func (q *Queries) AdminListUserCascadeReferences(ctx context.Context) ([]AdminListUserCascadeReferencesRow, error) {
+	rows, err := q.db.Query(ctx, adminListUserCascadeReferences)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AdminListUserCascadeReferencesRow{}
+	for rows.Next() {
+		var i AdminListUserCascadeReferencesRow
+		if err := rows.Scan(&i.TableName, &i.ColumnName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const adminListUserRepositories = `-- name: AdminListUserRepositories :many
+SELECT id, name FROM repositories WHERE user_id = $1::bigint ORDER BY id
+`
+
+type AdminListUserRepositoriesRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+func (q *Queries) AdminListUserRepositories(ctx context.Context, userID int64) ([]AdminListUserRepositoriesRow, error) {
+	rows, err := q.db.Query(ctx, adminListUserRepositories, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AdminListUserRepositoriesRow{}
+	for rows.Next() {
+		var i AdminListUserRepositoriesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -225,6 +467,83 @@ func (q *Queries) AdminListWorkspaces(ctx context.Context, arg AdminListWorkspac
 		return nil, err
 	}
 	return items, nil
+}
+
+const adminScrubUserAuditActor = `-- name: AdminScrubUserAuditActor :execrows
+UPDATE audit_log SET actor_name = $1::text
+WHERE actor_id = $2::bigint AND actor_name <> $1::text
+`
+
+type AdminScrubUserAuditActorParams struct {
+	Tombstone string `json:"tombstone"`
+	UserID    int64  `json:"user_id"`
+}
+
+func (q *Queries) AdminScrubUserAuditActor(ctx context.Context, arg AdminScrubUserAuditActorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, adminScrubUserAuditActor, arg.Tombstone, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminScrubUserAuditTarget = `-- name: AdminScrubUserAuditTarget :execrows
+UPDATE audit_log SET target_name = $1::text
+WHERE target_type = 'user' AND target_id = $2::bigint AND target_name <> $1::text
+`
+
+type AdminScrubUserAuditTargetParams struct {
+	Tombstone string `json:"tombstone"`
+	UserID    int64  `json:"user_id"`
+}
+
+func (q *Queries) AdminScrubUserAuditTarget(ctx context.Context, arg AdminScrubUserAuditTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, adminScrubUserAuditTarget, arg.Tombstone, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminScrubUserWikiRevisions = `-- name: AdminScrubUserWikiRevisions :execrows
+UPDATE wiki_page_revisions SET author_username = $1::text
+WHERE author_id = $2::bigint AND author_username <> $1::text
+`
+
+type AdminScrubUserWikiRevisionsParams struct {
+	Tombstone string `json:"tombstone"`
+	UserID    int64  `json:"user_id"`
+}
+
+func (q *Queries) AdminScrubUserWikiRevisions(ctx context.Context, arg AdminScrubUserWikiRevisionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, adminScrubUserWikiRevisions, arg.Tombstone, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminTombstoneUser = `-- name: AdminTombstoneUser :execrows
+UPDATE users SET
+  username = $1::text, lower_username = $1::text,
+  email = NULL, lower_email = NULL, display_name = 'Deleted user', bio = '',
+  avatar_url = '', wallet_address = NULL, is_active = false, is_admin = false,
+  prohibit_login = true, email_notifications_enabled = false, last_login_at = NULL,
+  deleted_at = COALESCE(deleted_at, now()), updated_at = now()
+WHERE id = $2::bigint
+`
+
+type AdminTombstoneUserParams struct {
+	Tombstone string `json:"tombstone"`
+	UserID    int64  `json:"user_id"`
+}
+
+func (q *Queries) AdminTombstoneUser(ctx context.Context, arg AdminTombstoneUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, adminTombstoneUser, arg.Tombstone, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const failNeverStartedAgentSession = `-- name: FailNeverStartedAgentSession :one
