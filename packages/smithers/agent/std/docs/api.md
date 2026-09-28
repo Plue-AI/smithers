@@ -255,8 +255,12 @@ A requested variable never reaches the host transport process under its own
 name, so `PATH`, `LD_PRELOAD`, or `DOCKER_HOST` cannot choose what runs on the
 host: `Plan.env` carries each value as `SMITHERS_CONTAINER_ENV_KEY`, argv
 carries only `-e SMITHERS_CONTAINER_ENV_KEY`, and an `sh -c` inside the
-container renames it to `KEY` before `exec`ing the program. Custom transports
-return any host process environment overrides in `Plan.env`.
+container renames it to `KEY` before `exec`ing the program. A request that
+carries `env` therefore requires `sh` on the container's `PATH`; an image
+without one (distroless, `scratch`) fails every such request, and a request
+without `env` runs the program directly. Supply a custom transport for such an
+image. Custom transports return any host process environment overrides in
+`Plan.env`.
 
 ## TreeFingerprint
 
@@ -329,14 +333,20 @@ therefore does not run on the host. The workspace is still read for refs, its
 index, its config file (as a file) and a few `core.*` hashing settings. A
 checkout gets its own standalone `.git`, so a container can run git in it.
 
+A materialize never has host git write into an agent-writable directory. It
+writes the checkout and its `.git` into a staging directory the agent cannot
+reach, inside the temporary shadow or, when the host's temporary directory is
+another filesystem, a `.smithers-checkout-<uuid>` directory beside the
+workspace root. One `rename` then gives the finished directory its name under
+the workspace. A checkout name the agent swaps for a symlink fails the call
+before anything is written through it; a parent the agent swaps for a symlink
+can only receive the new directory under its random name, never overwrite a
+file. When neither staging directory shares the checkout's filesystem, the
+materialize is refused rather than copied.
+
 Two data-write residuals remain, neither of which runs a program. First, host
-writes into agent-writable paths (new objects, the checkpoint's config entry,
-the checkout directory) follow a symlink the agent races into place. The
-directories and `.git` files a materialize prepares are created exclusively,
-but the `git read-tree --reset -u` that then writes the checkpoint's files is
-not: an agent that swaps the checkout directory, or a parent of it, for a
-symlink between those two steps can have read-tree overwrite existing files in
-the symlink's target with the checkpoint's contents. Second, the repository is
+writes into agent-writable `.git` paths (new objects, the checkpoint's config
+entry) follow a symlink the agent races into place. Second, the repository is
 whatever `git rev-parse --git-common-dir` names: a `.git` gitfile
 (`gitdir: <path>`) or an `objects/info/alternates` entry can point it at
 another git directory on the host. Captures then write objects and the config
@@ -403,8 +413,9 @@ The server runs on the host as the host user. `make` fails with
 `permission_denied`, before spawning, when the program it would execute lies
 under `cwd`: a relative or absolute command there, a bare name found through a
 `PATH` entry there, or a workspace symlink to a host binary. An argument, or
-the value after `=` in one, that names an existing file under `cwd` is refused
-the same way. A launcher is refused outright, because its arguments are code or
+the value after `=` in one, that names an existing file or directory under
+`cwd` is refused the same way; `node <dir>` runs that directory's `index.js` or
+package `main`. A launcher is refused outright, because its arguments are code or
 package names the file check cannot see: a shell (`sh -c`, `bash`, `zsh`),
 `env`, a package runner (`npx`, `pnpm`, `npm`, `yarn`, `bunx`, `bun x`,
 `deno`), or `node` and `bun` given inline code or a preload (`-e`, `--eval`,

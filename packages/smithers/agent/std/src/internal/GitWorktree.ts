@@ -281,58 +281,116 @@ const checkoutConfig = (repository: Repository): string => {
   return `${lines.join("\n")}\n`
 }
 
+/** Fails with `message` and the command's stderr unless it exited 0. */
+const succeeded = (result: Exec.ExecResult, message: string) =>
+  result.exitCode === 0 ? Effect.void : Effect.fail(failed(`${message}: ${result.stderr.trim()}`))
+
 /**
- * Writes `commit`'s tree into the new directory `host` from the shadow, then
- * gives the directory a standalone `.git` the container's git can use.
+ * Prints the device of each argument, one per line. `stat -c` is GNU and
+ * BusyBox, `stat -f` is BSD; an empty line means neither answered.
+ */
+const devices =
+  "for path in \"$@\"; do stat -c %d -- \"$path\" 2>/dev/null || stat -f %d -- \"$path\" 2>/dev/null || echo; done"
+
+/**
+ * Moves the staged checkout `$1` to the new name `$2` in one `rename`, then
+ * proves the directory at `$2` is the one that was staged. The staging
+ * directory is on the same filesystem, so `mv` renames and never copies.
+ */
+const publish = [
+  "set -e",
+  "if [ -e \"$2\" ] || [ -L \"$2\" ]; then echo \"$2 already exists\" >&2; exit 1; fi",
+  "staged=$(ls -di -- \"$1\" | awk '{print $1}')",
+  "mv -- \"$1\" \"$2\"",
+  "if [ -L \"$2\" ] || [ ! -d \"$2\" ]; then echo \"$2 was replaced while it was written\" >&2; exit 1; fi",
+  "moved=$(ls -di -- \"$2\" | awk '{print $1}')",
+  "if [ \"$staged\" != \"$moved\" ]; then echo \"$2 was replaced while it was written\" >&2; exit 1; fi"
+].join("; ")
+
+/**
+ * Checks `commit`'s tree out at the new directory `host`, with a standalone
+ * `.git` the container's git can use.
  *
- * `set -C` and a plain `mkdir` make the preparation create-only, so a
- * directory the agent swaps in before it is refused. The `read-tree` that
- * follows is not create-only: a symlink swapped in between the two steps is
- * followed and existing files in its target are overwritten. docs/api.md
- * states this residual.
+ * Host git never writes into an agent-writable directory. The tree and its
+ * `.git` are written into a staging directory the agent cannot reach: inside
+ * the shadow, or beside the workspace root when the host's temporary directory
+ * is another filesystem. One `rename` then gives the finished directory its
+ * name under the workspace. A path the agent swaps for a symlink cannot
+ * redirect a file write: a symlink at `host` fails the call before the rename,
+ * and a symlinked parent can only receive the new directory under its own
+ * random name, never overwrite a file.
  */
 const checkout = (shadow: Shadow, host: string, commit: string) =>
   Effect.gen(function*() {
     const repository = shadow.repository
     const parent = host.slice(0, host.lastIndexOf("/"))
+    const name = host.slice(host.lastIndexOf("/") + 1)
+    const beside = repository.root.slice(0, repository.root.lastIndexOf("/")) || "/"
+    const scratch = `${beside.replace(/\/+$/, "")}/.smithers-checkout-${globalThis.crypto.randomUUID()}`
+    const measured = yield* run("sh", [
+      "-c",
+      `set -e; mkdir -p -- "$1"; ${devices}`,
+      "sh",
+      parent,
+      shadow.path,
+      beside
+    ])
+    yield* succeeded(measured, `Could not check out ${commit}`)
+    const [target, inShadow, besideRoot] = measured.stdout.split("\n").map((line) => line.trim())
+    const base = target === undefined || target === ""
+      ? undefined
+      : target === inShadow
+      ? shadow.path
+      : target === besideRoot
+      ? scratch
+      : undefined
+    if (base === undefined) {
+      return yield* Effect.fail(
+        failed(
+          `Could not check out ${commit}: neither ${shadow.path} nor ${beside} is on the filesystem of ${parent}`
+        )
+      )
+    }
+    const staged = `${base}/${name}`
     const objects = relative(
       `${repository.toplevel}${host.slice(repository.root.length)}/.git/objects`,
       `${repository.common}/objects`
     )
-    const prepared = yield* run("sh", [
-      "-c",
-      [
-        "set -eC",
-        "mkdir -p -- \"$1\"",
-        "mkdir -- \"$2\" \"$2/.git\" \"$2/.git/objects\" \"$2/.git/objects/info\" \"$2/.git/refs\"",
-        "printf '%s\\n' \"$3\" > \"$2/.git/HEAD\"",
-        "printf '%s\\n' \"$4\" > \"$2/.git/objects/info/alternates\"",
-        "printf '%s' \"$5\" > \"$2/.git/config\""
-      ].join("; "),
-      "sh",
-      parent,
-      host,
-      commit,
-      objects,
-      checkoutConfig(repository)
-    ])
-    if (prepared.exitCode !== 0) {
-      return yield* Effect.fail(failed(`Could not check out ${commit}: ${prepared.stderr.trim()}`))
-    }
-    const written = yield* shadow.git(["read-tree", "--reset", "-u", commit], host)
-    if (written.exitCode !== 0) {
-      return yield* Effect.fail(failed(`Could not check out ${commit}: ${written.stderr.trim()}`))
-    }
-    const indexed = yield* run("sh", [
-      "-c",
-      "set -C; cat -- \"$1\" > \"$2\"",
-      "sh",
-      `${shadow.path}/index`,
-      `${host}/.git/index`
-    ])
-    if (indexed.exitCode !== 0) {
-      return yield* Effect.fail(failed(`Could not check out ${commit}: ${indexed.stderr.trim()}`))
-    }
+    const write = Effect.gen(function*() {
+      const prepared = yield* run("sh", [
+        "-c",
+        [
+          "set -eC",
+          ...(base === scratch ? ["mkdir -m 700 -- \"$1\""] : []),
+          "mkdir -- \"$2\" \"$2/.git\" \"$2/.git/objects\" \"$2/.git/objects/info\" \"$2/.git/refs\"",
+          "printf '%s\\n' \"$3\" > \"$2/.git/HEAD\"",
+          "printf '%s\\n' \"$4\" > \"$2/.git/objects/info/alternates\"",
+          "printf '%s' \"$5\" > \"$2/.git/config\""
+        ].join("; "),
+        "sh",
+        base,
+        staged,
+        commit,
+        objects,
+        checkoutConfig(repository)
+      ])
+      yield* succeeded(prepared, `Could not check out ${commit}`)
+      const written = yield* shadow.git(["read-tree", "--reset", "-u", commit], staged)
+      yield* succeeded(written, `Could not check out ${commit}`)
+      const indexed = yield* run("sh", [
+        "-c",
+        "set -C; cat -- \"$1\" > \"$2\"",
+        "sh",
+        `${shadow.path}/index`,
+        `${staged}/.git/index`
+      ])
+      yield* succeeded(indexed, `Could not check out ${commit}`)
+      const moved = yield* run("sh", ["-c", publish, "sh", staged, host])
+      yield* succeeded(moved, `Could not check out ${commit}`)
+    })
+    return yield* base === scratch
+      ? write.pipe(Effect.ensuring(remove(scratch).pipe(Effect.ignore)))
+      : write
   })
 
 const withDetachedWorktree = <A, E, R>(

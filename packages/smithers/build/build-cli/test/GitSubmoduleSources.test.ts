@@ -31,37 +31,74 @@ const workspace = async (url: string): Promise<string> => {
   return root
 }
 
-const planFor = (root: string) =>
-  GitSubmoduleExec.plan({ root, packagePath: "", rule: "Git.Submodule", attrs: { path: "//vendor/one" } as never })
+const planFor = (root: string, environment: Readonly<Record<string, string | undefined>> = {}) =>
+  GitSubmoduleExec.plan({
+    root,
+    packagePath: "",
+    rule: "Git.Submodule",
+    attrs: { path: "//vendor/one" } as never,
+    environment
+  })
+
+const allow = (...directories: ReadonlyArray<string>) => ({
+  [GitSubmoduleExec.submoduleSourcesVariable]: directories.join(NodePath.delimiter)
+})
 
 describe("Git submodule local sources", () => {
-  it("admits a local git repository as a sandbox read", async () => {
-    const source = await temporary("smthrs-submodule-repo-")
+  it("admits a local git repository inside the workspace as a sandbox read", async () => {
+    const root = await workspace("./mirrors/one")
+    const source = NodePath.join(root, "mirrors", "one")
+    await Fs.mkdir(source, { recursive: true })
     git(source, ["init", "-q"])
-    const plan = await planFor(await workspace(source))
+    await Fs.writeFile(
+      NodePath.join(root, ".gitmodules"),
+      `[submodule "one"]\n\tpath = vendor/one\n\turl = ${source}\n`
+    )
+    const plan = await planFor(root)
     expect(plan.refusal).toBeUndefined()
     expect(plan.sources).toEqual([source])
   })
 
-  it("admits a bare repository named by a file:// url", async () => {
-    const source = await temporary("smthrs-submodule-bare-")
+  it("refuses a git repository elsewhere under the home directory", async () => {
+    const home = await temporary("smthrs-submodule-home-")
+    const source = NodePath.join(home, "plue")
+    await Fs.mkdir(source)
+    git(source, ["init", "-q"])
+    const previous = process.env["HOME"]
+    process.env["HOME"] = home
+    try {
+      const plan = await planFor(await workspace(source))
+      expect(plan.sources).toEqual([])
+      expect(plan.refusal).toContain("outside the workspace")
+    } finally {
+      if (previous === undefined) delete process.env["HOME"]
+      else process.env["HOME"] = previous
+    }
+  })
+
+  it("admits a bare repository named by a file:// url under an operator-listed directory", async () => {
+    const mirrors = await temporary("smthrs-submodule-mirrors-")
+    const source = NodePath.join(mirrors, "one.git")
+    await Fs.mkdir(source)
     git(source, ["init", "-q", "--bare"])
-    const plan = await planFor(await workspace(`file://${source}`))
+    const superproject = await workspace(`file://${source}`)
+    expect((await planFor(superproject)).refusal).toContain("outside the workspace")
+    const plan = await planFor(superproject, allow(mirrors))
     expect(plan.refusal).toBeUndefined()
-    expect(plan.sources).toEqual([`${source}`])
+    expect(plan.sources).toEqual([source])
   })
 
   it("refuses a committed url naming a directory that is not a repository", async () => {
     const secrets = await temporary("smthrs-submodule-secrets-")
     await Fs.writeFile(NodePath.join(secrets, "id_ed25519"), "secret")
-    const plan = await planFor(await workspace(`file://${secrets}`))
+    const plan = await planFor(await workspace(`file://${secrets}`), allow(secrets))
     expect(plan.sources).toEqual([])
     expect(plan.refusal).toContain("is not a git repository")
   })
 
-  it("refuses the filesystem root and the home directory", async () => {
+  it("refuses the filesystem root and the home directory even when listed", async () => {
     for (const url of ["/", Os.homedir(), NodePath.dirname(Os.homedir())]) {
-      const plan = await planFor(await workspace(url))
+      const plan = await planFor(await workspace(url), allow("/"))
       expect(plan.sources).toEqual([])
       expect(plan.refusal).toContain("root or home directory")
     }

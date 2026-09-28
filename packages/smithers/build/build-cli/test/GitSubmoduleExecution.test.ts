@@ -3,11 +3,15 @@ import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
+import { submoduleSourcesVariable } from "../src/GitSubmoduleExec.ts"
 import { serve } from "./helpers/ServeCli.ts"
 import { write } from "./helpers/WriteFile.ts"
 
 const temporaryDirectories: Array<string> = []
+const sourcesBefore = process.env[submoduleSourcesVariable]
 afterAll(async () => {
+  if (sourcesBefore === undefined) delete process.env[submoduleSourcesVariable]
+  else process.env[submoduleSourcesVariable] = sourcesBefore
   await Promise.all(temporaryDirectories.map((directory) => Fs.rm(directory, { recursive: true, force: true })))
 })
 
@@ -27,6 +31,8 @@ const fixture = async (): Promise<{
   const source = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-submodule-source-"))
   const root = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-submodule-workspace-"))
   temporaryDirectories.push(source, root)
+  // The source repository sits outside the workspace, so the operator admits it.
+  process.env[submoduleSourcesVariable] = source
   git(source, ["init", "-q"])
   await write(source, "value.txt", "first")
   commit(source, "first")

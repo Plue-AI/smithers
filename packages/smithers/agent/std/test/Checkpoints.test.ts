@@ -58,7 +58,9 @@ const host = (
 /** What `rev-parse` reports about `/work/repo`, answered when a test's own table does not. */
 const repository: ReadonlyArray<readonly [string, Response]> = [
   ["--show-toplevel", { stdout: "/work/repo\n/work/repo/.git\n/work/repo/.git/index\nsha1\n" }],
-  ["--get-regexp", { exitCode: 1 }]
+  ["--get-regexp", { exitCode: 1 }],
+  // The checkout's scratch parent, the shadow and the root's parent share one filesystem.
+  ["stat -c %d", { stdout: "1\n1\n1\n" }]
 ]
 
 const store = (
@@ -84,12 +86,14 @@ const materialized: Checkpoints.Materialized = {
 /** The shadow GIT_DIR is a fresh temporary path per operation; argv pins name it `<shadow>`. */
 const lines = (spawns: ReadonlyArray<ReadonlyArray<string>>) =>
   spawns.map((argv) =>
-    argv.map((part) => part.replace(/^(--git-dir=)?\S*\/smithers-git-[0-9a-f-]{36}/, "$1<shadow>")).join(" ")
+    argv.map((part) => part.replace(/^(--git-dir=|--work-tree=)?\S*\/smithers-git-[0-9a-f-]{36}/, "$1<shadow>")).join(
+      " "
+    )
   )
 
 /** The exact allocated path must be used for checkout, relocation and removal. */
 const checkoutPath = (spawns: ReadonlyArray<ReadonlyArray<string>>) => {
-  const path = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mkdir"))?.[5]
+  const path = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mv --"))?.[5]
   expect(path).toMatch(/^\/work\/repo\/\.flows-checkpoints\/[a-z0-9-]+-[0-9a-f-]{36}$/)
   return path!
 }
@@ -107,14 +111,30 @@ const opened = [
 
 const init = "git init --quiet --bare --template= --object-format=sha1 <shadow>"
 
-const checkout = (path: string, commit: string) => [
-  ...opened,
-  init,
-  `sh -c set -eC; mkdir -p -- "$1"; mkdir -- "$2" "$2/.git" "$2/.git/objects" "$2/.git/objects/info" "$2/.git/refs"; printf '%s\\n' "$3" > "$2/.git/HEAD"; printf '%s\\n' "$4" > "$2/.git/objects/info/alternates"; printf '%s' "$5" > "$2/.git/config" sh /work/repo/.flows-checkpoints ${path} ${commit} ../../../../.git/objects [core]\n\trepositoryformatversion = 0\n\tbare = false\n`,
-  `${shadow} --work-tree=${path} ${guarded} read-tree --reset -u ${commit}`,
-  `sh -c set -C; cat -- "$1" > "$2" sh <shadow>/index ${path}/.git/index`,
-  "rm -rf -- <shadow>"
-]
+const checkout = (path: string, commit: string) => {
+  const name = path.slice(path.lastIndexOf("/") + 1)
+  return [
+    ...opened,
+    init,
+    `sh -c set -e; mkdir -p -- "$1"; for path in "$@"; do stat -c %d -- "$path" 2>/dev/null || stat -f %d -- "$path" 2>/dev/null || echo; done sh /work/repo/.flows-checkpoints <shadow> /work`,
+    `sh -c set -eC; mkdir -- "$2" "$2/.git" "$2/.git/objects" "$2/.git/objects/info" "$2/.git/refs"; printf '%s\\n' "$3" > "$2/.git/HEAD"; printf '%s\\n' "$4" > "$2/.git/objects/info/alternates"; printf '%s' "$5" > "$2/.git/config" sh <shadow> <shadow>/${name} ${commit} ../../../../.git/objects [core]\n\trepositoryformatversion = 0\n\tbare = false\n`,
+    `${shadow} --work-tree=<shadow>/${name} ${guarded} read-tree --reset -u ${commit}`,
+    `sh -c set -C; cat -- "$1" > "$2" sh <shadow>/index <shadow>/${name}/.git/index`,
+    `sh -c ${publishScript} sh <shadow>/${name} ${path}`,
+    "rm -rf -- <shadow>"
+  ]
+}
+
+/** Renames the staged checkout into the workspace and proves the directory there is the one staged. */
+const publishScript = [
+  "set -e",
+  `if [ -e "$2" ] || [ -L "$2" ]; then echo "$2 already exists" >&2; exit 1; fi`,
+  `staged=$(ls -di -- "$1" | awk '{print $1}')`,
+  `mv -- "$1" "$2"`,
+  `if [ -L "$2" ] || [ ! -d "$2" ]; then echo "$2 was replaced while it was written" >&2; exit 1; fi`,
+  `moved=$(ls -di -- "$2" | awk '{print $1}')`,
+  `if [ "$staged" != "$moved" ]; then echo "$2 was replaced while it was written" >&2; exit 1; fi`
+].join("; ")
 
 describe("Checkpoints.makeGit capture", () => {
   it("records the working tree through a shadow GIT_DIR, without touching the index or the worktree", async () => {
@@ -452,7 +472,9 @@ describe("Checkpoints.makeGit materialize", () => {
   it.each([
     ["mkdir", "the directory could not be prepared"],
     ["read-tree", "the tree could not be written"],
-    ["cat --", "the index could not be copied"]
+    ["cat --", "the index could not be copied"],
+    ["mv --", "the finished directory could not take its name"],
+    ["stat -c %d", "the filesystems could not be measured"]
   ])("says so when the checkout itself failed at %s (%s)", async (fragment) => {
     const spawns: Array<ReadonlyArray<string>> = []
     const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
@@ -465,6 +487,39 @@ describe("Checkpoints.makeGit materialize", () => {
 
     expect(failureOf(exit)?.message).toContain("Could not check out abc123")
     expect(lines(spawns).at(-1)).toMatch(/^rm -rf -- \/work\/repo\/\.flows-checkpoints\//)
+  })
+})
+
+describe("Checkpoints.makeGit staging", () => {
+  it("refuses to check out when no staging directory shares the workspace's filesystem", async () => {
+    // A copy into the workspace would write through whatever the agent swapped
+    // in; only a same-filesystem rename is safe, so nothing is written at all.
+    const spawns: Array<ReadonlyArray<string>> = []
+    const exit = await Effect.runPromise(Effect.exit(Effect.gen(function*() {
+      const checkpoints = yield* store(spawns, [
+        ["--get flows-checkpoint", { stdout: "abc123\n" }],
+        ["stat -c %d", { stdout: "1\n2\n3\n" }]
+      ])
+      return yield* checkpoints.materialize("cp-0-1", () => Effect.void)
+    })))
+
+    expect(failureOf(exit)?.message).toContain("is on the filesystem of /work/repo/.flows-checkpoints")
+    expect(lines(spawns).some((line) => line.includes("read-tree"))).toBe(false)
+  })
+
+  it("stages beside the workspace root when only that shares its filesystem, and removes the stage", async () => {
+    const spawns: Array<ReadonlyArray<string>> = []
+    await Effect.runPromise(Effect.gen(function*() {
+      const checkpoints = yield* store(spawns, [
+        ["--get flows-checkpoint", { stdout: "abc123\n" }],
+        ["stat -c %d", { stdout: "1\n2\n1\n" }]
+      ])
+      return yield* checkpoints.materialize("cp-0-1", () => Effect.void)
+    }))
+
+    const written = lines(spawns).find((line) => line.includes("read-tree"))
+    expect(written).toMatch(/--work-tree=\/work\/\.smithers-checkout-[0-9a-f-]{36}\/cp-0-1-[0-9a-f-]{36} /)
+    expect(lines(spawns)).toContainEqual(expect.stringMatching(/^rm -rf -- \/work\/\.smithers-checkout-[0-9a-f-]{36}$/))
   })
 })
 

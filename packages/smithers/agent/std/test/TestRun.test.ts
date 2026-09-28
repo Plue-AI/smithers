@@ -64,6 +64,7 @@ const shadowCheckout: ReadonlyArray<readonly [string, Response]> = [
   ["--show-toplevel", { stdout: "/repo\n/repo/.git\n/repo/.git/index\nsha1\n" }],
   ["--get-regexp", { exitCode: 1 }],
   ["init --quiet --bare", {}],
+  ["stat -c %d", { stdout: "1\n1\n1\n" }],
   ["sh -c", {}],
   ["read-tree", {}],
   ["rm -rf --", {}]
@@ -285,13 +286,15 @@ describe("TestRun", () => {
     expect(lines[1]).toBe(
       `git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C /repo rev-parse --verify --quiet ${TestRunner.captureBase}^{commit}`
     )
-    const scratch = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mkdir"))?.[5]
+    const scratch = spawns.find((argv) => argv[0] === "sh" && argv[2]?.includes("mv --"))?.[5]
     expect(scratch).toMatch(/^\/repo\/\.flows-test-base\/run-[0-9a-f-]{36}$/)
     // The baseline tree is written from a shadow GIT_DIR, never by a worktree
     // of the workspace repository, whose `.git` the agent can write.
     expect(lines).toContainEqual(expect.stringMatching(
       new RegExp(
-        `^git --git-dir=\\S+/smithers-git-[0-9a-f-]{36} --work-tree=${scratch} .* read-tree --reset -u abc123$`
+        `^git --git-dir=(\\S+/smithers-git-[0-9a-f-]{36}) --work-tree=\\1/${
+          scratch!.slice(scratch!.lastIndexOf("/") + 1)
+        } .* read-tree --reset -u abc123$`
       )
     ))
     expect(lines.some((line) => line.includes("worktree add"))).toBe(false)
@@ -371,6 +374,8 @@ describe("TestRun", () => {
           new TextEncoder().encode(
             line.includes("--show-toplevel")
               ? "/repo\n/repo/.git\n/repo/.git/index\nsha1\n"
+              : line.includes("stat -c %d")
+              ? "1\n1\n1\n"
               : line.includes("rev-parse")
               ? "abc123\n"
               : line.includes("--get-regexp")

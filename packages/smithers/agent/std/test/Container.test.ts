@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Cause, Effect, Exit, Layer, Option, Path } from "effect"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -43,6 +43,17 @@ describe("Container.makeCommand", () => {
       ],
       env: { SMITHERS_CONTAINER_ENV_MODE: "test" }
     })
+  })
+
+  it("runs the program without a shell when the request carries no env, and says a shell is required otherwise", async () => {
+    // An image without `/bin/sh` (distroless, scratch) can serve only requests
+    // that carry no env; the renaming step is the one place a shell is needed.
+    const plan = await Effect.runPromise(
+      Container.makeCommand().exec({ ...request("worker-1"), env: undefined, file: "/app/server", args: [] })
+    )
+    expect(plan.args).toEqual(["exec", "-i", "-w", "/work", "--", "worker-1", "/app/server"])
+    const guide = readFileSync(new URL("../docs/api.md", import.meta.url), "utf8")
+    expect(guide).toMatch(/A request that\s+carries `env` therefore requires `sh` on the container's `PATH`/)
   })
 
   it("forwards a requested variable by name, never by value", async () => {

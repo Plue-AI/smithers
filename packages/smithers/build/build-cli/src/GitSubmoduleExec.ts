@@ -59,23 +59,62 @@ const localSource = (url: string): string | undefined => {
 }
 
 /**
+ * The operator variable naming the host directories a submodule's local url
+ * may clone from, as a list separated by the platform path delimiter.
+ *
+ * It is read from the host environment, never from the checkout, because the
+ * checkout is what the list constrains. Unset, only repositories inside the
+ * workspace root may be local submodule sources.
+ *
+ * @category security
+ * @since 0.1.0
+ */
+export const submoduleSourcesVariable = "SMITHERS_SUBMODULE_SOURCES"
+
+const within = (parent: string, child: string): boolean => {
+  const relative = NodePath.relative(parent, child)
+  return relative === "" || (!relative.startsWith("..") && !NodePath.isAbsolute(relative))
+}
+
+/** The allowlisted directories from {@link submoduleSourcesVariable}, resolved. */
+const allowedSourceRoots = async (
+  environment: Readonly<Record<string, string | undefined>>
+): Promise<ReadonlyArray<string>> => {
+  const value = environment[submoduleSourcesVariable]
+  if (typeof value !== "string") return []
+  const listed = value.split(NodePath.delimiter).map((entry) => entry.trim()).filter(NodePath.isAbsolute)
+  const resolved = await Promise.all(listed.map((entry) => Fs.realpath(entry).catch(() => undefined)))
+  return resolved.filter((entry): entry is string => entry !== undefined)
+}
+
+/**
  * Why a local submodule source may not join the sandbox's read grants.
  *
  * `.gitmodules` is ordinary committed content, so its url is as untrusted as
  * the rest of a cloned tree. Every admitted source becomes an external read of
- * the confined `git submodule update`, so a url of `/`, `$HOME`, or `/etc`
- * used to hand that sandbox the whole directory. Only a git repository
- * (worktree or bare) is admitted, and never the filesystem root, the home
- * directory, or an ancestor of it.
+ * the confined `git submodule update`, which copies every object of that
+ * repository into the workspace. A committed url may therefore name only a
+ * git repository (worktree or bare) whose real path lies inside the workspace
+ * root or inside a directory the operator listed in
+ * {@link submoduleSourcesVariable}; the filesystem root, the home directory,
+ * and its ancestors are refused even when listed.
  */
-const localSourceRefusal = async (path: string, source: string): Promise<string | undefined> => {
+const localSourceRefusal = async (
+  root: string,
+  allowed: ReadonlyArray<string>,
+  path: string,
+  source: string
+): Promise<string | undefined> => {
   const real = await Fs.realpath(source).catch(() => undefined)
   if (real === undefined) return `Git submodule ${path} url names local path ${source}, which does not exist`
   const home = await Fs.realpath(Os.homedir()).catch(() => Os.homedir())
-  const relative = NodePath.relative(real, home)
-  const holdsHome = relative === "" || (!relative.startsWith("..") && !NodePath.isAbsolute(relative))
-  if (NodePath.dirname(real) === real || holdsHome) {
+  if (NodePath.dirname(real) === real || within(real, home)) {
     return `Git submodule ${path} url names ${source}, a root or home directory a submodule cannot read`
+  }
+  const workspace = await Fs.realpath(root).catch(() => root)
+  if (!within(workspace, real) && !allowed.some((directory) => within(directory, real))) {
+    return `Git submodule ${path} url names local path ${source}, which is outside the workspace; ` +
+      `list its directory in ${submoduleSourcesVariable} to admit it`
   }
   const exists = (name: string) => Fs.lstat(NodePath.join(real, name)).then(() => true, () => false)
   const repository = await exists(".git") || (await exists("HEAD") && await exists("objects"))
@@ -166,12 +205,16 @@ export const plan = async (
       readonly packagePath: string
       readonly rule: "Git.Submodules"
       readonly attrs: (typeof GitTarget.SubmodulesAttrs)["Type"]
+      /** Host environment read for {@link submoduleSourcesVariable}; defaults to `process.env`. */
+      readonly environment?: Readonly<Record<string, string | undefined>> | undefined
     }
     | {
       readonly root: string
       readonly packagePath: string
       readonly rule: "Git.Submodule"
       readonly attrs: (typeof GitTarget.SubmoduleAttrs)["Type"]
+      /** Host environment read for {@link submoduleSourcesVariable}; defaults to `process.env`. */
+      readonly environment?: Readonly<Record<string, string | undefined>> | undefined
     }
 ): Promise<Plan> => {
   let paths: ReadonlyArray<string>
@@ -226,11 +269,12 @@ export const plan = async (
       : ".gitmodules"
   )
   const sources: Array<string> = []
+  const allowed = await allowedSourceRoots(options.environment ?? process.env)
   for (const path of paths) {
     const url = entries.get(path)
     const source = url === undefined ? undefined : localSource(url)
     if (source === undefined || sources.includes(source)) continue
-    const refusal = await localSourceRefusal(path, source)
+    const refusal = await localSourceRefusal(options.root, allowed, path, source)
     if (refusal !== undefined) return { paths, gitlinks, sources: [], refusal }
     sources.push(source)
   }

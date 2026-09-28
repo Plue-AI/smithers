@@ -138,7 +138,9 @@ const rename = (names: ReadonlyArray<string>): string =>
  * {@link Plan.env} under `SMITHERS_CONTAINER_ENV_`, is forwarded by that name
  * (`-e SMITHERS_CONTAINER_ENV_KEY`), and a `sh` inside the container renames it
  * to `KEY` before `exec`ing the program. Values stay out of the argv. A name
- * must be a POSIX shell name.
+ * must be a POSIX shell name. A request with `env` therefore requires `sh` in
+ * the container; one without `env` runs the program directly, so an image
+ * without a shell works only for requests that carry no `env`.
  *
  * @category constructors
  * @since 1.0.0

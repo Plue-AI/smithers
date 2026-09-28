@@ -301,6 +301,15 @@ const isFile = (path: string): boolean => {
   }
 }
 
+/** Whether anything, a file or a directory, exists at `path`. */
+const exists = (path: string): boolean => {
+  try {
+    return NodeFs.statSync(path, { throwIfNoEntry: false }) !== undefined
+  } catch {
+    return false
+  }
+}
+
 const realPath = (path: string): string => {
   try {
     return NodeFs.realpathSync(path)
@@ -412,10 +421,11 @@ const workspaceProgram = (
     for (const value of [argument, argument.slice(argument.indexOf("=") + 1)]) {
       if (value === "") continue
       const candidate = NodePath.resolve(lexicalRoot, value)
-      if (isFile(candidate) && inWorkspace(candidate)) {
+      // A directory counts: `node <dir>` runs `<dir>/index.js` or its package main.
+      if (exists(candidate) && inWorkspace(candidate)) {
         return failure(
           "permission_denied",
-          `Language server argument names ${candidate}, a file inside the workspace ${lexicalRoot}`
+          `Language server argument names ${candidate}, a path inside the workspace ${lexicalRoot}`
         )
       }
     }
@@ -427,7 +437,7 @@ const workspaceProgram = (
  * Constructs one scoped host language-server client.
  *
  * Fails with `permission_denied`, before spawning, when the resolved program or
- * a file named by an argument lies under `config.cwd`, or when the command is a
+ * a file or directory named by an argument lies under `config.cwd`, or when the command is a
  * launcher (a shell, `env`, a package runner such as `npx` or `pnpm`, or `node`
  * and `bun` given inline code or a preload) whose arguments choose what runs.
  *

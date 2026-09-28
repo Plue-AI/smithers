@@ -14,11 +14,23 @@
  * what makes a checkpoint reachable from inside the container.
  */
 import { NodeServices } from "@effect/platform-node"
+import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Deferred, Effect, Fiber, Layer } from "effect"
+import type * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Bash from "../src/Bash.ts"
 import * as Checkpoints from "../src/Checkpoints.ts"
@@ -413,6 +425,51 @@ describe("Checkpoints over a real repository", () => {
     expect(exit._tag).toBe("Failure")
     expect(existsSync(scratch)).toBe(false)
     expect(git(root, ["worktree", "list"])).not.toContain(Checkpoints.scratchDirectory)
+  }, 60_000)
+
+  it("never lets host git write the checkpoint through a checkout path the agent swapped for a symlink", async () => {
+    const root = repository()
+    const victim = realpathSync(mkdtempSync(join(tmpdir(), "flows-checkpoint-victim-")))
+    writeFileSync(join(victim, "mod.py"), "victim\n")
+    const scratch = join(root, Checkpoints.scratchDirectory)
+    let raced = false
+    // The agent writes the workspace through its bind mount. Just before host
+    // git writes the tree, it points the checkout's name at a host directory.
+    const racing = Effect.gen(function*() {
+      const real = yield* ChildProcessSpawner.ChildProcessSpawner
+      return ChildProcessSpawner.makeNoop({
+        spawn: (command) =>
+          Effect.suspend(() => {
+            const standard = command as ChildProcess.StandardCommand
+            const tree = standard.args?.find((arg) => arg.startsWith("--work-tree="))?.slice("--work-tree=".length)
+            if (standard.command === "git" && standard.args.includes("read-tree") && tree !== undefined) {
+              mkdirSync(scratch, { recursive: true })
+              const name = readdirSync(scratch).find((entry) => entry.startsWith("cp-race-")) ?? basename(tree)
+              rmSync(join(scratch, name), { recursive: true, force: true })
+              symlinkSync(victim, join(scratch, name))
+              raced = true
+            }
+            return real.spawn(command)
+          })
+      })
+    })
+
+    const exit = await Effect.runPromise(Effect.exit(
+      Effect.gen(function*() {
+        const spawner = yield* racing
+        const checkpoints = yield* Checkpoints.makeGit({ root }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
+        )
+        yield* checkpoints.capture("cp-race")
+        return yield* checkpoints.materialize("cp-race", () => Effect.void)
+      }).pipe(Effect.provide(NodeServices.layer))
+    ))
+
+    expect(raced).toBe(true)
+    expect(exit._tag).toBe("Failure")
+    expect(readFileSync(join(victim, "mod.py"), "utf8")).toBe("victim\n")
+    expect(readdirSync(victim)).toEqual(["mod.py"])
+    expect(readdirSync(dirname(root)).filter((entry) => entry.startsWith(".smithers-checkout-"))).toEqual([])
   }, 60_000)
 
   it("runs a real command against the pinned tree, through the container's own path", async () => {

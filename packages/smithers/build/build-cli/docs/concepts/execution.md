@@ -143,8 +143,11 @@ plus the paths a rule discovers for itself:
   bubblewrap and Docker bind read-only because their `/tmp` is private;
 - a git submodule's local source repository, when its `.gitmodules` url is an
   absolute path or a `file://` url. The path must be a git repository (it holds
-  `.git`, or `HEAD` and `objects`) and must not be the filesystem root, the
-  home directory, or an ancestor of it; otherwise the target is refused.
+  `.git`, or `HEAD` and `objects`) whose real path lies inside the workspace
+  root or inside a directory listed in the host variable
+  `SMITHERS_SUBMODULE_SOURCES` (separated by the platform path delimiter). The
+  filesystem root, the home directory, and its ancestors are refused even when
+  listed. Any other local url refuses the target.
 
 The write set is the declared outputs, the declared `changes`, the clean
 targets, and what a tool writes on its own account: a cargo crate's `target`

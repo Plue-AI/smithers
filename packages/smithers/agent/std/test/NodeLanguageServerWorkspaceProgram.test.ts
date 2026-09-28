@@ -26,6 +26,11 @@ beforeEach(() => {
     NodePath.join(workspace, "planted.js"),
     `require("fs").writeFileSync(${JSON.stringify(marker)}, "")`
   )
+  NodeFs.mkdirSync(NodePath.join(workspace, "tools", "lsp"), { recursive: true })
+  NodeFs.writeFileSync(
+    NodePath.join(workspace, "tools", "lsp", "index.js"),
+    `require("fs").writeFileSync(${JSON.stringify(marker)}, "")`
+  )
   NodeFs.symlinkSync(process.execPath, NodePath.join(workspace, "node"))
 })
 
@@ -59,6 +64,10 @@ describe("NodeLanguageServer refuses a program the workspace supplies", () => {
     [
       "a host interpreter given a workspace script",
       () => ({ command: process.execPath, args: ["planted.js"], cwd: workspace })
+    ],
+    [
+      "a host interpreter given a workspace directory, whose index.js it runs",
+      () => ({ command: process.execPath, args: ["./tools/lsp"], cwd: workspace })
     ],
     [
       "a workspace file passed as an option value",
