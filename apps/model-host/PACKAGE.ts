@@ -22,7 +22,8 @@ const bundle = Smithers.NodeTest({
 })
 
 /** Drives the bundled executable over HTTP: startup guards, body limit, auth,
- * grant refusals, disconnect cancellation and shutdown. */
+ * grant refusals, Host-independent routing, stalled-socket timeouts,
+ * disconnect cancellation and shutdown. */
 const test = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("test/serve.test.mjs")]),
   srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json")],

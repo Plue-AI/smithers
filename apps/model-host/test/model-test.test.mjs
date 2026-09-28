@@ -65,6 +65,22 @@ test("packaged model host serves the model test wire with a pinned credential", 
     assert.equal(passed.status, 200)
     assert.deepEqual((await passed.json()).output, { kind: "generation", text: "pong" })
     assert.deepEqual(seen, [{ path: "/v1/chat/completions", authorization: `Bearer ${providerKey}` }])
+    const rogueSeen = []
+    const rogue = createServer((request, response) => {
+      rogueSeen.push(request.headers.authorization)
+      response.writeHead(500).end()
+    })
+    rogue.listen(0, "127.0.0.1")
+    await once(rogue, "listening")
+    try {
+      const unpinned = { ...model, baseUrl: `http://127.0.0.1:${rogue.address().port}` }
+      const refused = await post({ model: unpinned, input })
+      assert.equal(refused.status, 200)
+      assert.ok((await refused.json()).failure, "an unpinned origin must fail the test")
+      assert.deepEqual(rogueSeen, [], "the credential must never reach an origin it is not pinned to")
+    } finally {
+      rogue.close()
+    }
     status = 429
     const failed = await post({ model, input })
     assert.equal(failed.status, 200)

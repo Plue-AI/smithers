@@ -1,4 +1,9 @@
-import { createModelTurnHandler, environmentModelResolver, MODEL_HOST_PROTOCOL } from "@smthrs/model-host"
+import {
+  bearerAuthorization,
+  createModelTurnHandler,
+  environmentModelResolver,
+  MODEL_HOST_PROTOCOL
+} from "@smthrs/model-host"
 import { createModelProbe } from "@smthrs/model-host/ModelProbe"
 import { MODEL_TEST_BODY_MAX_BYTES, ModelTestRequestSchema } from "@smthrs/rpc/ConfiguredModel"
 import { createServer } from "node:http"
@@ -47,8 +52,9 @@ const handle = createModelTurnHandler({
   resolve: environmentModelResolver({ binding, env: process.env, maxTokens: requestedMaxTokens })
 })
 const modelProbe = createModelProbe({ env: process.env, egress: true })
+const authorized = bearerAuthorization(authorization)
 const testModel = async (request: Request): Promise<Response> => {
-  if (request.headers.get("authorization") !== `Bearer ${authorization}`) {
+  if (!authorized(request)) {
     return Response.json({ code: "unauthorized" }, { status: 401 })
   }
   const bytes = await request.arrayBuffer()
@@ -83,7 +89,13 @@ const readBody = (incoming: IncomingMessage): Promise<Buffer<ArrayBuffer> | unde
     incoming.once("end", () => resolve(Buffer.concat(chunks)))
     incoming.once("error", reject)
   })
-const server = createServer(async (incoming, outgoing) => {
+/** A loopback caller that stalls its headers or body loses the socket instead
+ * of holding it; the checks run every second so the bounds hold closely. */
+const server = createServer({
+  headersTimeout: 5_000,
+  requestTimeout: 10_000,
+  connectionsCheckingInterval: 1_000
+}, async (incoming, outgoing) => {
   const abort = new AbortController()
   outgoing.on("close", () => {
     if (!outgoing.writableEnded) abort.abort()
@@ -96,7 +108,8 @@ const server = createServer(async (incoming, outgoing) => {
       return
     }
     const method = incoming.method ?? "GET"
-    const request = new Request(`http://${incoming.headers.host ?? "127.0.0.1"}${incoming.url ?? "/"}`, {
+    // A fixed origin: routing reads the request path, never the caller's Host header.
+    const request = new Request(`http://127.0.0.1${incoming.url ?? "/"}`, {
       method,
       headers: incoming.headers as HeadersInit,
       ...(method === "GET" || method === "HEAD" ? {} : { body: bytes }),

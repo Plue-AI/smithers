@@ -9,6 +9,7 @@ import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
 import { mkdtempSync, rmSync } from "node:fs"
 import { createServer, request } from "node:http"
+import { connect } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, before, test } from "node:test"
@@ -218,6 +219,45 @@ test("cancels the provider call when the caller disconnects mid-turn", async (t)
     new Promise((resolve) => setTimeout(() => resolve(undefined), 5_000))
   ])
   assert.equal(aborted, "/v1/chat/completions", "the disconnect must abort the in-flight provider request")
+})
+
+test("routes by the request path, never by the Host header", async (t) => {
+  const host = await launch()
+  t.after(() => host.child.kill("SIGKILL"))
+  for (const forged of ["elsewhere/unknown?", "a b"]) {
+    const health = await send(host.identity.port, { method: "GET", path: "/health", headers: { host: forged } })
+    assert.equal(health.status, 200, forged)
+    assert.deepEqual(JSON.parse(health.text), { protocol: PROTOCOL })
+  }
+  const turn = await send(host.identity.port, {
+    headers: { host: "127.0.0.1/v1/model/test?", authorization: `Bearer ${TOKEN}` },
+    body: "not json"
+  })
+  assert.equal(turn.status, 400)
+  assert.deepEqual(JSON.parse(turn.text), { status: "error", code: "request_invalid" }, "the turn route answered")
+})
+
+test("drops a caller that stalls its headers or its body", async (t) => {
+  const host = await launch()
+  t.after(() => host.child.kill("SIGKILL"))
+  const stall = (bytes) =>
+    new Promise((resolve) => {
+      const socket = connect(host.identity.port, "127.0.0.1", () => socket.write(bytes))
+      const started = Date.now()
+      socket.on("error", () => {})
+      socket.resume()
+      socket.once("close", () => resolve(Date.now() - started))
+      setTimeout(() => {
+        socket.destroy()
+        resolve(Infinity)
+      }, 20_000).unref()
+    })
+  const [headers, body] = await Promise.all([
+    stall("GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n"),
+    stall(`POST /v1/chat/turn HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${TOKEN}\r\nContent-Length: 100\r\n\r\n{`)
+  ])
+  assert.ok(headers < 10_000, `a stalled header block held the socket ${headers} ms`)
+  assert.ok(body < 15_000, `a stalled body held the socket ${body} ms`)
 })
 
 test("stops cleanly on SIGTERM", async () => {
