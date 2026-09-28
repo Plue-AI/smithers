@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest"
 import {
   AlreadyResolved,
   ClaimLost,
+  type ControlError,
   EnvelopeMismatch,
   InvalidInput,
   PersistenceError,
@@ -99,6 +100,197 @@ const nodeTarget = (runId: string) => ({
 })
 
 describe("SqlControlRuntime against a rewritten row", () => {
+  it("round trips an explicit null plan input through non-null persisted JSON", async () => {
+    const observed = await withRuntime((runtime, sql) =>
+      Effect.gen(function*() {
+        const planned = yield* runtime.plan({ flowId: "system/test", input: null })
+        const stored = yield* runtime.getPlan(planned.card.planId)
+        const rows = yield* sql<{ readonly json: string }>`
+          SELECT decoded_input_json AS "json" FROM control_plans WHERE plan_id = ${planned.card.planId}
+        `
+        return { planned, stored, rows }
+      })
+    )
+    expect(observed.planned.created).toBe(true)
+    expect(observed.planned.card.inputSummary).toBe("null")
+    expect(observed.stored.decodedInput).toBeNull()
+    expect(observed.stored.card).toEqual(observed.planned.card)
+    expect(observed.rows).toEqual([{ json: "null" }])
+  })
+
+  it.each(["plan", "run", "resume"] as const)("refuses a %s sequence removed by storage and recovers", async (name) => {
+    const observed = await withRuntime((runtime, sql) =>
+      Effect.gen(function*() {
+        const allocate: Effect.Effect<string, ControlError> = yield* Effect.gen(function*() {
+          if (name === "plan") {
+            return runtime.plan({ flowId: "system/test", input: { fault: "sequence" } }).pipe(
+              Effect.map(({ card }) => card.planId)
+            )
+          }
+          if (name === "resume") {
+            const { runId } = yield* start(runtime, "resume-sequence")
+            return runtime.requestResume(runId).pipe(Effect.map((sequence) => `resume-${sequence}`))
+          }
+          const { card } = yield* runtime.plan({ flowId: "system/test", input: { fault: "run-sequence" } })
+          const token = yield* runtime.lookupApproval(card.approval.target)
+          yield* runtime.resolveApproval(token, "approved", principal)
+          return runtime.launch(card.planId, card.digest, card.envelope).pipe(
+            Effect.flatMap((result) =>
+              result._tag === "Started"
+                ? Effect.succeed(result.run.runId)
+                : Effect.die("expected a started run")
+            )
+          )
+        })
+        const pg = sql.onDialectOrElse({ pg: () => true, orElse: () => false })
+        if (pg) {
+          yield* sql.unsafe(`CREATE FUNCTION remove_new_sequence() RETURNS trigger AS $$
+            BEGIN
+              DELETE FROM control_sequences WHERE name = NEW.name;
+              RETURN NEW;
+            END;
+          $$ LANGUAGE plpgsql`)
+          yield* sql.unsafe(`CREATE TRIGGER remove_new_sequence AFTER INSERT ON control_sequences
+            FOR EACH ROW EXECUTE FUNCTION remove_new_sequence()`)
+        } else {
+          yield* sql.unsafe(`CREATE TRIGGER remove_new_sequence AFTER INSERT ON control_sequences BEGIN
+            DELETE FROM control_sequences WHERE name = NEW.name;
+          END`)
+        }
+        const failure = yield* Effect.flip(allocate)
+        const table = { plan: "control_plans", run: "control_runs", resume: "control_run_resumes" }[name]
+        const stored = yield* sql.unsafe(`SELECT * FROM ${table}`)
+        yield* sql.unsafe(
+          pg ? "DROP TRIGGER remove_new_sequence ON control_sequences" : "DROP TRIGGER remove_new_sequence"
+        )
+        const recovered = yield* allocate
+        return { failure, stored, recovered }
+      })
+    )
+    expect(observed.failure).toBeInstanceOf(PersistenceError)
+    expect(observed.failure).toMatchObject({ operation: "allocate a sequence" })
+    expect(observed.stored).toEqual([])
+    expect(observed.recovered).toBe(`${name}-1`)
+  })
+
+  it.each([-2, -1, Number.MAX_SAFE_INTEGER])("rolls back a rejected sequence increment from %s", async (value) => {
+    const observed = await withRuntime((runtime, sql) =>
+      Effect.gen(function*() {
+        yield* sql`INSERT INTO control_sequences (name, value) VALUES ('plan', ${value})`
+        const failure = yield* Effect.flip(runtime.plan({ flowId: "system/test", input: {} }))
+        const counters = yield* sql<{ value: number }>`SELECT value FROM control_sequences WHERE name = 'plan'`
+        const plans = yield* sql`SELECT plan_id FROM control_plans`
+        yield* sql`UPDATE control_sequences SET value = 40 WHERE name = 'plan'`
+        const recovered = yield* runtime.plan({ flowId: "system/test", input: {} })
+        return { failure, counters, plans, recovered }
+      })
+    )
+    expect(observed.failure).toBeInstanceOf(PersistenceError)
+    expect(observed.failure).toMatchObject({ operation: "allocate a sequence" })
+    expect((observed.failure as PersistenceError).cause).toEqual(
+      new Error("Sequence plan did not return a positive safe integer")
+    )
+    expect(observed.counters.map((row) => Number(row.value))).toEqual([value])
+    expect(observed.plans).toEqual([])
+    expect(observed.recovered.card.planId).toBe("plan-41")
+  })
+
+  it("allocates the largest exact sequence once and refuses exhaustion without committing", async () => {
+    const observed = await withRuntime((runtime, sql) =>
+      Effect.gen(function*() {
+        yield* sql`INSERT INTO control_sequences (name, value) VALUES ('plan', ${Number.MAX_SAFE_INTEGER - 1})`
+        const last = yield* runtime.plan({ flowId: "system/test", input: {} })
+        const failure = yield* Effect.flip(runtime.plan({ flowId: "system/test", input: {} }))
+        const counters = yield* sql<{ value: number }>`SELECT value FROM control_sequences WHERE name = 'plan'`
+        const plans = yield* sql`SELECT plan_id FROM control_plans`
+        return { last, failure, counters, plans }
+      })
+    )
+    expect(observed.last.card.planId).toBe("plan-9007199254740991")
+    expect(observed.failure).toBeInstanceOf(PersistenceError)
+    expect(observed.failure).toMatchObject({ operation: "allocate a sequence" })
+    expect(observed.counters.map((row) => Number(row.value))).toEqual([Number.MAX_SAFE_INTEGER])
+    expect(observed.plans).toEqual([{ plan_id: "plan-9007199254740991" }])
+  })
+
+  it("refuses an approval row removed by storage before readback and recovers after repair", async () => {
+    const observed = await withRuntime((runtime, sql) =>
+      Effect.gen(function*() {
+        const { runId } = yield* start(runtime, "approval-readback")
+        const target = nodeTarget(runId)
+        // A real database trigger stages a faulty persistence boundary without
+        // replacing the SQL client or fabricating an impossible client result.
+        const pg = sql.onDialectOrElse({ pg: () => true, orElse: () => false })
+        if (pg) {
+          yield* sql.unsafe(`CREATE FUNCTION remove_new_approval() RETURNS trigger AS $$
+            BEGIN
+              DELETE FROM control_tokens WHERE target_tag = NEW.target_tag
+                AND run_id = NEW.run_id AND target_id = NEW.target_id;
+              RETURN NEW;
+            END;
+          $$ LANGUAGE plpgsql`)
+          yield* sql.unsafe(`CREATE TRIGGER remove_new_approval AFTER INSERT ON control_tokens
+            FOR EACH ROW EXECUTE FUNCTION remove_new_approval()`)
+        } else {
+          yield* sql.unsafe(`CREATE TRIGGER remove_new_approval AFTER INSERT ON control_tokens BEGIN
+            DELETE FROM control_tokens WHERE target_tag = NEW.target_tag
+              AND run_id = NEW.run_id AND target_id = NEW.target_id;
+          END`)
+        }
+        const failure = yield* Effect.flip(runtime.registerApproval(target))
+        yield* sql.unsafe(
+          pg ? "DROP TRIGGER remove_new_approval ON control_tokens" : "DROP TRIGGER remove_new_approval"
+        )
+        const recovered = yield* runtime.registerApproval(target)
+        const readback = yield* runtime.lookupApproval(target)
+        return { failure, recovered, readback }
+      })
+    )
+    expect(observed.failure).toBeInstanceOf(PersistenceError)
+    expect(observed.failure).toMatchObject({
+      operation: "register an approval token",
+      message: "A registered approval token could not be read back"
+    })
+    expect(observed.recovered._tag).toBe("Pending")
+    expect(observed.readback).toEqual(observed.recovered)
+  })
+
+  it("refuses a run claim removed by storage before readback and recovers after repair", async () => {
+    const observed = await withRuntime((runtime, sql) =>
+      Effect.gen(function*() {
+        const pg = sql.onDialectOrElse({ pg: () => true, orElse: () => false })
+        if (pg) {
+          yield* sql.unsafe(`CREATE FUNCTION remove_new_run_claim() RETURNS trigger AS $$
+            BEGIN
+              DELETE FROM control_run_keys WHERE idempotency_key = NEW.idempotency_key;
+              RETURN NEW;
+            END;
+          $$ LANGUAGE plpgsql`)
+          yield* sql.unsafe(`CREATE TRIGGER remove_new_run_claim AFTER INSERT ON control_run_keys
+            FOR EACH ROW EXECUTE FUNCTION remove_new_run_claim()`)
+        } else {
+          yield* sql.unsafe(`CREATE TRIGGER remove_new_run_claim AFTER INSERT ON control_run_keys BEGIN
+            DELETE FROM control_run_keys WHERE idempotency_key = NEW.idempotency_key;
+          END`)
+        }
+        const failure = yield* Effect.flip(runtime.claimRunKey("run:readback", "fingerprint"))
+        const missing = yield* sql`SELECT idempotency_key FROM control_run_keys WHERE idempotency_key = 'run:readback'`
+        yield* sql.unsafe(
+          pg ? "DROP TRIGGER remove_new_run_claim ON control_run_keys" : "DROP TRIGGER remove_new_run_claim"
+        )
+        const recovered = yield* runtime.claimRunKey("run:readback", "fingerprint")
+        return { failure, missing, recovered }
+      })
+    )
+    expect(observed.failure).toBeInstanceOf(PersistenceError)
+    expect(observed.failure).toMatchObject({
+      operation: "claim a run key",
+      message: "Run key run:readback disappeared while it was being claimed"
+    })
+    expect(observed.missing).toEqual([])
+    expect(observed.recovered).toEqual({ _tag: "Claimed" })
+  })
+
   it("refuses unavailable flow catalogs without storing a plan and recovers on the next read", async () => {
     let unavailable = true
     const failure = new PersistenceError({ operation: "load flows", message: "Registry unavailable" })
@@ -770,6 +962,35 @@ describe("SqlControlRuntime layers and stores", () => {
 })
 
 describe("SqlControlRuntime when the tables are gone", () => {
+  it("reports a missing relation referenced by the spawn view instead of treating the view as absent", async () => {
+    const error = await withRuntime((runtime, sql) =>
+      Effect.gen(function*() {
+        const { runId } = yield* start(runtime, "broken-spawn-view")
+        if (sql.onDialectOrElse({ pg: () => true, orElse: () => false })) {
+          // PostgreSQL validates a view's static dependencies at creation. A
+          // dynamic query delays the missing-relation failure until the read.
+          yield* sql.unsafe(`
+            CREATE FUNCTION broken_spawn_edges()
+            RETURNS TABLE (child_id TEXT, parent_id TEXT, seq BIGINT)
+            LANGUAGE plpgsql AS $$ BEGIN
+              RETURN QUERY EXECUTE 'SELECT child_id, parent_id, seq FROM flows_run_parents_archive';
+            END $$
+          `)
+          yield* sql`CREATE VIEW flows_run_parents AS SELECT * FROM broken_spawn_edges()`
+        } else {
+          yield* sql`
+            CREATE VIEW flows_run_parents AS
+            SELECT child_id, parent_id, seq FROM flows_run_parents_archive
+          `
+        }
+        return yield* Effect.flip(runtime.getRun(runId))
+      })
+    )
+
+    expect(error).toBeInstanceOf(PersistenceError)
+    expect((error as PersistenceError).operation).toBe("read spawn edges")
+  })
+
   it("reports a spawn table whose shape it does not recognize instead of reading no edges", async () => {
     // The engine's tables are optional here: a control-only database has none
     // of them, and an absent one means "no edges". A table that EXISTS and

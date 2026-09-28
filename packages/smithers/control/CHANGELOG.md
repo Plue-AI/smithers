@@ -60,6 +60,13 @@
 
 ### Fixed
 
+- Durable sequence allocation rejects missing, nonpositive, or unsafe numeric
+  readbacks inside its transaction, so storage faults cannot create zero or
+  rounded plan, run, or resume identities.
+- Optional SQL table reads fall back only when the driver names that exact
+  missing relation. A broken view referencing a similarly named missing table
+  now reports a persistence failure instead of silently dropping run ancestry.
+
 - Fixed the CommonJS build of the migration set. `migrations/0001_control_tables`
   now exports `initial` as a named binding and every importer reads it by name,
   because esbuild's Node interop for a default import of a sibling module
