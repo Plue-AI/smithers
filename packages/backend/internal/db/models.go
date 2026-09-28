@@ -2696,6 +2696,8 @@ type WorkflowRunFlowInvocation struct {
 	CreatedAt      time.Time   `json:"created_at"`
 	WorkflowStepID pgtype.Int8 `json:"workflow_step_id"`
 	LogCursor      string      `json:"log_cursor"`
+	TriggerCommit  string      `json:"trigger_commit"`
+	SourceRevision string      `json:"source_revision"`
 }
 
 type WorkflowRunLog struct {

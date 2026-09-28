@@ -23,6 +23,7 @@ import (
 // API) holding one organization's member repositories and superproject.
 type nativeChangesetRepos struct {
 	t      *testing.T
+	owner  string
 	cfg    repohostserver.Config
 	ffi    *repohostffi.Client
 	client *repohost.Client
@@ -30,15 +31,21 @@ type nativeChangesetRepos struct {
 
 func newNativeChangesetRepos(t *testing.T, repos ...string) *nativeChangesetRepos {
 	t.Helper()
+	return newNativeRepoHost(t, "acme", repos...)
+}
+
+// newNativeRepoHost is a real repo-host holding owner's repositories.
+func newNativeRepoHost(t *testing.T, owner string, repos ...string) *nativeChangesetRepos {
+	t.Helper()
 	library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	if library == "" {
 		t.Skip("set SMITHERS_FFI_LIBRARY_PATH to the built smithers-ffi library")
 	}
-	n := &nativeChangesetRepos{t: t, cfg: repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "changeset-native", FFILibraryPath: library}}
+	n := &nativeChangesetRepos{t: t, owner: owner, cfg: repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "changeset-native", FFILibraryPath: library}}
 	n.ffi = repohostffi.New(library)
 	require.NoError(t, n.ffi.Load())
 	for _, repo := range repos {
-		_, err := n.ffi.InitRepo(n.cfg.RepoPath("acme", repo))
+		_, err := n.ffi.InitRepo(n.cfg.RepoPath(n.owner, repo))
 		require.NoError(t, err)
 		n.git(repo, "symbolic-ref", "HEAD", "refs/heads/main")
 	}
@@ -57,7 +64,7 @@ func (n *nativeChangesetRepos) git(repo string, args ...string) string {
 
 func (n *nativeChangesetRepos) gitEnv(repo string, env []string, args ...string) string {
 	n.t.Helper()
-	cmd := exec.Command("git", append([]string{"--git-dir", n.cfg.GitBackendPath("acme", repo)}, args...)...)
+	cmd := exec.Command("git", append([]string{"--git-dir", n.cfg.GitBackendPath(n.owner, repo)}, args...)...)
 	cmd.Env = append(append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid"), env...)
 	out, err := cmd.CombinedOutput()
 	require.NoError(n.t, err, "git %v: %s", args, out)
@@ -83,13 +90,13 @@ func (n *nativeChangesetRepos) commit(repo, ref, parent string, files map[string
 	}
 	commit := n.git(repo, args...)
 	n.git(repo, "update-ref", ref, commit)
-	require.NoError(n.t, n.ffi.ImportGitRefs(n.cfg.RepoPath("acme", repo)))
+	require.NoError(n.t, n.ffi.ImportGitRefs(n.cfg.RepoPath(n.owner, repo)))
 	return commit
 }
 
 func (n *nativeChangesetRepos) gitHashObject(repo, body string) string {
 	n.t.Helper()
-	cmd := exec.Command("git", "--git-dir", n.cfg.GitBackendPath("acme", repo), "hash-object", "-w", "--stdin")
+	cmd := exec.Command("git", "--git-dir", n.cfg.GitBackendPath(n.owner, repo), "hash-object", "-w", "--stdin")
 	cmd.Stdin = strings.NewReader(body)
 	out, err := cmd.CombinedOutput()
 	require.NoError(n.t, err, string(out))
@@ -107,13 +114,13 @@ func sortedKeys(m map[string]string) []string {
 
 func (n *nativeChangesetRepos) head(repo string) string {
 	n.t.Helper()
-	require.NoError(n.t, n.ffi.ExportGitRefs(n.cfg.RepoPath("acme", repo)))
+	require.NoError(n.t, n.ffi.ExportGitRefs(n.cfg.RepoPath(n.owner, repo)))
 	return n.git(repo, "rev-parse", "refs/heads/main")
 }
 
 func (n *nativeChangesetRepos) file(repo, path string) string {
 	n.t.Helper()
-	cmd := exec.Command("git", "--git-dir", n.cfg.GitBackendPath("acme", repo), "show", n.head(repo)+":"+path)
+	cmd := exec.Command("git", "--git-dir", n.cfg.GitBackendPath(n.owner, repo), "show", n.head(repo)+":"+path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "<absent>"
@@ -122,12 +129,12 @@ func (n *nativeChangesetRepos) file(repo, path string) string {
 }
 
 func (n *nativeChangesetRepos) isAncestor(repo, ancestor, descendant string) bool {
-	return exec.Command("git", "--git-dir", n.cfg.GitBackendPath("acme", repo), "merge-base", "--is-ancestor", ancestor, descendant).Run() == nil
+	return exec.Command("git", "--git-dir", n.cfg.GitBackendPath(n.owner, repo), "merge-base", "--is-ancestor", ancestor, descendant).Run() == nil
 }
 
 func (n *nativeChangesetRepos) changeID(repo, commit string) string {
 	n.t.Helper()
-	change, err := n.client.GetChange(context.Background(), "acme", repo, commit)
+	change, err := n.client.GetChange(context.Background(), n.owner, repo, commit)
 	require.NoError(n.t, err)
 	return change.ChangeID
 }

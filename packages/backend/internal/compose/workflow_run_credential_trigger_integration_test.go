@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -74,6 +76,7 @@ func TestRunCredentialCannotStartCacheSavingWorkflowRunsPostgres(t *testing.T) {
 	require.NoError(t, err)
 	invokedFlows := services.NewInvokedFlowService(pool, services.NewRepositoryJobService(q, nil, pool), nil)
 	invokedFlows.SetFlowDispatcher(dispatcher)
+	invokedFlows.SetFlowSourceReader(invokeTestSources{})
 	router := buildWorkflowTriggerRouter(q, pool, &routes.WorkflowHandler{
 		Service: services.NewWorkflowAPIService(q, services.NewWorkflowRunService(q), services.WithWorkflowAPIFlowInvoker(invokedFlows)),
 	})
@@ -175,4 +178,18 @@ func buildWorkflowTriggerRouter(q *db.Queries, pool *pgxpool.Pool, workflow *rou
 		nil, nil, // workflow cache, artifacts
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
+}
+
+// invokeTestSources is a repo host whose main holds flows/ci/flow.ts.
+type invokeTestSources struct{}
+
+func (invokeTestSources) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
+	return []repohost.Bookmark{{Name: "main", TargetCommitID: strings.Repeat("c", 40)}}, "", nil
+}
+
+func (invokeTestSources) GetFileAtChange(_ context.Context, _, _, _, path string) (repohost.FileContent, error) {
+	if path != "flows/ci/flow.ts" {
+		return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
+	}
+	return repohost.FileContent{Path: path}, nil
 }

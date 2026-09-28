@@ -101,6 +101,7 @@ var migrationRegistry = []migrationSpec{
 	{63, "migrations/0063_user_erasure_tombstone.sql"},
 	{64, "migrations/0064_invoked_flow_plane.sql"},
 	{65, "migrations/0065_invoked_flow_run_log.sql"},
+	{66, "migrations/0066_invoked_flow_source.sql"},
 }
 
 type migration struct {

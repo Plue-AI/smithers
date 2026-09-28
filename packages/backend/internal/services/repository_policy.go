@@ -76,27 +76,12 @@ func readRepositoryPolicy(ctx context.Context, host repositoryPolicyHost, owner,
 	}
 	// The bookmark's commit is the immutable snapshot the owner committed;
 	// its change id could move to a later revision while it is read.
-	commit, found := "", false
-	for cursor := ""; !found; {
-		page, next, err := host.ListBookmarks(ctx, owner, repo, cursor, 100)
-		if err != nil {
-			return factoryGitHubPolicy{}, fmt.Errorf("resolve %s: %w", bookmark, err)
-		}
-		for _, entry := range page {
-			if entry.Name == bookmark {
-				commit, found = strings.TrimSpace(entry.TargetCommitID), true
-			}
-		}
-		if next == "" {
-			break
-		}
-		cursor = next
+	commit, found, err := bookmarkCommit(ctx, host, owner, repo, bookmark)
+	if err != nil {
+		return factoryGitHubPolicy{}, err
 	}
 	if !found {
 		return factoryGitHubPolicy{}, nil
-	}
-	if commit == "" {
-		return factoryGitHubPolicy{}, errors.New(bookmark + " names no commit")
 	}
 	file, err := host.GetFileAtChange(ctx, owner, repo, commit, factoryProjectionPath)
 	if status, ok := repohost.IsStatusError(err); ok && status.StatusCode == 404 {
@@ -109,6 +94,30 @@ func readRepositoryPolicy(ctx context.Context, host repositoryPolicyHost, owner,
 		return factoryGitHubPolicy{}, errors.New(factoryProjectionPath + " is not readable text")
 	}
 	return parseFactoryGitHubPolicy([]byte(file.Content))
+}
+
+// bookmarkCommit is the commit a bookmark names on the repo host. A missing
+// bookmark is not found; a bookmark naming no commit is an error.
+func bookmarkCommit(ctx context.Context, host repositoryPolicyHost, owner, repo, bookmark string) (string, bool, error) {
+	for cursor := ""; ; {
+		page, next, err := host.ListBookmarks(ctx, owner, repo, cursor, 100)
+		if err != nil {
+			return "", false, fmt.Errorf("resolve %s: %w", bookmark, err)
+		}
+		for _, entry := range page {
+			if entry.Name == bookmark {
+				commit := strings.TrimSpace(entry.TargetCommitID)
+				if commit == "" {
+					return "", false, errors.New(bookmark + " names no commit")
+				}
+				return commit, true, nil
+			}
+		}
+		if next == "" {
+			return "", false, nil
+		}
+		cursor = next
+	}
 }
 
 // repositoryReviewerAgents are the reviewer agent logins the repository's

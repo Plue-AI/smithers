@@ -21,7 +21,9 @@ type InvokeWorkflowInput struct {
 	Identifier string
 	// Input is the flow's payload, persisted as dispatch_inputs.
 	Input map[string]interface{}
-	// TriggerRef is the bookmark the run records (the repo default).
+	// TriggerRef is the bookmark (the repo default) at whose commit the flow
+	// file must exist when invoked. The host runs the invoker's box working
+	// copy; the run's log names that snapshot beside this ref's commit.
 	TriggerRef string
 }
 

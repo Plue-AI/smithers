@@ -1149,6 +1149,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// InvokeWorkflow runs a file flow through the same Flow dispatcher.
 	invokedFlowService := services.NewInvokedFlowService(pool, repositoryJobService, workspaceService)
 	invokedFlowService.SetSecretInjector(secretInjector)
+	invokedFlowService.SetFlowSourceReader(repoHostClient)
 	invokedFlowService.SetTerminalPublisher(workflowRunTerminalPublisher)
 	if participant, ok := workflowRunService.(interface {
 		SetCancelParticipant(services.WorkflowRunCancelParticipant)

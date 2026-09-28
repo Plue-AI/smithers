@@ -21,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/webhooks"
@@ -113,6 +114,25 @@ func TestInvokeWorkflowRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
+// invokedFlowTestSources is a repo host whose main bookmark holds the named
+// file flows.
+type invokedFlowTestSources struct{ flows []string }
+
+var invokedFlowTestCommit = strings.Repeat("c", 40)
+
+func (invokedFlowTestSources) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
+	return []repohost.Bookmark{{Name: "main", TargetChangeID: "main", TargetCommitID: invokedFlowTestCommit}}, "", nil
+}
+
+func (h invokedFlowTestSources) GetFileAtChange(_ context.Context, _, _, change, path string) (repohost.FileContent, error) {
+	for _, flow := range h.flows {
+		if change == invokedFlowTestCommit && path == invokedFlowPath(flow) {
+			return repohost.FileContent{Path: path, Content: "export default {}"}, nil
+		}
+	}
+	return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
+}
+
 type invokedFlowTestWorkspaces struct{ workspaceID string }
 
 func (w invokedFlowTestWorkspaces) CreateWorkspace(context.Context, CreateWorkspaceInput) (WorkspaceResponse, error) {
@@ -148,6 +168,7 @@ func TestInvokeWorkflowAdmitsThroughFlowDispatch(t *testing.T) {
 	require.NoError(t, err)
 	invoked := NewInvokedFlowService(pool, NewRepositoryJobService(q, nil, pool), invokedFlowTestWorkspaces{workspaceID: workspaceID})
 	invoked.SetFlowDispatcher(dispatcher)
+	invoked.SetFlowSourceReader(invokedFlowTestSources{flows: []string{"echo"}})
 	api := NewWorkflowAPIService(q, nil, WithWorkflowAPIFlowInvoker(invoked))
 
 	result, err := api.InvokeWorkflow(ctx, InvokeWorkflowInput{
@@ -279,6 +300,7 @@ func newInvokedFlowTestFixture(t *testing.T) invokedFlowTestFixture {
 	f.runs = NewWorkflowRunService(q, WithWorkflowRunWebhookDispatcher(f.webhooks))
 	f.invoked = NewInvokedFlowService(pool, NewRepositoryJobService(q, nil, pool), invokedFlowTestWorkspaces{workspaceID: f.workspaceID})
 	f.invoked.SetSecretInjector(NewSecretInjector(q, f.codec))
+	f.invoked.SetFlowSourceReader(invokedFlowTestSources{flows: []string{"echo"}})
 	f.invoked.SetTerminalPublisher(f.runs.(WorkflowRunTerminalPublisher))
 	f.runs.(interface {
 		SetCancelParticipant(WorkflowRunCancelParticipant)
@@ -600,4 +622,113 @@ func TestInvokedFlowTerminalProjectionPublishesTheWorkflowRunOnce(t *testing.T) 
 			assert.Equal(t, []string{tc.action}, f.webhooks.actions())
 		})
 	}
+}
+
+func (f invokedFlowTestFixture) runCount(t *testing.T) int {
+	t.Helper()
+	var n int
+	require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM workflow_runs WHERE repository_id=$1`, f.repositoryID).Scan(&n))
+	return n
+}
+
+// An unknown flow or ref is refused before a run, a definition or a box
+// exists, so a typo never becomes a queued run that fails later.
+func TestInvokeWorkflowUnknownFlowOrRefIsNotFound(t *testing.T) {
+	f := newInvokedFlowTestFixture(t)
+	ctx := context.Background()
+	for _, input := range []InvokeWorkflowInput{
+		{RepositoryID: f.repositoryID, UserID: f.userID, Identifier: "missing"},
+		{RepositoryID: f.repositoryID, UserID: f.userID, Identifier: "echo", TriggerRef: "nope"},
+	} {
+		_, err := f.api.InvokeWorkflow(ctx, input)
+		var apiErr *pkgerrors.APIError
+		require.ErrorAs(t, err, &apiErr, "%+v", input)
+		assert.Equal(t, 404, apiErr.Status, "%+v: %s", input, apiErr.Message)
+	}
+	assert.Equal(t, 1, f.runCount(t), "only the fixture's run exists")
+	var definitions int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM workflow_definitions WHERE repository_id=$1 AND name='missing'`, f.repositoryID).Scan(&definitions))
+	assert.Zero(t, definitions)
+	assert.Zero(t, f.resolved.Load())
+}
+
+// The Flow host runs the invoker's box working copy, not trigger_ref: the run
+// records and logs the snapshot that ran beside the commit its ref named.
+func TestInvokedFlowRunNamesTheSnapshotThatRan(t *testing.T) {
+	f := newInvokedFlowTestFixture(t)
+	snapshot := strings.Repeat("b", 40)
+	start := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
+		RunID: "flow-run-1", Run: &flowruntime.FlowRuntimeRun{RunID: "flow-run-1", FlowID: "echo", Status: "running"},
+		Identity: flowruntime.FlowRuntimeIdentity{SourceRevision: snapshot},
+	}}
+	f.project(t, start)
+	f.project(t, start)
+	var triggerCommit, sourceRevision string
+	require.NoError(t, f.pool.QueryRow(context.Background(),
+		`SELECT trigger_commit, source_revision FROM workflow_run_flow_invocations WHERE workflow_run_id=$1`, f.run.ID).Scan(&triggerCommit, &sourceRevision))
+	assert.Equal(t, invokedFlowTestCommit, triggerCommit)
+	assert.Equal(t, snapshot, sourceRevision)
+	logs := f.logs(t)
+	require.Len(t, logs, 1, "the source is logged once")
+	assert.Equal(t, "system", logs[0].Stream)
+	assert.Equal(t, "flow source: box "+f.workspaceID+" snapshot "+snapshot+" (main was "+invokedFlowTestCommit+" at invocation)", logs[0].Entry)
+}
+
+// A run cancelled by its runtime before it started settles its run and step.
+func TestInvokedFlowCancelledBeforeStartSettlesTheRunAndStep(t *testing.T) {
+	f := newInvokedFlowTestFixture(t)
+	f.project(t, flowdispatch.ProjectionUpdate{State: jobs.StateCancelled})
+	assert.Equal(t, "cancelled", f.status(t))
+	assert.Equal(t, "cancelled", f.steps(t)[0].Status)
+}
+
+// On a real repo host, invocation resolves the trigger ref's commit and reads
+// the flow file there: an unknown flow or ref is 404 with no run, and a known
+// flow's run records the commit its ref named.
+func TestInvokeWorkflowReadsTheFlowFileOnTheRepoHost(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	owner, repository := "owner"+suffix, "repo"+suffix
+	host := newNativeRepoHost(t, owner, repository)
+	commit := host.commit(repository, "refs/heads/main", "", map[string]string{"flows/echo/flow.ts": "export default {}\n"})
+
+	var userID, repositoryID int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
+		owner, suffix+"@example.invalid").Scan(&userID))
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO repositories(user_id,name,lower_name,default_bookmark) VALUES($1,$2,$2,'main') RETURNING id`,
+		userID, repository).Scan(&repositoryID))
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(
+		func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			return nil, errors.New("admission must not resolve a runtime")
+		})})
+	require.NoError(t, err)
+	invoked := NewInvokedFlowService(pool, NewRepositoryJobService(q, nil, pool), invokedFlowTestWorkspaces{workspaceID: uuid.NewString()})
+	invoked.SetFlowDispatcher(dispatcher)
+	invoked.SetFlowSourceReader(host.client)
+	api := NewWorkflowAPIService(q, nil, WithWorkflowAPIFlowInvoker(invoked))
+
+	for _, input := range []InvokeWorkflowInput{
+		{RepositoryID: repositoryID, UserID: userID, Identifier: "missing", TriggerRef: "main"},
+		{RepositoryID: repositoryID, UserID: userID, Identifier: "echo", TriggerRef: "nope"},
+	} {
+		_, err := api.InvokeWorkflow(ctx, input)
+		var apiErr *pkgerrors.APIError
+		require.ErrorAs(t, err, &apiErr, "%+v", input)
+		assert.Equal(t, 404, apiErr.Status, "%+v: %s", input, apiErr.Message)
+	}
+	var runs int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workflow_runs WHERE repository_id=$1`, repositoryID).Scan(&runs))
+	assert.Zero(t, runs, "a refused invocation creates no run")
+
+	result, err := api.InvokeWorkflow(ctx, InvokeWorkflowInput{RepositoryID: repositoryID, UserID: userID, Identifier: "echo", TriggerRef: "main"})
+	require.NoError(t, err)
+	var triggerCommit string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT trigger_commit FROM workflow_run_flow_invocations WHERE workflow_run_id=$1`, result.Run.ID).Scan(&triggerCommit))
+	assert.Equal(t, commit, triggerCommit)
 }

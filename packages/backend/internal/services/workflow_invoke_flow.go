@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -41,6 +42,7 @@ type InvokedFlowService struct {
 	dispatcher     InvokedFlowDispatcher
 	secrets        *SecretInjector
 	terminal       WorkflowRunTerminalPublisher
+	sources        repositoryPolicyHost
 }
 
 func NewInvokedFlowService(pool *pgxpool.Pool, repositoryJobs *RepositoryJobService, workspaces RepositorySetupWorkspace) *InvokedFlowService {
@@ -65,6 +67,13 @@ func (s *InvokedFlowService) SetTerminalPublisher(publisher WorkflowRunTerminalP
 	s.terminal = publisher
 }
 
+// SetFlowSourceReader gives invocation the repo host it reads the trigger
+// ref's commit and the flow file through, so an unknown flow or ref is
+// refused before a run exists.
+func (s *InvokedFlowService) SetFlowSourceReader(host repositoryPolicyHost) {
+	s.sources = host
+}
+
 type invokedFlowProjection struct {
 	Kind          string `json:"kind"`
 	WorkflowRunID int64  `json:"workflowRunId"`
@@ -87,11 +96,41 @@ func invokedFlowPath(flowID string) string {
 	return "flows/" + flowID + "/flow.ts"
 }
 
+// flowSourceCommit is the commit the trigger ref names, where the flow file
+// must exist. An unknown ref or flow is NotFound, so a typo never becomes a
+// run.
+func (s *InvokedFlowService) flowSourceCommit(ctx context.Context, launch InvokedFlowLaunch) (string, error) {
+	repository, err := s.repositoryJobs.repositoryName(ctx, db.RepositoryJobRegistration{RepositoryID: launch.RepositoryID, UserID: launch.UserID})
+	if err != nil {
+		return "", err
+	}
+	owner, name, _ := strings.Cut(repository, "/")
+	commit, found, err := bookmarkCommit(ctx, s.sources, owner, name, launch.TriggerRef)
+	if err != nil {
+		return "", pkgerrors.Internal("failed to resolve " + launch.TriggerRef).WithCause(err)
+	}
+	if !found {
+		return "", pkgerrors.NotFound(fmt.Sprintf("bookmark %q not found", launch.TriggerRef))
+	}
+	path := invokedFlowPath(launch.FlowID)
+	if _, err := s.sources.GetFileAtChange(ctx, owner, name, commit, path); err != nil {
+		if status, ok := repohost.IsStatusError(err); ok && status.StatusCode == 404 {
+			return "", pkgerrors.NotFound(fmt.Sprintf("flow %q not found: %s does not exist at %s", launch.FlowID, path, launch.TriggerRef))
+		}
+		return "", pkgerrors.Internal("failed to read " + path).WithCause(err)
+	}
+	return commit, nil
+}
+
 // Invoke creates the queued flow-plane run and admits its Flow launch in one
 // transaction. It returns before any host is resolved or contacted.
 func (s *InvokedFlowService) Invoke(ctx context.Context, launch InvokedFlowLaunch) (db.WorkflowRun, db.WorkflowDefinition, error) {
-	if s == nil || s.pool == nil || s.dispatcher == nil {
+	if s == nil || s.pool == nil || s.dispatcher == nil || s.repositoryJobs == nil || s.sources == nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "the Flow runtime is not configured on this deployment")
+	}
+	triggerCommit, err := s.flowSourceCommit(ctx, launch)
+	if err != nil {
+		return db.WorkflowRun{}, db.WorkflowDefinition{}, err
 	}
 	input := launch.Input
 	if len(input) == 0 {
@@ -140,8 +179,8 @@ func (s *InvokedFlowService) Invoke(ctx context.Context, launch InvokedFlowLaunc
 	if err != nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.Internal("failed to admit the Flow launch").WithCause(err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO workflow_run_flow_invocations(workflow_run_id,user_id,flow_id,operation_id,workflow_step_id) VALUES($1,$2,$3,$4,$5)`,
-		run.ID, launch.UserID, launch.FlowID, receipt.OperationID, step.ID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO workflow_run_flow_invocations(workflow_run_id,user_id,flow_id,operation_id,workflow_step_id,trigger_commit) VALUES($1,$2,$3,$4,$5,$6)`,
+		run.ID, launch.UserID, launch.FlowID, receipt.OperationID, step.ID, triggerCommit); err != nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.Internal("failed to record the invocation").WithCause(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -189,17 +228,20 @@ type invokedFlowRecord struct {
 	Status               string
 	StepID               pgtype.Int8
 	LogCursor            string
+	TriggerRef           string
+	TriggerCommit        string
+	SourceRevision       string
 }
 
 func scanInvokedFlow(row pgx.Row) (invokedFlowRecord, error) {
 	var record invokedFlowRecord
 	err := row.Scan(&record.UserID, &record.RepositoryID, &record.FlowID, &record.OperationID, &record.WorkspaceID, &record.Status,
-		&record.StepID, &record.LogCursor)
+		&record.StepID, &record.LogCursor, &record.TriggerRef, &record.TriggerCommit, &record.SourceRevision)
 	return record, err
 }
 
 const invokedFlowColumns = `i.user_id, r.repository_id, i.flow_id, i.operation_id, COALESCE(i.workspace_id::text,''), r.status,
-	i.workflow_step_id, i.log_cursor
+	i.workflow_step_id, i.log_cursor, r.trigger_ref, i.trigger_commit, i.source_revision
 	FROM workflow_run_flow_invocations i JOIN workflow_runs r ON r.id=i.workflow_run_id WHERE i.workflow_run_id=$1`
 
 // ResolveFlowHostTarget authorizes an invoked run's host on the invoker's
@@ -331,6 +373,16 @@ func invokedFlowLogEntry(event flowruntime.FlowRuntimeEvent) string {
 	return entry
 }
 
+// invokedFlowSource is the system log line naming the source an invoked run
+// read.
+func invokedFlowSource(record invokedFlowRecord, revision string) string {
+	entry := fmt.Sprintf("flow source: box %s snapshot %s", record.WorkspaceID, revision)
+	if record.TriggerCommit != "" {
+		entry += fmt.Sprintf(" (%s was %s at invocation)", record.TriggerRef, record.TriggerCommit)
+	}
+	return entry
+}
+
 // invokedFlowFailure is the system log line naming why an invoked run failed.
 func invokedFlowFailure(checkpoint flowdispatch.RuntimeCheckpoint) string {
 	if code := strings.TrimSpace(checkpoint.FailureCode); code != "" {
@@ -412,6 +464,16 @@ func (s *InvokedFlowService) ProjectFlowRuntime(ctx context.Context, update flow
 			logs = append(logs, inserted)
 		}
 		return err
+	}
+	// The host runs the box's working copy, not trigger_ref: the run names
+	// the snapshot that ran beside the commit its ref named at invocation.
+	if revision := checkpoint.Identity.SourceRevision; checkpoint.RunID != "" && record.SourceRevision == "" && revision != "" {
+		if _, err := tx.Exec(ctx, `UPDATE workflow_run_flow_invocations SET source_revision=$2 WHERE workflow_run_id=$1`, projection.WorkflowRunID, revision); err != nil {
+			return err
+		}
+		if err := appendLog("system", invokedFlowSource(record, revision)); err != nil {
+			return fmt.Errorf("log invoked Flow source: %w", err)
+		}
 	}
 	var redact map[string]string
 	if s.secrets != nil && (len(update.Events) > 0 || status == "failure") {
