@@ -1770,6 +1770,73 @@ describe("the envelope", () => {
   })
 })
 
+describe("a park budget", () => {
+  it("refuses without latching, so a raised ceiling admits the call", async () => {
+    const verdicts = await Effect.runPromise(
+      Effect.gen(function*() {
+        const tight = yield* Budget.make({ tokens: { max: 1_000, onExceeded: "park" } })
+        yield* tight.record("step-a", { totalTokens: 600 })
+        const parked = yield* tight.check("step-b")
+        const again = yield* tight.check("step-b")
+        return { parked, again }
+      })
+    )
+
+    // The refusal is the BudgetExceeded itself, not a Skipped latch: a park is
+    // lifted by a raise, and a latch would refuse the raised run too.
+    expect(verdicts.parked).toMatchObject({
+      _tag: "refuse",
+      exceeded: { scope: "tokens", onExceeded: "park", used: 600, max: 1_000, next: 600 }
+    })
+    expect(verdicts.parked._tag === "refuse" && verdicts.parked.failure).toBeInstanceOf(Budget.BudgetExceeded)
+    expect(verdicts.again).toMatchObject({ _tag: "refuse", exceeded: { onExceeded: "park" } })
+    expect(Schema.decodeUnknownSync(Budget.OnExceeded)("park")).toBe("park")
+  })
+
+  it("proposes a ceiling covering the spend, the refused call, and one more allowance", () => {
+    const exceeded = new Budget.BudgetExceeded({
+      scope: "tokens",
+      onExceeded: "park",
+      used: 600,
+      reserved: 100,
+      max: 1_000,
+      next: 600,
+      message: "over"
+    })
+    expect(Budget.raise({ tokens: 1_000, milliseconds: 5_000, onExceeded: "park" }, exceeded))
+      .toEqual({ tokens: 2_300, milliseconds: 5_000, onExceeded: "park" })
+    const late = new Budget.BudgetExceeded({
+      scope: "latency",
+      onExceeded: "park",
+      used: 5_000.5,
+      max: 5_000,
+      next: 0,
+      message: "late"
+    })
+    expect(Budget.raise({ milliseconds: 5_000 }, late)).toEqual({ milliseconds: 10_001 })
+  })
+
+  it("applies every approved raise as the largest ceiling, never lowering or adding one", () => {
+    const envelope = { capabilities: ["read"], flows: [], budget: { tokens: 1_000, onExceeded: "park" as const } }
+    expect(Budget.raisedBy(envelope, [])).toEqual(envelope)
+    expect(Budget.raisedBy(envelope, [{ tokens: 2_300 }, { tokens: 1_500 }, { milliseconds: 9 }])).toEqual({
+      capabilities: ["read"],
+      flows: [],
+      budget: { tokens: 2_300, onExceeded: "park" }
+    })
+    expect(Budget.raisedBy(envelope, [{ tokens: 10 }]).budget.tokens).toBe(1_000)
+  })
+
+  it("takes the approved envelope's choice over the composition's default", () => {
+    expect(
+      Budget.policyFromEnvelope(
+        { capabilities: [], flows: [], budget: { tokens: 10, milliseconds: 1_000, onExceeded: "park" } },
+        { onExceeded: "fail" }
+      )
+    ).toEqual({ tokens: { max: 10, onExceeded: "park" }, latency: { maxMillis: 1_000, onExceeded: "park" } })
+  })
+})
+
 describe("an explicitly unbounded composition", () => {
   it("accounts nothing and refuses nothing", async () => {
     const observed = await Effect.runPromise(

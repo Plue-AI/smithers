@@ -22,10 +22,16 @@
  * and are covered in `packages/smithers/agent/test/Budget.test.ts`; what is untried here
  * is whether the policy it enforces carries the numbers the flow declared.
  */
+import { NodeHttpClient } from "@effect/platform-node"
+import { MockAgent } from "@effect/platform-node/Undici"
 import * as Budget from "@smthrs/agent/Budget"
-import { Control as ControlService } from "@smthrs/control"
-import { Effect, Layer } from "effect"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
+import { Control as ControlService, ControlSchema } from "@smthrs/control"
+import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as RequestExecutor from "@smthrs/model/RequestExecutor"
+import { Effect, Layer, Schedule, Schema, Stream } from "effect"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -52,7 +58,10 @@ const skill = (declaration: ReadonlyArray<string>): string =>
  * guarded platform, and `engineDurable` opens the real SQLite control database
  * and registers what the registry found.
  */
-const plannedEnvelope = async (declaration: ReadonlyArray<string>) => {
+const plannedEnvelope = async (
+  declaration: ReadonlyArray<string>,
+  budget?: ControlSchema.Envelope["budget"]
+) => {
   const project = await mkdtemp(join(tmpdir(), "flows-cli-budget-"))
   try {
     await mkdir(join(project, "flows", "review"), { recursive: true })
@@ -62,7 +71,7 @@ const plannedEnvelope = async (declaration: ReadonlyArray<string>) => {
     return await Effect.runPromise(
       Effect.gen(function*() {
         const control = yield* ControlService.Control
-        const card = yield* control.plan({ flowId: "review", input: {} })
+        const card = yield* control.plan({ flowId: "review", input: {}, ...(budget === undefined ? {} : { budget }) })
         return card.envelope
       }).pipe(
         Effect.provide(Application.layer({}, registry, engine) as Layer.Layer<ControlService.Control>),
@@ -140,4 +149,182 @@ describe("a declared flow budget", () => {
 
     expect(envelope.budget).toEqual({})
   })
+})
+
+describe("a budget's onExceeded choice", () => {
+  it("reaches the approved envelope and the policy from frontmatter", async () => {
+    const envelope = await plannedEnvelope(["budget:", "  tokens: 1000", "  onExceeded: park"])
+
+    expect(envelope.budget).toEqual({ tokens: 1000, onExceeded: "park" })
+    // The composition's default is `fail`; the approved choice wins over it.
+    const policy = Budget.policyFromEnvelope(envelope, { onExceeded: "fail" })
+    expect(policy.tokens).toEqual({ max: 1000, onExceeded: "park" })
+  })
+
+  it("drops an unknown choice and keeps the ceiling", async () => {
+    const envelope = await plannedEnvelope(["budget:", "  tokens: 1000", "  onExceeded: sulk"])
+
+    expect(envelope.budget).toEqual({ tokens: 1000 })
+  })
+
+  it("lets a planner replace the declared budget, as flow start's flags do", async () => {
+    const envelope = await plannedEnvelope(["budget:", "  tokens: 1000", "  milliseconds: 60000"], {
+      tokens: 50,
+      onExceeded: "park"
+    })
+
+    expect(envelope.budget).toEqual({ tokens: 50, milliseconds: 60000, onExceeded: "park" })
+  })
+})
+
+/** One OpenAI Responses stream whose only output is `text`, reporting `tokens` spent. */
+const sse = (text: string, tokens: number): string =>
+  [
+    `data: ${JSON.stringify({ type: "response.output_text.delta", item_id: "msg_1", delta: text })}`,
+    "",
+    `data: ${JSON.stringify({ type: "response.output_text.done", item_id: "msg_1" })}`,
+    "",
+    `data: ${
+      JSON.stringify({
+        type: "response.completed",
+        response: {
+          id: "resp_budget",
+          usage: { input_tokens: tokens / 2, output_tokens: tokens / 2, total_tokens: tokens }
+        }
+      })
+    }`,
+    "",
+    ""
+  ].join("\n")
+
+/**
+ * Runs `review`, declared at 30 tokens with `onExceeded: park`, on the shipped
+ * executor until it parks, answers the park with `decision`, and follows the
+ * run to its end. Every call costs 20 tokens: the first frame fits and does not
+ * finish, and the second is projected at 20 + 20 and parks.
+ */
+const parkedRun = async (decision: "approve" | "deny") => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "flows-cli-budget-park-")))
+  const agent = new MockAgent()
+  try {
+    await mkdir(join(root, "flows", "review"), { recursive: true })
+    await writeFile(
+      join(root, "flows", "review", "flow.mdx"),
+      [
+        "---",
+        "name: review",
+        "description: Reviews a proposed change.",
+        "model: openai:gpt-4o-mini",
+        "budget:",
+        "  tokens: 30",
+        "  onExceeded: park",
+        "---",
+        "",
+        "Review the change.",
+        ""
+      ].join("\n")
+    )
+    const bodies: Array<string> = []
+    agent.disableNetConnect()
+    agent.get("https://api.openai.com").intercept({ method: "POST", path: "/v1/responses" }).reply(
+      200,
+      (options) => {
+        bodies.push(String(options.body))
+        return sse(bodies.length === 1 ? "```cell\nconst looked = 1\n```" : "```cell\nctx.done(\"reviewed\")\n```", 20)
+      },
+      { headers: { "content-type": "text/event-stream" } }
+    ).persist()
+    const client = await Effect.runPromise(
+      NodeHttpClient.makeUndici.pipe(Effect.provideService(NodeHttpClient.Dispatcher, agent))
+    )
+    const registry = NodeControl.layerRegistry(root)
+    const engine = NodeControl.engineDurable(root, registry)
+    const runs = NodeControl.layerExecutor(registry, engine, root, {
+      evaluator: ScriptedJudge.layerAll,
+      environment: { OPENAI_API_KEY: "test-key" },
+      grants: GrantStore.layerNoop,
+      requestExecutor: Layer.effect(RequestExecutor.RequestExecutor)(
+        RequestExecutor.make.pipe(Effect.provideService(HttpClient.HttpClient, client))
+      )
+    })
+    const layer = Application.layer({ root }, registry, engine, runs) as Layer.Layer<ControlService.Control>
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const control = yield* ControlService.Control
+        const card = yield* control.plan({ flowId: "review", input: {} })
+        yield* control.approve(card.approval)
+        const receipt = yield* control.run({
+          _tag: "Plan",
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: "budget-park"
+        })
+        if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
+          return yield* Effect.die("expected an accepted run")
+        }
+        const runId = receipt.runId
+        const summary = Effect.map(
+          control.list({ _tag: "runs", filters: { runId } }),
+          (page) => (page._tag === "runs" ? page.items[0] : undefined)
+        )
+        const requested = yield* control.watch({ runId, follow: true }).pipe(
+          Stream.filter((event) => event.kind === "control.approval.requested"),
+          Stream.take(1),
+          Stream.runCollect
+        )
+        // The control event can land before the engine row suspends, so
+        // wait for the observed summary itself.
+        const parked = yield* summary.pipe(
+          Effect.flatMap((run) => run?.status === "parked" ? Effect.succeed(run) : Effect.fail(run)),
+          Effect.retry({ schedule: Schedule.spaced("20 millis"), times: 500 }),
+          Effect.orDie
+        )
+        const callsWhileParked = bodies.length
+        const approval = Schema.decodeUnknownSync(ControlSchema.ApprovalPayload)(
+          (requested[0]!.payload as { readonly payload: unknown }).payload
+        )
+        yield* decision === "approve" ? control.approve(approval) : control.deny(approval)
+        const terminal = new Set(["control.run.completed", "control.run.failed", "control.run.cancelled"])
+        const events = yield* control.watch({ runId, follow: true }).pipe(
+          Stream.takeUntil((event) => terminal.has(event.kind)),
+          Stream.runCollect
+        )
+        return { parked, callsWhileParked, approval, last: [...events].at(-1)?.kind, settled: yield* summary }
+      }).pipe(Effect.provide(layer), Effect.scoped, Effect.orDie)
+    )
+    return { ...observed, bodies }
+  } finally {
+    await agent.close()
+    await rm(root, { recursive: true, force: true, maxRetries: 5 })
+  }
+}
+
+describe("a parked budget", () => {
+  it("parks a run at its token ceiling with onExceeded park and resumes after approve raises the budget", async () => {
+    const observed = await parkedRun("approve")
+
+    // The run parked on its budget instead of failing, before the second call.
+    expect(observed.parked).toMatchObject({ status: "parked", waitingReason: "budget" })
+    expect(observed.callsWhileParked).toBe(1)
+    // The request proposes the raise an approval grants: spent 20, next 20,
+    // plus one more 30-token allowance.
+    expect(observed.approval.target._tag).toBe("Node")
+    expect(observed.approval.target.envelope.budget).toEqual({ tokens: 70, onExceeded: "park" })
+    // Approving it resumed the run under the raised ceiling, and the first
+    // frame replayed from the journal rather than calling the provider again.
+    expect(observed.last).toBe("control.run.completed")
+    expect(observed.settled?.status).toBe("completed")
+    expect(observed.bodies.length).toBeGreaterThan(1)
+    expect(new Set(observed.bodies).size).toBe(observed.bodies.length)
+  }, 60_000)
+
+  it("fails the run when the raise is denied, without calling the provider again", async () => {
+    const observed = await parkedRun("deny")
+
+    expect(observed.parked).toMatchObject({ status: "parked", waitingReason: "budget" })
+    expect(observed.last).toBe("control.run.failed")
+    expect(observed.settled?.status).toBe("failed")
+    expect(observed.bodies).toHaveLength(1)
+  }, 60_000)
 })

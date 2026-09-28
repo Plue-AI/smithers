@@ -877,6 +877,8 @@ export const make = (
         })
       )
 
+    // The wait a budget park declared, applied when the frame suspends.
+    let parkedOn: FlowRuntime.WaitingAnnotation | undefined
     const sealStep = (
       step: EngineLike.SealedModelStep,
       onLive?: (event: ModelEvent.ModelEvent) => Effect.Effect<void>
@@ -897,6 +899,18 @@ export const make = (
           // killed after its last model call resumes straight into
           // `BudgetExceeded` for a call that costs zero.
           const verdict = yield* budget.reserve(key).pipe(Effect.mapError(accountingFailed))
+          if (verdict._tag === "refuse" && verdict.failure instanceof Budget.BudgetExceeded) {
+            // `park` suspends the run for an operator's raise when the host
+            // can take approvals; without one it is a refusal like `fail`.
+            const parking = verdict.failure.onExceeded === "park"
+              ? yield* Effect.serviceOption(Budget.Parking)
+              : Option.none()
+            if (Option.isSome(parking)) {
+              const parked = yield* parking.value.park(verdict.failure)
+              parkedOn = parked.waiting
+              return yield* Effect.fail(parked.failure)
+            }
+          }
           if (verdict._tag === "refuse") {
             return yield* Effect.fail(
               new HarnessError.HarnessError({
@@ -1180,7 +1194,13 @@ export const make = (
             code: reason.code,
             reason: reason.message
           }),
-          Flow.suspend(instance)
+          Effect.suspend(() => {
+            if (parkedOn !== undefined) {
+              instance.waiting = parkedOn
+              parkedOn = undefined
+            }
+            return Flow.suspend(instance)
+          })
         )
     })
   })

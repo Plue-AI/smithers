@@ -102,10 +102,12 @@ import {
   accepted,
   adoptedCode,
   alreadyApplied,
+  budgeted,
   canonical,
   codeDriftOf,
   emptyEnvelope,
   planCard,
+  planFingerprint,
   sameEnvelope
 } from "./internal/planning.ts"
 import { causeMessages, missingTable } from "./internal/sqlSchemaErrors.ts"
@@ -1349,8 +1351,8 @@ const makeRuntime = (
         if (flow === undefined) {
           return yield* new FlowNotFound({ flowId: input.flowId })
         }
-        const planFingerprint = yield* Effect.try({
-          try: () => canonical({ flowId: input.flowId, input: input.input }),
+        const requestFingerprint = yield* Effect.try({
+          try: () => planFingerprint(input),
           catch: (cause) => new InvalidInput({ issue: canonicalIssue(cause) })
         })
         if (input.idempotencyKey !== undefined) {
@@ -1360,7 +1362,7 @@ const makeRuntime = (
           `.pipe(query("read a plan key"))
           const found = prior[0]
           if (found !== undefined) {
-            if (found.fingerprint !== planFingerprint) {
+            if (found.fingerprint !== requestFingerprint) {
               return yield* new InvalidInput({
                 issue: `idempotency key ${input.idempotencyKey} was used for another plan`
               })
@@ -1385,7 +1387,7 @@ const makeRuntime = (
           planId,
           flowId: input.flowId,
           decodedInput: decoded,
-          envelope: flow.envelope,
+          envelope: budgeted(flow.envelope, input.budget),
           deployClass: flow.deployClass,
           executionDigest: flow.executionDigest,
           handoff,
@@ -1403,7 +1405,7 @@ const makeRuntime = (
           if (input.idempotencyKey !== undefined) {
             yield* sql`
               INSERT INTO control_plan_keys (idempotency_key, fingerprint, plan_id)
-              VALUES (${input.idempotencyKey}, ${planFingerprint}, ${planId})
+              VALUES (${input.idempotencyKey}, ${requestFingerprint}, ${planId})
               ON CONFLICT (idempotency_key) DO NOTHING
             `
             const settled = yield* sql<{ readonly fingerprint: string; readonly planId: string }>`
@@ -1433,7 +1435,7 @@ const makeRuntime = (
           return { _tag: "stored" } as const
         })).pipe(Effect.mapError(persistence("store a plan")))
         if (outcome._tag === "raced") {
-          if (outcome.holder.fingerprint !== planFingerprint) {
+          if (outcome.holder.fingerprint !== requestFingerprint) {
             return yield* new InvalidInput({
               issue: `idempotency key ${String(input.idempotencyKey)} was used for another plan`
             })

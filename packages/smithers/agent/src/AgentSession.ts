@@ -100,7 +100,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { Agent, type Options as AgentOptions } from "./Agent.ts"
-import type * as Budget from "./Budget.ts"
+import * as Budget from "./Budget.ts"
 import { agentOutcome } from "./internal/AgentOutcome.ts"
 import { callId } from "./internal/CallIdentity.ts"
 import { failureJson } from "./internal/FailureJson.ts"
@@ -1389,6 +1389,54 @@ const askIdentity = (
   return { digest, requestId: `ask/${runId}/${digest}` }
 }
 
+/** The prefix of every approval request a parked budget registers. */
+const budgetRequestPrefix = "budget/"
+
+/**
+ * The identity of one budget park, derived from its run and the budget it asks
+ * for, so a resumed run that exceeds the raised budget asks again.
+ */
+const budgetIdentity = (
+  runId: string,
+  budget: Envelope["budget"]
+): { readonly digest: string; readonly requestId: string } => {
+  const digest = Digest.digest(CanonicalJson.stringify({ budget, runId }))
+  return { digest, requestId: `${budgetRequestPrefix}${runId}/${digest}` }
+}
+
+/** The `budget/` target one approval decision entry resolved, if any. */
+const budgetDecision = (entry: JournalEvent.Entry) => {
+  if (entry.eventType !== "control.approval.approved" && entry.eventType !== "control.approval.denied") return undefined
+  const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalDecisionFact)(entry.payload)
+  if (Option.isNone(fact)) return undefined
+  const target = fact.value.approvalTarget
+  return target._tag === "Node" && target.requestId.startsWith(budgetRequestPrefix) ? target : undefined
+}
+
+/**
+ * The `budget/` request one approval entry names: a request, or the decision
+ * that answered it.
+ */
+const budgetRequestOf = (entry: JournalEvent.Entry): string | undefined => {
+  if (entry.eventType !== "control.approval.requested") return budgetDecision(entry)?.requestId
+  const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
+  return Option.isSome(fact) && fact.value.requestId.startsWith(budgetRequestPrefix)
+    ? fact.value.requestId
+    : undefined
+}
+
+/**
+ * The budgets an operator approved for one run's budget parks, read from its
+ * `control.approval.approved` entries.
+ */
+const approvedRaises = (
+  entries: ReadonlyArray<JournalEvent.Entry>
+): ReadonlyArray<Envelope["budget"]> =>
+  entries.flatMap((entry) => {
+    const target = entry.eventType === "control.approval.approved" ? budgetDecision(entry) : undefined
+    return target === undefined ? [] : [target.envelope.budget]
+  })
+
 /**
  * Parses a run envelope's formatted capabilities, dropping every entry the
  * capability grammar cannot name. Dropping an unparseable entry narrows
@@ -2234,6 +2282,66 @@ export const make = (
         })
 
     /**
+     * Parks a run whose `park` budget refused a call: registers the request
+     * for a raised budget and answers with the `budget` wait and the
+     * requirement that suspends the frame. Approving the request raises the
+     * ceiling the resumed attempt spends against; denying it fails the run.
+     */
+    const parking = (runId: string, envelope: Envelope): Budget.Parking["Service"] => ({
+      park: (exceeded) =>
+        Effect.gen(function*() {
+          const budget = Budget.raise(envelope.budget, exceeded)
+          const identity = budgetIdentity(runId, budget)
+          const unit = exceeded.scope === "tokens" ? "tokens" : "ms"
+          const raised = exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
+          const question = `Raise the ${exceeded.scope} budget from ${exceeded.max} to ${raised} ${unit}?`
+          const target = {
+            _tag: "Node" as const,
+            runId,
+            requestId: identity.requestId,
+            digest: identity.digest,
+            envelope: { ...envelope, budget }
+          }
+          const token = yield* ControlFacts.commitApprovalRequest(journal, runtime, {
+            runId,
+            requestId: identity.requestId,
+            question,
+            payload: { target, scope: "run", idempotencyKey: `approve:${identity.requestId}` }
+          }, sourceId).pipe(Effect.mapError((cause) =>
+            new HarnessError.HarnessError({
+              code: "engine_failed",
+              message: "The budget approval request and token could not be committed",
+              cause
+            })
+          ))
+          // A decided request no longer parks: a denial is the refusal it
+          // asked to lift, and an approval this attempt did not apply is too.
+          if (token._tag !== "Pending") {
+            return yield* new HarnessError.HarnessError({
+              code: "model_failed",
+              message: exceeded.message,
+              cause: exceeded
+            })
+          }
+          const failure = new HarnessError.HarnessError({
+            code: "engine_failed",
+            message: `Budget approval required: ${question}`,
+            cause: Schema.encodeUnknownSync(Permission.PermissionRequired)(
+              new Permission.PermissionRequired({
+                code: "permission_required",
+                requestId: identity.requestId,
+                runId,
+                capability: Capability.make("model:call", `budget/${exceeded.scope}`),
+                tier: "irreversible",
+                meta: { question }
+              })
+            )
+          })
+          return { waiting: { reason: "budget", token: identity.requestId }, failure }
+        })
+    })
+
+    /**
      * Answers from the decision itself, not from a scan of unrelated grants.
      * A pending or unreadable answer is not an implicit denial or approval.
      */
@@ -2521,6 +2629,7 @@ export const make = (
         // Check before opening any model or cell boundary. A new hash alone
         // would turn old settlements into misses and repeat their side effects.
         let after: JournalEvent.Seq | undefined
+        const raises: Array<Envelope["budget"]> = []
         for (;;) {
           const page = yield* journal.entries({
             runId: JournalEvent.RunId.make(payload.runId),
@@ -2528,11 +2637,15 @@ export const make = (
             ...(after === undefined ? {} : { after })
           })
           yield* Effect.fromResult(Transcript.validateJournal(page.entries))
+          raises.push(...approvedRaises(page.entries))
           if (!page.hasMore) break
           after = page.entries.at(-1)!.seq
         }
         const plan = yield* runtime.getPlan(payload.planId)
         const card = plan.card
+        // A budget park's approval raises the ceiling this attempt spends
+        // against; the card itself stays the plan that was approved.
+        const envelope = Budget.raisedBy(card.envelope, raises)
         const descriptor = yield* registry.get(card.flowId)
         const executionDigest = yield* approvedExecution(payload.runId, card, descriptor)
         // The launch already validated the seat and body; re-validation here
@@ -2548,7 +2661,7 @@ export const make = (
             executionId: Digest.digest(Digest.canonical(["control/module", payload.runId, executionDigest]))
           }).pipe(
             CapabilitySet.attenuate(patterns(card.envelope.capabilities)),
-            Effect.provide(options.budget(card.envelope)),
+            Effect.provide(options.budget(envelope)),
             Effect.provide(options.quotaPolicy)
           )
         }
@@ -2766,7 +2879,12 @@ export const make = (
               stream
             ),
           (stream) => agentOutcome(stream, record),
-          Effect.provide(options.budget(card.envelope)),
+          // A refusing host registers no approval, so its `park` budget fails.
+          (effect) =>
+            options.asks === "refuse"
+              ? effect
+              : Effect.provideService(effect, Budget.Parking, parking(payload.runId, envelope)),
+          Effect.provide(options.budget(envelope)),
           Effect.provide(options.quotaPolicy),
           Effect.provide(QuickJSSandbox.layer),
           Effect.provideService(Steering.Source, steering),
@@ -3157,6 +3275,39 @@ export const make = (
       )
     )
 
+    /**
+     * The budget park a run is still waiting on, read from its journal: the
+     * latest `budget/` approval request no decision has answered. The engine's
+     * own waiting row is gone by the time an unrequested round asks, because
+     * claiming the round cleared it.
+     */
+    const pendingBudgetWait = (runId: string) =>
+      Effect.gen(function*() {
+        const pending = new Map<string, true>()
+        let after: JournalEvent.Seq | undefined
+        for (;;) {
+          const page = yield* journal.entries({
+            runId: JournalEvent.RunId.make(runId),
+            limit: 1_000,
+            ...(after === undefined ? {} : { after })
+          })
+          for (const entry of page.entries) {
+            const requestId = budgetRequestOf(entry)
+            if (requestId === undefined) continue
+            if (entry.eventType === "control.approval.requested") pending.set(requestId, true)
+            else pending.delete(requestId)
+          }
+          if (!page.hasMore) break
+          after = page.entries.at(-1)!.seq
+        }
+        const token = [...pending.keys()].at(-1)
+        return token === undefined ? undefined : { reason: "budget", token }
+      }).pipe(
+        Effect.catchCause((cause) =>
+          recoverCause(cause, "The run's budget park could not be read", undefined, { runId })
+        )
+      )
+
     /** Reads once per round; missing control evidence must not abandon a live run. */
     const controlRunBeforeRound = (runId: string) =>
       runtime.getRun(runId).pipe(
@@ -3215,7 +3366,9 @@ export const make = (
             const clocks = controlRun.status === "parked"
               ? yield* engineState.pendingClocks({ executionId: payload.runId })
               : []
-            yield* FlowRuntime.annotateWaiting(waitingAnnotation(controlRun.status, clocks))
+            const prior = Option.getOrUndefined(yield* engineState.waiting(payload.runId)) ??
+              (yield* pendingBudgetWait(payload.runId))
+            yield* FlowRuntime.annotateWaiting(waitingAnnotation(controlRun.status, clocks, prior))
             return yield* Flow.suspend(instance)
           }
           yield* claimForResume(payload.runId)

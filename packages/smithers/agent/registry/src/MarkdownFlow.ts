@@ -13,6 +13,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import {
   BodyRefMarkdown,
+  BudgetOnExceeded,
   type DiscoveryWarning,
   type EffectDeclaration,
   FlowBodyPrompt,
@@ -459,12 +460,13 @@ const derivePlacement = (
 
 /**
  * Reads the frontmatter budget: the tokens and milliseconds this flow asks a
- * control plane to approve for one of its runs.
+ * control plane to approve for one of its runs, and what exceeding them does.
  *
  * ```yaml
  * budget:
  *   tokens: 120000
  *   milliseconds: 900000
+ *   onExceeded: park
  * ```
  *
  * A malformed budget is dropped rather than tightened, which is the opposite of
@@ -514,11 +516,24 @@ const deriveBudget = (
 
   const tokens = ceiling("tokens")
   const milliseconds = ceiling("milliseconds")
+  // An unreadable choice falls back to the budget's default, `fail`, which is
+  // what an undeclared one means: the ceilings still bind.
+  const choice = (): BudgetOnExceeded | undefined => {
+    const candidate = declared.onExceeded
+    if (candidate === undefined || Schema.is(BudgetOnExceeded)(candidate)) return candidate
+    warnings.push({
+      code: "invalid_budget",
+      path,
+      message: `Frontmatter budget.onExceeded must be one of ${BudgetOnExceeded.literals.join(", ")}; ignoring it`
+    })
+    return undefined
+  }
+  const onExceeded = choice()
   // A misspelled ceiling is the failure mode this catches: `budget.token` reads
   // as no declaration at all, and an unbounded run is the last thing an author
   // who wrote a budget expects to get back in silence.
   for (const key of Object.keys(declared)) {
-    if (key === "tokens" || key === "milliseconds") continue
+    if (key === "tokens" || key === "milliseconds" || key === "onExceeded") continue
     warnings.push({
       code: "invalid_budget",
       path,
@@ -528,7 +543,8 @@ const deriveBudget = (
   if (tokens === undefined && milliseconds === undefined) return undefined
   return {
     ...(tokens === undefined ? {} : { tokens }),
-    ...(milliseconds === undefined ? {} : { milliseconds })
+    ...(milliseconds === undefined ? {} : { milliseconds }),
+    ...(onExceeded === undefined ? {} : { onExceeded })
   }
 }
 

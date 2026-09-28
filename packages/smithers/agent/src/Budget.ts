@@ -55,9 +55,11 @@
  * dispatching the same run concurrently.
  *
  * `onExceeded` is the composition's choice of what that means: `fail` reports a
- * typed {@link BudgetExceeded}, `warn` journals and proceeds, and
+ * typed {@link BudgetExceeded}, `warn` journals and proceeds,
  * `skip-remaining` latches, so every later call in the run is refused without
- * asking a provider anything.
+ * asking a provider anything, and `park` refuses the call without latching so
+ * the host can suspend the run until an operator approves a raised ceiling
+ * ({@link raise}, {@link raisedBy}).
  *
  * @since 0.1.0
  */
@@ -66,8 +68,10 @@ import type * as ControlSchema from "@smthrs/control/ControlSchema"
 import { digest } from "@smthrs/core/Digest"
 import { FlowRuntime } from "@smthrs/flow"
 import type * as RetryPolicy from "@smthrs/flow/RetryPolicy"
+import type * as HarnessError from "@smthrs/harness/HarnessError"
 import { Journal, JournalEvent } from "@smthrs/journal"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
+import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -86,7 +90,7 @@ import { failureJson } from "./internal/FailureJson.ts"
  * @category models
  * @since 0.1.0
  */
-export const OnExceeded = Schema.Literals(["fail", "warn", "skip-remaining"])
+export const OnExceeded = BudgetOnExceeded
 
 /**
  * What a composition wants done when a budget runs out.
@@ -407,6 +411,34 @@ export interface Service {
  * @since 0.1.0
  */
 export class Budget extends Context.Service<Budget, Service>()("@smthrs/agent/Budget") {}
+
+/**
+ * A registered budget park: the wait the run suspends under, and the failure
+ * that suspends its frame.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface Parked {
+  readonly waiting: FlowRuntime.WaitingAnnotation
+  readonly failure: HarnessError.HarnessError
+}
+
+/**
+ * Parks a run whose `park` budget refused a call.
+ *
+ * The host that owns approvals provides it: it registers the request for a
+ * {@link raise}d budget and answers with the {@link Parked} wait. The model
+ * boundary declares that wait when the frame suspends, not before, because
+ * the run's other fibers re-declare their own waits until then. A composition
+ * without it fails the call with the {@link BudgetExceeded}, as `fail` does.
+ *
+ * @category services
+ * @since 1.0.0-rc.1
+ */
+export class Parking extends Context.Service<Parking, {
+  readonly park: (exceeded: BudgetExceeded) => Effect.Effect<Parked, HarnessError.HarnessError>
+}>()("@smthrs/agent/Budget/Parking") {}
 
 /**
  * The journal event one allowed-over-budget call writes.
@@ -1456,6 +1488,9 @@ export const current: Effect.Effect<Service, never, Budget> = Budget
  * budget at all — so an envelope that approves neither produces an empty policy
  * rather than a run that can spend nothing.
  *
+ * The envelope's own `onExceeded` is what was approved, so it wins over
+ * `options.onExceeded`, which is the composition's default.
+ *
  * @category conversions
  * @since 0.1.0
  */
@@ -1463,7 +1498,7 @@ export const policyFromEnvelope = (
   envelope: ControlSchema.Envelope,
   options: { readonly onExceeded?: OnExceeded | undefined; readonly weights?: Weights | undefined } = {}
 ): Policy => {
-  const onExceeded = options.onExceeded ?? "fail"
+  const onExceeded = envelope.budget.onExceeded ?? options.onExceeded ?? "fail"
   return {
     ...(options.weights === undefined ? {} : { weights: options.weights }),
     ...(envelope.budget.tokens === undefined
@@ -1485,3 +1520,54 @@ export const layerFromEnvelope = (
   envelope: ControlSchema.Envelope,
   options: { readonly onExceeded?: OnExceeded | undefined; readonly weights?: Weights | undefined } = {}
 ): Layer.Layer<Budget, ConfigurationError> => layer(policyFromEnvelope(envelope, options))
+
+/**
+ * The budget a parked run asks an operator to approve: the exceeded ceiling
+ * raised to cover what the run has spent and holds, the refused call, and one
+ * more of its original allowance.
+ *
+ * The ceiling is proposed rather than chosen at approval because an approval
+ * must match the envelope it was requested with; approving this budget is the
+ * operator's decision to let the run spend it.
+ *
+ * @category conversions
+ * @since 1.0.0-rc.1
+ */
+export const raise = (
+  budget: ControlSchema.Envelope["budget"],
+  exceeded: BudgetExceeded
+): ControlSchema.Envelope["budget"] => ({
+  ...budget,
+  [exceeded.scope === "tokens" ? "tokens" : "milliseconds"]: Math.ceil(
+    exceeded.used + (exceeded.reserved ?? 0) + exceeded.next + exceeded.max
+  )
+})
+
+/**
+ * An approved envelope with every approved raise applied: each ceiling is the
+ * largest one approved, so a raise never lowers what was already granted.
+ *
+ * @category conversions
+ * @since 1.0.0-rc.1
+ */
+export const raisedBy = (
+  envelope: ControlSchema.Envelope,
+  raises: ReadonlyArray<ControlSchema.Envelope["budget"]>
+): ControlSchema.Envelope => {
+  const largest = (key: "tokens" | "milliseconds"): number | undefined =>
+    raises.reduce<number | undefined>(
+      (ceiling, raised) =>
+        ceiling === undefined || raised[key] === undefined ? ceiling : Math.max(ceiling, raised[key]),
+      envelope.budget[key]
+    )
+  const tokens = largest("tokens")
+  const milliseconds = largest("milliseconds")
+  return {
+    ...envelope,
+    budget: {
+      ...envelope.budget,
+      ...(tokens === undefined ? {} : { tokens }),
+      ...(milliseconds === undefined ? {} : { milliseconds })
+    }
+  }
+}

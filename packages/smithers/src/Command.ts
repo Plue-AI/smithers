@@ -13,6 +13,7 @@ import * as Canonical from "@smthrs/canonical/Canonical"
 import { Control as ControlService, ControlSchema } from "@smthrs/control"
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import * as MigrateCommand from "@smthrs/migrate/flow/Command"
+import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
 import { Ownership } from "@smthrs/run-store"
 import { Clock, Console, Effect, Option, Schema, SchemaIssue, Stream } from "effect"
 import { Argument, CliError as ParserError, Command, Flag, Prompt } from "effect/unstable/cli"
@@ -388,8 +389,42 @@ const upFlags = {
   "resume-claim-heartbeat": Removed.flag("up", "resume-claim-heartbeat"),
   "resume-restore-owner": Removed.flag("up", "resume-restore-owner"),
   "resume-restore-heartbeat": Removed.flag("up", "resume-restore-heartbeat"),
-  "max-concurrency": Removed.valueFlag("max-concurrency")
+  "max-concurrency": Removed.valueFlag("max-concurrency"),
+  budgetTokens: Flag.Int("budget-tokens").pipe(
+    Flag.optional,
+    Flag.withDescription("Token ceiling for this run, replacing the flow's declared one")
+  ),
+  budgetMs: Flag.Int("budget-ms").pipe(
+    Flag.optional,
+    Flag.withDescription("Wall-clock ceiling in milliseconds for this run, replacing the flow's declared one")
+  ),
+  onExceeded: Flag.Literals("on-exceeded", BudgetOnExceeded.literals).pipe(
+    Flag.optional,
+    Flag.withDescription("What the run does at a ceiling: fail, warn, skip-remaining, or park")
+  )
 }
+
+/** The budget fields `up` lays over the flow's declared ones, or none. */
+const plannedBudget = (config: {
+  readonly budgetTokens: Option.Option<number>
+  readonly budgetMs: Option.Option<number>
+  readonly onExceeded: Option.Option<BudgetOnExceeded>
+}): Effect.Effect<ControlSchema.Envelope["budget"] | undefined, CliError.UsageError> =>
+  Effect.gen(function*() {
+    const ceiling = (flag: string, value: Option.Option<number>) =>
+      Option.isSome(value) && !(Number.isSafeInteger(value.value) && value.value > 0)
+        ? Effect.fail(new CliError.UsageError({ message: `--${flag} must be a positive integer` }))
+        : Effect.succeed(Option.getOrUndefined(value))
+    const tokens = yield* ceiling("budget-tokens", config.budgetTokens)
+    const milliseconds = yield* ceiling("budget-ms", config.budgetMs)
+    const onExceeded = Option.getOrUndefined(config.onExceeded)
+    if (tokens === undefined && milliseconds === undefined && onExceeded === undefined) return undefined
+    return {
+      ...(tokens === undefined ? {} : { tokens }),
+      ...(milliseconds === undefined ? {} : { milliseconds }),
+      ...(onExceeded === undefined ? {} : { onExceeded })
+    }
+  })
 
 const up = Command.make("up", upFlags, (config) =>
   Effect.gen(function*() {
@@ -423,8 +458,9 @@ const up = Command.make("up", upFlags, (config) =>
       return yield* Effect.fail(Unsupported.reservedFlowError("flow start", flowId))
     }
     const decodedInput = yield* decodeInput([], config.data)
+    const budget = yield* plannedBudget(config)
     const control = yield* ControlService.Control
-    const card = yield* control.plan({ flowId, input: decodedInput })
+    const card = yield* control.plan({ flowId, input: decodedInput, ...(budget === undefined ? {} : { budget }) })
     // The bare `*` envelope grants every capability, and markdown discovery
     // substitutes it for a flow that declares none, so `up` never approves it
     // unseen. The operator reviews the card with `plan` and signs it with

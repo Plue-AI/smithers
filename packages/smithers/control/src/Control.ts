@@ -29,6 +29,7 @@ import { Unavailable as UnavailableError } from "./ControlError.ts"
 import type {
   ApprovalPayload,
   ControlEvent,
+  Envelope,
   FlowId,
   IdempotencyKey,
   ListRequest,
@@ -57,6 +58,8 @@ export interface PlanInput {
   readonly flowId: FlowId
   readonly input: unknown
   readonly idempotencyKey?: IdempotencyKey | undefined
+  /** Budget fields that replace the flow's declared ones on this plan's envelope. */
+  readonly budget?: Envelope["budget"] | undefined
 }
 
 /**

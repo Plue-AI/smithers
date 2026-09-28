@@ -744,6 +744,24 @@ body`)
     }))
   })
 
+  it("reads what exceeding the budget does, and drops a choice it does not know", () => {
+    const parked = fromMarkdown(
+      ["---", "description: Review", "budget:", "  tokens: 500", "  onExceeded: park", "---", "Review."].join("\n")
+    )
+    expect(Option.getOrThrow(parked.descriptor).budget).toEqual({ tokens: 500, onExceeded: "park" })
+    expect(parked.warnings.filter((warning) => warning.code === "invalid_budget")).toEqual([])
+
+    const unknown = fromMarkdown(
+      ["---", "description: Review", "budget:", "  tokens: 500", "  onExceeded: sulk", "---", "Review."].join("\n")
+    )
+    // The ceiling still binds under the default, `fail`.
+    expect(Option.getOrThrow(unknown.descriptor).budget).toEqual({ tokens: 500 })
+    expect(unknown.warnings).toContainEqual(expect.objectContaining({
+      code: "invalid_budget",
+      message: "Frontmatter budget.onExceeded must be one of fail, warn, skip-remaining, park; ignoring it"
+    }))
+  })
+
   it("names a budget key it does not know, so a misspelled ceiling is not silence", () => {
     const result = fromMarkdown(
       ["---", "description: Review", "budget:", "  token: 500", "---", "Review."].join("\n")

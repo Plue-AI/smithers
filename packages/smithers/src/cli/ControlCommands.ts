@@ -5,6 +5,7 @@
 
 import { Control, type ControlSchema } from "@smthrs/control"
 import * as Redaction from "@smthrs/journal/Redaction"
+import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
 import { Effect } from "effect"
 import { Cli, z } from "incur"
 import { readFile } from "node:fs/promises"
@@ -147,12 +148,26 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       description: "Plan, approve, and start one flow; optionally detach after durable admission",
       mcp: false,
       args: flowArgs,
-      options: options.extend({ data: z.string().optional(), detached: z.boolean().default(false) }),
+      options: options.extend({
+        data: z.string().optional(),
+        detached: z.boolean().default(false),
+        budgetTokens: z.number().int().positive().optional().describe("Token ceiling for this run"),
+        budgetMs: z.number().int().positive().optional().describe("Wall-clock ceiling in milliseconds for this run"),
+        onExceeded: z.enum(BudgetOnExceeded.literals).optional().describe("What the run does at a ceiling")
+      }),
       alias: { detached: "d" },
       run: (c) =>
         guard(c, () =>
           Bridge.invoke(
-            ["up", c.args.flow, ...dataArgs(c.options.data), ...(c.options.detached ? ["--detached"] : [])],
+            [
+              "up",
+              c.args.flow,
+              ...dataArgs(c.options.data),
+              ...(c.options.detached ? ["--detached"] : []),
+              ...(c.options.budgetTokens === undefined ? [] : ["--budget-tokens", String(c.options.budgetTokens)]),
+              ...(c.options.budgetMs === undefined ? [] : ["--budget-ms", String(c.options.budgetMs)]),
+              ...(c.options.onExceeded === undefined ? [] : ["--on-exceeded", c.options.onExceeded])
+            ],
             c.options,
             runtime
           ))

@@ -460,8 +460,28 @@ export const BudgetCeiling = Schema.Int.check(
 export type BudgetCeiling = typeof BudgetCeiling.Type
 
 /**
+ * What a run does when a model call would exceed one of its ceilings.
+ *
+ * `fail` fails the call, `warn` journals a warning and makes it,
+ * `skip-remaining` refuses it and every later call in the run, and `park`
+ * suspends the run until an operator approves a raised ceiling.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export const BudgetOnExceeded = Schema.Literals(["fail", "warn", "skip-remaining", "park"])
+
+/**
+ * What a run does when a model call would exceed one of its ceilings.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export type BudgetOnExceeded = typeof BudgetOnExceeded.Type
+
+/**
  * The tokens and milliseconds a flow declares that a control plane should
- * approve for one of its runs.
+ * approve for one of its runs, and what exceeding them does.
  *
  * Both ceilings are positive safe integers. The two fields are projected into
  * a control-plane `Envelope.budget` without reinterpretation, and
@@ -475,7 +495,8 @@ export type BudgetCeiling = typeof BudgetCeiling.Type
  */
 export const FlowBudget = Schema.Struct({
   tokens: Schema.optional(BudgetCeiling),
-  milliseconds: Schema.optional(BudgetCeiling)
+  milliseconds: Schema.optional(BudgetCeiling),
+  onExceeded: Schema.optional(BudgetOnExceeded)
 })
 
 /**

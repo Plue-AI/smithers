@@ -7,7 +7,7 @@
 import { EngineEvent, ExecutionFact } from "@smthrs/journal"
 import * as SteerPayload from "@smthrs/notifications/SteerPayload"
 import * as PersistedPlan from "@smthrs/plan/Plan"
-import { DiscoveryWarning } from "@smthrs/registry/Descriptor"
+import { BudgetOnExceeded, DiscoveryWarning } from "@smthrs/registry/Descriptor"
 import { Schema } from "effect"
 import { Origin } from "./Lineage.ts"
 
@@ -90,7 +90,8 @@ export const Envelope = Schema.Struct({
   flows: Schema.Array(Schema.String),
   budget: Schema.Struct({
     tokens: Schema.optional(Schema.Number),
-    milliseconds: Schema.optional(Schema.Number)
+    milliseconds: Schema.optional(Schema.Number),
+    onExceeded: Schema.optional(BudgetOnExceeded)
   }),
   host: Schema.optional(Schema.String)
 })
@@ -788,7 +789,8 @@ export type SignalPayload = typeof SignalPayload.Type
 export const PlanInputSchema = Schema.Struct({
   flowId: FlowId,
   input: Schema.Json,
-  idempotencyKey: Schema.optional(IdempotencyKey)
+  idempotencyKey: Schema.optional(IdempotencyKey),
+  budget: Schema.optional(Envelope.fields.budget)
 })
 
 /**

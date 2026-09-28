@@ -7,6 +7,17 @@ describe("waiting annotation", () => {
       .toEqual({ reason: "timer", wakeAt: 40 })
   })
 
+  it("keeps a declared reason and its token on an unrequested poll", () => {
+    expect(waitingAnnotation("parked", [], { reason: "budget", token: "budget/run-1/abc" }))
+      .toEqual({ reason: "budget", token: "budget/run-1/abc" })
+    expect(waitingAnnotation("waiting-approval", [], { reason: "approval", token: "ask/run-1/abc" }))
+      .toEqual({ reason: "approval", token: "ask/run-1/abc" })
+    expect(waitingAnnotation("parked", [{ dueAtMs: 40 }], { reason: "quota", token: null }))
+      .toEqual({ reason: "quota", wakeAt: 40 })
+    // A released row declared nothing; the derivation stands.
+    expect(waitingAnnotation("parked", [], { reason: "released", token: null })).toEqual({ reason: "event" })
+  })
+
   it("keeps approval and event parks distinct from timers", () => {
     expect(waitingAnnotation("waiting-approval", [])).toEqual({ reason: "approval" })
     expect(waitingAnnotation("parked", [])).toEqual({ reason: "event" })

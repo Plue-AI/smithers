@@ -1083,7 +1083,7 @@ evade a budget declared for the run.
 ### Budget.Policy, Budget.TokenBudget, Budget.LatencyBudget, Budget.OnExceeded
 
 ```ts
-const OnExceeded = Schema.Literals(["fail", "warn", "skip-remaining"])
+const OnExceeded = Schema.Literals(["fail", "warn", "skip-remaining", "park"])
 
 interface Policy {
   readonly tokens?: TokenBudget | undefined
@@ -1115,6 +1115,11 @@ whole interval again.
 | `fail`           | The step fails with `BudgetExceeded { scope, used, max, next }`.                                       |
 | `warn`           | A `flows.agent.budget-warning.v1` record is written and the call proceeds.                             |
 | `skip-remaining` | The budget latches. Every later model call in the run fails typed `skipped` without asking a provider. |
+| `park`           | The run parks with waiting reason `budget` and an approval request for a raised budget. Approving it resumes the run under the raised ceiling; denying it fails the call as `fail` does. |
+
+A flow sets it in frontmatter as `budget.onExceeded`, and `smthrs flow start`
+sets it for one run with `--on-exceeded`, beside `--budget-tokens` and
+`--budget-ms`. A composition without `Budget.Parking` treats `park` as `fail`.
 
 ### Budget.Budget and Budget.Service
 
@@ -1239,7 +1244,27 @@ const layerFromEnvelope: (
 
 Turns an approved plan envelope into a policy or a layer. A missing field is
 not a zero budget; it is no budget at all, so an envelope that approves neither
-tokens nor milliseconds produces an empty policy.
+tokens nor milliseconds produces an empty policy. The envelope's
+`budget.onExceeded` wins over `options.onExceeded`, which is the composition's
+default.
+
+### Budget.Parking, Budget.raise, Budget.raisedBy
+
+```ts
+class Parking extends Context.Service<Parking, {
+  readonly park: (exceeded: BudgetExceeded) => Effect.Effect<Parked, HarnessError.HarnessError>
+}>()("@smthrs/agent/Budget/Parking")
+
+const raise: (budget: Envelope["budget"], exceeded: BudgetExceeded) => Envelope["budget"]
+const raisedBy: (envelope: Envelope, raises: ReadonlyArray<Envelope["budget"]>) => Envelope
+```
+
+`Parking` is how a host that takes approvals parks a `park` budget.
+`AgentSession` provides it: it registers a `budget/` approval request whose
+envelope carries `raise`'s proposal, which is the exceeded ceiling raised to
+cover what the run spent and holds, the refused call, and one more original
+allowance. A resumed run spends against `raisedBy` of its card and every
+approved raise. Parked time counts against a latency ceiling.
 
 ### Budget.current
 

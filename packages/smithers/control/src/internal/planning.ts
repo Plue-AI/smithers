@@ -13,7 +13,7 @@ import { canonicalize } from "@smthrs/canonical"
 import { Sha256 } from "@smthrs/crypto"
 import type * as PersistedPlan from "@smthrs/plan/Plan"
 import { Effect, Schema } from "effect"
-import type { ApprovalTarget } from "../Control.ts"
+import type { ApprovalTarget, PlanInput } from "../Control.ts"
 import { CodeDrift } from "../ControlError.ts"
 import type {
   Envelope,
@@ -107,6 +107,29 @@ export const digest = (value: unknown) => Schema.decodeUnknownEffect(Sha256)(can
  * @private
  */
 export const sameEnvelope = (left: Envelope, right: Envelope): boolean => canonical(left) === canonical(right)
+
+/**
+ * A flow's envelope with a planner's budget fields laid over its declared ones.
+ *
+ * @since 1.0.0-rc.1
+ * @private
+ */
+export const budgeted = (envelope: Envelope, budget: Envelope["budget"] | undefined): Envelope =>
+  budget === undefined ? envelope : { ...envelope, budget: { ...envelope.budget, ...budget } }
+
+/**
+ * What one plan request asks for, for idempotency: a key replayed with another
+ * budget is another plan.
+ *
+ * @since 1.0.0-rc.1
+ * @private
+ */
+export const planFingerprint = (input: PlanInput): string =>
+  canonical({
+    flowId: input.flowId,
+    input: input.input,
+    ...(input.budget === undefined ? {} : { budget: input.budget })
+  })
 
 /**
  * An accepted receipt, carrying a run id when one exists.

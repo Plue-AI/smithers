@@ -81,6 +81,34 @@ describe("ControlRuntime.layerMemory", () => {
     expect((observed.decode as InvalidInput).issue).toBe("$: canonical_unsupported_value")
   })
 
+  it("lays a planner's budget over the flow's, and keys it into the plan's identity", async () => {
+    const observed = await withRuntime((runtime) =>
+      Effect.gen(function*() {
+        const plain = yield* runtime.plan({ flowId: "system/test", input: {}, idempotencyKey: "plan:budget" })
+        const budgeted = yield* runtime.plan({
+          flowId: "system/test",
+          input: {},
+          budget: { tokens: 50, onExceeded: "park" }
+        })
+        const reused = yield* Effect.flip(runtime.plan({
+          flowId: "system/test",
+          input: {},
+          idempotencyKey: "plan:budget",
+          budget: { tokens: 50 }
+        }))
+        return { plain, budgeted, reused }
+      })
+    )
+
+    expect(observed.budgeted.card.envelope.budget).toEqual({
+      ...observed.plain.card.envelope.budget,
+      tokens: 50,
+      onExceeded: "park"
+    })
+    expect(observed.reused).toBeInstanceOf(InvalidInput)
+    expect((observed.reused as InvalidInput).issue).toBe("idempotency key plan:budget was used for another plan")
+  })
+
   it("replays a plan for a repeated idempotency key and refuses a reused one", async () => {
     const observed = await withRuntime((runtime) =>
       Effect.gen(function*() {

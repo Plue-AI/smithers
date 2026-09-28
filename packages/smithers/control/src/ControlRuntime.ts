@@ -50,10 +50,12 @@ import {
   accepted,
   adoptedCode,
   alreadyApplied as replayReceipt,
+  budgeted,
   canonical,
   codeDriftOf,
   emptyEnvelope,
   planCard,
+  planFingerprint,
   sameEnvelope
 } from "./internal/planning.ts"
 import { plannable } from "./SystemFlows.ts"
@@ -738,11 +740,11 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
         plan: Effect.fn("ControlRuntime.plan")(function*(input) {
           const flow = flows.get(input.flowId)
           if (flow === undefined) return yield* new FlowNotFound({ flowId: input.flowId })
-          const planFingerprint = yield* Effect.try({
+          const requestFingerprint = yield* Effect.try({
             // Validate before cloning. Canonicalization reports a throwing
             // getter at its stable path, while `structuredClone` would invoke
             // the getter first and erase that safe diagnostic.
-            try: () => canonical({ flowId: input.flowId, input: input.input }),
+            try: () => planFingerprint(input),
             catch: (cause) => new InvalidInput({ issue: canonicalIssue(cause) })
           })
           const submitted = yield* Effect.try({
@@ -752,7 +754,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           if (submitted.idempotencyKey !== undefined) {
             const prior = planKeys.get(submitted.idempotencyKey)
             if (prior !== undefined) {
-              if (prior.fingerprint !== planFingerprint) {
+              if (prior.fingerprint !== requestFingerprint) {
                 return yield* new InvalidInput({
                   issue: `idempotency key ${submitted.idempotencyKey} was used for another plan`
                 })
@@ -776,7 +778,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
               planId,
               flowId: submitted.flowId,
               decodedInput: decoded,
-              envelope: flow.envelope,
+              envelope: budgeted(flow.envelope, submitted.budget),
               deployClass: flow.deployClass,
               executionDigest: flow.executionDigest,
               handoff,
@@ -789,7 +791,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           if (submitted.idempotencyKey !== undefined) {
             const prior = planKeys.get(submitted.idempotencyKey)
             if (prior !== undefined) {
-              if (prior.fingerprint !== planFingerprint) {
+              if (prior.fingerprint !== requestFingerprint) {
                 return yield* new InvalidInput({
                   issue: `idempotency key ${submitted.idempotencyKey} was used for another plan`
                 })
@@ -807,7 +809,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           })
           if (submitted.idempotencyKey !== undefined) {
             planKeys.set(submitted.idempotencyKey, {
-              fingerprint: planFingerprint,
+              fingerprint: requestFingerprint,
               planId
             })
           }
