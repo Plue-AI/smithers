@@ -128,36 +128,40 @@ export const layerNoop: Layer.Layer<Container> = Layer.succeed(Container, makeNo
 export const makeCommand = (options?: { readonly program?: string | undefined }): Container => {
   const program = options?.program ?? "docker"
   return make({
-    exec: (request) =>
-      request.container === "" || request.container.startsWith("-")
-        ? Effect.fail(
+    exec: (request) => {
+      if (request.container === "" || request.container.startsWith("-")) {
+        return Effect.fail(
           new StdError.StdError({
             code: "invalid_input",
             message: `Container name must be non-empty and cannot start with '-': ${request.container}`,
             path: request.container
           })
         )
-        : Array.from(request.args).some((arg) => typeof arg !== "string")
-        ? Effect.fail(
+      }
+      const args = Array.from(request.args)
+      if (args.some((arg) => typeof arg !== "string")) {
+        return Effect.fail(
           new StdError.StdError({
             code: "invalid_input",
             message: "Container arguments must be a dense array of strings."
           })
         )
-        : Effect.succeed({
-          file: program,
-          args: [
-            "exec",
-            ...(request.stdin ? ["-i"] : []),
-            ...(request.cwd === undefined ? [] : ["-w", request.cwd]),
-            ...Object.keys(request.env ?? {}).flatMap((key) => ["-e", key]),
-            "--",
-            request.container,
-            request.file,
-            ...request.args
-          ],
-          ...(request.env === undefined ? {} : { env: request.env })
-        })
+      }
+      return Effect.succeed({
+        file: program,
+        args: [
+          "exec",
+          ...(request.stdin ? ["-i"] : []),
+          ...(request.cwd === undefined ? [] : ["-w", request.cwd]),
+          ...Object.keys(request.env ?? {}).flatMap((key) => ["-e", key]),
+          "--",
+          request.container,
+          request.file,
+          ...args
+        ],
+        ...(request.env === undefined ? {} : { env: request.env })
+      })
+    }
   })
 }
 

@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Container commands reject sparse argument arrays and build plans from the
+  validated argument snapshot.
+
 - `webfetch` uses one timeout budget across requests, redirects, and response
   body reads. It rejects non-finite and non-positive timeouts before dispatch,
   retains the 30-second default, and caps valid timeouts at 120 seconds.
