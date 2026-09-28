@@ -7,8 +7,9 @@ import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import type * as FileSystem from "effect/FileSystem"
+import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import * as PlatformError from "effect/PlatformError"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Fs from "node:fs/promises"
@@ -107,6 +108,69 @@ const packageJsonDigest = (root: string) =>
   Effect.runPromise(PackageManager.packageJsonDigest(root).pipe(Effect.provide(NodeServices.layer)))
 
 describe("Install", () => {
+  it("refuses an optional input it cannot inspect while measuring", async () => {
+    await withFixture(async (root) => {
+      const real = await Effect.runPromise(
+        Effect.gen(function*() {
+          return yield* FileSystem.FileSystem
+        }).pipe(Effect.provide(NodeServices.layer))
+      )
+      const evidence = await packageJsonDigest(root)
+      for (const name of [".pnpmfile.cjs", "pnpm-workspace.yaml"]) {
+        const fileSystem: FileSystem.FileSystem = {
+          ...real,
+          exists: (path) =>
+            path.endsWith(`/${name}`)
+              ? Effect.fail(PlatformError.systemError({
+                _tag: "PermissionDenied",
+                module: "FileSystem",
+                method: "exists",
+                pathOrDescriptor: path
+              }))
+              : real.exists(path)
+        }
+        const error = await Effect.runPromise(
+          Install.executeMeasure().pipe(
+            Effect.flip,
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provide(NodeServices.layer),
+            Effect.provideService(PackageManager.PackageManager, managerService({ root, evidence }))
+          )
+        )
+        expect(error.code, name).toBe("manifest_unreadable")
+        expect(error.message, name).toBe(`cannot inspect ${name}`)
+      }
+    })
+  })
+
+  it("treats an unreadable measured input as drift before fetching", async () => {
+    await withFixture(async (root) => {
+      const content = await installContent(root)
+      await Fs.rm(NodePath.join(root, "pnpm-lock.yaml"))
+      let fetches = 0
+      const error = await Effect.runPromise(
+        Install.executeFetch({ content }).pipe(
+          Effect.flip,
+          Effect.provide(NodeServices.layer),
+          Effect.provideService(
+            PackageManager.PackageManager,
+            managerService({
+              root,
+              evidence: await packageJsonDigest(root),
+              onFetch: () => {
+                fetches += 1
+              }
+            })
+          ),
+          Effect.provideService(Runtime.Runtime, runtimeService())
+        )
+      )
+      expect(error.code).toBe("input_drift")
+      expect(error.message).toContain("pnpm-lock.yaml")
+      expect(fetches).toBe(0)
+    })
+  })
+
   for (const path of ["pnpm-lock.yaml", ".npmrc", ".pnpmfile.cjs", "pnpm-workspace.yaml"]) {
     for (const phase of ["fetch", "link"] as const) {
       for (const timing of ["before", "during"] as const) {
@@ -183,6 +247,41 @@ describe("Install", () => {
       )
       expect(error.code).toBe("input_drift")
       expect(error.message).toContain("package.json")
+    })
+  })
+
+  it("withholds the link manifest when package.json disappears during linking", async () => {
+    await withFixture(async (root) => {
+      const content = await installContent(root)
+      const evidence = await packageJsonDigest(root)
+      const store = await Effect.runPromise(
+        PackageManager.storeManifest({
+          manager: "pnpm",
+          managerVersion: "11.21.0",
+          platform,
+          lockfileDigest: content.lockfile.digest,
+          npmrcDigest: null
+        }).pipe(Effect.provide(NodeServices.layer))
+      )
+      let links = 0
+      const service = {
+        ...managerService({ root, evidence }),
+        link: Effect.promise(async () => {
+          links += 1
+          await Fs.rm(NodePath.join(root, "package.json"))
+        })
+      }
+      const error = await Effect.runPromise(
+        Install.executeLink({ content, store }).pipe(
+          Effect.flip,
+          Effect.provide(NodeServices.layer),
+          Effect.provideService(PackageManager.PackageManager, service),
+          Effect.provideService(Runtime.Runtime, runtimeService())
+        )
+      )
+      expect(error.code).toBe("input_drift")
+      expect(error.message).toBe("install input package.json changed since measurement or could not be reverified")
+      expect(links).toBe(1)
     })
   })
 
@@ -444,6 +543,139 @@ describe("Install", () => {
           Effect.provideService(Runtime.Runtime, runtimeService())
         )
       )).rejects.toThrow(/fetched store does not match this host/)
+    })
+  })
+
+  it("checks fetched manager and every platform component before linking", async () => {
+    await withFixture(async (root) => {
+      const content = await installContent(root)
+      let links = 0
+      const evidence = await packageJsonDigest(root)
+      for (
+        const tc of [
+          { manager: "bun", platform },
+          { manager: "pnpm", platform: { ...platform, os: "darwin" } },
+          { manager: "pnpm", platform: { ...platform, arch: "arm64" } },
+          { manager: "pnpm", platform: { ...platform, libc: "musl" } },
+          { manager: "pnpm", platform: null },
+          { manager: "pnpm", platform, platformSensitive: false }
+        ] as const
+      ) {
+        const store = await Effect.runPromise(
+          PackageManager.storeManifest({
+            manager: tc.manager,
+            managerVersion: "11.21.0",
+            platform: tc.platform,
+            lockfileDigest: content.lockfile.digest,
+            npmrcDigest: null
+          }).pipe(Effect.provide(NodeServices.layer))
+        )
+        const error = await Effect.runPromise(
+          Install.executeLink({ content, store }).pipe(
+            Effect.flip,
+            Effect.provide(NodeServices.layer),
+            Effect.provideService(
+              PackageManager.PackageManager,
+              managerService({
+                root,
+                evidence,
+                platformSensitive: "platformSensitive" in tc ? tc.platformSensitive : true,
+                onLink: () => {
+                  links += 1
+                }
+              })
+            ),
+            Effect.provideService(Runtime.Runtime, runtimeService())
+          )
+        )
+        expect(error.code, JSON.stringify(tc)).toBe("environment_mismatch")
+        expect(error.message).toBe("the fetched store does not match this host")
+      }
+      expect(links).toBe(0)
+    })
+  })
+
+  it("links a platform-independent store without inventing a host platform", async () => {
+    await withFixture(async (root) => {
+      const content = await installContent(root)
+      const evidence = await packageJsonDigest(root)
+      const store = await Effect.runPromise(
+        PackageManager.storeManifest({
+          manager: "pnpm",
+          managerVersion: "11.21.0",
+          platform: null,
+          lockfileDigest: content.lockfile.digest,
+          npmrcDigest: null
+        }).pipe(Effect.provide(NodeServices.layer))
+      )
+      let links = 0
+      const result = await Effect.runPromise(
+        Install.executeLink({ content, store }).pipe(
+          Effect.provide(NodeServices.layer),
+          Effect.provideService(
+            PackageManager.PackageManager,
+            managerService({
+              root,
+              evidence,
+              platformSensitive: false,
+              onLink: () => {
+                links += 1
+              }
+            })
+          ),
+          Effect.provideService(Runtime.Runtime, runtimeService())
+        )
+      )
+      expect(result.store).toBe(store.digest)
+      expect(result.linked).toBe(true)
+      expect(links).toBe(1)
+    })
+  })
+
+  it("preserves manager operation failures and does not read link evidence after a failed link", async () => {
+    await withFixture(async (root) => {
+      const content = await installContent(root)
+      const evidence = await packageJsonDigest(root)
+      const store = await Effect.runPromise(
+        PackageManager.storeManifest({
+          manager: "pnpm",
+          managerVersion: "11.21.0",
+          platform,
+          lockfileDigest: content.lockfile.digest,
+          npmrcDigest: null
+        }).pipe(Effect.provide(NodeServices.layer))
+      )
+      const failure = new PackageManager.PackageManagerError({
+        code: "command_failed",
+        message: "package manager stopped"
+      })
+      let evidenceReads = 0
+      const service = {
+        ...managerService({ root, evidence }),
+        fetch: Effect.fail(failure),
+        link: Effect.fail(failure),
+        linkManifest: Effect.sync(() => {
+          evidenceReads += 1
+          return evidence
+        })
+      }
+      const provide = <A>(
+        operation: Effect.Effect<
+          A,
+          PackageManager.PackageManagerError,
+          PackageManager.PackageManager | Runtime.Runtime | FileSystem.FileSystem | Crypto.Crypto
+        >
+      ) =>
+        operation.pipe(
+          Effect.flip,
+          Effect.provide(NodeServices.layer),
+          Effect.provideService(PackageManager.PackageManager, service),
+          Effect.provideService(Runtime.Runtime, runtimeService())
+        )
+
+      expect(await Effect.runPromise(provide(Install.executeFetch({ content })))).toBe(failure)
+      expect(await Effect.runPromise(provide(Install.executeLink({ content, store })))).toBe(failure)
+      expect(evidenceReads).toBe(0)
     })
   })
 

@@ -96,6 +96,18 @@ describe("diagnostic", () => {
     expect(diagnostic(hostile)).toEqual({ name: "Error", message: "unknown failure" })
     expect(reads).toBe(0)
   })
+
+  it("bounds observation when a hostile proxy refuses property inspection", () => {
+    let inspections = 0
+    const hostile = new Proxy({}, {
+      getOwnPropertyDescriptor: () => {
+        inspections += 1
+        throw new Error("sensitive proxy detail")
+      }
+    })
+    expect(diagnostic(hostile)).toEqual({ name: "Error", message: "unknown failure" })
+    expect(inspections).toBeGreaterThan(0)
+  })
 })
 
 describe("normalizeEnvironment", () => {

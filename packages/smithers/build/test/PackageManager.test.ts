@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import { execFileSync } from "node:child_process"
 import * as Fs from "node:fs/promises"
@@ -964,6 +965,25 @@ describe("PackageManager.storeRoot", () => {
     })
   })
 
+  it("reports each package-manager operation's nonzero exit without reporting a successful install", async () => {
+    await withFixture("package-manager-operation-exit", async (root) => {
+      const executable = NodePath.join(root, "pnpm.mjs")
+      await writeExecutable(
+        executable,
+        `if (process.argv[2] === "--version") process.stdout.write("11.21.0\\n")\n` +
+          `else if (process.argv[2] === "fetch") process.exitCode = 7\n` +
+          `else if (process.argv[2] === "install") process.exitCode = 9`
+      )
+      const manager = await makePnpm(root, executable)
+      const fetch = await Effect.runPromise(Effect.flip(manager.fetch))
+      const link = await Effect.runPromise(Effect.flip(manager.link))
+      expect(fetch.code).toBe("command_failed")
+      expect(fetch.message).toBe("pnpm fetch exited with status 7")
+      expect(link.code).toBe("command_failed")
+      expect(link.message).toBe("pnpm install --offline exited with status 9")
+    })
+  })
+
   it("interrupts a package-manager command that exceeds its deadline", async () => {
     await withFixture("package-manager-timeout", async (root) => {
       const executable = NodePath.join(root, "pnpm.mjs")
@@ -1065,6 +1085,131 @@ const digestOver = (fileSystem: FileSystem.FileSystem, root: string) =>
   )
 
 describe("PackageManager file reads", () => {
+  it("turns failures at each file-read stage into a typed refusal", async () => {
+    await withFixture("package-manager-read-faults", async (root) => {
+      await Fs.writeFile(NodePath.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8")
+      const real = await Effect.runPromise(
+        Effect.gen(function*() {
+          return yield* FileSystem.FileSystem
+        }).pipe(Effect.provide(ExecutableFixture.layer))
+      )
+      for (
+        const phase of [
+          "initial-root-path",
+          "pre-open-stat",
+          "open",
+          "descriptor-stat",
+          "descriptor-read",
+          "final-descriptor-stat",
+          "final-file-path",
+          "final-root-path"
+        ] as const
+      ) {
+        const fault = PlatformError.systemError({
+          _tag: "PermissionDenied",
+          module: "FileSystem",
+          method: phase,
+          description: `injected ${phase} failure`
+        })
+        let realPaths = 0
+        let descriptorStats = 0
+        const observed = (file: FileSystem.File): FileSystem.File =>
+          new Proxy(file, {
+            get: (target, property) => {
+              const value = Reflect.get(target, property, target)
+              if (property === "stat") {
+                descriptorStats += 1
+                return phase === "descriptor-stat" && descriptorStats === 1 ||
+                    phase === "final-descriptor-stat" && descriptorStats === 2
+                  ? Effect.fail(fault)
+                  : value
+              }
+              if (property === "read" && phase === "descriptor-read") {
+                return () => Effect.fail(fault)
+              }
+              return typeof value === "function" ? value.bind(target) : value
+            }
+          })
+        const fileSystem: FileSystem.FileSystem = {
+          ...real,
+          realPath: (path) => {
+            realPaths += 1
+            return phase === "initial-root-path" && realPaths === 1 ||
+                phase === "final-file-path" && realPaths === 3 ||
+                phase === "final-root-path" && realPaths === 4
+              ? Effect.fail(fault)
+              : real.realPath(path)
+          },
+          stat: (path) => phase === "pre-open-stat" ? Effect.fail(fault) : real.stat(path),
+          open: (path, options) =>
+            phase === "open" ? Effect.fail(fault) : real.open(path, options).pipe(Effect.map(observed))
+        }
+        const error = await digestOver(fileSystem, root)
+        expect(error.code, phase).toBe("lockfile_unreadable")
+        expect(error.message, phase).toContain(fault.message)
+        expect(error.cause?.name, phase).toBe("PlatformError")
+      }
+    })
+  })
+
+  it("refuses invalid byte counts from a file reader instead of hashing partial content", async () => {
+    await withFixture("package-manager-invalid-read-count", async (root) => {
+      await Fs.writeFile(NodePath.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8")
+      const real = await Effect.runPromise(
+        Effect.gen(function*() {
+          return yield* FileSystem.FileSystem
+        }).pipe(Effect.provide(ExecutableFixture.layer))
+      )
+      for (const reported of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER]) {
+        const fileSystem: FileSystem.FileSystem = {
+          ...real,
+          open: (path, options) =>
+            real.open(path, options).pipe(Effect.map((file) =>
+              new Proxy(file, {
+                get: (target, property) => {
+                  const value = Reflect.get(target, property, target)
+                  return property === "read"
+                    ? () => Effect.succeed(reported as never)
+                    : typeof value === "function"
+                    ? value.bind(target)
+                    : value
+                }
+              })
+            ))
+        }
+        const error = await digestOver(fileSystem, root)
+        expect(error.code, String(reported)).toBe("lockfile_unreadable")
+        expect(error.message, String(reported)).toContain("file returned an invalid read length")
+      }
+    })
+  })
+
+  it("refuses a lockfile beneath a project root that no longer exists", async () => {
+    await withFixture("package-manager-removed-root", async (root) => {
+      const removed = NodePath.join(root, "removed")
+      const error = await Effect.runPromise(
+        PackageManager.lockfileDigest(removed, "pnpm-lock.yaml").pipe(
+          Effect.flip,
+          Effect.provide(ExecutableFixture.layer)
+        )
+      )
+      expect(error.code).toBe("lockfile_unreadable")
+      expect(error.message).toContain(removed)
+      expect(error.cause?.code).toBe("ENOENT")
+    })
+  })
+
+  it("refuses invalid UTF-8 in the project configuration before calculating a digest", async () => {
+    await withFixture("package-manager-invalid-utf8", async (root) => {
+      await Fs.writeFile(NodePath.join(root, ".npmrc"), new Uint8Array([0x72, 0x65, 0xff]))
+      const error = await Effect.runPromise(
+        PackageManager.npmrcDigest(root).pipe(Effect.flip, Effect.provide(ExecutableFixture.layer))
+      )
+      expect(error.code).toBe("manifest_unreadable")
+      expect(error.message).toMatch(/could not read .*\.npmrc/)
+    })
+  })
+
   it("refuses a directory at .npmrc", async () => {
     await withFixture("package-manager-npmrc-directory", async (root) => {
       await Fs.mkdir(NodePath.join(root, ".npmrc"))
@@ -1187,6 +1332,57 @@ describe("PackageManager project configuration", () => {
 
   const npmrcValue = (root: string) =>
     Effect.runPromise(PackageManager.npmrcDigest(root).pipe(Effect.provide(ExecutableFixture.layer)))
+
+  it("refuses an uninspectable .npmrc before probing the manager", async () => {
+    await withFixture("package-manager-uninspectable-npmrc", async (root) => {
+      const real = await Effect.runPromise(
+        Effect.gen(function*() {
+          return yield* FileSystem.FileSystem
+        }).pipe(Effect.provide(ExecutableFixture.layer))
+      )
+      const fileSystem: FileSystem.FileSystem = {
+        ...real,
+        exists: (path) =>
+          path.endsWith("/.npmrc") ?
+            Effect.fail(PlatformError.systemError({
+              _tag: "PermissionDenied",
+              module: "FileSystem",
+              method: "exists",
+              pathOrDescriptor: path
+            })) :
+            real.exists(path)
+      }
+      const executable = NodePath.join(root, "pnpm.mjs")
+      const marker = NodePath.join(root, "spawned")
+      await writeExecutable(
+        executable,
+        `import { writeFileSync } from "node:fs"\nwriteFileSync(${JSON.stringify(marker)}, "yes")`
+      )
+
+      const refusal = await Effect.runPromise(
+        PackageManager.npmrcDigest(root).pipe(
+          Effect.flip,
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provide(ExecutableFixture.layer)
+        )
+      )
+      expect(refusal.code).toBe("manifest_unreadable")
+      expect(refusal.message).toContain(".npmrc")
+      expect(refusal.cause?.name).toBe("PlatformError")
+
+      const manager = await Effect.runPromise(
+        PackageManager.makePnpm({ requirement: "11.21.0", projectRoot: root, executable }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provide(ExecutableFixture.layer),
+          Effect.provide(runtimeLayer)
+        )
+      )
+      const versionFailure = await Effect.runPromise(Effect.flip(manager.version))
+      expect(versionFailure.code).toBe("manifest_unreadable")
+      expect(versionFailure.cause?.name).toBe("PlatformError")
+      await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  })
 
   it("reports no digest when a project has no .npmrc", async () => {
     await withFixture("package-manager-no-npmrc", async (root) => {
