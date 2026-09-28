@@ -126,3 +126,18 @@ func TestGitProxyFailureKeepsAPushTooSlow(t *testing.T) {
 	require.Equal(t, http.StatusRequestTimeout, apiErr.Status)
 	require.Equal(t, "push took longer than 10m0s; nothing was changed", apiErr.Message)
 }
+
+func TestGitProxyFailureKeepsPushTooLarge(t *testing.T) {
+	for _, code := range []string{"push_too_large", "user_ref_push_too_large"} {
+		t.Run(code, func(t *testing.T) {
+			message := "push exceeds its size cap; nothing was changed"
+			err := gitProxyFailure(context.Background(), "receive-pack", "alice", "demo", &repohost.StatusError{
+				StatusCode: http.StatusRequestEntityTooLarge, Code: code, Message: message})
+			var apiErr *errors.APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, http.StatusRequestEntityTooLarge, apiErr.Status)
+			assert.Equal(t, errors.Code(code), apiErr.Code)
+			assert.Equal(t, message, apiErr.Message)
+		})
+	}
+}

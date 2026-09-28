@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:56cd462c0e89d718cb7d7135eb2f00de9aeff0a66bd155d0ee612d3e806e3a1c",
+  "digest": "sha256:ab27e1e1113c4b6aa0efcc5ae6c4e4ea6b9437f9e8b00e22bc955d9183376b4e",
   "faults": [
     "user",
     "wait",
@@ -591,6 +591,13 @@
       "doc": "Provisioning a box failed for a reason plue has no specific code for. Persisted on the workspace row as failure_code."
     },
     {
+      "code": "push_too_large",
+      "fault": "user",
+      "status": 413,
+      "retry_after": 0,
+      "doc": "The push exceeds the repository push size limit."
+    },
+    {
       "code": "push_too_slow",
       "fault": "user",
       "status": 408,
@@ -792,6 +799,13 @@
       "status": 404,
       "retry_after": 0,
       "doc": "The pushed ref refs/smithers/users/\u003cid\u003e/\u003cname\u003e does not exist or expired; push it again with `smithers repo push`."
+    },
+    {
+      "code": "user_ref_push_too_large",
+      "fault": "user",
+      "status": 413,
+      "retry_after": 0,
+      "doc": "The push exceeds the user ref push size limit."
     },
     {
       "code": "user_ref_stack",

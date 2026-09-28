@@ -407,6 +407,14 @@ func gitProxyFailure(ctx context.Context, operation, owner, repo string, err err
 	if status, ok := repohost.IsStatusError(err); ok && status.Code == repohost.PushTooSlowCode {
 		return errors.New(errors.CodePushTooSlow, status.Message)
 	}
+	if status, ok := repohost.IsStatusError(err); ok && status.StatusCode == http.StatusRequestEntityTooLarge {
+		switch status.Code {
+		case repohost.PushTooLargeCode:
+			return errors.New(errors.CodePushTooLarge, status.Message)
+		case repohost.UserRefPushTooLargeCode:
+			return errors.New(errors.CodeUserRefPushTooLarge, status.Message)
+		}
+	}
 	middleware.LoggerFromContext(ctx).Error("git proxy to repo-host failed",
 		"operation", operation, "owner", owner, "repo", repo, "error", err)
 	return errors.Internal("failed to proxy git " + operation)

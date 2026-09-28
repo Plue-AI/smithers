@@ -470,11 +470,13 @@ func (e *StatusError) Held() bool {
 }
 
 // gitStatusError is statusError for a git route: only the messages meant for
-// the pusher (a hold, a push stopped at its duration limit) are repo-host's
+// the pusher (a hold, a push stopped at its duration or size limit) are repo-host's
 // to show, and any other body stays out of the error.
 func gitStatusError(resp *http.Response) *StatusError {
 	status := statusError(resp)
-	if !status.Held() && status.Code != PushTooSlowCode {
+	if !status.Held() && status.Code != PushTooSlowCode &&
+		!(status.StatusCode == http.StatusRequestEntityTooLarge &&
+			(status.Code == PushTooLargeCode || status.Code == UserRefPushTooLargeCode)) {
 		status.Message = ""
 	}
 	return status
@@ -1797,6 +1799,12 @@ const StartedHeader = "X-Smithers-Signal-Started"
 // PushTooSlowCode is repo-host's code for a push stopped at its duration
 // limit (ReceivePackMaxDuration).
 const PushTooSlowCode = "push_too_slow"
+
+// Size-limit errors from repo-host's receive-pack endpoint.
+const (
+	PushTooLargeCode        = "push_too_large"
+	UserRefPushTooLargeCode = "user_ref_push_too_large"
+)
 
 type pushStartedKey struct{}
 
