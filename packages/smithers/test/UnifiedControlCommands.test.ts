@@ -459,6 +459,15 @@ describe("unified control dispatch", () => {
     })
   })
 
+  it("forwards --allow-code-drift to the resume handler and not to the connection", async () => {
+    const result = await invoke(["runs", "resume", "child", "--allow-code-drift", "--root", "/fixture", "--json"])
+    expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(
+      ["resume", "child", "--allow-code-drift"],
+      { root: "/fixture", quiet: false },
+      { ...result.config, executionRoot: "/isolated-child" }
+    )
+  })
+
   it.each(["flag", "environment"])("leaves remote resume and list to the remote host (%s)", async (source) => {
     const args = source === "flag" ? ["--remote", "https://control.invalid"] : []
     const environment = source === "environment" ? { SMITHERS_REMOTE: "https://control.invalid" } : {}

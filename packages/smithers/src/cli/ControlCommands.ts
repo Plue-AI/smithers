@@ -310,20 +310,28 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       description: "Resume a parked durable run",
       mcp: { annotations: { readOnlyHint: false } },
       args: runArgs,
-      options,
-      run: (c) =>
-        guard(c, async () =>
-          Bridge.invoke(["resume", c.args.run], c.options, {
+      options: options.extend({
+        allowCodeDrift: z.boolean().default(false).describe(
+          "Resume even though the run's flow changed since it started"
+        )
+      }),
+      run: (c) => {
+        const { allowCodeDrift, ...connection } = c.options
+        return guard(c, async () =>
+          Bridge.invoke(["resume", c.args.run, ...(allowCodeDrift ? ["--allow-code-drift"] : [])], connection, {
             ...runtime,
-            ...await prepareHistoryRun(c.args.run, c.options, runtime)
+            ...await prepareHistoryRun(c.args.run, connection, runtime)
           }))
+      }
     })
     .command("signal", {
       description: "Deliver a durable JSON signal",
       mcp: { annotations: { readOnlyHint: false } },
       args: runArgs.extend({ payload: z.string() }),
       options,
-      run: (c) => guard(c, () => Bridge.invoke(["signal", c.args.run, c.args.payload], c.options, runtime))
+      run: (c) =>
+        guard(c, () =>
+          Bridge.invoke(["signal", c.args.run, c.args.payload], c.options, runtime))
     })
     .command("steer", {
       description: "Send an attributed operator message",

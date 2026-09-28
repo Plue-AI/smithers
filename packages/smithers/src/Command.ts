@@ -285,15 +285,22 @@ const plan = Command.make(
     })
 ).pipe(Command.withDescription(Verb.find("plan")!.help))
 
-const runResume = (planOrRunId: string) =>
+const allowCodeDriftFlag = Flag.Boolean("allow-code-drift").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Resume even though the run's flow changed since it started")
+)
+
+const runResume = (planOrRunId: string, allowCodeDrift: boolean) =>
   Effect.gen(function*() {
     const control = yield* ControlService.Control
     const parkSequence = yield* Settlement.latestPark(control, planOrRunId)
+    const key = parkSequence === undefined ? `cli:resume:${planOrRunId}` : `cli:resume:${planOrRunId}:${parkSequence}`
     const receipt = yield* control.resume({
       runId: planOrRunId,
-      idempotencyKey: parkSequence === undefined
-        ? `cli:resume:${planOrRunId}`
-        : `cli:resume:${planOrRunId}:${parkSequence}`
+      // A refused resume records no receipt, so the retry with the override
+      // takes a key of its own rather than colliding with the refused one.
+      idempotencyKey: allowCodeDrift ? `${key}:allow-code-drift` : key,
+      ...(allowCodeDrift ? { allowCodeDrift } : {})
     })
     const settlement = yield* awaitOwnedRun(control, receipt, parkSequence)
     if (Settlement.wasDeclined(settlement) && receipt._tag === "Accepted" && receipt.runId !== undefined) {
@@ -343,18 +350,22 @@ const run = Command.make("run", {
   resume: Flag.Boolean("resume").pipe(
     Flag.withDefault(false),
     Flag.withDescription("Resume the parked run named by the positional argument")
-  )
+  ),
+  allowCodeDrift: allowCodeDriftFlag
 }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    if (config.resume) return yield* runResume(config.plan)
+    if (config.resume) return yield* runResume(config.plan, config.allowCodeDrift)
     yield* runLaunch(yield* approval(config.plan))
   })).pipe(Command.withDescription(Verb.find("run")!.help))
 
-const resume = Command.make("resume", { runId: requiredArgument("run-id") }, (config) =>
+const resume = Command.make("resume", {
+  runId: requiredArgument("run-id"),
+  allowCodeDrift: allowCodeDriftFlag
+}, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    yield* runResume(config.runId)
+    yield* runResume(config.runId, config.allowCodeDrift)
   })).pipe(Command.withDescription("Alias of `runs resume`"), Command.unlisted)
 
 const upFlags = {

@@ -158,6 +158,12 @@ eligible parked/terminal agent run, its approved plan, and `jj`, and retains
 an isolated workspace under `.flows/forks/`. Resume the returned child run
 with `runs resume`.
 
+A run records the execution digest of the flow that started it and the engine
+version, both shown by `runs show`. `runs resume` and `run --resume` refuse a
+run whose flow now has a different digest, or is gone, with `CodeDrift` and
+leave the run parked. Pass `--allow-code-drift` to resume it on the changed
+code.
+
 A fork can resume only after its retained workspace and public run identity
 have both been reconciled. A workspace link left behind by an interrupted or
 failed reconciliation does not permit the fork or its descendants to execute.

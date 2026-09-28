@@ -78,6 +78,7 @@ import { hostname } from "node:os"
 import { join, resolve } from "node:path"
 import type * as Application from "../Application.ts"
 import * as Serve from "../Serve.ts"
+import { packageVersion } from "../Version.ts"
 import * as AuthoredRebuild from "./AuthoredRebuild.ts"
 import * as ControlDatabasePath from "./ControlDatabasePath.ts"
 import * as EngineJournalSupervisor from "./EngineJournalSupervisor.ts"
@@ -720,7 +721,12 @@ export const make = (
         Layer.orDie
       )
     const runtime = registry === undefined
-      ? SqlControlRuntime.layer({ ...authorization, owner, isAlive: Ownership.sameHostPidProbe }).pipe(
+      ? SqlControlRuntime.layer({
+        ...authorization,
+        owner,
+        isAlive: Ownership.sameHostPidProbe,
+        engineVersion: packageVersion
+      }).pipe(
         Layer.provide([stores, native.crypto]),
         Layer.orDie
       )
@@ -730,6 +736,7 @@ export const make = (
           return yield* SqlControlRuntime.make({
             ...authorization,
             owner,
+            engineVersion: packageVersion,
             // A run whose host was killed mid-run is taken over by the host
             // whose engine re-drives it, once the dead owner's lease expires.
             isAlive: Ownership.sameHostPidProbe,
