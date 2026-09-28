@@ -72,7 +72,14 @@ const build = async (o: Options = {}) => {
       sourceRevision: "sha256:" + a.sourceArtifactSHA256, sourceVersion: a.sourceVersion, capturedAt }, { entries, alarm, cutoverAlarmMarkers }, publicJwk))
     const bytes = JSON.stringify(sealed), path = `${binding}-${objectId}.json`
     writeFileSync(join(root, path), bytes, { mode: 0o600 })
-    if (o.tamperSnapshot && binding === "ACCOUNTS") writeFileSync(join(root, path), bytes.replace(/"nonce":"./, '"nonce":"A'), { mode: 0o600 })
+    if (o.tamperSnapshot && binding === "ACCOUNTS") {
+      const tampered = bytes.replace(/"nonce":"([^"]+)"/, (_, nonce: string) => {
+        const fixed = "A".repeat(nonce.length)
+        return `"nonce":"${nonce === fixed ? "B".repeat(nonce.length) : fixed}"`
+      })
+      expect(tampered).not.toBe(bytes)
+      writeFileSync(join(root, path), tampered, { mode: 0o600 })
+    }
     return { path, sha256: sha(bytes), binding, objectId, capturedAt }
   }
   const row = (key: string, value: unknown): [string, unknown] => [key, encodeStored(value)]
