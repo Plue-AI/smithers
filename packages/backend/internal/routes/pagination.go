@@ -94,8 +94,21 @@ func parseLegacyPagination(query url.Values, defaultLimit, maxLimit int, capOver
 		}
 	}
 
-	offset := int64((page - 1) * limit)
+	offset, ok := pageToOffset(page, limit)
+	if !ok {
+		return "", 0, errors.BadRequest("page offset is too large")
+	}
 	return offsetToCursor(offset), limit, nil
+}
+
+// pageToOffset converts a positive page and limit without wrapping the int64
+// cursor domain. Both legacy input and adjacent-page links use this boundary.
+func pageToOffset(page, limit int) (int64, bool) {
+	pages := int64(page - 1)
+	if pages > math.MaxInt64/int64(limit) {
+		return 0, false
+	}
+	return pages * int64(limit), true
 }
 
 // parseKeysetPagination parses pagination for keyset-cursor endpoints, returning
@@ -154,12 +167,23 @@ func clampOffsetInt32(offset int64) int32 {
 
 // cursorToPage converts a cursor and limit into a 1-based page number.
 // Bridge helper for services that still accept (page, perPage) parameters.
+// Pages beyond the platform int range saturate at its maximum.
 func cursorToPage(cursor string, limit int) int {
 	offset := cursorToOffset(cursor)
 	if limit <= 0 {
 		limit = 30
 	}
-	return int(offset/int64(limit)) + 1
+	return offsetToPage(offset, limit)
+}
+
+// offsetToPage narrows a nonnegative offset with a positive limit to the legacy
+// int page domain. Unrepresentable pages saturate rather than wrap to page one.
+func offsetToPage(offset int64, limit int) int {
+	pageIndex := offset / int64(limit)
+	if pageIndex >= int64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(pageIndex) + 1
 }
 
 // offsetToCursor converts a numeric offset to an opaque cursor string.
@@ -241,20 +265,18 @@ func setOffsetCursorPaginationHeaders(w http.ResponseWriter, r *http.Request, pa
 		limit = 30
 	}
 
-	currentOffset := int64(page-1) * int64(limit)
+	currentOffset, currentRepresentable := pageToOffset(page, limit)
 	links := []string{
 		fmt.Sprintf("<%s>; rel=\"first\"", paginationURL(r, limit, "")),
 	}
-	if currentOffset > 0 {
-		previousOffset := currentOffset - int64(limit)
-		if previousOffset < 0 {
-			previousOffset = 0
+	if page > 1 {
+		if previousOffset, ok := pageToOffset(page-1, limit); ok {
+			links = append(links,
+				fmt.Sprintf("<%s>; rel=\"prev\"", paginationURL(r, limit, offsetToCursor(previousOffset))),
+			)
 		}
-		links = append(links,
-			fmt.Sprintf("<%s>; rel=\"prev\"", paginationURL(r, limit, offsetToCursor(previousOffset))),
-		)
 	}
-	if resultCount > 0 && currentOffset <= math.MaxInt64-int64(limit) {
+	if resultCount > 0 && currentRepresentable && currentOffset <= math.MaxInt64-int64(limit) {
 		// The backing service advances in whole pages, so the cursor must stay
 		// aligned to limit even if concurrent writes make resultCount and total
 		// briefly disagree.
@@ -340,7 +362,7 @@ func setLegacyPaginationHeaders(w http.ResponseWriter, r *http.Request, page, pe
 
 	lastPage := 1
 	if total > 0 {
-		lastPage = int((total + int64(perPage) - 1) / int64(perPage))
+		lastPage = offsetToPage(total-1, perPage)
 	}
 
 	links := []string{
