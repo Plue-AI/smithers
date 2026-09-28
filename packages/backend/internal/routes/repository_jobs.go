@@ -74,8 +74,18 @@ func (h *RepositoryJobHandler) PutRepositoryJob(w http.ResponseWriter, r *http.R
 	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{
 		"registration_id": result.ID, "revision": result.Revision, "digest": result.Digest,
 		"source_revision": result.SourceRevision, "mode": result.Mode, "enabled": result.Enabled,
-		"schedule": result.Schedule, "next_fire_at": result.NextFireAt, "timezone": "UTC",
+		"schedule": result.Schedule, "next_fire_at": result.NextFireAt, "timezone": repositoryScheduleZone(result.Schedule),
 	})
+}
+
+// repositoryScheduleZone reports the zone used to compute a repository fire time.
+func repositoryScheduleZone(schedule string) string {
+	if zone, ok := strings.CutPrefix(schedule, "CRON_TZ="); ok {
+		if name, _, found := strings.Cut(zone, " "); found {
+			return name
+		}
+	}
+	return "UTC"
 }
 
 func (h *RepositoryJobHandler) PutRepositoryJobTrial(w http.ResponseWriter, r *http.Request) {

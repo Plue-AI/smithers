@@ -232,7 +232,7 @@ func validateRepositoryJob(job string, input RegisterRepositoryJobInput, now tim
 		return bad("an enabled registration cannot retain trial-only scope")
 	}
 	if flowTrigger && input.FactoryRevision == "" && (input.Mode != "enabled" || len(input.Events) != 0 || input.Label != "" || input.Schedule == "") {
-		return bad("a flow trigger registers one enabled UTC cron schedule and no event rules")
+		return bad("a flow trigger registers one enabled five-field UTC or CRON_TZ schedule and no event rules")
 	}
 	if validateRepositoryJobEnvelope(input.Envelope) != nil {
 		return bad("automatic work needs the reviewed envelope and finite token/time limits")
@@ -270,11 +270,16 @@ func validateRepositoryJob(job string, input RegisterRepositoryJobInput, now tim
 	if input.Mode != "enabled" || (job != "chores" && !flowTrigger) || len(input.Schedule) > 200 {
 		return bad("only an enabled chores job or an enabled flow trigger may register a schedule")
 	}
-	if len(strings.Fields(input.Schedule)) != 5 {
-		return bad("schedule must have five cron fields in UTC")
+	fields := strings.Fields(input.Schedule)
+	zoned := len(fields) > 0 && strings.HasPrefix(fields[0], "CRON_TZ=")
+	if len(fields) != 5 && !(zoned && len(fields) == 6) {
+		return bad("schedule must have five UTC cron fields or CRON_TZ=<IANA zone> and five fields")
 	}
 	next, err := nextFireTime(input.Schedule, now)
-	if err != nil || next.IsZero() {
+	if err != nil {
+		return bad("invalid schedule: " + err.Error())
+	}
+	if next.IsZero() {
 		return bad("schedule must be a valid five-field cron expression")
 	}
 	return pgtype.Timestamptz{Time: next, Valid: true}, nil

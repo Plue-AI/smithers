@@ -53,7 +53,6 @@ func TestRepositoryJobValidation(t *testing.T) {
 		},
 		"enabled trial scope": func(i *RegisterRepositoryJobInput) { i.TrialIssueNumber = 1 },
 		"unsupported event":   func(i *RegisterRepositoryJobInput) { i.Events = []RepositoryJobEventRule{{Type: "installation"}} },
-		"cron timezone":       func(i *RegisterRepositoryJobInput) { i.Schedule = "CRON_TZ=America/Los_Angeles 0 0 * * *" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			input := repositoryJobTestInput()
@@ -69,15 +68,56 @@ func TestRepositoryJobValidation(t *testing.T) {
 	next, err := validateRepositoryJob("chores", input, time.Date(2026, 9, 16, 10, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
 	require.Equal(t, time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC), next.Time)
-	input.Schedule = "CRON_TZ=America/Los_Angeles 0 9 * * *"
-	_, err = validateRepositoryJob("chores", input, time.Now())
-	require.ErrorContains(t, err, "UTC")
 	input.Mode = "trial"
 	input.Schedule = ""
 	input.TrialIssueNumber = 7
 	input.TrialSource = "smithers-cloud"
 	_, err = validateRepositoryJob("issues", input, time.Now())
 	require.NoError(t, err)
+}
+
+func TestRepositoryJobScheduleTimeZone(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		from, first, second string
+	}{
+		{"2026-10-30T00:00:00Z", "2026-10-30T19:00:00Z", "2026-11-06T20:00:00Z"},
+		{"2027-03-10T00:00:00Z", "2027-03-12T20:00:00Z", "2027-03-19T19:00:00Z"},
+	} {
+		input := repositoryJobTestInput()
+		input.Schedule = "CRON_TZ=America/Los_Angeles 0 12 * * 5"
+		from, _ := time.Parse(time.RFC3339, tc.from)
+		first, err := validateRepositoryJob("chores", input, from)
+		require.NoError(t, err)
+		require.Equal(t, tc.first, first.Time.UTC().Format(time.RFC3339))
+		second, err := nextFireTime(input.Schedule, first.Time)
+		require.NoError(t, err)
+		require.Equal(t, tc.second, second.UTC().Format(time.RFC3339))
+		require.Equal(t, "CRON_TZ=America/Los_Angeles 0 12 * * 5", input.Schedule)
+	}
+	input := repositoryJobTestInput()
+	input.Schedule = "CRON_TZ=Mars/Base 0 12 * * 5"
+	_, err := validateRepositoryJob("chores", input, time.Now())
+	require.ErrorContains(t, err, "Mars/Base")
+	input.Schedule = "0 17 * * 5"
+	from, _ := time.Parse(time.RFC3339, "2026-10-30T00:00:00Z")
+	next, err := validateRepositoryJob("chores", input, from)
+	require.NoError(t, err)
+	require.Equal(t, "2026-10-30T17:00:00Z", next.Time.UTC().Format(time.RFC3339))
+}
+
+func TestRepositoryJobScheduleFallBackHourOnce(t *testing.T) {
+	t.Parallel()
+	expr := "CRON_TZ=America/Los_Angeles 30 1 * * *"
+	from, _ := time.Parse(time.RFC3339, "2026-11-01T07:00:00Z")
+	end, _ := time.Parse(time.RFC3339, "2026-11-01T11:00:00Z")
+	count := 0
+	for next, err := nextFireTime(expr, from); next.Before(end); next, err = nextFireTime(expr, next) {
+		require.NoError(t, err)
+		count++
+		require.LessOrEqual(t, count, 2)
+	}
+	require.Equal(t, 1, count)
 }
 
 func TestRepositoryJobEventMatching(t *testing.T) {

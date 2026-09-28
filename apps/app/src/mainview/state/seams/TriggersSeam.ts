@@ -64,8 +64,8 @@ export const NIGHTLY_SCHEDULE = "0 2 * * *"
 export const flowSlug = (flow: string): string =>
   flow.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64)
 
-/** Plue's own words for a schedule that is not five UTC cron fields. */
-export const CRON_REFUSAL = "schedule must have five cron fields in UTC"
+/** The accepted repository schedule forms. */
+export const CRON_REFUSAL = "schedule must have five UTC cron fields or CRON_TZ=<IANA zone> and five fields"
 
 /**
  * How long one repository job may run, as the five reviewed jobs already bound
@@ -276,7 +276,7 @@ const NO_LIVE: LiveList = { live: false, triggers: [] }
 /**
  * One `flow:*` registration as the Worker publishes it (E9), read into the
  * dispatcher's own row shape. `cron` is the registration's schedule, which is
- * what a generic trigger always carries; the timezone is Plue's fixed UTC.
+ * what a generic trigger always carries; a repository schedule may name its IANA zone.
  */
 const registrationRow = (value: unknown): TriggerRow | undefined => {
   if (!isRecord(value)) return undefined
@@ -287,7 +287,7 @@ const registrationRow = (value: unknown): TriggerRow | undefined => {
     slug: value.slug,
     flowId: value.flowId,
     cron: value.schedule,
-    timezone: "UTC",
+    timezone: value.schedule.startsWith("CRON_TZ=") ? value.schedule.split(/\s+/)[0]!.slice("CRON_TZ=".length) : "UTC",
     enabled: value.enabled === true,
     ...(Number.isFinite(next) ? { nextFireAt: next } : {})
   }
@@ -572,7 +572,7 @@ const previewOf = (plan: Record<string, unknown>, schedule: string, limits: Trig
   const capabilities = Array.isArray(envelope.capabilities) ? envelope.capabilities.filter((value): value is string => typeof value === "string") : []
   const digest = typeof plan.executionDigest === "string" ? plan.executionDigest.slice(0, 12) : ""
   return [
-    `${String(plan.flowId)} · ${verbatim(schedule)} UTC`,
+    `${String(plan.flowId)} · ${verbatim(schedule)}`,
     capabilities.map(verbatim).join(", "),
     `${limits.tokens} tokens · ${Math.round(limits.milliseconds / 60_000)} min`,
     digest
@@ -909,7 +909,8 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     const slug = request.slug ?? flowSlug(request.flow ?? "")
     if (!SLUG.test(slug)) return "A schedule name is lower-case letters, digits and dashes, up to 64 characters."
     const schedule = quick ? NIGHTLY_SCHEDULE : (request.schedule ?? "").trim()
-    if (schedule.split(/\s+/).filter(field => field !== "").length !== 5) return CRON_REFUSAL
+    const fields = schedule.split(/\s+/)
+    if (fields.length !== 5 && !(fields.length === 6 && fields[0]?.startsWith("CRON_TZ="))) return CRON_REFUSAL
     const input = (request.input ?? "").trim() || "{}"
     try { JSON.parse(input) } catch { return "Input is not valid JSON." }
     const named = namedLimits(request)

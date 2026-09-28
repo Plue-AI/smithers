@@ -857,7 +857,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     const seen: Array<string> = []
     const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }, seen), { signedIn: true })
     expect(await registrationResult(controller, { ...REQUEST, slug: "Nightly" })).toContain("schedule name")
-    expect(await registrationResult(controller, { ...REQUEST, schedule: "0 9 * *" })).toBe("schedule must have five cron fields in UTC")
+    expect(await registrationResult(controller, { ...REQUEST, schedule: "0 9 * *" })).toBe("schedule must have five UTC cron fields or CRON_TZ=<IANA zone> and five fields")
     expect(await registrationResult(controller, { ...REQUEST, input: "{not json" })).toContain("valid JSON")
     expect(seen.filter((path) => path.startsWith(RPC))).toEqual([])
   })

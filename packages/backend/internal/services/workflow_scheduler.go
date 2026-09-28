@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -151,11 +152,31 @@ func isRefusedScheduleDispatch(err error) bool {
 }
 
 // nextFireTime computes the next fire time from a cron expression.
+// Unprefixed repository schedules are UTC regardless of the host's local zone.
 func nextFireTime(cronExpr string, from time.Time) (time.Time, error) {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	schedule, err := parser.Parse(cronExpr)
+	expr := cronExpr
+	if !strings.HasPrefix(expr, "CRON_TZ=") {
+		expr = "CRON_TZ=UTC " + expr
+	}
+	schedule, err := parser.Parse(expr)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return schedule.Next(from), nil
+	next := schedule.Next(from)
+	// robfig/cron repeats a fixed wall-clock minute during fall-back. A
+	// repository schedule fires that minute only at its first occurrence.
+	if strings.HasPrefix(cronExpr, "CRON_TZ=") {
+		location := schedule.(*cron.SpecSchedule).Location
+		previous := from.In(location)
+		local := next.In(location)
+		_, previousOffset := previous.Zone()
+		_, nextOffset := local.Zone()
+		if previousOffset != nextOffset && previous.Year() == local.Year() &&
+			previous.YearDay() == local.YearDay() && previous.Hour() == local.Hour() &&
+			previous.Minute() == local.Minute() {
+			next = schedule.Next(next)
+		}
+	}
+	return next, nil
 }
