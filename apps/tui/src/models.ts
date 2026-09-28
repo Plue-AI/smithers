@@ -42,6 +42,7 @@ const byProvider: Readonly<Record<Providers.Candidate, ReadonlyArray<Omit<Model,
 
 const anthropic: ReadonlyArray<Omit<Model, "provider">> = [
   { seat: "anthropic:claude-opus-5-5", label: "Claude Opus 5.5" },
+  { seat: "anthropic:claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
   { seat: "anthropic:claude-fable-5-1", label: "Claude Fable 5.1" }
 ]
 

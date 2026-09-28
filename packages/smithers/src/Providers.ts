@@ -178,7 +178,9 @@ export const seatAliases: Readonly<Record<string, string>> = {
   astra: "openai:gpt-6-astra",
   luna: "openai:gpt-6-luna",
   opus: "anthropic:claude-opus-5-5",
+  sonnet: "anthropic:claude-sonnet-5-5",
   fable: "anthropic:claude-fable-5-1",
+  kimi: defaultSeat["kimi-k3"],
   qwen: defaultSeat.cerebras
 }
 

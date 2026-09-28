@@ -31,6 +31,7 @@ const resolve = (
 
 const keyed = {
   ANTHROPIC_API_KEY: "anthropic-key",
+  MOONSHOT_API_KEY: "moonshot-key",
   OPENAI_API_KEY: "openai-key",
   OPENROUTER_API_KEY: "openrouter-key"
 }
@@ -575,7 +576,9 @@ describe("NodeControl.seatResolver aliases", () => {
       ["astra", "gpt-6-astra", "https://api.openai.com/v1/responses"],
       ["luna", "gpt-6-luna", "https://api.openai.com/v1/responses"],
       ["opus", "claude-opus-5-5", "https://api.anthropic.com/v1/messages"],
+      ["sonnet", "claude-sonnet-5-5", "https://api.anthropic.com/v1/messages"],
       ["fable", "claude-fable-5-1", "https://api.anthropic.com/v1/messages"],
+      ["kimi", "kimi-k3", "https://api.moonshot.ai/v1/chat/completions"],
       ["Luna ", "gpt-6-luna", "https://api.openai.com/v1/responses"]
     ] as const
   )("resolves %j to its provider's route and keeps the declared id", async (alias, modelId, url) => {
