@@ -131,6 +131,22 @@ const output = (session: Session, command: string, options: Parameters<Session["
 const budget = 60_000
 
 describe("JustBashSandbox", () => {
+  it("refuses every resource limit at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (
+      const [field, limits] of [
+        ["cpus", { cpus: 1 }],
+        ["memoryMib", { memoryMib: 512 }],
+        ["timeoutSecs", { timeoutSecs: 60 }]
+      ] as const
+    ) {
+      expect(() => JustBashSandbox.make({ bash: deps.value, fs: deps.value, limits }))
+        .toThrow(`just-bash-sandbox: cannot enforce limits.${field}`)
+    }
+    expect(() => JustBashSandbox.make({ bash: deps.value, fs: deps.value, limits: {} })).not.toThrow()
+    expect(deps.touched).toEqual([])
+  })
+
   it("refuses every network policy at construction, before touching its dependencies", () => {
     const deps = untouchable<never>()
     for (const network of ["none", { allow: ["example.com"] }] as const) {

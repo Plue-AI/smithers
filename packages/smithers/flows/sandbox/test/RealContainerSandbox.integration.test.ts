@@ -23,7 +23,7 @@ const image = "alpine:3.20"
 // Session keys are suite-unique so a concurrently running vitest worker
 // cannot collide on container names, and every name this suite can create is
 // force-removed at the end even when a test failed mid-acquire.
-const keys = ["conformance-suite", "machine-boundary", "crash-reattach", "host-bundle"].map(
+const keys = ["conformance-suite", "machine-boundary", "crash-reattach", "host-bundle", "neutral-limits"].map(
   (name) => `sandbox-it-${process.pid}-${name}`
 )
 const nameOf = (key: string): string => `smthrs-sbx-${sessionSlug(key)}`
@@ -179,4 +179,28 @@ describe.skipIf(!engineAvailable)("ContainerSandbox against a real engine", () =
       }).pipe(Effect.provide(Sandbox.layerHost(container, { session: keys[3]! })))
       expect(outcome).toBe("FOR THE GUEST TOOL\nLinux\n")
     }), budget)
+
+  it.effect("neutral ceilings reach real container", () =>
+    Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner
+      const limited = ContainerSandbox.make({
+        spawner,
+        image,
+        limits: { cpus: 0.5, memoryMib: 64, timeoutSecs: 600 }
+      })
+      const key = keys[4]!
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          yield* limited.acquire(key)
+          const inspected = spawnSync("docker", [
+            "container",
+            "inspect",
+            "--format",
+            "{{.HostConfig.NanoCpus}} {{.HostConfig.Memory}} {{json .Config.Cmd}}",
+            nameOf(key)
+          ], { encoding: "utf8" })
+          expect(inspected.stdout.trim()).toBe(`500000000 ${64 * 1024 * 1024} ["sleep","600"]`)
+        })
+      )
+    }).pipe(Effect.provide(platform)), budget)
 })

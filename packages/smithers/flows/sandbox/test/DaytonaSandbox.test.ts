@@ -337,6 +337,24 @@ describe("DaytonaSandbox", () => {
     expect(deps.touched).toEqual([])
   })
 
+  it.effect("creates under the neutral lifetime as ttlMinutes", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk, limits: { timeoutSecs: 5400 } }), Effect.succeed)
+      expect(fake.recorded.creates).toEqual([{ name: `smthrs-${sessionSlug("run-1")}`, ttlMinutes: 90 }])
+    }))
+
+  it("refuses cpu, memory, and part-minute lifetimes at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    expect(() => DaytonaSandbox.make({ sdk: deps.value, limits: { cpus: 2 } }))
+      .toThrow("daytona-sandbox: cannot enforce limits.cpus")
+    expect(() => DaytonaSandbox.make({ sdk: deps.value, limits: { memoryMib: 1024 } }))
+      .toThrow("daytona-sandbox: cannot enforce limits.memoryMib")
+    expect(() => DaytonaSandbox.make({ sdk: deps.value, limits: { timeoutSecs: 90 } }))
+      .toThrow("daytona-sandbox: limits.timeoutSecs must be whole minutes")
+    expect(deps.touched).toEqual([])
+  })
+
   for (const operation of ["remove", "release"] as const) {
     it.effect(`bounds stalled ${operation} on the platform timer`, () =>
       stalledFinalizer((stall) => {

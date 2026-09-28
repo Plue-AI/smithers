@@ -29,6 +29,7 @@ import type { RemoteProcess } from "../RemoteChildProcessSpawner/Provider.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { refuseResourceLimits, type ResourceLimits } from "../Sandbox/ResourceLimits.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { ExecTransport } from "./ExecTransport.ts"
 import type { Sdk } from "./Sdk.ts"
@@ -45,6 +46,15 @@ export interface AwsSandboxCommonOptions {
    * machine with a network it did not ask for.
    */
   readonly network?: NetworkPolicy | undefined
+  /**
+   * The task's ceilings. With `image`, `cpus` becomes the task definition's
+   * `cpu` units (1024 per vCPU) and `memoryMib` its `memory`, each exclusive
+   * with the vendor-named option; Fargate accepts only its listed pairs.
+   * `timeoutSecs` replaces the essential container's `sleep infinity` with
+   * `sleep <timeoutSecs>`, so the task stops that long after it starts. A
+   * `taskDefinition` fixes all three, so they are refused there.
+   */
+  readonly limits?: ResourceLimits | undefined
   readonly sdk: Sdk
   /**
    * How commands reach the task. Without it the provider provisions and tears
@@ -350,7 +360,10 @@ const registerDefinition = (
               name: container,
               image: options.image,
               essential: true,
-              command: ["sleep", "infinity"],
+              command: [
+                "sleep",
+                options.limits?.timeoutSecs === undefined ? "infinity" : String(options.limits.timeoutSecs)
+              ],
               workingDirectory: workdir,
               linuxParameters: { initProcessEnabled: true }
             }]
@@ -503,6 +516,31 @@ const spawnScript = (
     )
   }`
 
+const withLimits = (options: AwsSandboxOptions): AwsSandboxOptions => {
+  const limits = refuseResourceLimits(
+    "aws-sandbox",
+    options.limits,
+    options.taskDefinition === undefined ? [] : ["cpus", "memoryMib", "timeoutSecs"],
+    "the task definition fixes CPU, memory, and the container command"
+  )
+  if (limits === undefined || options.taskDefinition !== undefined) return options
+  if (limits.cpus !== undefined && options.cpu !== undefined) {
+    throw new TypeError("aws-sandbox: cpu and limits.cpus are exclusive; name one")
+  }
+  if (limits.memoryMib !== undefined && options.memory !== undefined) {
+    throw new TypeError("aws-sandbox: memory and limits.memoryMib are exclusive; name one")
+  }
+  const units = limits.cpus === undefined ? undefined : limits.cpus * 1024
+  if (units !== undefined && !Number.isInteger(units)) {
+    throw new TypeError(`aws-sandbox: cannot enforce limits.cpus ${limits.cpus}; ECS counts 1024 cpu units per vCPU`)
+  }
+  return {
+    ...options,
+    ...units === undefined ? {} : { cpu: String(units) },
+    ...limits.memoryMib === undefined ? {} : { memory: String(limits.memoryMib) }
+  }
+}
+
 /**
  * Builds a Fargate provider using an injected AWS ECS aggregate client.
  *
@@ -524,8 +562,9 @@ const spawnScript = (
  * @category constructors
  * @since 0.1.0
  */
-export const make = (options: AwsSandboxOptions): Provider => {
-  refuseNetworkPolicy("aws-sandbox", options.network)
+export const make = (input: AwsSandboxOptions): Provider => {
+  refuseNetworkPolicy("aws-sandbox", input.network)
+  const options = withLimits(input)
   return {
     acquire: (sessionKey) =>
       Effect.gen(function*() {

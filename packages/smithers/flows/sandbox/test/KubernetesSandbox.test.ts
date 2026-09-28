@@ -984,6 +984,61 @@ describe("KubernetesSandbox", () => {
       expect((spawnError as ProviderError).code).toBe("spawn_error")
     }))
 
+  it.effect("merges neutral limits into container limits and the Pod deadline", () =>
+    Effect.gen(function*() {
+      const labelOf = (args: ReadonlyArray<string>) => args.find((arg) => arg.includes("sandbox-fingerprint"))
+      const overridesOf = (args: ReadonlyArray<string>) => JSON.parse(args[args.indexOf("--overrides") + 1]!)
+      const limited = cluster()
+      yield* Effect.scoped(
+        KubernetesSandbox.make({
+          spawner: limited.spawner,
+          image: "img",
+          workdir,
+          resources: { requests: { cpu: "250m" } },
+          limits: { cpus: 1.5, memoryMib: 512, timeoutSecs: 3600 }
+        }).acquire("limits")
+      )
+      const overrides = overridesOf(limited.calls[0]!.args)
+      expect(overrides.spec.activeDeadlineSeconds).toBe(3600)
+      expect(overrides.spec.containers[0].resources).toEqual({
+        requests: { cpu: "250m" },
+        limits: { cpu: "1.5", memory: "512Mi" }
+      })
+      const lifetimeOnly = cluster()
+      yield* Effect.scoped(
+        KubernetesSandbox.make({ spawner: lifetimeOnly.spawner, image: "img", workdir, limits: { timeoutSecs: 60 } })
+          .acquire("limits")
+      )
+      expect(overridesOf(lifetimeOnly.calls[0]!.args).spec).toEqual({ activeDeadlineSeconds: 60 })
+      const unlimited = cluster()
+      yield* Effect.scoped(
+        KubernetesSandbox.make({ spawner: unlimited.spawner, image: "img", workdir }).acquire("limits")
+      )
+      expect(unlimited.calls[0]!.args).not.toContain("--overrides")
+      expect(labelOf(lifetimeOnly.calls[0]!.args)).not.toBe(labelOf(unlimited.calls[0]!.args))
+    }))
+
+  it("refuses a neutral limit that collides with the Kubernetes-named one", () => {
+    const deps = untouchable<never>()
+    expect(() =>
+      KubernetesSandbox.make({
+        spawner: deps.value,
+        image: "img",
+        resources: { limits: { cpu: "1" } },
+        limits: { cpus: 2 }
+      })
+    ).toThrow("resources.limits.cpu and limits.cpus are exclusive")
+    expect(() =>
+      KubernetesSandbox.make({
+        spawner: deps.value,
+        image: "img",
+        resources: { limits: { memory: "1Gi" } },
+        limits: { memoryMib: 512 }
+      })
+    ).toThrow("resources.limits.memory and limits.memoryMib are exclusive")
+    expect(deps.touched).toEqual([])
+  })
+
   it.effect("handles empty resources and bounds sanitized Pod names", () =>
     Effect.gen(function*() {
       const fake = cluster()

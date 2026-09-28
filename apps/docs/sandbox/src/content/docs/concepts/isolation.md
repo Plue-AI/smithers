@@ -50,6 +50,33 @@ check or a test.
 None of that is confinement. It is coherence, lifetime, and honesty about what
 crossed the seam.
 
+## Resource limits
+
+`limits` is the same option on every provider. `cpus` is a CPU count,
+`memoryMib` a memory ceiling in MiB, and `timeoutSecs` the machine's maximum
+lifetime in seconds from creation. An idle timeout is not a lifetime and never
+stands in for `timeoutSecs`. A provider that cannot enforce a ceiling throws
+from `make`, before any machine exists, rather than hand out a machine without
+it. A neutral ceiling beside the provider's own name for it (`cpu`,
+`resources.limits.cpu`, `maxDurationSecs`, `timeoutMs`) throws as ambiguous.
+
+| Provider                                                                                   | `cpus`                                  | `memoryMib`                             | `timeoutSecs`                                         |
+| ------------------------------------------------------------------------------------------ | --------------------------------------- | --------------------------------------- | ----------------------------------------------------- |
+| `ContainerSandbox`                                                                         | `--cpus`                                | `--memory <n>m`                         | `sleep <n>` holds the container instead of `infinity` |
+| `KubernetesSandbox`                                                                        | `resources.limits.cpu`                  | `resources.limits.memory` in `Mi`       | Pod `activeDeadlineSeconds`                           |
+| `MicrosandboxSandbox`                                                                      | `cpus`                                  | `memoryMib`                             | `maxDurationSecs`                                     |
+| `VercelSandbox`                                                                            | `resources.vcpus`, whole vCPUs          | must be 2048 × vCPUs; alone, sizes them | the `timeoutMs` lifetime                              |
+| `AwsSandbox` (image)                                                                       | task `cpu`, 1024 units per vCPU         | task `memory`                           | `sleep <n>` in the essential container                |
+| `DaytonaSandbox`                                                                           | refused: snapshot create cannot size it | refused, same reason                    | `ttlMinutes`; whole minutes only                      |
+| `AwsSandbox` (task definition), `CloudflareSandbox`, `DirectorySandbox`, `JustBashSandbox` | refused                                 | refused                                 | refused                                               |
+
+The limits enter `ContainerSandbox`, `KubernetesSandbox`, and `AwsSandbox`
+configuration fingerprints, so a leftover machine created under other limits
+is refused rather than reattached. `VercelSandbox` refuses a resumed sandbox
+holding another vCPU count. A reattached `DaytonaSandbox` or sticky
+`MicrosandboxSandbox` keeps the ceilings it was created with. Rootless podman
+on cgroup v1 ignores `--cpus` and `--memory`.
+
 ## What each provider's boundary actually is
 
 | Provider              | The boundary                                                                            | Shaping options it forwards                                                                                   |
@@ -134,9 +161,11 @@ machine, so one body can read and overwrite another's files, and the first
 scope to close ends the machine under the other. See
 [Sessions and their keys](/concepts/sessions/).
 
-**There is no resource ceiling of the package's own.** CPU, memory, wall clock,
-and disk are bounded only where a provider exposes an option for it, and the
-package adds nothing when it does not. A body that fills the disk of a
+**Resource ceilings are opt-in, and disk has none.** Every provider takes the
+neutral `limits: { cpus, memoryMib, timeoutSecs }` option and either enforces
+each ceiling or throws from `make`; see [Resource limits](#resource-limits).
+Without `limits`, a machine gets the provider's defaults. No provider bounds
+disk through this option, and a body that fills the disk of a
 `DirectorySandbox` fills your disk.
 
 **Conformance does not check isolation.** Both suites state contract behavior:

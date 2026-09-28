@@ -99,6 +99,23 @@ const provider = Effect.map(services, ({ fs, spawner }) => DirectorySandbox.make
 const budget = 30_000
 
 describe("DirectorySandbox", () => {
+  it("refuses every resource limit at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (
+      const [field, limits] of [
+        ["cpus", { cpus: 1 }],
+        ["memoryMib", { memoryMib: 512 }],
+        ["timeoutSecs", { timeoutSecs: 60 }]
+      ] as const
+    ) {
+      expect(() => DirectorySandbox.make({ fs: deps.value, spawner: deps.value, root: "/unused", limits }))
+        .toThrow(`directory-sandbox: cannot enforce limits.${field}`)
+    }
+    expect(() => DirectorySandbox.make({ fs: deps.value, spawner: deps.value, root: "/unused", limits: {} })).not
+      .toThrow()
+    expect(deps.touched).toEqual([])
+  })
+
   it("refuses every network policy at construction, before touching its dependencies", () => {
     const deps = untouchable<never>()
     for (const network of ["none", { allow: ["example.com"] }] as const) {

@@ -19,6 +19,7 @@ import { sessionSlug } from "../internal/sessionSlug.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { type ResourceLimits, validateResourceLimits } from "../Sandbox/ResourceLimits.ts"
 
 interface ResourceValues {
   readonly cpu?: string | undefined
@@ -58,6 +59,15 @@ export interface KubernetesSandboxOptions {
   readonly env?: Readonly<Record<string, string>> | undefined
   readonly labels?: Readonly<Record<string, string>> | undefined
   readonly resources?: KubernetesSandboxResources | undefined
+  /**
+   * The Pod's ceilings. `cpus` and `memoryMib` become the container's
+   * `resources.limits.cpu` and `resources.limits.memory` (in `Mi`), each
+   * exclusive with the same field in `resources`; `timeoutSecs` is the Pod's
+   * `activeDeadlineSeconds`, after which Kubernetes fails it. The limits
+   * enter the configuration fingerprint, so a leftover Pod with others is
+   * refused rather than reattached.
+   */
+  readonly limits?: ResourceLimits | undefined
   readonly serviceAccount?: string | undefined
   readonly nodeSelector?: Readonly<Record<string, string>> | undefined
   readonly createArgs?: ReadonlyArray<string> | undefined
@@ -104,8 +114,32 @@ const podNameOf = (prefix: string, sessionKey: string): string => {
   return `${candidate.slice(0, maximumPodNameLength - digest.length).replace(/-+$/, "")}${digest}`
 }
 
+const withLimits = (options: KubernetesSandboxOptions): KubernetesSandboxOptions => {
+  if (options.limits === undefined) return options
+  const limits = validateResourceLimits("kubernetes-sandbox", options.limits)
+  if (limits.cpus !== undefined && options.resources?.limits?.cpu !== undefined) {
+    throw new TypeError("kubernetes-sandbox: resources.limits.cpu and limits.cpus are exclusive; name one")
+  }
+  if (limits.memoryMib !== undefined && options.resources?.limits?.memory !== undefined) {
+    throw new TypeError("kubernetes-sandbox: resources.limits.memory and limits.memoryMib are exclusive; name one")
+  }
+  if (limits.cpus === undefined && limits.memoryMib === undefined) return options
+  return {
+    ...options,
+    resources: {
+      ...options.resources,
+      limits: {
+        ...options.resources?.limits,
+        ...limits.cpus === undefined ? {} : { cpu: String(limits.cpus) },
+        ...limits.memoryMib === undefined ? {} : { memory: `${limits.memoryMib}Mi` }
+      }
+    }
+  }
+}
+
 const overrideArgs = (name: string, options: KubernetesSandboxOptions): ReadonlyArray<string> => {
   const spec = {
+    ...options.limits?.timeoutSecs === undefined ? {} : { activeDeadlineSeconds: options.limits.timeoutSecs },
     ...options.serviceAccount === undefined ? {} : { serviceAccountName: options.serviceAccount },
     ...options.nodeSelector === undefined ? {} : { nodeSelector: options.nodeSelector },
     ...options.resources === undefined
@@ -155,8 +189,9 @@ const overrideArgs = (name: string, options: KubernetesSandboxOptions): Readonly
  * @category constructors
  * @since 0.1.0
  */
-export const make = (options: KubernetesSandboxOptions): Provider => {
-  refuseNetworkPolicy("kubernetes-sandbox", options.network)
+export const make = (input: KubernetesSandboxOptions): Provider => {
+  refuseNetworkPolicy("kubernetes-sandbox", input.network)
+  const options = withLimits(input)
   const program = options.program ?? "kubectl"
   const workdir = options.workdir ?? "/workspace"
   const prefix = options.namePrefix ?? "smthrs-sbx-"
@@ -204,7 +239,8 @@ export const make = (options: KubernetesSandboxOptions): Provider => {
           resources: options.resources,
           serviceAccount: options.serviceAccount,
           nodeSelector: options.nodeSelector,
-          createArgs: options.createArgs ?? []
+          createArgs: options.createArgs ?? [],
+          ...options.limits?.timeoutSecs === undefined ? {} : { timeoutSecs: options.limits.timeoutSecs }
         })
         const labels = Object.entries({ ...options.labels, [fingerprintLabel]: fingerprint })
         const createArgs = [

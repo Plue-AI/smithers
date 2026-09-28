@@ -19,6 +19,7 @@ import { sessionSlug } from "../internal/sessionSlug.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import type { NetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { type ResourceLimits, validateResourceLimits } from "../Sandbox/ResourceLimits.ts"
 
 /**
  * How the provider reaches and shapes its containers.
@@ -49,6 +50,16 @@ export interface ContainerSandboxOptions {
    * `{ allow }` is refused when `make` is called.
    */
   readonly network?: NetworkPolicy | string | undefined
+  /**
+   * The container's ceilings: `cpus` is `--cpus`, `memoryMib` is `--memory`,
+   * and `timeoutSecs` replaces `sleep infinity` with `sleep <timeoutSecs>`,
+   * so the container stops, ending every command in it, once that many
+   * seconds have passed since it last started. The limits enter the
+   * configuration fingerprint, so a leftover container with other limits is
+   * refused rather than reattached. Rootless podman on cgroup v1 ignores
+   * `--cpus` and `--memory`.
+   */
+  readonly limits?: ResourceLimits | undefined
   /** Extra `create` arguments, an escape hatch for engine-specific shaping. */
   readonly createArgs?: ReadonlyArray<string> | undefined
   /** The container-name prefix. Default `smthrs-sbx-`. */
@@ -119,6 +130,7 @@ export const make = (options: ContainerSandboxOptions): Provider => {
     )
   }
   const network = options.network ?? "none"
+  const limits = options.limits === undefined ? {} : validateResourceLimits("container-sandbox", options.limits)
   const prefix = options.namePrefix ?? "smthrs-sbx-"
   const run = (args: ReadonlyArray<string>, stdin?: Uint8Array): Effect.Effect<GatheredRun, ProviderError> =>
     Effect.scoped(
@@ -168,7 +180,8 @@ export const make = (options: ContainerSandboxOptions): Provider => {
           workdir,
           network,
           env: options.env ?? {},
-          createArgs: options.createArgs ?? []
+          createArgs: options.createArgs ?? [],
+          ...options.limits === undefined ? {} : { limits }
         })
         // CREATION IS ITS OWN RESOURCE, and starting and preparing come after
         // it rather than inside it. `acquireRelease` registers a finalizer only
@@ -188,12 +201,14 @@ export const make = (options: ContainerSandboxOptions): Provider => {
               "--network",
               network,
               ...envFile === undefined ? [] : ["--env-file", "/dev/stdin"],
+              ...limits.cpus === undefined ? [] : ["--cpus", String(limits.cpus)],
+              ...limits.memoryMib === undefined ? [] : ["--memory", `${limits.memoryMib}m`],
               ...options.createArgs ?? [],
               "--label",
               `${fingerprintLabel}=${fingerprint}`,
               options.image,
               "sleep",
-              "infinity"
+              limits.timeoutSecs === undefined ? "infinity" : String(limits.timeoutSecs)
             ], envFile)
             if (created.code === 0) return
             // A refused create is either a name already taken, which is the

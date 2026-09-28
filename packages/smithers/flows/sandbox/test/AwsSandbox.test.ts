@@ -1077,6 +1077,56 @@ describe("AwsSandbox", () => {
       expect(unpreparable.message).toContain("could not be prepared")
     }), 60_000)
 
+  it.effect("registers neutral limits as task cpu, memory, and the essential sleep", () =>
+    Effect.gen(function*() {
+      const fake = fakeEcs()
+      const base = {
+        sdk: sdkOf(fake),
+        region: "us-east-1",
+        cluster: "cluster",
+        image: "image:latest",
+        taskRoleArn: "role",
+        subnets: ["subnet-a"],
+        pollIntervalMs: 0,
+        maxPollAttempts: 2
+      }
+      yield* acquired(AwsSandbox.make({ ...base, limits: { cpus: 0.5, memoryMib: 1024, timeoutSecs: 600 } }), () =>
+        Effect.void)
+      expect(fake.registerInputs[0]).toMatchObject({
+        cpu: "512",
+        memory: "1024",
+        containerDefinitions: [{ command: ["sleep", "600"] }]
+      })
+      expect(() =>
+        AwsSandbox.make({ ...base, cpu: "512", limits: { cpus: 1 } })
+      ).toThrow(/exclusive/)
+      expect(() => AwsSandbox.make({ ...base, memory: "512", limits: { memoryMib: 512 } })).toThrow(/exclusive/)
+      expect(() => AwsSandbox.make({ ...base, limits: { cpus: 0.3 } })).toThrow(/1024 cpu units per vCPU/)
+    }))
+
+  it("refuses every resource limit on a task definition at construction", () => {
+    const deps = untouchable<never>()
+    for (
+      const [field, limits] of [
+        ["cpus", { cpus: 1 }],
+        ["memoryMib", { memoryMib: 512 }],
+        ["timeoutSecs", { timeoutSecs: 60 }]
+      ] as const
+    ) {
+      expect(() =>
+        AwsSandbox.make({
+          sdk: deps.value,
+          region: "us-west-2",
+          cluster: "cluster-arn",
+          taskDefinition: "family:7",
+          subnets: ["subnet-a"],
+          limits
+        })
+      ).toThrow(`aws-sandbox: cannot enforce limits.${field}`)
+    }
+    expect(deps.touched).toEqual([])
+  })
+
   it.effect("registers image task definitions and finalizes task before definition", () =>
     Effect.gen(function*() {
       const fake = fakeEcs()

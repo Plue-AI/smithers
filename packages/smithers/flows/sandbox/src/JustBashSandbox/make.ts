@@ -16,6 +16,7 @@ import { sessionSlug } from "../internal/sessionSlug.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { refuseResourceLimits, type ResourceLimits } from "../Sandbox/ResourceLimits.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { JustBashExecOptions, JustBashLike } from "./JustBashLike.ts"
 
@@ -31,6 +32,11 @@ export interface JustBashSandboxOptions {
    * machine with a network it did not ask for.
    */
   readonly network?: NetworkPolicy | undefined
+  /**
+   * Refused: the injected interpreter's execution limits are not visible to this provider. Setting any ceiling makes `make` throw rather than hand
+   * out a machine without it.
+   */
+  readonly limits?: ResourceLimits | undefined
   /** The interpreter that runs every session command. */
   readonly bash: JustBashLike
   /** The filesystem mounted under the interpreter's own filesystem view. */
@@ -99,6 +105,12 @@ const latin1 = (bytes: Uint8Array): string => {
  */
 export const make = (options: JustBashSandboxOptions): Provider => {
   refuseNetworkPolicy("just-bash-sandbox", options.network)
+  refuseResourceLimits(
+    "just-bash-sandbox",
+    options.limits,
+    ["cpus", "memoryMib", "timeoutSecs"],
+    "the injected interpreter's execution limits are not visible to this provider"
+  )
   const root = (options.root ?? "/workspace").replace(/\/+$/, "")
   const gate = Semaphore.makeUnsafe(1)
   return {

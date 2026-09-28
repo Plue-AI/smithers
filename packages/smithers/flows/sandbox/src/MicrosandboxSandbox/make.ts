@@ -24,6 +24,7 @@ import type { ProviderErrorCode } from "../RemoteChildProcessSpawner/ProviderErr
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { type NetworkPolicy as GuestNetworkPolicy, validateNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { type ResourceLimits, validateResourceLimits } from "../Sandbox/ResourceLimits.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import { holderLabel, ownerLabel, providerLabel, providerName } from "./labels.ts"
 import type { NetworkPolicy, Sdk } from "./Sdk.ts"
@@ -116,6 +117,12 @@ export interface MicrosandboxSandboxOptions {
   readonly maxMemoryMib?: number | undefined
   /** Maximum microVM lifetime in seconds. */
   readonly maxDurationSecs?: number | undefined
+  /**
+   * The neutral ceilings: `cpus`, `memoryMib`, and `timeoutSecs` set the
+   * same-named `cpus`, `memoryMib`, and `maxDurationSecs`, each exclusive
+   * with it. A reattached microVM keeps the ceilings it booted with.
+   */
+  readonly limits?: ResourceLimits | undefined
   /** Idle reclamation window in seconds. */
   readonly idleTimeoutSecs?: number | undefined
   /** Guest security profile. */
@@ -225,6 +232,21 @@ const networkLabel = "smithers.network"
 
 /** The builder network a machine boots with: none, a vendor policy, or the vendor's default. */
 type GuestNetwork = "none" | NetworkPolicy | undefined
+
+const withLimits = (options: MicrosandboxSandboxOptions): MicrosandboxSandboxOptions => {
+  if (options.limits === undefined) return options
+  const limits = validateResourceLimits("microsandbox", options.limits)
+  const pairs = [["cpus", "cpus"], ["memoryMib", "memoryMib"], ["timeoutSecs", "maxDurationSecs"]] as const
+  let merged = options
+  for (const [neutral, vendor] of pairs) {
+    if (limits[neutral] === undefined) continue
+    if (options[vendor] !== undefined) {
+      throw new TypeError(`microsandbox: ${vendor} and limits.${neutral} are exclusive; name one`)
+    }
+    merged = { ...merged, [vendor]: limits[neutral] }
+  }
+  return merged
+}
 
 const guestNetwork = (options: MicrosandboxSandboxOptions): GuestNetwork => {
   if (options.network === undefined) return options.networkPolicy
@@ -490,7 +512,8 @@ const requireLocalBackend = (sdk: Sdk): Effect.Effect<void, ProviderError> =>
  * @category constructors
  * @since 0.1.0
  */
-export const make = (options: MicrosandboxSandboxOptions): Provider => {
+export const make = (input: MicrosandboxSandboxOptions): Provider => {
+  const options = withLimits(input)
   const network = guestNetwork(options)
   const ownership: Record<string, string> = {
     [providerLabel]: providerName,

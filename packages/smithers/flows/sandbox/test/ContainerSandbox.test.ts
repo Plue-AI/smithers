@@ -468,6 +468,35 @@ describe("ContainerSandbox", () => {
       expect(exec.map(({ args }) => args[args.indexOf("--workdir") + 1])).toEqual([workdir, `${workdir}/sub`])
     }))
 
+  it.effect("forwards neutral limits to create and fingerprints them", () =>
+    Effect.gen(function*() {
+      const labelOf = (args: ReadonlyArray<string>) => args[args.indexOf("--label") + 1]
+      const unlimited = engine()
+      yield* acquired(ContainerSandbox.make({ spawner: unlimited.spawner, image: "img", workdir }), Effect.succeed)
+      const limited = engine()
+      yield* acquired(
+        ContainerSandbox.make({
+          spawner: limited.spawner,
+          image: "img",
+          workdir,
+          limits: { cpus: 1.5, memoryMib: 512, timeoutSecs: 90 }
+        }),
+        Effect.succeed
+      )
+      const create = limited.calls[0]!.args
+      expect(create.slice(7, 11)).toEqual(["--cpus", "1.5", "--memory", "512m"])
+      expect(create.slice(-3)).toEqual(["img", "sleep", "90"])
+      expect(unlimited.calls[0]!.args).not.toContain("--cpus")
+      expect(labelOf(create)).not.toBe(labelOf(unlimited.calls[0]!.args))
+    }))
+
+  it("refuses a limit that is not a positive number when make is called", () => {
+    const { spawner } = engine()
+    for (const limits of [{ cpus: 0 }, { cpus: Number.NaN }, { memoryMib: 1.5 }, { timeoutSecs: -1 }]) {
+      expect(() => ContainerSandbox.make({ spawner, image: "img", workdir, limits })).toThrow(/limits\./)
+    }
+  })
+
   it.effect("drives the full container lifecycle through the engine CLI", () =>
     Effect.gen(function*() {
       const spaced = join(root, "work dir")

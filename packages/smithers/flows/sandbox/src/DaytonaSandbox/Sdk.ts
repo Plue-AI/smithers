@@ -51,6 +51,8 @@ interface SandboxInstance {
 
 interface CreateInput extends NetworkSettings {
   readonly name?: string | undefined
+  /** Wall-clock lifetime since creation, in minutes; the sandbox is destroyed when it elapses. */
+  readonly ttlMinutes?: number | undefined
 }
 
 /**
@@ -61,7 +63,7 @@ interface CreateInput extends NetworkSettings {
  * transitive dependencies into `@smthrs/sandbox`. The shapes mirror the
  * published `@daytonaio/sdk` 0.207.0 typings: `get`/`create`/`start`/`delete`
  * on the client, `getWorkDir` and `updateNetworkSettings` on the sandbox,
- * `networkBlockAll`/`domainAllowList` on create, `process.executeCommand`
+ * `networkBlockAll`/`domainAllowList`/`ttlMinutes` on create, `process.executeCommand`
  * returning `{ exitCode, result }`, and `fs.downloadFile` (a `Buffer` is a
  * `Uint8Array`) / `fs.uploadFileStream` (whose `UploadSource` accepts a
  * `Uint8Array`) for file transfer.

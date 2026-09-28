@@ -21,6 +21,7 @@ import type { RemoteProcess } from "../RemoteChildProcessSpawner/Provider.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { refuseResourceLimits, type ResourceLimits } from "../Sandbox/ResourceLimits.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { Sdk } from "./Sdk.ts"
 
@@ -37,6 +38,11 @@ export interface CloudflareSandboxOptions<Binding> {
    * machine with a network it did not ask for.
    */
   readonly network?: NetworkPolicy | undefined
+  /**
+   * Refused: the Worker's `containers[].instance_type` sets CPU and memory, and `sleepAfter` is an idle timeout. Setting any ceiling makes `make` throw rather than hand
+   * out a machine without it.
+   */
+  readonly limits?: ResourceLimits | undefined
   readonly sdk: Sdk<Binding>
   readonly binding: Binding
   readonly execution?: "exec" | "process" | undefined
@@ -90,6 +96,12 @@ const processOf = (stdout: string, stderr: string, exitCode: number): RemoteProc
  */
 export const make = <Binding>(options: CloudflareSandboxOptions<Binding>): Provider => {
   refuseNetworkPolicy("cloudflare-sandbox", options.network)
+  refuseResourceLimits(
+    "cloudflare-sandbox",
+    options.limits,
+    ["cpus", "memoryMib", "timeoutSecs"],
+    "the Worker's `containers[].instance_type` sets CPU and memory, and `sleepAfter` is an idle timeout, not a lifetime"
+  )
   const workdir = options.workdir ?? "/workspace"
 
   return {

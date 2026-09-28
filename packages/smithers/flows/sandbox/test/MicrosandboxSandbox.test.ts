@@ -25,6 +25,7 @@ import type { Provider } from "../src/Sandbox/Provider.ts"
 import type { Session } from "../src/Sandbox/Session.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
 import * as SandboxHealth from "../src/SandboxHealth/index.ts"
+import { untouchable } from "./helpers/untouchable.ts"
 
 const encoder = new TextEncoder()
 
@@ -933,6 +934,35 @@ describe("MicrosandboxSandbox", () => {
       expect(fake.recorded.builds[0]?.settings["workdir"]).toBeUndefined()
       expect(fake.recorded.destroys).toHaveLength(2)
     }))
+
+  it.effect("boots under neutral limits as cpus, memory, and max duration", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      yield* Effect.scoped(
+        MicrosandboxSandbox.make({
+          sdk: fake.sdk,
+          workdir: join(root, "limits-ws"),
+          limits: { cpus: 2, memoryMib: 768, timeoutSecs: 300 }
+        }).acquire("limits")
+      )
+      expect(fake.recorded.builds[0]?.settings).toMatchObject({ cpus: 2, memory: 768, maxDuration: 300 })
+    }))
+
+  it("refuses a neutral limit beside its vendor-named option", () => {
+    const deps = untouchable<never>()
+    for (
+      const [vendor, neutral, options] of [
+        ["cpus", "cpus", { cpus: 1, limits: { cpus: 2 } }],
+        ["memoryMib", "memoryMib", { memoryMib: 512, limits: { memoryMib: 512 } }],
+        ["maxDurationSecs", "timeoutSecs", { maxDurationSecs: 60, limits: { timeoutSecs: 60 } }]
+      ] as const
+    ) {
+      expect(() => MicrosandboxSandbox.make({ sdk: deps.value, ...options }))
+        .toThrow(`microsandbox: ${vendor} and limits.${neutral} are exclusive`)
+    }
+    expect(() => MicrosandboxSandbox.make({ sdk: deps.value, limits: { memoryMib: 0.5 } })).toThrow(/positive integer/)
+    expect(deps.touched).toEqual([])
+  })
 
   it.effect("applies a network policy and a root disk to an image boot, and keeps a snapshot's own disk", () =>
     Effect.gen(function*() {

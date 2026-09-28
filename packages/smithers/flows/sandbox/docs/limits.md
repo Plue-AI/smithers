@@ -46,7 +46,8 @@ support these operations.
 
 ## Read next
 
-- [What a sandbox does and does not prevent](./concepts/isolation.md): the
-  package adds no resource ceiling of its own beyond the two bounds above.
+- [Resource limits](./concepts/isolation.md#resource-limits): the neutral
+  `limits: { cpus, memoryMib, timeoutSecs }` machine ceilings each provider
+  enforces or refuses.
 - [How a remote command differs from a local one](./concepts/remote-commands.md):
   why standard input crosses whole rather than as a pipe.

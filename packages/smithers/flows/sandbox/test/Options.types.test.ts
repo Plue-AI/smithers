@@ -60,6 +60,22 @@ expectTypeOf<KubernetesSandbox.KubernetesSandboxOptions["network"]>()
 expectTypeOf<MicrosandboxSandbox.MicrosandboxSandboxOptions["network"]>()
   .toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
 expectTypeOf<VercelSandbox.VercelSandboxOptions["network"]>().toEqualTypeOf<Sandbox.NetworkPolicy | undefined>()
+// Every provider takes the neutral resource limits, and forwards or refuses each.
+type Limits = Sandbox.ResourceLimits | undefined
+expectTypeOf<AwsSandbox.AwsSandboxCommonOptions["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<CloudflareSandbox.CloudflareSandboxOptions<Binding>["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<ContainerSandbox.ContainerSandboxOptions["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<DaytonaSandbox.DaytonaSandboxOptions["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<DirectorySandbox.DirectorySandboxOptions["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<JustBashSandbox.JustBashSandboxOptions["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<KubernetesSandbox.KubernetesSandboxOptions["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<MicrosandboxSandbox.MicrosandboxSandboxOptions["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<VercelSandbox.VercelSandboxOptions["limits"]>().toEqualTypeOf<Limits>()
+expectTypeOf<Sandbox.ResourceLimits>().toEqualTypeOf<{
+  readonly cpus?: number | undefined
+  readonly memoryMib?: number | undefined
+  readonly timeoutSecs?: number | undefined
+}>()
 // The two doubles default their argument, so the parameter itself is the
 // options type or nothing. `NonNullable` names the half a consumer writes.
 expectTypeOf<NonNullable<Parameters<typeof Sandbox.TestSession.make>[0]>>()

@@ -297,6 +297,22 @@ const output = (
   })
 
 describe("CloudflareSandbox", () => {
+  it("refuses every resource limit at construction, before touching its dependencies", () => {
+    const deps = untouchable<never>()
+    for (
+      const [field, limits] of [
+        ["cpus", { cpus: 1 }],
+        ["memoryMib", { memoryMib: 512 }],
+        ["timeoutSecs", { timeoutSecs: 60 }]
+      ] as const
+    ) {
+      expect(() => CloudflareSandbox.make({ sdk: deps.value, binding: deps.value, limits }))
+        .toThrow(`cloudflare-sandbox: cannot enforce limits.${field}`)
+    }
+    expect(() => CloudflareSandbox.make({ sdk: deps.value, binding: deps.value, limits: {} })).not.toThrow()
+    expect(deps.touched).toEqual([])
+  })
+
   it("refuses every network policy at construction, before touching its dependencies", () => {
     const deps = untouchable<never>()
     for (const network of ["none", { allow: ["example.com"] }] as const) {

@@ -19,6 +19,7 @@ import type { RemoteProcess } from "../RemoteChildProcessSpawner/Provider.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { type NetworkPolicy, refuseNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { refuseResourceLimits, type ResourceLimits } from "../Sandbox/ResourceLimits.ts"
 import type { Session } from "../Sandbox/Session.ts"
 
 /**
@@ -37,6 +38,11 @@ export interface DirectorySandboxOptions {
    * machine with a network it did not ask for.
    */
   readonly network?: NetworkPolicy | undefined
+  /**
+   * Refused: commands run as host processes. Setting any ceiling makes `make` throw rather than hand
+   * out a machine without it.
+   */
+  readonly limits?: ResourceLimits | undefined
   /** The host filesystem the scratch directories live on. */
   readonly fs: FileSystem.FileSystem
   /** A host spawner with a platform lifecycle; raw and deadline-only spawners are refused. */
@@ -72,6 +78,12 @@ const failure = providerFailure
  */
 export const make = (options: DirectorySandboxOptions): Provider => {
   refuseNetworkPolicy("directory-sandbox", options.network)
+  refuseResourceLimits(
+    "directory-sandbox",
+    options.limits,
+    ["cpus", "memoryMib", "timeoutSecs"],
+    "commands run as host processes under no provider-owned ceiling"
+  )
   return {
     acquire: (sessionKey) =>
       Effect.gen(function*() {

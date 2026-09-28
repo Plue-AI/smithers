@@ -21,6 +21,7 @@ import { warnTeardown } from "../internal/teardownWarning.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { type NetworkPolicy, validateNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { refuseResourceLimits, type ResourceLimits } from "../Sandbox/ResourceLimits.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { Sdk } from "./Sdk.ts"
 
@@ -38,6 +39,14 @@ export interface DaytonaSandboxOptions {
    * guest command. Default: Daytona's own network.
    */
   readonly network?: NetworkPolicy | undefined
+  /**
+   * The sandbox's ceilings. `timeoutSecs`, a whole number of minutes, is
+   * `ttlMinutes`: Daytona destroys the sandbox that long after creating it,
+   * and a reattached sandbox keeps the lifetime it was created with.
+   * `cpus` and `memoryMib` are refused: Daytona sizes only an image-built
+   * sandbox, and this provider creates from the default snapshot.
+   */
+  readonly limits?: ResourceLimits | undefined
   /** A configured `Daytona` client instance. */
   readonly sdk: Sdk
   /** An explicit absolute guest workspace, otherwise `getWorkDir()` is used. */
@@ -117,6 +126,16 @@ const networkSettings = (network: NetworkPolicy | undefined) => {
  */
 export const make = (options: DaytonaSandboxOptions): Provider => {
   const network = networkSettings(options.network)
+  const limits = refuseResourceLimits(
+    "daytona-sandbox",
+    options.limits,
+    ["cpus", "memoryMib"],
+    "Daytona sizes only an image-built sandbox, and this provider creates from the default snapshot"
+  )
+  if (limits?.timeoutSecs !== undefined && limits.timeoutSecs % 60 !== 0) {
+    throw new TypeError("daytona-sandbox: limits.timeoutSecs must be whole minutes; Daytona counts ttlMinutes")
+  }
+  const lifetime = limits?.timeoutSecs === undefined ? {} : { ttlMinutes: limits.timeoutSecs / 60 }
   return {
     acquire: (sessionKey) =>
       Effect.gen(function*() {
@@ -136,7 +155,7 @@ export const make = (options: DaytonaSandboxOptions): Provider => {
                 return { sandbox: await options.sdk.get(name), attached: true }
               } catch (cause) {
                 if (!missingSandbox(cause)) throw cause
-                return { sandbox: await options.sdk.create({ name, ...network }), attached: false }
+                return { sandbox: await options.sdk.create({ name, ...network, ...lifetime }), attached: false }
               }
             },
             catch: providerFailure("unavailable", `daytona-sandbox: could not acquire ${name}`)

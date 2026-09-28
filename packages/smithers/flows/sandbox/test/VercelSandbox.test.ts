@@ -138,7 +138,7 @@ interface Recorded {
 
 const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: Recorded } => {
   const recorded: Recorded = { acquired: [], commands: [], extended: [], updates: [], stopped: [], writes: [] }
-  const machines = new Map<string, { readonly name: string; running: boolean }>()
+  const machines = new Map<string, { readonly name: string; running: boolean; readonly vcpus?: number }>()
   const finished = (result: FinishedRun): CommandFinished => ({
     exitCode: result.exitCode,
     stdout: () =>
@@ -149,8 +149,9 @@ const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: R
   // Relative paths resolve the way the vendor documents them: "Defaults to
   // writing to /vercel/sandbox unless an absolute path is specified."
   const resolve = (path: string): string => isAbsolute(path) ? path : join(home, path)
-  const instance = (machine: { readonly name: string; running: boolean }): VendorSandbox => ({
+  const instance = (machine: { readonly name: string; running: boolean; readonly vcpus?: number }): VendorSandbox => ({
     name: machine.name,
+    vcpus: machine.vcpus,
     runCommand: async (request) => {
       recorded.commands.push(request)
       if (request.cmd === "rm" && faults.removeWait !== undefined) await Effect.runPromise(faults.removeWait)
@@ -210,15 +211,17 @@ const fakeSdk = (faults: Faults = {}): { readonly sdk: Sdk; readonly recorded: R
   // The vendor's documented `getOrCreate` flow: try `get` first, and on
   // not_found create a sandbox with that name (sandbox.d.ts).
   const get = (name: string) => machines.get(name)
-  const create = (name: string) => {
-    const machine = { name, running: true }
+  // "Your sandbox will get the amount of vCPUs you specify here" (sandbox.d.ts);
+  // a sandbox created without `resources` gets the vendor default of 2.
+  const create = (name: string, vcpus = 2) => {
+    const machine = { name, running: true, vcpus }
     machines.set(name, machine)
     return machine
   }
   const getOrCreate: Sdk["Sandbox"]["getOrCreate"] = async (input) => {
     recorded.acquired.push(input)
     if (faults.acquireFailure !== undefined) throw faults.acquireFailure
-    const machine = get(input.name) ?? create(input.name)
+    const machine = get(input.name) ?? create(input.name, input.resources?.vcpus)
     if (input.resume === true) machine.running = true
     return instance(machine)
   }
@@ -269,6 +272,37 @@ describe("VercelSandbox", () => {
       ])
       expect(recorded.commands.map((command) => command.cmd)).toEqual(["mkdir", "mkdir"])
     }))
+
+  it.effect("forwards neutral limits as vcpus and lifetime, and refuses a resumed sandbox of another size", () =>
+    Effect.gen(function*() {
+      const { sdk, recorded } = fakeSdk()
+      const workdir = dir("limits")
+      yield* acquired(
+        VercelSandbox.make({ sdk, workdir, limits: { cpus: 4, memoryMib: 8192, timeoutSecs: 900 } }),
+        () => Effect.void
+      )
+      expect(recorded.acquired[0]).toMatchObject({ resources: { vcpus: 4 }, timeout: 5 * 60_000 })
+      expect(recorded.extended).toEqual([10 * 60_000])
+      const resized = yield* Effect.flip(
+        acquired(VercelSandbox.make({ sdk, workdir, limits: { memoryMib: 4096 } }), () => Effect.void)
+      )
+      expect(recorded.acquired[1]?.resources).toEqual({ vcpus: 2 })
+      expect(resized.code).toBe("unavailable")
+      expect(resized.message).toContain("holds 4 vCPU, not the requested 2")
+      expect(recorded.commands.map((command) => command.cmd)).toEqual(["mkdir"])
+      expect(recorded.stopped).toHaveLength(2)
+      yield* acquired(VercelSandbox.make({ sdk, workdir: dir("unlimited") }), () => Effect.void)
+      expect(recorded.acquired[2]).not.toHaveProperty("resources")
+    }))
+
+  it("refuses limits Vercel cannot enforce when make is called", () => {
+    const { sdk } = fakeSdk()
+    expect(() => VercelSandbox.make({ sdk, limits: { cpus: 1.5 } })).toThrow(/limits\.cpus.*whole vCPUs/)
+    expect(() => VercelSandbox.make({ sdk, limits: { memoryMib: 3000 } })).toThrow(/limits\.memoryMib.*whole vCPUs/)
+    expect(() => VercelSandbox.make({ sdk, limits: { cpus: 2, memoryMib: 2048 } })).toThrow(/2 vCPU at 4096 MiB/)
+    expect(() => VercelSandbox.make({ sdk, limits: { timeoutSecs: 60 }, timeoutMs: 60_000 })).toThrow(/exclusive/)
+    expect(() => VercelSandbox.make({ sdk, limits: { cpus: 0 } })).toThrow(/positive/)
+  })
 
   it.effect("maps `none` to deny-all and sends no policy when the option is omitted", () =>
     Effect.gen(function*() {

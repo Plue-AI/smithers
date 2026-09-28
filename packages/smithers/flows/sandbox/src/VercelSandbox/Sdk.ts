@@ -14,6 +14,8 @@ interface CommandFinished {
 
 interface SandboxInstance {
   readonly name: string
+  /** The vCPUs the running sandbox holds, when the SDK reports them. */
+  readonly vcpus?: number | undefined
   runCommand(params: {
     readonly cmd: string
     readonly args?: Array<string> | undefined
@@ -33,6 +35,7 @@ type GetOrCreateInput = {
   readonly name: string
   readonly networkPolicy?: VendorNetworkPolicy | undefined
   readonly timeout?: number | undefined
+  readonly resources?: { readonly vcpus: number } | undefined
   readonly runtime?: string | undefined
   readonly persistent?: boolean | undefined
   readonly resume?: boolean | undefined
@@ -49,7 +52,8 @@ type GetOrCreateInput = {
  * mirror the published `@vercel/sandbox` 3.2.1 typings: `getOrCreate`
  * resumes a named sandbox or creates it, `runCommand` resolves once the
  * command finishes and exposes its output as strings, `readFile` answers
- * `null` for an absent path, `update` replaces a sandbox's network policy
+ * `null` for an absent path, `resources.vcpus` sizes a created sandbox at
+ * 2048 MB of memory per vCPU and `vcpus` reports it, `update` replaces a sandbox's network policy
  * (`getOrCreate` applies one only when it creates), and `RunCommandParams`
  * carries no standard
  * input channel — which is why the provider stages `stdin` as a workspace

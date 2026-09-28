@@ -20,6 +20,7 @@ import { warnTeardown } from "../internal/teardownWarning.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { type NetworkPolicy, validateNetworkPolicy } from "../Sandbox/NetworkPolicy.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
+import { type ResourceLimits, validateResourceLimits } from "../Sandbox/ResourceLimits.ts"
 import type { Session } from "../Sandbox/Session.ts"
 import type { Credentials } from "./Credentials.ts"
 import type { Sdk } from "./Sdk.ts"
@@ -52,6 +53,14 @@ export interface VercelSandboxOptions extends Credentials {
    * full internet access.
    */
   readonly network?: NetworkPolicy | undefined
+  /**
+   * The sandbox's ceilings. `cpus` is `resources.vcpus`, a whole count;
+   * Vercel fixes memory at 2048 MiB per vCPU, so `memoryMib` must be that
+   * product, and alone it sizes the vCPUs. `timeoutSecs` is the lifetime
+   * `timeoutMs` otherwise sets, and is exclusive with it. A resumed sandbox
+   * holding another vCPU count is refused rather than used.
+   */
+  readonly limits?: ResourceLimits | undefined
 }
 
 type VendorSandbox = Awaited<ReturnType<Sdk["Sandbox"]["getOrCreate"]>>
@@ -84,6 +93,26 @@ const decodeFile = async (
 // allowlist says it outright.
 const vendorPolicy = (policy: NetworkPolicy): "deny-all" | { allow: Array<string> } =>
   policy === "none" || policy.allow.length === 0 ? "deny-all" : { allow: [...policy.allow] }
+
+const memoryPerVcpuMib = 2048
+
+const vcpusOf = (limits: ResourceLimits): number | undefined => {
+  const vcpus = limits.cpus ?? (limits.memoryMib === undefined ? undefined : limits.memoryMib / memoryPerVcpuMib)
+  if (vcpus === undefined) return undefined
+  if (!Number.isInteger(vcpus)) {
+    throw new TypeError(
+      `vercel-sandbox: cannot enforce limits.${limits.cpus === undefined ? "memoryMib" : "cpus"}; ` +
+        `Vercel allocates whole vCPUs at ${memoryPerVcpuMib} MiB each`
+    )
+  }
+  if (limits.memoryMib !== undefined && limits.memoryMib !== vcpus * memoryPerVcpuMib) {
+    throw new TypeError(
+      `vercel-sandbox: cannot enforce limits.memoryMib ${limits.memoryMib}; ` +
+        `Vercel fixes ${vcpus} vCPU at ${vcpus * memoryPerVcpuMib} MiB`
+    )
+  }
+  return vcpus
+}
 
 const resolveCredentials = (
   input: Credentials,
@@ -141,10 +170,16 @@ export const make = (options: VercelSandboxOptions): Provider => {
   const networkPolicy = options.network === undefined
     ? undefined
     : vendorPolicy(validateNetworkPolicy("vercel-sandbox", options.network))
+  const limits = options.limits === undefined ? {} : validateResourceLimits("vercel-sandbox", options.limits)
+  if (limits.timeoutSecs !== undefined && options.timeoutMs !== undefined) {
+    throw new TypeError("vercel-sandbox: timeoutMs and limits.timeoutSecs are exclusive; name one")
+  }
+  const vcpus = vcpusOf(limits)
   return {
     acquire: (sessionKey) =>
       Effect.gen(function*() {
-        const desiredMs = options.timeoutMs ?? createCeilingMillis
+        const desiredMs = options.timeoutMs ??
+          (limits.timeoutSecs === undefined ? createCeilingMillis : limits.timeoutSecs * 1000)
         if (!Number.isFinite(desiredMs) || desiredMs <= 0) {
           return yield* Effect.fail(
             new ProviderError({
@@ -181,6 +216,7 @@ export const make = (options: VercelSandboxOptions): Provider => {
                 persistent: true,
                 resume: true,
                 ...options.runtime === undefined ? {} : { runtime: options.runtime },
+                ...vcpus === undefined ? {} : { resources: { vcpus } },
                 ...networkPolicy === undefined ? {} : { networkPolicy }
               }),
             "unavailable",
@@ -196,6 +232,16 @@ export const make = (options: VercelSandboxOptions): Provider => {
               `vercel sandbox ${name}`
             )
         )
+        // `getOrCreate` sizes only a sandbox it creates; a resumed one keeps
+        // the vCPUs it was made with, which is not the ceiling asked for.
+        if (vcpus !== undefined && sandbox.vcpus !== undefined && sandbox.vcpus !== vcpus) {
+          return yield* Effect.fail(
+            new ProviderError({
+              code: "unavailable",
+              message: `vercel-sandbox: ${name} holds ${sandbox.vcpus} vCPU, not the requested ${vcpus}`
+            })
+          )
+        }
         // `getOrCreate` applies a policy only when it creates; a resumed
         // sandbox keeps its own until updated, so the policy is set again
         // before any guest command runs.
