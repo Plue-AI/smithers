@@ -110,6 +110,16 @@ const defaultText = (node: ts.Node): string | undefined => {
  * boolean is nothing this printer will guess at.
  */
 type Kind = "string" | "number" | "array" | "other"
+type DefaultKind = "string" | "number" | "boolean" | "null" | "array" | "object"
+
+// Categories whose literal defaults decode unchanged, without evaluating checks.
+const defaultKind = (text: string): DefaultKind => {
+  if (text === "[]") return "array"
+  if (text === "{}") return "object"
+  if (text === "null") return "null"
+  if (text === "true" || text === "false") return "boolean"
+  return text.startsWith("\"") ? "string" : "number"
+}
 
 interface Converted {
   readonly text: string
@@ -118,15 +128,40 @@ interface Converted {
   readonly decodingDefault: string | undefined
   readonly optional: boolean
   readonly description: string | undefined
+  readonly defaultKinds: ReadonlyArray<DefaultKind>
+  readonly defaultLiterals: ReadonlyArray<string>
+  /** False when Zod also permits an absent encoded output, as unknown/any do. */
+  readonly defaultRequiresKey: boolean
 }
 
-const plain = (text: string, kind: Kind = "other"): Converted => ({
+const plain = (
+  text: string,
+  kind: Kind = "other",
+  defaultKinds: ReadonlyArray<DefaultKind> = [],
+  defaultLiterals: ReadonlyArray<string> = [],
+  defaultRequiresKey = true
+): Converted => ({
   text,
   kind,
   decodingDefault: undefined,
   optional: false,
-  description: undefined
+  description: undefined,
+  defaultKinds,
+  defaultLiterals,
+  defaultRequiresKey
 })
+
+/** One field spelling shared by object schemas and standalone payload fields. */
+const field = (value: Converted): string => {
+  let text = value.text
+  if (value.description !== undefined) text = `${text}.annotate({ description: ${value.description} })`
+  if (value.decodingDefault !== undefined) {
+    // The supplied value still passes the source schema. The admitted default
+    // is guaranteed to pass unchanged; encoding requires a present output key.
+    return `${text}.pipe((schema) => Schema.optional(schema).pipe(Schema.decodeTo(schema, { decode: SchemaGetter.withDefault(Effect.succeed(schema.make(${value.decodingDefault}))), encode: SchemaGetter.required() })))`
+  }
+  return value.optional ? `Schema.optional(${text})` : text
+}
 
 /**
  * A child schema as it can appear inside an array, a union, or a record.
@@ -155,21 +190,21 @@ const convert = (node: ts.Expression): Converted | undefined => {
     if (ts.isIdentifier(receiver) && receiver.text === "z") {
       switch (method) {
         case "string":
-          return plain("Schema.String", "string")
+          return plain("Schema.String", "string", ["string"])
         case "number":
-          return plain("Schema.Number", "number")
+          return plain("Schema.Number", "number", ["number"])
         case "boolean":
-          return plain("Schema.Boolean")
+          return plain("Schema.Boolean", "other", ["boolean"])
         case "int":
           return plain("Schema.Int", "number")
         case "unknown":
         case "any":
-          return plain("Schema.Unknown")
+          return plain("Schema.Unknown", "other", [], [], false)
         case "array": {
           const element = args[0] === undefined ? undefined : convert(args[0])
           const printed = element === undefined ? undefined : nested(element)
           if (printed === undefined) return undefined
-          return plain(`Schema.Array(${printed})`, "array")
+          return plain(`Schema.Array(${printed})`, "array", ["array"])
         }
         case "record": {
           // `z.record(value)` keys by string; `z.record(key, value)` keys by
@@ -177,7 +212,7 @@ const convert = (node: ts.Expression): Converted | undefined => {
           // `Schema.Record` key with the same meaning.
           const key = args.length === 2
             ? (args[0] === undefined ? undefined : convert(args[0]))
-            : plain("Schema.String", "string")
+            : plain("Schema.String", "string", ["string"])
           const value = args.length === 2
             ? (args[1] === undefined ? undefined : convert(args[1]))
             : args[0] === undefined
@@ -186,34 +221,42 @@ const convert = (node: ts.Expression): Converted | undefined => {
           const keyText = key === undefined ? undefined : recordKey(key)
           const valueText = value === undefined ? undefined : nested(value)
           if (keyText === undefined || valueText === undefined) return undefined
-          return plain(`Schema.Record(${keyText}, ${valueText})`)
+          return plain(`Schema.Record(${keyText}, ${valueText})`, "other", key?.kind === "string" ? ["object"] : [])
         }
         case "literal": {
           const literal = args[0] === undefined ? undefined : literalText(args[0])
           if (literal === undefined) return undefined
-          return plain(`Schema.Literal(${literal})`)
+          return plain(`Schema.Literal(${literal})`, "other", [], [literal])
         }
         case "enum": {
           const values = args[0]
           if (values === undefined || !ts.isArrayLiteralExpression(values)) return undefined
           const members = values.elements.map(literalText)
           if (members.some((member) => member === undefined)) return undefined
-          return plain(`Schema.Literals([${members.join(", ")}])`)
+          return plain(
+            `Schema.Literals([${members.join(", ")}])`,
+            "other",
+            [],
+            members.filter((member) => member !== undefined)
+          )
         }
         case "union": {
           const values = args[0]
           if (values === undefined || !ts.isArrayLiteralExpression(values)) return undefined
+          let defaultRequiresKey = true
           const members = values.elements.map((element) => {
             const converted = convert(element)
+            if (converted?.defaultRequiresKey === false) defaultRequiresKey = false
             return converted === undefined ? undefined : nested(converted)
           })
           if (members.some((member) => member === undefined)) return undefined
-          return plain(`Schema.Union([${members.join(", ")}])`)
+          return plain(`Schema.Union([${members.join(", ")}])`, "other", [], [], defaultRequiresKey)
         }
         case "object": {
           const shape = args[0]
           if (shape === undefined || !ts.isObjectLiteralExpression(shape)) return undefined
           const fields: Array<string> = []
+          let emptyDefault = true
           for (const property of shape.properties) {
             if (!ts.isPropertyAssignment(property)) return undefined
             const key = ts.isIdentifier(property.name)
@@ -224,16 +267,10 @@ const convert = (node: ts.Expression): Converted | undefined => {
             if (key === undefined) return undefined
             const value = convert(property.initializer)
             if (value === undefined) return undefined
-            let text = value.text
-            if (value.description !== undefined) text = `${text}.annotate({ description: ${value.description} })`
-            if (value.decodingDefault !== undefined) {
-              text = `${text}.pipe(Schema.withDecodingDefaultKey(Effect.succeed(${value.decodingDefault})))`
-            } else if (value.optional) {
-              text = `Schema.optional(${text})`
-            }
-            fields.push(`  ${/^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key)}: ${text}`)
+            if (!value.optional || value.decodingDefault !== undefined) emptyDefault = false
+            fields.push(`  ${/^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key)}: ${field(value)}`)
           }
-          return plain(`Schema.Struct({\n${fields.join(",\n")}\n})`)
+          return plain(`Schema.Struct({\n${fields.join(",\n")}\n})`, "other", emptyDefault ? ["object"] : [])
         }
         default:
           return undefined
@@ -245,14 +282,24 @@ const convert = (node: ts.Expression): Converted | undefined => {
     if (inner === undefined) return undefined
     switch (method) {
       case "optional":
-        return { ...inner, optional: true }
+        return inner.decodingDefault === undefined ? { ...inner, optional: true } : undefined
       case "nullable":
-        return { ...inner, text: `Schema.NullOr(${inner.text})` }
+        return { ...inner, text: `Schema.NullOr(${inner.text})`, defaultKinds: [...inner.defaultKinds, "null"] }
       case "nullish":
-        return { ...inner, text: `Schema.NullOr(${inner.text})`, optional: true }
+        return inner.decodingDefault === undefined
+          ? {
+            ...inner,
+            text: `Schema.NullOr(${inner.text})`,
+            optional: true,
+            defaultKinds: [...inner.defaultKinds, "null"]
+          }
+          : undefined
       case "default": {
         const value = args[0] === undefined ? undefined : defaultText(args[0])
-        if (value === undefined) return undefined
+        if (value === undefined || inner.optional || !inner.defaultRequiresKey) return undefined
+        const kind = defaultKind(value)
+        if (kind === "number" && !Number.isFinite(Number(value))) return undefined
+        if (!inner.defaultKinds.includes(kind) && !inner.defaultLiterals.includes(value)) return undefined
         return { ...inner, decodingDefault: value }
       }
       case "describe": {
@@ -261,19 +308,38 @@ const convert = (node: ts.Expression): Converted | undefined => {
         return { ...inner, description: value }
       }
       case "int":
+        if (inner.decodingDefault !== undefined) return undefined
         return inner.kind === "number"
-          ? { ...inner, text: `${inner.text}.pipe(Schema.check(Schema.isInt()))` }
+          ? {
+            ...inner,
+            text: `${inner.text}.pipe(Schema.check(Schema.isInt()))`,
+            defaultKinds: [],
+            defaultLiterals: []
+          }
           : undefined
       case "nonnegative":
+        if (inner.decodingDefault !== undefined) return undefined
         return inner.kind === "number"
-          ? { ...inner, text: `${inner.text}.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))` }
+          ? {
+            ...inner,
+            text: `${inner.text}.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))`,
+            defaultKinds: [],
+            defaultLiterals: []
+          }
           : undefined
       case "positive":
+        if (inner.decodingDefault !== undefined) return undefined
         return inner.kind === "number"
-          ? { ...inner, text: `${inner.text}.pipe(Schema.check(Schema.isGreaterThan(0)))` }
+          ? {
+            ...inner,
+            text: `${inner.text}.pipe(Schema.check(Schema.isGreaterThan(0)))`,
+            defaultKinds: [],
+            defaultLiterals: []
+          }
           : undefined
       case "min":
       case "max": {
+        if (inner.decodingDefault !== undefined) return undefined
         const value = args[0] === undefined ? undefined : literalText(args[0])
         if (value === undefined) return undefined
         // By what the receiver is, not by what its text happens to contain: a
@@ -285,7 +351,12 @@ const convert = (node: ts.Expression): Converted | undefined => {
           ? method === "min" ? "isGreaterThanOrEqualTo" : "isLessThanOrEqualTo"
           : undefined
         if (check === undefined) return undefined
-        return { ...inner, text: `${inner.text}.pipe(Schema.check(Schema.${check}(${value})))` }
+        return {
+          ...inner,
+          text: `${inner.text}.pipe(Schema.check(Schema.${check}(${value})))`,
+          defaultKinds: [],
+          defaultLiterals: []
+        }
       }
       default:
         return undefined
@@ -299,7 +370,8 @@ const convert = (node: ts.Expression): Converted | undefined => {
  * outside the safe subset.
  *
  * The printed text needs `Schema` from `effect/Schema` and, when a field has a
- * default, `Effect` from `effect/Effect` in scope.
+ * default, `Effect` from `effect/Effect` and `SchemaGetter` from
+ * `effect/SchemaGetter` in scope.
  *
  * @category combinators
  * @since 1.0.0-rc.0
@@ -337,14 +409,7 @@ const parse = (chain: string, parser: typeof Ts.parse): Converted | undefined =>
 export const printField = (chain: string, parser: typeof Ts.parse = Ts.parse): string | undefined => {
   const value = parse(chain, parser)
   if (value === undefined) return undefined
-  let text = value.text
-  if (value.description !== undefined) text = `${text}.annotate({ description: ${value.description} })`
-  if (value.decodingDefault !== undefined) {
-    text = `${text}.pipe(Schema.withDecodingDefaultKey(Effect.succeed(${value.decodingDefault})))`
-  } else if (value.optional) {
-    text = `Schema.optional(${text})`
-  }
-  return text
+  return field(value)
 }
 
 /**

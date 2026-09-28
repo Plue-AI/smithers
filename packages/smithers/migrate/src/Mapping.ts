@@ -467,7 +467,7 @@ const table: ReadonlyArray<MappingRow> = [
     "zod",
     "effect/Schema",
     "effect/Schema",
-    "The safe subset converts deterministically; `.passthrough()`, `.refine()`, `.transform()`, `z.discriminatedUnion`, `z.lazy`, and custom error maps are guided.",
+    "The safe subset converts deterministically. Default-field snippets also require Effect from effect/Effect and SchemaGetter from effect/SchemaGetter. Defaults combined with optional/nullish fields, unknown/any schemas, or constrained fallback domains are guided; so are `.passthrough()`, `.refine()`, `.transform()`, `z.discriminatedUnion`, `z.lazy`, and custom error maps.",
     "automatic"
   ),
   row(

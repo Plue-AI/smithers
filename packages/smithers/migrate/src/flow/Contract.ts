@@ -96,6 +96,7 @@ A workflow is a \`Flow\`. A step is an \`Action\`. A model-backed step is an
 - A seat is a string the host's \`SeatResolver\` turns into a model. A
   declaration carries no API key, no endpoint, and no client.
 - Schemas are \`effect/Schema\`, never \`zod\`.
+- A translated default field using \`SchemaGetter\` requires \`import * as SchemaGetter from "effect/SchemaGetter"\`; retain its required-output encoding check.
 
 ## Layout
 

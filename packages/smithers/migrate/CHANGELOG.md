@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- Preserve missing and explicit-undefined decoding defaults, required output
+  keys during encoding, and decoded types for supported Zod fields. Generated
+  default fields also require `SchemaGetter` from `effect/SchemaGetter`.
+  Default combinations whose bypass, presence, or type semantics cannot be
+  preserved are guided instead of silently rewritten: optional/nullish chains,
+  checked fallback domains, unknown/any defaults, and incompatible literal or
+  required-object defaults.
+
 - Leave dependency versions with unsafe numeric core components unresolved
   instead of classifying rounded major, minor, or patch values.
 - Compare numeric prerelease identifiers exactly, including values beyond

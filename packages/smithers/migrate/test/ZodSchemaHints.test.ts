@@ -1,17 +1,19 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as SchemaGetter from "effect/SchemaGetter"
 import * as Detect from "../src/Detect.ts"
 import * as ZodSchemaHints from "../src/ZodSchemaHints.ts"
 import { copyFixture, nodeLayer } from "./fixtures/helpers.ts"
 
 /** Evaluates printed schema text the way the migrated file will. */
 const evaluate = (text: string): Schema.Top => {
-  const build = new Function("Schema", "Effect", `return (${text})`) as (
+  const build = new Function("Schema", "Effect", "SchemaGetter", `return (${text})`) as (
     schema: typeof Schema,
-    effect: typeof Effect
+    effect: typeof Effect,
+    getter: typeof SchemaGetter
   ) => Schema.Top
-  return build(Schema, Effect)
+  return build(Schema, Effect, SchemaGetter)
 }
 
 const decodes = (text: string, input: unknown): unknown => Schema.decodeUnknownSync(evaluate(text) as never)(input)
@@ -68,7 +70,7 @@ describe("ZodSchemaHints.print over the safe subset", () => {
     {
       chain: "z.object({ items: z.array(z.string()).default([]) })",
       text:
-        "Schema.Struct({\n  items: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])))\n})",
+        "Schema.Struct({\n  items: Schema.Array(Schema.String).pipe((schema) => Schema.optional(schema).pipe(Schema.decodeTo(schema, { decode: SchemaGetter.withDefault(Effect.succeed(schema.make([]))), encode: SchemaGetter.required() })))\n})",
       input: {},
       output: { items: [] }
     },
@@ -195,7 +197,9 @@ describe("ZodSchemaHints.print refuses what it cannot translate faithfully", () 
   it("prints a top-level optional, default, or description as the field it is", () => {
     expect(ZodSchemaHints.printField("z.string().optional()")).toBe("Schema.optional(Schema.String)")
     expect(ZodSchemaHints.printField("z.number().default(3)"))
-      .toBe("Schema.Number.pipe(Schema.withDecodingDefaultKey(Effect.succeed(3)))")
+      .toBe(
+        "Schema.Number.pipe((schema) => Schema.optional(schema).pipe(Schema.decodeTo(schema, { decode: SchemaGetter.withDefault(Effect.succeed(schema.make(3))), encode: SchemaGetter.required() })))"
+      )
     expect(ZodSchemaHints.printField("z.string().describe(\"d\").optional()"))
       .toBe("Schema.optional(Schema.String.annotate({ description: \"d\" }))")
     expect(ZodSchemaHints.printField("z.string()")).toBe("Schema.String")
@@ -239,6 +243,6 @@ describe("ZodSchemaHints.hints", () => {
 
       const implement = found.find((hint) => hint.name === "implementOutputSchema")
       expect(implement?.class).toBe("automatic")
-      expect(implement?.schema).toContain("Schema.withDecodingDefaultKey")
+      expect(implement?.schema).toContain("SchemaGetter.withDefault")
     }).pipe(Effect.provide(nodeLayer)))
 })

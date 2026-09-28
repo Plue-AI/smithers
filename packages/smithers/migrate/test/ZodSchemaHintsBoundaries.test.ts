@@ -1,14 +1,16 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as SchemaGetter from "effect/SchemaGetter"
 import * as ZodSchemaHints from "../src/ZodSchemaHints.ts"
 
 const decode = (text: string, input: unknown): unknown => {
-  const build = new Function("Schema", "Effect", `return (${text})`) as (
+  const build = new Function("Schema", "Effect", "SchemaGetter", `return (${text})`) as (
     schema: typeof Schema,
-    effect: typeof Effect
+    effect: typeof Effect,
+    getter: typeof SchemaGetter
   ) => Schema.Top
-  return Schema.decodeUnknownSync(build(Schema, Effect) as never)(input)
+  return Schema.decodeUnknownSync(build(Schema, Effect, SchemaGetter) as never)(input)
 }
 
 describe("safe schema source boundaries", () => {
@@ -54,7 +56,7 @@ describe("safe schema source boundaries", () => {
     it(`applies ${example.field} only to a missing field`, () => {
       const chain = `z.object({ value: ${example.field} })`
       const text =
-        `Schema.Struct({\n  value: ${example.text}.pipe(Schema.withDecodingDefaultKey(Effect.succeed(${example.value})))\n})`
+        `Schema.Struct({\n  value: ${example.text}.pipe((schema) => Schema.optional(schema).pipe(Schema.decodeTo(schema, { decode: SchemaGetter.withDefault(Effect.succeed(schema.make(${example.value}))), encode: SchemaGetter.required() })))\n})`
       expect(ZodSchemaHints.print(chain)).toBe(text)
       expect(decode(text, {})).toEqual({ value: example.output })
       expect(decode(text, { value: example.output })).toEqual({ value: example.output })

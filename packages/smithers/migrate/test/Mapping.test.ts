@@ -352,7 +352,9 @@ describe("Mapping.snippet keeps the TypeScript it generates valid", () => {
     expect(text).toBeDefined()
     expect(text).toContain("export const Step1stQuotedStep = AgentAction.make(\"flow/1st \\\"quoted\\\" step\", {")
     expect(text).toContain("\"a-b\": Schema.optional(Schema.String)")
-    expect(text).toContain("plain: Schema.Number.pipe(Schema.withDecodingDefaultKey(Effect.succeed(2)))")
+    expect(text).toContain(
+      "plain: Schema.Number.pipe((schema) => Schema.optional(schema).pipe(Schema.decodeTo(schema, { decode: SchemaGetter.withDefault(Effect.succeed(schema.make(2))), encode: SchemaGetter.required() })))"
+    )
     expect(text).toContain("seat: \"anthropic:model \\\"x\\\"\",")
     expect(transpiles(`async function wrap() {\n${text}\n}`), text).toBe(true)
   })
