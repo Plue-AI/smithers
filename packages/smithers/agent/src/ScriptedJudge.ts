@@ -45,7 +45,7 @@ const unscripted = (detail: string): Evaluator.EvaluatorError =>
  * This is the whole verdict the completion brake still acts on, so it is read
  * from the evidence rather than declared. A claim reports work when it both
  * speaks of a run or its outcome — `ran`, `passed`, `exits`, `output` — and
- * names something to run: a backticked span, or a runner and its arguments.
+ * names something to run: an invoked backticked command, or a runner and its arguments.
  * The record is every command in `checksRun` plus the completing frame's
  * `lastCheck`. A named command the record carries on either side of a
  * containment is recorded; one it carries nowhere is the refusal.
@@ -57,8 +57,8 @@ const unscripted = (detail: string): Evaluator.EvaluatorError =>
  */
 const reportsUnrecordedWork = (evidence: {
   readonly claim: string
-  readonly checksRun: ReadonlyArray<{ readonly command: string }>
-  readonly lastCheck?: { readonly command: string } | undefined
+  readonly checksRun: ReadonlyArray<{ readonly command: string; readonly result?: string | undefined }>
+  readonly lastCheck?: { readonly command: string; readonly output?: string | undefined } | undefined
 }): boolean => {
   const claim = evidence.claim
   if (
@@ -66,15 +66,36 @@ const reportsUnrecordedWork = (evidence: {
   ) {
     return false
   }
-  const named = [
-    ...[...claim.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]!),
-    ...[
-      ...claim.matchAll(
-        /\b(?:node|npm|pnpm|bun|yarn|python3?|cargo|make|jj|git|bash|sh|pytest|vitest|jest|tsc)\s+[^\n"'`,;)}\]]*/g
-      )
-    ]
-      .map((match) => match[0])
-  ].map((value) => value.trim()).filter((value) => value !== "" && !/^[\w*-]+:[\w*-]+:/.test(value))
+  const runner = /^(?:node|npm|pnpm|bun|yarn|python3?|cargo|make|jj|git|bash|sh|pytest|vitest|jest|tsc)\s+/i
+  const output = [
+    ...evidence.checksRun.map((check) => check.result ?? ""),
+    evidence.lastCheck?.output ?? ""
+  ]
+  const named: Array<string> = []
+  // Backticks also quote paths, source expressions and stdout. Only an
+  // execution claim turns an arbitrary quoted span into a command. A runner
+  // quoted as recorded output is not evidence that the runner was invoked.
+  const prose = claim.replace(/`([^`\n]+)`/g, (span: string, value: string, index: number) => {
+    const command = value.trim()
+    const before = claim.slice(0, index)
+    const after = claim.slice(index + span.length)
+    const invoked =
+      /\b(?:ran|run|runs|executed|execute|invoked)\s+(?:(?:the|a|same|exact|requested)\s+)*(?:(?:command|check)\s+)?$/i.test(
+        before
+      ) || /\b(?:verification|validation|command|check)\s*:\s*$/i.test(before)
+    const result = /^\s*(?:passed|passes|failed|fails|exited|exits|succeeded)\b/i.test(after)
+    const quotedOutput =
+      /\b(?:output(?:\s+was)?|stdout|stderr|printed|prints|printing|with)\s*[:=]?\s*$/i.test(before) &&
+      output.some((recorded) => recorded.includes(command))
+    if (
+      command !== "" && !/^[\w*-]+:[\w*-]+:/.test(command) &&
+      (invoked || result || (runner.test(command) && !quotedOutput))
+    ) named.push(command)
+    return " ".repeat(span.length)
+  })
+  named.push(...[...prose.matchAll(
+    /\b(?:node|npm|pnpm|bun|yarn|python3?|cargo|make|jj|git|bash|sh|pytest|vitest|jest|tsc)\s+[^\n"'`,;)}\]]*/g
+  )].map((match) => match[0].trim()))
   if (named.length === 0) return false
   const record = [
     ...evidence.checksRun.map((check) => check.command),

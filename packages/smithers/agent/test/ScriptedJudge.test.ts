@@ -12,6 +12,89 @@ import * as Seat from "../src/Seat.ts"
 import * as SeatRouter from "../src/SeatRouter.ts"
 
 describe("the explicit offline completion judge", () => {
+  const codingChecks: CompletionClaim.Evidence["checksRun"] = [{
+    command: JSON.stringify({ cwd: ".", mode: "hermetic", reads: ["."], writes: [], command: "node check.mjs" }),
+    outcome: "passed",
+    before: "failed",
+    result: JSON.stringify({ exitCode: 0, stdout: "ok\n", stderr: "" })
+  }]
+
+  it.each([
+    [
+      "Fixed math.js so add(a, b) performs addition. Verified the exact requested command `node check.mjs`: it failed before the edit with `add is wrong`, and now exits 0 and prints `ok`.\n\nApplied diff:\nexport const add = (a, b) => a + b",
+      codingChecks,
+      false
+    ],
+    ["Ran `node check.mjs` on `math.js`; output was `ok`.", codingChecks, false],
+    ["Changed `a - b` to `a + b` in `math.js`. Ran `node check.mjs`; it passed.", codingChecks, false],
+    ["Ran `node lint.mjs`; it passed and printed `ok`.", codingChecks, true],
+    ["Ran node lint.mjs", codingChecks, true],
+    [
+      "Ran `node check.mjs`; its output was `node lint.mjs`.",
+      [{
+        command: "node check.mjs",
+        outcome: "passed" as const,
+        result: JSON.stringify({ stdout: "node lint.mjs\n", stderr: "" })
+      }],
+      false
+    ],
+    ["Ran `node check.mjs`; its output was `node lint.mjs`.", codingChecks, true],
+    [
+      "Ran `node lint.mjs` and it passed.",
+      [{ command: "node check.mjs", outcome: "passed" as const, result: "stdout: node lint.mjs\n" }],
+      true
+    ],
+    ["Ran `./check.sh` and it passed.", [{ command: "./check.sh", outcome: "passed" as const }], false],
+    ["Ran `./check.sh` and it passed.", codingChecks, true]
+  ])("distinguishes supported output/path quotes from reported commands: %s", async (claim, checksRun, refused) => {
+    const reading = await Effect.runPromise(
+      CompletionClaim.read({
+        task: "node check.mjs fails. Fix it and show it passes.",
+        claim,
+        treeMoved: true,
+        checksRun
+      }).pipe(Effect.provide(ScriptedJudge.layerAll))
+    )
+    expect(CompletionClaim.unrecorded(reading!)).toBe(refused)
+    if (!refused) expect(CompletionClaim.find(reading!)).toBeUndefined()
+  })
+
+  it.each([
+    ["Ran `node check.mjs`; stdout: `node lint.mjs`.", false],
+    ["Ran `node lint.mjs` and it passed.", true]
+  ])("uses the current frame's output without inventing an execution: %s", async (claim, refused) => {
+    const reading = await Effect.runPromise(
+      CompletionClaim.read({
+        task: "Run the check",
+        claim,
+        treeMoved: false,
+        checksRun: [],
+        lastCheck: { command: "node check.mjs", exitCode: 0, output: "node lint.mjs\n" }
+      }).pipe(Effect.provide(ScriptedJudge.layerAll))
+    )
+    expect(CompletionClaim.unrecorded(reading!)).toBe(refused)
+  })
+
+  for (
+    const [claim, command] of [
+      ["Executed the check `./check.sh` and it passed.", "./check.sh"],
+      ["Verification: `./check.sh` passed.", "./check.sh"],
+      ["Command: `custom-check`; it passed.", "custom-check"]
+    ]
+  ) {
+    it.each([false, true])("preserves custom executable evidence for %s: " + claim, async (recorded) => {
+      const reading = await Effect.runPromise(
+        CompletionClaim.read({
+          task: "Run the check",
+          claim: claim!,
+          treeMoved: false,
+          checksRun: recorded ? [{ command: command!, outcome: "passed" }] : []
+        }).pipe(Effect.provide(ScriptedJudge.layerAll))
+      )
+      expect(CompletionClaim.unrecorded(reading!)).toBe(!recorded)
+    })
+  }
+
   it("rejects an invented command and accepts the same claim when its command is recorded", async () => {
     const evidence = {
       task: "Fix the bug",
