@@ -99,6 +99,13 @@ Browser WebSockets cannot set upgrade headers. Browser deployments need a
 trusted proxy that authenticates the caller and supplies the header. Tokens
 in URL query strings are not supported.
 
+`layerHttp` refuses, with 403 and before authentication, any request whose
+`Origin` header does not match its `Host` header, on POST `/rpc` and on the
+`/rpc/ws` upgrade. A browser always sends `Origin`, so a page on another site
+cannot use a credential the proxy attaches for its victim. Non-browser
+clients send no `Origin` and are unaffected. Serve the browser app from the
+same origin as the control mount, and keep the proxy's `Host` header intact.
+
 ## Authenticate
 
 `ControlRpcs.ControlAuth` is the middleware boundary, and it provides

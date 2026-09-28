@@ -5,6 +5,7 @@
  */
 
 import { Effect, Layer } from "effect"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RpcServer } from "effect/unstable/rpc"
 import { Control } from "./Control.ts"
 import { ControlPrincipal, ControlRpcs } from "./ControlRpcs.ts"
@@ -80,19 +81,51 @@ export const layer = ControlRpcs.toLayer(
   })
 )
 
+/**
+ * Whether a request's `Origin` may reach the control mounts.
+ *
+ * Non-browser clients send no `Origin`. A browser always sends one, on POST
+ * and on the WebSocket upgrade, and a cross-site page cannot forge it. Refusing
+ * any `Origin` whose authority differs from `Host` stops a page on another site
+ * from riding a credential that a proxy or cookie attaches on the victim's
+ * behalf (cross-site WebSocket hijacking of the `Watch` stream).
+ */
+const sameOrigin = (headers: Readonly<Record<string, string>>): boolean => {
+  const origin = headers.origin
+  if (origin === undefined) return true
+  const host = headers.host
+  const parsed = URL.parse(origin)
+  return host !== undefined && parsed !== null &&
+    (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+    parsed.origin === origin && parsed.host === host.toLowerCase()
+}
+
+/**
+ * Route middleware on the two control mounts only, so the router's own path
+ * matching decides what it guards, and a host's stricter global policy (the
+ * gateway's ingress) still answers first with its own typed refusal.
+ */
+const originGuard = HttpRouter.middleware((httpEffect) =>
+  Effect.gen(function*() {
+    const request = yield* HttpServerRequest.HttpServerRequest
+    if (sameOrigin(request.headers)) return yield* httpEffect
+    return HttpServerResponse.text("The browser Origin must match the control server Host", { status: 403 })
+  })
+).layer
+
 const server = RpcServer.layer(ControlRpcs, {
   disableFatalDefects: true
 })
 
 const http = server.pipe(
   Layer.provide(layer),
-  Layer.provideMerge(RpcServer.layerProtocolHttp({ path: "/rpc" })),
+  Layer.provideMerge(RpcServer.layerProtocolHttp({ path: "/rpc" }).pipe(Layer.provide(originGuard))),
   Layer.fresh
 )
 
 const websocket = server.pipe(
   Layer.provide(layer),
-  Layer.provideMerge(RpcServer.layerProtocolWebsocket({ path: "/rpc/ws" })),
+  Layer.provideMerge(RpcServer.layerProtocolWebsocket({ path: "/rpc/ws" }).pipe(Layer.provide(originGuard))),
   Layer.fresh
 )
 
@@ -101,6 +134,10 @@ const websocket = server.pipe(
  * `/rpc` and the `watch` stream over WebSocket `/rpc/ws`. Both protocols are
  * mounted together because `ControlClient` projects the same `Control` vtable
  * across the two transports.
+ *
+ * A request carrying a browser `Origin` that does not match its `Host` is
+ * refused with 403 before authentication, so a page on another site cannot
+ * open the socket or post to `/rpc` with a credential a proxy attaches.
  *
  * @category layers
  * @since 0.1.0

@@ -8,7 +8,7 @@ import { HttpClient, HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcSerialization } from "effect/unstable/rpc"
 import { Socket } from "effect/unstable/socket"
 import { readFileSync } from "node:fs"
-import { createServer } from "node:http"
+import { createServer, request as httpRequest } from "node:http"
 import ts from "typescript"
 import { describe, expect, it } from "vitest"
 import { Control } from "../src/Control.ts"
@@ -641,5 +641,51 @@ describe("ControlClient", () => {
     )
 
     expect(events.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * Cross-site WebSocket hijacking. A browser sends `Origin` on every upgrade
+   * and a page on another site cannot forge it, so a proxy that attaches the
+   * bearer for the victim must not turn a hostile page into a `Watch` reader.
+   */
+  it("refuses a WebSocket upgrade or POST whose browser Origin is another site", async () => {
+    const status = (url: string, path: string, headers: Record<string, string>, method = "GET") =>
+      Effect.callback<number>((resume) => {
+        const { port } = new URL(url)
+        const request = httpRequest({ host: "127.0.0.1", port, path, method, headers })
+        request.on("upgrade", (response, socket) => {
+          socket.destroy()
+          resume(Effect.succeed(response.statusCode ?? 0))
+        })
+        request.on("response", (response) => {
+          response.resume()
+          resume(Effect.succeed(response.statusCode ?? 0))
+        })
+        request.on("error", (error) => resume(Effect.die(error)))
+        request.end(method === "POST" ? "{}" : undefined)
+      })
+    const upgrade = {
+      connection: "Upgrade",
+      upgrade: "websocket",
+      "sec-websocket-version": "13",
+      "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+      authorization: `Bearer ${token}`
+    }
+    const result = await run(Effect.gen(function*() {
+      const url = yield* baseUrl
+      const host = new URL(url).host
+      return {
+        hostile: yield* status(url, "/rpc/ws", { ...upgrade, origin: "https://evil.example" }),
+        spoofedPath: yield* status(url, "//rpc/ws", { ...upgrade, origin: "https://evil.example" }),
+        hostilePost: yield* status(url, "/rpc", {
+          authorization: `Bearer ${token}`,
+          origin: "https://evil.example",
+          "content-type": "text/plain"
+        }, "POST"),
+        sameOrigin: yield* status(url, "/rpc/ws", { ...upgrade, origin: `http://${host}` }),
+        noOrigin: yield* status(url, "/rpc/ws", upgrade)
+      }
+    }))
+    expect(result).toEqual({ hostile: 403, spoofedPath: 403, hostilePost: 403, sameOrigin: 101, noOrigin: 101 })
   })
 })
