@@ -779,6 +779,7 @@ func (s *GitHubSyncedRepoService) ServeComments(
 	ctx context.Context,
 	grant GitHubRepoReadGrant,
 	issueNumber int64,
+	query url.Values,
 	fetch gitHubSyncedRepoPageFetcher,
 ) (page GitHubSyncedMetadataPage, served bool) {
 	if s == nil || s.store == nil || !grant.ok || issueNumber <= 0 {
@@ -804,9 +805,12 @@ func (s *GitHubSyncedRepoService) ServeComments(
 		return GitHubSyncedMetadataPage{}, false
 	}
 
+	limit, offset, pageNumber, perPage := storeMetadataPaging(query)
 	rows, err := s.store.ListGitHubSyncedIssueComments(ctx, db.ListGitHubSyncedIssueCommentsParams{
 		SyncedRepoID: row.ID,
 		IssueNumber:  issueNumber,
+		RowLimit:     limit + 1,
+		RowOffset:    offset,
 	})
 	if err != nil {
 		slog.Warn("github synced issue comments unreadable; serving live",
@@ -819,18 +823,27 @@ func (s *GitHubSyncedRepoService) ServeComments(
 		s.scheduleBackfill(row, fetch)
 	}
 
+	hasNext := len(rows) > int(limit)
+	if hasNext {
+		rows = rows[:limit]
+	}
 	body, err := encodeSyncedCommentPayloads(rows)
 	if err != nil {
 		slog.Warn("github synced comment payload corrupt; serving live",
 			"owner", owner, "repo", repo, "issue", issueNumber, "error", err)
 		return GitHubSyncedMetadataPage{}, false
 	}
-	return GitHubSyncedMetadataPage{
+	result := GitHubSyncedMetadataPage{
 		Body:      body,
 		SyncedAt:  row.LastSyncedAt.Time,
 		Stale:     stale,
 		SyncError: row.SyncError.String,
-	}, true
+	}
+	if hasNext {
+		result.Link = fmt.Sprintf("</api/user/github-repos/%s/%s/issues/%d/comments?cursor=%d&per_page=%d>; rel=\"next\"",
+			url.PathEscape(owner), url.PathEscape(repo), issueNumber, pageNumber+1, perPage)
+	}
+	return result, true
 }
 
 // stale reports whether the store has neither a recent webhook heartbeat nor a

@@ -53,11 +53,12 @@ func (s *GitHubUserReposService) ListAuthenticatedUserGitHubIssueComments(
 		grant := s.syncedRepos.ReadGrant(ctx, userID, normalizedOwner, normalizedRepo)
 		fetch := s.syncedRepoBackfillFetcher(userID, normalizedOwner, normalizedRepo)
 		if page, served := s.syncedRepos.ServeComments(
-			ctx, grant, number, fetch,
+			ctx, grant, number, query, fetch,
 		); served {
 			syncedAt := page.SyncedAt
 			return GitHubRepoMetadataResult{
 				Body:      page.Body,
+				Link:      page.Link,
 				Source:    GitHubRepoMetadataSourceStore,
 				SyncedAt:  &syncedAt,
 				Stale:     page.Stale,

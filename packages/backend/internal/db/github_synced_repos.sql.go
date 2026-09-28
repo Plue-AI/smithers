@@ -455,15 +455,23 @@ FROM github_synced_issue_comments
 WHERE synced_repo_id = $1
   AND issue_number = $2
 ORDER BY github_created_at NULLS LAST, github_id
+LIMIT $4::int OFFSET $3::int
 `
 
 type ListGitHubSyncedIssueCommentsParams struct {
 	SyncedRepoID int64 `json:"synced_repo_id"`
 	IssueNumber  int64 `json:"issue_number"`
+	RowOffset    int32 `json:"row_offset"`
+	RowLimit     int32 `json:"row_limit"`
 }
 
 func (q *Queries) ListGitHubSyncedIssueComments(ctx context.Context, arg ListGitHubSyncedIssueCommentsParams) ([]GithubSyncedIssueComment, error) {
-	rows, err := q.db.Query(ctx, listGitHubSyncedIssueComments, arg.SyncedRepoID, arg.IssueNumber)
+	rows, err := q.db.Query(ctx, listGitHubSyncedIssueComments,
+		arg.SyncedRepoID,
+		arg.IssueNumber,
+		arg.RowOffset,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -311,7 +311,8 @@ SELECT *
 FROM github_synced_issue_comments
 WHERE synced_repo_id = sqlc.arg(synced_repo_id)
   AND issue_number = sqlc.arg(issue_number)
-ORDER BY github_created_at NULLS LAST, github_id;
+ORDER BY github_created_at NULLS LAST, github_id
+LIMIT sqlc.arg(row_limit)::int OFFSET sqlc.arg(row_offset)::int;
 
 -- name: UpsertGitHubSyncedIssueComment :exec
 INSERT INTO github_synced_issue_comments (

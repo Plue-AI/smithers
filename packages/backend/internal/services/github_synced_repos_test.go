@@ -359,7 +359,15 @@ func (f *fakeSyncedRepoStore) ListGitHubSyncedIssueComments(_ context.Context, a
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].GithubID < rows[j].GithubID })
-	return rows, nil
+	start := int(arg.RowOffset)
+	if start >= len(rows) {
+		return []db.GithubSyncedIssueComment{}, nil
+	}
+	end := start + int(arg.RowLimit)
+	if end > len(rows) {
+		end = len(rows)
+	}
+	return rows[start:end], nil
 }
 
 func readGrantKey(userID int64, owner, repo string) string {
@@ -475,7 +483,7 @@ func TestSyncedRepos_StoreRefusesCallerWithoutReadGrant(t *testing.T) {
 
 	_, served := service.ServeMetadata(ctx, GitHubRepoReadGrant{}, GitHubRepoMetadataIssues, url.Values{}, nil)
 	assert.False(t, served, "a fresh shared store must not answer a caller with no read grant")
-	_, served = service.ServeComments(ctx, GitHubRepoReadGrant{}, 1, nil)
+	_, served = service.ServeComments(ctx, GitHubRepoReadGrant{}, 1, nil, nil)
 	assert.False(t, served, "comments must not be served without a read grant")
 
 	// User 7 never read acme/secret live: no grant.

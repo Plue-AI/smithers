@@ -88,6 +88,39 @@ func TestGitHubIssueComments_ServesSyncedStoreWhenEnrolled(t *testing.T) {
 	assert.JSONEq(t, `[{"id":9001,"body":"from the store"}]`, string(result.Body))
 }
 
+func TestGitHubIssueComments_SyncedPagination(t *testing.T) {
+	store := newFakeSyncedRepoStore()
+	synced := NewGitHubSyncedRepoService(store)
+	row, err := synced.EnrollGitHubRepo(context.Background(), EnrollGitHubRepoInput{Owner: "octo", Repo: "widget"})
+	require.NoError(t, err)
+	require.NoError(t, store.MarkGitHubSyncedRepoSynced(context.Background(), row.ID))
+	require.NoError(t, store.TouchGitHubSyncedRepoWebhook(context.Background(), row.ID))
+	for _, id := range []int64{1, 2, 3} {
+		payload, err := json.Marshal(map[string]int64{"id": id})
+		require.NoError(t, err)
+		require.NoError(t, store.UpsertGitHubSyncedIssueComment(context.Background(), db.UpsertGitHubSyncedIssueCommentParams{
+			SyncedRepoID: row.ID, IssueNumber: 7, GithubID: id, Payload: payload,
+		}))
+	}
+	require.NoError(t, synced.RecordReadGrant(context.Background(), 42, "octo", "widget"))
+	service := NewGitHubUserReposService(newFakeGitHubUserReposDB(), fakeOAuthTokenDecrypter{token: "gho_user"}, WithGitHubUserReposSyncedStore(synced))
+	for _, tc := range []struct{ query, body, link string }{
+		{"per_page=1", `[{"id":1}]`, `</api/user/github-repos/octo/widget/issues/7/comments?cursor=2&per_page=1>; rel="next"`},
+		{"per_page=1&page=2", `[{"id":2}]`, `</api/user/github-repos/octo/widget/issues/7/comments?cursor=3&per_page=1>; rel="next"`},
+		{"per_page=1&cursor=2", `[{"id":2}]`, `</api/user/github-repos/octo/widget/issues/7/comments?cursor=3&per_page=1>; rel="next"`},
+		{"per_page=1&page=3", `[{"id":3}]`, ""},
+		{"per_page=1&cursor=4", `[]`, ""},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			result, err := service.ListAuthenticatedUserGitHubIssueComments(context.Background(), 42, "octo", "widget", 7, mustParseQuery(t, tc.query))
+			require.NoError(t, err)
+			assert.Equal(t, GitHubRepoMetadataSourceStore, result.Source)
+			assert.JSONEq(t, tc.body, string(result.Body))
+			assert.Equal(t, tc.link, result.Link)
+		})
+	}
+}
+
 func TestGitHubIssueComments_NoWebhookHeartbeatGoesLive(t *testing.T) {
 	// Enrolled and backfilled, but comments are webhook-populated only — a repo
 	// with no webhook heartbeat yet cannot prove its comments store is complete.
@@ -143,14 +176,14 @@ func TestSyncedRepos_ServeCommentsRequiresWebhookHeartbeat(t *testing.T) {
 	store := newFakeSyncedRepoStore()
 	service := NewGitHubSyncedRepoService(store)
 
-	_, served := service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 7, nil)
+	_, served := service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 7, nil, nil)
 	assert.False(t, served, "an unenrolled repo must fall through to the live passthrough")
 
 	row, err := service.EnrollGitHubRepo(context.Background(), EnrollGitHubRepoInput{Owner: "octo", Repo: "widget"})
 	require.NoError(t, err)
 	require.NoError(t, store.MarkGitHubSyncedRepoSynced(context.Background(), row.ID))
 
-	_, served = service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 7, nil)
+	_, served = service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 7, nil, nil)
 	assert.False(t, served, "no webhook heartbeat yet — the comments store may be incomplete")
 
 	require.NoError(t, store.TouchGitHubSyncedRepoWebhook(context.Background(), row.ID))
@@ -162,12 +195,12 @@ func TestSyncedRepos_ServeCommentsRequiresWebhookHeartbeat(t *testing.T) {
 		GithubCreatedAt: pgtype.Timestamptz{Valid: false},
 	}))
 
-	page, served := service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 7, nil)
+	page, served := service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 7, nil, nil)
 	require.True(t, served)
 	assert.JSONEq(t, `[{"id":9001,"body":"hi"}]`, string(page.Body))
 
 	// A different issue number has no rows — still served (empty), never live.
-	page, served = service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 99, nil)
+	page, served = service.ServeComments(context.Background(), testReadGrant("octo", "widget"), 99, nil, nil)
 	require.True(t, served)
 	assert.JSONEq(t, `[]`, string(page.Body))
 }
