@@ -37,8 +37,14 @@ The schema is also importable from its own subpath:
 import { Canonical } from "@smthrs/canonical/Canonical"
 ```
 
-`canonicalize` and `CanonicalError` are only available from the root, because
-the serializer lives under a private subpath.
+For serialization without loading Effect, use the public `Serializer` subpath:
+
+```ts
+import { CanonicalError, canonicalize } from "@smthrs/canonical/Serializer"
+import type { CanonicalErrorCode } from "@smthrs/canonical/Serializer"
+```
+
+The serializer implementation remains private under `internal/*`.
 
 ## What is not public
 
