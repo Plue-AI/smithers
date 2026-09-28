@@ -168,7 +168,12 @@ export interface Service {
   readonly register: FlowEngine.Encoded["register"]
   /**
    * The encoded `execute`, widened for direct driver callers: an absent
-   * `round` admits the execution as round zero of its own lineage.
+   * `round` admits the execution as round zero of its own lineage. Nested
+   * direct callers observe its latest round; encoded callers read one round.
+   * To decode a terminal result, direct nested callers must register the
+   * terminal flow's codec in this driver, even if another worker ran it.
+   * A missing codec is a wiring defect, as with the typed Trampoline; it
+   * fails fast rather than suspending terminal work with no future wake.
    */
   readonly execute: <const Discard extends boolean>(
     flow: Flow.Any,
@@ -2453,9 +2458,13 @@ export const make = (
         )
       })
 
-    const readResult = (flow: Flow.Any, executionId: string) =>
+    const readResult = (flow: Flow.Any, executionId: string, followLineage = false) =>
       Effect.annotateCurrentSpan({ executionId, flow: flow._tag }).pipe(
-        Effect.andThen(store.get(executionId)),
+        Effect.andThen(
+          followLineage
+            ? store.latestRound(executionId)
+            : store.get(executionId)
+        ),
         Effect.catch((error) =>
           error.code === "not_found_row"
             ? Effect.succeed(undefined)
@@ -2475,15 +2484,23 @@ export const make = (
           return decodeState(row.stateJson).pipe(
             Effect.flatMap((state) => {
               if (
-                state.flowName !== flow._tag ||
+                (!followLineage && state.flowName !== flow._tag) ||
                 state.result === undefined
               ) {
                 return Effect.succeedNone
               }
+              const resultFlow = state.flowName === flow._tag ? flow : registrations.get(state.flowName)?.flow
+              if (resultFlow === undefined) {
+                // Direct nested callers must register the terminal flow's
+                // codec here, even when another worker executed that flow.
+                // This is the typed Trampoline's fail-fast wiring contract:
+                // terminal work has no future wake to justify Suspended.
+                return Effect.die(new Error(`Flow ${state.flowName} is not registered`))
+              }
               return (Schema.decodeUnknownEffect(
                 Schema.toCodecJson(Flow.Result({
-                  success: flow.successSchema,
-                  error: flow.errorSchema
+                  success: resultFlow.successSchema,
+                  error: resultFlow.errorSchema
                 }))
               )(state.result).pipe(
                 Effect.orDie,
@@ -2537,7 +2554,15 @@ export const make = (
         if (options.discard) return undefined as Discard extends true ? void : never
         // `ensureRun` created the row above, so a not-found here is a broken
         // store invariant, not a caller-recoverable state.
-        const observed = yield* Effect.orDie(readResult(flow, options.executionId))
+        // The trampoline supplies `round` and consumes each raw handoff itself.
+        // A nested direct caller instead needs the child's current lineage row,
+        // including its own codec and cancellation status. `follow` only joins
+        // an already-scheduled drive; it does not select the result's scope.
+        const observed = yield* Effect.orDie(readResult(
+          flow,
+          options.executionId,
+          options.parent !== undefined && options.round === undefined
+        ))
         if (Option.isSome(observed.result)) {
           return observed.result.value as Discard extends true ? void : Flow.Result<unknown, unknown>
         }
