@@ -372,6 +372,32 @@ describe("probeAuthSession and the OAuth navigations", () => {
     expect(await machine.json()).toEqual({ status: "error", code: "upstream_timeout", message: "The identity service did not answer within 20ms. Try again in a moment." })
   })
 
+  test("normalized API return paths cannot restart OAuth from start or callback", async () => {
+    const redirect = (location: string) => () => new Response(null, { status: 302, headers: { location } })
+    for (const path of ["/x/../api/auth/github/start", "/x/%2e%2e/api/auth/github/start", "/x/../api", "/x/%2e%2e/api"]) {
+      expect(validReturnTo(path)).toBeUndefined()
+      const started = await run(
+        handleAuthNavigation(new Request(`https://mvp.test/api/auth/github/start?return_to=${encodeURIComponent(path)}`, { headers: { accept: "text/html" } }), "start"),
+        wire(redirect("https://github.com/login/oauth/authorize?state=s")).layer,
+        config()
+      )
+      expect(started.status).toBe(302)
+      expect(started.headers.getSetCookie()).toEqual([])
+      const returned = await run(
+        handleAuthNavigation(new Request("https://mvp.test/api/auth/github/callback?code=x&state=s", {
+          headers: { accept: "text/html", cookie: `smithers_return_to=${encodeURIComponent(path)}` }
+        }), "callback"),
+        wire(redirect("/?signed-in=github")).layer,
+        config()
+      )
+      expect(returned.status).toBe(302)
+      expect(returned.headers.get("location")).toBe("/?signed-in=github")
+      expect(returned.headers.getSetCookie()[0]).toContain("Max-Age=0")
+    }
+    expect(validReturnTo("/x/../smithersai/smithers?tab=issues#activity")).toBe("/x/../smithersai/smithers?tab=issues#activity")
+    expect(validReturnTo("/x/%2e%2e/smithersai/smithers?tab=issues#activity")).toBe("/x/%2e%2e/smithersai/smithers?tab=issues#activity")
+  })
+
   test("validReturnTo admits only a same-origin page path", () => {
     expect(validReturnTo("/smithersai/smithers?tab=issues")).toBe("/smithersai/smithers?tab=issues")
     for (const bad of ["https://evil.example/", "//evil.example/", "/\\evil", "/api/auth/github/start", "/", "", "relative", `/${"a".repeat(512)}`]) {

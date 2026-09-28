@@ -421,7 +421,6 @@ export const validReturnTo = (value: string | null | undefined): string | undefi
   if (typeof value !== "string" || value === "" || value === "/") return undefined
   if (new TextEncoder().encode(value).byteLength > RETURN_TO_MAX_BYTES) return undefined
   if (!value.startsWith("/") || value.startsWith("//") || RETURN_TO_CONTROL.test(value)) return undefined
-  if (value.startsWith("/api/") || value === "/api") return undefined
   // Belt and braces: the URL parser must agree the path stays on this origin.
   const probe = "https://return-to.invalid"
   let resolved: URL
@@ -431,6 +430,7 @@ export const validReturnTo = (value: string | null | undefined): string | undefi
     return undefined
   }
   if (resolved.origin !== probe || !resolved.pathname.startsWith("/")) return undefined
+  if (resolved.pathname === "/api" || resolved.pathname.startsWith("/api/")) return undefined
   return value
 }
 
