@@ -436,6 +436,32 @@ describe("which-key", () => {
     60_000
   )
 
+  it("keeps help navigable after resize at 80×24", async () => {
+    const { tui } = await start({ cols: 60, rows: 20 })
+    await tui.press("?")
+    await tui.until(popup, 5_000, "help before resize")
+    await tui.resize(80, 24)
+    const resized = await tui.until(
+      (screen) => popup(screen) && screen.split("\n").length === 24 && screen.includes("pgup/pgdn"),
+      5_000,
+      "help after resize"
+    )
+    expect(resized).toContain("Send")
+
+    let seen = resized
+    for (let page = 0; page < 30; page++) {
+      await tui.press("\x1b[6~")
+      expect(popup(tui.screen())).toBe(true)
+      seen += tui.screen()
+    }
+    expect(seen.replace(/\s+/g, " ")).toContain("Previous tab")
+    expect(seen.replace(/\s+/g, " ")).toContain("Edit prompt")
+    await tui.press("\x1b[5~")
+    expect(popup(tui.screen())).toBe(true)
+    await tui.press(key.escape)
+    await tui.until((screen) => !popup(screen), 5_000, "resized help dismissed")
+  }, 60_000)
+
   it("keeps a message that starts with ?", async () => {
     const { tui } = await start()
     await tui.press("?")
