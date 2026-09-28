@@ -1010,6 +1010,20 @@ describe("KubernetesSandbox", () => {
           .acquire("limits")
       )
       expect(overridesOf(lifetimeOnly.calls[0]!.args).spec).toEqual({ activeDeadlineSeconds: 60 })
+      const cpuOnly = cluster()
+      yield* Effect.scoped(
+        KubernetesSandbox.make({ spawner: cpuOnly.spawner, image: "img", workdir, limits: { cpus: 2 } })
+          .acquire("limits")
+      )
+      expect(overridesOf(cpuOnly.calls[0]!.args).spec.containers[0].resources).toEqual({ limits: { cpu: "2" } })
+      const memoryOnly = cluster()
+      yield* Effect.scoped(
+        KubernetesSandbox.make({ spawner: memoryOnly.spawner, image: "img", workdir, limits: { memoryMib: 256 } })
+          .acquire("limits")
+      )
+      expect(overridesOf(memoryOnly.calls[0]!.args).spec.containers[0].resources).toEqual({
+        limits: { memory: "256Mi" }
+      })
       const unlimited = cluster()
       yield* Effect.scoped(
         KubernetesSandbox.make({ spawner: unlimited.spawner, image: "img", workdir }).acquire("limits")

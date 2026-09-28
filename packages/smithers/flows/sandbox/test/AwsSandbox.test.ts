@@ -1102,6 +1102,21 @@ describe("AwsSandbox", () => {
       ).toThrow(/exclusive/)
       expect(() => AwsSandbox.make({ ...base, memory: "512", limits: { memoryMib: 512 } })).toThrow(/exclusive/)
       expect(() => AwsSandbox.make({ ...base, limits: { cpus: 0.3 } })).toThrow(/1024 cpu units per vCPU/)
+      const cpuOnly = fakeEcs()
+      yield* acquired(AwsSandbox.make({ ...base, sdk: sdkOf(cpuOnly), memory: "4096", limits: { cpus: 2 } }), () =>
+        Effect.void)
+      expect(cpuOnly.registerInputs[0]).toMatchObject({ cpu: "2048", memory: "4096" })
+      const memoryOnly = fakeEcs()
+      yield* acquired(
+        AwsSandbox.make({ ...base, sdk: sdkOf(memoryOnly), cpu: "1024", limits: { memoryMib: 2048 } }),
+        () =>
+          Effect.void
+      )
+      expect(memoryOnly.registerInputs[0]).toMatchObject({
+        cpu: "1024",
+        memory: "2048",
+        containerDefinitions: [{ command: ["sleep", "infinity"] }]
+      })
     }))
 
   it("refuses every resource limit on a task definition at construction", () => {
