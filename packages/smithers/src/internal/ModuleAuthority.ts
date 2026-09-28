@@ -23,7 +23,7 @@ import * as Descriptor from "@smthrs/registry/Descriptor"
 import type * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { RunStore } from "@smthrs/run-store"
-import { Effect, Option, RcMap, Schema } from "effect"
+import { Cause, Effect, Exit, Option, RcMap, Schema } from "effect"
 import { ModuleOwner } from "./ModuleOwner.ts"
 
 /**
@@ -204,7 +204,22 @@ export const make = (
               suspend: account(budget.suspend),
               resume: (at) => account(budget.resume(at))
             }
+            // A native wait parks no harness, so nothing else records it: an
+            // execution that suspends on a HumanTask, an approval, or a timer
+            // opens the root's suspension span here, and entering again closes
+            // it, so the wait is not charged as task time. Entering is the
+            // run executing again, and it does no work until that is recorded:
+            // an open span would subtract the work as parked time.
+            yield* shared.resume().pipe(Effect.orDie)
             return yield* handler(payload, executionId).pipe(
+              Effect.onExit((exit) =>
+                instance.suspended || (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause))
+                  // Without the record the wait is charged, the conservative side.
+                  ? shared.suspend.pipe(
+                    Effect.catchCause((cause) => Effect.logWarning("A budget suspension could not be recorded", cause))
+                  )
+                  : Effect.void
+              ),
               // A `park` budget parks the owning control run, as a prompt
               // run's does; a host that refuses asks fails it instead.
               (effect) =>
