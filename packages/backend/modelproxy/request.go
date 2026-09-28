@@ -3,6 +3,7 @@ package modelproxy
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -147,6 +148,9 @@ func parseRequest(provider, path string, header http.Header, body []byte) (parse
 		if json.Unmarshal(raw, &choices) != nil || choices < 1 || choices > maxChoices {
 			return parsedCall{}, refuse("n must be an integer from 1 to 16")
 		}
+	}
+	if output > math.MaxInt64/choices {
+		return parsedCall{}, refuse("combined output token limit is too large")
 	}
 	if call.stream && path == "v1/chat/completions" {
 		options := map[string]json.RawMessage{}
