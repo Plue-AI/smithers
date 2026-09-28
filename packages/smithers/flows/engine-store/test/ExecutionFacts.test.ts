@@ -61,7 +61,7 @@ const verified = (executionId: string) =>
         ? null
         : {
           reason: snapshot.waiting.reason,
-          tokenDigest: snapshot.waiting.token === null ? null : Sha256.digestSync(snapshot.waiting.token),
+          tokenDigest: snapshot.waiting.tokenDigest,
           wakeAtMs: snapshot.waiting.wakeAtMs,
           point: null,
           request: null

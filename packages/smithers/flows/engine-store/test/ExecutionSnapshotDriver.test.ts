@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Sha256 from "@smthrs/crypto/Sha256"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import { Ownership, RunStore } from "@smthrs/run-store"
@@ -60,7 +61,7 @@ describe("driver cancellation acknowledgement", () => {
             const reader = yield* ExecutionSnapshot.make()
             expect((yield* reader.read(["quarantined"])).snapshots[0]).toMatchObject({
               status: "suspended",
-              waiting: { kind: "other", reason: "quarantine", token: "quarantine-key" },
+              waiting: { kind: "other", reason: "quarantine", tokenDigest: Sha256.digestSync("quarantine-key") },
               cancellation: { requestedAtMs: null, acknowledgement: null }
             })
           })

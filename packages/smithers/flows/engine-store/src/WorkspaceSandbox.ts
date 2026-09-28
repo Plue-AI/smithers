@@ -1269,6 +1269,11 @@ const lockFailure = (cause: unknown): WorkspaceError =>
     // `FileLease` hands every other refusal over as the host's `PlatformError`.
     : copyBackFailure(commitLockName)(cause as PlatformError.PlatformError)
 
+// Over-approximates the spellings a case-insensitive, normalization-insensitive
+// volume equates: `.FLOWS`, `.flow\u017f`, and `.\ufb02ows` all open `.flows` on
+// default APFS. Folding more than a volume does only refuses more names.
+const foldPath = (path: string): string => path.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC")
+
 /**
  * Builds the filesystem-backed workspace sandbox.
  *
@@ -1323,12 +1328,16 @@ export const makeFileSystem = (
     commitLockName,
     engineStateName,
     ...(options.reservedPaths ?? []).map((path) => path.replace(/^(\.\/)+/, "").replaceAll(/\/+$/g, ""))
-  ].filter((path) => path !== "" && path !== ".")
+  ].filter((path) => path !== "" && path !== ".").map((name) => ({ name, folded: foldPath(name) }))
   // The reserved entry the root-relative `path` targets or lies beneath, if
-  // any. Lexical comparison is exact: the confined host refuses every symlink
-  // on a path, so no alias can name a reserved entry under another spelling.
-  const reservedAt = (path: string): string | undefined =>
-    reserved.find((name) => path === name || path.startsWith(`${name}/`))
+  // any. The confined host refuses every symlink on a path, so the remaining
+  // aliases are spellings the volume itself equates: case, compatibility, and
+  // normalization variants on APFS and NTFS. Comparing folded spellings
+  // refuses them on every volume, case-sensitive ones included.
+  const reservedAt = (path: string): string | undefined => {
+    const folded = foldPath(path)
+    return reserved.find((entry) => folded === entry.folded || folded.startsWith(`${entry.folded}/`))?.name
+  }
   const refuseReserved = (name: string): WorkspaceError => hostFailure(`the workspace path ${name} is reserved`)
   const hostPath = (path: string) => root === "" ? path : `${root}/${path}`
   // One host call, not two: the read reports an absent path itself. On the

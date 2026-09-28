@@ -426,6 +426,9 @@ every 10 seconds, stale after 60 seconds, acquisition deadline 2 minutes). The
 lock and its children are reserved, as are the `.flows` engine state directory
 and every `reservedPaths` entry, under any write set or boundary mode. A change
 that targets or lies beneath a reserved path fails with `host_unavailable`.
+Reserved names match after Unicode NFKC normalization and case folding, so
+`.FLOWS` or `.ﬂows`, which open `.flows` on default APFS and NTFS volumes, are
+refused on every volume.
 Hosts must support exclusive `wx` file creation, `stat` with an mtime,
 `utimes`, `rename`, and `remove`; writers that ignore the lock are outside this
 guarantee.
@@ -980,7 +983,7 @@ The engine-owned read port, exported from the root and
 | `Service.related(options)`               | Bounded `RelatedPage` of direct durable children or lineage rounds, with the requested anchor.    |
 | `Position`                               | Durable database `source` and monotonic `revision`.                                               |
 | `Snapshot`, `Observed`, `Missing`        | Explicit observed execution or absence, including deletion evidence.                              |
-| `Waiting`                                | Timer, signal, approval, quota, human, or other reason, preserving wake time and token.           |
+| `Waiting`                                | Timer, signal, approval, quota, human, or other reason, with wake time and SHA-256 `tokenDigest`. |
 | `Batch`, `RelatedOptions`, `RelatedPage` | Source watermark, scoped results, relation selector, and optional continuation.                   |
 | `isNewer(incoming, stored)`              | True only for the same source with a greater revision.                                            |
 

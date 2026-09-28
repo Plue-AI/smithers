@@ -79,7 +79,7 @@ describe("execution snapshot migration ladder", () => {
             expect(observed.snapshots[1]).toMatchObject({
               parentRunId: "root",
               status: "suspended",
-              waiting: { kind: "timer", wakeAtMs: 42, token: null }
+              waiting: { kind: "timer", wakeAtMs: 42, tokenDigest: null }
             })
             expect(observed.snapshots.every((row) => row.revision > 0)).toBe(true)
             const sql = yield* SqlClient.SqlClient

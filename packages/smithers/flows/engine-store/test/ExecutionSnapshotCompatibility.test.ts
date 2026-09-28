@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Sha256 from "@smthrs/crypto/Sha256"
 import * as RunMigrations from "@smthrs/run-store/Migrations"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Effect } from "effect"
@@ -55,9 +56,12 @@ describe("execution observation compatibility", () => {
           Effect.gen(function*() {
             const reader = yield* ExecutionSnapshot.make()
             const catalog = yield* RunCatalogRead.make()
-            const expected = { kind: "other", reason, token, wakeAtMs: null }
+            const expected = { kind: "other", reason, tokenDigest: Sha256.digestSync(token), wakeAtMs: null }
             expect((yield* reader.read(["long-wait"])).snapshots[0]).toMatchObject({ waiting: expected })
             expect((yield* catalog.listRuns()).runs[0]!.waiting).toEqual(expected)
+            // The raw token resolves the wait; no read surface may carry it.
+            expect(JSON.stringify(yield* reader.read(["long-wait"]))).not.toContain(token)
+            expect(JSON.stringify(yield* catalog.listRuns())).not.toContain(token)
           })
         )
       })

@@ -1721,6 +1721,39 @@ describe("WorkspaceSandbox filesystem host confinement", () => {
       })).pipe(Effect.provide(nodeLayer))
     ))
 
+  // APFS and NTFS resolve case, compatibility, and normalization variants to
+  // the same entry, so each of these spellings names the live `.flows`
+  // directory or the lock on the default macOS and Windows volumes.
+  for (
+    const [path, name] of [
+      [".FLOWS/state.sqlite", ".flows"],
+      [".Flows/objects/blob", ".flows"],
+      [".flowſ/state.sqlite", ".flows"],
+      [".ﬂows/state.sqlite", ".flows"],
+      [".Smithers-Workspace-Lock", ".smithers-workspace-lock"],
+      ["ENGINE.DB", "engine.db"],
+      ["Café/x", "café"]
+    ] as const
+  ) {
+    it.effect(`reserves the ${name} spelling ${JSON.stringify(path)} on case-insensitive volumes`, () =>
+      withCrypto(
+        Effect.scoped(Effect.gen(function*() {
+          const { fs, root } = yield* temp
+          yield* fs.makeDirectory(`${root}/.flows`)
+          yield* fs.writeFileString(`${root}/.flows/state.sqlite`, "LIVE ENGINE DATABASE")
+          const sandbox = WorkspaceSandbox.makeFileSystem(fs, hostPath, yield* ArtifactStore.ArtifactStore, root, {
+            reservedPaths: ["engine.db", "café"]
+          })
+          const accepted = yield* write(sandbox, [[path, "REPLACED"]], [path])
+          expect(yield* Effect.flip(sandbox.materialize(accepted))).toMatchObject({
+            code: "host_unavailable",
+            cause: `the workspace path ${name} is reserved`
+          })
+          expect(yield* fs.readFileString(`${root}/.flows/state.sqlite`)).toBe("LIVE ENGINE DATABASE")
+        })).pipe(Effect.provide(nodeLayer))
+      ))
+  }
+
   it.live("serializes copy-back with a separate process and a root alias", () =>
     withCrypto(
       Effect.scoped(Effect.gen(function*() {

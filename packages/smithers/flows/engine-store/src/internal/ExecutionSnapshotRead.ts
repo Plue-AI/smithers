@@ -4,6 +4,7 @@
  * @since 1.0.0
  */
 
+import * as Sha256 from "@smthrs/crypto/Sha256"
 import { OwnerId } from "@smthrs/journal/OwnerId"
 import { RunStatus, RunStoreError } from "@smthrs/run-store/RunStore"
 import { Cause, Effect, Exit, Option, Schema } from "effect"
@@ -164,6 +165,9 @@ const Row = Schema.Struct({
 
 /**
  * Structured waiting condition; nullable fields preserve older unknown values.
+ * The opaque wake token leaves the engine only as its SHA-256 `tokenDigest`,
+ * the same digest `ExecutionFacts` records: a reader may correlate a wait but
+ * never holds the address that resolves it.
  *
  * @private
  * @since 1.0.0
@@ -172,7 +176,7 @@ export interface Waiting {
   readonly kind: "timer" | "signal" | "approval" | "quota" | "human" | "other"
   readonly reason: string
   readonly wakeAtMs: number | null
-  readonly token: string | null
+  readonly tokenDigest: Sha256.Digest | null
   readonly request?: typeof Schema.Json.Type | undefined
 }
 
@@ -253,7 +257,7 @@ export const observed = (input: unknown, at: Position) =>
         kind: waitingKind(row.waiting_reason),
         reason: row.waiting_reason,
         wakeAtMs: row.waiting_wake_at_ms,
-        token: row.waiting_token,
+        tokenDigest: row.waiting_token === null ? null : Sha256.digestSync(row.waiting_token),
         ...(row.waiting_request === undefined || row.waiting_request === null ? {} : { request: row.waiting_request })
       }
     }

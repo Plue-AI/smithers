@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Sha256 from "@smthrs/crypto/Sha256"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Cause, Effect, Exit, Layer } from "effect"
@@ -63,7 +64,7 @@ describe("execution snapshots", () => {
             expect(batch.snapshots[0]).toMatchObject({
               _tag: "Observed",
               parentRunId: "root",
-              waiting: { kind: "timer", wakeAtMs: 123, token: "token" }
+              waiting: { kind: "timer", wakeAtMs: 123, tokenDigest: Sha256.digestSync("token") }
             })
             expect(batch.snapshots[1]).toMatchObject({
               _tag: "Observed",

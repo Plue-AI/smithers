@@ -84,7 +84,10 @@ engine database, its `-wal` and `-shm` siblings, or artifact objects kept
 there. Add other state paths under the root with the `reservedPaths` option.
 A write or removal that targets a reserved path or lies beneath one fails
 `materialize` with `host_unavailable` before any file changes; a symlink alias
-of one is refused with `path_escapes_workspace` like any other symlink.
+of one is refused with `path_escapes_workspace` like any other symlink. Names
+match after NFKC normalization and case folding, so a spelling a
+case-insensitive volume equates with a reserved path, such as `.FLOWS`, is
+refused on every volume.
 Filesystem hosts must support exclusive `wx` file creation, `stat` with an
 mtime, `utimes`, `rename`, and `remove`.
 

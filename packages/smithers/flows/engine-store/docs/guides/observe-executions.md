@@ -38,13 +38,14 @@ pending, running or terminal lifecycle. Absence without a tombstone carries the
 batch watermark, so a later creation has a greater revision.
 
 Waiting conditions have `kind` equal to `timer`, `signal`, `approval`, `quota`,
-`human`, or `other`, and preserve `reason`, `wakeAtMs`, and `token`. The durable
-`event` reason maps to `signal`. Unknown plugin reasons remain `other`; they
-never imply approval. Nullable fields preserve old records that did not supply
-a deadline or token. Reading a token is not permission to resolve it: delivery
-must still check the current condition atomically at the mutation boundary.
-Opaque wait reasons and tokens keep the engine writer's existing non-empty
-string contract; observing them does not impose the run-ID length limit.
+`human`, or `other`, and preserve `reason` and `wakeAtMs`. The opaque wake
+token resolves the wait, so snapshots and run listings carry only
+`tokenDigest`, its SHA-256, the same digest `ExecutionFacts` records. The
+durable `event` reason maps to `signal`. Unknown plugin reasons remain `other`;
+they never imply approval. Nullable fields preserve old records that did not
+supply a deadline or token. Opaque wait reasons and tokens keep the engine
+writer's existing non-empty string contract; observing them does not impose
+the run-ID length limit.
 
 The effective parent is `parent_run_id` when present, otherwise the durable
 spawn edge with lowest sequence, breaking sequence ties by parent ID. Fork
