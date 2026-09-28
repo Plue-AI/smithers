@@ -841,14 +841,12 @@ func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspac
 		return WorkspaceResponse{}, pkgerrors.Internal("sandbox provider unavailable")
 	}
 
-	// Fork creates a new derived workspace row — counts against the
-	// per-user cap (ticket 0105).
-	if err := s.enforceWorkspaceQuota(ctx, input.UserID); err != nil {
-		return WorkspaceResponse{}, err
-	}
-
 	source, err := s.loadOwnedWorkspace(ctx, input.WorkspaceID, input.RepositoryID, input.UserID)
 	if err != nil {
+		return WorkspaceResponse{}, err
+	}
+	// The fork belongs to the source owner, even when a write grantee requests it.
+	if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
 		return WorkspaceResponse{}, err
 	}
 	// Resume-then-fork: a suspended source VM is resumed before ForkSandbox. When the

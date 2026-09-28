@@ -383,11 +383,12 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 }
 
 func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
-	if err := s.enforceWorkspaceQuota(ctx, input.UserID); err != nil {
-		return WorkspaceResponse{}, err
-	}
 	source, err := s.loadOwnedWorkspace(ctx, input.WorkspaceID, input.RepositoryID, input.UserID)
 	if err != nil {
+		return WorkspaceResponse{}, err
+	}
+	// The fork belongs to the source owner, even when a write grantee requests it.
+	if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
 		return WorkspaceResponse{}, err
 	}
 	snapshots, err := s.runtimeSnapshots()
