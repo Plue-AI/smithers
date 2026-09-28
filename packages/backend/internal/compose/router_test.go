@@ -398,6 +398,10 @@ func (m *mockAdminUserRouteService) RevokeToken(ctx context.Context, username st
 	return nil
 }
 
+func (m *mockAdminUserRouteService) EraseUser(ctx context.Context, username string, req services.EraseUserRequest) (services.EraseUserResult, error) {
+	return services.EraseUserResult{Tombstone: "erased-" + username}, nil
+}
+
 // testConfigAllFlagsOn returns a Config with every FeatureFlags gate
 // enabled, so cmd/server tests can exercise the entire route surface.
 // Production defaults (most non-MVP flags off) are covered by the

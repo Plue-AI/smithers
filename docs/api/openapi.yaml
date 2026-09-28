@@ -13886,6 +13886,72 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/admin/users/{username}/erase:
+    post:
+      summary: POST /api/admin/users/{username}/erase
+      description: Erases the user's owned data and replaces the account with a tombstone identity. Keeps billing, credit-ledger and tax records. Repeating the erase changes nothing and succeeds. Each call writes an admin.user.erase audit event.
+      operationId: post_api_admin_users_username_erase
+      tags:
+        - Admin
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - request_date
+              properties:
+                request_date:
+                  type: string
+                  format: date
+                  description: Date the user asked for deletion (YYYY-MM-DD).
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                    format: int64
+                  tombstone:
+                    type: string
+                  already_erased:
+                    type: boolean
+                  rows_changed:
+                    type: integer
+                    format: int64
+                  repositories:
+                    type: integer
+                  workspaces:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}/admin:
     patch:
       summary: PATCH /api/admin/users/{username}/admin

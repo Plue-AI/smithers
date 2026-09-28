@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,14 @@ type mockAdminUserService struct {
 	createTokenForUserFn func(ctx context.Context, username string, req services.CreateTokenRequest) (services.CreateTokenResult, error)
 	setSuspendedFn       func(ctx context.Context, username string, suspended bool) (services.UserProfile, error)
 	revokeTokenFn        func(ctx context.Context, username string, tokenID int64) error
+	eraseUserFn          func(ctx context.Context, username string, req services.EraseUserRequest) (services.EraseUserResult, error)
+}
+
+func (m *mockAdminUserService) EraseUser(ctx context.Context, username string, req services.EraseUserRequest) (services.EraseUserResult, error) {
+	if m.eraseUserFn != nil {
+		return m.eraseUserFn(ctx, username, req)
+	}
+	return services.EraseUserResult{}, nil
 }
 
 func (m *mockAdminUserService) ListUsers(ctx context.Context, input services.AdminUserListInput) ([]services.AdminUserProfile, int64, error) {
@@ -565,6 +574,59 @@ func TestAdminUserHandler_DeleteUser(t *testing.T) {
 		h.DeleteUser(rec, req)
 
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+}
+
+func TestAdminUserHandler_EraseUser(t *testing.T) {
+	t.Parallel()
+
+	erase := func(t *testing.T, svc *mockAdminUserService, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/target/erase", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "203.0.113.44:5555"
+		req = withURLParamAdminUser(withAdminContext(req), "target")
+		rec := httptest.NewRecorder()
+		(&AdminUserHandler{Service: svc}).EraseUser(rec, req)
+		return rec
+	}
+
+	t.Run("passes the request date and audit actor, returns the result", func(t *testing.T) {
+		t.Parallel()
+		var gotUser string
+		var gotReq services.EraseUserRequest
+		rec := erase(t, &mockAdminUserService{eraseUserFn: func(ctx context.Context, username string, req services.EraseUserRequest) (services.EraseUserResult, error) {
+			actor, ok := services.AdminAuditActorFromContext(ctx)
+			require.True(t, ok)
+			assert.Equal(t, "admin-user", actor.Username)
+			gotUser, gotReq = username, req
+			return services.EraseUserResult{UserID: 7, Tombstone: "erased-ab-7", RowsChanged: 12}, nil
+		}}, `{"request_date":"2026-09-01"}`)
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "target", gotUser)
+		assert.Equal(t, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), gotReq.RequestedAt)
+		assert.JSONEq(t, `{"user_id":7,"tombstone":"erased-ab-7","already_erased":false,"rows_changed":12,"repositories":0,"workspaces":0}`, rec.Body.String())
+	})
+
+	for name, body := range map[string]string{"missing": `{}`, "malformed": `{"request_date":"09/01/2026"}`} {
+		t.Run("rejects a "+name+" request date", func(t *testing.T) {
+			t.Parallel()
+			called := false
+			rec := erase(t, &mockAdminUserService{eraseUserFn: func(context.Context, string, services.EraseUserRequest) (services.EraseUserResult, error) {
+				called = true
+				return services.EraseUserResult{}, nil
+			}}, body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.False(t, called)
+		})
+	}
+
+	t.Run("maps a missing user to 404", func(t *testing.T) {
+		t.Parallel()
+		rec := erase(t, &mockAdminUserService{eraseUserFn: func(context.Context, string, services.EraseUserRequest) (services.EraseUserResult, error) {
+			return services.EraseUserResult{}, pkgerrors.NotFound("user not found")
+		}}, `{"request_date":"2026-09-01"}`)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 }
 
