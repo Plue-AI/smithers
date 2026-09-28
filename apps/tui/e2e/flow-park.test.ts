@@ -30,7 +30,7 @@ it("shows a real durable park and question without claiming the run is still exe
     await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
     await tui.type("/flow ask")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("ask · parked"), 30_000, "parked receipt")
+    await tui.until((screen) => screen.includes("⏸ ask"), 30_000, "paused flow tab")
     expect(tui.screen()).not.toContain("ask · running")
     const db = new Database(join(project, ".flows/control.db"), { readonly: true })
     try {
@@ -45,9 +45,9 @@ it("shows a real durable park and question without claiming the run is still exe
           events().some((event) =>
             event.event_type === "control.agent.discipline-armed" &&
             JSON.parse(event.payload_json).approvalChannel === true
-          ),
+          ) && events().some((event) => event.event_type === "control.run.parked"),
         5_000,
-        "mirrored approval channel receipt"
+        "mirrored approval and park receipts"
       )
       expect(events().some((event) => event.event_type === "control.run.parked")).toBe(true)
     } finally {
