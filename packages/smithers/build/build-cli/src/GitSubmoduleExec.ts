@@ -13,6 +13,7 @@ import type * as GitTarget from "@smthrs/targets/GitTarget"
 import * as Input from "@smthrs/targets/Input"
 import { minimatch } from "minimatch"
 import * as Fs from "node:fs/promises"
+import * as Os from "node:os"
 import * as NodePath from "node:path"
 import * as PackageTree from "./PackageTree.ts"
 
@@ -55,6 +56,30 @@ export interface Plan {
 const localSource = (url: string): string | undefined => {
   if (url.startsWith("file://")) return decodeURIComponent(url.slice("file://".length))
   return NodePath.isAbsolute(url) ? url : undefined
+}
+
+/**
+ * Why a local submodule source may not join the sandbox's read grants.
+ *
+ * `.gitmodules` is ordinary committed content, so its url is as untrusted as
+ * the rest of a cloned tree. Every admitted source becomes an external read of
+ * the confined `git submodule update`, so a url of `/`, `$HOME`, or `/etc`
+ * used to hand that sandbox the whole directory. Only a git repository
+ * (worktree or bare) is admitted, and never the filesystem root, the home
+ * directory, or an ancestor of it.
+ */
+const localSourceRefusal = async (path: string, source: string): Promise<string | undefined> => {
+  const real = await Fs.realpath(source).catch(() => undefined)
+  if (real === undefined) return `Git submodule ${path} url names local path ${source}, which does not exist`
+  const home = await Fs.realpath(Os.homedir()).catch(() => Os.homedir())
+  const relative = NodePath.relative(real, home)
+  const holdsHome = relative === "" || (!relative.startsWith("..") && !NodePath.isAbsolute(relative))
+  if (NodePath.dirname(real) === real || holdsHome) {
+    return `Git submodule ${path} url names ${source}, a root or home directory a submodule cannot read`
+  }
+  const exists = (name: string) => Fs.lstat(NodePath.join(real, name)).then(() => true, () => false)
+  const repository = await exists(".git") || (await exists("HEAD") && await exists("objects"))
+  return repository ? undefined : `Git submodule ${path} url names local path ${source}, which is not a git repository`
 }
 
 /** `.gitmodules` entries as workspace-relative path to url. */
@@ -204,7 +229,10 @@ export const plan = async (
   for (const path of paths) {
     const url = entries.get(path)
     const source = url === undefined ? undefined : localSource(url)
-    if (source !== undefined && !sources.includes(source)) sources.push(source)
+    if (source === undefined || sources.includes(source)) continue
+    const refusal = await localSourceRefusal(path, source)
+    if (refusal !== undefined) return { paths, gitlinks, sources: [], refusal }
+    sources.push(source)
   }
   return { paths: [...new Set(paths)].sort(), gitlinks, sources: sources.sort() }
 }

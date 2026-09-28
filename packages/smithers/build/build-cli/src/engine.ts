@@ -463,6 +463,36 @@ export const layerRuntime = (
 }
 
 /**
+ * The operator variable naming the registry hosts a project `.npmrc` may bind
+ * a host credential to, as a comma-separated list of `host` or `host:port`.
+ *
+ * It is read from the host environment, never from the checkout, because the
+ * checkout is what the list constrains. Unset, only `registry.npmjs.org` may
+ * receive one.
+ *
+ * @category security
+ * @since 0.1.0
+ * @slop
+ */
+export const credentialHostsVariable = "SMITHERS_NPM_CREDENTIAL_HOSTS"
+
+/**
+ * Reads {@link credentialHostsVariable} from the host environment.
+ *
+ * @category security
+ * @since 0.1.0
+ * @slop
+ */
+export const credentialHostsOf = (
+  source: Readonly<Record<string, string | undefined>>
+): ReadonlyArray<string> | undefined => {
+  const descriptor = Object.getOwnPropertyDescriptor(source, credentialHostsVariable)
+  const value = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined
+  if (typeof value !== "string") return undefined
+  return Object.freeze(value.split(",").map((host) => host.trim()).filter((host) => host !== ""))
+}
+
+/**
  * The package-manager layer for this host, over the runtime it declared.
  *
  * @category layers
@@ -480,14 +510,14 @@ export const layerPackageManager = (
    */
   source?: Readonly<Record<string, string | undefined>> | undefined
 ) => {
-  const environment = packageManagerEnvironment(
-    source ?? Environment.ambientEnvironment(),
-    sensitiveEnvironment
-  )
+  const host = source ?? Environment.ambientEnvironment()
+  const environment = packageManagerEnvironment(host, sensitiveEnvironment)
+  const credentialHosts = credentialHostsOf(host)
   const options = {
     projectRoot,
     environment,
     requirement: toolchain.managerVersion,
+    ...(credentialHosts === undefined ? {} : { credentialHosts }),
     ...(toolchain.managerExecutable === undefined ? {} : { executable: toolchain.managerExecutable })
   }
   const manager = toolchain.manager === "bun"

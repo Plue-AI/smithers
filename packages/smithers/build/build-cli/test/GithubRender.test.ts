@@ -830,10 +830,45 @@ describe("toolchain variants", () => {
       packageDir: ".github"
     })
     const action = rendered.files.find((file) => file.path === "actions/setup/action.yml")!
-    expect(action.content).toContain("actions/setup-go@v6")
+    expect(action.content).toContain("actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0")
     expect(action.content).toContain("\"go-version-file\": \"go.mod\"")
     expect(action.content).not.toContain("setup-node")
     expect(action.content).not.toContain("pnpm install")
+  })
+
+  it("renders every third-party action pinned to a commit, the Rust channel explicit", () => {
+    const rust = S.Rust.Toolchain({ toolchain: S.file("//rust-toolchain.toml"), lockfile: S.file("//Cargo.lock") })
+    const workspace = S.Workspace("rust", {
+      repository: "git+https://example.invalid/rust.git",
+      cache: S.Cache({ directory: ".flows" }),
+      toolchains: [rust]
+    })
+    const setup = S.Github.Setup({})
+    const workflow = S.Github.Workflow({ name: "ci", on: { pullRequest: true }, setup, run: [] })
+    const ciGen = S.Github.CiGen({ workflows: [workflow] })
+    const rendered = GithubRender.render({
+      ciGen,
+      workspace,
+      resolve: resolver([[ciGen, "//.github:github"]]),
+      packageDir: ".github"
+    })
+    const action = rendered.files.find((file) => file.path === "actions/setup/action.yml")!
+    // A SHA-pinned rust-toolchain cannot read the channel from its ref.
+    expect(action.content).toContain(
+      "    - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable\n      with:\n        \"toolchain\": \"stable\"\n"
+    )
+    const node = GithubRender.render({
+      ciGen,
+      workspace: unitWorkspace,
+      resolve: resolver([[ciGen, "//.github:github"]]),
+      packageDir: ".github"
+    })
+    const lines = [...node.files, ...rendered.files].flatMap((file) =>
+      file.content.split("\n").filter((row) => /^\s*- uses: [^.]/.test(row))
+    )
+    // pnpm, setup-node, cache, rust-toolchain; the goldens cover checkout.
+    expect(lines.length).toBeGreaterThanOrEqual(4)
+    for (const line of lines) expect(line).toMatch(/^\s*- uses: [\w.-]+\/[\w.-]+@[0-9a-f]{40} # \S+$/)
   })
 
   it("renders the pnpm setup action with the pinned manager and lockfile key", () => {
@@ -848,7 +883,7 @@ describe("toolchain variants", () => {
     })
     const action = rendered.files.find((file) => file.path === "actions/setup/action.yml")
     expect(action).toBeDefined()
-    expect(action!.content).toContain("pnpm/action-setup@v4")
+    expect(action!.content).toContain("pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0")
     expect(action!.content).toContain("\"version\": \"11.21.0\"")
     expect(action!.content).toContain("\"node-version\": \"26\"")
     expect(action!.content).toContain("pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}")
@@ -881,7 +916,7 @@ describe("toolchain variants", () => {
     })
     const action = rendered.files.find((file) => file.path === "actions/setup/action.yml")
     expect(action).toBeDefined()
-    expect(action!.content).toContain("pnpm/action-setup@v4")
+    expect(action!.content).toContain("pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0")
     expect(action!.content).toContain("\"version\": \"8\"")
     expect(action!.content).toContain("\"node-version\": \"26\"")
     expect(action!.content).toContain("pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}")
@@ -911,7 +946,7 @@ describe("toolchain variants", () => {
     const action = rendered.files.find((file) => file.path === "actions/setup/action.yml")
     expect(action).toBeDefined()
     // No declared pin: pnpm/action-setup reads the manifest's packageManager field.
-    expect(action!.content).toContain("pnpm/action-setup@v4")
+    expect(action!.content).toContain("pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0")
     expect(action!.content).not.toContain("\"version\": \"8\"")
     // The workspace runtime arrives as the manifest-derived node-version-file.
     expect(action!.content).toContain("\"node-version-file\": \"package.json\"")

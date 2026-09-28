@@ -142,7 +142,9 @@ plus the paths a rule discovers for itself:
   that leaves the workspace, such as a scratch tree's `node_modules`, which
   bubblewrap and Docker bind read-only because their `/tmp` is private;
 - a git submodule's local source repository, when its `.gitmodules` url is an
-  absolute path or a `file://` url.
+  absolute path or a `file://` url. The path must be a git repository (it holds
+  `.git`, or `HEAD` and `objects`) and must not be the filesystem root, the
+  home directory, or an ancestor of it; otherwise the target is refused.
 
 The write set is the declared outputs, the declared `changes`, the clean
 targets, and what a tool writes on its own account: a cargo crate's `target`
@@ -243,6 +245,7 @@ and crossing one fails the target rather than exhausting the host.
 | Escaping-symlink portals  | Entry count.                                                         |
 | The gitignored census     | Entry count while walking, and bytes held in the stash.              |
 | `S.Fetch` response bodies | Byte count and a request deadline, independent of any caller signal. |
+| `S.Fetch` redirects       | Ten hops; each stays on `http(s)` and never leaves `https`.          |
 | Agent prompts and data    | Byte count per file and per prompt.                                  |
 | Rendered failure text     | UTF-16 code units.                                                   |
 

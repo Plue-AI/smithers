@@ -526,6 +526,7 @@ A structured failure carries a code alongside its message.
 | `SMITHERS_CACHE_NAMESPACE`              | The trust domain results publish into. Unset means the trusted domain.              |
 | `SMITHERS_CLOUD_API_URL`                | Overrides the Smithers Cloud API base that zero-config cache discovery reads.       |
 | `SMITHERS_CLOUD_HOSTS`                  | Extra comma-separated hosts whose git remotes identify a Smithers Cloud repository. |
+| `SMITHERS_NPM_CREDENTIAL_HOSTS`         | Registry hosts a project `.npmrc` may bind credentials to, comma-separated.         |
 | `SMTHRS_UI`                             | The renderer, when `--ui` is `auto`.                                                |
 | `SMTHRS_SHARD`                          | `<index>/<total>` selecting one shard of a sharded target.                          |
 | `SMTHRS_AGENT_FAKE`                     | A script file that replaces the real agent CLI, for deterministic tests.            |

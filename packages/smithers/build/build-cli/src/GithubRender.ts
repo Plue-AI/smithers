@@ -142,6 +142,30 @@ const scalar = (value: string): string => {
 const mapping = (entries: Readonly<Record<string, string>>, indent: string): ReadonlyArray<string> =>
   Object.entries(entries).map(([key, value]) => `${indent}${scalar(key)}: ${scalar(value)}`)
 
+/**
+ * The third-party actions the renderer emits, pinned to full commit SHAs.
+ *
+ * A tag such as `@v4` is mutable: whoever controls or compromises the action's
+ * repository can move it and run code in every generated job, including the
+ * setup step that receives the cache credentials. Each action is pinned to the
+ * commit its tag named when it was last reviewed, with the tag kept as a
+ * trailing comment. Bump a pin by resolving the new tag's commit.
+ */
+const pinnedActions = {
+  checkout: { uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", tag: "v4.4.0" },
+  setupNode: { uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020", tag: "v4.4.0" },
+  setupGo: { uses: "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16", tag: "v6.5.0" },
+  cache: { uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", tag: "v4.3.0" },
+  pnpm: { uses: "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1", tag: "v4.3.0" },
+  bun: { uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6", tag: "v2.2.0" },
+  rust: { uses: "dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87", tag: "stable" }
+} as const
+
+type PinnedAction = (typeof pinnedActions)[keyof typeof pinnedActions]
+
+/** Renders one `- uses:` step line for a pinned action, tag as a comment. */
+const usesLine = (indent: string, action: PinnedAction): string => `${indent}- uses: ${action.uses} # ${action.tag}`
+
 // ---------------------------------------------------------------------------
 // Declaration projection helpers
 // ---------------------------------------------------------------------------
@@ -169,7 +193,9 @@ interface Toolchain {
   /** The declared Rust toolchain layer, as the pin `dtolnay/rust-toolchain` reads. */
   readonly rust: { readonly channel: string | undefined; readonly file: string | undefined } | undefined
   /** The extra action that installs the package manager itself, if any. */
-  readonly managerAction: { readonly uses: string; readonly with?: Readonly<Record<string, string>> } | undefined
+  readonly managerAction:
+    | { readonly action: PinnedAction; readonly with?: Readonly<Record<string, string>> }
+    | undefined
   /** The package-manager store the cache step saves, absent without one. */
   readonly store:
     | { readonly path: string; readonly prefix: string; readonly lockfile: string; readonly install: string }
@@ -238,7 +264,7 @@ const toolchainOf = (workspace: WorkspaceDeclaration.WorkspaceDeclaration): Tool
       runtime,
       rust,
       managerAction: {
-        uses: "pnpm/action-setup@v4",
+        action: pinnedActions.pnpm,
         ...(manager.version === undefined ? {} : { with: { version: manager.version } })
       },
       store: {
@@ -255,7 +281,7 @@ const toolchainOf = (workspace: WorkspaceDeclaration.WorkspaceDeclaration): Tool
       return {
         runtime,
         rust,
-        managerAction: { uses: "pnpm/action-setup@v4", with: { version: manager.version } },
+        managerAction: { action: pinnedActions.pnpm, with: { version: manager.version } },
         store: {
           path: "~/.pnpm-store",
           prefix: "pnpm-store-",
@@ -268,7 +294,7 @@ const toolchainOf = (workspace: WorkspaceDeclaration.WorkspaceDeclaration): Tool
       return {
         runtime,
         rust,
-        managerAction: { uses: "oven-sh/setup-bun@v2" },
+        managerAction: { action: pinnedActions.bun },
         store: {
           path: "~/.bun/install/cache",
           prefix: "bun-store-",
@@ -324,25 +350,25 @@ const renderSetupAction = (
   lines.push("  using: composite")
   lines.push("  steps:")
   if (toolchain.managerAction !== undefined) {
-    lines.push(`    - uses: ${scalar(toolchain.managerAction.uses)}`)
+    lines.push(usesLine("    ", toolchain.managerAction.action))
     if (toolchain.managerAction.with !== undefined) {
       lines.push("      with:", ...mapping(toolchain.managerAction.with, "        "))
     }
   }
   switch (toolchain.runtime?.kind) {
     case "node-version":
-      lines.push("    - uses: actions/setup-node@v4")
+      lines.push(usesLine("    ", pinnedActions.setupNode))
       lines.push("      with:", ...mapping({ "node-version": toolchain.runtime.version }, "        "))
       break
     case "node-version-file":
-      lines.push("    - uses: actions/setup-node@v4")
+      lines.push(usesLine("    ", pinnedActions.setupNode))
       lines.push("      with:", ...mapping({ "node-version-file": toolchain.runtime.file }, "        "))
       break
     case "bun":
       // setup-bun installed the runtime above; nothing further to declare.
       break
     case "go":
-      lines.push("    - uses: actions/setup-go@v6")
+      lines.push(usesLine("    ", pinnedActions.setupGo))
       lines.push("      with:", ...mapping({ "go-version-file": toolchain.runtime.file }, "        "))
       break
     case undefined:
@@ -351,14 +377,14 @@ const renderSetupAction = (
   }
   if (toolchain.rust !== undefined) {
     // The declared layer is the pin: the channel when the workspace names one,
-    // and the pin file otherwise, which the action reads on its own.
-    lines.push("    - uses: dtolnay/rust-toolchain@stable")
-    if (toolchain.rust.channel !== undefined) {
-      lines.push("      with:", ...mapping({ toolchain: toolchain.rust.channel }, "        "))
-    }
+    // and stable otherwise, which rustup then overrides from the pin file on
+    // first use. A SHA-pinned rust-toolchain cannot infer the channel from its
+    // ref, so the input is always explicit.
+    lines.push(usesLine("    ", pinnedActions.rust))
+    lines.push("      with:", ...mapping({ toolchain: toolchain.rust.channel ?? "stable" }, "        "))
   }
   if (toolchain.store !== undefined) {
-    lines.push("    - uses: actions/cache@v4")
+    lines.push(usesLine("    ", pinnedActions.cache))
     lines.push(
       "      with:",
       ...mapping({
@@ -675,7 +701,7 @@ const renderWorkflow = (
     }
     if (workflow.environment !== undefined) lines.push(`    environment: ${scalar(workflow.environment)}`)
     lines.push("    steps:")
-    lines.push("      - uses: actions/checkout@v4")
+    lines.push(usesLine("      ", pinnedActions.checkout))
     if (setup !== undefined) {
       lines.push(`      - uses: ./${packageDir}/actions/setup`)
       const withEntries: Record<string, string> = {}

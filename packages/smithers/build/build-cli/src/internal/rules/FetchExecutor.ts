@@ -32,6 +32,7 @@ export class FetchError extends Error {
     | "digest_mismatch"
     | "write_failed"
     | "body_too_large"
+    | "insecure_redirect"
   readonly expectedSha256: string | undefined
   readonly actualSha256: string | undefined
 
@@ -47,7 +48,8 @@ export class FetchError extends Error {
       | "unexpected_status"
       | "digest_mismatch"
       | "write_failed"
-      | "body_too_large",
+      | "body_too_large"
+      | "insecure_redirect",
     message: string,
     expectedSha256?: string,
     actualSha256?: string,
@@ -133,6 +135,52 @@ export const redactUrl = (url: string): string => {
     `${query ? "?<redacted>" : ""}`
 }
 
+/**
+ * Most redirects one `S.Fetch` follows before it reports the redirect status.
+ *
+ * @category limits
+ * @since 0.1.0
+ */
+export const maximumFetchRedirects = 10
+
+/**
+ * The URL a redirect leads to, or a refusal to follow it.
+ *
+ * The sha256 pin stops content substitution but not where the request goes:
+ * a followed redirect used to accept any scheme change, so an `https` Fetch
+ * could be steered onto cleartext `http`, where anyone on the path reads the
+ * URL (a signed query included) and steers every further hop. A redirect must
+ * stay on `http` or `https` and never leave `https` once the chain is on it.
+ * Cross-host redirects stay allowed: release downloads (GitHub, S3) hop hosts.
+ *
+ * @category execution
+ * @since 0.1.0
+ */
+export const redirectTarget = (from: string, location: string): string => {
+  let next: URL
+  try {
+    next = new URL(location, from)
+  } catch (cause) {
+    throw new FetchError(
+      "insecure_redirect",
+      `Fetch redirect from ${redactUrl(from)} names an unparsable location`,
+      undefined,
+      undefined,
+      { cause }
+    )
+  }
+  const secure = new URL(from).protocol === "https:"
+  if (next.protocol !== "https:" && (secure || next.protocol !== "http:")) {
+    throw new FetchError(
+      "insecure_redirect",
+      `Fetch refused a redirect from ${redactUrl(from)} to ${redactUrl(next.href)}: ${
+        secure ? "it leaves https" : "it leaves http(s)"
+      }`
+    )
+  }
+  return next.href
+}
+
 interface DownloadedFile {
   readonly bytes: number
   readonly sha256: string
@@ -174,8 +222,21 @@ const downloadedFile = async (
   }
   const effect = Effect.scoped(Effect.gen(function*() {
     const transport = yield* HttpClient.HttpClient
-    const client = HttpClient.followRedirects(transport)
-    const response = yield* client.execute(HttpClientRequest.get(url))
+    let current = url
+    let response = yield* transport.execute(HttpClientRequest.get(current))
+    for (
+      let hop = 0;
+      hop < maximumFetchRedirects && response.status >= 300 && response.status < 400 &&
+      response.headers.location !== undefined;
+      hop += 1
+    ) {
+      const location = response.headers.location
+      current = yield* Effect.try({
+        try: () => redirectTarget(current, location),
+        catch: (cause) => cause as FetchError
+      })
+      response = yield* transport.execute(HttpClientRequest.get(current))
+    }
     if (response.status < 200 || response.status >= 300) {
       return yield* Effect.fail(
         new FetchError("unexpected_status", `Fetch request for ${safeUrl} answered HTTP ${response.status}`)
