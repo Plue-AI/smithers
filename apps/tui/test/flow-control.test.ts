@@ -24,6 +24,7 @@ it("discovers flows without importing them", async () => {
   const listed = await port.discover()
   expect(listed.map(({ name, description }) => ({ name, description })).sort((a, b) => a.name.localeCompare(b.name)))
     .toEqual([
+      { name: "composed", description: "Composed" },
       { name: "consequential", description: "Consequential" },
       { name: "echo", description: "Echo" },
       { name: "review", description: "Review" },

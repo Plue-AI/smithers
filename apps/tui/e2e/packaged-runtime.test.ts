@@ -21,7 +21,7 @@ const app = resolve(import.meta.dir, "..")
 const cli = resolve(app, "../../packages/smithers")
 
 for (const runtime of ["node", "compiled"] as const) {
-  it(`runs packaged ${runtime}: draw, external editor, chat, dynamic flow, and result`, async () => {
+  it(`runs packaged ${runtime}: draw, external editor, chat, leaf and composed flows`, async () => {
     const built = runtime === "node"
       ? spawnSync("node", [join(cli, "scripts/build-tui.mjs")], { encoding: "utf8" })
       : spawnSync("bun", [join(cli, "scripts/build-tui-binaries.mjs"), "--single"], { encoding: "utf8" })
@@ -124,11 +124,25 @@ for (const runtime of ["node", "compiled"] as const) {
         5_000,
         "persisted flow result"
       )
-      expect(result).not.toContain("cannot drive")
+      expect(result).not.toContain("does not drive")
       expect(result).not.toContain("r Resume")
       expect(result).not.toContain("x Stop")
       await tui.press("rx")
       expect(tui.screen()).not.toContain("Only a failed")
+      await tui.click("Chat")
+      await tui.type("/flow composed")
+      await tui.press(key.enter)
+      await tui.until((screen) => /[✓✗] composed/.test(screen), 30_000, "composed flow settled")
+      await tui.click("composed")
+      const composed = await tui.until(
+        (screen) => screen.includes("composed action callback output") || screen.includes("composed · failed"),
+        5_000,
+        "composed flow outcome"
+      )
+      expect(composed).toContain("composed action callback output")
+      expect(composed).toContain("composed · done")
+      expect(composed).not.toContain("does not drive")
+      expect(composed).not.toContain("✗ composed")
     } catch (error) {
       const log = join(root, "sessions/tui.log")
       throw new Error(`${error}\n${existsSync(log) ? readFileSync(log, "utf8") : "No diagnostic log"}`, {
