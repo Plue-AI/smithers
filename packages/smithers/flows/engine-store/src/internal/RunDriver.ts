@@ -805,6 +805,7 @@ export const make = (
         const nowMs = yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))
         let claim: RunStore.StealOutcome
         let stealEvidenceKind: Ownership.LivenessEvidence["kind"] | undefined
+        let recoveredClaim: { readonly claimant: Ownership.OwnerId; readonly claimedAtMs: number } | undefined
 
         if (row.status === "running") {
           if (
@@ -865,6 +866,28 @@ export const make = (
             }
           ).pipe(Effect.orDie)
         } else {
+          // A process that died between `claim` and `activate` leaves its
+          // claim on a parked or pending row, and every later claim loses to
+          // it: the run could never be driven again. A claim older than the
+          // lease whose claimant is gone is released first, by the same
+          // liveness rule a steal applies to a running owner.
+          if (
+            row.claim !== null && row.claimedAtMs !== null && !sameOwner(row.claim, dependencies.owner) &&
+            row.claimedAtMs < nowMs - Duration.toMillis(Ownership.heartbeatStaleAfter) &&
+            !(yield* isAlive(row.claim, { claimant: dependencies.owner, heartbeatAtMs: row.claimedAtMs, nowMs }))
+          ) {
+            const recovered = yield* store.recoverClaim(
+              row.runId,
+              row.claim,
+              row.claimedAtMs,
+              dependencies.owner,
+              nowMs,
+              { expectedOwner: row.claim, checkedAtMs: nowMs, kind: livenessEvidenceKind(row.claim) }
+            ).pipe(Effect.orDie)
+            if (recovered._tag === "Recovered") {
+              recoveredClaim = { claimant: row.claim, claimedAtMs: row.claimedAtMs }
+            }
+          }
           claim = yield* store.claim(
             row.runId,
             expected,
@@ -904,7 +927,8 @@ export const make = (
               // What admitted the takeover, so an operator reading the journal
               // can tell a lease that simply expired from a probe that
               // positively reported the owner gone.
-              ...(stealEvidenceKind === undefined ? {} : { evidence: stealEvidenceKind })
+              ...(stealEvidenceKind === undefined ? {} : { evidence: stealEvidenceKind }),
+              ...(recoveredClaim === undefined ? {} : { recoveredClaim })
             })
             return activation
           })

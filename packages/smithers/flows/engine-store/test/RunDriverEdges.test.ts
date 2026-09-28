@@ -216,6 +216,61 @@ describe("RunDriver missing and foreign rows", () => {
       expect(result.row.status).toBe("pending")
     }))
 
+  const orphanedClaim = (runId: string, claimAgeMs: number, alive: boolean) =>
+    Effect.gen(function*() {
+      let executions = 0
+      const result = yield* withCrypto(provideJournal(Effect.gen(function*() {
+        const store = yield* RunStore.RunStore
+        const driver = yield* makeDriver(() => Effect.succeed(alive))
+        yield* store.create(runId, stateJson(EdgeFlow._tag))
+        // A process that crashed between `claim` and `activate`.
+        const claimedAtMs = yield* Clock.currentTimeMillis
+        const crashed = { hostId: owner.hostId, pid: 404, nonce: "crashed" }
+        yield* store.claim(runId, { status: "pending", owner: null, heartbeatAtMs: null }, crashed, claimedAtMs)
+        yield* TestClock.adjust(claimAgeMs)
+        yield* driver.register(EdgeFlow, () =>
+          Effect.sync(() => {
+            executions++
+            return "driven"
+          }))
+        yield* driver.resume(EdgeFlow, runId)
+        const journal = yield* Journal.Journal
+        yield* journal.flush
+        const page = yield* JournalRecords.entries(runId, undefined, 100)
+        return {
+          decisions: page.entries
+            .filter((entry) => entry.eventType === "flows.engine.run-decision")
+            .map((entry) => entry.payload as { decision: string; recoveredClaim?: unknown }),
+          row: yield* store.get(runId),
+          crashed,
+          claimedAtMs
+        }
+      })))
+      return { executions, ...result }
+    })
+
+  it.effect("releases a dead claimant's expired claim and drives the run", () =>
+    Effect.gen(function*() {
+      const result = yield* orphanedClaim("orphaned-claim", 31_000, false)
+      expect(result.executions).toBe(1)
+      expect(result.row.status).toBe("completed")
+      expect(result.decisions).toContainEqual(expect.objectContaining({
+        decision: "claimed-and-activated",
+        recoveredClaim: { claimant: result.crashed, claimedAtMs: result.claimedAtMs }
+      }))
+    }))
+
+  it.effect("keeps a claim that is inside its lease or whose claimant is alive", () =>
+    Effect.gen(function*() {
+      for (const [runId, ageMs, alive] of [["fresh-claim", 29_000, false], ["live-claim", 31_000, true]] as const) {
+        const result = yield* orphanedClaim(runId, ageMs, alive)
+        expect(result.executions).toBe(0)
+        expect(result.row.status).toBe("pending")
+        expect(result.row.claim).toEqual(result.crashed)
+        expect(result.decisions.map((entry) => entry.decision)).toContain("claim-lost")
+      }
+    }))
+
   it.effect("stops before executing when the post-activation running transition loses its fence", () =>
     Effect.gen(function*() {
       let executions = 0
