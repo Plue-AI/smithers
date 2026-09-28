@@ -12,7 +12,7 @@
  */
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import test from "node:test"
@@ -55,6 +55,10 @@ const seed = () => {
   const root = mkdtempSync(join(tmpdir(), "smthrs-cut-release-"))
   mkdirSync(join(root, "scripts"), { recursive: true })
   for (const script of copiedScripts) copyFileSync(join(scriptsDirectory, script), join(root, "scripts", script))
+  // Membership is a dependency-backed operation even in this isolated release.
+  mkdirSync(join(root, "node_modules"))
+  symlinkSync(realpathSync(join(scriptsDirectory, "../node_modules/tinyglobby")), join(root, "node_modules/tinyglobby"), "junction")
+  write(root, ".gitignore", "node_modules/\n")
   write(root, "pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\nlinkWorkspacePackages: true\n")
   write(
     root,

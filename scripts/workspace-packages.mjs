@@ -15,8 +15,9 @@
  * (a scaffolding template, a generated `dist/cjs/package.json`), and a declared
  * member is a package wherever it lives.
  */
-import { globSync, readFileSync, realpathSync } from "node:fs"
+import { readFileSync, realpathSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
+import { createRequire } from "node:module"
 
 /** The repository root, resolved from this file rather than `process.cwd()`. */
 export const repoRoot = resolve(import.meta.dirname, "..")
@@ -75,20 +76,26 @@ export const readWorkspacePatterns = (path = join(repoRoot, "pnpm-workspace.yaml
  * member also matched by a wider pattern) name one package once.
  */
 export const workspacePackages = (root = repoRoot) => {
+  // Keep root/entry-point utilities usable before dependencies are installed.
+  // Membership uses the same pinned matcher as pnpm, including its negations.
+  const { globSync } = createRequire(import.meta.url)("tinyglobby")
+  const patterns = readWorkspacePatterns(join(root, "pnpm-workspace.yaml"))
+    .map((pattern) => `${pattern.replace(/\/$/, "")}/package.json`)
   const found = new Map()
-  for (const pattern of readWorkspacePatterns(join(root, "pnpm-workspace.yaml"))) {
-    for (const manifestPath of globSync(`${pattern.replace(/\/$/, "")}/package.json`, { cwd: root })) {
-      const relativePath = manifestPath.split(/[\\/]/).join("/")
-      if (relativePath.includes("node_modules/")) continue
-      if (found.has(relativePath)) continue
-      const manifest = JSON.parse(readFileSync(join(root, relativePath), "utf8"))
-      found.set(relativePath, {
-        dir: dirname(relativePath),
-        name: manifest.name,
-        manifestPath: join(root, relativePath),
-        manifest
-      })
-    }
+  for (const manifestPath of globSync(patterns, {
+    cwd: root,
+    expandDirectories: false,
+    ignore: ["**/node_modules/**", "**/bower_components/**"]
+  })) {
+    const relativePath = manifestPath.split(/[\\/]/).join("/")
+    if (found.has(relativePath)) continue
+    const manifest = JSON.parse(readFileSync(join(root, relativePath), "utf8"))
+    found.set(relativePath, {
+      dir: dirname(relativePath),
+      name: manifest.name,
+      manifestPath: join(root, relativePath),
+      manifest
+    })
   }
   return [...found.values()].sort((left, right) => left.dir < right.dir ? -1 : left.dir > right.dir ? 1 : 0)
 }
