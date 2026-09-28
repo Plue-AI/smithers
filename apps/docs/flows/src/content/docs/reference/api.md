@@ -419,6 +419,7 @@ class SandboxedFlowError extends Schema.TaggedError("@smthrs/flows/SandboxedFlow
     | "result_invalid"
     | "result_overflow"
     | "diff_overflow"
+    | "diff_unsafe"
     | "deadline_exceeded"
   message: string
   cause?: unknown
@@ -437,6 +438,7 @@ The one failure type every refusal in this module raises.
 | `result_invalid`    | The result's `output` does not decode through the flow's success schema.                                 |
 | `result_overflow`   | The result file exceeds `Limits.resultBytes`.                                                            |
 | `diff_overflow`     | The workspace diff exceeds `Limits.files` or `Limits.diffBytes`.                                         |
+| `diff_unsafe`       | A changed or deleted path holds a backslash, a `.`, `..`, or empty segment, or a drive prefix.           |
 | `deadline_exceeded` | The whole session outlived `ExecuteOptions.timeout`.                                                     |
 
 Messages quote the tail of the guest's stdout and stderr where they help, cut at

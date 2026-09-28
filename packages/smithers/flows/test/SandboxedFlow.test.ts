@@ -312,6 +312,55 @@ describe("SandboxedFlow.execute on a scratch machine", () => {
       expect(attempts[0]).not.toBe(attempts[1])
     }), 60_000)
 
+  it.live(
+    "leaves a link the guest planted out of the diff instead of reading its target",
+    () =>
+      Effect.gen(function*() {
+        const directory = yield* provider
+        const outside = mkdtempSync(join(tmpdir(), "flows-outside-"))
+        try {
+          const secret = join(outside, "secret.txt")
+          writeFileSync(secret, "host secret")
+          const runtime = guestRuntime(
+            "plant-link",
+            `ln -s ${JSON.stringify(secret)} leak.txt && mkdir sub && ln -s ${JSON.stringify(outside)} sub/dir && ` +
+              `printf kept > kept.txt && exec ${JSON.stringify(process.execPath)} "$@"`
+          )
+          const result = yield* SandboxedFlow.execute(Sum, { n: 31 }, {
+            provider: directory,
+            session: "planted-link",
+            entry,
+            runtime,
+            collectDiff: true
+          })
+          expect(result.diff.map(({ path, bytes }) => ({ path, text: new TextDecoder().decode(bytes) }))).toEqual([
+            { path: "kept.txt", text: "kept" }
+          ])
+        } finally {
+          rmSync(outside, { recursive: true, force: true })
+        }
+      }),
+    60_000
+  )
+
+  it.live("refuses a diff path a Windows applier would read as a traversal", () =>
+    Effect.gen(function*() {
+      const directory = yield* provider
+      const runtime = guestRuntime(
+        "backslash-name",
+        `printf x > '..\\..\\x' && exec ${JSON.stringify(process.execPath)} "$@"`
+      )
+      const failure = yield* failureOf(SandboxedFlow.execute(Sum, { n: 31 }, {
+        provider: directory,
+        session: "backslash-name",
+        entry,
+        runtime,
+        collectDiff: true
+      }))
+      expect(failure.code).toBe("diff_unsafe")
+      expect(failure.message).toContain("..\\\\..\\\\x")
+    }), 60_000)
+
   it.live("lists a directory the guest created without reading it as a file", () =>
     Effect.gen(function*() {
       const directory = yield* provider
@@ -496,6 +545,12 @@ describe("native Windows sandbox diff paths", () => {
                 files: {
                   ...session.files,
                   stat: (path) => session.files!.stat!(local(path)),
+                  realPath: (path) =>
+                    Effect.sync(() => {
+                      const real = realpathSync(local(path))
+                      const localRoot = realpathSync(session.workdir)
+                      return real.startsWith(localRoot) ? `${prefix}${real.slice(localRoot.length)}` : real
+                    }),
                   remove: (path, options) => session.files!.remove!(local(path), options),
                   stream: (path, options) => session.files!.stream!(local(path), options),
                   readDirectory: (path, options) =>
@@ -1241,6 +1296,36 @@ describe("SandboxedFlow.execute failures", () => {
       )
       expect(failure.code).toBe("session_failed")
       expect(failure.message).toContain("the changed file unreadable/file-0.bin could not be read back")
+    }), 60_000)
+
+  it.live("reports a changed path that cannot be resolved", () =>
+    Effect.gen(function*() {
+      const guest = yield* limitedGuest({ files: ["changed"] })
+      const unresolvable: Sandbox.Provider = {
+        acquire: (key) =>
+          Effect.map(guest.provider.acquire(key), (session) => ({
+            ...session,
+            files: {
+              ...session.files,
+              realPath: () =>
+                Effect.fail(PlatformError.systemError({
+                  _tag: "Unknown",
+                  module: "FileSystem",
+                  method: "realPath",
+                  description: "resolution refused"
+                }))
+            }
+          }))
+      }
+      const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
+        provider: unresolvable,
+        session: "refuses-resolution",
+        entry: pure,
+        collectDiff: true
+      }))
+      expect(failure.code).toBe("session_failed")
+      expect(failure.message).toContain("could not be resolved")
+      expect(failure.message).toContain("resolution refused")
     }), 60_000)
 
   it.live("reports a workspace that cannot be listed", () =>

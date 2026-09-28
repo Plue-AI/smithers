@@ -104,6 +104,13 @@ more changed files than the bound allows, rather than statting the rest of a
 workspace whose diff is already refused. The message names the limit, not a
 total the walk stopped short of measuring.
 
+The diff holds regular files only. A symbolic link the guest leaves in the
+workspace, or a file reached through one, is not collected: its bytes would be
+the link target's, which on a provider backed by the host's disk can sit
+outside the workspace. A created, changed, or deleted path that holds a
+backslash, a `.`, `..`, or empty segment, or a drive prefix fails the execution
+with `diff_unsafe`, because an applier could write it outside the workspace.
+
 Exceeding a diff bound fails the execution with `diff_overflow`, and exceeding
 `resultBytes` fails it with `result_overflow`. Metadata sizes can refuse a read early. Readback stops at the remaining
 byte budget plus one, and actual bytes count toward the aggregate diff limit

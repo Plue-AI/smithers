@@ -44,6 +44,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import * as HttpClient from "effect/unstable/http/HttpClient"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { execFileSync } from "node:child_process"
@@ -608,6 +609,27 @@ describe("the Node host composition", () => {
     })
   })
 
+  /**
+   * Reaches the filesystem and the network with no rule authorizing either,
+   * so a raw host service left beside the guarded one would answer instead
+   * of refusing.
+   */
+  const TryUngranted = Action.make({
+    name: "flows/host/try-ungranted",
+    success: Schema.String,
+    tier: "sealed",
+    idempotencyKey: "flows/host/try-ungranted/v1",
+    execute: Effect.gen(function*() {
+      const files = yield* FileSystem.FileSystem
+      const http = yield* HttpClient.HttpClient
+      const read = yield* Effect.exit(files.readFileString(note))
+      const fetched = yield* Effect.exit(http.get("http://127.0.0.1:9/"))
+      const describe = (exit: Exit.Exit<unknown, unknown>) =>
+        Exit.isFailure(exit) ? `refused: ${String(exit.cause)}` : "answered"
+      return JSON.stringify({ fs: describe(read), http: describe(fetched) })
+    })
+  })
+
   const Probe = Action.make("flows/host/probe", {
     payload: { what: Schema.String },
     success: Schema.String
@@ -696,6 +718,7 @@ describe("the Node host composition", () => {
       if (what === "spawn") return yield* TrySpawn
       if (what === "mutate") return yield* Mutate
       if (what === "jj-status") return yield* TryJjStatus
+      if (what === "ungranted") return yield* TryUngranted
       if (what === "sleep-again") return yield* SleepAgain
       return yield* Sleep
     })
@@ -811,6 +834,27 @@ describe("the Node host composition", () => {
     )
 
     expect(value).toMatch(/^refused:/)
+  }, 60_000)
+
+  it("hands an action body only guarded filesystem and network services", async () => {
+    mkdirSync(hostRoot, { recursive: true })
+    writeFileSync(note, "host note")
+    const value = await Effect.runPromise(
+      Host.execute({ what: "ungranted" }, { executionId: "host-ungranted" }).pipe(
+        Effect.provide(
+          NodeRuntime.layerHost(
+            { filename: hostFile, workspaceRoot: directory, owner: { hostId: "host-u" }, signals: [] },
+            hostFlows
+          )
+        ),
+        Effect.scoped
+      )
+    )
+    const observed = JSON.parse(value) as { readonly fs: string; readonly http: string }
+    // Spawn and Jj refusals have their own cases above; these are the two
+    // remaining host slots with authority to guard.
+    expect(observed.fs).toMatch(/^refused:.*Permission/s)
+    expect(observed.http).toMatch(/^refused:.*Permission/s)
   }, 60_000)
 
   it("builds the registry between the engine and registration, with both in scope", async () => {

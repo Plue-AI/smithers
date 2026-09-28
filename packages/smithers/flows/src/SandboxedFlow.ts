@@ -84,6 +84,9 @@ import * as Guest from "./internal/SandboxedFlowGuest.ts"
  * - `result_overflow`: the result file exceeds {@link Limits.resultBytes}.
  * - `diff_overflow`: the workspace diff exceeds {@link Limits.files} or
  *   {@link Limits.diffBytes}.
+ * - `diff_unsafe`: a created, changed, or deleted path is not a plain
+ *   workspace-relative path: it holds a backslash, a `.` or `..` segment, an
+ *   empty segment, a leading `/`, or a drive prefix.
  * - `deadline_exceeded`: the whole session outlived {@link ExecuteOptions.timeout}.
  *
  * @category errors
@@ -101,6 +104,7 @@ export class SandboxedFlowError extends Schema.TaggedError<SandboxedFlowError>()
       "result_invalid",
       "result_overflow",
       "diff_overflow",
+      "diff_unsafe",
       "deadline_exceeded"
     ]),
     message: Schema.String,
@@ -547,6 +551,20 @@ interface ChangeBudget {
   readonly limit: number
 }
 
+/** Whether a workdir is a native Windows path, whose listings use backslashes. */
+const windows = (workdir: string): boolean => /^(?:[A-Za-z]:[\\/]|\\\\)/.test(workdir)
+
+/**
+ * Whether a diff path could name something other than one file under the
+ * workspace when a caller writes it back. After the Windows listing is
+ * normalized, a backslash is a literal POSIX filename byte that a Windows
+ * applier would read as a separator, so it is refused along with `..`, `.`,
+ * empty segments, a leading `/`, and a drive prefix.
+ */
+const unsafeDiffPath = (path: string): boolean =>
+  path.includes("\\") || /^[A-Za-z]:/.test(path) ||
+  path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")
+
 const unlistable = (cause: PlatformError.PlatformError): SandboxedFlowError =>
   failure("session_failed", `the workspace could not be listed: ${cause.message}`, cause)
 
@@ -573,8 +591,7 @@ const snapshot = (
     // Native Windows listings use backslashes. Normalize that guest dialect
     // before excluding protocol files or exposing workspace-relative diffs.
     // Backslashes in a POSIX guest remain literal filename characters.
-    const windows = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(workdir)
-    const relative = windows ? listed.map((entry) => entry.replace(/\\/g, "/")) : listed
+    const relative = windows(workdir) ? listed.map((entry) => entry.replace(/\\/g, "/")) : listed
     const entries = relative.filter((entry) => entry !== controlDirectory && !entry.startsWith(`${controlDirectory}/`))
     let over = 0
     const measure = (entry: string): Effect.Effect<Fingerprint | undefined, SandboxedFlowError> =>
@@ -665,6 +682,7 @@ const readBounded = (
  */
 const collect = (
   session: Sandbox.Session,
+  files: FileSystem.FileSystem,
   workdir: string,
   before: ReadonlyMap<string, Fingerprint>,
   after: ReadonlyMap<string, Fingerprint>,
@@ -676,8 +694,30 @@ const collect = (
   Effect.gen(function*() {
     // The count limit is spent during the after walk, which refuses an
     // oversized diff without statting the workspace to its end.
-    const changed = [...after].filter(([path, fingerprint]) => differs(before.get(path), fingerprint))
+    const touched = [...after].filter(([path, fingerprint]) => differs(before.get(path), fingerprint))
     const deleted = [...before.keys()].filter((path) => !after.has(path))
+    const unsafe = [...touched.map(([path]) => path), ...deleted].find(unsafeDiffPath)
+    if (unsafe !== undefined) {
+      return yield* Effect.fail(
+        failure("diff_unsafe", `the guest left ${JSON.stringify(unsafe)}, which is not a plain workspace-relative path`)
+      )
+    }
+    // `stat` follows links, so the walk counts a link to a file as that file.
+    // Only a path that resolves to itself under the workspace is a regular
+    // file the guest wrote; anything else would read the link's target, which
+    // on a provider whose files are the host's can sit outside the workspace.
+    const resolved = (path: string) =>
+      files.realPath(path).pipe(
+        Effect.map((real) => windows(workdir) ? real.replace(/\\/g, "/") : real),
+        Effect.mapError((cause) =>
+          failure("session_failed", `the path ${path} could not be resolved: ${cause.message}`, cause)
+        )
+      )
+    const root = touched.length === 0 ? workdir : yield* resolved(workdir)
+    const changed: Array<readonly [string, Fingerprint]> = []
+    for (const entry of touched) {
+      if ((yield* resolved(`${workdir}/${entry[0]}`)) === `${root}/${entry[0]}`) changed.push(entry)
+    }
     const total = changed.reduce((sum, [, fingerprint]) => sum + fingerprint.size, 0)
     if (total > limits.diffBytes) {
       return yield* Effect.fail(
@@ -880,6 +920,7 @@ export const execute = <
           const changes = options.collectDiff === true
             ? yield* collect(
               session,
+              files,
               workdir,
               before,
               yield* snapshot(files, workdir, { before, limit: limits.files }),
