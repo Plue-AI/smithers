@@ -62,8 +62,12 @@ does not touch the filesystem, so:
   `src/a.ts` means `/workspace/src/a.ts`.
 - **The root itself is inside.** `/workspace` under `/workspace` is
   `compensable`, with or without a trailing slash.
-- **Text is compared exactly.** No case folding, and a backslash is an ordinary
-  character, so `/workspace\evil` is not inside `/workspace`.
+- **Text is compared exactly.** No case folding, so `/C:/Work/file` is not
+  inside `/c:/work`.
+- **Foreign-rooted text is outside.** A resource with a drive letter (`C:`),
+  any backslash (`\\host\share\x`, `/workspace\evil`), or a leading `~` is
+  never inside the workspace, because another host's resolver or a tilde
+  expansion roots it elsewhere. A write to it is `irreversible`.
 
 ## A root with no boundary fails closed
 

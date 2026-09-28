@@ -68,10 +68,10 @@ describe("Capability.tierOf containment boundaries", () => {
       .toBe("irreversible")
   })
 
-  it("resolves drive-shaped relative resource text beneath a relative POSIX root", () => {
-    // Neither value is an absolute POSIX path. Plain lexical containment
-    // therefore resolves the resource beneath the root, without case folding.
-    expect(Capability.tierOf(write("a:/X/file"), { workspaceRoot: "A:/x" })).toBe("compensable")
+  it("never places a drive-lettered resource inside the workspace", () => {
+    // A Windows resolver roots `a:/X/file` at a drive, so POSIX lexical
+    // containment beneath the relative root `A:/x` cannot vouch for it.
+    expect(Capability.tierOf(write("a:/X/file"), { workspaceRoot: "A:/x" })).toBe("irreversible")
   })
 })
 

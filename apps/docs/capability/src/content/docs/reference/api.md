@@ -226,7 +226,13 @@ normalization and no case folding.
 
 Returns `false` rather than throwing when the pattern-length times
 resource-length product exceeds [`maxMatchWork`](#capabilitymaxmatchwork),
-because a grant must never widen.
+because a grant must never widen. Also returns `false` for an `fs:*`
+capability whose absolute resource has a `.` or `..` segment, or whose
+relative resource climbs above its start with `..`: text matching would let
+`/w/**` select `/w/../etc/passwd`, so canonicalize before constructing it. A
+relative declared scope such as `.`, `./src`, or `src/a/../b` matches only
+when the pattern selects both its text and its lexical normal form, so
+`src/**` does not select `src/a/../../etc`.
 
 ### Capability.subsumes
 
@@ -236,7 +242,8 @@ const subsumes: (left: CapabilityPattern, right: CapabilityPattern) => boolean
 
 Conservatively determines whether every capability selected by `right` is also
 selected by `left`. Returns `false` for any relationship its syntactic checks
-cannot prove.
+cannot prove, and for a `right` that can select a filesystem action and whose
+resource has a `.` or `..` segment.
 
 An action is subsumed when `left` is `*`, the two are equal, or `left` is a
 namespace family covering `right`. A resource is subsumed when the two are
@@ -336,7 +343,8 @@ Classifies an exact capability.
 
 Workspace containment is lexical, so symlinks are invisible: a caller that
 materializes workspace snapshots resolves real paths before classifying a
-write.
+write. A resource with a drive letter, any backslash, or a leading `~` is never
+inside the workspace.
 
 ### Capability.requiresIdempotencyKey
 
@@ -392,7 +400,8 @@ veto.
 A rule the matcher cannot decide within `Capability.maxMatchWork` vetoes the
 decision and `evaluate` returns `deny`, because skipping it could let an
 undecidable `deny` fall through to a later `allow`. The kernel turns that
-`deny` into a `PermissionDenied`.
+`deny` into a `PermissionDenied`. An `fs:*` capability whose resource has a `.`
+or `..` segment is `deny` for the same reason.
 
 [`@smthrs/kernel`](https://kernel.smithers.sh/reference/api/) supplies four rulesets in this order:
 configured policy, the patterns approved for a run before it starts, the grants

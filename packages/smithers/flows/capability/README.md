@@ -105,7 +105,8 @@ Capability.parse("fs:read")
 newlines included. `?` matches exactly one code unit, so an astral character
 needs two. A pattern ending in a space and `*` also matches the bare resource
 without its argument text, which is what makes the `proc:spawn` grant `npm *`
-cover bare `npm`. Apart from an identical resource, `**` is the only form
+cover bare `npm`. That grant also covers every subcommand and any appended
+`; cmd` or `&& cmd` text, so grant commands exactly. Apart from an identical resource, `**` is the only form
 `subsumes` can prove. A grant written `/workspace/*` matches
 `/workspace/src/a.ts` but can never be shown to cover it, so an envelope built
 from `*` patterns proves only those same patterns and re-prompts for everything

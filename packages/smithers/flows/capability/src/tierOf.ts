@@ -32,9 +32,18 @@ const lexicalPath = (path: string): string => {
 
 const isAbsolutePath = (path: string): boolean => path.startsWith("/")
 
+/**
+ * A resource that another host's path resolver would root elsewhere: a drive
+ * letter (`C:`), any backslash (`\\host\share`, `\Windows`, `a\..\..\x`), or a
+ * leading `~` that a shell or adapter may expand. POSIX lexical containment
+ * cannot vouch for it, so it is never inside the workspace.
+ */
+const isForeignRooted = (resource: string): boolean =>
+  /^[A-Za-z]:/.test(resource) || resource.startsWith("~") || resource.includes("\\")
+
 const isInsideWorkspace = (resource: string, workspaceRoot: string): boolean => {
   const root = lexicalPath(workspaceRoot)
-  if (root === ".") {
+  if (root === "." || isForeignRooted(resource)) {
     return false
   }
   const resolved = lexicalPath(
@@ -58,7 +67,8 @@ const isInsideWorkspace = (resource: string, workspaceRoot: string): boolean => 
  *
  * Workspace containment is lexical, so symlinks are invisible. A caller that
  * materializes workspace snapshots must resolve real paths before classifying
- * a write.
+ * a write. A resource with a drive letter, a backslash, or a leading `~` is
+ * never inside the workspace, so it classifies as `irreversible`.
  *
  * @since 0.1.0
  * @category predicates

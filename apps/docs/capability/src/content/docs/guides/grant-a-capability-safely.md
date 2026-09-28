@@ -54,15 +54,23 @@ When you get `Option.none()`, do one of these:
 
 ## Widen on purpose
 
-Two widenings are safe to write by hand, because both are grammar you control
-rather than text an agent supplied:
+One widening is safe to write by hand, because it is grammar you control rather
+than text an agent supplied:
 
 ```ts
 // Every path under a directory you named.
 new Capability.CapabilityPattern({ action: "fs:write", resource: "/workspace/**" })
+```
 
-// One command with any arguments, including none.
-new Capability.CapabilityPattern({ action: "proc:spawn", resource: "npm *" })
+Do not widen a command the same way. `*` matches any text, including `;`,
+`&&`, `|`, and newlines, so `proc:spawn` on `npm *` grants `npm exec <pkg>`,
+`npm run <script>`, `npm install <attacker pkg>`, and, for any spawner that
+hands the resource to a shell, `npm x; curl ... | sh`. Every one of those runs
+arbitrary code. Grant each command exactly instead:
+
+```ts
+new Capability.CapabilityPattern({ action: "proc:spawn", resource: "npm test" })
+new Capability.CapabilityPattern({ action: "proc:spawn", resource: "npm install --offline" })
 ```
 
 Use `**`, not `*`, for a subtree. `/workspace/*` matches nested paths but

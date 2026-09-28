@@ -5,6 +5,7 @@
  */
 
 import { type Capability, matches, withinMatchBudget } from "./Capability.ts"
+import { dotSegmentForms } from "./internal/hasDotSegment.ts"
 import type { Rule } from "./Rule.ts"
 import type { RuleEffect } from "./RuleEffect.ts"
 
@@ -22,6 +23,12 @@ import type { RuleEffect } from "./RuleEffect.ts"
  * deny fall through to a later allow. The kernel turns that `deny` into a
  * `PermissionDenied`.
  *
+ * An absolute filesystem resource that still has a `.` or `..` segment, or a
+ * relative one whose `..` climbs above its start, is `deny` for the same
+ * reason: the matcher cannot say what it names, so no rule can decide it and
+ * a deny rule must not fall through to an allow. A relative declared scope
+ * such as `.` or `./src` is evaluated normally.
+ *
  * @category policy
  * @since 0.1.0
  * @slop
@@ -30,6 +37,9 @@ export const evaluate = (
   rulesets: ReadonlyArray<ReadonlyArray<Rule>>,
   capability: Capability
 ): RuleEffect => {
+  if (dotSegmentForms(capability.action, capability.resource) === undefined) {
+    return "deny"
+  }
   // One indexed pass: an undecidable rule anywhere vetoes, so returning on the
   // first one is equivalent to a separate budget preflight. Each rule is
   // matched once; index 0 additionally tracks the configured last-match.

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Security.** An `fs:*` capability whose absolute resource has a `.` or
+  `..` segment, or whose relative resource climbs above its start, is matched
+  by no pattern, `Permission.evaluate` returns `deny` for it, and `subsumes`
+  never proves such a filesystem pattern covered, so an adapter that skips
+  canonicalization cannot turn `/w/**` into `/w/../etc/passwd`. A relative
+  declared scope (`.`, `./src`, `src/a/../b`) still matches, but only when the
+  pattern selects its lexical normal form as well as its text.
+  `tierOf` classifies an `fs:write` to a drive-lettered, backslash-bearing, or
+  `~`-leading resource as `irreversible`.
 - Added `Capability.mayOverlap`, the conservative converse of `subsumes`: it
   answers `false` only when two patterns are PROVABLY disjoint, so a caller
   deciding whether a `deny` rule still applies keeps the restriction for any

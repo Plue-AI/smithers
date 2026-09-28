@@ -72,6 +72,11 @@ normalize paths and does not fold case, so all of these are non-matches:
 
 - `/workspace/**` against `/workspace\evil`: a backslash is an ordinary
   character and never matches `/`.
+- `/workspace/**` against `/workspace/../etc/passwd` or `/workspace/./a`: an
+  absolute `fs:*` resource with a `.` or `..` segment, or a relative one that
+  climbs out with `..`, is never matched, and `Permission.evaluate` denies it.
+- `src/**` against `src/a/../../etc`: a relative dot resource must match in
+  its lexical normal form (`etc`) too.
 - `/Work/**` against `/work/a`: no case folding, on any platform.
 - `/workspace/**` against `/workspace`: the pattern requires the separator, so
   it does not cover the root itself.

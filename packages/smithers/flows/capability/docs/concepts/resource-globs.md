@@ -41,6 +41,13 @@ Capability.matches(grant, Capability.make("proc:spawn", "npmx"))
 The optional trailing wildcard exists so a command grant reads the way an
 operator writes it. `npm *` means "npm, with any arguments", including none.
 
+That makes `npm *` a grant to run arbitrary code, not a grant to run npm. `*`
+matches `;`, `&&`, `|`, and newlines as readily as it matches arguments, so the
+grant covers `npm exec <pkg>`, `npm install <attacker pkg>`, and, for a spawner
+that passes the resource to a shell, `npm x; curl ... | sh`. Grant commands
+exactly, such as `npm test`, and keep trailing wildcards for resources whose
+every expansion you accept.
+
 ## Edge one: there is no escape
 
 The grammar has no escape character, so a resource that genuinely contains `*`
@@ -80,6 +87,28 @@ into a path inside a `C:/x/**` grant. The supported hosts are POSIX, so the
 matcher treats every resource as opaque text and leaves canonicalization to the
 adapter that builds the capability. If your resources need normalizing, do it
 before you construct the `Capability`, once, in one place.
+
+One exception fails closed. A filesystem capability (`fs:read`, `fs:write`)
+whose absolute resource still has a `.` or `..` segment was never
+canonicalized, and text matching would let `/workspace/**` select
+`/workspace/../etc/passwd`. No pattern selects such a capability, and none
+selects a relative resource whose `..` climbs above its start (`../x`).
+`Permission.evaluate` returns `deny` for both, and `Capability.subsumes` never
+proves such a pattern is covered:
+
+```ts
+Capability.matches(
+  new Capability.CapabilityPattern({ action: "fs:write", resource: "/workspace/**" }),
+  Capability.make("fs:write", "/workspace/../etc/passwd")
+)
+// false
+```
+
+A relative resource is a flow's declared scope, which the host resolves
+against the workspace root later. `.`, `./src/./out`, and `src/a/../out` stay
+valid: a pattern selects one only when it selects both the text and its
+lexical normal form. `**` selects `.`, and `src/**` selects `src/a/../out` but
+not `src/a/../../etc`, whose normal form is `etc`.
 
 ## Edge three: matching and proving are not the same
 

@@ -29,7 +29,7 @@ import { Option } from "effect"
 const configured: ReadonlyArray<string> = [
   "fs:read:/workspace/**",
   "fs:write:/workspace/**",
-  "proc:spawn:npm *"
+  "proc:spawn:npm install"
 ]
 
 const ruleFor = (effect: Permission.RuleEffect, declared: string): Permission.Rule => {
@@ -43,7 +43,8 @@ const ruleFor = (effect: Permission.RuleEffect, declared: string): Permission.Ru
 const policy = configured.map((declared) => ruleFor("allow", declared))
 ```
 
-`proc:spawn:npm *` reads as the action `proc:spawn` and the resource `npm *`.
+`proc:spawn:npm install` reads as the action `proc:spawn` and the resource
+`npm install`.
 The action is the first two colon-separated components; everything after them,
 colons included, is the resource.
 
