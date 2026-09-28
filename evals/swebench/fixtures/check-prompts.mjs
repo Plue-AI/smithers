@@ -273,6 +273,19 @@ try {
     assert.equal(refused.status, 2, `run-instance.sh refuses SWB_FLOWS_HOST_SHELL=${JSON.stringify(hostShell)}`)
     assert.match(refused.stdout, /SWB_FLOWS_HOST_SHELL must be 'allowed'/u)
   }
+  // The codex arm's `on` and `sealed` bypass codex's sandbox on this host, so
+  // it has the same rule: no default, and no agent until the lane names one.
+  for (const network of [undefined, "", "bypass", "ON"]) {
+    const env = { ...process.env, SWB_DATASET: dataset, SWB_TRANSPORT: "docker" }
+    delete env.SWB_CODEX_NETWORK
+    if (network !== undefined) env.SWB_CODEX_NETWORK = network
+    const refused = spawnSync("bash", [join(root, "run-instance-codex.sh"), instance.instance_id], {
+      env,
+      encoding: "utf8"
+    })
+    assert.equal(refused.status, 2, `run-instance-codex.sh refuses SWB_CODEX_NETWORK=${JSON.stringify(network)}`)
+    assert.match(refused.stderr, /SWB_CODEX_NETWORK must be on, sealed or off/u)
+  }
   const flowsRunner = readFileSync(join(root, "run-instance.sh"), "utf8")
   assert.match(flowsRunner, /"hostShell": "%s"/u, "run-instance.sh stamps the host-shell condition into its timings")
 } finally {

@@ -62,6 +62,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -88,9 +89,13 @@ NET_PROBE = ("for target in 1.1.1.1/80 example.com/80; do "
              "done; true")
 RIG = Path(__file__).resolve().parents[1]
 GUEST_RIG = "/tmp/swb-rig"
+# Every path a guest command names goes through shlex.quote, constants included,
+# so no path can add a command to the shell line the guest runs.
+Q_RIG = shlex.quote(GUEST_RIG)
 CAPTURE_SCRIPTS = ("capture-git.sh", "snapshot-base.sh", "capture-patch.sh")
 # The official evaluator's DOCKER_WORKDIR, and the testbed every image ships.
 TESTBED = "/testbed"
+Q_TESTBED = shlex.quote(TESTBED)
 
 
 def host_tag() -> str:
@@ -199,7 +204,7 @@ class Testbed(plue_env._PlueOps):
         with tempfile.TemporaryDirectory() as staging:
             for name in CAPTURE_SCRIPTS:
                 shutil.copy2(RIG / "lib" / name, Path(staging) / name)
-            _, err, code = self.exec(f"rm -rf {GUEST_RIG} && mkdir -p {GUEST_RIG}/lib {GUEST_RIG}/out", 120, "/")
+            _, err, code = self.exec(f"rm -rf {Q_RIG} && mkdir -p {Q_RIG}/lib {Q_RIG}/out", 120, "/")
             if code != 0:
                 raise PlueError(f"cannot stage {GUEST_RIG}: {err.strip()[-300:]}", "capture")
             asyncio.run(self._plue_upload_contents(staging, f"{GUEST_RIG}/lib"))
@@ -208,7 +213,7 @@ class Testbed(plue_env._PlueOps):
     def snapshot(self) -> str:
         """The capture base: lib/snapshot-base.sh over the guest's /testbed."""
         out, err, code = self._with_rig(
-            f"bash {GUEST_RIG}/lib/snapshot-base.sh {TESTBED}; code=$?; rm -rf {GUEST_RIG}; exit $code")
+            f"bash {Q_RIG}/lib/snapshot-base.sh {Q_TESTBED}; code=$?; rm -rf {Q_RIG}; exit $code")
         if code != 0:
             raise PlueError(f"snapshot-base.sh exited {code}: {err.strip()[-300:]}", "capture")
         return out.strip().splitlines()[-1]
@@ -217,7 +222,7 @@ class Testbed(plue_env._PlueOps):
         """lib/capture-patch.sh over the guest's /testbed, into `out` and
         `out.untracked` on this host, finished by strip-modes.mjs here."""
         _, err, code = self._with_rig(
-            f"SWB_CAPTURE_STRIP=host bash {GUEST_RIG}/lib/capture-patch.sh {TESTBED} {GUEST_RIG}/out/patch")
+            f"SWB_CAPTURE_STRIP=host bash {Q_RIG}/lib/capture-patch.sh {Q_TESTBED} {Q_RIG}/out/patch")
         try:
             if code != 0:
                 raise PlueError(f"capture-patch.sh exited {code}: {err.strip()[-300:]}", "capture")
@@ -225,7 +230,7 @@ class Testbed(plue_env._PlueOps):
             self.download(f"{GUEST_RIG}/out/patch", str(out))
             self.download(f"{GUEST_RIG}/out/patch.untracked", f"{out}.untracked")
         finally:
-            self.exec(f"rm -rf {GUEST_RIG}", 120, "/")
+            self.exec(f"rm -rf {Q_RIG}", 120, "/")
         subprocess.run(["node", str(RIG / "lib" / "strip-modes.mjs"), str(out)], check=True,
                        stdout=subprocess.DEVNULL)
 
@@ -293,7 +298,7 @@ def evaluator_copy(container: EvaluatorContainer, src, dst) -> None:
     parent = os.path.dirname(str(dst))
     if parent == "":
         raise ValueError(f"Destination path parent directory cannot be empty!, dst: {dst}")
-    container.testbed.exec(f"mkdir -p {parent}", 120, "/")
+    container.testbed.exec(f"mkdir -p -- {shlex.quote(parent)}", 120, "/")
     container.testbed.upload(str(src), str(dst))
 
 

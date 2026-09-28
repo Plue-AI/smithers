@@ -178,8 +178,13 @@ same prompt content — including the repository's own test runner, which
 `lib/test-command.py` derives for both sides — and the same budget:
 
 ```sh
-./run-instance-codex.sh django__django-16612 1500
+SWB_CODEX_NETWORK=sealed ./run-instance-codex.sh django__django-16612 1500
 ```
+
+`SWB_CODEX_NETWORK` has no default. `on` and `sealed` run codex with
+`--dangerously-bypass-approvals-and-sandbox`, a model-authored shell on this
+host with the docker socket and `CODEX_HOME` in reach, so the runner refuses to
+start until the lane names its condition. See [Lanes, and the sealed one](#lanes-and-the-sealed-one).
 
 For a ChatGPT-subscription control, set `SWB_CODEX_AUTH=chatgpt` and
 `SWB_CODEX_HOME=$HOME/.codex`. The runner checks that `codex login status`
@@ -238,7 +243,7 @@ in the rig that starts a testbed:
 
 ```sh
 SWB_TESTBED_NETWORK=none   ./run-instance.sh django__django-16612   # the default
-SWB_TESTBED_NETWORK=bridge ./run-instance-codex.sh django__django-16612 1500
+SWB_TESTBED_NETWORK=bridge SWB_CODEX_NETWORK=on ./run-instance-codex.sh django__django-16612 1500
 ```
 
 The knob exists because the seal the codex lanes claimed was a seal on the

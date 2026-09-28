@@ -213,6 +213,9 @@ node "$S/fixtures/check-compare-arms.mjs"
 echo "== the codex backfill's lanes"
 node "$S/fixtures/check-codex-lanes.mjs"
 
+echo "== the backfill row codex-backfill.sh evals"
+node "$S/fixtures/check-backfill-row.mjs"
+
 echo "== the two-codex-lane scoreboard"
 node "$S/fixtures/check-compare-codex-lanes.mjs"
 

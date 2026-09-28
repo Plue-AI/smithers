@@ -28,6 +28,18 @@ if [ "$TRANSPORT" != "docker" ]; then
   echo "run-instance-codex.sh: the codex arm runs on SWB_TRANSPORT=docker only, got '$TRANSPORT'" >&2
   exit 2
 fi
+# `on` and `sealed` give codex `--dangerously-bypass-approvals-and-sandbox`: a
+# model-authored shell on this host with the docker socket and CODEX_HOME in
+# reach, steered by a problem statement taken from a public issue tracker. That
+# is a lane decision like the flows arm's SWB_FLOWS_HOST_SHELL=allowed, so there
+# is no default and no agent starts until the lane names its condition.
+NETWORK="${SWB_CODEX_NETWORK:-}"
+case "$NETWORK" in
+  on|sealed|off) ;;
+  *)
+    echo "run-instance-codex.sh: SWB_CODEX_NETWORK must be on, sealed or off, got '$NETWORK': on and sealed run codex unconfined on this host" >&2
+    exit 2 ;;
+esac
 INSTANCE="$1"
 BUDGET="${2:-1500}"
 MODEL="${3:-gpt-6-sol}"
@@ -156,7 +168,7 @@ node "$S/lib/write-prompt-codex.mjs" "$DATASET" "$INSTANCE" "$CONTAINER" "$TEST_
 #
 # | value | what codex gets |
 # | --- | --- |
-# | `on` (default) | the approval/sandbox bypass: host shell, docker, network |
+# | `on` | the approval/sandbox bypass: host shell, docker, network |
 # | `sealed` | the same bypass, with every child command's HTTP proxy pointed at a dead port and the web-search tool off |
 # | `off` | codex's own `workspace-write` sandbox, which denies all egress |
 #
@@ -185,7 +197,6 @@ node "$S/lib/write-prompt-codex.mjs" "$DATASET" "$INSTANCE" "$CONTAINER" "$TEST_
 # `on` arm gave it so that test behaviour does not change with the condition. A
 # lane that claims a seal therefore has to read its own traces back and say what
 # it found; `codex-backfill.sh --lane sealed` records the condition per run.
-NETWORK="${SWB_CODEX_NETWORK:-on}"
 SEALED_PROXY="${SWB_CODEX_SEALED_PROXY:-http://127.0.0.1:1}"
 case "$NETWORK" in
   on)

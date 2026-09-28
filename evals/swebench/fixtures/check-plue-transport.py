@@ -198,6 +198,15 @@ def check_evaluator(env: dict) -> None:
     assert result.exit_code == 3 and result.output == b"applied\nwarned\n", result
     assert plue.evaluator_exec_with_timeout(container, "echo ran", 1800)[:2] == ("ran\n", False)
     assert plue.evaluator_exec_with_timeout(container, "sleep-forever", 5)[1] is True, "124 is the timeout"
+    # A destination path is data: its shell metacharacters reach mkdir quoted.
+    guest_root = Path(env["FAKE_ROOT"])
+    marker = guest_root.parent / "injected"
+    source = guest_root.parent / "patch.diff"
+    source.write_text("diff\n")
+    hostile = f"/testbed/evil;touch {marker};$(touch {marker})/patch.diff"
+    plue.evaluator_copy(container, source, hostile)
+    assert not marker.exists(), "a hostile evaluator path ran a command in the guest"
+    assert (guest_root / hostile.removeprefix("/")).read_text() == "diff\n", "the file lands at the literal path"
     plue.evaluator_cleanup(None, container, logger)
     assert [c for c in calls(env) if c[1] == "delete"][-1][2] == container.id
     assert not json.loads(ledger.read_text())["holders"], "cleanup frees the grader's slot"
