@@ -53,7 +53,8 @@ platform/network requirements.
 
 - `src/mainview/`: chat, embedded surfaces, Flow registry, controller and store.
 - `src/mainview/chain/`: browser persistence and recovery.
-- `src/bun/`: native host, authenticated local server, repositories, PTYs and LSP.
+- `src/bun/`: native shell and authenticated local origin. Repository work,
+  terminals and language servers run in the workspace backend.
 - `packages/rpc/src/`: shared `@smthrs/rpc` wire contracts.
 - `packages/smithers/`: the new Flow, Harness, Journal and related runtime packages.
 - `apps/server/`: Cloudflare Worker and web host.

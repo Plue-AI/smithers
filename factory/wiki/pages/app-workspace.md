@@ -4,7 +4,7 @@ The application has a React renderer and an Electrobun desktop host. Its browser
 
 ## Code ownership
 
-`apps/app/src/mainview` owns chat, embedded surfaces, the flow registry, controller and store. `apps/app/src/mainview/chain` owns browser persistence and replay recovery. `apps/app/src/bun` owns the native host, local server, repositories, PTYs and LSP.
+`apps/app/src/mainview` owns chat, embedded surfaces, the flow registry, controller and store. `apps/app/src/mainview/chain` owns browser persistence and replay recovery. `apps/app/src/bun` owns the native shell and authenticated local origin. Repository work, terminals and language servers run in the workspace backend.
 
 ## Coding interactions
 
