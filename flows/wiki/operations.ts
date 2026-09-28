@@ -13,8 +13,25 @@ export const digest = (text: string) =>
   Effect.gen(function*() {
     const crypto = yield* Crypto.Crypto
     const bytes = yield* crypto.digest("SHA-256", new TextEncoder().encode(text))
-    return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("")
+    return hex(bytes)
   })
+const hex = (bytes: Uint8Array) => [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("")
+/** HMAC-SHA256 (RFC 2104) over the injected Crypto digest; the key is 32 bytes. */
+const hmac = (key: Uint8Array, message: string) =>
+  Effect.gen(function*() {
+    const crypto = yield* Crypto.Crypto
+    const block = new Uint8Array(64)
+    block.set(key)
+    const text = new TextEncoder().encode(message)
+    const inner = new Uint8Array(64 + text.length)
+    inner.set(block.map((value) => value ^ 0x36))
+    inner.set(text, 64)
+    const outer = new Uint8Array(96)
+    outer.set(block.map((value) => value ^ 0x5c))
+    outer.set(yield* crypto.digest("SHA-256", inner), 64)
+    return hex(yield* crypto.digest("SHA-256", outer))
+  })
+const sealMessage = (artifactDigest: string) => `smithers-wiki-verified-v1\n${artifactDigest}`
 const privateSegment = /^(?:node_modules|Smithers-Ops)$/i
 const privateFile =
   /^(?:id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|credentials\.json|service-account.*\.json|secrets?(?:\..*)?\.(?:json|ya?ml|toml)|.*\.(?:env|token|pem|key|p8|p12|pfx|jks|ppk|keystore|asc|gpg|tfvars|tfvars\.json|tfstate(?:\.backup)?|db|sqlite))$/i
@@ -201,6 +218,33 @@ export const operations = (
       }
       return page
     })
+  // A verified pointer carries an HMAC of its artifact digest. The key is a
+  // host secret beside (never inside) the output directory, so whoever can
+  // write or copy the output cannot mint a snapshot this host calls verified.
+  const sealKey = (fs: FileSystem.FileSystem, root: string, create: boolean) =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const location = path.join(path.dirname(root), `.${path.basename(root)}.seal-key`)
+      if (create && !(yield* fs.exists(location))) {
+        const crypto = yield* Crypto.Crypto
+        yield* fs.writeFileString(location, hex(yield* crypto.randomBytes(32)) + "\n", { flag: "wx", mode: 0o600 })
+          .pipe(Effect.catch((error) =>
+            fs.exists(location).pipe(Effect.flatMap((exists) => exists ? Effect.void : Effect.fail(error)))
+          ))
+      }
+      if (!(yield* fs.exists(location))) {
+        return yield* Effect.fail(fail("output-conflict", "Verified snapshot has no seal key on this host"))
+      }
+      if ((yield* fs.realPath(location)) !== location) {
+        return yield* Effect.fail(fail("output-conflict", "Seal key cannot be a symlink"))
+      }
+      const text = (yield* fs.readFileString(location)).trim()
+      if (!/^[a-f0-9]{64}$/.test(text)) {
+        return yield* Effect.fail(fail("output-conflict", "Invalid seal key"))
+      }
+      return Uint8Array.from(text.match(/../g)!, (pair) =>
+        parseInt(pair, 16))
+    })
   const write = (
     pages: ReadonlyArray<ReviewedPage>,
     mode: "preview" | "verified",
@@ -360,6 +404,9 @@ export const operations = (
           previous.smithersWikiProjection !== true || !/^[a-f0-9]{64}$/.test(previous.artifactDigest ?? "")
         ) return yield* Effect.fail(fail("output-conflict", "Refusing to overwrite an unowned current pointer"))
       }
+      const seal = verification === "verified"
+        ? { seal: yield* hmac(yield* sealKey(fs, root, true), sealMessage(artifactDigest)) }
+        : {}
       const crypto = yield* Crypto.Crypto
       const stage = path.join(root, `.staging-${yield* crypto.randomUUIDv4}`)
       yield* fs.makeDirectory(stage)
@@ -391,7 +438,13 @@ export const operations = (
         yield* fs.writeFileString(
           pointer,
           JSON.stringify(
-            { smithersWikiProjection: true, artifactDigest, directory: `snapshots/${artifactDigest}`, ...snapshot },
+            {
+              smithersWikiProjection: true,
+              artifactDigest,
+              directory: `snapshots/${artifactDigest}`,
+              ...seal,
+              ...snapshot
+            },
             null,
             2
           ) + "\n"
@@ -427,6 +480,7 @@ export const operations = (
           JSON.parse(text) as {
             artifactDigest: string
             directory: string
+            seal?: unknown
             verification: string
             pages: Array<{ id: string; inputDigest: string; body: string }>
           },
@@ -459,7 +513,7 @@ export const operations = (
         unknown
       >
       const pointer = JSON.parse(text) as Record<string, unknown>
-      for (const key of ["smithersWikiProjection", "artifactDigest", "directory"]) delete pointer[key]
+      for (const key of ["smithersWikiProjection", "artifactDigest", "directory", "seal"]) delete pointer[key]
       if (JSON.stringify(pointer) !== JSON.stringify(archived)) {
         return yield* Effect.fail(fail("output-conflict", "Current pointer differs from its immutable snapshot"))
       }
@@ -479,6 +533,17 @@ export const operations = (
         }))
       if ((yield* digest(JSON.stringify(entries))) !== current.artifactDigest) {
         return yield* Effect.fail(fail("output-conflict", "Snapshot content does not match its artifact digest"))
+      }
+      if (current.verification === "verified") {
+        const expected = yield* hmac(yield* sealKey(fs, root, false), sealMessage(current.artifactDigest))
+        const actual = typeof current.seal === "string" ? current.seal : ""
+        let difference = actual.length ^ expected.length
+        for (let index = 0; index < expected.length; index++) {
+          difference |= expected.charCodeAt(index) ^ actual.charCodeAt(index)
+        }
+        if (difference !== 0) {
+          return yield* Effect.fail(fail("output-conflict", "Verified snapshot was not sealed by this host"))
+        }
       }
       if (requireVerified && current.verification !== "verified") {
         return yield* Effect.fail(fail("review-failed", "The current snapshot has not passed semantic review"))

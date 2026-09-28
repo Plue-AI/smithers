@@ -2,7 +2,8 @@ import { NodeServices } from "@effect/platform-node"
 import { Effect, FileSystem, Schema } from "effect"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { createHmac } from "node:crypto"
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
@@ -632,6 +633,39 @@ test("freshness and verified checks detect stale inputs and altered verification
   await writeFile(location, JSON.stringify(current))
   await writeFile(join(f.root, "src/answer.ts"), "export const answer = 43\n")
   await assert.rejects(run(f.ops.check([f.spec])), /Stale wiki page/)
+})
+
+test("a verified snapshot minted without this host's seal key is refused", async (t) => {
+  const f = await fixture(t), evidence = await run(f.ops.collect(f.spec))
+  const page = { evidence, review: supported(evidence), reviewer: "scripted-test" }
+  // Another writer produces a self-consistent verified output under its own key.
+  const foreign = join(f.root, "foreign", "output")
+  await mkdir(join(f.root, "foreign"))
+  await run(operations({ root: f.root, output: foreign }).write([page], "verified"))
+  await cp(foreign, f.output, { recursive: true })
+  await assert.rejects(run(f.ops.check([f.spec], true)), /no seal key on this host/)
+  // Once this host has its own key, the copied output still fails its seal.
+  await rm(f.output, { recursive: true })
+  await run(f.ops.write([page], "verified"))
+  assert.equal((await run(f.ops.check([f.spec], true))).verification, "verified")
+  await rm(f.output, { recursive: true })
+  await cp(foreign, f.output, { recursive: true })
+  await assert.rejects(run(f.ops.check([f.spec], true)), /not sealed by this host/)
+  await assert.rejects(run(f.ops.check([f.spec])), /not sealed by this host/)
+  // A pointer with its seal removed is refused too.
+  await rm(f.output, { recursive: true })
+  await run(f.ops.write([page], "verified"))
+  const location = join(f.output, "current.json"), current = JSON.parse(await readFile(location, "utf8"))
+  assert.match(current.seal, /^[a-f0-9]{64}$/)
+  assert.equal(
+    current.seal,
+    createHmac("sha256", Buffer.from((await readFile(join(f.root, ".output.seal-key"), "utf8")).trim(), "hex")).update(
+      `smithers-wiki-verified-v1\n${current.artifactDigest}`
+    ).digest("hex")
+  )
+  delete current.seal
+  await writeFile(location, JSON.stringify(current))
+  await assert.rejects(run(f.ops.check([f.spec], true)), /not sealed by this host/)
 })
 
 test("concurrent writers accept the same complete immutable wiki artifact", { timeout: 30_000 }, async (t) => {

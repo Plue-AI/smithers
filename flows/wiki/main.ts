@@ -2,7 +2,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { Effect, Layer, Schema } from "effect"
 import { readFile, realpath } from "node:fs/promises"
-import { resolve, sep } from "node:path"
+import { basename, resolve, sep } from "node:path"
 import { parseArgs } from "node:util"
 import { containedWikiOutput } from "../coding/wiki-output.ts"
 import { operations } from "./operations.ts"
@@ -101,6 +101,8 @@ if (values.help) {
         Effect.provide(NodeServices.layer)
       )
     )
+    // The verified-snapshot seal key lives beside the output (operations.ts).
+    const sealKey = resolve(output, "..", `.${basename(output)}.seal-key`)
     const rule = (action: "fs:read" | "fs:write", resource: string) =>
       new Capability.Permission.Rule({
         effect: "allow",
@@ -116,10 +118,11 @@ if (values.help) {
           ...(incremental?.policySources.map((file) => resolve(root, file)) ?? []),
           output,
           `${output}/**`,
-          resolve(output, "..")
+          resolve(output, ".."),
+          sealKey
         ])
       ].map((resource) => rule("fs:read", resource)),
-      ...[output, `${output}/**`].map((resource) => rule("fs:write", resource))
+      ...[output, `${output}/**`, sealKey].map((resource) => rule("fs:write", resource))
     ]
     const runId = values.run ?? `wiki-${crypto.randomUUID()}`
     console.log(

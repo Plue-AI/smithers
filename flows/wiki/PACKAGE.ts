@@ -103,7 +103,7 @@ const securityReview = S.SecurityReview({
       lookFor: [
         "write() computing verified without requiring a non-null reviewer and every section supported, or skipping the recollect digest comparison.",
         "check() accepting a current.json whose pages, sources, or artifactDigest differ from the immutable snapshot, or --verified passing a non-verified snapshot.",
-        "check --verified trusting a verification field and an unkeyed sha256 artifactDigest that anyone who can write an exported snapshot can recompute.",
+        "check() accepting a verified pointer without a valid seal (HMAC of artifactDigest under the host key beside, never inside, the output), or write() placing that key where the output writer can read it.",
         "The reviewer label in main.ts taken from SMITHERS_OPENAI_AUTH so a different provider route can reuse a prior approval."
       ],
       paths: ["operations.ts", "main.ts", "reuse.ts"]
