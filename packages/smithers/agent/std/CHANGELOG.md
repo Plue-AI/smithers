@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `webfetch` uses one timeout budget across requests, redirects, and response
+  body reads. It rejects non-finite and non-positive timeouts before dispatch,
+  retains the 30-second default, and caps valid timeouts at 120 seconds.
+- `webfetch` owns its redirect loop when composed with the kernel HTTP client,
+  reports the final URL, and allows at most ten redirects (eleven requests).
+  Each hop remains subject to the kernel's permission check.
+
 ### Changed
 
 - `webfetch` caps its rendered `content` at the shared 60,000-byte head budget

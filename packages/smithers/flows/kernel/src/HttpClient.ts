@@ -24,6 +24,8 @@
  *     the guard. That combinator re-enters `postprocess` for every hop, and
  *     `postprocess` is the guarded one, so hop *n* is checked exactly like hop
  *     zero and an authorized origin cannot lend its grant to another.
+ *     A caller that sets `FetchHttpClient.RequestInit.redirect` to `manual`
+ *     receives one guarded hop and owns any further redirect requests itself.
  *
  * Governing design:
  * `docs/specs/Concepts/Permission Kernel.md`,
@@ -310,6 +312,16 @@ export const layer: Layer.Layer<
           )
         )
     )
-    return EffectHttpClient.followRedirects(guarded)
+    const followed = EffectHttpClient.followRedirects(guarded)
+    return EffectHttpClient.makeWith(
+      (request) =>
+        Effect.withFiber((fiber) =>
+          // Read caller policy before the guard forces manual transport.
+          Context.getOrUndefined(fiber.context, FetchHttpClient.RequestInit)?.redirect === "manual"
+            ? guarded.postprocess(request)
+            : followed.postprocess(request)
+        ),
+      guarded.preprocess
+    )
   })
 )

@@ -11,12 +11,14 @@
 
 import * as Flow from "@smthrs/core/Flow"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { capability, envelope } from "./internal/Declaration.ts"
 import { toMarkdown, toText } from "./internal/Html.ts"
-import { capOutput, header, MAX_RESPONSE_BYTES, readBounded } from "./internal/Http.ts"
+import { capOutput, header, MAX_RESPONSE_BYTES, readBounded, Timeout, withDeadline } from "./internal/Http.ts"
 import { parseHttpUrl } from "./internal/Url.ts"
 import * as StdError from "./StdError.ts"
 
@@ -46,8 +48,8 @@ export const Input = Schema.Struct({
   format: Schema.optional(Schema.Literals(["text", "markdown", "html"])).annotate({
     description: "Response rendering format; defaults to markdown"
   }),
-  timeout: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))).annotate({
-    description: "Request and response body timeout in seconds, capped at 120"
+  timeout: Schema.optional(Timeout).annotate({
+    description: "Total timeout across requests, redirects, and response body in seconds, capped at 120"
   })
 })
 /**
@@ -126,7 +128,6 @@ export const run = Effect.fn("WebFetch.run")(function*(
     )
   }
   const client = yield* HttpClient.HttpClient
-  const timeout = Math.min(input.timeout ?? 30, 120) * 1_000
   let headers: Readonly<Record<string, string>> = {
     accept: input.format === "html" ? "text/html, text/plain;q=0.8" : "text/markdown, text/plain, text/html;q=0.8"
   }
@@ -134,12 +135,7 @@ export const run = Effect.fn("WebFetch.run")(function*(
     const response = yield* client.execute(
       HttpClientRequest.setHeaders(HttpClientRequest.get(url.toString()), headers)
     ).pipe(
-      Effect.timeout(timeout),
-      Effect.mapError((cause) =>
-        cause._tag === "TimeoutError"
-          ? error("timeout", `Web fetch timed out after ${timeout / 1_000} seconds`)
-          : error("request_failed", `Web fetch request failed: ${url}`)
-      )
+      Effect.mapError(() => error("request_failed", `Web fetch request failed: ${url}`))
     )
     const location = header(response.headers, "location")
     if (response.status >= 300 && response.status < 400 && location !== undefined) {
@@ -175,12 +171,9 @@ export const run = Effect.fn("WebFetch.run")(function*(
       return yield* Effect.fail(error("response_too_large", "Response exceeds the 5 MiB limit"))
     }
     const body = yield* readBounded(response.stream, url.toString()).pipe(
-      Effect.timeout(timeout),
       Effect.mapError((cause) =>
         cause instanceof StdError.StdError
           ? cause
-          : cause._tag === "TimeoutError"
-          ? error("timeout", `Web fetch timed out after ${timeout / 1_000} seconds`)
           : error("request_failed", "Web fetch response could not be read")
       )
     )
@@ -196,4 +189,15 @@ export const run = Effect.fn("WebFetch.run")(function*(
     return { url: url.toString(), status: response.status, contentType, content, ...disclosure }
   }
   return yield* Effect.fail(error("request_failed", "Web fetch exceeded the redirect limit"))
-})
+}, (effect, input) =>
+  // Keep the shared deadline outside the redirect loop and error mapping.
+  withDeadline(effect, input.url, input.timeout, (seconds) =>
+    error("timeout", `Web fetch timed out after ${seconds} seconds`)).pipe(
+      // This loop owns the redirect budget, even over the guarded client.
+      Effect.updateContext((context: Context.Context<HttpClient.HttpClient>) =>
+        Context.add(context, FetchHttpClient.RequestInit, {
+          ...Context.getOrUndefined(context, FetchHttpClient.RequestInit),
+          redirect: "manual"
+        })
+      )
+    ))

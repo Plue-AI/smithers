@@ -1,7 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Capability from "@smthrs/capability/Capability"
 import { PermissionDenied, type PermissionError, PermissionRequired, Rule } from "@smthrs/capability/Permission"
-import { Effect, Fiber, Option, Stream } from "effect"
+import { Context, Effect, Fiber, Option, Stream } from "effect"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpBody from "effect/unstable/http/HttpBody"
 import * as EffectHttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientErrorModule from "effect/unstable/http/HttpClientError"
@@ -232,6 +233,88 @@ describe("HttpClient", () => {
       ])
       expect(calls).toEqual(["https://first.test/start", "https://second.test/next"])
     }).pipe((effect) => protectedClient(effect, redirecting(calls), store(checks)))
+  })
+
+  itEffect("returns the first redirect to an explicitly manual caller while preserving fetch options", () => {
+    const checks: Array<Capability.Capability> = []
+    const calls: Array<string> = []
+    const options: Array<RequestInit | undefined> = []
+    const raw = EffectHttpClient.make((request) =>
+      Effect.context<never>().pipe(Effect.map((context) => {
+        calls.push(request.url)
+        options.push(Context.getOrUndefined(context, FetchHttpClient.RequestInit))
+        return (request.url.includes("first")
+          ? { status: 302, headers: { location: "https://second.test/next" }, request }
+          : { status: 200, headers: {}, request }) as HttpClientResponse.HttpClientResponse
+      }))
+    )
+    return Effect.gen(function*() {
+      const client = yield* EffectHttpClient.HttpClient
+      const first = yield* client.get("https://first.test/start").pipe(
+        Effect.provideService(FetchHttpClient.RequestInit, {
+          redirect: "manual",
+          credentials: "omit",
+          cache: "no-store"
+        })
+      )
+      expect(first.status).toBe(302)
+      expect(first.request.url).toBe("https://first.test/start")
+      expect(calls).toEqual(["https://first.test/start"])
+      expect(checks).toEqual([{ action: "net:get", resource: "first.test" }])
+      expect(options).toEqual([{ redirect: "manual", credentials: "omit", cache: "no-store" }])
+      const second = yield* client.get("https://first.test/start")
+      expect(second.status).toBe(200)
+      expect(second.request.url).toBe("https://second.test/next")
+      expect(calls).toEqual([
+        "https://first.test/start",
+        "https://first.test/start",
+        "https://second.test/next"
+      ])
+      expect(checks).toEqual([
+        { action: "net:get", resource: "first.test" },
+        { action: "net:get", resource: "first.test" },
+        { action: "net:get", resource: "second.test" }
+      ])
+    }).pipe((effect) => protectedClient(effect, raw, store(checks)))
+  })
+
+  itEffect("checks an explicitly manual next request instead of inheriting the previous hop's grant", () => {
+    const checks: Array<Capability.Capability> = []
+    const calls: Array<string> = []
+    return Effect.gen(function*() {
+      const client = yield* EffectHttpClient.HttpClient
+      const first = yield* client.get("https://first.test/start").pipe(
+        Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" })
+      )
+      expect(first.status).toBe(302)
+      const failure = yield* Effect.flip(
+        client.get("https://second.test/next").pipe(
+          Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" })
+        )
+      )
+      expect(denial(failure)).toMatchObject({
+        code: "permission_denied",
+        capability: { action: "net:get", resource: "second.test" }
+      })
+      expect(checks.map((capability) => capability.resource)).toEqual(["first.test", "second.test"])
+      expect(calls).toEqual(["https://first.test/start"])
+    }).pipe((effect) =>
+      protectedClient(
+        effect,
+        redirecting(calls),
+        GrantStore.of({
+          check: (capability) => {
+            checks.push(capability)
+            return capability.resource === "first.test"
+              ? Effect.void
+              : Effect.fail(new PermissionDenied({ code: "permission_denied", capability, reason: "denied by test" }))
+          },
+          reply: () => Effect.die("unused"),
+          list: Effect.succeed([]),
+          grantEnvelope: () => Effect.void
+        })
+      )
+    )
   })
 
   itEffect("denies a redirect to an unauthorized host after allowing the first hop", () => {

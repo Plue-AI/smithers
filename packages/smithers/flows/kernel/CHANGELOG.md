@@ -25,6 +25,10 @@
 
 ### Fixed
 
+- `HttpClient.layer` honors a caller's explicit `RequestInit { redirect: "manual" }`
+  by returning one authorized hop. Callers can own their redirect loop and hop
+  limit without a second loop following redirects underneath them. Default
+  redirect following and authorization on every hop are preserved.
 - `HttpClient.layer` forces `RequestInit { redirect: "manual" }` below its
   guard, so composing it over a plain `FetchHttpClient.layer`, which follows
   redirects by default, can no longer fetch a redirect target without a grant

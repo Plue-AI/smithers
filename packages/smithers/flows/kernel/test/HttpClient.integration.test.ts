@@ -285,4 +285,56 @@ describe("HttpClient real redirect isolation", () => {
       expect(firstHits).toHaveLength(1)
       expect(secondHits).toHaveLength(0)
     }))
+
+  it.effect("follows through a fetch host whose private RequestInit is manual", () =>
+    Effect.gen(function*() {
+      const hits: Array<Hit> = []
+      const server = yield* Effect.promise(() =>
+        listen(async (request, response) => {
+          await record(request, hits)
+          if (request.url === "/start") {
+            response.writeHead(302, { location: "/final" }).end()
+          } else {
+            response.writeHead(200).end("done")
+          }
+        })
+      )
+      const raw = FetchHttpClient.layer.pipe(
+        Layer.provide(Layer.succeed(FetchHttpClient.RequestInit)({ redirect: "manual" }))
+      )
+      const outcome = yield* runGuarded(requestOutcome(`${server.url}/start`), [allow("net:get", server.url)], raw)
+      expect(outcome._tag).toBe("Success")
+      if (outcome._tag !== "Success") throw new Error("expected followed response")
+      expect(outcome.success.status).toBe(200)
+      expect(outcome.success.request.url).toBe(`${server.url}/final`)
+      expect(hits.map((hit) => hit.url)).toEqual(["/start", "/final"])
+    }))
+
+  it.effect("honors a caller's manual redirect policy over a real fetch host", () =>
+    Effect.gen(function*() {
+      const firstHits: Array<Hit> = []
+      const secondHits: Array<Hit> = []
+      const second = yield* Effect.promise(() =>
+        listen(async (request, response) => {
+          await record(request, secondHits)
+          response.writeHead(200).end("second")
+        })
+      )
+      const first = yield* Effect.promise(() =>
+        listen(async (request, response) => {
+          await record(request, firstHits)
+          response.writeHead(302, { location: `${second.url}/target` }).end()
+        })
+      )
+      const manual = requestOutcome(`${first.url}/start`).pipe(
+        Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual", credentials: "omit" })
+      )
+      const outcome = yield* runGuarded(manual, [allow("net:get", first.url)], FetchHttpClient.layer)
+      expect(outcome._tag).toBe("Success")
+      if (outcome._tag !== "Success") throw new Error("expected first-hop response")
+      expect(outcome.success.status).toBe(302)
+      expect(outcome.success.request.url).toBe(`${first.url}/start`)
+      expect(firstHits).toEqual([{ method: "GET", url: "/start", body: "" }])
+      expect(secondHits).toEqual([])
+    }))
 })

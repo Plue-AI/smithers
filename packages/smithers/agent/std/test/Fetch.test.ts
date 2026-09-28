@@ -76,7 +76,13 @@ describe("Fetch", () => {
       }).pipe(Effect.provide(TestClock.layer()))
     )
     expect(Option.isSome(settled)).toBe(true)
-    if (Option.isSome(settled)) expect(failureOf(settled.value)).toMatchObject({ code: "timeout" })
+    if (Option.isSome(settled)) {
+      expect(failureOf(settled.value)).toMatchObject({
+        code: "timeout",
+        message: `Request timed out after ${seconds} seconds`,
+        path: "https://example.test/stalled"
+      })
+    }
     expect(signal?.aborted).toBe(true)
     if (phase === "body") expect(bodyClosed).toBe(true)
   })

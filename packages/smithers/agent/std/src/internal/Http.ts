@@ -101,6 +101,8 @@ export const Timeout = Schema.Number.check(Schema.isFinite(), Schema.isGreaterTh
  * Bounds the entire request and body read with one timer. Interruption reaches
  * HttpClient.execute and response.stream so Effect aborts the transport and
  * finalizes the body reader before returning the timeout failure.
+ * `timeoutError` preserves a tool's own timeout message while sharing the
+ * validation, duration cap, and interruption behavior.
  *
  * @category http
  * @since 1.0.0
@@ -108,7 +110,8 @@ export const Timeout = Schema.Number.check(Schema.isFinite(), Schema.isGreaterTh
 export const withDeadline = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
   url: string,
-  timeout = 30
+  timeout = 30,
+  timeoutError?: (seconds: number) => StdError.StdError
 ): Effect.Effect<A, E | StdError.StdError, R> => {
   if (!Schema.is(Timeout)(timeout)) {
     return Effect.fail(
@@ -124,7 +127,7 @@ export const withDeadline = <A, E, R>(
     duration: seconds * 1_000,
     orElse: () =>
       Effect.fail(
-        new StdError.StdError({
+        timeoutError?.(seconds) ?? new StdError.StdError({
           code: "timeout",
           message: `Request timed out after ${seconds} seconds`,
           path: url

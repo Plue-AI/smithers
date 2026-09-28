@@ -64,10 +64,18 @@ Two halves guarantee it:
    `RequestInit` of every request it executes, so a plain
    `FetchHttpClient.layer` cannot walk to another origin either. A custom
    client that ignores `RequestInit` must meet the precondition itself.
-2. The decorator composes Effect's `followRedirects` **above** the guard, so
+2. By default, the decorator composes Effect's `followRedirects` **above** the guard, so
    every hop re-enters the guarded path and is checked exactly like hop zero.
 
 An authorized origin cannot lend its grant to another.
+
+To handle redirects yourself, provide `FetchHttpClient.RequestInit` with
+`redirect: "manual"` around the guarded request. It returns the first hop's
+response without contacting the redirect target. Your loop owns the hop
+limit, and each subsequent request through the guarded client receives its
+own grant check. Other request options are preserved. A manual setting
+provided privately to the raw host client only prevents transport-level
+redirects; the guarded client still follows redirects by default.
 
 ## Read a refusal back
 
