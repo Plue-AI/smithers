@@ -144,7 +144,10 @@ const stop = (options = {}) => {
   const signal = options.killSignal ?? config?.killSignal ?? 'SIGTERM';
   // A target's exit cannot shorten a captured escaped child's grace period.
   if (options.fast && escaped.size !== 0) return;
-  if (options.explicit && grouped && !targetDone && target?.pid !== undefined) {
+  // A grouped owner reaches its members with one group signal and captures
+  // only children that left the group. A direct target shares the host's
+  // group, so every descendant is captured and signalled by pid.
+  if (options.explicit && !targetDone && target?.pid !== undefined) {
     try { captureEscaped(); } catch (error) { cleanupError(error); }
   }
   stopping = true;

@@ -405,6 +405,38 @@ describe.skipIf(process.platform === "win32")("prepared POSIX process contract",
       expect(yield* prepared.settled).toBe(true)
     }).pipe(Effect.provide(layers), Effect.scoped))
 
+  it.live("stops a direct target's TERM-ignoring descendants on an explicit stop", () =>
+    Effect.gen(function*() {
+      const raw = yield* ChildProcessSpawner
+      // A direct target shares the host's group, so no group signal can reach
+      // its children; they must be captured and signalled one by one.
+      const prepared = yield* ProcessReaper.processLifecycle(
+        ChildProcess.make("/bin/sh", ["-c", "trap '' TERM; sleep 30 & echo $!; sleep 30 & wait"], {
+          detached: false
+        }),
+        raw.spawn
+      )
+      yield* prepared.activate
+      const line = yield* prepared.handle.stdout.pipe(Stream.decodeText(), Stream.splitLines, Stream.runHead)
+      const grandchild = Number(line._tag === "Some" ? line.value : NaN)
+      expect(group(grandchild)).toBe(group(process.pid))
+      yield* prepared.handle.kill({ killSignal: "SIGTERM", forceKillAfter: 300 })
+      expect(yield* prepared.settled).toBe(true)
+      const alive = () => {
+        try {
+          process.kill(grandchild, 0)
+          return true
+        } catch {
+          return false
+        }
+      }
+      const deadline = Date.now() + 3000
+      while (alive() && Date.now() < deadline) yield* Effect.sleep("25 millis")
+      const survived = alive()
+      if (survived) process.kill(grandchild, "SIGKILL")
+      expect(survived).toBe(false)
+    }).pipe(Effect.provide(layers), Effect.scoped))
+
   it.live("keeps an exotic catchable signal from terminating the cleanup owner", () =>
     Effect.gen(function*() {
       const raw = yield* ChildProcessSpawner

@@ -124,8 +124,16 @@ export const remote = async (
     stderr.push(chunk)
     if (stream) c.output(Buffer.alloc(0), chunk)
   })
-  if (input) input.pipe(child.stdin!)
-  else child.stdin?.end()
+  // `pipe` forwards no source error: a failed stdin source stops the guest
+  // and is the result, rather than leaving it waiting for end of input.
+  let inputError: unknown
+  if (input) {
+    input.on("error", (error) => {
+      inputError ??= error
+      child.kill()
+    })
+    input.pipe(child.stdin!)
+  } else child.stdin?.end()
   let expired = false
   const timer = timeout > 0
     ? setTimeout(() => {
@@ -137,6 +145,7 @@ export const remote = async (
     // Output is complete once both streams end, not when the exit arrives.
     const [code] = await Promise.all([
       child.exited.catch((error: unknown) => {
+        if (inputError !== undefined) throw inputError
         if (expired) throw new Error("Workspace exec timed out")
         throw error
       }),

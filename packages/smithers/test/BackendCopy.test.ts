@@ -111,6 +111,24 @@ describe("SSH process receipts", () => {
     expect(result.stdout.toString()).toBe("input")
     expect(result.stderr.toString()).toBe("error")
   })
+  it("raises a failed stdin source instead of waiting for the guest", async () => {
+    const { c } = await fixture()
+    const broken = Readable.from((async function*() {
+      yield Buffer.from("partial")
+      throw new Error("stdin source broke")
+    })())
+    await expect(remote(c, "ssh guest", "cat >/dev/null", 5000, broken)).rejects.toThrow("stdin source broke")
+  })
+  it("returns the guest's status when it exits without reading its stdin", async () => {
+    const { c } = await fixture()
+    const endless = Readable.from((async function*() {
+      for (;;) {
+        yield Buffer.alloc(64 * 1024)
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+    })())
+    expect((await remote(c, "ssh guest", "exit 0", 5000, endless)).code).toBe(0)
+  })
   it("times out an unresolved remote process", async () => {
     const { c } = await fixture("exec sleep 10\n")
     await expect(remote(c, "ssh guest", "command", 10)).rejects.toThrow("timed out")

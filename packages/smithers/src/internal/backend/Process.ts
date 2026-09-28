@@ -173,7 +173,12 @@ export const spawn = (
         ? "inherit"
         : Stream.fromAsyncIterable(stdin as AsyncIterable<Uint8Array>, (cause) => cause as never),
       stdout: piped ? "pipe" : "inherit",
-      stderr: piped ? "pipe" : "inherit"
+      stderr: piped ? "pipe" : "inherit",
+      // A terminal hand-off keeps the caller's session: a detached child
+      // starts a new one (setsid), losing the controlling terminal that
+      // /dev/tty prompts need and the SIGWINCH that carries resizes. The
+      // supervisor then signals the child's descendants by pid on a stop.
+      ...(piped ? {} : { detached: false })
     }))
     const [code] = yield* Effect.all([
       handle.exitCode,
