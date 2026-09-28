@@ -196,6 +196,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.New(middleware.NewGCPJSONHandler(stderr, slog.LevelError)).Error("failed to load config", "error", err)
 		return err
 	}
+	if err := validateProductionConfig(os.Getenv("SMITHERS_ENV"), strings.EqualFold(os.Getenv("SMITHERS_ENABLE_E2E_TEST_ROUTES"), "true")); err != nil {
+		slog.New(middleware.NewGCPJSONHandler(stderr, slog.LevelError)).Error("invalid production config", "error", err)
+		return err
+	}
 	options.topology = topology{multitenant: config.IsMultitenant(cfg.Auth), duties: options.Duties}
 	if options.Workspace != nil {
 		switch isolation := options.Workspace.Isolation(); isolation {
@@ -1891,6 +1895,13 @@ func stopRevocationListener(cancel context.CancelFunc, bus *revocation.Bus, time
 		slog.Warn("revocation bus did not stop before the shutdown deadline",
 			"timeout", timeout.String())
 	}
+}
+
+func validateProductionConfig(environment string, e2eTestRoutes bool) error {
+	if strings.EqualFold(strings.TrimSpace(environment), "production") && e2eTestRoutes {
+		return errors.New("SMITHERS_ENABLE_E2E_TEST_ROUTES must not be enabled in production")
+	}
+	return nil
 }
 
 // validateProductionBlobStore fails startup unless one durable adapter is

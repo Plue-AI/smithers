@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,6 +85,58 @@ func TestValidateProductionBlobStoreFailsClosed(t *testing.T) {
 	err := validateProductionBlobStore("PRODUCTION", config.BlobConfig{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SMITHERS_BLOB_DATA_DIR or an injected blob adapter is required")
+}
+
+func TestRunRefusesE2ETestRoutesInProduction(t *testing.T) {
+	preserveSlog(t)
+	for _, tc := range []struct {
+		name          string
+		environment   string
+		flag          string
+		injectedBlobs bool
+	}{
+		{name: "production", environment: "production", flag: "true"},
+		{name: "normalized production with injected blobs", environment: "  PrOdUcTiOn  ", flag: "TRUE", injectedBlobs: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SMITHERS_ENV", tc.environment)
+			t.Setenv("SMITHERS_ENABLE_E2E_TEST_ROUTES", tc.flag)
+			t.Setenv("SMITHERS_DATABASE_URL", "postgres://x@127.0.0.1:1/x?sslmode=disable&connect_timeout=1")
+			t.Setenv("SMITHERS_AUTH_MODE", "selfhost")
+			t.Setenv("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "test-bootstrap-token")
+			t.Setenv("SMITHERS_AUTH_SESSION_SECRET", "test-session-secret")
+			t.Setenv("SMITHERS_LFS_SIGNING_SECRET", "test-lfs-signing-secret")
+			t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "test-webhook-key")
+			t.Setenv("SMITHERS_REPO_HOST_AUTH_TOKEN", "test-repo-token")
+			t.Setenv("SMITHERS_PUSH_HOOK_CALLBACK_TOKEN", "test-callback-token")
+			t.Setenv("SMITHERS_PUBLIC_URL", "http://127.0.0.1:4000")
+			t.Setenv("SMITHERS_FEATURE_FLAGS_WORKFLOWS", "false")
+			t.Setenv("SMITHERS_FEATURE_FLAGS_SANDBOXES", "false")
+			t.Setenv("SMITHERS_FEATURE_FLAGS_WORKSPACES", "false")
+			t.Setenv("SMITHERS_FEATURE_FLAGS_AGENTS", "false")
+			t.Setenv("SMITHERS_BLOB_DATA_DIR", t.TempDir())
+
+			options := Options{}
+			if tc.injectedBlobs {
+				options.Blobs = blob.NewMemoryStore()
+			}
+			err := RunWithOptions(context.Background(), nil, io.Discard, io.Discard, options)
+			require.ErrorContains(t, err, "SMITHERS_ENABLE_E2E_TEST_ROUTES")
+		})
+	}
+}
+
+func TestValidateProductionConfig(t *testing.T) {
+	for _, environment := range []string{"production", "PRODUCTION", "  production  ", "development", "test", ""} {
+		for _, enabled := range []bool{false, true} {
+			err := validateProductionConfig(environment, enabled)
+			if enabled && (environment == "production" || environment == "PRODUCTION" || environment == "  production  ") {
+				require.ErrorContains(t, err, "SMITHERS_ENABLE_E2E_TEST_ROUTES", "environment=%q", environment)
+			} else {
+				require.NoError(t, err, "environment=%q, enabled=%t", environment, enabled)
+			}
+		}
+	}
 }
 
 func TestInitializeBlobStore_ExpiryParsing(t *testing.T) {
