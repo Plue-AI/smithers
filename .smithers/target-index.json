@@ -13179,6 +13179,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/control/src/internal/sqlSchemaErrors.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/control/src/migrations/0001_control_tables.ts"
       },
       {
@@ -17445,6 +17449,47 @@
         "kind": "glob",
         "pattern": "apps/tui/docs/**/*.md",
         "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/tui/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/tui:e2eTests",
+    "package": "apps/tui",
+    "name": "e2eTests",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/src/**/*.tsx",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/test/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/bunfig.toml"
       }
     ],
     "outputs": [],

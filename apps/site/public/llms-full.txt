@@ -1202,7 +1202,9 @@ Needs sign-in and a [box](/docs/learn/boxes/) for the repository.
 /flow echo text=hello
 ```
 
-Quote values with spaces: `text="hello world"`. A missing input opens a form: Tab moves between fields, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. Each run gets its own tab; `/smithers` lists them.
+Quote values with spaces: `text="hello world"`. A missing input opens a form: Tab moves between fields, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. Each run gets its own tab; `/smithers` lists them. A completed run shows its result. A parked run keeps its question; `r` resumes the same run and `x` stops it.
+
+Discovery refreshes when `flows/` changes. Restart the TUI after editing a `flow.ts` that the host has already loaded. Run only one TUI or CLI flow executor per directory.
 
 ![Filling in a flow's input form in the TUI.](/images/learn/tui-flow-form.gif)
 
@@ -1391,7 +1393,7 @@ smthrs flow start review --data '{"args":"Review main"}' --detached
 
 **TUI**
 
-**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers, `c` opens it in chat, `x` stops, `r` retries with its earlier steps, `m` picks another model, `w` waits for the provider's reset. `/stop <id>` and `/retry <id>` work from anywhere.
+**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers, `x` stops, and `r` resumes with its earlier steps. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. `/stop <id>` and `/retry <id>` work from anywhere.
 
 ![Stopping and retrying a worker from its TUI tab.](/images/learn/tui-worker-controls.gif)
 
@@ -1580,7 +1582,7 @@ Keep the existing public API. Fix the parser and add a regression test.
 
 **TUI**
 
-**Available now.** In a flow run's tab, `x` stops it and `r` resumes it. `/stop <id>` and `/retry <id>` do the same by ID.
+**Available now.** In a running flow's tab, `x` stops it. A failed, cancelled, interrupted, or parked run offers `r` to resume. `/stop <id>` and `/retry <id>` do the same by ID. Completed runs show neither control.
 
 **CLI**
 
@@ -1624,7 +1626,7 @@ Design preview with example data. Not connected yet.
 
 **TUI**
 
-**Available now.** The request appears above the composer. Start the TUI with `--approve ask` to be asked, or `--approve deny` to refuse every call; the default allows every call. `SMITHERS_TUI_APPROVE` sets the same.
+**Available now.** The request appears above the composer. Start the TUI with `--approve ask` to be asked, or `--approve deny` to refuse edits, shell commands, and network calls; the default allows them. `SMITHERS_TUI_APPROVE` sets the same.
 
 ```sh
 smthrs tui --approve ask
@@ -1658,7 +1660,7 @@ Each entry carries the exact payload to approve. With nothing waiting, it prints
 
 **TUI**
 
-**Available now.** Press `y` to allow once or `n` to deny. Where offered, `a` allows that kind of call for the rest of the conversation. The keys work once the editor is empty. A flow asks once for each thing it may do.
+**Available now.** Press `y` to allow once or `n` to deny. Where offered, `a` allows that kind of call for the rest of the conversation. The keys work once the editor is empty and the 400 ms typing guard has elapsed. A flow asks once for each thing it may do.
 
 ![A flow asks for its write, process, and network permissions in turn; pressing y allows each, and the run completes.](/images/learn/tui-flow-approval.gif)
 
@@ -2344,7 +2346,7 @@ Start with the error on the card, row, or output. It names what failed and what 
 | You see | Do |
 | --- | --- |
 | No model available | Set a provider key and restart. See [Configuration](/docs/tui/configuration/). |
-| Worker parked | Wait for its reset, or press `m` for another model. |
+| Worker parked | Wait for its reset, or press `r` to retry now. A failed worker offers `m` to choose another model. |
 | Worker failed | Press `r` to retry. |
 | `Stop running work first` | Stop or finish running work before switching conversations or undoing. |
 | Undo refused | The file changed since; review the newer edit. |
@@ -2651,8 +2653,10 @@ From a source checkout, use `bun run tui` with the same arguments.
 | `--approve all` | | Run edits, commands, and network calls. The default. |
 | `--approve ask` | | Ask first. Interactive only. |
 | `--approve deny` | | Refuse them. |
-| `--budget-tokens n` | | Stop each turn and worker at `n` tokens. Unbounded by default. |
+| `--budget-tokens n` | | Refuse a model call when its estimated total would exceed `n` tokens per turn or worker. Unbounded by default. |
 | `--help` | `-h` | Show options. |
+
+The token budget uses reported usage to estimate the next call. An admitted call can consume more than its estimate.
 
 ## One answer
 
@@ -2686,7 +2690,7 @@ SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$PWD/target/release/smithers-jj-export" \
 # Configuration
 https://smithers.sh/docs/tui/configuration/
 
-The TUI reads everything from the environment.
+Use environment variables for defaults; command-line flags override them.
 
 ## Providers
 
@@ -2713,7 +2717,7 @@ Worker completions and monitors require a connected ChatGPT or Claude subscripti
 | `SMITHERS_TUI_WORKER_SEATS` | Fallback models for workers, comma-separated. |
 | `SMITHERS_TUI_WORKERS` | Six workers at once; more wait in order. |
 | `SMITHERS_TUI_APPROVE` | `all`; also `ask`, `deny`. `--approve` wins. |
-| `SMITHERS_TUI_BUDGET_TOKENS` | Unbounded. A token ceiling per turn and worker; `--budget-tokens` wins. |
+| `SMITHERS_TUI_BUDGET_TOKENS` | Unbounded. Checks estimated tokens before each model call, per turn and worker; `--budget-tokens` wins. |
 | `SMITHERS_TUI_SESSION_DIR` | Where conversations are stored. |
 | `VISUAL`, then `EDITOR` | Editor for Ctrl+G; falls back to `nano`. |
 | `SMITHERS_TUI_BIN`, `SMITHERS_BUN` | Which TUI build and Bun the launcher uses. |
@@ -2731,7 +2735,7 @@ The TUI with a scripted test model.
 
 ## Stored conversations
 
-Conversations are saved under `~/.smithers/tui/sessions/<directory>--<hash>/` as private JSONL files. Credential-shaped text is redacted; file patches are kept exactly so undo works. A damaged file is renamed `.damaged` and left out of the picker. Treat the folder as private project data.
+Conversations are saved under `~/.smithers/tui/sessions/<directory>--<hash>/` as private JSONL files. Credential-shaped text is redacted; file patches are kept exactly so undo works. An incomplete final line is dropped before the conversation continues. Damage earlier in the file renames it `.damaged` and leaves it out of the picker. Treat the folder as private project data.
 
 ---
 
@@ -2740,7 +2744,9 @@ https://smithers.sh/docs/tui/views/
 
 ## Tabs
 
-Chat, Summary, workers, flow runs, and custom views each have a tab. Ctrl+] moves forward, Ctrl+\ moves back. Click a tab to open it.
+Chat, Summary, workers, flow runs, and custom views each have a tab. Ctrl+] moves forward; Ctrl+[ or Ctrl+Left moves back. Ctrl+Right also moves forward. Ctrl+\ returns to Chat; Ctrl+Y returns from a worker to its parent. Click a tab to open it.
+
+Some terminals send Ctrl+[ as Esc; use Ctrl+Left there. macOS may reserve Ctrl+Left/Right for switching Spaces.
 
 ## Filter the transcript
 
@@ -31391,11 +31397,18 @@ any other scheme it is `<scheme>//<lowercased host>`. In other words `https` is
 the implicit scheme: `https://EXAMPLE.test/x` names `example.test`, while
 `http://EXAMPLE.test/x` names `http://example.test`, so a host grant never
 authorizes a cleartext downgrade. Requests are snapshotted before any
-suspension. Redirects are followed **above** the guard, so every hop re-enters
+suspension. By default, redirects are followed **above** the guard, so every hop re-enters
 authorization independently. The client below the guard must not follow
 redirects on its own. The decorator forces `RequestInit { redirect: "manual" }`
 for each request it executes, which covers a plain `FetchHttpClient.layer`; a
 custom client that ignores `RequestInit` must meet that precondition itself.
+
+A caller that provides `FetchHttpClient.RequestInit` with `redirect: "manual"`
+receives one authorized hop, including its redirect response. The caller owns
+any redirect loop and its hop limit; each subsequent request through this
+client still requires authorization. Other caller options are preserved.
+The raw host client's private manual-redirect setting does not disable the
+decorator's default redirect following.
 
 ## Jj
 
@@ -39092,20 +39105,22 @@ collapses `[.]` only afterwards, so this one survives and, as the last segment,
 names its anchor under the same rule. One addition: a `**` immediately before it
 addresses nothing, so `**/[.]` names nothing while `**/deep/[.]` names the
 directory. Anywhere but last, and in an exclusion, a `.` segment names an entry
-no directory holds. Matching is segment-wise and linear in the candidate's
-length, never a compiled regular expression, because a pattern of repeated `*x`
-fragments costs a regex engine exponential backtracking.
+no directory holds. Matching aligns path segments with bounded dynamic programming; each segment
+uses globset’s compiled, non-backtracking matcher.
 
 Two grammar bounds are refusals rather than silent truncation: a pattern longer
-than 4096 characters, and one whose braces expand past 64 alternatives, both
-fail as `BadArgument`. Both are enforced before any expansion or any walking, so
+than 4096 UTF-8 bytes, and one whose braces expand past 64 alternatives, both
+fail as `BadArgument`. The byte limit is checked before expansion; the alternative
+limit is enforced during bounded expansion. Each resulting alternative is
+validated before filesystem walking, so
 an over-large pattern costs no listing and answers with the typed refusal rather
 than with a fail-closed transport error. So do the three constructs this grammar
-does not implement: extglob (`+(a|b)`), POSIX classes (`[[:digit:]]`), brace
-ranges (`{1..3}`). Each of them means something to the
-native globber, so reading them as ordinary characters would not fail; it would
-answer a different question, and in an exclusion that means handing the caller
-the very paths it forbade. The refusal therefore covers the exclude list as well
+does not implement: extglob (`+(a|b)`), any `[:` opener inside a character
+class (including POSIX classes), and brace bodies containing `..` (including
+ranges such as `{1..3}` and sets containing that text). These checks conservatively
+reject unsupported syntax before filesystem access. Reading unsupported constructs
+as ordinary characters could answer a different question; an exclusion could
+then return the paths it was meant to remove. The refusal therefore covers the exclude list as well
 as the pattern, and it recognises a character class, so `[!(]*` is an ordinary
 negated class and not an extglob.
 
@@ -48033,7 +48048,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_MEMORY_DB` | operator | Moves the memory store to its own SQLite file, shared by runs of one repository in separate workspaces. | none |
 | `SMITHERS_MODEL_PROXY_URL` | operator | Base URL of a model proxy that fronts the provider routes. | none |
 | `SMITHERS_ACCOUNT_POOL_URL` | operator | Smithers account pool that signs `anthropic:` and `openai:` seats; with `SMITHERS_ACCOUNT_POOL_KEY` and `SMITHERS_ACCOUNT_POOL_PROVIDERS`. | none |
-| `SMITHERS_TUI_BIN` | operator | The executable `smthrs tui` runs. | none |
+| `SMITHERS_TUI_BIN` | operator | The executable `smthrs tui` runs. See [TUI configuration](/docs/tui/configuration/) for chat, worker, approval, budget, and conversation settings. | none |
 | `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | operator | How long a detached flow launch waits for the detached run's admission line. A value that is not a positive integer is ignored. | none |
 | `SMITHERS_TEST_COMMAND` | operator | The command the `test` flow runs. | none |
 | `SMITHERS_TEST_CONTAINER` | operator | The container the `test` flow runs in. | none |
