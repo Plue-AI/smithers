@@ -1,5 +1,5 @@
 import { DurableWriter } from "@smthrs/database/DurableWriter"
-import { Cause, Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Scope, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { afterAll, describe, expect, it } from "vitest"
@@ -793,6 +793,82 @@ describe("RecallSemantic", () => {
       expect.objectContaining({ _tag: "@smthrs/database/DatabaseError" }),
       expect.objectContaining({ _tag: "SqlError" })
     ])
+  })
+
+  it.each([
+    ["largest finite Float32", 3.4028234663852886e38, true],
+    ["overflowing positive", 1e39, false],
+    ["overflowing negative", -1e39, false],
+    ["smallest subnormal Float32", 2 ** -149, true],
+    ["underflowing positive", 2 ** -150, false],
+    ["underflowing negative", -(2 ** -150), false]
+  ] as const)("checks Float32 storage range for %s without replacing a usable projection", async (
+    _label,
+    component,
+    accepted
+  ) => {
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const writer = yield* DurableWriter
+        const vectors = Semantic.makeSqlVectorStore({ sql, write: writer.write })
+        const original: Semantic.Vector = {
+          bank: "flow-one",
+          recordKind: "note",
+          recordId: "key",
+          model: "test",
+          contentDigest: "original",
+          dimensions: 1,
+          vector: [1],
+          updatedAtMs: 1
+        }
+        yield* vectors.upsert(original)
+        const attempt = yield* Effect.exit(vectors.upsert({
+          ...original,
+          vector: [component],
+          contentDigest: "replacement",
+          updatedAtMs: 2
+        }))
+        return { attempt, rows: yield* collectVectors(vectors, ["flow-one"], "test") }
+      }).pipe(Effect.provide(TestMemory.layerWithDatabase))
+    )
+    if (accepted) {
+      expect(Exit.isSuccess(result.attempt)).toBe(true)
+      expect(result.rows[0]).toMatchObject({ contentDigest: "replacement", updatedAtMs: 2 })
+      expect(Array.from(result.rows[0]!.vector)).toEqual([component])
+    } else {
+      expect(Exit.isFailure(result.attempt)).toBe(true)
+      if (Exit.isSuccess(result.attempt)) throw new Error("expected vector rejection")
+      expect(Option.getOrThrow(Cause.findErrorOption(result.attempt.cause))).toMatchObject({
+        code: "invalid_argument", path: ["vector", "0"]
+      })
+      expect(result.rows[0]).toMatchObject({ contentDigest: "original", updatedAtMs: 1 })
+      expect(Array.from(result.rows[0]!.vector)).toEqual([1])
+    }
+  })
+
+  it.each([Infinity, -Infinity, NaN])("rejects a stored nonfinite vector component %s as corruption", async (
+    component
+  ) => {
+    const failure = await Effect.runPromise(
+      Effect.gen(function*() {
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const writer = yield* DurableWriter
+        const vectors = Semantic.makeSqlVectorStore({ sql, write: writer.write })
+        const bytes = new Uint8Array(4)
+        new DataView(bytes.buffer).setFloat32(0, component, true)
+        yield* sql`INSERT INTO memory_vectors (
+          record_kind, record_id, namespace_kind, namespace_id,
+          embedding_model, content_digest, dimensions, vector_bytes, updated_at_ms
+        ) VALUES ('note', 'bad', 'flow', 'one', 'test', 'digest', 1, ${bytes}, 0)`
+        return yield* Effect.flip(collectVectors(vectors, ["flow-one"], "test"))
+      }).pipe(Effect.provide(TestMemory.layerWithDatabase))
+    )
+    expect(failure).toMatchObject({
+      code: "store",
+      message: "stored memory vector flow/one note/bad (model test) has nonfinite component at index 0",
+      path: ["flow", "one", "note", "bad", "test"]
+    })
   })
 
   it("rejects corrupt vector dimensions and byte lengths as a typed store error", async () => {

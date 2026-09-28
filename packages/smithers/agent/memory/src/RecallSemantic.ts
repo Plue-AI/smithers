@@ -171,7 +171,16 @@ const readVector = (row: SqlVectorRow): Effect.Effect<Float32Array, MemoryError.
           path,
           cause
         })
-    })
+    }).pipe(Effect.flatMap((vector) => {
+      const index = vector.findIndex((component) => !Number.isFinite(component))
+      return index === -1
+        ? Effect.succeed(vector)
+        : Effect.fail(new MemoryError.MemoryError({
+          code: "store",
+          message: `stored memory vector ${identity} has nonfinite component at index ${index}`,
+          path
+        }))
+    }))
 }
 
 const sqlError = (message: string) => (cause: unknown): MemoryError.MemoryError =>
@@ -199,6 +208,11 @@ const validateVector = (vector: Vector): MemoryError.MemoryError | undefined => 
   const invalidComponent = vector.vector.findIndex((component) => !Number.isFinite(component))
   if (invalidComponent !== -1) {
     return invalidArgument("vector components must be finite", ["vector", String(invalidComponent)])
+  }
+  const unrepresentable = vector.vector.findIndex((component) =>
+    !Number.isFinite(Math.fround(component)) || (component !== 0 && Math.fround(component) === 0))
+  if (unrepresentable !== -1) {
+    return invalidArgument("vector components must be representable as Float32", ["vector", String(unrepresentable)])
   }
   if (!Number.isSafeInteger(vector.updatedAtMs) || vector.updatedAtMs < 0) {
     return invalidArgument("vector updatedAtMs must be a non-negative safe integer", ["updatedAtMs"])
