@@ -77,7 +77,11 @@ SMITHERS_CODING_WIKI_MODEL=provider:review-model \
 smithers-coding-host serve --root /home/developer/workspace
 ```
 
-`SMITHERS_CODING_IMPLEMENT_MODEL` is required. The optional plan, POC and wiki
+`SMITHERS_CODING_IMPLEMENT_MODEL` pins the implementation model. When it is unset,
+the host picks a default from the connected account pool at startup (see
+[host.md](host.md)); without a pool, startup is refused.
+
+The optional plan, POC and wiki
 variables select the existing logical seats `coding/plan`, `coding/poc` and
 `wiki/reviewer`. When omitted, the host explicitly uses the implementation model
 for that role, unless the project's `seats` names it. Every selection must be a
