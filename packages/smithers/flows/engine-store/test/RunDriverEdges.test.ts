@@ -1537,7 +1537,7 @@ describe("RunDriver atomic waiting markers", () => {
             wakeDepths,
             recovered
           }
-        }).pipe(Effect.provide(TestStores.layerAt(":memory:")), Effect.scoped)
+        }).pipe(Effect.scoped, Effect.provide(TestStores.layerAt(":memory:")))
       )
 
     it.effect(`${implementation}: rolls back its own released marker when the release transition loses the fence`, () =>

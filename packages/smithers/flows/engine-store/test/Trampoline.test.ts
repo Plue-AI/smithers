@@ -221,7 +221,7 @@ type DurableServices = Layer.Success<typeof services>
 
 /** Runs one body against a fresh database and the real durable stores. */
 const durable = <A, E>(body: Effect.Effect<A, E, DurableServices | Crypto.Crypto | Scope.Scope>) =>
-  withCrypto(Effect.scoped(body.pipe(Effect.provide(services))))
+  withCrypto(body.pipe(Effect.scoped, Effect.provide(services)))
 
 const roundId = (lineageId: string, ordinal: number) => sha256(JSON.stringify(["flow-round/v2", lineageId, ordinal]))
 

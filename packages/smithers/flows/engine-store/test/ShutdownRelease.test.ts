@@ -12,6 +12,7 @@ import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
 import { Ownership, RunStore } from "@smthrs/run-store"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -20,6 +21,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as TestStores from "../src/test/TestStores.ts"
@@ -255,6 +257,50 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
       const closed = yield* Scope.close(driverScope, Exit.void).pipe(Effect.exit)
       expect(Exit.isSuccess(closed)).toBe(true)
     }))))
+
+  it.effect("surfaces a real SQLite read failure during interrupted ownership cleanup", () =>
+    withCrypto(
+      Effect.gen(function*() {
+        const store = yield* RunStore.RunStore
+        const sql = yield* SqlClient.SqlClient
+        const started = yield* Latch.make(false)
+        const driverScope = yield* Effect.acquireRelease(
+          Scope.make(),
+          (scope) => Scope.close(scope, Exit.void)
+        )
+        const driver = yield* makeDriver().pipe(Scope.provide(driverScope))
+        yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
+        const runId = "shutdown-storage-error"
+        yield* store.create(runId, JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} }))
+        const driving = yield* driver.resume(TestFlow, runId).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Latch.await(started)
+
+        // Simulate the database losing its run table after a flow has started.
+        // The real RunStore now reports persistence_failed from its SELECT.
+        yield* sql`ALTER TABLE flows_runs RENAME TO flows_runs_unavailable`
+        const readFailure = yield* store.get(runId).pipe(Effect.flip)
+        expect(readFailure.code).toBe("persistence_failed")
+
+        yield* Scope.close(driverScope, Exit.void)
+        const exit = yield* Fiber.await(driving)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(exit.cause.reasons.find(Cause.isDieReason)?.defect).toMatchObject({
+            code: "persistence_failed",
+            method: "get"
+          })
+        }
+
+        yield* sql`ALTER TABLE flows_runs_unavailable RENAME TO flows_runs`
+        const row = yield* store.get(runId)
+        expect(row.status).toBe("running")
+        expect(row.owner).toEqual(owner)
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(TestStores.layerAt(":memory:")),
+        Effect.provide(TestClock.layer())
+      )
+    ))
 
   it.effect("operator interrupt still durably cancels the run", () =>
     Effect.gen(function*() {

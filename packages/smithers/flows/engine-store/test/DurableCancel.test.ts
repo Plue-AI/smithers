@@ -10,11 +10,14 @@ import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
 import { Ownership, RunStore } from "@smthrs/run-store"
+import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Latch from "effect/Latch"
+import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Schema from "effect/Schema"
 import { TestClock } from "effect/testing"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
@@ -45,7 +48,8 @@ const makeDriver = (owner: Ownership.OwnerId) =>
   })
 
 const provideJournal = <A, E, R>(
-  effect: Effect.Effect<A, E, R | Journal.Journal | RunStore.RunStore>
+  effect: Effect.Effect<A, E, R | Journal.Journal | RunStore.RunStore>,
+  stores = Layer.merge(TestStores.layer(), DurableEngineState.layerMemory)
 ) =>
   effect.pipe(
     Effect.scoped,
@@ -54,6 +58,31 @@ const provideJournal = <A, E, R>(
   )
 
 describe("durable cancellation", () => {
+  it.effect("does not sweep a released TestStores database", () =>
+    Effect.gen(function*() {
+      const warnings: Array<string> = []
+      const capture = Logger.make((entry) => {
+        if (entry.logLevel === "Warn") {
+          warnings.push(`${String(entry.message)} ${Cause.pretty(entry.cause)}`)
+        }
+      })
+
+      const stores = TestStores.layerAt(":memory:")
+      yield* withCrypto(
+        provideJournal(
+          Effect.gen(function*() {
+            yield* makeDriver(ownerA)
+            // Exercise a sweeper tick during shutdown, before the driver's own
+            // finalizers stop it. Its database must still be open at this point.
+            yield* Effect.addFinalizer(() => TestClock.adjust(Ownership.heartbeatInterval))
+          }),
+          stores
+        ).pipe(Effect.provide(Logger.layer([capture])))
+      )
+
+      expect(warnings.filter((message) => message.includes("parked-run cancel sweep failed"))).toEqual([])
+    }))
+
   it.effect("finalize refuses to complete a run whose cancel was durably requested", () =>
     Effect.gen(function*() {
       const result = yield* withCrypto(provideJournal(Effect.gen(function*() {
