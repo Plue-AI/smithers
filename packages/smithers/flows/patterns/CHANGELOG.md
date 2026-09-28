@@ -2,7 +2,19 @@
 
 ## [Unreleased]
 
+### Breaking
+
+- `Supervisor.make` and `Supervisor.run` require `maxTasks`, a positive safe
+  integer. A boss plan or flow input naming more tasks fails `invalid_input`
+  before any worker call, so a model-returned plan cannot multiply worker
+  calls without bound.
+
 ### Fixed
+
+- `Supervisor`, `Loop`, `ScanFixVerify`, and `DriftDetector` read their stop
+  and retry verdicts (`allDone`, `retriable`, `done`, `resolved`, `drifted`)
+  as own properties only, as the acceptance vocabulary already did; an
+  inherited property no longer ends a loop or supervision.
 
 - An executed declaration now settles to what `run` returns on the same
   members. `DriftDetector.make` branches on the comparison and alerts only on

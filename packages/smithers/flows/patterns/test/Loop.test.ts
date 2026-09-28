@@ -362,6 +362,7 @@ describe("Loop", () => {
     expect(Loop.done({ done: true })).toBe(true)
     expect(Loop.done(false)).toBe(false)
     expect(Loop.done({ done: false })).toBe(false)
+    expect(Loop.done(Object.create({ done: true }))).toBe(false)
     expect(Loop.done(undefined)).toBe(false)
     expect(Loop.done("yes")).toBe(false)
     expect(Loop.done("DONE")).toBe(false)

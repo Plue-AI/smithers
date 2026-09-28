@@ -29,20 +29,26 @@ export interface EffectIntersection {
 }
 
 /**
+ * Whether `value` is an object whose OWN `key` is exactly `true`.
+ *
+ * Every verdict a pattern stops or accepts on is read through this, so an
+ * inherited property, such as one on a polluted prototype, is never a verdict.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const ownTrue = (value: unknown, key: string): boolean =>
+  typeof value === "object" && value !== null && Object.hasOwn(value, key) &&
+  (value as Readonly<Record<string, unknown>>)[key] === true
+
+/**
  * Reads the shared acceptance vocabulary using own properties only.
  *
  * @since 0.1.0
  * @private
  */
-export const accepted = (value: unknown): boolean => {
-  if (value === true || value === "approved") return true
-  if (typeof value !== "object" || value === null) return false
-  const record = value as Readonly<Record<string, unknown>>
-  return (
-    (Object.hasOwn(record, "approved") && record.approved === true) ||
-    (Object.hasOwn(record, "accepted") && record.accepted === true)
-  )
-}
+export const accepted = (value: unknown): boolean =>
+  value === true || value === "approved" || ownTrue(value, "approved") || ownTrue(value, "accepted")
 
 /**
  * Refuses a priority before a pattern sorts, annotates, or runs its member.

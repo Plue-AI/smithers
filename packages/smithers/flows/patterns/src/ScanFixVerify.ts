@@ -107,7 +107,7 @@ interface Round<Issue> {
 /**
  * Reads the signals a verifier uses to report that nothing is left to fix.
  *
- * A verifier answers with `true` or an object carrying `resolved: true`.
+ * A verifier answers with `true` or an object carrying its own `resolved: true`.
  * A symbolic plan-time value is neither, which keeps the declared unrolling
  * conservative.
  *
@@ -120,7 +120,7 @@ interface Round<Issue> {
  */
 export const resolved = (value: unknown): boolean =>
   value === true ||
-  (typeof value === "object" && value !== null && "resolved" in value && value.resolved === true)
+  Compose.ownTrue(value, "resolved")
 
 /**
  * The declared form of a scan-fix-verify loop.

@@ -304,7 +304,15 @@ describe("ported pattern declaration execution", () => {
 
     expect(
       await execute(
-        Supervisor.make({ plan, workers: { coder: worker }, review, finalize, maxRounds: 1, concurrency: 2 }),
+        Supervisor.make({
+          plan,
+          workers: { coder: worker },
+          review,
+          finalize,
+          maxRounds: 1,
+          maxTasks: 16,
+          concurrency: 2
+        }),
         {
           input: {
             tasks: [
@@ -353,6 +361,7 @@ describe("ported pattern declaration execution", () => {
         review,
         finalize,
         maxRounds: 2,
+        maxTasks: 16,
         concurrency: 1
       }),
       { input: { tasks: [{ id: "a", workerType: "coder" }] } },

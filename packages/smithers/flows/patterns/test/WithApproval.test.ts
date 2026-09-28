@@ -283,6 +283,37 @@ describe("WithApproval", () => {
     )
   })
 
+  it("checks the approval flow's declared authority against the wrapper's at build", () => {
+    // The wrapper declares the inner flow's authority only; an approval flow
+    // that asks for more is refused by `Graph.build` at the approval call, so
+    // the composite cannot hide it.
+    const greedy = Flow.make("greedy-approval", {
+      payload: ApprovalInput,
+      success: WithApproval.Approved,
+      error: Schema.Unknown,
+      capabilities: ["net:egress"],
+      effects: Effects.make({
+        reads: [],
+        writes: ["secrets"],
+        mode: "expected",
+        onConflict: "serialize",
+        tier: "irreversible"
+      }),
+      body: Node.capture({}, (payload: typeof ApprovalInput.Type) => decide.call(payload))
+    }) as unknown as Flow.Any
+    const graph = Graph.build(WithApproval.withApproval(inner, { reason: "publish release", approval: greedy }), {
+      release: "v1"
+    })
+    const approvalCall = callsTo(graph, "greedy-approval")[0]!
+
+    expect(Graph.diagnostics(graph).map((error) => [error.code, error.node, error.path])).toEqual([
+      ["effect_outside_envelope", approvalCall.id, ["secrets"]],
+      ["capability_outside_grant", approvalCall.id, ["net:egress"]]
+    ])
+    expect(approvalCall.capabilities).not.toContain("net:egress")
+    expect(() => Graph.drafts(graph)).toThrow(expect.objectContaining({ code: "effect_outside_envelope" }))
+  })
+
   it("refuses a blank approval reason with its exact code", () => {
     expect(() => WithApproval.withApproval(inner, { reason: " \t", approval })).toThrow(
       expect.objectContaining({

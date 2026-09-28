@@ -33,6 +33,7 @@ const supervisor = Supervisor.make({
   review,
   finalize,
   maxRounds: 3,
+  maxTasks: 20,
   concurrency: 2
 })
 ```
@@ -51,7 +52,9 @@ Every round after the first passes the preceding review and its `retriable` ids 
 
 Task ids such as `"__proto__"`, `"constructor"`, and `"toString"` are supported. Each remains an own member of its declared batch and the results passed to review and finalize.
 
-`make` throws a `PatternError` when `workers` is empty, or when `maxRounds` or `concurrency` is not a positive safe integer. Building the flow throws when the input carries no `tasks` array, when it is empty, when a task is missing a string `id` or `workerType`, when two tasks share an id, or when a `workerType` names no declared worker.
+`maxTasks` caps the task list. A plan comes from a model, and each task costs one worker call per round, so a longer list is refused before any call.
+
+`make` throws a `PatternError` when `workers` is empty, or when `maxRounds`, `maxTasks`, or `concurrency` is not a positive safe integer. Building the flow throws when the input carries no `tasks` array, when it is empty or longer than `maxTasks`, when a task is missing a string `id` or `workerType`, when two tasks share an id, or when a `workerType` names no declared worker.
 
 ### Execution
 
@@ -59,12 +62,12 @@ Task ids such as `"__proto__"`, `"constructor"`, and `"toString"` are supported.
 
 1. Runs the pending tasks through `worker` with `Effect.forEach` at `concurrency`. A typed worker failure is captured as a `Failed` outcome rather than failing the supervision, so the review sees it. A worker defect is not an outcome: it fails the supervision and cancels the workers still in flight.
 2. Calls `review` with every task's latest outcome.
-3. Finalizes and returns `{ exhausted: false, rounds, final }` when the review is done, which means the review carries `allDone: true` or is the value `true`.
-4. Otherwise re-delegates only the task ids listed in the review's `retriable` array.
+3. Finalizes and returns `{ exhausted: false, rounds, final }` when the review is done, which means the review carries its own `allDone: true` or is the value `true`.
+4. Otherwise re-delegates only the task ids listed in the review's own `retriable` array.
 
 The supervision returns `{ exhausted: true, rounds, review }` and does not call `finalize` when the round bound is reached, or when an unaccepted review names no retriable task: nothing is left to re-delegate.
 
-`run` fails with a `PatternError` when the plan repeats a task id, because outcomes are keyed by task id and a repeated id would delegate twice and hand the review the same outcome twice.
+`run` fails with a `PatternError` `invalid_input` when the plan names more than `maxTasks` tasks, before any worker runs, and when the plan repeats a task id, because outcomes are keyed by task id and a repeated id would delegate twice and hand the review the same outcome twice.
 
 | Export              | Purpose                                                |
 | ------------------- | ------------------------------------------------------ |

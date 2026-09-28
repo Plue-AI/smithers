@@ -71,6 +71,8 @@ export interface MakeOptions<R = never> {
   readonly review: Member<R>
   readonly finalize: Member<R>
   readonly maxRounds: number
+  /** The most tasks one input may name; a longer task list is refused before any call. */
+  readonly maxTasks: number
   readonly concurrency: number
   readonly stall?: Stall.Options | undefined
 }
@@ -128,6 +130,8 @@ export interface RuntimeOptions<I, P extends Plan, Out, Review, Final, E, R, E2,
     readonly input: I
   }) => Effect.Effect<Final, E4, R4>
   readonly maxRounds: number
+  /** The most tasks the boss plan may name; a longer plan is refused before any worker runs. */
+  readonly maxTasks: number
   readonly concurrency: number
   readonly stall?: Stalling.RuntimeOptions<ReadonlyArray<Outcome<Out>>> | undefined
 }
@@ -172,13 +176,13 @@ export type SupervisorFlow<R = never> = Flow.Flow<
   R
 >
 
-const done = (value: unknown): boolean =>
-  value === true ||
-  (typeof value === "object" && value !== null && "allDone" in value && value.allDone === true)
+// Own properties only: an inherited `allDone` or `retriable` is not the
+// review's verdict.
+const done = (value: unknown): boolean => value === true || Compose.ownTrue(value, "allDone")
 
 const retriable = (value: unknown): ReadonlyArray<string> => {
-  if (typeof value !== "object" || value === null || !("retriable" in value)) return []
-  const ids = value.retriable
+  if (typeof value !== "object" || value === null || !Object.hasOwn(value, "retriable")) return []
+  const ids = (value as { readonly retriable: unknown }).retriable
   return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []
 }
 
@@ -204,12 +208,18 @@ const bound = (value: number): boolean => Number.isSafeInteger(value) && value >
 // malformed one is a data fault, not a declaration fault.
 const invalid = (message: string): PatternError => new PatternError({ code: "invalid_input", message })
 
-const validateTasks = (input: unknown): ReadonlyArray<Task> | PatternError => {
-  if (typeof input !== "object" || input === null || !("tasks" in input) || !Array.isArray(input.tasks)) {
+const validateTasks = (input: unknown, maxTasks: number): ReadonlyArray<Task> | PatternError => {
+  if (typeof input !== "object" || input === null || !Object.hasOwn(input, "tasks")) {
     return invalid("Supervisor input must contain a tasks array")
   }
-  const tasks = input.tasks as ReadonlyArray<unknown>
+  const tasks = (input as { readonly tasks: unknown }).tasks
+  if (!Array.isArray(tasks)) return invalid("Supervisor input must contain a tasks array")
   if (tasks.length === 0) return invalid("Supervisor input must contain at least one task")
+  // Checked before any task is read or dispatched: a plan is model output, and
+  // every task costs one worker call per round.
+  if (tasks.length > maxTasks) {
+    return invalid(`Supervisor plan names ${tasks.length} tasks, more than maxTasks ${maxTasks}`)
+  }
   const snapshot: Array<Task> = []
   for (const task of tasks) {
     const candidate = task as { readonly id?: unknown; readonly workerType?: unknown }
@@ -224,8 +234,8 @@ const validateTasks = (input: unknown): ReadonlyArray<Task> | PatternError => {
   return snapshot
 }
 
-const planned = (input: unknown): ReadonlyArray<Task> => {
-  const result = validateTasks(input)
+const planned = (input: unknown, maxTasks: number): ReadonlyArray<Task> => {
+  const result = validateTasks(input, maxTasks)
   if (result instanceof PatternError) throw result
   return result
 }
@@ -269,12 +279,12 @@ const retriableOf = (review: unknown): unknown => (review as { readonly retriabl
  * `{ exhausted: true, rounds, review }` without finalizing.
  *
  * Building the flow throws a `PatternError` with code `invalid_input` when
- * the input carries no `tasks` array, when it is empty, when a task is missing
- * a string `id` or `workerType`, when two tasks share an id, or when a
- * `workerType` names no declared worker. A bound out of range or an empty
+ * the input carries no `tasks` array, when it is empty or longer than
+ * `maxTasks`, when a task is missing a string `id` or `workerType`, when two
+ * tasks share an id, or when a `workerType` names no declared worker. A bound out of range or an empty
  * worker record is refused with `invalid_decorator`.
  *
- * `make` snapshots the boss flows, the worker record, and both bounds at the
+ * `make` snapshots the boss flows, the worker record, and every bound at the
  * call, so a later edit to the caller's options does not change the
  * declaration.
  *
@@ -298,6 +308,12 @@ export const make = <R = never>(options: MakeOptions<R>): SupervisorFlow<R> => {
       message: "Supervisor concurrency must be a positive safe integer"
     })
   }
+  if (!bound(options.maxTasks)) {
+    throw new PatternError({
+      code: "invalid_decorator",
+      message: "Supervisor maxTasks must be a positive safe integer"
+    })
+  }
   // The body runs when the graph builds, later than this call, so it reads
   // these snapshots and never the caller's options again. The worker record
   // is copied as own data properties, so a prototype-shaped worker type still
@@ -305,6 +321,7 @@ export const make = <R = never>(options: MakeOptions<R>): SupervisorFlow<R> => {
   const boss = { plan: options.plan, review: options.review, finalize: options.finalize }
   const routes: Readonly<Record<string, Member<R>>> = Object.fromEntries(workers)
   const maxRounds = options.maxRounds
+  const maxTasks = options.maxTasks
   const concurrency = options.concurrency
   const names = workers.map(([name]) => name)
   const stall = Stalling.resolve("Supervisor", options.stall)
@@ -318,7 +335,7 @@ export const make = <R = never>(options: MakeOptions<R>): SupervisorFlow<R> => {
     options
   )
   const body = ({ input }: { readonly input: unknown }): Node.Node<unknown, unknown, R> => {
-    const tasks = planned(input)
+    const tasks = planned(input, maxTasks)
     const ids = tasks.map((task) => task.id)
     if (new Set(ids).size !== ids.length) throw invalid("Supervisor task ids must be unique")
     for (const task of tasks) {
@@ -533,11 +550,12 @@ export const make = <R = never>(options: MakeOptions<R>): SupervisorFlow<R> => {
  * when an unaccepted review names no retriable task, because nothing is left
  * to re-delegate.
  *
- * `run` fails with a `PatternError` when the plan is malformed, empty, or
- * repeats a task id. Outcomes are keyed by task id, so a repeated id would
+ * `run` fails with a `PatternError` when the plan is malformed, empty, names
+ * more than `maxTasks` tasks (checked before any worker runs), or repeats a
+ * task id. Outcomes are keyed by task id, so a repeated id would
  * delegate twice and hand the review the same outcome twice.
  *
- * `run` snapshots every callback and both bounds at the call, so a later
+ * `run` snapshots every callback and every bound at the call, so a later
  * edit to the option object does not alter that run. The plan a `plan`
  * callback returns is copied task by task when it is validated.
  *
@@ -553,12 +571,13 @@ export const run = <I, P extends Plan, Out, Review, Final, E, R, E2, R2, E3, R3,
   const boss = { plan: options.plan, review: options.review, finalize: options.finalize }
   const worker = options.worker
   const maxRounds = options.maxRounds
+  const maxTasks = options.maxTasks
   const concurrency = options.concurrency
-  if (!bound(maxRounds) || !bound(concurrency)) {
+  if (!bound(maxRounds) || !bound(maxTasks) || !bound(concurrency)) {
     return Effect.fail(
       new PatternError({
         code: "invalid_decorator",
-        message: "Supervisor maxRounds and concurrency must be positive safe integers"
+        message: "Supervisor maxRounds, maxTasks and concurrency must be positive safe integers"
       })
     )
   }
@@ -568,7 +587,7 @@ export const run = <I, P extends Plan, Out, Review, Final, E, R, E2, R2, E3, R3,
   return Effect.gen(function*() {
     const observe = Stalling.tracker(stall, signals)
     const plan = yield* boss.plan(input)
-    const tasks = validateTasks(plan)
+    const tasks = validateTasks(plan, maxTasks)
     if (tasks instanceof PatternError) return yield* Effect.fail(tasks)
     const ids = tasks.map((task) => task.id)
     if (new Set(ids).size !== ids.length) {

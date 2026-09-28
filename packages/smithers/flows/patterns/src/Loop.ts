@@ -137,7 +137,7 @@ export interface Result<A> {
  * Reads the completion signals a loop predicate may return.
  *
  * A predicate answers with `true`, the string `"done"`, or an object carrying
- * `done: true`. Everything else continues the loop, which is what a symbolic
+ * its own `done: true`. Everything else continues the loop, which is what a symbolic
  * plan-time value does: an unresolved value never ends the declared unrolling,
  * so the topology stays conservative.
  *
@@ -151,7 +151,7 @@ export interface Result<A> {
 export const done = (value: unknown): boolean =>
   value === true ||
   value === "done" ||
-  (typeof value === "object" && value !== null && "done" in value && value.done === true)
+  Compose.ownTrue(value, "done")
 
 const defaultOnMaxReached: OnMaxReached = "return-last"
 

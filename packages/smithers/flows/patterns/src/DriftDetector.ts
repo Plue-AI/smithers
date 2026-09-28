@@ -104,7 +104,7 @@ export interface Result<Snapshot, Comparison, Alert> {
 /**
  * Reads the drift signals a comparison may carry.
  *
- * A comparison answers with `true` or an object carrying `drifted: true`.
+ * A comparison answers with `true` or an object carrying its own `drifted: true`.
  * Anything else reads as no drift, so a comparison that reports a magnitude
  * needs `RuntimeOptions.alertIf` instead.
  *
@@ -113,7 +113,7 @@ export interface Result<Snapshot, Comparison, Alert> {
  */
 export const drifted = (value: unknown): boolean =>
   value === true ||
-  (typeof value === "object" && value !== null && "drifted" in value && value.drifted === true)
+  Compose.ownTrue(value, "drifted")
 
 /**
  * The declared form of a drift detector.

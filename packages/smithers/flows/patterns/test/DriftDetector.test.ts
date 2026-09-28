@@ -173,6 +173,7 @@ describe("DriftDetector", () => {
     expect(DriftDetector.drifted(true)).toBe(true)
     expect(DriftDetector.drifted({ drifted: true })).toBe(true)
     expect(DriftDetector.drifted({ drifted: false })).toBe(false)
+    expect(DriftDetector.drifted(Object.create({ drifted: true }))).toBe(false)
     expect(DriftDetector.drifted("changed")).toBe(false)
   })
 })

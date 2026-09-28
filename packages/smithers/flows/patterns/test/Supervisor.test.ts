@@ -124,6 +124,7 @@ describe("Supervisor", () => {
       review: step,
       finalize: step,
       maxRounds: 3,
+      maxTasks: 16,
       concurrency: 2
     })
 
@@ -157,6 +158,7 @@ describe("Supervisor", () => {
         review: step,
         finalize: step,
         maxRounds: 1,
+        maxTasks: 16,
         concurrency: 3
       }),
       { input: { ...goal.input, tasks } }
@@ -182,6 +184,7 @@ describe("Supervisor", () => {
         review: step,
         finalize: step,
         maxRounds: 1,
+        maxTasks: 16,
         concurrency
       }),
       { input: { tasks } }
@@ -210,6 +213,7 @@ describe("Supervisor", () => {
       review: accept,
       finalize,
       maxRounds: 1,
+      maxTasks: 16,
       concurrency
     })
     const result = await execute(supervisor, { input: { tasks } }, `supervisor-routing-${concurrency}`)
@@ -237,6 +241,7 @@ describe("Supervisor", () => {
         review: step,
         finalize: step,
         maxRounds: 2,
+        maxTasks: 16,
         concurrency: 3
       }),
       goal
@@ -264,11 +269,27 @@ describe("Supervisor", () => {
   it("batches declared worker calls at the concurrency bound", () => {
     const workers = { coder: step, tester: step }
     const wide = Graph.build(
-      Supervisor.make({ plan: step, workers, review: step, finalize: step, maxRounds: 1, concurrency: 3 }),
+      Supervisor.make({
+        plan: step,
+        workers,
+        review: step,
+        finalize: step,
+        maxRounds: 1,
+        maxTasks: 16,
+        concurrency: 3
+      }),
       goal
     )
     const narrow = Graph.build(
-      Supervisor.make({ plan: step, workers, review: step, finalize: step, maxRounds: 1, concurrency: 1 }),
+      Supervisor.make({
+        plan: step,
+        workers,
+        review: step,
+        finalize: step,
+        maxRounds: 1,
+        maxTasks: 16,
+        concurrency: 1
+      }),
       goal
     )
 
@@ -289,6 +310,7 @@ describe("Supervisor", () => {
       review: recordingReview,
       finalize: recordingFinalize,
       maxRounds: 2,
+      maxTasks: 16,
       concurrency: 1
     })
 
@@ -312,6 +334,7 @@ describe("Supervisor", () => {
       review: recordingReview,
       finalize: recordingFinalize,
       maxRounds: 2,
+      maxTasks: 16,
       concurrency: 1
     })
 
@@ -333,6 +356,7 @@ describe("Supervisor", () => {
       review: step,
       finalize: step,
       maxRounds: 1,
+      maxTasks: 16,
       concurrency: 1
     })
 
@@ -378,6 +402,7 @@ describe("Supervisor", () => {
       review: step,
       finalize: step,
       maxRounds: 1,
+      maxTasks: 16,
       concurrency: 1
     }
     const supervisor = Supervisor.make({ ...options, name: "ship-it", description: "Plan, delegate, review." })
@@ -395,6 +420,7 @@ describe("Supervisor", () => {
         review: step,
         finalize: step,
         maxRounds: 0,
+        maxTasks: 16,
         concurrency: 1
       })
     ).toThrow(expect.objectContaining({
@@ -408,6 +434,7 @@ describe("Supervisor", () => {
         review: step,
         finalize: step,
         maxRounds: 1,
+        maxTasks: 16,
         concurrency: 0
       })
     ).toThrow(expect.objectContaining({
@@ -421,6 +448,7 @@ describe("Supervisor", () => {
         review: step,
         finalize: step,
         maxRounds: 1,
+        maxTasks: 16,
         concurrency: 1
       })
     ).toThrow(expect.objectContaining({
@@ -437,6 +465,7 @@ describe("Supervisor", () => {
 
       const result = yield* Supervisor.run("goal", {
         maxRounds: 3,
+        maxTasks: 16,
         concurrency: 2,
         plan: () => Effect.succeed(plan),
         worker: ({ round, task }) =>
@@ -465,6 +494,7 @@ describe("Supervisor", () => {
 
       const result = yield* Supervisor.run("goal", {
         maxRounds: 2,
+        maxTasks: 16,
         concurrency: 3,
         plan: () => Effect.succeed(plan),
         worker: ({ task }) => Effect.succeed(`${task.id}-done`),
@@ -487,6 +517,7 @@ describe("Supervisor", () => {
 
       const result = yield* Supervisor.run("goal", {
         maxRounds: 5,
+        maxTasks: 16,
         concurrency: 3,
         plan: () => Effect.succeed(plan),
         worker: ({ round, task }) =>
@@ -515,6 +546,7 @@ describe("Supervisor", () => {
 
       const running = yield* Supervisor.run("goal", {
         maxRounds: 1,
+        maxTasks: 16,
         concurrency: 2,
         plan: () =>
           Effect.succeed({
@@ -554,6 +586,7 @@ describe("Supervisor", () => {
       const exit = yield* Effect.exit(
         Supervisor.run("goal", {
           maxRounds: 1,
+          maxTasks: 16,
           concurrency: 2,
           plan: () => Effect.succeed({ tasks: [{ id: "a", workerType: "coder" }, { id: "b", workerType: "coder" }] }),
           worker: ({ task }) => task.id === "b" ? Effect.die(defect) : Effect.succeed(`${task.id}-done`),
@@ -577,6 +610,7 @@ describe("Supervisor", () => {
 
       const failure = yield* Supervisor.run("goal", {
         maxRounds: 2,
+        maxTasks: 16,
         concurrency: 2,
         plan: () => Effect.succeed({ tasks: [{ id: "a", workerType: "coder" }, { id: "a", workerType: "coder" }] }),
         worker: () =>
@@ -599,6 +633,7 @@ describe("Supervisor", () => {
       let callbacks = 0
       const failure = yield* Supervisor.run("goal", {
         maxRounds: 2,
+        maxTasks: 16,
         concurrency: 1,
         plan: () => Effect.succeed({ tasks: [] }),
         worker: () => Effect.sync(() => (callbacks += 1, "ok")),
@@ -619,6 +654,7 @@ describe("Supervisor", () => {
         let callbacks = 0
         const failure = yield* Supervisor.run("goal", {
           maxRounds: 2,
+          maxTasks: 16,
           concurrency: 1,
           plan: () => Effect.succeed(malformed as Supervisor.Plan),
           worker: () => Effect.sync(() => (callbacks += 1, "ok")),
@@ -637,6 +673,7 @@ describe("Supervisor", () => {
     Effect.gen(function*() {
       const failure = yield* Supervisor.run("goal", {
         maxRounds: 0,
+        maxTasks: 16,
         concurrency: 1,
         plan: () => Effect.succeed(plan),
         worker: () => Effect.succeed("ok"),
@@ -646,7 +683,7 @@ describe("Supervisor", () => {
 
       expect(failure).toBeInstanceOf(PatternError)
       expect(failure.code).toBe("invalid_decorator")
-      expect(failure.message).toBe("Supervisor maxRounds and concurrency must be positive safe integers")
+      expect(failure.message).toBe("Supervisor maxRounds, maxTasks and concurrency must be positive safe integers")
     }))
 
   it.effect("ignores malformed retriable values without re-delegating", () =>
@@ -657,6 +694,7 @@ describe("Supervisor", () => {
         let workers = 0
         const result = yield* Supervisor.run("goal", {
           maxRounds: 2,
+          maxTasks: 16,
           concurrency: 1,
           plan: () => Effect.succeed({ tasks: [{ id: "a", workerType: "coder" }] }),
           worker: () =>
@@ -682,6 +720,7 @@ describe("Supervisor", () => {
           review: step,
           finalize: step,
           maxRounds: 1,
+          maxTasks: 16,
           concurrency
         }),
         { input: { goal: "ship the feature", tasks: [{ id: "a", workerType: "coder" }] } }
@@ -697,7 +736,7 @@ describe("Supervisor", () => {
   it("declares from the snapshot make took of its options", () => {
     const other = member("other", () => Node.succeed("other"))
     const workers: Record<string, typeof step> = { coder: step, tester: step }
-    const options = { plan: step, workers, review: step, finalize: step, maxRounds: 2, concurrency: 2 }
+    const options = { plan: step, workers, review: step, finalize: step, maxRounds: 2, maxTasks: 16, concurrency: 2 }
     const supervisor = Supervisor.make(options)
     const before = Graph.nodes(Graph.build(supervisor, goal)).map((node) => node.draft.material.body)
 
@@ -721,6 +760,7 @@ describe("Supervisor", () => {
       const trace: Array<string> = []
       const options = {
         maxRounds: 1,
+        maxTasks: 16,
         concurrency: 1,
         plan: () => Effect.succeed({ tasks: [{ id: "a", workerType: "coder" }] }),
         worker: ({ task }: { readonly task: Supervisor.Task }) =>
@@ -753,6 +793,7 @@ describe("Supervisor stall", () => {
       review: recordingReview,
       finalize: recordingFinalize,
       maxRounds: 4,
+      maxTasks: 16,
       concurrency: 1,
       stall: { rounds: 2 }
     })
@@ -783,6 +824,7 @@ describe("Supervisor stall", () => {
       review: recordingReview,
       finalize: recordingFinalize,
       maxRounds: 3,
+      maxTasks: 16,
       concurrency: 1
     }
     await expect(execute(
@@ -799,6 +841,7 @@ describe("Supervisor stall", () => {
       const review = { allDone: false, retriable: ["a", "b", "c"] }
       const options = {
         maxRounds: 9,
+        maxTasks: 16,
         concurrency: 3,
         plan: () => Effect.succeed(plan),
         worker: ({ task }: { readonly task: Supervisor.Task }) => Effect.succeed(`${task.id}-done`),
@@ -831,5 +874,79 @@ describe("Supervisor stall", () => {
         .toMatchObject({ code: "stalled" })
       expect(yield* Effect.flip(Supervisor.run("goal", { ...options, stall: { rounds: 1 } })))
         .toMatchObject({ code: "invalid_decorator" })
+    }))
+
+  it.effect("refuses a boss plan longer than maxTasks before any worker runs", () =>
+    Effect.gen(function*() {
+      let workers = 0
+      const oversized = { tasks: Array.from({ length: 5 }, (_, i) => ({ id: `t${i}`, workerType: "coder" })) }
+      const failure = yield* Supervisor.run("goal", {
+        maxRounds: 3,
+        maxTasks: 4,
+        concurrency: 2,
+        plan: () => Effect.succeed(oversized),
+        worker: () => Effect.sync(() => (workers += 1, "ok")),
+        review: () => Effect.succeed({ allDone: false, retriable: oversized.tasks.map((task) => task.id) }),
+        finalize: () => Effect.succeed("done")
+      }).pipe(Effect.flip)
+
+      expect(failure).toMatchObject({
+        code: "invalid_input",
+        message: "Supervisor plan names 5 tasks, more than maxTasks 4"
+      })
+      expect(workers).toBe(0)
+    }))
+
+  it("refuses a declared task list longer than maxTasks and an out-of-range maxTasks", () => {
+    const supervisor = Supervisor.make({
+      plan: step,
+      workers: { coder: step },
+      review: step,
+      finalize: step,
+      maxRounds: 2,
+      maxTasks: 1,
+      concurrency: 1
+    })
+    expect(() =>
+      Graph.build(supervisor, { input: { tasks: plan.tasks.filter((task) => task.workerType === "coder") } })
+    )
+      .toThrow(expect.objectContaining({
+        code: "invalid_input",
+        message: "Supervisor plan names 2 tasks, more than maxTasks 1"
+      }))
+    for (const maxTasks of [0, Infinity, 1.5]) {
+      expect(() =>
+        Supervisor.make({
+          plan: step,
+          workers: { coder: step },
+          review: step,
+          finalize: step,
+          maxRounds: 1,
+          maxTasks,
+          concurrency: 1
+        })
+      ).toThrow(expect.objectContaining({
+        code: "invalid_decorator",
+        message: "Supervisor maxTasks must be a positive safe integer"
+      }))
+    }
+  })
+
+  it.effect("reads allDone and retriable as own properties only", () =>
+    Effect.gen(function*() {
+      let finalized = 0
+      const inherited = Object.create({ allDone: true, retriable: ["a"] }) as object
+      const result = yield* Supervisor.run("goal", {
+        maxRounds: 3,
+        maxTasks: 16,
+        concurrency: 1,
+        plan: () => Effect.succeed(plan),
+        worker: () => Effect.succeed("ok"),
+        review: () => Effect.succeed(inherited),
+        finalize: () => Effect.sync(() => (finalized += 1, "done"))
+      })
+
+      expect(finalized).toBe(0)
+      expect(result).toMatchObject({ exhausted: true, rounds: 1 })
     }))
 })

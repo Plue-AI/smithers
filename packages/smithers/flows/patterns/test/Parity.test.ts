@@ -742,7 +742,7 @@ const supervisorScript = (reviews: ReadonlyArray<unknown>, failing: string | und
   finalize: ({ rounds, results }: { readonly rounds: number; readonly results: unknown }) => ({ rounds, results })
 })
 
-const supervisor: Pattern<{ readonly maxRounds: number; readonly concurrency: number }> = {
+const supervisor: Pattern<{ readonly maxRounds: number; readonly maxTasks: number; readonly concurrency: number }> = {
   make: (m, o) =>
     Supervisor.make({
       plan: m.plan!,
@@ -763,25 +763,25 @@ const supervisor: Pattern<{ readonly maxRounds: number; readonly concurrency: nu
     {
       name: `supervisor-${concurrency}-done-first-round`,
       input: { goal: "ship", tasks: supervisorTasks },
-      options: { maxRounds: 3, concurrency },
+      options: { maxRounds: 3, maxTasks: 16, concurrency },
       script: supervisorScript([{ allDone: true }], undefined)
     },
     {
       name: `supervisor-${concurrency}-retries-the-failed-task`,
       input: { goal: "ship", tasks: supervisorTasks },
-      options: { maxRounds: 3, concurrency },
+      options: { maxRounds: 3, maxTasks: 16, concurrency },
       script: supervisorScript([{ allDone: false, retriable: ["a"] }, { allDone: true }], "a")
     },
     {
       name: `supervisor-${concurrency}-exhausted-at-bound`,
       input: { goal: "ship", tasks: supervisorTasks },
-      options: { maxRounds: 2, concurrency },
+      options: { maxRounds: 2, maxTasks: 16, concurrency },
       script: supervisorScript([{ retriable: ["a", "c"] }, { retriable: ["a"] }], undefined)
     },
     {
       name: `supervisor-${concurrency}-nothing-retriable`,
       input: { goal: "ship", tasks: supervisorTasks },
-      options: { maxRounds: 3, concurrency },
+      options: { maxRounds: 3, maxTasks: 16, concurrency },
       script: supervisorScript([{ retriable: ["unknown"] }], "b")
     }
   ])

@@ -227,6 +227,7 @@ describe("ScanFixVerify", () => {
     expect(ScanFixVerify.resolved(true)).toBe(true)
     expect(ScanFixVerify.resolved({ resolved: true })).toBe(true)
     expect(ScanFixVerify.resolved(false)).toBe(false)
+    expect(ScanFixVerify.resolved(Object.create({ resolved: true }))).toBe(false)
     expect(ScanFixVerify.resolved("resolved")).toBe(false)
     expect(ScanFixVerify.resolved({ resolved: "true" })).toBe(false)
     expect(ScanFixVerify.resolved(undefined)).toBe(false)

@@ -58,8 +58,9 @@ const loop = Loop.make({
 `body` runs once per iteration with `{ input, previous, iteration }`, where
 `previous` is the preceding iteration's output and is absent on the first.
 `until` receives `{ value, iteration }` and answers with `true`, the string
-`"done"`, or an object carrying `done: true`. `Loop.done` is that reader,
-exported so a caller can reuse the same vocabulary.
+`"done"`, or an object carrying its own `done: true`. `Loop.done` is that reader,
+exported so a caller can reuse the same vocabulary. An inherited property is
+never a verdict, here or in any other pattern's stop or accept check.
 
 The body always runs at least once. `until` reads a value the body produced, so
 a predicate that would answer `true` before any work still costs one iteration.
@@ -211,7 +212,7 @@ const report = yield* ScanFixVerify.run({ path: "src" }, {
 `{ issue, index, iteration }` and runs once per issue over a snapshot of what
 the scan returned, so `concurrency` is the real in-flight bound. `verify`
 receives `{ input, issues, fixes, iteration }` and answers `true` or an
-object carrying `resolved: true`; `ScanFixVerify.resolved` is that reader.
+object carrying its own `resolved: true`; `ScanFixVerify.resolved` is that reader.
 
 An empty scan is the only terminal. A verification is evidence about the round
 it closes, so a round the verifier calls resolved is followed by one confirming
@@ -277,7 +278,7 @@ const result = yield* DriftDetector.run({ target: "prod" }, {
 
 `capture` receives `{ input, baseline }` and `compare` receives
 `{ snapshot, baseline }`. A comparison reports drift with `true` or an object
-carrying `drifted: true`; `DriftDetector.drifted` is that reader. For a
+carrying its own `drifted: true`; `DriftDetector.drifted` is that reader. For a
 comparison that reports a magnitude instead of a verdict, supply `alertIf`:
 
 ```ts
