@@ -24,7 +24,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { Control as ControlService, type ControlSchema } from "@smthrs/control"
 import * as TestControl from "@smthrs/control/test/TestControl"
-import { Effect, Layer, Stream } from "effect"
+import { Context, Effect, Layer, Stream } from "effect"
 import { TestConsole } from "effect/testing"
 import { Command } from "effect/unstable/cli"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
@@ -622,5 +622,25 @@ describe("exit statuses these verbs report", () => {
   it("gives a usage error 2 and an unsupported failure 1", () => {
     expect(CliError.exitCode(new CliError.UsageError({ message: "x" }))).toBe(2)
     expect(CliError.exitCode(new CliError.UnsupportedError({ message: "x" }))).toBe(1)
+  })
+})
+
+/** A service the command runner never provides. */
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()("test/CommandVerbs/Unprovided") {}
+
+/** A control layer for the compile probe below; nothing reads it. */
+declare const probeControl: Layer.Layer<ControlService.Control, unknown>
+
+/** Never called; tsc checks it (#2347). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error the command runner does not provide Unprovided
+  run(Effect.map(Unprovided, (service) => service.value), probeControl)
+  run(Effect.succeed(1), probeControl)
+}
+
+describe("unprovided service compile probe", () => {
+  it("rejects a body that needs a service the command runner does not provide", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
   })
 })
