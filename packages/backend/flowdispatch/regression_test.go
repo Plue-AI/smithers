@@ -455,3 +455,80 @@ func TestCancellationRejectsNonLaunchOperations(t *testing.T) {
 		})
 	}
 }
+
+// journalRuntime serves a fixed journal by cursor, any number of times.
+type journalRuntime struct {
+	*recordingRuntime
+	pages map[string]flowruntime.Observation
+}
+
+func (runtime *journalRuntime) Observe(_ context.Context, runID, cursor string, _ int) (flowruntime.Observation, error) {
+	page, ok := runtime.pages[cursor]
+	if !ok {
+		return flowruntime.Observation{}, &testRuntimeFailure{code: "unexpected_observation_cursor"}
+	}
+	page.Run.RunID = runID
+	return page, nil
+}
+
+// failingEventProjector refuses the first journal page it is given.
+type failingEventProjector struct {
+	recordingProjector
+	refused bool
+}
+
+func (projector *failingEventProjector) ProjectFlowRuntime(ctx context.Context, update ProjectionUpdate) error {
+	projector.mu.Lock()
+	refuse := len(update.Events) > 0 && !projector.refused
+	projector.refused = projector.refused || refuse
+	projector.mu.Unlock()
+	if refuse {
+		return errors.New("projection store unavailable")
+	}
+	return projector.recordingProjector.ProjectFlowRuntime(ctx, update)
+}
+
+// Every observed journal page reaches the projection with the cursor it was
+// read after, before that cursor is saved: a projection that fails is given
+// the same page again rather than losing it.
+func TestObservedJournalPagesReachTheProjectionBeforeTheirCursorIsSaved(t *testing.T) {
+	store, _ := newFlowDispatchStore(t)
+	running := flowruntime.Run{FlowID: "coding/dispatch", Status: "running"}
+	completed := flowruntime.Run{FlowID: "coding/dispatch", Status: "completed"}
+	runtime := &journalRuntime{recordingRuntime: newRecordingRuntime(), pages: map[string]flowruntime.Observation{
+		"":  {Run: running, Events: []flowruntime.Event{{Sequence: 0, Kind: "node.started"}, {Sequence: 1, Kind: "node.output"}}, NextCursor: "1"},
+		"1": {Run: completed, Events: []flowruntime.Event{{Sequence: 2, Kind: "node.finished"}}, NextCursor: "2", Terminal: true},
+	}}
+	projector := &failingEventProjector{}
+	service, err := New(Config{
+		Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			return runtime, nil
+		}), Projector: projector, ObservationDelay: time.Millisecond,
+	})
+	require.NoError(t, err)
+	request := testLaunchRequest("journal-pages", ApprovalAuto)
+	receipt, err := service.Admit(context.Background(), request)
+	require.NoError(t, err)
+	startTestWorker(t, service, "journal-pages-owner")
+	operation := waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool {
+		return operation.State.Terminal()
+	})
+	require.Equal(t, jobs.StateCompleted, operation.State, string(operation.TerminalReceipt))
+
+	projector.mu.Lock()
+	defer projector.mu.Unlock()
+	require.True(t, projector.refused)
+	var pages []string
+	var kinds []string
+	for _, update := range projector.updates {
+		if len(update.Events) == 0 {
+			continue
+		}
+		pages = append(pages, update.EventsAfter+"->"+update.Checkpoint.Cursor)
+		for _, event := range update.Events {
+			kinds = append(kinds, event.Kind)
+		}
+	}
+	require.Equal(t, []string{"->1", "1->2"}, pages, "the refused first page is delivered again from the same cursor")
+	require.Equal(t, []string{"node.started", "node.output", "node.finished"}, kinds)
+}

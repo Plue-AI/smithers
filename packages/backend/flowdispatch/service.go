@@ -222,6 +222,20 @@ func (service *Service) CancelRequest(ctx context.Context, scope jobs.Scope, req
 	return service.Cancel(ctx, scope, operation.ID)
 }
 
+// CancelRequestInTx records a launch's cancellation in the caller's product
+// transaction, so a product cancel and the Flow cancel commit together. The
+// caller commits; the worker then delivers it to the runtime.
+func (service *Service) CancelRequestInTx(ctx context.Context, tx pgx.Tx, scope jobs.Scope, requestID string) (jobs.Operation, error) {
+	if tx == nil {
+		return jobs.Operation{}, errors.New("flow dispatch: transaction is required")
+	}
+	operation, err := service.store.GetByRequestInTx(ctx, tx, scope, OperationLaunch, requestID)
+	if err != nil {
+		return jobs.Operation{}, err
+	}
+	return service.store.RequestCancellationForWorkerInTx(ctx, tx, scope, operation.ID)
+}
+
 func (service *Service) Get(ctx context.Context, scope jobs.Scope, operationID string) (jobs.Operation, error) {
 	return service.store.Get(ctx, scope, operationID)
 }

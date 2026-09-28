@@ -86,11 +86,18 @@ type RuntimeCheckpoint struct {
 
 // ProjectionUpdate is an idempotent projection callback. RuntimeCheckpoint is
 // evidence from Control, not an alternate run-state authority.
+//
+// Events is one observed journal page, read after EventsAfter; Checkpoint's
+// Cursor is the cursor after it. A page is projected before its cursor is
+// saved, so a projector that records the cursor it logged through can refuse
+// a page it already logged when a retry observes it again.
 type ProjectionUpdate struct {
 	OperationID string
 	Scope       jobs.Scope
 	State       jobs.State
 	Checkpoint  RuntimeCheckpoint
+	Events      []flowruntime.FlowRuntimeEvent
+	EventsAfter string
 }
 
 type Projector interface {

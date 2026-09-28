@@ -393,10 +393,11 @@ func TestRealBundledHostRunsRepositoryFileFlow(t *testing.T) {
 	require.NoError(t, listener.Close())
 	host, client := startCodingHost(t, fixture, port, 1)
 	t.Cleanup(func() { host.stop(t) })
+	projector := &recordingProjector{}
 	service, err := New(Config{
 		Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
 			return observedAcceptanceRuntime{Runtime: client, t: t}, nil
-		}), ObservationDelay: 10 * time.Millisecond,
+		}), Projector: projector, ObservationDelay: 10 * time.Millisecond,
 	})
 	require.NoError(t, err)
 	request := LaunchRequest{
@@ -424,6 +425,22 @@ func TestRealBundledHostRunsRepositoryFileFlow(t *testing.T) {
 	require.NotNil(t, terminal.Run)
 	require.Equal(t, "completed", terminal.Run.Status)
 	require.NotContains(t, host.logs.String(), "SchemaError")
+
+	// The run's journal reaches the projection page by page, each page read
+	// after the cursor the previous one ended at (the invoked run's log).
+	projector.mu.Lock()
+	defer projector.mu.Unlock()
+	cursor, events := "", 0
+	for _, update := range projector.updates {
+		if len(update.Events) == 0 {
+			continue
+		}
+		require.Equal(t, cursor, update.EventsAfter)
+		cursor = update.Checkpoint.Cursor
+		events += len(update.Events)
+	}
+	require.NotZero(t, events, "the live host's journal must reach the projection")
+	require.Equal(t, terminal.Cursor, cursor, "every journal page up to the terminal cursor was projected")
 }
 
 func Example_realHostAcceptanceCommand() {

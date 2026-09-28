@@ -218,6 +218,18 @@ func (store *Store) Get(ctx context.Context, scope Scope, operationID string) (O
 // GetByRequest reconnects a caller-visible idempotency key to its durable
 // operation without crossing the tenant/principal/operation boundary.
 func (store *Store) GetByRequest(ctx context.Context, scope Scope, operation, requestID string) (Operation, error) {
+	return getByRequest(ctx, store.pool, scope, operation, requestID)
+}
+
+// GetByRequestInTx is GetByRequest inside the caller's transaction.
+func (store *Store) GetByRequestInTx(ctx context.Context, tx pgx.Tx, scope Scope, operation, requestID string) (Operation, error) {
+	if tx == nil {
+		return Operation{}, errors.New("jobs: transaction is required")
+	}
+	return getByRequest(ctx, tx, scope, operation, requestID)
+}
+
+func getByRequest(ctx context.Context, q rowQuerier, scope Scope, operation, requestID string) (Operation, error) {
 	if err := scope.validate(); err != nil {
 		return Operation{}, err
 	}
@@ -225,7 +237,7 @@ func (store *Store) GetByRequest(ctx context.Context, scope Scope, operation, re
 		return Operation{}, errors.New("jobs: operation and request ID are required")
 	}
 	var operationID string
-	err := store.pool.QueryRow(ctx, `SELECT id FROM product_job_requests
+	err := q.QueryRow(ctx, `SELECT id FROM product_job_requests
 		WHERE tenant_id=$1 AND principal_id=$2 AND operation=$3 AND request_id=$4`,
 		scope.TenantID, scope.PrincipalID, operation, requestID).Scan(&operationID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -234,7 +246,7 @@ func (store *Store) GetByRequest(ctx context.Context, scope Scope, operation, re
 	if err != nil {
 		return Operation{}, err
 	}
-	return queryOperation(ctx, store.pool, scope, operationID, false)
+	return queryOperation(ctx, q, scope, operationID, false)
 }
 
 type rowQuerier interface {

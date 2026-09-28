@@ -373,8 +373,19 @@ func (service *Service) observe(
 		if observation.NextCursor != checkpoint.Cursor || checkpoint.Run == nil || checkpoint.Run.Status != observation.Run.Status {
 			progressed = true
 		}
+		after := checkpoint.Cursor
 		checkpoint.Cursor = observation.NextCursor
 		checkpoint.Run = &observation.Run
+		// The page reaches the projection before its cursor is saved, so a
+		// failure between them re-observes the page rather than losing it.
+		if len(observation.Events) > 0 && service.projector != nil {
+			if err := service.projector.ProjectFlowRuntime(context.WithoutCancel(ctx), ProjectionUpdate{
+				OperationID: lease.Claim().OperationID, Scope: lease.Claim().Scope, State: jobs.StateWaiting,
+				Checkpoint: checkpoint, Events: observation.Events, EventsAfter: after,
+			}); err != nil {
+				return safeFailure{code: "product_projection_unavailable", retryable: true}
+			}
+		}
 		if err := service.checkpoint(ctx, lease, checkpoint, jobs.StateWaiting); err != nil {
 			return err
 		}
