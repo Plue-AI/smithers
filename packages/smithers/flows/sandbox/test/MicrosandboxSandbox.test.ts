@@ -970,7 +970,7 @@ describe("MicrosandboxSandbox", () => {
       expect(fake.recorded.builds).toHaveLength(2)
     }))
 
-  it.effect("maps a neutral allowlist to deny-by-default egress that allows DNS and the listed hosts", () =>
+  it.effect("maps a neutral allowlist to deny-by-default egress that allows only the listed hosts", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
       yield* inSession(
@@ -993,8 +993,8 @@ describe("MicrosandboxSandbox", () => {
         defaultEgress: "deny",
         defaultIngress: "deny",
         rules: [
-          // DNS reaches only the host resolver, matching the vendor's `Rule.allowDns()`.
-          { ...allow({ kind: "group", group: "host" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
+          // No resolver rule: the vendor matches each DNS query's name
+          // against the domain rules, so they alone admit the listed names.
           allow({ kind: "domain", domain: "registry.npmjs.org" }),
           // A vendor domain-suffix rule also matches its apex, and the vendor
           // takes the first matching rule, so a deny on the apex comes first.
@@ -1008,7 +1008,69 @@ describe("MicrosandboxSandbox", () => {
       expect(settings["labels"]).toMatchObject({ "smithers.network": JSON.stringify(policy) })
     }))
 
-  it.effect("maps an empty allowlist to deny-all egress without the DNS exception", () =>
+  it.effect("resolves only listed names over UDP and TCP DNS", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      type Rule = {
+        readonly direction: string
+        readonly destination: {
+          readonly kind: string
+          readonly domain?: string
+          readonly suffix?: string
+          readonly group?: string
+        }
+        readonly protocols: ReadonlyArray<string>
+        readonly ports: ReadonlyArray<{ readonly start: number; readonly end: number }>
+        readonly action: string
+      }
+      type Policy = { readonly defaultEgress: string; readonly rules: ReadonlyArray<Rule> }
+      const policyFor = (allow: ReadonlyArray<string>) =>
+        Effect.gen(function*() {
+          yield* inSession(
+            MicrosandboxSandbox.make({ sdk: fake.sdk, workdir: join(root, "dns-ws"), network: { allow } }),
+            "dns",
+            () => Effect.void
+          )
+          return fake.recorded.builds.at(-1)!.settings["networkPolicy"] as Policy
+        })
+      // microsandbox 0.6.16 `NetworkPolicy::evaluate_dns_query`
+      // (crates/network/lib/policy/types.rs): first match wins; a domain or
+      // suffix rule matches the query name, a host-group or any rule matches
+      // the DNS transport's protocol and port, else the egress default.
+      const resolves = (policy: Policy, name: string, protocol: "udp" | "tcp") => {
+        const onTransport = (rule: Rule) =>
+          (rule.protocols.length === 0 || rule.protocols.includes(protocol)) &&
+          (rule.ports.length === 0 || rule.ports.some(({ end, start }) => start <= 53 && 53 <= end))
+        const rule = policy.rules.find((rule) => {
+          if (rule.direction === "ingress") return false
+          const { destination } = rule
+          switch (destination.kind) {
+            case "domain":
+              return destination.domain === name
+            case "domainSuffix":
+              return name === destination.suffix || name.endsWith(`.${destination.suffix}`)
+            case "any":
+              return onTransport(rule)
+            case "group":
+              return destination.group === "host" && onTransport(rule)
+            default:
+              return false
+          }
+        })
+        return (rule?.action ?? policy.defaultEgress) === "allow"
+      }
+      const listed = yield* policyFor(["registry.npmjs.org", "*.github.com"])
+      const empty = yield* policyFor([])
+      for (const protocol of ["udp", "tcp"] as const) {
+        expect(resolves(listed, "registry.npmjs.org", protocol)).toBe(true)
+        expect(resolves(listed, "api.github.com", protocol)).toBe(true)
+        expect(resolves(listed, "github.com", protocol)).toBe(false)
+        expect(resolves(listed, "secret.attacker.example", protocol)).toBe(false)
+        expect(resolves(empty, "registry.npmjs.org", protocol)).toBe(false)
+      }
+    }))
+
+  it.effect("maps an empty allowlist to deny-all egress", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
       yield* inSession(

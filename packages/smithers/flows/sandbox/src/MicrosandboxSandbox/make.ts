@@ -134,8 +134,7 @@ export interface MicrosandboxSandboxOptions {
   readonly detached?: boolean | undefined
   /**
    * The guest network. `"none"` boots without networking; `{ allow }` denies
-   * ingress and all egress but DNS to the host resolver and the listed hosts,
-   * and an empty list denies DNS too. Default: the vendor's own policy. Exclusive with `networkPolicy`.
+   * ingress and all egress, DNS lookups included, but to the listed hosts. Default: the vendor's own policy. Exclusive with `networkPolicy`.
    */
   readonly network?: GuestNetworkPolicy | undefined
   /**
@@ -254,11 +253,11 @@ const guestNetwork = (options: MicrosandboxSandboxOptions): GuestNetwork => {
   return {
     defaultEgress: "deny",
     defaultIngress: "deny",
-    rules: network.allow.length === 0 ? [] : [
-      // Resolving an allowed name needs DNS, and only the host resolver
-      // answers it: the vendor's own `Rule.allowDns()` shape. DNS to any other
-      // resolver stays denied, so it cannot carry data out.
-      { ...egress({ kind: "group", group: "host" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
+    // No resolver rule such as `Rule.allowDns()`: the vendor admits a DNS
+    // query by the first rule matching its name, and a host-group rule
+    // matches every name, so it would carry data out in unlisted lookups.
+    // The domain rules below admit exactly the listed names' queries.
+    rules: [
       ...exact.map((domain) => egress({ kind: "domain", domain })),
       ...suffixes.filter((suffix) => !admitted(suffix)).map((domain) => ({
         ...egress({ kind: "domain", domain }),
