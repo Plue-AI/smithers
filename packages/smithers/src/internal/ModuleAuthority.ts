@@ -108,11 +108,15 @@ export const make = (
           return yield* refuse(executionId, "The owning control plan is not the approved plan")
         }
         const card = plan.card
+        // The code an operator adopted with `runs resume --allow-code-drift`
+        // is recorded on the run and binds it from then on; otherwise the
+        // plan's digest does (#1807).
+        const approved = run.executionDigest ?? card.executionDigest
         const descriptor = yield* registry.get(card.flowId).pipe(Effect.orDie)
         const executable = (yield* catalog).executables.find((entry) => entry.descriptor.name === card.flowId)
         if (
-          card.executionDigest === undefined || Descriptor.executionDigest(descriptor) !== card.executionDigest ||
-          executable === undefined || Descriptor.executionDigest(executable.descriptor) !== card.executionDigest ||
+          approved === undefined || Descriptor.executionDigest(descriptor) !== approved ||
+          executable === undefined || Descriptor.executionDigest(executable.descriptor) !== approved ||
           // A module that IS its own flow names no delegate. The
           // `executionDigest` checked above covers its entry bytes and every
           // module that entry imports from beside itself; a host-registered
@@ -124,7 +128,7 @@ export const make = (
         }
         // Re-read the pinned body as well: a parked child can run before its
         // agent/run parent is entered again after a process restart.
-        yield* registry.loadBody(card.flowId, card.executionDigest).pipe(Effect.orDie)
+        yield* registry.loadBody(card.flowId, approved).pipe(Effect.orDie)
         return { rootId, flowId: card.flowId, envelope: card.envelope }
       })
 

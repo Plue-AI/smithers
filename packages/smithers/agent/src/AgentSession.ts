@@ -2522,10 +2522,11 @@ export const make = (
     const approvedExecution = (
       runId: string,
       card: PlanCard,
-      descriptor: Descriptor.FlowDescriptor
+      descriptor: Descriptor.FlowDescriptor,
+      adopted?: string | undefined
     ): Effect.Effect<string, LaunchFailed> =>
       Effect.suspend(() => {
-        const expected = card.executionDigest
+        const expected = adopted ?? card.executionDigest
         if (expected === undefined || Descriptor.executionDigest(descriptor) !== expected) {
           return Effect.fail(
             new LaunchFailed({
@@ -2647,7 +2648,15 @@ export const make = (
         // against; the card itself stays the plan that was approved.
         const envelope = Budget.raisedBy(card.envelope, raises)
         const descriptor = yield* registry.get(card.flowId)
-        const executionDigest = yield* approvedExecution(payload.runId, card, descriptor)
+        // The run records the plan's digest at launch. Only `runs resume
+        // --allow-code-drift` moves it, to the code the operator accepted, so
+        // that is the identity this execution may enter (#1807). A control row
+        // that cannot be read leaves the plan's digest binding.
+        const recorded = yield* runtime.getRun(payload.runId).pipe(
+          Effect.map((run) => run.executionDigest),
+          Effect.orElseSucceed(() => undefined)
+        )
+        const executionDigest = yield* approvedExecution(payload.runId, card, descriptor, recorded)
         // The launch already validated the seat and body; re-validation here
         // guards a registry that changed between acceptance and execution.
         const flowBody = yield* registry.loadBody(card.flowId, executionDigest)
@@ -2656,9 +2665,14 @@ export const make = (
           const input = yield* Schema.decodeUnknownEffect(Schema.Json)(plan.decodedInput)
           // One ordinary durable child retains the module's native topology,
           // action outputs, waits and replay. The existing session continues
-          // to own control admission, cancellation and settlement.
+          // to own control admission, cancellation and settlement. It is keyed
+          // on the plan's digest, not the adopted one, so a drifted resume
+          // continues that child: unchanged steps replay and only re-keyed
+          // ones run again.
           return yield* executable.flow.execute({ input }, {
-            executionId: Digest.digest(Digest.canonical(["control/module", payload.runId, executionDigest]))
+            executionId: Digest.digest(
+              Digest.canonical(["control/module", payload.runId, card.executionDigest ?? executionDigest])
+            )
           }).pipe(
             CapabilitySet.attenuate(patterns(card.envelope.capabilities)),
             Effect.provide(options.budget(envelope)),

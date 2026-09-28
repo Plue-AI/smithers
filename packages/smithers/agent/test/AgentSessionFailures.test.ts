@@ -691,6 +691,37 @@ describe("the executor's registry seam", () => {
   })
 
   /**
+   * `runs resume --allow-code-drift` records the flow's current digest on the
+   * run. The body re-checks the code it enters on every execution, and
+   * checking the plan's digest there refused the very resume the operator
+   * allowed: the run was accepted, then failed on its first round (#1807).
+   */
+  it("runs the changed code an operator adopted on the run with --allow-code-drift", async () => {
+    const edited = new Descriptor.FlowDescriptor({
+      ...seated,
+      body: new Descriptor.BodyRefMarkdown({ ...seated.body, contentDigest: "e".repeat(64) } as never)
+    })
+    const adopted = { ...launchInput.run, executionDigest: Descriptor.executionDigest(edited) }
+    expect(adopted.executionDigest).not.toBe(launchInput.plan.card.executionDigest)
+    const run = (recorded: typeof launchInput.run) => {
+      const record = recorder()
+      // The launch reads `getOption` (the code the plan approved); the body
+      // reads `get`, the code on disk after the edit.
+      return launched(record, {
+        registry: { get: () => Effect.succeed(edited) },
+        runtime: { getRun: () => Effect.succeed(recorded) }
+      }).then((result) => ({ ...result, cause: causeOf(record) }))
+    }
+
+    const allowed = await run(adopted)
+    expect(allowed.status).toBe("completed")
+    // Nothing adopted: the plan's digest still binds the run.
+    const refused = await run(launchInput.run)
+    expect(refused.status).toBe("failed")
+    expect(refused.cause).toContain("changed or has no approved executable identity")
+  })
+
+  /**
    * A self-contained module flow runs the modules its entry imports from
    * beside itself. Those are pinned on the descriptor and ride
    * `executionDigest`, which is the value this guard compares, so editing one
