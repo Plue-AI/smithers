@@ -1,7 +1,7 @@
 import { noticeDismissDelay, shouldShowSettlement } from "@smthrs/ui/notification-policy"
 import { claimWorkToast } from "./backgroundWork"
 import type { CommandOutcome } from "../../flows/Commands"
-import type { Toast } from "../AppState"
+import { ToastSchema, type Toast } from "../AppState"
 import { spokenLostAct } from "../BrowserWriteFailure"
 import type { ControllerContext } from "./context"
 import { claimedSpokenLines,claimSpokenLine, forgetVanishedClaims,latestOrdinal } from "./spokenLines"
@@ -90,6 +90,18 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
    */
   const claimedLines = claimedSpokenLines(ctx)
   const timers = new Set<ReturnType<typeof setTimeout>>()
+  const dismissals = new Map<string, { timer: ReturnType<typeof setTimeout>; snapshot: string }>()
+  let stopObservingToasts: (() => void) | undefined
+  // TanStack replaces row objects and virtual sync metadata on persistence.
+  // Compare only the schema's domain fields when observing external changes.
+  const toastSnapshot = (toast: Toast): string => JSON.stringify(ToastSchema.parse(toast))
+  const cancelDismissal = (id: string): void => {
+    const pending = dismissals.get(id)
+    if (pending === undefined) return
+    clearTimeout(pending.timer)
+    timers.delete(pending.timer)
+    dismissals.delete(id)
+  }
   const later = (work: () => void, delay: number): ReturnType<typeof setTimeout> => {
     const timer = setTimeout(() => {
       timers.delete(timer)
@@ -100,8 +112,10 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
     return timer
   }
   ctx.onDispose(() => {
+    stopObservingToasts?.()
     for (const timer of timers) clearTimeout(timer)
     timers.clear()
+    dismissals.clear()
     ctx.toastRuns.clear()
   })
   /*
@@ -109,9 +123,8 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
    * "Signed in" (2026-09-01) dispatched toast.resolved directly, so nothing
    * ever dismissed it: it stood for the rest of the session, and only a
    * failure toast offers a dismiss control. The dismissal is guarded by the
-   * toast's own state, never by who scheduled it: a newer toast.shown or
-   * toast.resolved on the same key moves updatedAt (and status), and that
-   * owner dismisses its own.
+   * scheduled settlement and any intervening toast change. Wall-clock timestamps
+   * cannot identify a settlement: two results can share a millisecond.
    */
   const resolveToast: FailureController["resolveToast"] = (key, outcome) => {
     if (ctx.disposed) return
@@ -126,14 +139,31 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
       detail: outcome.detail,
       action: outcome.action
     })
+    cancelDismissal(id)
     const delay = noticeDismissDelay(outcome.status, ctx.toastAutoDismissMs, outcome.autoDismissMs)
     if (delay === undefined) return
-    const resolvedAt = ctx.store.collections.toasts.get(id)?.updatedAt
-    later(() => {
+    const resolved = ctx.store.collections.toasts.get(id)
+    if (resolved === undefined) return
+    const snapshot = toastSnapshot(resolved)
+    if (stopObservingToasts === undefined) {
+      const subscription = ctx.store.collections.toasts.subscribeChanges(changes => {
+        for (const change of changes) {
+          const pending = dismissals.get(change.value.id)
+          if (pending === undefined) continue
+          const current = ctx.store.collections.toasts.get(change.value.id)
+          if (current === undefined || toastSnapshot(current) !== pending.snapshot) cancelDismissal(change.value.id)
+        }
+      })
+      stopObservingToasts = () => subscription.unsubscribe()
+    }
+    const timer = later(() => {
+      if (dismissals.get(id)?.timer !== timer) return
+      dismissals.delete(id)
       const current = ctx.store.collections.toasts.get(id)
-      if (current === undefined || current.status !== outcome.status || current.updatedAt !== resolvedAt) return
+      if (current === undefined || toastSnapshot(current) !== snapshot) return
       ctx.store.dispatch({ type: "toast.dismissed", actor: "system", id })
     }, delay)
+    dismissals.set(id, { timer, snapshot })
   }
   /** A thrown flow is still an honest failure — never a toast stuck "running". */
   const unexpectedFailure = (title: string): string =>
