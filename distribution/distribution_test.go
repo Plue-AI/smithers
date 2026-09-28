@@ -47,6 +47,12 @@ func TestContainerContract(t *testing.T) {
 			t.Errorf("missing %q", required)
 		}
 	}
+	// A base image is pinned by digest so a moved upstream tag cannot change the image.
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "FROM ") && !strings.Contains(line, "@sha256:") {
+			t.Errorf("base image not pinned by digest: %q", line)
+		}
+	}
 	for _, forbidden := range []string{"/var/run/docker.sock", "--privileged", "/dev/kvm", "dockerd", "postgres -D"} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("forbidden %q", forbidden)
@@ -93,6 +99,18 @@ func TestImageBuildsEveryAppCommand(t *testing.T) {
 }
 
 func TestBackupRestorePreservesDurableClasses(t *testing.T) {
+	// libpq takes the password from the userinfo or from a password= query
+	// parameter, whose key and value are percent-decoded; the query one wins.
+	for name, url := range map[string]string{
+		"userinfo password":        "postgres://smithers:hunter%402%2F%25@example/db?sslmode=require",
+		"query password":           "postgres://smithers@example/db?pass%77ord=hunter%402%2F%25&sslmode=require",
+		"query overrides userinfo": "postgres://smithers:hunter-stale@example/db?sslmode=require&password=hunter%402%2F%25",
+	} {
+		t.Run(name, func(t *testing.T) { backupRestoreDurableClasses(t, url) })
+	}
+}
+
+func backupRestoreDurableClasses(t *testing.T, databaseURL string) {
 	root := t.TempDir()
 	data, backups, bin := filepath.Join(root, "data"), filepath.Join(root, "backups"), filepath.Join(root, "bin")
 	if err := os.MkdirAll(bin, 0700); err != nil {
@@ -113,11 +131,14 @@ func TestBackupRestorePreservesDurableClasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	executable(t, filepath.Join(bin, "flock"), "exit 0")
-	executable(t, filepath.Join(bin, "pg_dump"), `out=; database=; while [ "$#" -gt 0 ]; do case "$1" in --file) out=$2; shift 2;; --dbname=*) database=${1#--dbname=}; shift;; *) shift;; esac; done; [ "$database" = postgres://example/db ]; printf database >"$out"`)
-	executable(t, filepath.Join(bin, "psql"), `case " $* " in *" --dbname=postgres://example/db "*) printf '0\n';; *) exit 41;; esac`)
+	// The password leaves argv for PGPASSWORD: /proc/<pid>/cmdline is readable
+	// by every host user, /proc/<pid>/environ only by the same uid.
+	noSecret := `case "$*" in *hunter*) exit 43;; esac; [ "${PGPASSWORD-}" = 'hunter@2/%' ] || exit 44; `
+	executable(t, filepath.Join(bin, "pg_dump"), noSecret+`out=; database=; while [ "$#" -gt 0 ]; do case "$1" in --file) out=$2; shift 2;; --dbname=*) database=${1#--dbname=}; shift;; *) shift;; esac; done; [ "$database" = 'postgres://smithers@example/db?sslmode=require' ]; printf database >"$out"`)
+	executable(t, filepath.Join(bin, "psql"), noSecret+`case " $* " in *" --dbname=postgres://smithers@example/db?sslmode=require "*) printf '0\n';; *) exit 41;; esac`)
 	marker := filepath.Join(root, "pg-restore")
-	executable(t, filepath.Join(bin, "pg_restore"), `case " $* " in *" --dbname=postgres://example/db "*) printf restored >"$RESTORE_MARKER";; *) exit 42;; esac`)
-	common := []string{"PATH=" + bin + ":" + os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=./version.env", "DATABASE_URL=postgres://example/db", "SMITHERS_DATABASE_URL="}
+	executable(t, filepath.Join(bin, "pg_restore"), noSecret+`case " $* " in *" --dbname=postgres://smithers@example/db?sslmode=require "*) printf restored >"$RESTORE_MARKER";; *) exit 42;; esac`)
+	common := []string{"PATH=" + bin + ":" + os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=./version.env", "DATABASE_URL=" + databaseURL, "SMITHERS_DATABASE_URL=", "PGPASSWORD="}
 	out, err := run(t, "backup.sh", append(common, "SMITHERS_DATA_ROOT="+data, "SMITHERS_BACKUP_ROOT="+backups)...)
 	if err != nil {
 		t.Fatalf("backup: %v %s", err, out)
@@ -140,6 +161,82 @@ func TestBackupRestorePreservesDurableClasses(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatal("pg_restore not called")
+	}
+}
+
+// A crafted backup must not publish a link that leads out of the data root.
+func TestRestoreRefusesLinksLeavingDataRoot(t *testing.T) {
+	cases := []struct {
+		name  string
+		links map[string]string
+		safe  bool
+	}{
+		{"in-tree relative links restore", map[string]string{"workspaces/run/readme": "../run/file", "workspaces/run/self": "."}, true},
+		{"absolute", map[string]string{"repositories": "/etc"}, false},
+		{"relative climb", map[string]string{"blobs/escape": "../../outside"}, false},
+		{"climb through a link", map[string]string{"workspaces/here": ".", "workspaces/escape": "here/run/../../.."}, false},
+		{"loop", map[string]string{"workspaces/a": "b", "workspaces/b": "a"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			data, backups, bin, restored := filepath.Join(root, "data"), filepath.Join(root, "backups"), filepath.Join(root, "bin"), filepath.Join(root, "restored")
+			for _, d := range []string{filepath.Join(data, "workspaces/run"), bin, restored} {
+				if err := os.MkdirAll(d, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			version, _ := os.ReadFile("version.env")
+			if err := os.WriteFile(filepath.Join(data, "version.env"), version, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(data, "workspaces/run/file"), []byte("x"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			for name, target := range tc.links {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(data, name)), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(data, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			marker := filepath.Join(root, "pg-restore")
+			executable(t, filepath.Join(bin, "flock"), "exit 0")
+			executable(t, filepath.Join(bin, "pg_dump"), `while [ "$#" -gt 0 ]; do case "$1" in --file) printf database >"$2"; shift 2;; *) shift;; esac; done`)
+			executable(t, filepath.Join(bin, "psql"), `printf '0\n'`)
+			executable(t, filepath.Join(bin, "pg_restore"), `printf restored >"$RESTORE_MARKER"`)
+			common := []string{"PATH=" + bin + ":" + os.Getenv("PATH"), "SMITHERS_LIB=./lib.sh", "SMITHERS_RELEASE_FILE=./version.env", "DATABASE_URL=postgres://example/db", "SMITHERS_DATABASE_URL=", "RESTORE_MARKER=" + marker}
+			out, err := run(t, "backup.sh", append(common, "SMITHERS_DATA_ROOT="+data, "SMITHERS_BACKUP_ROOT="+backups)...)
+			if err != nil {
+				t.Fatalf("backup: %v %s", err, out)
+			}
+			cmd := exec.Command("sh", "restore.sh", strings.TrimSpace(out))
+			cmd.Env = append(os.Environ(), append(common, "SMITHERS_DATA_ROOT="+restored)...)
+			out2, err := cmd.CombinedOutput()
+			if tc.safe {
+				if err != nil {
+					t.Fatalf("restore: %v %s", err, out2)
+				}
+				for name, target := range tc.links {
+					if got, err := os.Readlink(filepath.Join(restored, name)); err != nil || got != target {
+						t.Errorf("%s: %q %v", name, got, err)
+					}
+				}
+				return
+			}
+			if err == nil || !strings.Contains(string(out2), "file archive link leaves the data root") {
+				t.Fatalf("unsafe link accepted: %v %s", err, out2)
+			}
+			if _, err := os.Stat(marker); err == nil {
+				t.Fatal("pg_restore ran before the link check")
+			}
+			for name := range tc.links {
+				if _, err := os.Lstat(filepath.Join(restored, name)); err == nil {
+					t.Fatalf("%s published into the data root", name)
+				}
+			}
+		})
 	}
 }
 

@@ -10,7 +10,7 @@ load_release; lock_maintenance; verify_state_matches_release; require pg_dump; r
 case "$SMITHERS_BACKUP_ROOT/" in "$SMITHERS_DATA_ROOT/"*) die "backup root must be outside the live data root" ;; esac
 mkdir -p "$SMITHERS_BACKUP_ROOT"; stamp=$(date -u +%Y%m%dT%H%M%SZ); final="$SMITHERS_BACKUP_ROOT/smithers-$stamp"; [ ! -e "$final" ] || die "backup destination already exists: $final"; staging=$(mktemp -d "$SMITHERS_BACKUP_ROOT/.smithers-backup-XXXXXX")
 trap 'rm -rf "$staging"' EXIT HUP INT TERM
-pg_dump --dbname="$SMITHERS_DATABASE_URL" --format=custom --compress=6 --no-owner --file "$staging/postgres.dump"
+pg_dump --dbname="$smithers_pg_url" --format=custom --compress=6 --no-owner --file "$staging/postgres.dump"
 tar -C "$SMITHERS_DATA_ROOT" --exclude=.maintenance.lock --exclude='.restore-staging.*' -cf "$staging/files.tar" .
 umask 077
 { printf 'SMITHERS_DISTRIBUTION_VERSION=%s\n' "$release_version"; printf 'SMITHERS_SCHEMA_VERSION=%s\n' "$release_schema"; printf 'SMITHERS_POSTGRES_MAJOR=%s\n' "$release_postgres"; printf 'POSTGRES_SHA256=%s\n' "$(sha256_file "$staging/postgres.dump")"; printf 'FILES_SHA256=%s\n' "$(sha256_file "$staging/files.tar")"; } >"$staging/MANIFEST"

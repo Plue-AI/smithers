@@ -20,7 +20,7 @@ docker run --name smithers --restart unless-stopped -p 4000:4000 \
 
 On Railway, attach PostgreSQL 18 and a volume mounted at `/var/lib/smithers`, set `SMITHERS_AUTH_BOOTSTRAP_TOKEN` to `openssl rand -hex 32`, and use Railway's existing `DATABASE_URL`, `PORT`, and `RAILWAY_PUBLIC_DOMAIN` variables. The entrypoint maps `DATABASE_URL` before startup and the backend derives its public HTTPS origin from `RAILWAY_PUBLIC_DOMAIN`.
 
-The image contains the web build, `apps/backend`, the canonical coding and model TypeScript hosts with exact SHA-256 manifests, embedded product migrations, the Rust 1.98 glibc FFI library and canonical jj WebAssembly artifact (both built with the pinned toolchain), the `jj` 0.44 CLI built from revision `47589ada70c12b3e829b5c98ab32503abad49eac`, checksum-pinned Git 2.50.1, Node 26, and PostgreSQL 18 client tools. Startup verifies the host artifacts and never downloads an executable. The backend listens on port 4000 and owns the process adapter; PostgreSQL is external.
+The image contains the web build, `apps/backend`, the canonical coding and model TypeScript hosts with exact SHA-256 manifests, embedded product migrations, the Rust 1.98 glibc FFI library and canonical jj WebAssembly artifact (both built with the pinned toolchain), the `jj` 0.44 CLI built from revision `47589ada70c12b3e829b5c98ab32503abad49eac`, checksum-pinned Git 2.50.1, Node 26, and PostgreSQL 18 client tools. Every base image is pinned by digest. Startup verifies the host artifacts and never downloads an executable. The backend listens on port 4000 and owns the process adapter; PostgreSQL is external.
 
 The image also includes the npm `@smthrs/cli` package as `smithers` (`smthrs` is an alias). Boxes receive its installed dependency tree from `SMITHERS_WORKSPACE_CLI_PACKAGE`, defaulting to `/opt/smithers/cli.tar`; they require Node 26. `distribution/build-cli.mjs` builds and packs the CLI through the existing release tooling. No Go CLI or registry download is needed in a box.
 
@@ -149,7 +149,7 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
   ghcr.io/smithersai/smithers:0.1.0
 ```
 
-The command uses `pg_dump`, archives repositories, blobs, workspaces, journals, and configuration, and writes checksums before publishing the backup. Copy the resulting backup directory away from the host. Browser-only drafts remain on their originating device and are outside the server backup.
+The command uses `pg_dump`, archives repositories, blobs, workspaces, journals, and configuration, and writes checksums before publishing the backup. The scripts pass `psql`, `pg_dump`, and `pg_restore` the database URL without its password and hand the password over in `PGPASSWORD`, so other users on a shared Docker host cannot read it from the process list. This covers both places a `postgres://` URL can hold a password: the userinfo (`postgres://user:secret@host/db`) and a `password=` query parameter, which wins when both are present, as in libpq. A key/value connection string such as `host=... password=...` is passed unchanged; use a `postgres://` URL. Copy the resulting backup directory away from the host. Browser-only drafts remain on their originating device and are outside the server backup.
 
 On a clean target with an empty database and empty data volume, restore with the exact image version recorded in the backup manifest:
 
@@ -163,7 +163,7 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
   /backups/smithers-YYYYMMDDTHHMMSSZ
 ```
 
-Restore verifies archive checksums, the distribution/schema/PostgreSQL versions, and the archived state manifest before changing PostgreSQL. It stages files inside the writable data volume, restores PostgreSQL in one transaction, then publishes the files.
+Restore verifies archive checksums, the distribution/schema/PostgreSQL versions, and the archived state manifest before changing PostgreSQL. It refuses an archive holding an absolute link, a link that resolves outside the data root, or a link loop. It stages files inside the writable data volume, restores PostgreSQL in one transaction, then publishes the files.
 
 Never change issue or comment rows with triggers disabled (for example `session_replication_role = replica`). Triggers record who last wrote each title and body, and automation trusts that record; text changed without them keeps its previous writer.
 

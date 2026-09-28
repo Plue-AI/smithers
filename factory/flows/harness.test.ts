@@ -4,11 +4,11 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { libraryPackages } from "../../scripts/workspace-packages.mjs"
-import { listWorkspacePackages, makeConfinementValidator, REPO_ROOT, runProcess, selectPackages } from "./harness.ts"
+import { agentPermissionRules, agentSpawnSpec, listWorkspacePackages, makeConfinementValidator, REPO_ROOT, runProcess, selectPackages } from "./harness.ts"
 
 const temporaryRoots: string[] = []
 afterEach(() => {
@@ -113,6 +113,65 @@ describe("factory harness guards", () => {
     expect(() => selectPackages(["--packages", "flow,flow"], all)).toThrow("duplicates")
     expect(() => selectPackages(["--packages", "missing"], all)).toThrow("Valid packages")
   })
+
+  test("agent reads are scoped to the working tree, never the maintainer's home", () => {
+    const rules = agentPermissionRules("/work/repo", ["/work/repo/pkg"])
+    expect(rules).toEqual([
+      "Read(//work/repo)",
+      "Read(//work/repo/**)",
+      "Edit(//work/repo/pkg)",
+      "Edit(//work/repo/pkg/**)"
+    ])
+    expect(rules.filter((rule) => !rule.includes("("))).toEqual([])
+  })
+
+  test("the launched claude argv overrides the operator's permission mode and denies credential reads", async () => {
+    const root = mkdtempSync(join(tmpdir(), "factory-agent-argv-"))
+    temporaryRoots.push(root)
+    const bin = join(root, "bin")
+    mkdirSync(bin)
+    const argvFile = join(root, "argv")
+    writeFileSync(
+      join(bin, "claude"),
+      `#!/bin/sh\nfor arg in "$@"; do printf '%s\\0' "$arg"; done > ${JSON.stringify(argvFile)}\necho DONE\n`
+    )
+    chmodSync(join(bin, "claude"), 0o755)
+    const previousPath = process.env.PATH
+    process.env.PATH = `${bin}:${previousPath ?? ""}`
+    let spec
+    try {
+      spec = agentSpawnSpec(
+        {
+          id: "argv",
+          prompt: "read ~/.ssh/id_ed25519",
+          cwd: root,
+          model: "opus",
+          timeoutMs: 10_000,
+          logDir: join(root, "logs"),
+          completionMarker: "DONE",
+          allowedPaths: [join(root, "pkg")]
+        },
+        "/home/operator"
+      )
+    } finally {
+      process.env.PATH = previousPath
+    }
+    const result = await Effect.runPromise(runProcess(spec))
+    expect(result.exitCode).toBe(0)
+    const argv = readFileSync(argvFile, "utf8").split("\0").slice(0, -1)
+    const mode = argv.indexOf("--permission-mode")
+    expect(mode).toBeGreaterThan(-1)
+    expect(argv[mode + 1]).toBe("default")
+    const denied = argv.indexOf("--disallowedTools")
+    const allowed = argv.indexOf("--allowedTools")
+    expect(denied).toBeGreaterThan(mode)
+    expect(allowed).toBeGreaterThan(denied)
+    expect(argv.slice(denied + 1, allowed)).toEqual(
+      expect.arrayContaining(["Read(//home/operator/.ssh/**)", "Read(//home/operator/.claude/**)"])
+    )
+    expect(argv.slice(allowed + 1)).toEqual(agentPermissionRules(root, [join(root, "pkg")]))
+    expect(argv.slice(allowed + 1).some((rule) => rule.startsWith("Read(//home/operator"))).toBe(false)
+  }, 15_000)
 
   test("post-run confinement rejects writes outside declared roots", () => {
     const root = mkdtempSync(join(tmpdir(), "factory-confinement-"))

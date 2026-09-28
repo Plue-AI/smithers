@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.8
 # check=skip=FromPlatformFlagConstDisallowed
 # The committed WebAssembly artifact is reproducible only on this host triple.
-FROM --platform=linux/amd64 rust:1.98.0-bookworm AS flows-jj
+FROM --platform=linux/amd64 rust:1.98.0-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS flows-jj
 WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
@@ -10,7 +10,7 @@ COPY packages/smithers/flows/jj/wasm/flows_jj.wasm packages/smithers/flows/jj/wa
 RUN rustup target add wasm32-wasip1 \
   && CARGO_BUILD_JOBS=2 node crates/flows-jj/build-wasm.mjs --verify
 
-FROM rust:1.98.0-bookworm AS jj-cli
+FROM rust:1.98.0-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS jj-cli
 ARG JJ_REVISION=47589ada70c12b3e829b5c98ab32503abad49eac
 RUN CARGO_BUILD_JOBS=2 NIX_JJ_GIT_HASH="$JJ_REVISION" cargo install --locked \
     --git https://github.com/smithersai/jj.git \
@@ -19,7 +19,7 @@ RUN CARGO_BUILD_JOBS=2 NIX_JJ_GIT_HASH="$JJ_REVISION" cargo install --locked \
     jj-cli \
   && /out/jj/bin/jj --version | grep -Fx "jj 0.44.0-${JJ_REVISION}"
 
-FROM rust:1.98.0-bookworm AS smithers-rust
+FROM rust:1.98.0-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS smithers-rust
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
@@ -31,7 +31,7 @@ RUN CARGO_BUILD_JOBS=2 cargo build --locked --release --package smithers-ffi \
 # Git is built from an authenticated HTTPS source archive whose bytes and
 # version are fixed here; a second kernel.org origin covers a mirror outage,
 # and the digest check below decides either way. Runtime startup never downloads a tool.
-FROM debian:bookworm-slim AS git-cli
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS git-cli
 ARG GIT_VERSION=2.50.1
 ARG GIT_SHA256=7e3e6c36decbd8f1eedd14d42db6674be03671c2204864befa2a41756c5c8fc4
 RUN apt-get update \
@@ -55,13 +55,13 @@ RUN apt-get update \
   && /out/opt/smithers/git/bin/git --version | grep -Fx "git version ${GIT_VERSION}" \
   && rm -rf /tmp/git-src /tmp/git.tar.xz /var/lib/apt/lists/*
 
-FROM oven/bun:1.4.0-debian AS bun-buildchain
+FROM oven/bun:1.4.0-debian@sha256:5bb0f9be3a1a36a03e27c9a9dd894a3b1ad26657155c7df4dda771e17bf872ef AS bun-buildchain
 
 # Hutch's x64 devkit needs glibc 2.38+ to prepare the Vite aliases.
 # Keep the packaged Node binary on Bookworm for the Bookworm runtime image.
-FROM node:26.5.0-bookworm AS node-runtime
+FROM node:26.5.0-bookworm@sha256:219fc9da91e7f29a9f32290ff598cdf8886fd68f421ff515c8f93434da39a271 AS node-runtime
 
-FROM node:26.5.0-trixie AS web
+FROM node:26.5.0-trixie@sha256:0473e7dc433a1310f436edee02aa79737ec78a4b345433ab0963d4a256f9ad85 AS web
 COPY --from=bun-buildchain /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc .pnpmfile.mjs tsconfig.json tsconfig.base.json ./
@@ -93,7 +93,7 @@ RUN node flows/coding/build.mjs /out/flow-hosts/smithers-coding-host \
     /out/flow-hosts/flow-hosts.json \
     /out/flow-hosts/smithers-coding-host
 
-FROM golang:1.26.8-bookworm AS backend
+FROM golang:1.26.8-bookworm@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d AS backend
 ARG BUILD_SHA
 WORKDIR /src
 RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40,64}$' || (echo 'BUILD_SHA must be an exact source revision' >&2; exit 1)
@@ -107,7 +107,7 @@ RUN GOMAXPROCS=2 CGO_ENABLED=1 sh scripts/build-backend.sh /out/smithers-backend
 
 # Debian/glibc is required by libsmithers_ffi; Alpine/musl is ABI-incompatible.
 # This base supplies PostgreSQL 18 pg_dump/pg_restore/psql for maintenance.
-FROM postgres:18.6-bookworm
+FROM postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libatomic1 libcurl4 libexpat1 libpcre2-8-0 libssl3 tini util-linux zlib1g && rm -rf /var/lib/apt/lists/* \
   && groupadd --system smithers && useradd --system --gid smithers --home-dir /var/lib/smithers --shell /usr/sbin/nologin smithers \
   && install -d -o smithers -g smithers -m 0700 /var/lib/smithers \

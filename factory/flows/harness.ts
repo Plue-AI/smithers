@@ -19,6 +19,7 @@ import { spawn } from "node:child_process"
 import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as path from "node:path"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
@@ -255,34 +256,85 @@ export const makeConfinementValidator = (
   }
 }
 
-export const agentTaskLayer = AgentTask.toLayer((payload) => {
-  const validateResult = makeConfinementValidator(payload.cwd, [...payload.allowedPaths, payload.logDir])
-  const writeRules = payload.allowedPaths.flatMap((candidate) => {
+/**
+ * The agent's tool grants. Reads are scoped to its working tree so injected
+ * text cannot read the maintainer's home (~/.ssh, ~/.claude) and commit it.
+ * Claude Code spells an absolute path rule with a leading `//`; an Edit rule
+ * covers every file-editing tool, and a Write rule is never matched.
+ */
+export const agentPermissionRules = (
+  cwd: string,
+  allowedPaths: ReadonlyArray<string>
+): Array<string> => {
+  const scoped = (tool: string, candidate: string) => {
     const absolute = path.resolve(candidate)
-    return [`Edit(${absolute})`, `Edit(${absolute}/**)`, `Write(${absolute})`, `Write(${absolute}/**)`]
-  })
-  return runProcess({
-    id: payload.id,
-    command: "claude",
-    args: [
-      "-p",
-      payload.prompt,
-      "--model",
-      payload.model,
-      "--allowedTools",
-      "Read",
-      "Glob",
-      "Grep",
-      ...writeRules
-    ],
-    cwd: payload.cwd,
-    timeoutMs: payload.timeoutMs,
-    logDir: payload.logDir,
-    environment: agentEnvironment(),
-    completionMarker: payload.completionMarker,
-    validateResult
-  })
+    return [`${tool}(/${absolute})`, `${tool}(/${absolute}/**)`]
+  }
+  return [
+    ...scoped("Read", cwd),
+    ...allowedPaths.flatMap((candidate) => scoped("Edit", candidate))
+  ]
+}
+
+/**
+ * Home directories that hold credentials. Deny rules win over any allow rule,
+ * including one in the operator's own ~/.claude/settings.json.
+ *
+ * This list covers only the Read tool, not every route to a credential. Agent-authored
+ * code still runs with the operator's HOME: through an operator Bash allow
+ * rule such as `Bash(bun test *)`, and through every ShellTask test step.
+ * https://github.com/smithersai/smithers/issues/2765 tracks sandboxing that.
+ */
+const CREDENTIAL_DIRECTORIES = [".ssh", ".claude", ".aws", ".config", ".gnupg", ".docker", ".kube", ".netrc"]
+
+/**
+ * The exact `claude` process an AgentTask launches. `--permission-mode default`
+ * overrides an operator `defaultMode` such as `auto` or `bypassPermissions`,
+ * which would otherwise approve reads outside the scoped allow rules.
+ */
+export const agentSpawnSpec = (
+  payload: {
+    readonly id: string
+    readonly prompt: string
+    readonly cwd: string
+    readonly model: string
+    readonly timeoutMs: number
+    readonly logDir: string
+    readonly completionMarker: string
+    readonly allowedPaths: ReadonlyArray<string>
+  },
+  home: string = os.homedir()
+): SpawnSpec => ({
+  id: payload.id,
+  command: "claude",
+  args: [
+    "-p",
+    payload.prompt,
+    "--model",
+    payload.model,
+    "--permission-mode",
+    "default",
+    "--disallowedTools",
+    ...CREDENTIAL_DIRECTORIES.flatMap((name) => {
+      const absolute = path.join(path.resolve(home), name)
+      return [`Read(/${absolute})`, `Read(/${absolute}/**)`]
+    }),
+    "--allowedTools",
+    ...agentPermissionRules(payload.cwd, payload.allowedPaths)
+  ],
+  cwd: payload.cwd,
+  timeoutMs: payload.timeoutMs,
+  logDir: payload.logDir,
+  environment: agentEnvironment(),
+  completionMarker: payload.completionMarker
 })
+
+export const agentTaskLayer = AgentTask.toLayer((payload) =>
+  runProcess({
+    ...agentSpawnSpec(payload),
+    validateResult: makeConfinementValidator(payload.cwd, [...payload.allowedPaths, payload.logDir])
+  })
+)
 
 /**
  * A structured command step. Arguments are passed directly without a shell.

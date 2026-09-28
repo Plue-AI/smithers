@@ -36,7 +36,8 @@ export PATH="/opt/smithers/bin:/opt/smithers/git/bin:/usr/lib/postgresql/18/bin:
 state=$(state_file)
 if [ ! -f "$state" ]; then
   [ -z "$(find "$SMITHERS_DATA_ROOT" -mindepth 1 -maxdepth 1 ! -name '.maintenance.lock' -print -quit)" ] || die "unversioned Smithers data exists; restore its version.env before starting"
-  table_count=$(psql --dbname="$SMITHERS_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_catalog.pg_tables where schemaname not in ('pg_catalog','information_schema')" 9>&-)
+  # shellcheck disable=SC2154 # set by load_database_url in lib.sh
+  table_count=$(psql --dbname="$smithers_pg_url" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_catalog.pg_tables where schemaname not in ('pg_catalog','information_schema')" 9>&-)
   [ "$table_count" = 0 ] || die "database is not empty but state version.env is missing"
   "$backend" migrate apply 9>&-
   write_state
