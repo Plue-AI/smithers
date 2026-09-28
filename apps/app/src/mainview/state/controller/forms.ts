@@ -368,12 +368,8 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     }
     if (fields.length === 0) return undefined
     /* A line the grammar parses whole prefills exactly; a line it refuses prefills what it can. */
-    const parsed = payloadFor(
-      request.name,
-      request.args,
-      (entry ?? ctx.commands.find(request.name))?.metadata.grammar,
-      knownRepositories(ctx.store)
-    )
+    const grammar = (entry ?? ctx.commands.find(request.name))?.metadata.grammar
+    const parsed = payloadFor(request.name, request.args, grammar, knownRepositories(ctx.store))
     const read = "payload" in parsed
       ? { payload: parsed.payload, skipped: [] as ReadonlyArray<string> }
       : positionalRead(fields, hints, request.args)
@@ -446,7 +442,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     const refused = hints?.refuse?.(given)
     const parseError = refused !== undefined
       ? { error: refused }
-      : "error" in parsed && read.skipped.length === 0 && missingFields(resolved, draft).length === 0
+      : "error" in parsed && grammar?.buttonOnly !== true && read.skipped.length === 0 && missingFields(resolved, draft).length === 0
         ? { error: parsed.error } : {}
     // Two open setups must not overwrite each other's question.
     const cardId = request.cardId ?? (request.name === "setup.ask"

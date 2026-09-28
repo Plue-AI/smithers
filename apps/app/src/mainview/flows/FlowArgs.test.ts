@@ -247,8 +247,8 @@ test("the Pause button's values are what triggers.pause's own grammar reads back
   const line = flowArgs("triggers.pause", { slug: "nightly", repo: "will/flows" })
   expect(line).toBe(JSON.stringify({ slug: "nightly", repo: "will/flows" }))
   expect(payloadFor("triggers.pause", line, entry?.metadata.grammar)).toEqual({ payload: { slug: "nightly", repo: "will/flows" } })
-  expect(payloadFor("triggers.pause", "nightly will/flows", entry?.metadata.grammar))
-    .toEqual({ error: "triggers.pause takes the values its button carries" })
+  expect(entry?.metadata.grammar?.buttonOnly).toBe(true)
+  expect(payloadFor("triggers.pause", "nightly will/flows", entry?.metadata.grammar)).toHaveProperty("error")
 })
 
 test("split preserves each file path through the real slash parser", () => {

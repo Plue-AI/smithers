@@ -9,7 +9,7 @@ import { line, text } from "@smthrs/ui/flow-form"
 import { flow, RepoTarget } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { CommandActions } from "./Declare"
-import type { Parsed } from "../SlashPayload"
+import { carriedPayload } from "../SlashPayload"
 
 /**
  * The registration a person asks for: which flow, under which name, on which
@@ -64,14 +64,6 @@ const RunTarget = Schema.Struct({ slug: Schema.String, repo: Schema.optional(Sch
  * positional line: a cron expression holds spaces and a flow's input is
  * itself JSON, so no positional grammar reads them back unambiguously.
  */
-const carried = (name: string) => (args: string | undefined): Parsed => {
-  try {
-    const value: unknown = JSON.parse((args ?? "").trim())
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) return { payload: value as Record<string, unknown> }
-  } catch { /* fall through to the one honest refusal */ }
-  return { error: `${name} takes the values its button carries` }
-}
-
 /** The `triggers` flows registered as one aggregator block. */
 export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
@@ -140,7 +132,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     requires: ["signed-in"],
     userOnly: true,
     userOnlyReason: "approvals belong to the human",
-    grammar: carried("triggers.approve"),
+    grammar: carriedPayload("triggers.approve"),
     input: PreparedRegistration,
     handler: (payload) => actions.registerTrigger({ operation: "approve", ...payload })
   }),
@@ -191,7 +183,7 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     runtime: ["cloud"],
     requires: ["signed-in"],
     confirm: (payload) => `pause ${String(payload["slug"])}`,
-    grammar: carried("triggers.pause"),
+    grammar: carriedPayload("triggers.pause"),
     input: ScheduleTarget,
     handler: ({ repo, slug }) => actions.registerTrigger({ operation: "pause", repo, slug })
   })

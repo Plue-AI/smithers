@@ -31,7 +31,16 @@ export type Parsed =
  * `owner/repo` token beside other text may name (RepoContext.ts
  * splitTrailingRepo). Absent `known`, the token's shape alone decides.
  */
-export type Grammar = (args: string | undefined, known?: KnownRepositories) => Parsed
+export type Grammar = ((args: string | undefined, known?: KnownRepositories) => Parsed) & { readonly buttonOnly?: boolean }
+
+/** A JSON payload carried by a button; positional text must instead be collected by the form. */
+export const carriedPayload = (name: string): Grammar => Object.assign((args: string | undefined): Parsed => {
+  try {
+    const value: unknown = JSON.parse((args ?? "").trim())
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) return ok(value as Record<string, unknown>)
+  } catch { /* The form reads positional text; a button must carry a JSON object. */ }
+  return no(`${name} takes the values its button carries`)
+}, { buttonOnly: true as const })
 
 const ok = (payload: Record<string, unknown>): Parsed => ({ payload })
 const no = (error: string): Parsed => ({ error })

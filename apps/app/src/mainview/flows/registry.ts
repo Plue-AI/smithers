@@ -20,7 +20,7 @@
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import type { AppBootstrap, RuntimeCapability } from "@smthrs/rpc/AppBootstrap"
 import type { Schema } from "effect"
-import type { Parsed } from "./SlashPayload"
+import type { Grammar } from "./SlashPayload"
 import * as account from "./entries/account"
 import * as admin from "./entries/admin"
 import * as agent from "./entries/agent"
@@ -180,7 +180,7 @@ export interface FlowMetadata {
    * so such a flow carries its parser; the composer boundary consults the
    * table first and this second. Absent for every declared flow.
    */
-  readonly grammar?: (args: string | undefined) => Parsed
+  readonly grammar?: Grammar
 }
 
 /** The confirmation label an agent invocation of this flow needs, or undefined when it needs none. */

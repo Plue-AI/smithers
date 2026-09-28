@@ -159,6 +159,15 @@ describe("THE FORM LAW — the slash door and the button door", () => {
     await controller.dispose()
   })
 
+  test("typed /triggers.pause nightly will/flows never quotes a button refusal", async () => {
+    const { store, controller } = await boot()
+    expect((await controller.commands.run("triggers.pause", "nightly will/flows")).status).toBe("form")
+    const card = formOf(store, "triggers.pause")
+    expect(card?.payload.error).toBeUndefined()
+    expect(JSON.stringify(card?.payload)).not.toContain("takes the values its button carries")
+    await controller.dispose()
+  })
+
   /*
    * R102c B1c, on the door the same skip rule moved: three words reach Flow,
    * Name and Schedule, and the card does not then quote the grammar's usage
