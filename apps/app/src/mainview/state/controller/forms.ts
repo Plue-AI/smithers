@@ -225,7 +225,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
         const repo = targetRepo(draft)
         const card = repo === undefined ? undefined : collections.cards.get(`issues-${repo}`)
         return card?.kind === "issue-list"
-          ? card.payload.issues.filter((issue) => issue.state === "open" && issue.kind !== "chat").map((issue) => ({ value: String(issue.number), label: `#${issue.number} ${issue.title}` }))
+          ? card.payload.issues.filter((issue) => issue.state === "open" && issue.kind !== "chat" && issue.source !== "github").map((issue) => ({ value: String(issue.number), label: `#${issue.number} ${issue.title}` }))
           : []
       }
       case "pull-requests": {

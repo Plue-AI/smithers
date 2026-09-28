@@ -9,6 +9,7 @@ import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
 import { processRepositoryEvents } from "../RepositoryNotifications"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"
+import { readIssueOptions } from "./IssuesSeam"
 
 /*
  * The issues seam, driven through the one command run path: issues.list /
@@ -580,6 +581,19 @@ describe("issues seam — honest failures, never throws", () => {
  * strings pointing at /repos.import and never touch the source namespace.
  */
 describe("issues seam — source-only fallback (repo not imported)", () => {
+  test("Fix picker does not offer source issues when the imported tracker 404s", async () => {
+    const calls: string[] = []
+    const http = async (url: string): Promise<Response> => {
+      calls.push(url)
+      return json(404, { message: "repository not found" })
+    }
+    expect(await readIssueOptions({ http, baseUrl: "https://app.test" }, "will/flows")).toEqual({
+      options: [],
+      error: "Import will/flows to fix an issue: /repos.import will/flows"
+    })
+    expect(calls).toEqual(["https://app.test/api/repos/will/flows/issues?state=open"])
+  })
+
   test("issues.list on an imported-namespace 404 reads the GitHub source and marks the card", async () => {
     const calls: string[] = []
     const { store, controller } = await issuesController(

@@ -228,9 +228,9 @@ const githubIssuesRoute = (ctx: Pick<SeamContext, "baseUrl">, repo: string, filt
 /**
  * The open issues of a repository as a form's options (the Fix an issue
  * app's picker, controller/forms.ts `issues`): Smithers Cloud's own tracker,
- * read exactly as the issues list reads it, and the GitHub-source list only
- * when the repository is not imported. A refusal answers no options and its
- * reason; nothing is invented.
+ * read exactly as the issues list reads it. A source-only repository
+ * answers no options and names the import door, since Fix cannot use GitHub
+ * source issues.
  */
 export const readIssueOptions = async (
   ctx: Pick<SeamContext, "http" | "baseUrl">,
@@ -256,12 +256,7 @@ export const readIssueOptions = async (
     }) }
   }
   if (native.status !== 404) return { options: [], error: native.error }
-  const github = await read(githubIssuesRoute(ctx, repo, "open"))
-  if (github.rows === undefined) return { options: [], error: github.error }
-  return { options: github.rows.flatMap((entry) => {
-    const parsed = parseGithubListRow(entry)
-    return parsed === null ? [] : [option(parsed)]
-  }) }
+  return { options: [], error: `Import ${repo} to fix an issue: /repos.import ${repo}` }
 }
 
 /**

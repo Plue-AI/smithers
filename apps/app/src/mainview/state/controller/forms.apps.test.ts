@@ -15,12 +15,12 @@ import { createFormsController } from "./forms"
 type FlowFormCard = Extract<Card, { kind: "flow-form" }>
 const REPO = "org/repo"
 
-const fixture = (options: { readonly issues?: boolean; readonly prs?: boolean; readonly flows?: boolean; readonly submit?: () => Promise<{ readonly status: "executed"; readonly value: string }> } = {}) => {
+const fixture = (options: { readonly issues?: boolean; readonly sourceIssues?: boolean; readonly prs?: boolean; readonly flows?: boolean; readonly submit?: () => Promise<{ readonly status: "executed"; readonly value: string }> } = {}) => {
   const cards = new Map<string, Card>()
   const base = { status: "active" as const, createdAt: 1, ordinal: 1 }
   if (options.issues !== false) {
     cards.set(`issues-${REPO}`, { ...base, id: `issues-${REPO}`, kind: "issue-list", title: "Issues", payload: { repo: REPO, filter: "open", issues: [
-      { number: 42, title: "Footer help link is hard to find", state: "open", author: "ada", labels: [], comments: 0, updatedAt: null },
+      { number: 42, title: "Footer help link is hard to find", state: "open", author: "ada", labels: [], comments: 0, updatedAt: null, ...(options.sourceIssues ? { source: "github" as const } : {}) },
       { number: 41, title: "Closed one", state: "closed", author: "ada", labels: [], comments: 0, updatedAt: null },
       { number: 40, kind: "chat", title: "A conversation", state: "open", author: "ada", labels: [], comments: 0, updatedAt: null }
     ] } } as Card)
@@ -74,6 +74,12 @@ describe("the Fix an issue app", () => {
     expect(app.card(cardId).payload.submitLabel).toBe("Fix")
     expect(app.card(cardId).payload.fields.map((field) => [field.name, field.label, field.kind, field.required])).toEqual([["number", "Issue", "number", true]])
     expect(app.field(cardId, "number").options).toEqual([{ value: "42", label: "#42 Footer help link is hard to find" }])
+  })
+
+  test("a source-only issue list cannot offer GitHub issues to Fix", () => {
+    const app = fixture({ sourceIssues: true })
+    const { cardId } = app.ask("issue.implement")
+    expect(app.field(cardId, "number").options).toEqual([])
   })
 
   test("with no issues read yet the picker offers nothing rather than a guess", () => {
