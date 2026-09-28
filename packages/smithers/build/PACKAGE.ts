@@ -289,7 +289,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "cache-bearer-authz",
       title: "Only the write credential can publish or delete cache entries",
-      threat: "A holder of the read token or no token poisons or deletes action-cache entries every later build trusts.",
+      threat:
+        "A holder of the read token or no token poisons or deletes action-cache entries every later build trusts.",
       lookFor: [
         "A PUT or DELETE route reachable when presentedCredential answers read or none.",
         "A non-constant-time comparison of the presented bearer digest against the configured hashes.",
@@ -311,7 +312,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "cache-content-integrity",
       title: "Stored bytes always match the digest they are served under",
-      threat: "A write-token holder or a corrupted row serves artifact bytes whose hash differs from the requested digest to every consumer.",
+      threat:
+        "A write-token holder or a corrupted row serves artifact bytes whose hash differs from the requested digest to every consumer.",
       lookFor: [
         "A CAS PUT stored without recomputing SHA-256 over the full body and comparing it to the path digest.",
         "An action-cache GET that returns a stored body without validateStoredActionBody.",
@@ -322,7 +324,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "cache-sql-parameters",
       title: "Every cache SQL statement binds request values as parameters",
-      threat: "An authenticated cache client injects SQL through a key digest, fence, or digest list and reads or drops the cache database.",
+      threat:
+        "An authenticated cache client injects SQL through a key digest, fence, or digest list and reads or drops the cache database.",
       lookFor: [
         "A request-derived value concatenated into SQL text or passed to sql.unsafe instead of a tagged-template parameter.",
         "A migration or storage statement granting the service role more than the cache tables need."
@@ -332,7 +335,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "cache-resource-bounds",
       title: "An unauthenticated or authenticated client cannot exhaust the cache process",
-      threat: "Any network client stalls or crashes the shared build cache for every team by oversized bodies or concurrent slow requests.",
+      threat:
+        "Any network client stalls or crashes the shared build cache for every team by oversized bodies or concurrent slow requests.",
       lookFor: [
         "A body read that is not capped by maxArtifactBytes or maxActionCacheBodyBytes before buffering.",
         "An admission counter (activeCacheRequests, activeArtifactTransfers) not decremented on an error or aborted stream.",
@@ -343,7 +347,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "cache-secret-leaks",
       title: "Tokens and the database password never reach logs, responses, or images",
-      threat: "Anyone reading container logs, error bodies, or the image layers learns the write token or the Postgres password.",
+      threat:
+        "Anyone reading container logs, error bodies, or the image layers learns the write token or the Postgres password.",
       lookFor: [
         "A logger or error response that prints a raw cause, the request headers, or DATABASE_URL instead of describeFailure.",
         "A token or password written into the Dockerfile, a Terraform output, or a default variable value.",
@@ -354,7 +359,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "install-child-environment",
       title: "The package-manager child receives only bootstrap names and .npmrc-referenced credentials",
-      threat: "A repository's .npmrc or pnpm config exfiltrates host secrets (cloud keys, CI tokens) to a registry it names.",
+      threat:
+        "A repository's .npmrc or pnpm config exfiltrates host secrets (cloud keys, CI tokens) to a registry it names.",
       lookFor: [
         "A child spawned with extendEnv true or without the managerEnvironment allowlist.",
         "A ${VAR} placeholder in .npmrc forwarded when VAR is not a registry credential, e.g. in a registry URL path to an attacker host.",
@@ -378,7 +384,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "install-file-confinement",
       title: "Install reads only regular files inside the project root",
-      threat: "A repository symlinks .npmrc or the lockfile to a host file and leaks it into install key material or errors.",
+      threat:
+        "A repository symlinks .npmrc or the lockfile to a host file and leaks it into install key material or errors.",
       lookFor: [
         "A read of .npmrc, the lockfile, or .modules.yaml that skips boundedBytes realPath and insideRoot checks.",
         "An error message that embeds file contents rather than only the path.",
@@ -389,7 +396,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "install-store-attestation",
       title: "link refuses a store fetched for different content",
-      threat: "A poisoned shared store or cached fetch result from another lockfile gets linked into node_modules and executed.",
+      threat:
+        "A poisoned shared store or cached fetch result from another lockfile gets linked into node_modules and executed.",
       lookFor: [
         "executeLink proceeding when the StoreManifest digest differs from the measured lockfile, .npmrc, pnpmfile, and workspace digests.",
         "A pnpm or Node version mismatch that warns instead of failing with environment_mismatch.",

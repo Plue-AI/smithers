@@ -1087,7 +1087,10 @@ const normalizeDependencies = (value) => {
   const health = configuredHealth ?? (async () => true)
   const readTokenHash = read("readTokenHash")
   const readNamespacePrefix = read("readNamespacePrefix") ?? ""
-  if (typeof readNamespacePrefix !== "string" || (readNamespacePrefix !== "" && !/^[A-Za-z0-9_-]+\/$/.test(readNamespacePrefix))) {
+  if (
+    typeof readNamespacePrefix !== "string" ||
+    (readNamespacePrefix !== "" && !/^[A-Za-z0-9_-]+\/$/.test(readNamespacePrefix))
+  ) {
     throw new TypeError("readNamespacePrefix must be one namespace ending in /")
   }
   const writeTokenHash = read("writeTokenHash")
@@ -1148,9 +1151,10 @@ export const createHandler = (dependencies, {
   transferTimeoutMilliseconds = 60_000,
   healthTimeoutMilliseconds = 5_000
 } = {}) => {
-  const { actionCache, contentStore, health, maxArtifactBytes, readTokenHash, readNamespacePrefix, writeTokenHash } = normalizeDependencies(
-    dependencies
-  )
+  const { actionCache, contentStore, health, maxArtifactBytes, readTokenHash, readNamespacePrefix, writeTokenHash } =
+    normalizeDependencies(
+      dependencies
+    )
   const digestBytes = (hash) =>
     hash === null ? null : Uint8Array.from(hash.match(/.{2}/g), (pair) => Number.parseInt(pair, 16))
   const expectedReadTokenHash = digestBytes(readTokenHash)

@@ -83,7 +83,10 @@ export const readConfig = (env) => {
   const problems = []
 
   const readNamespacePrefix = env.SMITHERS_CACHE_READ_NAMESPACE_PREFIX ?? ""
-  if (typeof readNamespacePrefix !== "string" || (readNamespacePrefix !== "" && !/^[A-Za-z0-9_-]+\/$/.test(readNamespacePrefix))) {
+  if (
+    typeof readNamespacePrefix !== "string" ||
+    (readNamespacePrefix !== "" && !/^[A-Za-z0-9_-]+\/$/.test(readNamespacePrefix))
+  ) {
     problems.push("SMITHERS_CACHE_READ_NAMESPACE_PREFIX must be one namespace ending in /")
   }
 

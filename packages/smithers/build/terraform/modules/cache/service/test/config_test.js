@@ -20,7 +20,9 @@ const valid = {
 
 describe("readConfig", () => {
   test("passes a validated read namespace prefix to the server", () => {
-    expect(readConfig({ ...valid, SMITHERS_CACHE_READ_NAMESPACE_PREFIX: "pr-1/" }).config.readNamespacePrefix).toBe("pr-1/")
+    expect(readConfig({ ...valid, SMITHERS_CACHE_READ_NAMESPACE_PREFIX: "pr-1/" }).config.readNamespacePrefix).toBe(
+      "pr-1/"
+    )
     for (const prefix of ["pr-1", "../main/", "pr-1/main/"]) {
       expect(readConfig({ ...valid, SMITHERS_CACHE_READ_NAMESPACE_PREFIX: prefix }).ok).toBe(false)
     }

@@ -582,7 +582,19 @@ test("a namespace-scoped read token gets 403 outside its action-cache keys on bo
   }
   for (const create of [serviceCreateHandler, workerCreateHandler]) {
     const { responses } = await runVector(create, vector)
-    expect(responses.map((response) => response.status)).toEqual([201, 201, 201, 201, 200, 403, 403, 403, 403, 403, 403])
+    expect(responses.map((response) => response.status)).toEqual([
+      201,
+      201,
+      201,
+      201,
+      200,
+      403,
+      403,
+      403,
+      403,
+      403,
+      403
+    ])
   }
 })
 
