@@ -17,8 +17,10 @@ UPDATE users SET prohibit_login = true, updated_at = now()
 WHERE id = $1::bigint AND NOT prohibit_login
 `
 
-// Blocks sign-in and revokes sessions while the erase tears down owned
-// resources; the account stays active so repository services still resolve it.
+// Blocks sign-in and every authenticated request (middleware checks
+// prohibit_login) while the erase tears down owned resources; the account
+// stays active so repository services still resolve it. The final sweep
+// deletes its sessions.
 func (q *Queries) AdminBlockUserLoginForErasure(ctx context.Context, userID int64) (int64, error) {
 	result, err := q.db.Exec(ctx, adminBlockUserLoginForErasure, userID)
 	if err != nil {
@@ -86,15 +88,35 @@ func (q *Queries) AdminDeleteUserNotificationFacts(ctx context.Context, userID i
 	return result.RowsAffected(), nil
 }
 
+const adminDeleteUserWaitlistEntries = `-- name: AdminDeleteUserWaitlistEntries :execrows
+DELETE FROM alpha_waitlist_entries WHERE lower_email = $1::text
+`
+
+func (q *Queries) AdminDeleteUserWaitlistEntries(ctx context.Context, lowerEmail string) (int64, error) {
+	result, err := q.db.Exec(ctx, adminDeleteUserWaitlistEntries, lowerEmail)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const adminFindErasedUser = `-- name: AdminFindErasedUser :one
 SELECT id, username, lower_username, email, lower_email, display_name, bio, search_vector, avatar_url, wallet_address, user_type, is_active, is_admin, prohibit_login, email_notifications_enabled, last_login_at, deleted_at, created_at, updated_at, is_synthetic FROM users
 WHERE lower_username LIKE $1::text || '%'
 AND deleted_at IS NOT NULL AND NOT is_active
-ORDER BY id LIMIT 1
+AND created_at < $2::timestamptz
+ORDER BY id DESC LIMIT 1
 `
 
-func (q *Queries) AdminFindErasedUser(ctx context.Context, tombstonePrefix string) (User, error) {
-	row := q.db.QueryRow(ctx, adminFindErasedUser, tombstonePrefix)
+type AdminFindErasedUserParams struct {
+	TombstonePrefix string    `json:"tombstone_prefix"`
+	CreatedBefore   time.Time `json:"created_before"`
+}
+
+// The newest tombstone for a username whose account existed before the
+// deletion request, so a retry never resolves to a later holder of the name.
+func (q *Queries) AdminFindErasedUser(ctx context.Context, arg AdminFindErasedUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, adminFindErasedUser, arg.TombstonePrefix, arg.CreatedBefore)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -206,6 +228,39 @@ func (q *Queries) AdminListAgentSessions(ctx context.Context, arg AdminListAgent
 			&i.Username,
 			&i.Repository,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const adminListErasureSnapshots = `-- name: AdminListErasureSnapshots :many
+SELECT s.id, s.repository_id, s.user_id FROM workspace_snapshots s
+WHERE s.user_id = $1::bigint OR s.repository_id IN (SELECT r.id FROM repositories r WHERE r.user_id = $1::bigint)
+ORDER BY s.created_at, s.id
+`
+
+type AdminListErasureSnapshotsRow struct {
+	ID           string `json:"id"`
+	RepositoryID int64  `json:"repository_id"`
+	UserID       int64  `json:"user_id"`
+}
+
+// Stored snapshots owned by the user or kept inside the user's repositories.
+func (q *Queries) AdminListErasureSnapshots(ctx context.Context, userID int64) ([]AdminListErasureSnapshotsRow, error) {
+	rows, err := q.db.Query(ctx, adminListErasureSnapshots, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AdminListErasureSnapshotsRow{}
+	for rows.Next() {
+		var i AdminListErasureSnapshotsRow
+		if err := rows.Scan(&i.ID, &i.RepositoryID, &i.UserID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -487,6 +542,26 @@ func (q *Queries) AdminScrubUserAuditActor(ctx context.Context, arg AdminScrubUs
 	return result.RowsAffected(), nil
 }
 
+const adminScrubUserAuditDetail = `-- name: AdminScrubUserAuditDetail :execrows
+UPDATE audit_log SET
+  metadata = '{}'::jsonb,
+  ip_address = CASE WHEN actor_id = $1::bigint THEN '' ELSE ip_address END
+WHERE (actor_id = $1::bigint OR (target_type = 'user' AND target_id = $1::bigint))
+AND event_type NOT LIKE 'admin.user.erase%'
+AND (metadata <> '{}'::jsonb OR (actor_id = $1::bigint AND ip_address <> ''))
+`
+
+// Retained audit rows keep their ids, event types and timestamps; the
+// metadata (usernames, emails) and the user's own address go. Erase receipts
+// carry only the operator and request date and are kept whole.
+func (q *Queries) AdminScrubUserAuditDetail(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, adminScrubUserAuditDetail, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const adminScrubUserAuditTarget = `-- name: AdminScrubUserAuditTarget :execrows
 UPDATE audit_log SET target_name = $1::text
 WHERE target_type = 'user' AND target_id = $2::bigint AND target_name <> $1::text
@@ -499,6 +574,40 @@ type AdminScrubUserAuditTargetParams struct {
 
 func (q *Queries) AdminScrubUserAuditTarget(ctx context.Context, arg AdminScrubUserAuditTargetParams) (int64, error) {
 	result, err := q.db.Exec(ctx, adminScrubUserAuditTarget, arg.Tombstone, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminScrubUserBillingIdentity = `-- name: AdminScrubUserBillingIdentity :execrows
+UPDATE billing_accounts SET stripe_customer_email = '', stripe_customer_name = '', updated_at = now()
+WHERE owner_type = 'user' AND owner_id = $1::bigint
+AND (stripe_customer_email <> '' OR stripe_customer_name <> '')
+`
+
+// Billing accounts stay for tax and invoices; the Stripe customer id is the
+// key, the cached name and email are identity.
+func (q *Queries) AdminScrubUserBillingIdentity(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, adminScrubUserBillingIdentity, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminScrubUserPushEvents = `-- name: AdminScrubUserPushEvents :execrows
+UPDATE repo_push_events SET pusher_login = $1::text, updated_at = now()
+WHERE pusher_id = $2::bigint AND pusher_login <> $1::text
+`
+
+type AdminScrubUserPushEventsParams struct {
+	Tombstone string `json:"tombstone"`
+	UserID    int64  `json:"user_id"`
+}
+
+func (q *Queries) AdminScrubUserPushEvents(ctx context.Context, arg AdminScrubUserPushEventsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, adminScrubUserPushEvents, arg.Tombstone, arg.UserID)
 	if err != nil {
 		return 0, err
 	}

@@ -31,6 +31,7 @@ type AccountErasure struct {
 		DeleteRepo(ctx context.Context, actor *db.User, owner, repo string) error
 	}
 	Workspaces interface {
+		DeleteWorkspaceSnapshot(ctx context.Context, snapshotID string, repositoryID, userID int64) error
 		DeleteWorkspace(ctx context.Context, workspaceID string, repositoryID, userID int64) error
 	}
 }
@@ -58,9 +59,17 @@ type EraseUserResult struct {
 	Workspaces    int    `json:"workspaces"`
 }
 
-// accountErasureRetained lists user-owned tables an erase keeps: sandbox
-// usage intervals are metering evidence behind invoices.
-var accountErasureRetained = map[string]bool{"sandbox_usage_intervals": true}
+// accountErasureRetained lists tables an erase keeps although their user
+// foreign key cascades: sandbox usage intervals are metering evidence behind
+// invoices, and releases, their assets and job approvals belong to the
+// repository they were made in. Rows in the user's own repositories already
+// went with those repositories.
+var accountErasureRetained = map[string]bool{
+	"sandbox_usage_intervals":  true,
+	"releases":                 true,
+	"release_assets":           true,
+	"repository_job_approvals": true,
+}
 
 const erasedUserPrefix = "erased-"
 
@@ -79,7 +88,13 @@ func erasedUserPrefixFor(lowerUsername string) string {
 // ledger and tax rows are kept; comments and other contributions in
 // repositories the user does not own stay attributed to the tombstone.
 // Erasing an already-erased user changes nothing and succeeds. Every call
-// writes an admin.user.erase audit event.
+// writes an admin.user.erase audit event; an erase that destroys anything
+// first writes an admin.user.erase_started receipt.
+//
+// The request date also resolves the username: an account created after the
+// deletion request cannot be the requester, so a retry after the freed name
+// was re-registered resolves the original tombstone and never touches the new
+// account.
 func (s *AdminUserService) EraseUser(ctx context.Context, username string, req EraseUserRequest) (EraseUserResult, error) {
 	if s.erasure == nil {
 		return EraseUserResult{}, pkgerrors.Internal("account erasure not configured")
@@ -93,10 +108,16 @@ func (s *AdminUserService) EraseUser(ctx context.Context, username string, req E
 	}
 	q := db.New(s.erasure.Pool)
 
+	// Accounts created by the end of the request day could have asked.
+	createdBefore := req.RequestedAt.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	user, err := q.AdminGetUserForErasure(ctx, lower)
-	if stdErrors.Is(err, pgx.ErrNoRows) {
-		user, err = q.AdminFindErasedUser(ctx, erasedUserPrefixFor(lower))
+	live := err == nil
+	if err == nil && !user.CreatedAt.Before(createdBefore) || stdErrors.Is(err, pgx.ErrNoRows) {
+		user, err = q.AdminFindErasedUser(ctx, db.AdminFindErasedUserParams{TombstonePrefix: erasedUserPrefixFor(lower), CreatedBefore: createdBefore})
 		if stdErrors.Is(err, pgx.ErrNoRows) {
+			if live {
+				return EraseUserResult{}, pkgerrors.Conflict("user " + lower + " was created after the deletion request date")
+			}
 			return EraseUserResult{}, pkgerrors.NotFound("user not found")
 		}
 	}
@@ -105,18 +126,37 @@ func (s *AdminUserService) EraseUser(ctx context.Context, username string, req E
 	}
 	if isErasedUser(user) {
 		result := EraseUserResult{UserID: user.ID, Tombstone: user.Username, AlreadyErased: true}
-		if err := s.insertEraseAudit(ctx, q, result, req); err != nil {
+		if err := s.insertEraseAudit(ctx, q, "admin.user.erase", result, req); err != nil {
 			return EraseUserResult{}, err
 		}
 		return result, nil
 	}
 
 	result := EraseUserResult{UserID: user.ID, Tombstone: erasedUserPrefixFor(lower) + fmt.Sprint(user.ID)}
+	// The receipt lands before anything is destroyed, so a partial erase
+	// always has an audit record of who asked for it and when.
+	if err := s.insertEraseAudit(ctx, q, "admin.user.erase_started", result, req); err != nil {
+		return EraseUserResult{}, err
+	}
 	blocked, err := q.AdminBlockUserLoginForErasure(ctx, user.ID)
 	if err != nil {
 		return EraseUserResult{}, pkgerrors.Internal("failed to block sign-in").WithCause(err)
 	}
 	result.RowsChanged += blocked
+
+	// Snapshots go first, through the provider: the repository and
+	// workspace deletes below would otherwise drop the rows that hold the
+	// provider snapshot ids. A provider failure leaves the rows for the retry.
+	snapshots, err := q.AdminListErasureSnapshots(ctx, user.ID)
+	if err != nil {
+		return EraseUserResult{}, pkgerrors.Internal("failed to list workspace snapshots").WithCause(err)
+	}
+	for _, snapshot := range snapshots {
+		if err := s.erasure.Workspaces.DeleteWorkspaceSnapshot(ctx, snapshot.ID, snapshot.RepositoryID, snapshot.UserID); err != nil && !isNotFound(err) {
+			return EraseUserResult{}, err
+		}
+	}
+	result.RowsChanged += int64(len(snapshots))
 
 	workspaces, err := q.AdminListErasureWorkspaces(ctx, user.ID)
 	if err != nil {
@@ -143,45 +183,53 @@ func (s *AdminUserService) EraseUser(ctx context.Context, username string, req E
 	result.Repositories = len(repos)
 	result.RowsChanged += int64(len(workspaces) + len(repos))
 
-	changed, err := s.eraseUserRows(ctx, user.ID, result.Tombstone, repoIDs)
-	if err != nil {
-		return EraseUserResult{}, err
-	}
-	result.RowsChanged += changed
-	if err := s.insertEraseAudit(ctx, q, result, req); err != nil {
+	if err := s.eraseUserRows(ctx, user, &result, req, repoIDs); err != nil {
 		return EraseUserResult{}, err
 	}
 	return result, nil
 }
 
-// eraseUserRows tombstones the users row and deletes the remaining owned rows
-// in one transaction, after repository and workspace teardown.
-func (s *AdminUserService) eraseUserRows(ctx context.Context, userID int64, tombstone string, repoIDs []int64) (int64, error) {
+// eraseUserRows tombstones the users row, deletes the remaining owned rows
+// and writes the completion audit in one transaction, after repository and
+// workspace teardown.
+func (s *AdminUserService) eraseUserRows(ctx context.Context, user db.User, result *EraseUserResult, req EraseUserRequest, repoIDs []int64) error {
+	userID, tombstone := user.ID, result.Tombstone
 	tx, err := s.erasure.Pool.Begin(ctx)
 	if err != nil {
-		return 0, pkgerrors.Internal("failed to begin erase").WithCause(err)
+		return pkgerrors.Internal("failed to begin erase").WithCause(err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	q := db.New(tx)
 
 	live, err := q.AdminCountUserLiveResources(ctx, userID)
 	if err != nil {
-		return 0, pkgerrors.Internal("failed to count live resources").WithCause(err)
+		return pkgerrors.Internal("failed to count live resources").WithCause(err)
 	}
 	if live.Repositories > 0 || live.Workspaces > 0 {
-		return 0, pkgerrors.Conflict(fmt.Sprintf("user still owns %d repositories and %d workspaces; retry the erase", live.Repositories, live.Workspaces))
+		return pkgerrors.Conflict(fmt.Sprintf("user still owns %d repositories and %d workspaces; retry the erase", live.Repositories, live.Workspaces))
+	}
+
+	// The waitlist is keyed by email, which the tombstone clears.
+	var waitlist int64
+	if user.LowerEmail.Valid && user.LowerEmail.String != "" {
+		n, err := q.AdminDeleteUserWaitlistEntries(ctx, user.LowerEmail.String)
+		if err != nil {
+			return pkgerrors.Internal("failed to delete waitlist entries").WithCause(err)
+		}
+		waitlist = n
 	}
 
 	// Rename first: the owner-namespace trigger moves the namespace row to the
 	// tombstone, and the cascade sweep below then deletes it.
 	changed, err := q.AdminTombstoneUser(ctx, db.AdminTombstoneUserParams{UserID: userID, Tombstone: tombstone})
 	if err != nil {
-		return 0, pkgerrors.Internal("failed to tombstone user").WithCause(err)
+		return pkgerrors.Internal("failed to tombstone user").WithCause(err)
 	}
+	changed += waitlist
 
 	refs, err := q.AdminListUserCascadeReferences(ctx)
 	if err != nil {
-		return 0, pkgerrors.Internal("failed to list owned tables").WithCause(err)
+		return pkgerrors.Internal("failed to list owned tables").WithCause(err)
 	}
 	for _, ref := range refs {
 		if accountErasureRetained[ref.TableName] {
@@ -190,7 +238,7 @@ func (s *AdminUserService) eraseUserRows(ctx context.Context, userID int64, tomb
 		// Table names come from pg_constraint, never from the request.
 		tag, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s = $1`, ref.TableName, pgx.Identifier{ref.ColumnName}.Sanitize()), userID)
 		if err != nil {
-			return 0, pkgerrors.Internal("failed to delete " + ref.TableName).WithCause(err)
+			return pkgerrors.Internal("failed to delete " + ref.TableName).WithCause(err)
 		}
 		changed += tag.RowsAffected()
 	}
@@ -207,6 +255,11 @@ func (s *AdminUserService) eraseUserRows(ctx context.Context, userID int64, tomb
 		func() (int64, error) {
 			return q.AdminScrubUserAuditTarget(ctx, db.AdminScrubUserAuditTargetParams{UserID: userID, Tombstone: tombstone})
 		},
+		func() (int64, error) { return q.AdminScrubUserAuditDetail(ctx, userID) },
+		func() (int64, error) { return q.AdminScrubUserBillingIdentity(ctx, userID) },
+		func() (int64, error) {
+			return q.AdminScrubUserPushEvents(ctx, db.AdminScrubUserPushEventsParams{UserID: userID, Tombstone: tombstone})
+		},
 		func() (int64, error) {
 			return q.AdminScrubUserWikiRevisions(ctx, db.AdminScrubUserWikiRevisionsParams{UserID: userID, Tombstone: tombstone})
 		},
@@ -214,19 +267,23 @@ func (s *AdminUserService) eraseUserRows(ctx context.Context, userID int64, tomb
 	for _, step := range steps {
 		n, err := step()
 		if err != nil {
-			return 0, pkgerrors.Internal("failed to erase user data").WithCause(err)
+			return pkgerrors.Internal("failed to erase user data").WithCause(err)
 		}
 		changed += n
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return 0, pkgerrors.Internal("failed to commit erase").WithCause(err)
+	result.RowsChanged += changed
+	if err := s.insertEraseAudit(ctx, q, "admin.user.erase", *result, req); err != nil {
+		return err
 	}
-	return changed, nil
+	if err := tx.Commit(ctx); err != nil {
+		return pkgerrors.Internal("failed to commit erase").WithCause(err)
+	}
+	return nil
 }
 
 // insertEraseAudit writes the audit event synchronously: an erase without
 // its audit record is a failed erase.
-func (s *AdminUserService) insertEraseAudit(ctx context.Context, q *db.Queries, result EraseUserResult, req EraseUserRequest) error {
+func (s *AdminUserService) insertEraseAudit(ctx context.Context, q *db.Queries, eventType string, result EraseUserResult, req EraseUserRequest) error {
 	actor, _ := AdminAuditActorFromContext(ctx)
 	metadata, err := json.Marshal(map[string]any{
 		"operator":       actor.Username,
@@ -240,7 +297,7 @@ func (s *AdminUserService) insertEraseAudit(ctx context.Context, q *db.Queries, 
 		return pkgerrors.Internal("failed to encode erase audit").WithCause(err)
 	}
 	params := db.InsertAuditLogParams{
-		EventType:  "admin.user.erase",
+		EventType:  eventType,
 		ActorName:  actor.Username,
 		TargetType: "user",
 		TargetID:   pgtype.Int8{Int64: result.UserID, Valid: true},
