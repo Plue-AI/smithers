@@ -1195,6 +1195,42 @@ describe("MicrosandboxSandbox", () => {
       expect(fake.recorded.modifies).toHaveLength(1)
     }))
 
+  it.effect("reattaches a sticky machine only under the limits it was created with", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const workdir = join(root, "limits-reattach-ws")
+      const sticky = (
+        limits?: { readonly cpus?: number; readonly memoryMib?: number; readonly timeoutSecs?: number }
+      ) =>
+        MicrosandboxSandbox.make({
+          sdk: fake.sdk,
+          workdir,
+          persistence: "sticky",
+          ...limits === undefined ? {} : { limits }
+        })
+      const refusedUnder = (key: string, limits: Parameters<typeof sticky>[0]) =>
+        Effect.map(Effect.exit(inSession(sticky(limits), key, () => Effect.void)), (exit) => {
+          expect(Exit.isFailure(exit)).toBe(true)
+          expect(String(Exit.isFailure(exit) ? exit.cause : "")).toContain("was created with other limits")
+        })
+
+      // Created with larger ceilings, then asked for smaller ones.
+      yield* inSession(sticky({ cpus: 8, memoryMib: 8192 }), "wide", () => Effect.void)
+      yield* refusedUnder("wide", { cpus: 1, memoryMib: 256, timeoutSecs: 60 })
+      // Created with no ceilings at all.
+      yield* inSession(sticky(), "open", () => Effect.void)
+      yield* refusedUnder("open", { timeoutSecs: 60 })
+      expect(fake.recorded.modifies).toEqual([])
+
+      // The same ceilings reattach, and asking for none accepts any.
+      yield* inSession(sticky({ cpus: 8, memoryMib: 8192 }), "wide", (session) => session.ping!)
+      yield* inSession(sticky(), "wide", () => Effect.void)
+      expect(fake.recorded.modifies).toHaveLength(2)
+      expect(fake.recorded.builds[0]?.settings["labels"]).toMatchObject({
+        "smithers.limits": JSON.stringify({ cpus: 8, memoryMib: 8192 })
+      })
+    }))
+
   it.effect("labels every machine with a default owner and a holder minted per provider", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()

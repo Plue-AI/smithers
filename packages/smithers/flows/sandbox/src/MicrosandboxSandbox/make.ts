@@ -120,7 +120,9 @@ export interface MicrosandboxSandboxOptions {
   /**
    * The neutral ceilings: `cpus`, `memoryMib`, and `timeoutSecs` set the
    * same-named `cpus`, `memoryMib`, and `maxDurationSecs`, each exclusive
-   * with it. A reattached microVM keeps the ceilings it booted with.
+   * with it. They are recorded as the `smithers.limits` label, and a sticky
+   * microVM is reattached under `limits` only when it booted with the same
+   * ones; any other, or one booted without, is refused.
    */
   readonly limits?: ResourceLimits | undefined
   /** Idle reclamation window in seconds. */
@@ -230,6 +232,15 @@ const retrying = <A>(effect: Effect.Effect<A, ProviderError>): Effect.Effect<A, 
  */
 const networkLabel = "smithers.network"
 
+/**
+ * The label recording a machine's neutral ceilings, so a reattach under
+ * `limits` can refuse a machine booted with others or with none.
+ */
+const limitsLabel = "smithers.limits"
+
+const limitsValue = (limits: ResourceLimits): string =>
+  JSON.stringify({ cpus: limits.cpus, memoryMib: limits.memoryMib, timeoutSecs: limits.timeoutSecs })
+
 /** The builder network a machine boots with: none, a vendor policy, or the vendor's default. */
 type GuestNetwork = "none" | NetworkPolicy | undefined
 
@@ -337,13 +348,14 @@ const openMachine = (
       } catch (cause) {
         if (!isAlreadyExists(cause)) throw cause
         const handle = await options.sdk.Sandbox.get(name)
+        const recorded = Object(Reflect.get(Object(JSON.parse(handle.configJson)), "labels"))
         // A reattached machine keeps the network it booted with.
-        if (
-          ownership[networkLabel] !== undefined &&
-          Reflect.get(Object(Reflect.get(Object(JSON.parse(handle.configJson)), "labels")), networkLabel) !==
-            ownership[networkLabel]
-        ) {
+        if (ownership[networkLabel] !== undefined && Reflect.get(recorded, networkLabel) !== ownership[networkLabel]) {
           throw new Error(`${name} was created with another network; remove it or acquire another session`)
+        }
+        // And the ceilings it booted with, which a restart does not change.
+        if (ownership[limitsLabel] !== undefined && Reflect.get(recorded, limitsLabel) !== ownership[limitsLabel]) {
+          throw new Error(`${name} was created with other limits; remove it or acquire another session`)
         }
         // The machine now belongs to this holder. Microsandbox cannot relabel
         // a running machine live, but a next-start modification is recorded
@@ -515,11 +527,13 @@ const requireLocalBackend = (sdk: Sdk): Effect.Effect<void, ProviderError> =>
 export const make = (input: MicrosandboxSandboxOptions): Provider => {
   const options = withLimits(input)
   const network = guestNetwork(options)
+  const recordedLimits = limitsValue(input.limits ?? {})
   const ownership: Record<string, string> = {
     [providerLabel]: providerName,
     [ownerLabel]: options.owner ?? defaultOwner,
     [holderLabel]: options.holder ?? globalThis.crypto.randomUUID(),
-    ...network === undefined ? {} : { [networkLabel]: network === "none" ? "none" : JSON.stringify(network) }
+    ...network === undefined ? {} : { [networkLabel]: network === "none" ? "none" : JSON.stringify(network) },
+    ...recordedLimits === "{}" ? {} : { [limitsLabel]: recordedLimits }
   }
   const local = options.backend !== "any"
   return {
