@@ -315,7 +315,7 @@ func (s *WikiService) importSyncDocument(ctx context.Context, actor *db.User, ow
 		revision = previous.Revision
 	}
 	var page WikiPageResponse
-	if strings.HasSuffix(d.Path, ".md") {
+	if isWikiMarkdownPath(d.Path) {
 		if previous == nil {
 			page, err = s.CreateWikiPage(ctx, actor, owner, repo, CreateWikiPageInput{Slug: slug, Title: path.Base(d.Path), Path: d.Path, Body: string(data)})
 		} else {

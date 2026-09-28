@@ -48,7 +48,7 @@ func wikiAttachment(data []byte) *WikiAttachment {
 	return &value
 }
 func normalizeWikiAttachmentPath(value string) (string, error) {
-	if value == "" || len(value) > 1024 || !utf8.ValidString(value) || strings.ContainsAny(value, "\\\x00\r\n") || strings.HasPrefix(value, "/") || path.Clean(value) != value || strings.HasSuffix(strings.ToLower(value), ".md") {
+	if value == "" || len(value) > 1024 || !utf8.ValidString(value) || strings.ContainsAny(value, "\\\x00\r\n") || strings.HasPrefix(value, "/") || path.Clean(value) != value || isWikiMarkdownPath(value) {
 		return "", pkgerrors.BadRequest("attachment path must be a relative non-Markdown filename")
 	}
 	for _, part := range strings.Split(value, "/") {

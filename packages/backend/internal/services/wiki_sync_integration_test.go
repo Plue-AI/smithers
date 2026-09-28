@@ -11,6 +11,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWikiSyncObsidianMarkdownExtensionCase(t *testing.T) {
+	for _, name := range []string{"Guide.md", "Guide.MD", "Guide.mD", "asset.bin"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := newProductTestPool(t)
+			actor, repo := issueCovSeedUserRepo(t, pool)
+			q := db.New(pool)
+			svc := newTestWikiService(q, nil, WithWikiCollaboration(q, nil))
+			folder := t.TempDir()
+			adapter, err := NewObsidianSync(folder)
+			require.NoError(t, err)
+			defer adapter.Close()
+			body := []byte("# Guide\n")
+			require.NoError(t, os.WriteFile(filepath.Join(folder, name), body, 0600))
+			require.NoError(t, svc.SyncWiki(ctx, &actor, actor.Username, repo, "case", adapter))
+			index, err := svc.GetWikiIndex(ctx, &actor, actor.Username, repo)
+			require.NoError(t, err)
+			require.Len(t, index.Pages, 1)
+			require.Equal(t, name, index.Pages[0].Path)
+			page, err := svc.GetWikiPage(ctx, &actor, actor.Username, repo, index.Pages[0].Slug)
+			require.NoError(t, err)
+			if name == "asset.bin" {
+				require.NotNil(t, page.Attachment)
+			} else {
+				require.Nil(t, page.Attachment)
+				require.Equal(t, string(body), page.Body)
+			}
+		})
+	}
+}
+
 func TestWikiSyncObsidianRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	pool := newProductTestPool(t)

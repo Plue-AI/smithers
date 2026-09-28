@@ -87,7 +87,7 @@ func (a *ObsidianSync) document(name string) (SyncDocument, error) {
 		return SyncDocument{}, fmt.Errorf("sync requires an unshared regular file: %s", name)
 	}
 	limit := int64(maxWikiAttachmentBytes)
-	if strings.HasSuffix(name, ".md") {
+	if isWikiMarkdownPath(name) {
 		limit = maxWikiBodyBytes
 	}
 	data, err := io.ReadAll(io.LimitReader(file, limit+1))
@@ -97,7 +97,7 @@ func (a *ObsidianSync) document(name string) (SyncDocument, error) {
 	if int64(len(data)) > limit {
 		return SyncDocument{}, fmt.Errorf("sync file exceeds content limit: %s", name)
 	}
-	if strings.HasSuffix(name, ".md") {
+	if isWikiMarkdownPath(name) {
 		if err = validWikiBody(string(data)); err != nil {
 			return SyncDocument{}, err
 		}

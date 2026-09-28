@@ -29,11 +29,15 @@ func wikiVisibility(ctx context.Context) string {
 	return "public"
 }
 
+func isWikiMarkdownPath(value string) bool {
+	return strings.HasSuffix(strings.ToLower(value), ".md")
+}
+
 func normalizeWikiPath(value, slug string) (string, error) {
 	if value == "" {
 		value = slug + ".md"
 	}
-	if len(value) > 1024 || !utf8.ValidString(value) || strings.ContainsAny(value, "\\\x00\r\n") || strings.HasPrefix(value, "/") || path.Clean(value) != value || !strings.HasSuffix(strings.ToLower(value), ".md") {
+	if len(value) > 1024 || !utf8.ValidString(value) || strings.ContainsAny(value, "\\\x00\r\n") || strings.HasPrefix(value, "/") || path.Clean(value) != value || !isWikiMarkdownPath(value) {
 		return "", pkgerrors.BadRequest("path must be a relative Markdown filename")
 	}
 	for _, part := range strings.Split(value, "/") {
