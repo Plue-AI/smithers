@@ -162,6 +162,7 @@ only.
 | `smithers/agent/std` | `streams a file larger than available memory (skipped: a hermetic test cannot exhaust its runner)` | `it.skip` |
 | `testing` | `registers a skipped layered Effect body` | `test.skip` |
 | `smithers` | `reads and reconciles PostgreSQL history without SQLite files` | `it.skipIf(SMITHERS_TEST_PG_URL absent)` |
+| `smithers` | `runs a prompt on the Codex subscription with no provider keys` | `it.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1")` |
 
 **PostgreSQL storage.** The `smithers` history case runs against a real
 database named by `SMITHERS_TEST_PG_URL`. No target supplies one, so it skips
@@ -250,6 +251,20 @@ scaffold's contents against a scripted seat. What breaks if it regresses:
 `smthrs init` writes a project `smthrs up` cannot run, and only a funded run
 notices. Run it with `codex login`, then
 `SMITHERS_OPENAI_AUTH=chatgpt pnpm --filter @smthrs/cli test`. Closing it for
+the default gate means paying for a model seat in CI, which the RC does not do.
+
+**`smithers`: the subscription host.** `SubscriptionHost.test.ts` starts the
+real native host with an allowlisted environment that carries no provider API
+keys, runs a one-prompt flow on the Codex subscription transport
+(`SMITHERS_OPENAI_AUTH=chatgpt`), and asserts the run completed in both
+databases, the requested model, the reply, and the completion judge's
+decision. Only a real subscription call proves a user with no API key can run
+a flow end to end. It spends subscription quota and minutes, so it requires
+`SMITHERS_LIVE_MODEL_TESTS=1`, the same intent flag the Gemini contract uses,
+plus a signed-in `CODEX_HOME`. What breaks if it regresses: the keyless
+subscription path stops completing runs and only a funded run notices. Run it
+with `codex login`, then
+`SMITHERS_LIVE_MODEL_TESTS=1 pnpm --filter @smthrs/cli test`. Closing it for
 the default gate means paying for a model seat in CI, which the RC does not do.
 
 **`build-cli`: the real codex session.** `AgentSession.test.ts` gates one case
