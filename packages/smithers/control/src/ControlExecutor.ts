@@ -7,8 +7,9 @@
  */
 
 import * as Sha256 from "@smthrs/crypto/Sha256"
+import * as DurableDeferred from "@smthrs/flow/DurableDeferred"
 import type { ExecutionFact } from "@smthrs/journal"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Option, Schema } from "effect"
 import type { LaunchFailed, PersistenceError } from "./ControlError.ts"
 import type { StoredPlan } from "./ControlRuntime.ts"
 import type { ApprovalTarget, PendingWait, RunId, RunSummary, SignalPayload } from "./ControlSchema.ts"
@@ -196,15 +197,14 @@ export const humanWaitReason = "approval"
  * A token this plane cannot parse names nothing extra; the token itself still
  * travels, so the wait stays answerable.
  */
+/** The engine's own decoder: tokens are UTF-8 JSON in base64url, which `atob` misreads. */
+const decodeToken = Schema.decodeUnknownOption(DurableDeferred.TokenParsed.FromString)
+
 const waitPointOf = (token: string): { readonly name?: string; readonly attempt?: number } => {
-  let decoded: unknown
-  try {
-    decoded = JSON.parse(globalThis.atob(token))
-  } catch {
-    return {}
-  }
-  const deferredName = Array.isArray(decoded) && typeof decoded[2] === "string" ? decoded[2] : undefined
-  if (deferredName === undefined || !deferredName.startsWith("WaitFor/")) return {}
+  const decoded = decodeToken(token)
+  if (Option.isNone(decoded)) return {}
+  const deferredName = decoded.value.deferredName
+  if (!deferredName.startsWith("WaitFor/")) return {}
   const point = deferredName.slice("WaitFor/".length)
   const marker = point.lastIndexOf("#")
   if (marker < 0) return { name: point }

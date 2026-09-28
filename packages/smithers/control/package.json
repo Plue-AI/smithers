@@ -398,7 +398,8 @@
     "@smthrs/notifications": "1.0.0-rc.1",
     "@smthrs/plan": "1.0.0-rc.1",
     "@smthrs/registry": "1.0.0-rc.1",
-    "@smthrs/run-store": "1.0.0-rc.1"
+    "@smthrs/run-store": "1.0.0-rc.1",
+    "@smthrs/flow": "1.0.0-rc.1"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -406,7 +407,6 @@
     "@eslint/js": "9.39.5",
     "@smthrs/core": "1.0.0-rc.1",
     "@smthrs/engine-store": "1.0.0-rc.1",
-    "@smthrs/flow": "1.0.0-rc.1",
     "@smthrs/jj": "1.0.0-rc.1",
     "@smthrs/plan-store": "1.0.0-rc.1",
     "@smthrs/step-cache": "1.0.0-rc.1",
