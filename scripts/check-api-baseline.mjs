@@ -4,9 +4,9 @@ import { createHash } from "node:crypto"
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join } from "node:path"
 import { copyInputDeclarations } from "../packages/repo-targets/scripts/build-library.mjs"
-import { libraryPackages, repoRoot } from "./workspace-packages.mjs"
+import { isMain, libraryPackages, repoRoot } from "./workspace-packages.mjs"
 
 const declarations = (directory, prefix = "") => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
   const name = `${prefix}${entry.name}`
@@ -37,7 +37,8 @@ export const assertApiBaseline = (expected, actual) => {
     JSON.stringify(expected[name]) !== JSON.stringify(actual[name]))
   if (changed.length > 0) throw new Error(
     `Declaration/API drift requires compatibility review:\n${changed.map((name) => `  ${name}`).join("\n")}\n` +
-    "Review declaration diffs, consumer type tests and release notes before explicitly updating the baseline."
+    "Review declaration diffs, consumer type tests and release notes before explicitly updating the baseline.\n" +
+    "Record reviewed declarations with: node scripts/check-api-baseline.mjs --build-declarations --update"
   )
 }
 
@@ -53,7 +54,11 @@ export const withDeclarationBuild = async (root, check) => {
       const compiler = join(dirname(require.resolve("typescript/package.json")), "bin/tsc")
       // Packages may pin different TypeScript versions; use the release
       // compiler and its own configuration.
-      const result = spawnSync(process.execPath, [compiler, "-p", "tsconfig.json", "--outDir", directory], {
+      const result = spawnSync(process.execPath, [
+        compiler, "-p", "tsconfig.json", "--outDir", directory,
+        "--noEmit", "false", "--declaration", "--emitDeclarationOnly", "--declarationMap", "false",
+        "--incremental", "false", "--composite", "false"
+      ], {
         cwd: packageRoot,
         encoding: "utf8"
       })
@@ -70,15 +75,16 @@ ${result.stdout ?? ""}`)
   }
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(import.meta.filename)) {
-  const option = process.argv[2]
-  if (process.argv.length > 3 || ![undefined, "--update", "--build-declarations"].includes(option)) {
-    throw new Error("usage: node scripts/check-api-baseline.mjs [--update|--build-declarations]")
+if (isMain(import.meta)) {
+  const options = process.argv.slice(2)
+  if (options.some((option) => !["--update", "--build-declarations"].includes(option)) ||
+    new Set(options).size !== options.length) {
+    throw new Error("usage: node scripts/check-api-baseline.mjs [--build-declarations] [--update]")
   }
   const check = (declarationRoot = repoRoot) => {
     const path = join(repoRoot, "scripts/fixtures/public-api-baseline.json")
     const surface = apiSurface(repoRoot, declarationRoot)
-    if (option === "--update") {
+    if (options.includes("--update")) {
       writeFileSync(path, `${JSON.stringify({ format: 1, packages: surface }, null, 2)}\n`)
       console.log(`Recorded declarations for ${Object.keys(surface).length} public packages`)
     } else {
@@ -88,6 +94,6 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(import
       console.log(`Declaration baseline matches ${Object.keys(surface).length} public packages`)
     }
   }
-  if (option === "--build-declarations") await withDeclarationBuild(repoRoot, check)
+  if (options.includes("--build-declarations")) await withDeclarationBuild(repoRoot, check)
   else check()
 }

@@ -103,7 +103,9 @@ describe("deterministic plugin properties", () => {
 })
 
 /** A service the plugin runner never provides. */
-class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()("test/PluginProperties/Unprovided") {}
+class Unprovided
+  extends Context.Service<Unprovided, { readonly value: string }>()("test/PluginProperties/Unprovided")
+{}
 
 /** Never called; tsc checks it (#2347). */
 const unprovidedServiceProbe = () => {

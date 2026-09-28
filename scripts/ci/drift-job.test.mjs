@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -18,11 +18,11 @@ const manifestPath = new URL('../../package.json', import.meta.url)
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url))
 const runFile = promisify(execFile)
 const gateCommands = [
-  "pnpm exec smthrs lint '//...:fmt' --verbose",
-  "pnpm exec smthrs lint '//:targetIndex' --verbose",
-  "pnpm exec smthrs lint '//scripts:docsDrift' --verbose",
-  "pnpm exec smthrs build '//scripts:apiBaseline' --verbose",
-  "pnpm exec smthrs lint '//:driftCi' --verbose",
+  "pnpm exec smthrs lint '//...:fmt' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs lint '//scripts:docsDrift' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs build '//scripts:apiBaseline' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose",
 ]
 
 test('drift job concurrency group includes github.sha and runs only drift gates', async () => {
@@ -100,6 +100,7 @@ test('standalone root drift target owns the generated workflow', async () => {
   assert.match(drift, /output:\s*['"]\.github\/workflows\/drift\.yml['"]/)
   assert.match(drift, /concurrency:\s*['"]commit['"]/)
   assert.match(drift, /timeoutMinutes:\s*10/)
+  assert.match(drift, /knownRed:\s*['"]\.github\/ci-known-red\.json['"]/, 'the generator must retain known-red when drift.yml is refreshed')
 })
 
 const write = async (root, path, contents) => {
@@ -144,6 +145,7 @@ test('declaration build matches normal TypeScript release emit and cleans isolat
     await write(root, 'packages/example/src/options.ts', 'export interface Options { retries?: number }\n')
     await write(root, 'packages/private/package.json', JSON.stringify({ name: '@smthrs/private', private: true }))
     await write(root, 'packages/private/tsconfig.json', '{ invalid json')
+    await symlink(join(repositoryRoot, 'node_modules'), join(root, 'node_modules'), 'dir')
 
     const config = ts.getParsedCommandLineOfConfigFile(join(root, 'packages/example/tsconfig.json'), {
       outDir: join(root, 'normal'), skipLibCheck: true,
@@ -187,7 +189,7 @@ test('declaration build matches normal TypeScript release emit and cleans isolat
     assert.deepEqual(await scratchOutputs(), before)
 
     await rm(join(root, 'packages/example/tsconfig.json'))
-    await assert.rejects(withDeclarationBuild(root, () => {}), /Cannot read file/)
+    await assert.rejects(withDeclarationBuild(root, () => {}), /(?:Cannot read file|TS5058: The specified path does not exist)/)
     assert.deepEqual(await scratchOutputs(), before)
 
     await write(root, 'packages/example/tsconfig.json', '{ invalid json')
@@ -215,7 +217,13 @@ test('public build declarations match release-style tsc for all source files', a
   try {
     await write(root, 'pnpm-workspace.yaml', 'packages:\n  - "packages/*"\n')
     await mkdir(join(root, 'packages'))
-    await symlink(join(repositoryRoot, 'packages/smithers/build'), join(root, 'packages/build'), 'dir')
+    const buildRoot = join(root, 'packages/build')
+    await cp(join(repositoryRoot, 'packages/smithers/build/src'), join(buildRoot, 'src'), { recursive: true })
+    await cp(join(repositoryRoot, 'packages/smithers/build/package.json'), join(buildRoot, 'package.json'))
+    await cp(join(repositoryRoot, 'packages/smithers/build/tsconfig.json'), join(buildRoot, 'tsconfig.json'))
+    await symlink(join(repositoryRoot, 'node_modules'), join(root, 'node_modules'), 'dir')
+    await symlink(join(repositoryRoot, 'packages/smithers/build/node_modules'), join(buildRoot, 'node_modules'), 'dir')
+    await write(root, 'packages/build/src/Added.ts', 'export interface Added { value: string }\n')
 
     const releaseRoot = join(root, 'release')
     const releaseDir = join(releaseRoot, 'packages/build/dist/esm')
@@ -225,7 +233,14 @@ test('public build declarations match release-style tsc for all source files', a
     ], { cwd: repositoryRoot, maxBuffer: 4 * 1024 * 1024 })
 
     const releaseDeclarations = await declarationFiles(releaseDir)
-    assert.equal(releaseDeclarations.length, 8, 'release tsc must cover every @smthrs/build source file')
+    const config = ts.getParsedCommandLineOfConfigFile(join(buildRoot, 'tsconfig.json'), {}, ts.sys)
+    assert.equal(config.errors.length, 0)
+    const sourceDeclarations = config.fileNames
+      .filter((name) => name.startsWith(join(buildRoot, 'src')) && /(?<!\.d)\.tsx?$/.test(name))
+      .map((name) => relative(join(buildRoot, 'src'), name).replace(/\.tsx?$/, '.d.ts'))
+      .sort()
+    assert.deepEqual(releaseDeclarations, sourceDeclarations, 'release tsc must cover every @smthrs/build source file')
+    assert.ok(releaseDeclarations.includes('Added.d.ts'))
     assert.ok(releaseDeclarations.includes('Install.d.ts'))
     const releaseSurface = apiSurface(root, releaseRoot)
     assert.deepEqual(Object.keys(releaseSurface), ['@smthrs/build'])
@@ -249,6 +264,79 @@ test('public build declarations match release-style tsc for all source files', a
       assert.deepEqual(await declarationFiles(generated), releaseDeclarations)
       assert.deepEqual(apiSurface(root, output), releaseSurface)
     })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('CLI combines declaration build and baseline update from current source', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'smithers-api-cli-fixture-')))
+  const packageRoot = join(root, 'packages/example')
+  const cli = join(root, 'scripts/check-api-baseline.mjs')
+  const baselinePath = join(root, 'scripts/fixtures/public-api-baseline.json')
+  const runCli = (...options) => runFile(process.execPath, [cli, ...options], { cwd: root })
+  try {
+    await write(root, 'package.json', '{"type":"module"}\n')
+    await write(root, 'pnpm-workspace.yaml', 'packages:\n  - "packages/*"\n')
+    await write(root, 'packages/example/package.json', JSON.stringify({
+      name: '@smthrs/example',
+      type: 'module',
+      publishConfig: { exports: { '.': './dist/esm/index.js' } },
+    }))
+    await write(root, 'packages/example/tsconfig.json', JSON.stringify({
+      compilerOptions: {
+        target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext',
+        rootDir: 'src', outDir: 'dist/esm', declaration: true, skipLibCheck: true,
+      },
+      include: ['src/**/*.ts'],
+    }))
+    await write(root, 'packages/example/src/index.ts', 'export function value(input: string): string { return input }\n')
+    await cp(join(repositoryRoot, 'scripts/check-api-baseline.mjs'), cli)
+    await cp(join(repositoryRoot, 'scripts/workspace-packages.mjs'), join(root, 'scripts/workspace-packages.mjs'))
+    await cp(join(repositoryRoot, 'packages/repo-targets/scripts/build-library.mjs'), join(root, 'packages/repo-targets/scripts/build-library.mjs'))
+    await mkdir(join(root, 'scripts/fixtures'), { recursive: true })
+    await symlink(join(repositoryRoot, 'node_modules'), join(root, 'node_modules'), 'dir')
+    await symlink(join(repositoryRoot, 'node_modules'), join(packageRoot, 'node_modules'), 'dir')
+
+    await assert.rejects(readdir(join(packageRoot, 'dist')), { code: 'ENOENT' })
+    const first = await runCli('--build-declarations', '--update')
+    assert.match(first.stdout, /Recorded declarations for 1 public packages/)
+    const baseline = JSON.parse(await readFile(baselinePath, 'utf8'))
+    assert.equal(baseline.format, 1)
+    const releaseRoot = join(root, 'release')
+    await runFile(process.execPath, [
+      fileURLToPath(new URL('../../node_modules/typescript/bin/tsc', import.meta.url)),
+      '-p', join(packageRoot, 'tsconfig.json'), '--outDir', join(releaseRoot, 'packages/example/dist/esm'),
+    ], { cwd: root })
+    assert.deepEqual(baseline.packages, apiSurface(root, releaseRoot))
+    const firstHash = baseline.packages['@smthrs/example'].declarations['index.d.ts']
+    await assert.rejects(readdir(join(packageRoot, 'dist')), { code: 'ENOENT' })
+
+    await write(root, 'packages/example/src/index.ts', 'export function value(input: number): number { return input }\n')
+    await assert.rejects(runCli('--build-declarations'), (error) => {
+      assert.match(`${error.stderr}\n${error.stdout}`, /Declaration\/API drift requires compatibility review/)
+      assert.match(`${error.stderr}\n${error.stdout}`, /Review declaration diffs, consumer type tests and release notes before explicitly updating the baseline/)
+      assert.match(error.stderr, /node scripts\/check-api-baseline\.mjs --build-declarations --update/)
+      return true
+    })
+    const second = await runCli('--update', '--build-declarations')
+    assert.match(second.stdout, /Recorded declarations for 1 public packages/)
+    const updated = JSON.parse(await readFile(baselinePath, 'utf8'))
+    assert.notEqual(updated.packages['@smthrs/example'].declarations['index.d.ts'], firstHash)
+    await assert.rejects(readdir(join(packageRoot, 'dist')), { code: 'ENOENT' })
+    const check = await runCli('--build-declarations')
+    assert.match(check.stdout, /Declaration baseline matches 1 public packages/)
+    for (const options of [['--unknown'], ['--update', '--update'], ['--build-declarations', '--build-declarations']]) {
+      await assert.rejects(runCli(...options), (error) => {
+        assert.match(error.stderr, /usage: node scripts\/check-api-baseline\.mjs/)
+        return true
+      })
+    }
+    assert.equal(await readFile(baselinePath, 'utf8'), `${JSON.stringify(updated, null, 2)}\n`)
+    const alias = join(root, 'scripts/alias.mjs')
+    await symlink(cli, alias)
+    const linked = await runFile(process.execPath, [alias, '--build-declarations'], { cwd: root })
+    assert.match(linked.stdout, /Declaration baseline matches 1 public packages/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

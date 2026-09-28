@@ -18037,6 +18037,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/src/internal/PendingApproval.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/src/internal/StepTrace.ts"
       },
       {

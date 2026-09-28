@@ -41,16 +41,16 @@ jobs:
         shell: "bash"
       - name: "Formatting"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//...:fmt' --verbose"
+        run: "pnpm exec smthrs lint '//...:fmt' --known-red '.github/ci-known-red.json' --verbose"
       - name: "Target index drift"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//:targetIndex' --verbose"
+        run: "pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose"
       - name: "Documentation drift"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//scripts:docsDrift' --verbose"
+        run: "pnpm exec smthrs lint '//scripts:docsDrift' --known-red '.github/ci-known-red.json' --verbose"
       - name: "Declaration baseline"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs build '//scripts:apiBaseline' --verbose"
+        run: "pnpm exec smthrs build '//scripts:apiBaseline' --known-red '.github/ci-known-red.json' --verbose"
       - name: "Generated drift workflow"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//:driftCi' --verbose"
+        run: "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose"

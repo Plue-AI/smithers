@@ -83,9 +83,9 @@ const incarnation = (options: {
     })
     const wiring = options.flows.map((flow) => Interpreter.layer(flow as never) as Registration)
       .reduce<Registration>((left, right) => Layer.merge(left, right), Layer.empty).pipe(
-      Layer.provideMerge(Action.layerImplementations),
-      Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
-    )
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
+      )
     return { engine, wiring }
   })
 

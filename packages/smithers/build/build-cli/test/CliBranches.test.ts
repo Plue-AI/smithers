@@ -278,7 +278,7 @@ describe("PACKAGE.ts branches", () => {
     expect.soft(executed.exitCode, "execution must refuse").toBe(1)
     expect.soft(executed.envelope.includes("//:hello"), "execution must name hello").toBe(true)
     expect.soft(executed.envelope.includes("does not support"), "execution must explain refusal").toBe(true)
-    expect.soft(executed.envelope.includes('"counts":'), "execution must not report run counts").toBe(false)
+    expect.soft(executed.envelope.includes("\"counts\":"), "execution must not report run counts").toBe(false)
     await expect(Fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
 
     const control = await serve(root, ["ci", "//:good", "--format", "json"], false)
