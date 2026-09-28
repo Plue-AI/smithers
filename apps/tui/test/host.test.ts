@@ -1111,43 +1111,48 @@ describe("Host.run seat routing", () => {
   })
 })
 
-test("Host.run stops a worker at its token budget with a budget failure", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-budget-"))
-  roots.push(cwd)
-  const file = join(cwd, "spend.jsonl")
-  const delta = (value: object) => JSON.stringify({ at: 0, event: { _tag: "model-delta", delta: value } })
-  // Every reply costs 600 tokens and never finishes, so only the ceiling stops it.
-  writeFileSync(
-    file,
-    [
-      JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
-      delta({ type: "text-start", id: "cell" }),
-      delta({ type: "text-delta", id: "cell", text: "```cell\nconst spent = 1\n```" }),
-      delta({ type: "text-end", id: "cell" }),
-      delta({ type: "usage", inputTokens: 500, outputTokens: 100, totalTokens: 600 }),
-      JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
-    ].join("\n")
-  )
-  const host = Host.make({ cwd, environment: {}, budget: { tokens: { max: 1000 } } })
-  const events: Array<AgentEvent.AgentEvent> = []
-  try {
-    const outcome = await host.run({
-      prompt: "spend",
-      role: "worker",
-      seat: `replay:${file}`,
-      history: [],
-      onEvent: (event) => events.push(event)
-    }).done
-    expect(events.filter((event) => event._tag === "cell-settled")).toHaveLength(1)
-    expect(outcome._tag).toBe("failed")
-    const failure = FailureCopy.describe(outcome._tag === "failed" ? outcome.error : undefined)
-    expect(failure).toEqual({
-      headline: "Token budget reached",
-      fault: "user",
-      line: "600 of 1000 tokens used.",
-      actions: ["resume", "details"]
-    })
-  } finally {
-    await host.dispose()
-  }
-})
+for (const role of ["coordinator", "worker"] as const) {
+  test(`Host.run stops a ${role} at its token budget with a budget failure`, async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-budget-"))
+    roots.push(cwd)
+    const file = join(cwd, "spend.jsonl")
+    const delta = (value: object) => JSON.stringify({ at: 0, event: { _tag: "model-delta", delta: value } })
+    // Every reply costs 600 tokens and never finishes, so only the ceiling stops it.
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
+        delta({ type: "text-start", id: "cell" }),
+        delta({ type: "text-delta", id: "cell", text: "```cell\nconst spent = 1\n```" }),
+        delta({ type: "text-end", id: "cell" }),
+        delta({ type: "usage", inputTokens: 500, outputTokens: 100, totalTokens: 600 }),
+        JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
+      ].join("\n")
+    )
+    const host = Host.make({ cwd, environment: {}, budget: { tokens: { max: 1000 } } })
+    const events: Array<AgentEvent.AgentEvent> = []
+    try {
+      const outcome = await host.run({
+        prompt: "spend",
+        role,
+        seat: `replay:${file}`,
+        history: [],
+        onEvent: (event) => events.push(event)
+      }).done
+      expect(events.filter((event) => event._tag === "cell-settled")).toHaveLength(1)
+      expect(outcome._tag).toBe("failed")
+      if (outcome._tag !== "failed") throw new Error(`Expected a failed ${role} turn`)
+      expect(outcome.message).toBe("Token budget reached")
+      expect(outcome.detail).toContain("600 of its 1000 approved tokens")
+      const failure = FailureCopy.describe(outcome.error)
+      expect(failure).toEqual({
+        headline: "Token budget reached",
+        fault: "user",
+        line: "600 of 1000 tokens used.",
+        actions: ["resume", "details"]
+      })
+    } finally {
+      await host.dispose()
+    }
+  })
+}

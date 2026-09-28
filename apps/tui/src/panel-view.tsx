@@ -18,6 +18,10 @@ export function FailureCard(
 ) {
   const failure = tab.failure
   if (failure === undefined) return null
+  const message = tab.message === failure.headline ? undefined : tab.message
+  const diagnostics = tab.detail?.includes(message ?? "") && tab.detail !== ""
+    ? tab.detail
+    : [message, tab.detail].filter((part) => part !== undefined && part !== "").join("\n")
   const fault = failure.fault === "wait"
     ? "not your fault · provider"
     : failure.fault === "infra"
@@ -35,12 +39,10 @@ export function FailureCard(
           </text>
         )
         : null}
-      {details ?
+      {details && diagnostics !== "" ?
         (
           <text fg={color.faint}>
-            {tab.detail?.includes(tab.message ?? "") && tab.detail !== ""
-              ? tab.detail
-              : [tab.message, tab.detail].filter((part) => part !== undefined && part !== "").join("\n")}
+            {diagnostics}
           </text>
         ) :
         null}

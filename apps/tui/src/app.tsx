@@ -12,6 +12,7 @@ import * as TabCommand from "./tab-command.ts"
  */
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core"
 import { flushSync, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
+import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Form from "@smthrs/ui/flow-form"
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
@@ -879,10 +880,20 @@ export function App(props: AppProps) {
     void handle.done.then((outcome) => {
       const at = Date.now()
       const said = [prompt, ...steered].join("\n\n")
-      writer.current.append({ type: "outcome", at, prompt: said, outcome })
+      let headline: string | undefined
+      if (outcome._tag === "failed") {
+        const failure = FailureCopy.describe(outcome.error)
+        headline = outcome.message === failure.headline ? `${outcome.message}\n${failure.line}` : outcome.message
+      }
+      writer.current.append({
+        type: "outcome",
+        at,
+        prompt: said,
+        outcome: headline === undefined ? outcome : { ...outcome, headline }
+      })
       estimator.settle(estimate, { ms: at - startedAt, ...(tokens === undefined ? {} : { tokens }) }, outcome._tag, at)
       if (outcome._tag === "done") entries.current.push({ kind: "exchange", user: said, answer: outcome.answer })
-      if (outcome._tag === "failed") setTranscript((current) => Transcript.failure(current, outcome.message, at))
+      if (headline !== undefined) setTranscript((current) => Transcript.failure(current, headline, at))
       if (outcome._tag === "cancelled") setTranscript((current) => Transcript.failure(current, "Stopped", at))
       live.current.turn = undefined
       setTurn(undefined)

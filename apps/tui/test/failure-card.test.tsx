@@ -52,6 +52,65 @@ describe("worker failure card", () => {
     expect(setup.captureCharFrame()).toContain("secret stack")
   })
 
+  it("shows a budget headline once while retaining the raw cause in details", async () => {
+    setup = await testRender(
+      <FailureCard
+        tab={{
+          ...tab,
+          message: "Token budget reached",
+          detail: "The run has spent 600 of its 1000 approved tokens.",
+          failure: {
+            headline: "Token budget reached",
+            fault: "user",
+            line: "600 of 1000 tokens used.",
+            actions: ["resume", "details"]
+          }
+        }}
+        transcript={Transcript.empty}
+        details
+      />,
+      { width: 100, height: 10 }
+    )
+    await setup.renderOnce()
+    const frame = setup.captureCharFrame()
+    expect(frame.match(/Token budget reached/g)).toHaveLength(1)
+    expect(frame).toContain("600 of its 1000 approved tokens")
+  })
+
+  it("does not add an empty details row when the headline is all that survived", async () => {
+    const restored = {
+      ...tab,
+      message: "Token budget reached",
+      detail: undefined,
+      failure: {
+        headline: "Token budget reached",
+        fault: "user" as const,
+        line: "The run spent its budget.",
+        actions: ["resume", "details"] as const
+      }
+    }
+    setup = await testRender(
+      <box>
+        <FailureCard tab={restored} transcript={Transcript.empty} details />
+        <text>after card</text>
+      </box>,
+      { width: 100, height: 8 }
+    )
+    await setup.renderOnce()
+    const withDetails = setup.captureCharFrame()
+    expect(withDetails.match(/Token budget reached/g)).toHaveLength(1)
+    setup.renderer.destroy()
+    setup = await testRender(
+      <box>
+        <FailureCard tab={restored} transcript={Transcript.empty} details={false} />
+        <text>after card</text>
+      </box>,
+      { width: 100, height: 8 }
+    )
+    await setup.renderOnce()
+    expect(withDetails).toBe(setup.captureCharFrame())
+  })
+
   it("counts completed steps and actual patch receipts", async () => {
     const transcript: Transcript.Transcript = {
       ...Transcript.empty,

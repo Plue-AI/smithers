@@ -35,6 +35,7 @@ import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Rooted from "@smthrs/kernel/Rooted"
 import * as Classifier from "@smthrs/model/Classifier"
 import * as Evaluator from "@smthrs/model/Evaluator"
+import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
@@ -603,11 +604,14 @@ const unobserved = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E
 const text = (content: ReadonlyArray<{ readonly type: string; readonly text?: string }>): string =>
   content.flatMap((part) => (part.type === "text" && part.text !== undefined ? [part.text] : [])).join("")
 
-/** The innermost message: "The cell frame failed" wraps the provider's own words. */
+/** Budget refusals use shared UI copy; other failures keep the innermost message. */
 const describe = (cause: Cause.Cause<unknown>): string => {
   let error: unknown = Cause.squash(cause)
   let message = Cause.pretty(cause)
   while (typeof error === "object" && error !== null) {
+    if (Schema.is(Budget.BudgetExceeded)(error) || Schema.is(Budget.Skipped)(error)) {
+      return FailureCopy.describe(error).headline
+    }
     if ("message" in error && typeof error.message === "string" && error.message !== "") message = error.message
     error = "cause" in error ? error.cause : undefined
   }

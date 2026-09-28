@@ -11,6 +11,7 @@ import * as Log from "./log.ts"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
+import * as FailureCopy from "@smthrs/model/FailureCopy"
 import { spawnSync } from "node:child_process"
 import { resolve } from "node:path"
 import * as Approvals from "./approvals.ts"
@@ -88,7 +89,12 @@ if (values.print !== undefined) {
     console.log(outcome.answer)
     process.exit(0)
   }
-  console.error(outcome._tag === "failed" ? outcome.message : "Stopped")
+  if (outcome._tag === "failed") {
+    const failure = FailureCopy.describe(outcome.error, seat)
+    console.error(outcome.message === failure.headline ? `${outcome.message}\n${failure.line}` : outcome.message)
+  } else {
+    console.error("Stopped")
+  }
   process.exit(1)
 }
 
