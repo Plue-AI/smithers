@@ -45,7 +45,11 @@ func (f *fakeGitMirrorSyncStore) CreateGithubMirrorSyncRun(_ context.Context, ar
 		return db.GithubMirrorSyncRun{}, f.createErr
 	}
 	f.createArgs = arg
-	f.run = db.GithubMirrorSyncRun{ID: 41, RepositoryID: arg.RepositoryID, RequestedBy: arg.RequestedBy, State: "queued"}
+	id := int64(41)
+	if f.run.ID != 0 {
+		id = f.run.ID + 1
+	}
+	f.run = db.GithubMirrorSyncRun{ID: id, RepositoryID: arg.RepositoryID, RequestedBy: arg.RequestedBy, State: "queued"}
 	return f.run, nil
 }
 
@@ -160,6 +164,9 @@ func TestGitMirrorSyncService_StartAndGetRunRecordsPerRefResults(t *testing.T) {
 	const newMain = "2222222222222222222222222222222222222222"
 	const tag = "3333333333333333333333333333333333333333"
 	const obsolete = "4444444444444444444444444444444444444444"
+	const githubOnly = "5555555555555555555555555555555555555555"
+	// An earlier run of this mirror wrote obsolete; GitHub created github-only.
+	store.refs["refs/heads/obsolete"] = db.GithubMirrorSyncRefResult{RunID: 40, Name: "refs/heads/obsolete", ToRevision: obsolete, Status: gitMirrorRefSucceeded}
 	remoteCalls := 0
 	svc.listRemoteRefs = func(_ context.Context, _ string) (map[string]string, error) {
 		remoteCalls++
@@ -167,14 +174,15 @@ func TestGitMirrorSyncService_StartAndGetRunRecordsPerRefResults(t *testing.T) {
 		case 1:
 			return map[string]string{"refs/heads/main": newMain, "refs/tags/v1": tag}, nil
 		case 2:
-			return map[string]string{"refs/heads/main": oldMain, "refs/tags/v1": tag, "refs/heads/obsolete": obsolete}, nil
+			return map[string]string{"refs/heads/main": oldMain, "refs/tags/v1": tag, "refs/heads/obsolete": obsolete, "refs/heads/github-only": githubOnly}, nil
 		default:
-			return map[string]string{"refs/heads/main": newMain, "refs/tags/v1": tag}, nil
+			return map[string]string{"refs/heads/main": newMain, "refs/tags/v1": tag, "refs/heads/github-only": githubOnly}, nil
 		}
 	}
-	var syncArgs []string
-	svc.runGitSync = func(_ context.Context, args ...string) error {
-		syncArgs = append([]string(nil), args...)
+	var sourceURL, targetURL string
+	var pushed []gitMirrorRefChange
+	svc.runGitSync = func(_ context.Context, source, target string, changes []gitMirrorRefChange) error {
+		sourceURL, targetURL, pushed = source, target, changes
 		return nil
 	}
 
@@ -183,10 +191,12 @@ func TestGitMirrorSyncService_StartAndGetRunRecordsPerRefResults(t *testing.T) {
 	assert.Equal(t, int64(41), runID)
 	assert.Equal(t, int64(101), store.createArgs.RepositoryID)
 	assert.Equal(t, pgtype.Int8{Int64: 7, Valid: true}, store.createArgs.RequestedBy)
-	require.Len(t, syncArgs, 12)
-	assert.Equal(t, []string{"sync", "--prune", "--tags"}, syncArgs[:3])
-	assert.Contains(t, syncArgs[len(syncArgs)-2], "/Alice/Demo.git")
-	assert.Contains(t, syncArgs[len(syncArgs)-1], "/Alice/Demo.git")
+	assert.Equal(t, []gitMirrorRefChange{
+		{name: "refs/heads/main", from: oldMain, to: newMain},
+		{name: "refs/heads/obsolete", from: obsolete},
+	}, pushed)
+	assert.Contains(t, sourceURL, "/Alice/Demo.git")
+	assert.Contains(t, targetURL, "/Alice/Demo.git")
 
 	run, err := svc.GetMirrorSyncRun(context.Background(), 101, runID)
 	require.NoError(t, err)
@@ -261,8 +271,8 @@ func TestGitMirrorSyncService_FailedRefPreservesSafeRunnerError(t *testing.T) {
 		}
 		return map[string]string{"refs/heads/main": oldRevision}, nil
 	}
-	svc.runGitSync = func(_ context.Context, args ...string) error {
-		return errors.New("push to " + args[4] + " was rejected")
+	svc.runGitSync = func(_ context.Context, _, targetURL string, _ []gitMirrorRefChange) error {
+		return errors.New("push to " + targetURL + " was rejected")
 	}
 
 	_, err := svc.StartMirrorSync(context.Background(), 7, 101, "alice", "demo")
@@ -315,6 +325,39 @@ func TestGitMirrorSyncService_RetryMirrorRefRunsOnlyFailedRef(t *testing.T) {
 	assert.Equal(t, "refs/heads/main", run.Refs[0].Name)
 	assert.Zero(t, run.BehindRefs)
 	assert.Zero(t, run.FailedRefs)
+}
+
+func TestGitMirrorSyncService_RetryMirrorRefNeverDeletesAGitHubRef(t *testing.T) {
+	setGitMirrorEnv(t)
+	for name, prior := range map[string]db.GithubMirrorSyncRefResult{
+		"failed update":           {FromRevision: "old", ToRevision: "new"},
+		"prune of another commit": {FromRevision: "old"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := newFakeGitMirrorSyncStore()
+			prior.RunID, prior.Name, prior.Status = 40, "refs/heads/feature", gitMirrorRefFailed
+			store.refs["refs/heads/feature"] = prior
+			svc := synchronousGitMirrorService(store)
+			svc.listRemoteRefs = func(_ context.Context, remote string) (map[string]string, error) {
+				if strings.Contains(remote, "github.example") {
+					return map[string]string{"refs/heads/feature": "github-moved"}, nil
+				}
+				return map[string]string{}, nil
+			}
+			svc.runGitRefSync = func(context.Context, string, string, string, string) error {
+				t.Fatal("a ref the source lacks and this mirror never wrote is not deleted")
+				return nil
+			}
+
+			runID, err := svc.RetryMirrorRef(context.Background(), 7, 101, "alice", "demo", "refs/heads/feature")
+			require.NoError(t, err)
+			run, err := svc.GetMirrorSyncRun(context.Background(), 101, runID)
+			require.NoError(t, err)
+			assert.Equal(t, gitMirrorRunFailed, run.State)
+			require.Len(t, run.Refs, 1)
+			assert.Equal(t, gitMirrorRefFailed, run.Refs[0].Status)
+		})
+	}
 }
 
 func TestGitMirrorSyncService_RetryMirrorRefRejectsMissingOrRepairedRef(t *testing.T) {
@@ -422,11 +465,13 @@ func TestGitMirrorSyncHelpers(t *testing.T) {
 	}
 
 	changes := mirrorRefChanges(
-		map[string]string{"refs/heads/main": "new", "refs/tags/same": "same"},
-		map[string]string{"refs/heads/main": "old", "refs/tags/same": "same", "refs/tags/gone": "gone"},
+		map[string]string{"refs/heads/main": "new", "refs/tags/same": "same", "refs/tags/v2": "v2"},
+		map[string]string{"refs/heads/main": "old", "refs/tags/same": "same", "refs/tags/github-only": "gone"},
 	)
-	require.Len(t, changes, 2)
-	assert.True(t, strings.Compare(changes[0].name, changes[1].name) < 0)
+	assert.Equal(t, []gitMirrorRefChange{
+		{name: "refs/heads/main", from: "old", to: "new"},
+		{name: "refs/tags/v2", to: "v2"},
+	}, changes, "a target-only ref is never a change")
 	assert.True(t, mirrorRefReached(gitMirrorRefChange{name: "refs/heads/main", to: "new"}, map[string]string{"refs/heads/main": "new"}))
 	assert.True(t, mirrorRefReached(gitMirrorRefChange{name: "refs/tags/gone", to: ""}, map[string]string{}))
 }

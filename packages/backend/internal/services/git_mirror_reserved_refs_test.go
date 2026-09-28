@@ -66,19 +66,8 @@ func mirrorFixtureRef(t *testing.T, repository, name, hash string) {
 }
 
 func TestGitMirrorReservedRefsStayPrivateThroughActualHTTPTransport(t *testing.T) {
-	binary := os.Getenv("GITSYNC_TEST_BINARY")
-	if binary == "" {
-		var err error
-		binary, err = exec.LookPath("git-sync")
-		if err != nil {
-			t.Skip("git-sync binary is not installed")
-		}
-	}
 	git, err := exec.LookPath("git")
 	require.NoError(t, err, "the Git HTTP fixture needs git http-backend")
-	commands := t.TempDir()
-	require.NoError(t, os.Symlink(binary, filepath.Join(commands, "git-sync")))
-	t.Setenv("PATH", commands+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	root := t.TempDir()
@@ -140,7 +129,7 @@ func TestGitMirrorReservedRefsStayPrivateThroughActualHTTPTransport(t *testing.T
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		// git-sync streams receive-pack using chunked HTTP; CGI requires a
+		// git may stream receive-pack using chunked HTTP; CGI requires a
 		// known body length. Buffer only this bounded disposable fixture.
 		if request.Body != nil {
 			body, readErr := io.ReadAll(io.LimitReader(request.Body, (1<<20)+1))
@@ -179,6 +168,7 @@ func TestGitMirrorReservedRefsStayPrivateThroughActualHTTPTransport(t *testing.T
 	for name, hash := range protectedTarget {
 		expected[name] = hash
 	}
+	expected["refs/custom/obsolete"] = commits["base"]
 	for _, name := range []string{"refs/heads/main", "refs/tags/v1", "refs/notes/review", "refs/custom/keep", "refs/smithers-user/published"} {
 		expected[name] = sourceRefs[name]
 		require.Contains(t, q.refs, name)
@@ -188,7 +178,7 @@ func TestGitMirrorReservedRefsStayPrivateThroughActualHTTPTransport(t *testing.T
 		assert.NotContains(t, q.refs, name, "unchanged user refs need no update")
 	}
 	assert.Equal(t, expected, actual, "private refs are neither copied, updated nor pruned; user namespaces still mirror")
-	assert.Contains(t, q.refs, "refs/custom/obsolete", "ordinary removed user refs remain eligible for pruning")
+	assert.NotContains(t, q.refs, "refs/custom/obsolete", "a target-only ref this mirror never wrote is not pruned")
 	for name := range q.refs {
 		assert.False(t, strings.HasPrefix(name, "refs/smithers/"), "reserved refs must not enter verification receipts")
 	}

@@ -7,9 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -61,17 +58,20 @@ func mirrorCredentialFixture(t *testing.T) (*mirrorCredentialStore, *GitMirrorSy
 	s := NewGitMirrorSyncService(q, WithGitMirrorCredentials(q, github, "https://forge.example"))
 	s.launch = func(_ string, fn func()) { fn() }
 	s.listRemoteRefs = func(context.Context, string) (map[string]string, error) { return map[string]string{}, nil }
-	s.runGitSync = func(context.Context, ...string) error { return nil }
+	s.runGitSync = func(context.Context, string, string, []gitMirrorRefChange) error { return nil }
 	return q, s
 }
 func TestGitMirrorCredentialsAreCallerScopedAndRevoked(t *testing.T) {
 	setGitMirrorEnv(t) // The configured resolver must ignore these global credentials.
 	q, s := mirrorCredentialFixture(t)
-	s.runGitSync = func(_ context.Context, args ...string) error {
+	s.listRemoteRefs = func(_ context.Context, remote string) (map[string]string, error) {
+		return map[string]string{"refs/heads/main": remote}, nil
+	}
+	s.runGitSync = func(_ context.Context, sourceURL, targetURL string, _ []gitMirrorRefChange) error {
 		require.Empty(t, q.deleted)
-		source, err := url.Parse(args[len(args)-2])
+		source, err := url.Parse(sourceURL)
 		require.NoError(t, err)
-		target, err := url.Parse(args[len(args)-1])
+		target, err := url.Parse(targetURL)
 		require.NoError(t, err)
 		assert.Equal(t, "forge.example", source.Host)
 		assert.Equal(t, "/native/copy.git", source.Path)
@@ -148,21 +148,14 @@ func TestGitMirrorCredentialsRejectUnsafeDestination(t *testing.T) {
 	}
 }
 func TestMirrorCommandKeepsCredentialsOutOfArguments(t *testing.T) {
-	t.Setenv("GITSYNC_SOURCE_BEARER_TOKEN", "unrelated-operator-token")
-	t.Setenv("GITSYNC_TARGET_INSECURE_SKIP_TLS_VERIFY", "true")
-	cmd := mirrorCommand(context.Background(), "git-sync", "sync", "https://x-access-token:source-secret@forge.example/a/b.git", "https://x-access-token:target-secret@github.com/c/d.git")
-	assert.Equal(t, []string{"git-sync", "sync", "https://forge.example/a/b.git", "https://github.com/c/d.git"}, cmd.Args)
+	cmd := mirrorCommand(context.Background(), "git", "fetch", "https://x-access-token:source-secret@forge.example/a/b.git", "https://x-access-token:target-secret@github.com/c/d.git")
+	assert.Equal(t, []string{"git", "fetch", "https://forge.example/a/b.git", "https://github.com/c/d.git"}, cmd.Args)
 	assert.Contains(t, cmd.Env, "GIT_CONFIG_COUNT=2")
 	assert.Contains(t, cmd.Env, "GIT_CONFIG_VALUE_0=Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:source-secret")))
 	assert.Contains(t, cmd.Env, "GIT_CONFIG_VALUE_1=Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:target-secret")))
 	assert.Contains(t, cmd.Env, "GIT_CONFIG_KEY_0=http.https://forge.example/a/b.git.extraHeader")
 	assert.Contains(t, cmd.Env, "GIT_CONFIG_KEY_1=http.https://github.com/c/d.git.extraHeader")
 	assert.Contains(t, cmd.Env, "GIT_TERMINAL_PROMPT=0")
-	assert.Contains(t, cmd.Env, "GITSYNC_SOURCE_TOKEN=source-secret")
-	assert.Contains(t, cmd.Env, "GITSYNC_TARGET_TOKEN=target-secret")
-	assert.Contains(t, cmd.Env, "GITSYNC_SOURCE_USERNAME=x-access-token")
-	assert.Contains(t, cmd.Env, "GITSYNC_TARGET_USERNAME=x-access-token")
-	assert.NotContains(t, cmd.Env, "GITSYNC_SOURCE_BEARER_TOKEN=unrelated-operator-token")
 	assert.NotContains(t, cmd.Env, "GITSYNC_TARGET_INSECURE_SKIP_TLS_VERIFY=true")
 }
 
@@ -225,48 +218,6 @@ func TestMirrorCredentialUsesURLScopedHeader(t *testing.T) {
 	assert.NotContains(t, err.Error(), "transport-test-secret")
 }
 
-func TestMirrorCredentialGitSyncTransport(t *testing.T) {
-	binary := os.Getenv("GITSYNC_TEST_BINARY")
-	if binary == "" {
-		var err error
-		binary, err = exec.LookPath("git-sync")
-		if err != nil {
-			t.Skip("git-sync binary is not installed")
-		}
-	}
-	// Keep the production command name so its endpoint credential path runs.
-	dir := t.TempDir()
-	require.NoError(t, os.Symlink(binary, filepath.Join(dir, "git-sync")))
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	headers := make(chan string, 32)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case headers <- r.Header.Get("Authorization"):
-		default:
-		}
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	source, err := gitMirrorURL(server.URL, "source-transport-secret", "a", "b")
-	require.NoError(t, err)
-	target, err := gitMirrorURL(server.URL, "target-transport-secret", "c", "d")
-	require.NoError(t, err)
-	service := NewGitMirrorSyncService(nil)
-	err = service.runGitSync(ctx, "sync", "--prune", "--tags", "--all-refs",
-		"--exclude-ref-prefix", "refs/jj/", "--exclude-ref-prefix", "refs/pull/", "--exclude-ref-prefix", "refs/smithers/", source, target)
-	require.Error(t, err)
-	select {
-	case header := <-headers:
-		assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:source-transport-secret")), header)
-	default:
-		t.Fatalf("git-sync did not reach the HTTP fixture: %s", sanitizeMirrorError(err, source, target))
-	}
-	assert.NotContains(t, err.Error(), "source-transport-secret")
-	assert.NotContains(t, err.Error(), "target-transport-secret")
-}
-
 func TestGitMirrorInternalRefsDoNotFailAnOtherwiseSyncedRepository(t *testing.T) {
 	q, s := mirrorCredentialFixture(t)
 	reads := 0
@@ -277,8 +228,8 @@ func TestGitMirrorInternalRefsDoNotFailAnOtherwiseSyncedRepository(t *testing.T)
 		}
 		return map[string]string{"refs/heads/main": "same", "refs/pull/1/head": "github-owned", "refs/smithers/workspaces/target-only/head": "protected"}, nil
 	}
-	s.runGitSync = func(_ context.Context, args ...string) error {
-		assert.Equal(t, []string{"sync", "--prune", "--tags", "--all-refs", "--exclude-ref-prefix", "refs/jj/", "--exclude-ref-prefix", "refs/pull/", "--exclude-ref-prefix", "refs/smithers/"}, args[:len(args)-2])
+	s.runGitSync = func(context.Context, string, string, []gitMirrorRefChange) error {
+		t.Fatal("an in-sync repository needs no push")
 		return nil
 	}
 	_, err := s.StartMirrorSync(context.Background(), 7, 19, "native", "copy")
@@ -297,7 +248,6 @@ func TestGitMirrorPreservesNotesAndCustomRefScope(t *testing.T) {
 		map[string]string{"refs/heads/main": "old", "refs/custom/obsolete": "old", "refs/pull/1/head": "github-owned"},
 	)
 	assert.Equal(t, []gitMirrorRefChange{
-		{name: "refs/custom/obsolete", from: "old", to: ""},
 		{name: "refs/heads/main", from: "old", to: "new"},
 		{name: "refs/notes/review", from: "", to: "note"},
 	}, changes)
