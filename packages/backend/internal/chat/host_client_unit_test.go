@@ -111,7 +111,10 @@ func TestHTTPChatHostUnitTransportFailureAndCancellationPreserveCauses(t *testin
 	cancel()
 	canceledHost, err := NewHTTPChatHost("https://host.invalid", &http.Client{Transport: chatHostUnitTransport(func(sent *http.Request) (*http.Response, error) {
 		defer sent.Body.Close()
-		return nil, sent.Context().Err()
+		if err := sent.Context().Err(); err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("")), Request: sent}, nil
 	})}, "host-token")
 	require.NoError(t, err)
 	err = canceledHost.RunChatTurn(ctx, chatHostUnitGrant())
