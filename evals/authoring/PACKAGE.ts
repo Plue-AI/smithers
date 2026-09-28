@@ -28,6 +28,7 @@ const fireworksCredential = Smithers.HttpSecret(fireworksKey, ["https://api.fire
 
 /** The validator and the dataset it gates. */
 const validator = Smithers.file("//evals/authoring/validate.ts")
+const validatorTests = Smithers.file("//evals/authoring/validate.test.ts")
 const dataset = Smithers.file("//evals/authoring/data/pilot-sft.jsonl")
 
 /**
@@ -47,13 +48,29 @@ const test = Smithers.NodeTest({
 })
 
 /**
- * Checks the validator against its tsconfig.
+ * Proves the validator rejects the rows it must: non-object rows and messages,
+ * top-level metadata, rows with no user turn, host paths, and credential
+ * shapes.
+ *
+ * @since 0.1.0
+ * @category test
+ */
+const validatorTest = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.testRunner([validatorTests]),
+  srcs: [validator, validatorTests, dataset],
+  deps: [],
+  cwd
+})
+
+/**
+ * Checks the validator and its tests against their tsconfig.
  *
  * @since 0.1.0
  * @category build
  */
 const check = Smithers.Typecheck({
-  srcs: [validator],
+  srcs: [validator, validatorTests],
   deps: [],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
@@ -154,7 +171,7 @@ const sftLaunchPilot = Smithers.ToolRun({
  */
 const securityReview = Smithers.SecurityReview({
   cwd,
-  include: ["validate.ts", "PACKAGE.ts", "README.md", "data/**"],
+  include: ["validate.ts", "validate.test.ts", "PACKAGE.ts", "README.md", "data/**"],
   checks: [
     {
       id: "fireworks-key-scoping",
@@ -206,5 +223,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { check, datasetUpload, sftLaunch, sftLaunchPilot, test, ...securityReview }
+  targets: { check, datasetUpload, sftLaunch, sftLaunchPilot, test, validatorTest, ...securityReview }
 })

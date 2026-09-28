@@ -6,7 +6,7 @@
   "description": "Supervised fine-tuning dataset for Smithers flow authoring, and the validator that gates it",
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "bun validate.ts"
+    "test": "bun validate.ts && bun test validate.test.ts"
   },
   "devDependencies": {
     "@smthrs/targets": "workspace:*",

@@ -11,7 +11,24 @@ first-class build-system targets, so none of them is a copy-paste shell command.
 | ---------------------- | -------------------------------------------------------------- |
 | `data/pilot-sft.jsonl` | The pilot SFT dataset: 10 OpenAI chat-format rows.             |
 | `validate.ts`          | Dataset validator. Exit code is the verdict; no external deps. |
+| `validate.test.ts`     | Regression tests for the validator's rejections.               |
 | `PACKAGE.ts`           | The targets below.                                             |
+
+## What the validator rejects
+
+`firectl` uploads each row verbatim, so the gate refuses anything that must not
+reach Fireworks or a trained model:
+
+- a row or message that is not a JSON object;
+- any top-level key besides `messages`, and any message key besides `role` and
+  `content`;
+- a row whose last turn is not `assistant`, or with no `user` turn before it;
+- content with a host home path (`/Users/<name>`, `/home/<name>`,
+  `C:\Users\<name>`, `~/`, `~<name>/`) or a
+  credential shape (Fireworks, OpenAI-style, GitHub, AWS, Slack, private key).
+
+Reference repository files by repo-relative path, such as
+`examples/ralph-loop.jsx`.
 
 ## Targets
 
@@ -20,6 +37,8 @@ Deterministic, cache-eligible, and part of `ci`:
 - `//evals/authoring:test` — proves every dataset row is a well-formed chat
   example. Run it with `pnpm exec smithers-build test
   '//evals/authoring:test'`.
+- `//evals/authoring:validatorTest` — proves the validator rejects the rows it
+  must.
 - `//evals/authoring:check` — typechecks the validator.
 
 Irreversible Fireworks operations. Each is a
