@@ -240,12 +240,12 @@ func TestChatAdmissionUnitRespectsTransportBodyLimit(t *testing.T) {
 	}
 }
 
-func TestChatAdmissionUnitPayloadByteBoundary(t *testing.T) {
+func TestChatAdmissionUnitRoutePayloadByteBoundary(t *testing.T) {
 	base := admissionUnitBody(t, func(f, j map[string]any) { f["instructions"] = "" })
 	for _, item := range []struct {
 		size     int
 		accepted bool
-	}{{2097151, true}, {2097152, true}, {2097153, false}} {
+	}{{1048575, true}, {1048576, true}, {1048577, false}} {
 		raw := admissionUnitBody(t, func(f, j map[string]any) { f["instructions"] = strings.Repeat("x", item.size-len(base)) })
 		require.Len(t, raw, item.size)
 		response := httptest.NewRecorder()
@@ -255,7 +255,7 @@ func TestChatAdmissionUnitPayloadByteBoundary(t *testing.T) {
 			require.Equal(t, "leg", journal.LegID)
 			require.NotContains(t, string(payload), "journal")
 		} else {
-			require.Equal(t, 400, response.Code)
+			require.Equal(t, 413, response.Code)
 			require.Nil(t, payload)
 		}
 	}
