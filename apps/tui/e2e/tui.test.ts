@@ -1,9 +1,8 @@
 /**
  * The TUI in a real PTY, driven through tmux: keys in, screen out.
  *
- * Model turns replay `test/fixtures/fix-add.jsonl` (a recorded gpt-6-sol run)
- * through the replay seat, so no provider is called and the cells it carries
- * run for real against a scratch repository.
+ * Model turns use offline replay seats. Historical traces exercise projections;
+ * successful coding cases use current-protocol cells that execute real flows.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { spawnSync } from "node:child_process"
@@ -72,6 +71,8 @@ const repository = (options: { readonly git?: boolean } = {}) => {
     "import { add } from \"./math.js\"\nif (add(2, 3) !== 5) { console.error(\"add is wrong\"); process.exit(1) }\nconsole.log(\"ok\")\n"
   )
   if (options.git === true) {
+    writeFileSync(join(directory, "package.json"), "{\"type\":\"module\"}\n")
+    writeFileSync(join(directory, ".gitignore"), "node_modules\n.flows\n.smithers\n")
     for (
       const command of [["init", "-q"], ["add", "-A"], [
         "-c",
@@ -127,6 +128,62 @@ const start = async (
   })
   await tui.until(drawn, 20_000, "first draw")
   return { tui, cwd, sessions }
+}
+
+const replayCells = (cells: ReadonlyArray<string>): string => {
+  const replay = join(mkdtempSync(join(tmpdir(), "tui-cell-replay-")), "turn.jsonl")
+  writeFileSync(
+    replay,
+    cells.flatMap((cell) => [
+      { at: 0, event: { _tag: "model-requested" } },
+      { at: 0, event: { _tag: "model-delta", delta: { type: "text-start", id: "cell" } } },
+      {
+        at: 0,
+        event: { _tag: "model-delta", delta: { type: "text-delta", id: "cell", text: `\`\`\`cell\n${cell}\n\`\`\`` } }
+      },
+      { at: 0, event: { _tag: "model-delta", delta: { type: "text-end", id: "cell" } } },
+      { at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } }
+    ]).map((record) => JSON.stringify(record)).join("\n")
+  )
+  return replay
+}
+
+/** Keep completion separate from effects so its claims have recorded evidence. */
+const codingReplay = (): string =>
+  replayCells([
+    `const files = await ctx.call("ls", { path: ".", limit: 100 });
+const check = await ctx.call("read", { path: "check.mjs" });
+const manifest = await ctx.call("read", { path: "package.json" });
+const failed = await ctx.call("bash", { mode: "hermetic", command: "node check.mjs", reads: ["."], writes: [], cwd: "." });
+if (failed.exitCode !== 1) throw new Error("Expected the initial check to fail");
+console.log(JSON.stringify({ files, check, manifest, failed }));`,
+    `const math = await ctx.call("read", { path: "math.js" }); console.log(math.content);`,
+    `await ctx.call("edit", { path: "math.js", oldString: "a - b", newString: "a + b" });
+const checked = await ctx.call("bash", { mode: "hermetic", command: "node check.mjs", reads: ["."], writes: [], cwd: "." });
+if (checked.exitCode !== 0 || checked.stdout.trim() !== "ok") throw new Error("Check failed");
+console.log(checked.stdout);`,
+    `ctx.done("Fixed math.js; node check.mjs prints ok.");`
+  ])
+
+/** Visible cell source is never evidence that a turn completed successfully. */
+const successfulAnswer = async (
+  started: Awaited<ReturnType<typeof start>>,
+  expected = "Fixed",
+  timeoutMs = 120_000
+) => {
+  const folder = sessionFolder(started.sessions)
+  const file = join(folder, readdirSync(folder).find((name) => name.endsWith(".jsonl"))!)
+  const outcome = () => {
+    const records = Session.load(file)
+    const user = records.findLastIndex((record) => record.type === "user")
+    return user < 0 ? undefined : records.slice(user + 1).findLast((record) => record.type === "outcome")
+  }
+  await started.tui.until(() => outcome() !== undefined, timeoutMs, "persisted turn outcome")
+  const receipt = outcome()
+  expect(receipt).toMatchObject({ type: "outcome", outcome: { _tag: "done" } })
+  expect(receipt?.type === "outcome" ? receipt.outcome.answer : undefined).toContain(expected)
+  await started.tui.until(idle, 5_000, "completed turn UI")
+  return receipt
 }
 
 describe("startup", () => {
@@ -624,28 +681,16 @@ describe("! shell commands", () => {
 describe("turns", () => {
   it("finishes coding with session storage inside the project", async () => {
     const cwd = repository()
-    const replay = join(mkdtempSync(join(tmpdir(), "tui-session-observer-replay-")), "turn.jsonl")
-    const cells = [
+    const replay = replayCells([
       "const before = await ctx.call(\"read\", { path: \"math.js\" }); console.log(before.content)",
-      "await ctx.call(\"edit\", { path: \"math.js\", oldString: \"a - b\", newString: \"a + b\" }); const checked = await ctx.call(\"bash\", { mode: \"hermetic\", command: \"node check.mjs\", reads: [\".\"], writes: [], cwd: \".\" }); if (checked.exitCode !== 0) throw new Error(\"Check failed\"); ctx.done(\"Fixed math.js; check passed\")"
-    ]
-    writeFileSync(
-      replay,
-      cells.flatMap((cell) => [
-        { at: 0, event: { _tag: "model-requested" } },
-        { at: 0, event: { _tag: "model-delta", delta: { type: "text-start", id: "cell" } } },
-        {
-          at: 0,
-          event: { _tag: "model-delta", delta: { type: "text-delta", id: "cell", text: `\`\`\`cell\n${cell}\n\`\`\`` } }
-        },
-        { at: 0, event: { _tag: "model-delta", delta: { type: "text-end", id: "cell" } } },
-        { at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } }
-      ]).map((record) => JSON.stringify(record)).join("\n")
-    )
-    const { tui, sessions } = await start({ cwd, replay, sessions: join(cwd, "sessions") })
+      "await ctx.call(\"edit\", { path: \"math.js\", oldString: \"a - b\", newString: \"a + b\" }); const checked = await ctx.call(\"bash\", { mode: \"hermetic\", command: \"node check.mjs\", reads: [\".\"], writes: [], cwd: \".\" }); if (checked.exitCode !== 0) throw new Error(\"Check failed\"); console.log(checked.stdout)",
+      "ctx.done(\"Fixed math.js; check passed\")"
+    ])
+    const started = await start({ cwd, replay, sessions: join(cwd, "sessions") })
+    const { tui, sessions } = started
     await tui.type("node check.mjs fails. Fix it and show it passes.")
     await tui.press(key.enter)
-    await tui.until((screen) => idle(screen) && /Fixed/.test(screen), 20_000, "answer without journal churn")
+    await successfulAnswer(started, "Fixed", 20_000)
     const folder = sessionFolder(sessions)
     const file = readdirSync(folder).find((name) => name.endsWith(".jsonl"))!
     const records = Session.load(join(folder, file))
@@ -656,7 +701,7 @@ describe("turns", () => {
     const mutations = records.flatMap((record) =>
       record.type === "event" && record.event._tag === "mutation-observed" ? [record.event.mutated] : []
     )
-    expect(mutations).toEqual([false, true])
+    expect(mutations).toEqual([false, true, false])
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
     expect(spawnSync("node", ["check.mjs"], { cwd }).status).toBe(0)
   }, 30_000)
@@ -664,11 +709,12 @@ describe("turns", () => {
   it.each([40, 110])(
     "replays a whole recorded turn at %i columns: cells stream, flows run, the answer lands",
     async (cols) => {
-      const { tui, cwd } = await start({ cols })
+      const started = await start({ cols, cwd: repository({ git: true }) })
+      const { tui, cwd } = started
       await tui.type("node check.mjs fails. Fix it and show it passes.")
       await tui.press(key.enter)
       await tui.until((screen) => /[▾▸⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] +\d+  /.test(screen), 20_000, "first cell")
-      await tui.until((screen) => idle(screen) && /Fixed/.test(screen), 120_000, "answer")
+      await successfulAnswer(started)
       expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
       const following = await tui.until(
         (screen) => screen.includes("⏸") && knob(screen) > 0,
@@ -707,10 +753,17 @@ describe("turns", () => {
   )
 
   it("folds a finished cell's code and what it printed until ctrl+o", async () => {
-    const { tui } = await start()
-    await tui.type("node check.mjs fails. Fix it and show it passes.")
+    const replay = replayCells([
+      `const lines = [\n${
+        Array.from({ length: 40 }, (_, index) => JSON.stringify(`line ${index}`)).join(",\n")
+      }\n];\nconsole.log(lines.map(line => ["output", "to", "a", "specific", "file", line].join(" ")).join("\\n"))`,
+      "ctx.done(\"Printed the requested lines.\")"
+    ])
+    const started = await start({ replay })
+    const { tui } = started
+    await tui.type("Print the example lines.")
     await tui.press(key.enter)
-    await tui.until((screen) => idle(screen) && /Fixed/.test(screen), 120_000, "answer")
+    await successfulAnswer(started, "Printed")
     const folded = tui.screen()
     expect(folded).toMatch(/… \d+ more lines/)
     expect(folded).toMatch(/printed \d+ lines · ctrl\+o/)
@@ -721,14 +774,22 @@ describe("turns", () => {
   }, 180_000)
 
   it("settles a turn and keeps working when the session file stops accepting writes", async () => {
-    const { tui, sessions } = await start({ holdMs: 1_000 })
+    const { tui, sessions, cwd } = await start({
+      holdMs: 1_000,
+      cwd: repository({ git: true }),
+      replay: codingReplay()
+    })
     await tui.type("node check.mjs fails. Fix it and show it passes.")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("esc Interrupt"), 10_000, "running turn")
     const folder = sessionFolder(sessions)
     chmodSync(join(folder, readdirSync(folder).find((name) => name.endsWith(".jsonl"))!), 0o444)
     await tui.until((screen) => screen.includes("Conversation not saved: EACCES"), 10_000, "unsaved record")
-    await tui.until((screen) => idle(screen) && /Fixed/.test(screen), 90_000, "answer")
+    // This case deliberately refuses every later journal write, so require the
+    // real completed UI state and changed file instead of a persisted outcome.
+    await tui.until((screen) => idle(screen) && /●\s+Done/.test(screen), 90_000, "completed unsaved turn")
+    expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
+    expect(spawnSync("node", ["check.mjs"], { cwd }).status).toBe(0)
     await tui.type("second prompt after the failed write")
     await tui.press(key.enter)
     await tui.until(
@@ -753,7 +814,7 @@ describe("turns", () => {
     const first = await start({ replay: join(app, "test/fixtures/pong.jsonl") })
     await first.tui.type("before torn tail")
     await first.tui.press(key.enter)
-    await first.tui.until((screen) => idle(screen) && screen.includes("pong"), 10_000, "initial answer")
+    await successfulAnswer(first, "pong", 10_000)
     await first.tui.stop()
     process.env.SMITHERS_TUI_SESSION_DIR = first.sessions
     const file = Session.latest(first.cwd)!
@@ -767,11 +828,7 @@ describe("turns", () => {
     await second.tui.until((screen) => screen.includes("before torn tail"), 5_000, "torn tail ignored")
     await second.tui.type("after torn tail")
     await second.tui.press(key.enter)
-    await second.tui.until(
-      (screen) => idle(screen) && screen.includes("after torn tail") && screen.includes("pong"),
-      10_000,
-      "new answer"
-    )
+    await successfulAnswer(second, "pong", 10_000)
     await second.tui.stop()
     expect(Session.load(file).filter((record) => record.type === "user").map((record) => record.text))
       .toEqual(["before torn tail", "after torn tail"])
@@ -795,7 +852,7 @@ describe("turns", () => {
     const first = await start({ cwd, replay: join(app, "test/fixtures/pong.jsonl") })
     await first.tui.type("remember this deep project")
     await first.tui.press(key.enter)
-    await first.tui.until((screen) => idle(screen) && screen.includes("pong"), 15_000, "deep project answered")
+    await successfulAnswer(first, "pong", 15_000)
     expect(first.tui.screen()).not.toContain("Conversation not saved")
     process.env.SMITHERS_TUI_SESSION_DIR = first.sessions
     const file = Session.latest(cwd)!
@@ -1265,16 +1322,25 @@ describe("runtime views", () => {
   it(
     "navigates summary rows with hjkl/arrows, expands code, toggles the real diff, and returns focus to chat",
     async () => {
-      const { tui } = await start()
+      const started = await start({ cwd: repository({ git: true }) })
+      const { tui } = started
       await tui.type("node check.mjs fails. Fix it and show it passes.")
       await tui.press(key.enter)
-      await tui.until((screen) => idle(screen) && /Fixed/.test(screen), 120_000, "answer")
+      await successfulAnswer(started)
       await tui.type("/summary")
       await tui.press(key.enter)
       await tui.until((screen) => screen.includes("enter Expand row") && screen.includes("Asked:"), 5_000, "summary")
       await tui.type("jl")
-      await tui.until((screen) => screen.includes("ctx.call(\"ls\""), 5_000, "expanded cell source")
-      await tui.type("hjd")
+      await tui.until(
+        (screen) => screen.includes("ctx.call(\"ls\"") && /› .*Ran node check\.mjs \(exit 1\)/.test(screen),
+        5_000,
+        "expanded first cell"
+      )
+      await tui.type("hj")
+      await tui.until((screen) => /› .*Read math\.js/.test(screen), 5_000, "read row")
+      await tui.type("j")
+      await tui.until((screen) => /› .*Updated math\.js/.test(screen), 5_000, "edit row")
+      await tui.type("d")
       const diff = await tui.until(
         (screen) => screen.includes("math.js") && screen.includes("a + b") && screen.includes("a - b"),
         5_000,
@@ -1297,7 +1363,7 @@ describe("runtime views", () => {
     const started = await start({ cwd: repository({ git: true }), ...options })
     await started.tui.type("node check.mjs fails. Fix it and show it passes.")
     await started.tui.press(key.enter)
-    await started.tui.until((screen) => idle(screen) && /Fixed/.test(screen), 120_000, "answer")
+    await successfulAnswer(started)
     await started.tui.type("/summary")
     await started.tui.press(key.enter)
     await started.tui.until(
