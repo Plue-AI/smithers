@@ -48,6 +48,29 @@ describe("failure logs", () => {
     });
   }
 
+  test("a report write failure after rate-limit admission returns one storage refusal", async () => {
+    const kv = memoryKv();
+    const writes: string[] = [];
+    const env: BugWorkerEnv = {
+      BUGS: { ...kv, put: async (key, value, options) => {
+        writes.push(key);
+        if (key.startsWith("bug:")) throw new Error("report write unavailable");
+        await kv.put(key, value, options);
+      } },
+      REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: ADMIN,
+    };
+    const response = await answer(post("/api/bugs", { summary: "lost report" }), env);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "storage unavailable" });
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(writes).toEqual(["ratelimit:unknown:496805", expect.stringMatching(/^bug:/)]);
+    expect(await kv.get("ratelimit:unknown:496805")).toBe("1");
+    const reports = writes.filter(key => key.startsWith("bug:"));
+    expect(reports).toHaveLength(1);
+    expect(await kv.get(reports[0]!)).toBeNull();
+    expect(logged()).toEqual([{ event: "bug_report.failed", route: "POST /api/bugs", error: "report write unavailable" }]);
+  });
+
   test("a KV outage during the notification cron is logged, never a failed scheduled event", async () => {
     const worker = createBugWorker({ now: () => 1788500000000 });
     const env: BugWorkerEnv = { BUGS: offline(), REPO_COMPLETIONS: memoryRepoCompletions(), BUG_ADMIN_TOKEN: ADMIN, RESEND_API_KEY: "key", NOTIFICATION_FROM: "from@example.com" };

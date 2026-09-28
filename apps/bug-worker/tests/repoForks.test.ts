@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { createBugWorker } from "../src/worker.ts";
+import { forkRepo, type RepoFork } from "../src/repoForks.ts";
 import { memoryKv } from "./helpers/memoryKv.ts";
 import { memoryRepoCompletions } from "./helpers/memoryRepoCompletions.ts";
 import type { BugWorkerEnv } from "../src/env.ts";
@@ -28,6 +29,38 @@ function fixture(token: string | null = "fork-token") {
 }
 
 describe("community forks", () => {
+  for (const outcome of ["forked", "failed", "skipped"] as const) {
+    for (const cause of [new Error("record offline"), "record offline"]) {
+      test(`preserves ${outcome} when recording throws ${cause instanceof Error ? "an Error" : "a string"}`, async () => {
+        const f = fixture(outcome === "skipped" ? null : "fork-token");
+        const writes: Array<{ key: string; value: string }> = [];
+        let requests = 0;
+        const env: BugWorkerEnv = { ...f.env, BUGS: { ...f.env.BUGS, put: async (key, value) => {
+          writes.push({ key, value });
+          throw cause;
+        } } };
+        const logs = spyOn(console, "error").mockImplementation(() => {});
+        const expected: RepoFork = outcome === "forked"
+          ? { status: "forked", forkedAt: "2026-09-04T05:33:20.000Z" }
+          : outcome === "failed" ? { status: "failed", error: "GitHub responded 403" } : { status: "skipped" };
+        try {
+          const result = await forkRepo(env, { now: () => 1788500000000, fetch: (async () => {
+            requests++;
+            return new Response(null, { status: outcome === "forked" ? 202 : 403 });
+          }) as unknown as typeof fetch }, "owner/repo");
+          expect(result).toEqual(expected);
+          expect(requests).toBe(outcome === "skipped" ? 0 : 1);
+          expect(writes).toEqual([{ key: "repo-fork:owner/repo", value: JSON.stringify(expected) }]);
+          expect(logs.mock.calls).toEqual([
+            ...(outcome === "failed" ? ["repo-fork owner/repo failed: GitHub responded 403"] : []),
+            "repo-fork owner/repo could not be recorded: record offline",
+          ].map(message => [message]));
+          expect(await f.env.BUGS.get("repo-fork:owner/repo")).toBeNull();
+        } finally { logs.mockRestore(); }
+      });
+    }
+  }
+
   test("forks once per repository into smithers-community with the token", async () => {
     const f = fixture();
     expect((await f.nominate("https://github.com/Owner/Repo")).status).toBe(200);
