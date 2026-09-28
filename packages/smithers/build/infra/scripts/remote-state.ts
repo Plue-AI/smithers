@@ -21,6 +21,7 @@
 import { errorCode } from "@smthrs/targets/SafeFs"
 import { AwsClient } from "aws4fetch"
 import { createHash } from "node:crypto"
+import type { Dirent } from "node:fs"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
 import { stackName } from "../deployment.ts"
@@ -290,7 +291,7 @@ export const remoteStateFromEnvironment = async (
 
 /** Every `.json` state file under `directory`, relative to it with `/` separators. */
 const stateFiles = async (directory: string, prefix = ""): Promise<Array<string>> => {
-  let entries: Array<import("node:fs").Dirent>
+  let entries: Array<Dirent>
   try {
     entries = await Fs.readdir(NodePath.join(directory, prefix), { withFileTypes: true })
   } catch (error) {

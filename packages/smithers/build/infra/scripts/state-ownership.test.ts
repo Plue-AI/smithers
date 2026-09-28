@@ -132,7 +132,7 @@ describe("acquireStateOwnership", () => {
       `, NodePath.join(root, ".smithers-state-owner.sqlite"), lock], { stdio: ["ignore", "pipe", "inherit"] })
       const exited = once(child, "exit")
       try {
-        await once(child.stdout!, "data")
+        await once(child.stdout, "data")
         await expect(acquireStateOwnership(root)).rejects.toThrow(/owned by another deployment/)
       } finally {
         child.kill("SIGKILL")

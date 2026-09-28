@@ -271,7 +271,7 @@ const recordingFetch = (respond: (request: RecordedRequest) => Response) => {
     requests.push(recorded)
     return respond(recorded)
   }
-  return { fetch: fetch as typeof globalThis.fetch, requests }
+  return { fetch, requests }
 }
 
 const r2Options = { accountId: "acct", bucket: "state", accessKeyId: "key-id", secretAccessKey: "secret" }
