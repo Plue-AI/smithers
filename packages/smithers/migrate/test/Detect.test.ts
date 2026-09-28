@@ -11,6 +11,20 @@ const detect = (root: string, options: Detect.ScanOptions = {}) =>
   Detect.scan(root, options).pipe(Effect.provide(nodeLayer))
 
 describe("Detect.classifyPackage", () => {
+  it("leaves unsupported numeric versions unresolved instead of planning shared-package deletion", () => {
+    const tooLarge = "9007199254740992"
+    const beyondBinary64 = "9".repeat(311)
+    for (const numeric of [tooLarge, beyondBinary64]) {
+      for (const specifier of [`${numeric}.0.0`, `0.${numeric}.0`, `0.0.${numeric}`]) {
+        expect(Detect.classifyPackage("@smthrs/flow", specifier)).toBeUndefined()
+        expect(Detect.classifyPackage("@smthrs/cli", specifier)).toBeUndefined()
+        expect(Detect.classifyPackage("smithers", specifier)).toBeUndefined()
+      }
+    }
+    expect(Detect.classifyPackage("@smthrs/flow", "0.35.0")).toBe("old-version")
+    expect(Detect.classifyPackage("@smthrs/components", `0.${tooLarge}.0`)).toBe("deleted-package")
+  })
+
   it("decides an old-tree-only name by name and a shared name by version", () => {
     expect(Detect.classifyPackage("smthrs", "0.35.0")).toBe("old-name")
     expect(Detect.classifyPackage("smithers-orchestrator", "file:../../smithers/packages/smithers")).toBe("old-name")

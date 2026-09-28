@@ -285,6 +285,36 @@ describe("Command.render", () => {
 
     expect(Schema.decodeUnknownSync(Report.MigrationReport)(JSON.parse(text))).toEqual(report)
   })
+
+  it("shows operator-owned run-state instructions and bounds the human follow-up list", () => {
+    const base = Report.empty("/work", "apply", "2026-08-29T00:00:00.000Z")
+    const instructions = Array.from({ length: 12 }, (_, index) => `Decision ${index + 1}`)
+    const report = Report.finalize(
+      new Report.MigrationReport({
+        ...base,
+        runState: { ...base.runState, verdict: "history-only", instructions }
+      })
+    )
+    const text = Command.render(report, "human")
+    expect(text).toContain("Run state: history-only.")
+    expect(text).toContain("Run state the operator owns:\n  - Decision 1")
+    expect(text).toContain("Must be settled by a person (12):")
+    const followUps = text.slice(text.indexOf("Must be settled by a person"))
+    expect(followUps).toContain("  - Decision 10")
+    expect(followUps).not.toContain("  - Decision 11")
+    expect(text).toContain("... and 2 more in the report")
+    expect(text).toContain("Exit 3.")
+    expect(text).not.toContain("Report:")
+  })
+
+  it("does not claim a report was written in scan mode even when given a report path", () => {
+    const report = reportWith("scan", [])
+    const text = Command.render(report, "human", "/work/.smithers-migrate")
+    expect(text).toContain("smthrs migrate scan: /work")
+    expect(text).toContain("Units: 0 planned, 0 migrated, 0 failed, 0 blocked.")
+    expect(text).not.toContain("Report:")
+    expect(text).toContain("Exit 0.")
+  })
 })
 
 describe("Command.survey", () => {

@@ -139,6 +139,54 @@ describe("RunState.scan", () => {
       ])
     }))
 
+  it.effect("keeps a cancellation request active through the heartbeat boundary until its terminal receipt exists", () =>
+    Effect.gen(function*() {
+      const root = copyFixture("persisted-db")
+      yield* Effect.promise(() => buildDb(root, now))
+      const path = join(root, ".smithers", "smithers.db")
+      const { DatabaseSync } = yield* Effect.promise(() => import("node:sqlite"))
+      const writable = new DatabaseSync(path)
+      try {
+        writable.prepare("UPDATE _smithers_runs SET cancel_requested_at_ms = ? WHERE run_id = ?")
+          .run(now, "run-live")
+      } finally {
+        writable.close()
+      }
+      const before = hashTree(root)
+      const atDeadline = RunState.readDatabase(
+        path,
+        ".smithers/smithers.db",
+        [],
+        now + RunState.defaultLiveWindowMs,
+        RunState.defaultLiveWindowMs
+      )
+      expect(atDeadline.live.map((row) => row.runId)).toEqual(["run-live"])
+      expect(atDeadline.live[0]?.cancelRequestedAtMs).toBe(now)
+      expect(atDeadline.parked.map((row) => row.runId)).toEqual(["run-parked"])
+
+      const afterDeadline = RunState.readDatabase(
+        path,
+        ".smithers/smithers.db",
+        [],
+        now + RunState.defaultLiveWindowMs + 1,
+        RunState.defaultLiveWindowMs
+      )
+      expect(afterDeadline.live).toEqual([])
+      expect(afterDeadline.parked.map((row) => row.runId)).toEqual(["run-live", "run-parked"])
+      expect(hashTree(root)).toEqual(before)
+
+      const complete = new DatabaseSync(path)
+      try {
+        complete.prepare("UPDATE _smithers_runs SET status = ? WHERE run_id = ?").run("cancelled", "run-live")
+      } finally {
+        complete.close()
+      }
+      const terminal = RunState.readDatabase(path, ".smithers/smithers.db", [], now + 1, RunState.defaultLiveWindowMs)
+      expect(terminal.live).toEqual([])
+      expect(terminal.parked.map((row) => row.runId)).toEqual(["run-parked"])
+      expect(terminal.runsByStatus).toContainEqual({ status: "cancelled", count: 1 })
+    }))
+
   it.effect("leaves every byte of the project unchanged", () =>
     Effect.gen(function*() {
       const root = copyFixture("persisted-db")

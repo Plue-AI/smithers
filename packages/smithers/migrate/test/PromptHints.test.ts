@@ -54,6 +54,14 @@ describe("PromptHints.print", () => {
   it("renames the payload when asked", () => {
     expect(PromptHints.print("Topic: {props.topic}", "input")).toBe("Topic: ${input.topic}")
   })
+
+  it("preserves literal tails and incomplete braces without creating a template interpolation", () => {
+    expect(PromptHints.print("Run `test` \\ and show $5")).toBe("Run \\`test\\` \\\\ and show $5")
+    expect(PromptHints.print("A plain prompt")).toBe("A plain prompt")
+    expect(PromptHints.print("Unfinished {props.topic")).toBe("Unfinished {props.topic")
+    const template = PromptHints.print("First: {props.first}; second: {props.second}.")
+    expect(render(template, { first: "one", second: "two" })).toBe("First: one; second: two.")
+  })
 })
 
 describe("PromptHints.hints", () => {
@@ -85,5 +93,22 @@ describe("PromptHints.hints", () => {
         if (hint.classification === "interpolation-only") expect(hint.template).toBeDefined()
         else expect(hint.template).toBeUndefined()
       }
+    }).pipe(Effect.provide(nodeLayer)))
+
+  it.effect("keeps a classified prompt without inventing template text when its source is unavailable", () =>
+    Effect.gen(function*() {
+      const detection = yield* Detect.scan(copyFixture("jsx-single"))
+      const missing = detection.prompts[0]?.path
+      if (missing === undefined) throw new Error("the fixture has no prompt")
+      const sources = new Map(detection.sources)
+      sources.delete(missing)
+      const found = PromptHints.hints({ ...detection, sources })
+      expect(found.find((hint) => hint.file === missing)).toEqual({
+        file: missing,
+        classification: "interpolation-only",
+        props: ["topic"],
+        template: undefined
+      })
+      expect(found.find((hint) => hint.file !== missing)?.template).toBeDefined()
     }).pipe(Effect.provide(nodeLayer)))
 })

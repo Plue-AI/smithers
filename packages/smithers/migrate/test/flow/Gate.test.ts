@@ -5,8 +5,10 @@
  */
 import { describe, expect, it } from "@effect/vitest"
 import * as Gate from "@smthrs/migrate/flow/Gate"
+import * as Report from "@smthrs/migrate/Report"
 import * as Scan from "@smthrs/migrate/Scan"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -22,6 +24,30 @@ const buildDb = async (root: string): Promise<void> => {
 }
 
 const scanOf = (root: string) => Scan.scan(root, { runState: { now } }).pipe(Effect.provide(nodeLayer))
+
+describe("Gate.incompleteScan", () => {
+  it("ignores unrelated warnings and names every unread path without dropping their causes", () => {
+    const unrelated = { code: "mixed-authoring-api", file: "a.tsx", message: "Mixed API" }
+    expect(Gate.incompleteScan([unrelated])).toBeUndefined()
+    const one = Gate.incompleteScan([unrelated, {
+      code: "incomplete-scan",
+      file: "secret/a.ts",
+      message: "permission denied: a"
+    }])
+    expect(one?.code).toBe("unsupported-project")
+    expect(one?.message).toContain("1 path was skipped. Make it readable")
+    expect(one?.details).toBe("permission denied: a")
+
+    const two = Gate.incompleteScan([
+      { code: "incomplete-scan", file: "secret/a.ts", message: "permission denied: a" },
+      unrelated,
+      { code: "incomplete-scan", file: "secret/b.ts", message: "permission denied: b" }
+    ])
+    expect(two?.code).toBe("unsupported-project")
+    expect(two?.message).toContain("2 paths were skipped. Make them readable")
+    expect(two?.details).toBe("permission denied: a\npermission denied: b")
+  })
+})
 
 describe("Gate.evaluate", () => {
   it.effect("passes scan and plan whatever the project holds", () =>
@@ -133,5 +159,53 @@ describe("Gate.evaluate", () => {
       expect(scan.runState.verdict).toBe("clean")
       expect(Gate.instructions(scan)).toEqual([])
       yield* Gate.evaluate(scan, { mode: "apply" })
+    }))
+})
+
+describe("Gate.evaluateReport", () => {
+  it.effect("keeps both run-state verdicts blocked after a durable report is restored", () =>
+    Effect.gen(function*() {
+      const root = copyFixture("persisted-db")
+      const history = yield* scanOf(root)
+      yield* Effect.promise(() => buildDb(root))
+      const live = yield* scanOf(root)
+      for (
+        const [scan, verdict, instruction] of [
+          [history, "history-only", "archive the database"],
+          [live, "blocked", "smithers cancel"]
+        ] as const
+      ) {
+        expect(scan.runState.verdict).toBe(verdict)
+        const saved = Report.toJson(Scan.toReport(scan, "apply", "2026-09-01T00:00:00.000Z"))
+        const report = Schema.decodeUnknownSync(Report.MigrationReport)(JSON.parse(saved))
+        expect(report.runState.verdict).toBe(verdict)
+        expect(report.runState.instructions.some((line) => line.includes(instruction))).toBe(true)
+        const failure = yield* Effect.flip(Gate.evaluateReport(report, { mode: "apply" }))
+        expect(failure.code).toBe("run-state-blocked")
+        expect(failure.message).toContain(`(${verdict})`)
+        expect(failure.details).toContain(instruction)
+        expect(failure.details).toBe(report.runState.instructions.join("\n"))
+        yield* Gate.evaluateReport(report, { mode: "plan" })
+        yield* Gate.evaluateReport(report, { mode: "apply", acknowledgeRunState: true, allowUnsafe: "all" })
+      }
+    }))
+
+  it.effect("requires an explicit unsafe construct waiver on the report replay path", () =>
+    Effect.gen(function*() {
+      const root = copyFixture("plue-pack")
+      const scan = yield* scanOf(root)
+      const report = Scan.toReport(scan, "apply", "2026-09-01T00:00:00.000Z")
+      const unsafe = Gate.unsafeInReport(report)
+      expect(unsafe).toEqual(["UI"])
+      expect(Gate.unwaivedInReport(report, "all")).toEqual([])
+      expect(Gate.unwaivedInReport(report, [])).toEqual(["UI"])
+      expect(Gate.unwaivedInReport(report, ["UI"])).toEqual([])
+      const refusal = yield* Effect.flip(Gate.evaluateReport(report, { mode: "apply" }))
+      expect(refusal.code).toBe("unsafe-blocked")
+      expect(refusal.message).toContain("1 construct has no safe translation")
+      expect(refusal.message).toContain("UI")
+      expect(refusal.details).toBe("UI")
+      yield* Gate.evaluateReport(report, { mode: "apply", allowUnsafe: ["UI"] })
+      yield* Gate.evaluateReport(report, { mode: "apply", allowUnsafe: "all" })
     }))
 })
