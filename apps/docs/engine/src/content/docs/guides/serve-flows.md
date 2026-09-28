@@ -138,6 +138,13 @@ do not ship a server, a router, an authentication policy, or a durable engine.
 Mount the derived definitions in your own application, and provide the engine
 underneath.
 
+Authenticate every request before it reaches these handlers. Without an
+`executionId` scope, the server passes the client's id through unchanged, so
+any caller that knows or guesses an id can resume that execution, or repeat
+its execute request and receive its stored result. A server that accepts more
+than one principal must bind each id to the caller with an
+[`executionId` scope](/guides/namespace-execution-ids/).
+
 ## Related
 
 - [Namespace execution ids per tenant](/guides/namespace-execution-ids/): the

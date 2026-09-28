@@ -214,6 +214,9 @@ it, which encodes a plain object as full JSON. An implementation error is the
 kind that carries the credential the call was made with, so the proxy logs the
 same bounded, redacted rendering the engine writes and re-dies with
 `FlowHandlerDefect`, whose `diagnostic` field carries that rendering. The
+rendering redacts authorization and cookie header values, `Bearer` and `Basic`
+credentials, token, secret, password, API key, credential, and private key
+values, URL userinfo, and key, signature, and auth query parameters. The
 engine's annotated log is also redacted; the raw defect remains available only
 to in-process error handling.
 

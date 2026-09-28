@@ -16,17 +16,37 @@
  */
 const diagnosticTextLimit = 512
 
+/**
+ * Field names whose value is a credential, in a message (`name=value`,
+ * `"name":"value"`) or as an own property of a rendered failure.
+ *
+ * @private
+ */
+const secretName = "token|secret|password|api[-_]?key|credential|private[-_]?key"
+
+const secretField = new RegExp(secretName, "i")
+
 const sanitizeDiagnosticText = (value: string): string =>
   value.slice(0, diagnosticTextLimit)
-    .replace(/(bearer\s+)[^\s,;"'\\]+/gi, "$1[REDACTED]")
+    // An authorization or cookie header value is a credential whatever its
+    // scheme (`Basic`, `Token`, a cookie list), so the rest of the header is
+    // dropped up to the end of the line or the quote that closes it.
+    .replace(
+      /((?:proxy-)?authorization|(?:set-)?cookies?)(["'\\]*\s*[=:]\s*["'\\]*)[^\r\n"'\\]+/gi,
+      "$1$2[REDACTED]"
+    )
+    .replace(/((?:bearer|basic)\s+)[^\s,;"'\\]+/gi, "$1[REDACTED]")
     // An HTTP client error embeds the upstream response body in its message, so
     // the key arrives quoted (`"apiKey":"..."`) or escaped (`\"apiKey\":\"..."`)
     // rather than as the bare `apiKey=...` pair. Quotes and backslashes around
     // the separator are skipped and also end the value.
     .replace(
-      /((?:token|secret|password|api[-_]?key)["'\\]*\s*[=:]\s*["'\\]*)[^\s,;"'\\]+/gi,
+      new RegExp(`((?:${secretName})["'\\\\]*\\s*[=:]\\s*["'\\\\]*)[^\\s,;"'\\\\]+`, "gi"),
       "$1[REDACTED]"
     )
+    // A request URL carries credentials as userinfo or as a signed query.
+    .replace(/(\/\/)[^/@\s"'\\]+@/g, "$1[REDACTED]@")
+    .replace(/([?&][\w.-]*(?:key|sig|signature|auth|credential)=)[^&#\s"'\\]+/gi, "$1[REDACTED]")
 
 const primitiveDiagnostic = (value: unknown): unknown => {
   switch (typeof value) {
@@ -72,7 +92,7 @@ const projectDiagnostic = (
   seen: WeakSet<object>,
   field?: string
 ): unknown => {
-  if (field !== undefined && /token|secret|password|api[-_]?key/i.test(field)) return "[REDACTED]"
+  if (field !== undefined && secretField.test(field)) return "[REDACTED]"
   const primitive = primitiveDiagnostic(value)
   if (primitive !== undefined || value === undefined) {
     return primitive

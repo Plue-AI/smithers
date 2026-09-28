@@ -132,3 +132,41 @@ describe("a served flow whose handler dies carrying a credential", () => {
       expect(wireForm(defectOf(exit))).not.toContain(secret)
     }))
 })
+
+/**
+ * An HTTP client error message carries credentials in more spellings than a
+ * bearer token or a `key=value` pair: a Basic authorization header, a cookie
+ * header, URL userinfo, and a signed query string. Each must be redacted
+ * before the diagnostic reaches the remote caller.
+ */
+describe("a handler defect whose message spells a credential another way", () => {
+  const spellings = [
+    ["a Basic authorization header", "Authorization: Basic dXNlcjpzM2NyZXQ=", "dXNlcjpzM2NyZXQ="],
+    ["a lone Basic credential", "sent basic dXNlcjpzM2NyZXQ= upstream", "dXNlcjpzM2NyZXQ="],
+    ["a cookie header", "cookie: session=abcSECRET; theme=dark", "abcSECRET"],
+    ["a cookie pair", "cookie=session=abcSECRET", "abcSECRET"],
+    ["a set-cookie header", "Set-Cookie: sid=abcSECRET; Path=/", "abcSECRET"],
+    ["a quoted authorization field", "{\"authorization\":\"Token abcSECRET\"}", "abcSECRET"],
+    ["URL userinfo", "GET https://user:hunter2@api.example.com/v1 failed", "hunter2"],
+    ["a key query parameter", "GET https://api.example.com/v1?key=sk-live-SECRET failed", "sk-live-SECRET"],
+    ["a signature query parameter", "GET https://b.example.com/o?X-Amz-Signature=abcSECRET&x=1", "abcSECRET"],
+    ["a credential pair", "credential=abcSECRET", "abcSECRET"],
+    ["a private key pair", "private_key: abcSECRET", "abcSECRET"]
+  ] as const
+
+  for (const [name, message, leaked] of spellings) {
+    effect(`redacts ${name}`, () =>
+      Effect.gen(function*() {
+        const { exit, proxyLines } = yield* callOverRpc(() => Effect.die(new Error(message)))
+
+        const refusal = defectOf(exit) as FlowProxyServer.FlowHandlerDefect
+        expect(refusal).toBeInstanceOf(FlowProxyServer.FlowHandlerDefect)
+        expect(refusal.diagnostic).toContain("[REDACTED]")
+        expect(refusal.diagnostic).not.toContain(leaked)
+        expect(wireForm(refusal)).not.toContain(leaked)
+        for (const line of proxyLines) {
+          expect(render(line.message)).not.toContain(leaked)
+        }
+      }))
+  }
+})
