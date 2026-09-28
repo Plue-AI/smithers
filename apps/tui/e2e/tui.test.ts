@@ -707,9 +707,9 @@ describe("turns", () => {
   }, 30_000)
 
   it.each([40, 110])(
-    "replays a whole coding turn at %i columns: cells stream, flows run, the answer lands",
+    "replays a whole recorded turn at %i columns: cells stream, flows run, the answer lands",
     async (cols) => {
-      const started = await start({ cols, cwd: repository({ git: true }), replay: codingReplay() })
+      const started = await start({ cols, cwd: repository({ git: true }) })
       const { tui, cwd } = started
       await tui.type("node check.mjs fails. Fix it and show it passes.")
       await tui.press(key.enter)
@@ -1322,7 +1322,7 @@ describe("runtime views", () => {
   it(
     "navigates summary rows with hjkl/arrows, expands code, toggles the real diff, and returns focus to chat",
     async () => {
-      const started = await start({ cwd: repository({ git: true }), replay: codingReplay() })
+      const started = await start({ cwd: repository({ git: true }) })
       const { tui } = started
       await tui.type("node check.mjs fails. Fix it and show it passes.")
       await tui.press(key.enter)
@@ -1358,9 +1358,9 @@ describe("runtime views", () => {
     180_000
   )
 
-  /** Runs the coding turn in a git repository and selects the `Updated math.js` row in the Summary. */
+  /** Runs the recorded turn in a git repository and selects the `Updated math.js` row in the Summary. */
   const editRow = async (options: { readonly sessions?: string } = {}) => {
-    const started = await start({ cwd: repository({ git: true }), replay: codingReplay(), ...options })
+    const started = await start({ cwd: repository({ git: true }), ...options })
     await started.tui.type("node check.mjs fails. Fix it and show it passes.")
     await started.tui.press(key.enter)
     await successfulAnswer(started)
