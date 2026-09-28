@@ -26,6 +26,11 @@
  * cannot map and a self-import as unpinnable. What is left resolves into
  * installed packages and is not measured.
  *
+ * THE PIN IS NOT A SANDBOX. It covers the loads this scan can read. A module
+ * that hides a load behind `eval`, `new Function`, or a member access whose
+ * name is computed at run time loads a file the pin does not measure; the
+ * hiding code is itself in the digested source an approver reviews.
+ *
  * TYPE-ONLY IMPORTS ARE PINNED TOO. `import type ... from "./x.ts"` is erased
  * before anything runs, so pinning it is conservative rather than necessary. It
  * costs an approval when a types-only sibling changes and saves deciding, per
@@ -127,6 +132,15 @@ export const specifiersOf = (source: string): {
   }
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!
+    // `host["require"]` reaches the loader through a computed member access
+    // that names it with a literal, which is a loader under another spelling.
+    if (token.kind === "string") {
+      const literal = stringLiteral(token.value)
+      if (
+        (literal === "require" || literal === "createRequire") &&
+        tokens[index - 1]?.value === "[" && tokens[index + 1]?.value === "]"
+      ) opaque++
+    }
     if (token.kind !== "identifier") continue
     // `createRequire` in any position: `createRequire(...)`, and the renames
     // `import { createRequire as load }` and `const load = createRequire`
@@ -137,14 +151,19 @@ export const specifiersOf = (source: string): {
     }
     // `require` used as a value — `const load = require`, `[require][0]`,
     // `fn(require)` — is a loader under another name. `require.resolve`
-    // names a path without loading it, and an object key `{ require: … }` is
-    // not the binding.
+    // names a path without loading it, an object key `{ require: … }` is
+    // not the binding, and neither is a property of an ordinary object
+    // (`opts.require = true`). A property of a host object that carries the
+    // loader (`import.meta.require`, `module.require`, `globalThis.require`)
+    // is still the loader.
     if (token.value === "require" && tokens[index + 1]?.value !== "(") {
       const next = tokens[index + 1]?.value
       const previous = tokens[index - 1]?.value
       const resolveOnly = next === "." && tokens[index + 2]?.value === "resolve"
       const objectKey = next === ":" && (previous === "{" || previous === ",")
-      if (!resolveOnly && !objectKey) opaque++
+      const owner = tokens[index - (tokens[index - 2]?.value === "?" ? 3 : 2)]?.value
+      const ordinaryProperty = previous === "." && owner !== undefined && !loaderHosts.has(owner)
+      if (!resolveOnly && !objectKey && !ordinaryProperty) opaque++
       continue
     }
     if ((token.value === "import" || token.value === "require") && tokens[index + 1]?.value === "(") {
@@ -173,6 +192,13 @@ export const specifiersOf = (source: string): {
   }
   return { relative, opaque, absolute, bare }
 }
+
+/**
+ * The objects whose `require` property is the module loader: `import.meta`
+ * (read as its last segment, `meta`), CommonJS `module`, and the global object
+ * under each of its names. A `require` property of any other object is data.
+ */
+const loaderHosts: ReadonlySet<string> = new Set(["meta", "module", "globalThis", "global", "self", "window"])
 
 /** A specifier naming a file by absolute path or URL rather than beside the importer. */
 const isAbsoluteSpecifier = (specifier: string): boolean =>

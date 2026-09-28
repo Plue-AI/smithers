@@ -227,6 +227,12 @@ specifier, a `#` specifier with no relative `imports` target, a self-import of
 the flow's own package through `exports`, or a closure past its bound. Its `path` then carries that reason instead of a
 location, and `Executable.fromDescriptor` refuses to run such a module.
 
+The pin covers the loads a static scan of the source can read. It is not a
+sandbox: a module that hides a load from the scan, for example behind
+`eval`, `new Function`, or a member access whose name is computed at run time,
+loads a file the pin does not measure. That hiding code is itself in the
+digested source the approver reviews.
+
 ### Descriptor.FlowBody, FlowBodyPrompt, FlowBodyModule
 
 ```ts

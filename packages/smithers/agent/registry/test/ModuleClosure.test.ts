@@ -141,6 +141,25 @@ describe("the specifiers a module states", () => {
     expect(ModuleClosure.specifiersOf(`const requireAuth = 1`).opaque).toBe(0)
   })
 
+  it("does not count an ordinary property named require as a loader", () => {
+    expect(ModuleClosure.specifiersOf(`opts.require = true`).opaque).toBe(0)
+    expect(ModuleClosure.specifiersOf(`const y = cfg.require`).opaque).toBe(0)
+    expect(ModuleClosure.specifiersOf(`const y = cfg?.require`).opaque).toBe(0)
+    // The loader reached as a property of a host object is still a loader.
+    const loaders = [
+      `const r = module.require\nr("./impl.ts")`,
+      `const r = globalThis.require\nr("./impl.ts")`,
+      `const r = global.require\nr("./impl.ts")`,
+      `const r = self.require\nr("./impl.ts")`,
+      `const r = window.require\nr("./impl.ts")`,
+      `globalThis["require"]("./impl.ts")`,
+      `const r = globalThis['require']\nr("./impl.ts")`
+    ]
+    for (const source of loaders) {
+      expect(ModuleClosure.specifiersOf(source).opaque, source).toBeGreaterThan(0)
+    }
+  })
+
   it("lists every other literal specifier as bare, except node: and bun: builtins", () => {
     const found = ModuleClosure.specifiersOf(
       [
