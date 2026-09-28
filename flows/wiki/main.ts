@@ -99,6 +99,7 @@ if (values.help) {
         ...new Set([
           root,
           ...sourceFiles.map((file) => resolve(root, file)),
+          ...(incremental?.policySources.map((file) => resolve(root, file)) ?? []),
           output,
           `${output}/**`,
           resolve(output, "..")
