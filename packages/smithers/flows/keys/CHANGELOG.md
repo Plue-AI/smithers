@@ -1,5 +1,15 @@
 # @smthrs/keys
 
+## [Unreleased]
+
+### Security
+
+- `KeyDerivationError.cause` is no longer a schema field. It stays available
+  in process as a non-enumerable property, so schema encoding and
+  `JSON.stringify` now yield only `_tag`, `code`, and `message` and no longer
+  carry a throwing getter's message or a property path. `Cause.pretty` still
+  renders the in-process `cause` chain.
+
 ## [1.0.0-rc.0] - 2026-08-31
 
 ### Added

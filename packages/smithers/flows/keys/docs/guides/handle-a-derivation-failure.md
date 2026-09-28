@@ -65,6 +65,13 @@ property names and getter messages of that material are safe in your logs. The
 values themselves are not retained: no schema issue keeps the rejected input,
 because the derivation pins input reporting off.
 
+`cause` never leaves the process through the error's schema. It is a
+non-enumerable runtime property rather than a schema field, so encoding a
+`KeyDerivationError` for a journal or an API response, or passing it to
+`JSON.stringify`, yields only `_tag`, `code`, and `message`.
+`Cause.pretty` still renders the in-process `cause` chain, including a
+getter's message, so treat its output as in-process diagnostics.
+
 ## A missing Crypto service is not this error
 
 If no `Crypto` service is provided, the effect dies rather than failing:

@@ -163,8 +163,13 @@ const payload = digest(Schema.decodeUnknownSync(StoredKey)(persistedText))
 ```ts
 class KeyDerivationError extends Schema.TaggedError<KeyDerivationError>()(
   "@smthrs/keys/KeyDerivationError",
-  { code: KeyDerivationErrorCode, message: Schema.String, cause: Schema.Unknown }
-) {}
+  { code: KeyDerivationErrorCode, message: Schema.String }
+) {
+  constructor(
+    props: { readonly code: KeyDerivationErrorCode; readonly message: string; readonly cause?: unknown },
+    options?: Schema.MakeOptions
+  )
+}
 ```
 
 The only failure `deriveKey` reports.
@@ -173,9 +178,11 @@ The only failure `deriveKey` reports.
 - `message`: one of two fixed sentences,
   `Key input could not be canonicalized` or
   `Canonical key material could not be hashed`. It never contains the input.
-- `cause`: the original schema or crypto failure, retained for diagnostics. A
-  canonicalization cause names the JSON path of the offending value, which
-  includes object property names. See
+- `cause`: the original schema or crypto failure, retained in process for
+  diagnostics. A canonicalization cause names the JSON path of the offending
+  value, which includes object property names. `cause` is a non-enumerable
+  runtime property, not a schema field: encoding the error, including through
+  `Schema.toCodecJson`, carries only `_tag`, `code`, and `message`. See
   [Handle a derivation failure](/guides/handle-a-derivation-failure/).
 
 ### KeyDerivationErrorCode

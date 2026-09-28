@@ -112,6 +112,26 @@ describe("key derivation", () => {
     })
   })
 
+  it("keeps the diagnostic cause out of every serialized form", () => {
+    const material = {
+      get credentials(): string {
+        throw new Error("password=hunter2")
+      }
+    }
+    const error = Effect.runSync(Effect.flip(provideCrypto(Keys.deriveKey(material))))
+    expect(String(error.cause)).toContain("password=hunter2")
+    const encoded = Schema.encodeUnknownSync(Keys.KeyDerivationError)(error)
+    const json = Schema.encodeUnknownSync(Schema.toCodecJson(Keys.KeyDerivationError))(error)
+    for (const form of [encoded, json, error]) {
+      expect(JSON.stringify(form)).not.toContain("hunter2")
+    }
+    expect(json).toEqual({
+      _tag: "@smthrs/keys/KeyDerivationError",
+      code: "canonicalization_failed",
+      message: "Key input could not be canonicalized"
+    })
+  })
+
   it("returns a typed digest failure with the crypto cause chain", () => {
     const error = Effect.runSync(Effect.flip(
       Effect.provide(Keys.deriveKey({ operation: "compile" }), failingCrypto)
@@ -259,6 +279,11 @@ describe("key derivation", () => {
 
     it("collapses an undefined array element into null", () => {
       expect(derive([undefined])).toBe(derive([null]))
+    })
+
+    it("omits function- and symbol-valued members, as JSON does", () => {
+      expect(derive({ a: 1, f: () => 1 })).toBe(derive({ a: 1 }))
+      expect(derive({ a: 1, s: Symbol("s") })).toBe(derive({ a: 1 }))
     })
   })
 
