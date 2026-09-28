@@ -216,12 +216,19 @@ describe("RunDriver missing and foreign rows", () => {
       expect(result.row.status).toBe("pending")
     }))
 
-  const orphanedClaim = (runId: string, claimAgeMs: number, alive: boolean) =>
+  const orphanedClaim = (
+    runId: string,
+    claimAgeMs: number,
+    alive: boolean,
+    wrap: (store: RunStore.RunStore["Service"]) => RunStore.RunStore["Service"] = (store) => store
+  ) =>
     Effect.gen(function*() {
       let executions = 0
       const result = yield* withCrypto(provideJournal(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
-        const driver = yield* makeDriver(() => Effect.succeed(alive))
+        const driver = yield* makeDriver(() => Effect.succeed(alive)).pipe(
+          Effect.provideService(RunStore.RunStore, wrap(store))
+        )
         yield* store.create(runId, stateJson(EdgeFlow._tag))
         // A process that crashed between `claim` and `activate`.
         const claimedAtMs = yield* Clock.currentTimeMillis
@@ -268,7 +275,30 @@ describe("RunDriver missing and foreign rows", () => {
         expect(result.row.status).toBe("pending")
         expect(result.row.claim).toEqual(result.crashed)
         expect(result.decisions.map((entry) => entry.decision)).toContain("claim-lost")
+        expect(result.decisions.filter((entry) => entry.recoveredClaim !== undefined)).toEqual([])
       }
+    }))
+
+  it.effect("does not report a recovery that a racing process performed", () =>
+    Effect.gen(function*() {
+      const rival: Ownership.OwnerId = { hostId: owner.hostId, pid: 9, nonce: "rival" }
+      const outcomes: Array<RunStore.RecoverClaimOutcome["_tag"]> = []
+      const result = yield* orphanedClaim("raced-recovery", 31_000, false, (base) =>
+        RunStore.makeNoop({
+          ...base,
+          // Another process clears the same stale claim first, so the
+          // driver's own recovery finds nothing left to clear.
+          recoverClaim: (runId, staleClaimant, claimedAtMs, observer, nowMs, evidence) =>
+            base.recoverClaim(runId, staleClaimant, claimedAtMs, rival, nowMs, evidence).pipe(
+              Effect.andThen(base.recoverClaim(runId, staleClaimant, claimedAtMs, observer, nowMs, evidence)),
+              Effect.tap((outcome) => Effect.sync(() => outcomes.push(outcome._tag)))
+            )
+        }))
+      expect(outcomes).toEqual(["ClaimChanged"])
+      expect(result.executions).toBe(1)
+      expect(result.row.status).toBe("completed")
+      expect(result.decisions.map((entry) => entry.decision)).toContain("claimed-and-activated")
+      expect(result.decisions.filter((entry) => entry.recoveredClaim !== undefined)).toEqual([])
     }))
 
   it.effect("stops before executing when the post-activation running transition loses its fence", () =>
