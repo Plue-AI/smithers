@@ -32,6 +32,30 @@ const invalid = <A>(effect: Effect.Effect<A, RunStoreLive.RunStoreError>) =>
   Effect.map(Effect.flip(effect), (failure) => failure.code)
 
 describe("RunStore inert input boundary", () => {
+  it.effect("contains late descriptor failures and accepts stable descriptor-only owners", () =>
+    migrated(Effect.gen(function*() {
+      const store = yield* RunStore
+      const owner = { ...ownerA }
+      let reads = 0
+      const changing = new Proxy(owner, {
+        getOwnPropertyDescriptor(target, key) {
+          if (key === "hostId" && ++reads === 2) throw new Error("descriptor-probe-marker")
+          return Reflect.getOwnPropertyDescriptor(target, key)
+        }
+      })
+      expect(yield* store.heartbeat("missing", changing, 0)).toEqual({ _tag: "NotFound" })
+      expect(yield* invalid(store.heartbeat("missing", changing, 0))).toBe("invalid_run")
+      expect(reads).toBe(2)
+
+      const stable = new Proxy(owner, {
+        get: () => {
+          throw new Error("ordinary property access must not occur")
+        },
+        getOwnPropertyDescriptor: Reflect.getOwnPropertyDescriptor
+      })
+      expect(yield* store.heartbeat("missing", stable, 0)).toEqual({ _tag: "NotFound" })
+    })))
+
   it.effect("rejects hostile owner records without invoking accessors or traps", () =>
     migrated(Effect.gen(function*() {
       const store = yield* RunStore

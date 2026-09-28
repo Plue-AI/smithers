@@ -637,38 +637,36 @@ const validOwner = (value: unknown): value is OwnerId =>
 /** Caller timestamps are SQLite-safe, non-negative integer millisecond readings. */
 const validTimestamp = (value: number): boolean => Number.isSafeInteger(value) && value >= 0
 
-const ownData = (input: object, key: string): unknown => {
-  const descriptor = Object.getOwnPropertyDescriptor(input, key)
-  return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
-    ? descriptor.value
-    : undefined
-}
-
-const inertRecord = (input: unknown, allowed: ReadonlySet<string>): input is object => {
-  if (typeof input !== "object" || input === null) return false
+const inertRecord = (input: unknown, allowed?: ReadonlySet<string>): Record<string, unknown> | undefined => {
+  if (typeof input !== "object" || input === null) return undefined
   try {
     const prototype = Object.getPrototypeOf(input)
-    if (prototype !== Object.prototype && prototype !== null) return false
+    if (prototype !== Object.prototype && prototype !== null) return undefined
+    const fields: Record<string, unknown> = Object.create(null)
     for (const key of Reflect.ownKeys(input)) {
       const descriptor = Object.getOwnPropertyDescriptor(input, key)
       if (descriptor === undefined || !descriptor.enumerable) continue
-      if (typeof key !== "string" || !allowed.has(key) || !("value" in descriptor)) return false
+      if (!("value" in descriptor) || (allowed !== undefined && (typeof key !== "string" || !allowed.has(key)))) {
+        return undefined
+      }
+      if (typeof key === "string") fields[key] = descriptor.value
     }
-    return true
+    return fields
   } catch {
-    return false
+    return undefined
   }
 }
 
 const snapshotOwner = (method: string, field: string, input: unknown): Effect.Effect<OwnerId, RunStoreError> =>
   Effect.suspend(() => {
-    if (!inertRecord(input, new Set(["hostId", "pid", "nonce"]))) {
+    const fields = inertRecord(input, new Set(["hostId", "pid", "nonce"]))
+    if (fields === undefined) {
       return Effect.fail(invalidRunError(method, field, "must be an inert owner record"))
     }
     const owner = Object.freeze({
-      hostId: ownData(input, "hostId"),
-      pid: ownData(input, "pid"),
-      nonce: ownData(input, "nonce")
+      hostId: fields.hostId,
+      pid: fields.pid,
+      nonce: fields.nonce
     })
     return validOwner(owner)
       ? Effect.succeed(owner)
@@ -749,12 +747,13 @@ const snapshotCreateOptions = (
 > =>
   Effect.suspend(() => {
     const value = input ?? {}
-    if (!inertRecord(value, new Set(["parentRunId", "lineageId", "roundOrdinal"]))) {
+    const fields = inertRecord(value, new Set(["parentRunId", "lineageId", "roundOrdinal"]))
+    if (fields === undefined) {
       return Effect.fail(invalidRunError("create", "options", "must be an inert data record"))
     }
-    const rawParent = ownData(value, "parentRunId")
-    const rawLineage = ownData(value, "lineageId")
-    const rawRound = ownData(value, "roundOrdinal")
+    const rawParent = fields.parentRunId
+    const rawLineage = fields.lineageId
+    const rawRound = fields.roundOrdinal
     const parentRunId = rawParent === undefined ? null : rawParent
     const lineageId = rawLineage === undefined ? null : rawLineage
     const roundOrdinal = rawRound === undefined ? null : rawRound
@@ -778,25 +777,11 @@ const snapshotCreateOptions = (
  * extends `RunSnapshot`, so a row from `get` must pass wherever an expected
  * snapshot is typed: extra own data fields are ignored, while a non-plain
  * prototype, any enumerable accessor, or a missing or inherited required field
- * is still refused. Only the required fields are read, and only as own data.
+ * is still refused. The required fields come from one guarded own-descriptor snapshot.
  */
-const inertFields = (input: unknown, required: ReadonlyArray<string>): input is object => {
-  if (typeof input !== "object" || input === null) return false
-  try {
-    const prototype = Object.getPrototypeOf(input)
-    if (prototype !== Object.prototype && prototype !== null) return false
-    for (const key of Reflect.ownKeys(input)) {
-      const descriptor = Object.getOwnPropertyDescriptor(input, key)
-      if (descriptor !== undefined && descriptor.enumerable && !("value" in descriptor)) return false
-    }
-    for (const key of required) {
-      const descriptor = Object.getOwnPropertyDescriptor(input, key)
-      if (descriptor === undefined || !descriptor.enumerable) return false
-    }
-    return true
-  } catch {
-    return false
-  }
+const inertFields = (input: unknown, required: ReadonlyArray<string>): Record<string, unknown> | undefined => {
+  const fields = inertRecord(input)
+  return fields !== undefined && required.every((key) => Object.hasOwn(fields, key)) ? fields : undefined
 }
 
 // Admission ties ownership to status; internal consumers never see the
@@ -818,12 +803,13 @@ const snapshotExpected = (
   input: unknown
 ): Effect.Effect<AdmittedSnapshot, RunStoreError> =>
   Effect.gen(function*() {
-    if (!inertFields(input, ["status", "owner", "heartbeatAtMs"])) {
+    const fields = inertFields(input, ["status", "owner", "heartbeatAtMs"])
+    if (fields === undefined) {
       return yield* Effect.fail(invalidRunError(method, "expected", "must be an inert snapshot record"))
     }
-    const status = ownData(input, "status")
-    const rawOwner = ownData(input, "owner")
-    const heartbeatAtMs = ownData(input, "heartbeatAtMs")
+    const status = fields.status
+    const rawOwner = fields.owner
+    const heartbeatAtMs = fields.heartbeatAtMs
     if (
       !Schema.is(RunStatus)(status) ||
       (heartbeatAtMs !== null && (typeof heartbeatAtMs !== "number" || !validTimestamp(heartbeatAtMs)))
@@ -849,12 +835,13 @@ const snapshotEvidence = (
   input: unknown
 ): Effect.Effect<LivenessEvidence, RunStoreError> =>
   Effect.gen(function*() {
-    if (!inertRecord(input, new Set(["expectedOwner", "checkedAtMs", "kind"]))) {
+    const fields = inertRecord(input, new Set(["expectedOwner", "checkedAtMs", "kind"]))
+    if (fields === undefined) {
       return yield* Effect.fail(invalidRunError(method, "evidence", "must be an inert evidence record"))
     }
-    const expectedOwner = yield* snapshotOwner(method, "evidence.expectedOwner", ownData(input, "expectedOwner"))
-    const checkedAtMs = yield* snapshotTimestamp(method, "evidence.checkedAtMs", ownData(input, "checkedAtMs"))
-    const kind = ownData(input, "kind")
+    const expectedOwner = yield* snapshotOwner(method, "evidence.expectedOwner", fields.expectedOwner)
+    const checkedAtMs = yield* snapshotTimestamp(method, "evidence.checkedAtMs", fields.checkedAtMs)
+    const kind = fields.kind
     if (
       kind !== "same-host-pid-dead" &&
       kind !== "cross-host-unreachable-stale" &&
@@ -868,10 +855,11 @@ const snapshotGuard = (
 ): Effect.Effect<TransitionGuard | undefined, RunStoreError> =>
   Effect.suspend(() => {
     if (input === undefined) return Effect.succeed(undefined)
-    if (!inertRecord(input, new Set(["cancelRequested"]))) {
+    const fields = inertRecord(input, new Set(["cancelRequested"]))
+    if (fields === undefined) {
       return Effect.fail(invalidRunError("transitionOwned", "guard", "must be an inert exact guard"))
     }
-    const cancelRequested = ownData(input, "cancelRequested")
+    const cancelRequested = fields.cancelRequested
     if (cancelRequested !== undefined && cancelRequested !== "absent" && cancelRequested !== "present") {
       return Effect.fail(invalidRunError("transitionOwned", "guard.cancelRequested"))
     }
