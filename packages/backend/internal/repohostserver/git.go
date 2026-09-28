@@ -119,9 +119,17 @@ func hiddenRefs(viewer int64) []string {
 // receive.maxInputSize is enforced by git before publishing refs, including
 // identity-encoded streams that bypass the gzip decoder's cap. Both services
 // hide the same refs, so a mirror clone pushes back only refs it can see.
-func gitServiceEnv(command string, maxInputSize, viewer int64) []string {
+// advertise enables the reachable-SHA capability for upload-pack discovery only.
+func gitServiceEnv(command string, maxInputSize, viewer int64, advertise bool) []string {
 	section := "uploadpack"
 	var config []string
+	if command == "upload-pack" && advertise {
+		// Let v0 clients request a pinned commit after its branch advances.
+		// Only advertise this capability: stateless upload-pack already accepts
+		// ancestors of visible refs. Enabling it on the RPC would also accept
+		// ancestors of hidden refs (jj pins and other users' private refs).
+		config = append(config, "uploadpack.allowReachableSHA1InWant", "true")
+	}
 	if command == "receive-pack" {
 		section = "receive"
 		config = append(config, "receive.maxInputSize", strconv.FormatInt(maxInputSize, 10))
@@ -129,7 +137,9 @@ func gitServiceEnv(command string, maxInputSize, viewer int64) []string {
 	for _, ref := range hiddenRefs(viewer) {
 		config = append(config, section+".hideRefs", ref)
 	}
-	env := append(os.Environ(), "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)/2))
+	// v2 accepts existing objects without the v0 visible-ref reachability
+	// check. Do not let an inherited process environment opt out of it.
+	env := append(os.Environ(), "GIT_PROTOCOL=version=0", "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)/2))
 	for i := 0; i < len(config); i += 2 {
 		env = append(env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i/2, config[i]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i/2, config[i+1]))
 	}
@@ -148,7 +158,7 @@ func streamGitRPC(ctx context.Context, gitDir, command string, body io.Reader, d
 func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Reader, dst io.Writer, maxInputSize, viewer int64) error {
 	args := []string{command, "--stateless-rpc", gitDir}
 	cmd := streamGitCommandContext(ctx, "git", args...)
-	cmd.Env = gitServiceEnv(command, maxInputSize, viewer)
+	cmd.Env = gitServiceEnv(command, maxInputSize, viewer, false)
 
 	// exec copies the body into git's stdin and Wait owns that pipe, so a git
 	// that exits before the body ends is not a failure (#2266). A push past

@@ -508,7 +508,7 @@ func (s *Server) stagedProvisionInfoRefs(w http.ResponseWriter, r *http.Request)
 	cmdCtx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, "git", "receive-pack", "--stateless-rpc", "--advertise-refs", gitDir)
-	cmd.Env = gitServiceEnv("receive-pack", maxDecompressedGitRequestSize, 0)
+	cmd.Env = gitServiceEnv("receive-pack", maxDecompressedGitRequestSize, 0, true)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()

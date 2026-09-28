@@ -811,7 +811,7 @@ func (s *Server) infoRefs(w http.ResponseWriter, r *http.Request) error {
 	cmdCtx, cancelCmd := context.WithCancel(r.Context())
 	defer cancelCmd()
 	cmd := exec.CommandContext(cmdCtx, "git", gitCommand, "--stateless-rpc", "--advertise-refs", gitDir)
-	cmd.Env = gitServiceEnv(gitCommand, maxDecompressedGitRequestSize, refViewer(r))
+	cmd.Env = gitServiceEnv(gitCommand, maxDecompressedGitRequestSize, refViewer(r), true)
 	var refStderr bytes.Buffer
 	cmd.Stderr = &refStderr
 	stdout, err := cmd.StdoutPipe()
