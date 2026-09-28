@@ -120,6 +120,8 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 			action = "decide an approval"
 		case "Cancel", "Signal", "Resume", "Steer":
 			action = "control a run"
+		case "Plan", "Run":
+			action = "start a run"
 		}
 		if action != "" {
 			if err := middleware.RequirePerson(r.Context(), action); err != nil {
