@@ -762,6 +762,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithTokenCreator(authService),
 		services.WithAdminAuditor(auditService),
 		services.WithAccountErasure(services.AccountErasure{Pool: pool, Repos: repoService, Workspaces: workspaceService}),
+		services.WithAccountExport(services.AccountExport{Pool: pool, Git: repoHostClient}),
 	)
 
 	// Golden sandbox snapshot: the pre-baked toolchain image fresh

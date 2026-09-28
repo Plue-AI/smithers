@@ -1912,6 +1912,7 @@ func buildRouter(
 					r.With(writeAdmin...).Post("/users", adminUserHandler.CreateUser)
 					r.With(writeAdmin...).Delete("/users/{username}", adminUserHandler.DeleteUser)
 					r.With(writeAdmin...).Post("/users/{username}/erase", adminUserHandler.EraseUser)
+					r.With(writeAdmin...).Post("/users/{username}/export", adminUserHandler.ExportUser)
 					r.With(writeAdmin...).Patch("/users/{username}", adminUserHandler.PatchUser)
 					r.With(writeAdmin...).Patch("/users/{username}/admin", adminUserHandler.PatchUserAdmin)
 					r.With(writeAdmin...).Post("/users/{username}/tokens", adminUserHandler.PostUserToken)

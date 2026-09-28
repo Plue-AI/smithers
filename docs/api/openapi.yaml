@@ -13889,7 +13889,7 @@ paths:
   /api/admin/users/{username}/erase:
     post:
       summary: POST /api/admin/users/{username}/erase
-      description: Erases the user's owned data and replaces the account with a tombstone identity. Keeps billing, credit-ledger and tax records. Repeating the erase changes nothing and succeeds. Each call writes an admin.user.erase audit event.
+      description: Erases the user's owned data, including stored workspace snapshots, and replaces the account with a tombstone identity. Keeps billing, credit-ledger and tax records with the name and email removed. Repeating the erase changes nothing and succeeds; a username registered after the request date resolves to the earlier tombstone, and a live account created after it is refused with 409. An admin.user.erase_started event is written before any teardown and an admin.user.erase event with the result.
       operationId: post_api_admin_users_username_erase
       tags:
         - Admin
@@ -13948,6 +13948,43 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/admin/users/{username}/export:
+    post:
+      summary: POST /api/admin/users/{username}/export
+      description: Returns the account's data as a gzip-compressed tar archive, built in full before the response starts. The archive holds profile.json, repositories.json, one cloneable git bundle per owned repository under repositories/, issues.json, comments.json, landing_requests.json, runs.json, and manifest.json listing every other file with its size, SHA-256 and record count. Each export writes an admin.user.export audit event.
+      operationId: post_api_admin_users_username_export
+      tags:
+        - Admin
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The export archive
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':

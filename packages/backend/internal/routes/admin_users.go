@@ -2,7 +2,10 @@ package routes
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +27,7 @@ type AdminUserRouteService interface {
 	SetSuspended(ctx context.Context, username string, suspended bool) (services.UserProfile, error)
 	RevokeToken(ctx context.Context, username string, tokenID int64) error
 	EraseUser(ctx context.Context, username string, req services.EraseUserRequest) (services.EraseUserResult, error)
+	ExportUser(ctx context.Context, username string, w io.Writer) (services.AccountExportManifest, error)
 }
 
 type AdminUserHandler struct {
@@ -131,6 +135,42 @@ func (h *AdminUserHandler) EraseUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
+}
+
+// ExportUser answers POST /api/admin/users/{username}/export with the
+// account's archive. The archive is staged in full first, so a failure is an
+// error response and never a truncated download.
+func (h *AdminUserHandler) ExportUser(w http.ResponseWriter, r *http.Request) {
+	username := strings.TrimSpace(chi.URLParam(r, "username"))
+	if username == "" {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("username is required"))
+		return
+	}
+	staged, err := os.CreateTemp("", "account-export-*.tar.gz")
+	if err != nil {
+		writeRouteError(w, r, pkgerrors.Internal("failed to stage export").WithCause(err))
+		return
+	}
+	defer os.Remove(staged.Name())
+	defer staged.Close()
+	manifest, err := h.Service.ExportUser(adminUserAuditContext(r), username, staged)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	size, err := staged.Seek(0, io.SeekEnd)
+	if err == nil {
+		_, err = staged.Seek(0, io.SeekStart)
+	}
+	if err != nil {
+		writeRouteError(w, r, pkgerrors.Internal("failed to read export").WithCause(err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", manifest.Username+"-export.tar.gz"))
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, staged)
 }
 
 type patchUserAdminRequest struct {

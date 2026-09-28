@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,6 +29,14 @@ type mockAdminUserService struct {
 	setSuspendedFn       func(ctx context.Context, username string, suspended bool) (services.UserProfile, error)
 	revokeTokenFn        func(ctx context.Context, username string, tokenID int64) error
 	eraseUserFn          func(ctx context.Context, username string, req services.EraseUserRequest) (services.EraseUserResult, error)
+	exportUserFn         func(ctx context.Context, username string, w io.Writer) (services.AccountExportManifest, error)
+}
+
+func (m *mockAdminUserService) ExportUser(ctx context.Context, username string, w io.Writer) (services.AccountExportManifest, error) {
+	if m.exportUserFn != nil {
+		return m.exportUserFn(ctx, username, w)
+	}
+	return services.AccountExportManifest{}, nil
 }
 
 func (m *mockAdminUserService) EraseUser(ctx context.Context, username string, req services.EraseUserRequest) (services.EraseUserResult, error) {
@@ -879,5 +888,60 @@ func TestAdminUserHandler_DeleteUserToken(t *testing.T) {
 		h.DeleteUserToken(rec, req)
 
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+}
+
+func TestAdminUserHandler_ExportUser(t *testing.T) {
+	t.Parallel()
+
+	export := func(t *testing.T, svc *mockAdminUserService, username string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/u/export", nil)
+		req = withURLParamAdminUser(withAdminContext(req), username)
+		rec := httptest.NewRecorder()
+		(&AdminUserHandler{Service: svc}).ExportUser(rec, req)
+		return rec
+	}
+
+	t.Run("streams the archive after it is complete", func(t *testing.T) {
+		t.Parallel()
+		rec := export(t, &mockAdminUserService{exportUserFn: func(ctx context.Context, username string, w io.Writer) (services.AccountExportManifest, error) {
+			actor, ok := services.AdminAuditActorFromContext(ctx)
+			require.True(t, ok)
+			assert.Equal(t, "admin-user", actor.Username)
+			assert.Equal(t, "target", username)
+			_, err := io.WriteString(w, "archive-bytes")
+			return services.AccountExportManifest{Username: "target"}, err
+		}}, "target")
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "application/gzip", rec.Header().Get("Content-Type"))
+		assert.Equal(t, `attachment; filename="target-export.tar.gz"`, rec.Header().Get("Content-Disposition"))
+		assert.Equal(t, "13", rec.Header().Get("Content-Length"))
+		assert.Equal(t, "archive-bytes", rec.Body.String())
+	})
+
+	t.Run("a failure mid-archive is an error, never a partial download", func(t *testing.T) {
+		t.Parallel()
+		rec := export(t, &mockAdminUserService{exportUserFn: func(_ context.Context, _ string, w io.Writer) (services.AccountExportManifest, error) {
+			_, _ = io.WriteString(w, "partial")
+			return services.AccountExportManifest{}, pkgerrors.Internal("failed to bundle target/repo")
+		}}, "target")
+		require.Equal(t, http.StatusInternalServerError, rec.Code)
+		assert.NotContains(t, rec.Body.String(), "partial")
+		assert.Contains(t, rec.Header().Get("Content-Type"), "application/json")
+	})
+
+	t.Run("unknown user", func(t *testing.T) {
+		t.Parallel()
+		rec := export(t, &mockAdminUserService{exportUserFn: func(context.Context, string, io.Writer) (services.AccountExportManifest, error) {
+			return services.AccountExportManifest{}, pkgerrors.NotFound("user not found")
+		}}, "ghost")
+		require.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("blank username", func(t *testing.T) {
+		t.Parallel()
+		rec := export(t, &mockAdminUserService{}, " ")
+		require.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }

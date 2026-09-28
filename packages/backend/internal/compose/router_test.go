@@ -402,6 +402,11 @@ func (m *mockAdminUserRouteService) EraseUser(ctx context.Context, username stri
 	return services.EraseUserResult{Tombstone: "erased-" + username}, nil
 }
 
+func (m *mockAdminUserRouteService) ExportUser(ctx context.Context, username string, w io.Writer) (services.AccountExportManifest, error) {
+	_, err := io.WriteString(w, "archive")
+	return services.AccountExportManifest{Username: username}, err
+}
+
 // testConfigAllFlagsOn returns a Config with every FeatureFlags gate
 // enabled, so cmd/server tests can exercise the entire route surface.
 // Production defaults (most non-MVP flags off) are covered by the

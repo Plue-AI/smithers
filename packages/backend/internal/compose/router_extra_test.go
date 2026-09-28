@@ -145,6 +145,19 @@ func TestServerRouter_AdminScopeEnforcement(t *testing.T) {
 	allowRec := httptest.NewRecorder()
 	router.ServeHTTP(allowRec, allowReq)
 	assert.Equal(t, http.StatusOK, allowRec.Code)
+
+	// Exporting an account reads its private data: write:admin only, and the
+	// bodyless POST passes the JSON content-type gate.
+	for scope, want := range map[middleware.TokenScope]int{middleware.ScopeReadAdmin: http.StatusForbidden, middleware.ScopeWriteAdmin: http.StatusOK} {
+		exportReq := withRouterAdminTokenAuth(httptest.NewRequest(http.MethodPost, "/api/admin/users/alice/export", nil), true, middleware.TokenSourcePersonalAccessToken, scope)
+		exportRec := httptest.NewRecorder()
+		router.ServeHTTP(exportRec, exportReq)
+		assert.Equal(t, want, exportRec.Code, string(scope))
+		if want == http.StatusOK {
+			assert.Equal(t, "application/gzip", exportRec.Header().Get("Content-Type"))
+			assert.Equal(t, "archive", exportRec.Body.String())
+		}
+	}
 }
 
 func TestServerRouter_SelfhostDoesNotMountAdminUserProvisioning(t *testing.T) {
