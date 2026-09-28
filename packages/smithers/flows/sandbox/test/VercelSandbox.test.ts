@@ -280,6 +280,16 @@ describe("VercelSandbox", () => {
       expect("networkPolicy" in recorded.acquired[1]!).toBe(false)
     }))
 
+  it.effect("maps an empty allowlist to deny-all on create and on the reattach update", () =>
+    Effect.gen(function*() {
+      const { sdk, recorded } = fakeSdk()
+      // Vercel's documented DNS block is `deny-all`, so an empty list says it.
+      yield* acquired(VercelSandbox.make({ sdk, workdir: dir("network-empty"), network: { allow: [] } }), () =>
+        Effect.void)
+      expect(recorded.acquired[0]?.networkPolicy).toBe("deny-all")
+      expect(recorded.updates).toEqual([{ networkPolicy: "deny-all", commandsBefore: 0 }])
+    }))
+
   it.effect("fails the acquire without a guest command when the policy cannot be applied", () =>
     Effect.gen(function*() {
       const { sdk, recorded } = fakeSdk({ updateFailure: new Error("policy refused") })

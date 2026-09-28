@@ -47,8 +47,8 @@ export interface VercelSandboxOptions extends Credentials {
   /** Prefix for deterministic Vercel sandbox names. Default `smthrs-`. */
   readonly namePrefix?: string | undefined
   /**
-   * The guest network, enforced by Vercel's egress firewall: `"none"` is
-   * `deny-all`, `{ allow }` its domain allowlist. Default: Vercel's own,
+   * The guest network, enforced by Vercel's egress firewall: `"none"` and
+   * an empty list are `deny-all`, `{ allow }` its domain allowlist. Default: Vercel's own,
    * full internet access.
    */
   readonly network?: NetworkPolicy | undefined
@@ -80,8 +80,10 @@ const decodeFile = async (
   return concat(chunks)
 }
 
+// Vercel documents `deny-all` as the mode that blocks DNS, so an empty
+// allowlist says it outright.
 const vendorPolicy = (policy: NetworkPolicy): "deny-all" | { allow: Array<string> } =>
-  policy === "none" ? "deny-all" : { allow: [...policy.allow] }
+  policy === "none" || policy.allow.length === 0 ? "deny-all" : { allow: [...policy.allow] }
 
 const resolveCredentials = (
   input: Credentials,
