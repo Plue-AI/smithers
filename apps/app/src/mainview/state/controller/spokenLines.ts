@@ -52,7 +52,9 @@ type Transcript = Pick<AppStore["collections"], "messages">
 
 /** The transcript's high-water mark, recorded before an act so its own lines can be told apart. */
 export const latestOrdinal = (collections: Transcript): number => {
-  let latest = 0
+  // Message ordinals start at zero; an empty transcript's exclusive boundary
+  // must precede its first line, just like AppProjection's ordinal allocator.
+  let latest = -1
   for (const message of collections.messages.values()) latest = Math.max(latest, message.ordinal)
   return latest
 }

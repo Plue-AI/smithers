@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { AppStore } from "../AppStore"
-import { claimSpokenLine, forgetVanishedClaims, latestOrdinal } from "./spokenLines"
+import { claimSpokenLine, claimedSpokenLines, forgetVanishedClaims, latestOrdinal } from "./spokenLines"
 
 /*
  * THE RULE'S OWN UNIT, away from any door, and this is where the overlap
@@ -19,12 +19,33 @@ const transcript = (...lines: ReadonlyArray<Line>): Pick<AppStore["collections"]
 
 const SAID = "This browser has no room left."
 
-test("the high-water mark is the transcript's largest ordinal, and 0 when it is empty", () => {
-  expect(latestOrdinal(transcript())).toBe(0)
+test("the high-water mark is the transcript's largest ordinal, and -1 when it is empty", () => {
+  expect(latestOrdinal(transcript())).toBe(-1)
+  expect(latestOrdinal(transcript({ id: "first", ordinal: 0, text: SAID }))).toBe(0)
   expect(latestOrdinal(transcript(
     { id: "a", ordinal: 4, text: SAID },
     { id: "b", ordinal: 2, text: SAID }
   ))).toBe(4)
+})
+
+test("the first spoken line is claimable only by an act admitted before ordinal zero", () => {
+  const first = transcript({ id: "first", ordinal: 0, text: SAID, spoken: true })
+  const claimed = new Set<string>()
+  const beforeFirst = latestOrdinal(transcript())
+  expect(claimSpokenLine(first, SAID, beforeFirst, claimed)).toBe(true)
+  expect([...claimed]).toEqual(["first"])
+  expect(claimSpokenLine(first, SAID, beforeFirst, claimed)).toBe(false)
+  expect(claimSpokenLine(first, SAID, latestOrdinal(first), new Set())).toBe(false)
+})
+
+test("spoken claims are scoped to their controller context", () => {
+  const alice = {}, bob = {}
+  const aliceClaims = claimedSpokenLines(alice)
+  const bobClaims = claimedSpokenLines(bob)
+  aliceClaims.add("first")
+  expect(claimedSpokenLines(alice)).toBe(aliceClaims)
+  expect([...bobClaims]).toEqual([])
+  expect(bobClaims).not.toBe(aliceClaims)
 })
 
 test("only a door's own line, inside the window, carrying this sentence, can stand in for an act", () => {

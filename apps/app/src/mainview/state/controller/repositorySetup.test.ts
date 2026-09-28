@@ -1,4 +1,5 @@
 import { createOperationalFailureReporter } from "../OperationalFailures"
+import { browserWriteRefusal } from "../BrowserWriteFailure"
 import { expect, spyOn, test } from "bun:test"
 import { editSetup, initialSetup, setupActivationProblems, setupCandidate, type RepositorySetup, type SetupManualRequest, type SetupDraft, type SetupRecoveryResponse } from "@smthrs/rpc/RepositorySetup"
 import { createAppStore } from "../AppStore"
@@ -6,7 +7,7 @@ import { memoryStorage, recordingAgent } from "../TestFixtures"
 import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import type { ControllerContext } from "./context"
 import { createFailureController } from "./failures"
-import { applySetupEdit, createRepositorySetupController, projectRecoveredSetup, type RepositorySetupDependencies } from "./repositorySetup"
+import { applySetupEdit, createRepositorySetupController, projectRecoveredSetup, setupContextSummary, type RepositorySetupDependencies } from "./repositorySetup"
 import { cardContainsRun, runScopeFromCard } from "../RunReference"
 import { REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 import { RECEIPT_CODES, setupFailureSentence } from "../RunFailure"
@@ -101,6 +102,297 @@ test("setup acknowledges persisted intent before launch, deduplicates it, and ke
     expect(t.state().request?.state).toBe("completed")
     expect([...t.store.collections.toasts.values()].map(toast => toast.status)).toEqual(["ok"])
   } finally { gate.release(); await t.close() }
+})
+
+test("an unresolved launch keeps one durable admission across different button presses", async () => {
+  const launch = deferred()
+  const t = await fixture(async body => { await launch.promise; return response(body) })
+  try {
+    const admitted = await t.setup.runRepositorySetup("setup", "evaluate")
+    const request = t.state().request!
+    expect(admitted).toEqual({ value: "Handle issues: evaluate requested in the background." })
+    expect(request).toMatchObject({ operation: "evaluate", state: "requested", revision: t.state().revision })
+    expect(request.digest).toBe(setupCandidate(t.state()))
+    expect(t.calls.map(call => call.body.requestId)).toEqual([request.id])
+
+    for (const operation of ["evaluate", "trial", "inspect"] as const) {
+      expect(await t.setup.runRepositorySetup("setup", operation)).toEqual({ value: "The setup request is already running in the background." })
+      expect(t.state().request).toEqual(request)
+    }
+    expect(t.calls.map(call => [call.method, call.body.requestId])).toEqual([["POST", request.id]])
+    await t.setup.viewRepositorySetup("setup", "prompts", "research")
+    expect(t.state().view).toBe("prompts")
+    expect(t.store.session().phase).toBe("idle")
+    await until(() => [...t.store.collections.toasts.values()].some(toast => toast.status === "running"))
+    expect(t.state().receipt).toBeUndefined()
+    launch.release(); await Promise.all(t.background)
+    expect(t.state().request).toMatchObject({ id: request.id, state: "completed" })
+    expect(t.state().evaluation).toMatchObject({ requestId: request.id, phase: "completed" })
+    expect([...t.store.collections.toasts.values()].map(toast => toast.status)).toEqual(["ok"])
+  } finally { launch.release(); await t.close() }
+})
+
+test.each(["failed", "stopped"] as const)("a running remote job settling %s leaves visible evidence and permits a new attempt", async phase => {
+  const observation = deferred()
+  let retrying = false
+  const t = await fixture(async (body, method) => {
+    if (retrying) return response(body)
+    if (method === "POST") return response(body, "running")
+    await observation.promise
+    return response(body, phase)
+  })
+  try {
+    await t.setup.runRepositorySetup("setup", "evaluate")
+    const requestId = t.state().request!.id
+    await until(() => t.calls.some(call => call.method === "GET"))
+    expect(t.state().request).toMatchObject({ id: requestId, state: "running" })
+    expect(t.state().evaluation).toMatchObject({ requestId, phase: "running" })
+    expect([...t.store.collections.toasts.values()].map(toast => toast.status)).toEqual(["running"])
+    observation.release(); await Promise.all(t.background)
+    expect(t.state().request).toMatchObject({ id: requestId, state: "failed" })
+    expect(t.state().evaluation).toMatchObject({ requestId, phase })
+    expect(t.state().previousReceipts.map(receipt => [receipt.requestId, receipt.phase])).toEqual([[requestId, phase]])
+    expect([...t.store.collections.toasts.values()].map(toast => toast.status)).toEqual(["failed"])
+    retrying = true
+    await t.setup.retryRepositorySetup("setup"); await Promise.all(t.background)
+    expect(t.state().request).toMatchObject({ state: "completed" })
+    expect(t.state().request!.id).not.toBe(requestId)
+    expect(t.calls.map(call => [call.method, call.body.requestId])).toEqual([["POST", requestId], ["GET", requestId], ["POST", t.state().request!.id]])
+    expect(t.state().previousReceipts.map(receipt => [receipt.requestId, receipt.phase])).toEqual([[requestId, phase]])
+  } finally { observation.release(); await t.close() }
+})
+
+test("setup edits reject invalid values without changing the candidate", () => {
+  const draft = initialSetup("example/repo", "issues", "maintainer").draft
+  const invalid: Array<[string, unknown, string]> = [
+    ["replies", "automatic", "Automatic replies are not available in this setup."],
+    ["budgetMinutes", 0, "The setting does not match the expected value."],
+    ["step.missing.prompt", "Run checks", "That flow is not in this setup."],
+    ["check.missing.rule", "test -f README.md", "That check is not in this setup."],
+    ["case.missing.expected", "Passed", "That case is not in this setup."],
+    ["checks.remove", "missing", "That check is not in this setup."],
+    ["active", true, "That setting cannot be edited."],
+    ["trial.number", -1, "This trial does not select a PR."]
+  ]
+  for (const [field, value, sentence] of invalid) {
+    expect(applySetupEdit(draft, "issues", field, value)).toEqual({ error: sentence })
+    expect(draft).toEqual(initialSetup("example/repo", "issues", "maintainer").draft)
+  }
+  const check = { id: "docs", name: "Docs", kind: "command" as const, rule: "test -f README.md", paths: ["README.md"], policy: "required" as const }
+  const added = applySetupEdit(draft, "issues", "checks.add", check)
+  expect(added).toHaveProperty("draft")
+  if (!("draft" in added)) throw Error("check was not added")
+  expect(added.draft.checks).toEqual([check])
+  expect(applySetupEdit(added.draft, "issues", "checks.remove", "docs")).toEqual({ draft })
+  expect(draft.checks).toEqual([])
+})
+
+test("check and case field edits affect only the named item and pin a changed case", () => {
+  const base = initialSetup("example/repo", "issues", "maintainer").draft
+  const check = { id: "docs", name: "Docs", kind: "command" as const, rule: "test -f README.md", paths: ["README.md"], policy: "report" as const }
+  const other = { ...check, id: "types", name: "Types", rule: "pnpm typecheck" }
+  const caseOne = { id: "one", name: "One", input: "A bug", expected: "A fix", required: true }
+  const caseTwo = { ...caseOne, id: "two", name: "Two", input: "Another bug" }
+  const draft = { ...base, checks: [check, other], cases: [caseOne, caseTwo] }
+  const changedCheck = applySetupEdit(draft, "issues", "check.docs.policy", "required")
+  expect(changedCheck).toHaveProperty("draft")
+  if (!("draft" in changedCheck)) throw Error("check edit failed")
+  expect(changedCheck.draft.checks).toEqual([{ ...check, policy: "required" }, other])
+  const changedCase = applySetupEdit(changedCheck.draft, "issues", "case.two.expected", "A reproduction")
+  expect(changedCase).toHaveProperty("draft")
+  if (!("draft" in changedCase)) throw Error("case edit failed")
+  expect(changedCase.draft.cases).toEqual([caseOne, { ...caseTwo, expected: "A reproduction", edited: true }])
+  expect(draft).toEqual({ ...base, checks: [check, other], cases: [caseOne, caseTwo] })
+})
+
+test("runtime setup summary bounds prompt text and describes each job's actual trigger", () => {
+  const issues = initialSetup("example/repo", "issues", "maintainer")
+  const longPrompt = `  First line\n${"a".repeat(100)}  `
+  const labeled = { ...issues, draft: { ...issues.draft, scope: "label" as const, label: "maintainer-ready",
+    steps: issues.draft.steps.map((step, index) => index === 0 ? { ...step, prompt: longPrompt } : step) } }
+  const issueSummary = setupContextSummary(labeled)
+  expect(issueSummary.applyTo).toBe('issues labeled "maintainer-ready"')
+  expect(issueSummary.steps[0]?.prompt).toBe(`First line ${"a".repeat(69)}…`)
+  expect(issueSummary.steps[0]?.prompt).not.toContain("\n")
+  expect(issueSummary.gate).toBe("Run evals for this draft.")
+  expect(setupContextSummary(issues).applyTo).toBe("new and edited issues")
+
+  const chores = initialSetup("example/repo", "chores", "maintainer")
+  for (const [schedule, choreEvent, expected] of [
+    ["", "none", "no schedule, no repository event"],
+    ["0 9 * * 1", "push", "cron 0 9 * * 1 UTC, on push to the default branch"],
+    ["0 9 * * 1", "labeled", 'cron 0 9 * * 1 UTC, on issues labeled "maintainer-ready"']
+  ] as const) {
+    expect(setupContextSummary({ ...chores, draft: { ...chores.draft, schedule, choreEvent, label: "maintainer-ready" } }).trigger).toBe(expected)
+  }
+  expect(setupContextSummary(initialSetup("example/repo", "review", "maintainer")).applyTo).toBeUndefined()
+})
+
+test("a setup answer is bound to its question, candidate, and offered choice", async () => {
+  const t = await fixture(async body => response(body))
+  try {
+    const before = t.state()
+    const digest = setupCandidate(before)
+    expect(await t.setup.answerRepositorySetupQuestion("absent", "issues.budget", before.revision, digest, "m30")).toBe("Open the setup first.")
+    expect(await t.setup.answerRepositorySetupQuestion("setup", "absent", before.revision, digest, "m30")).toBe("That question is not part of this setup.")
+    expect(await t.setup.answerRepositorySetupQuestion("setup", "issues.budget", before.revision, digest, "absent")).toBe("Choose one of the offered answers.")
+    expect(await t.setup.answerRepositorySetupQuestion("setup", "issues.budget", before.revision + 1, digest, "m30"))
+      .toBe("This setup changed after the question was asked. Ask for setup guidance again to see the current question.")
+    expect(await t.setup.answerRepositorySetupQuestion("setup", "issues.budget", before.revision, "stale", "m30"))
+      .toBe("This setup changed after the question was asked. Ask for setup guidance again to see the current question.")
+    expect(t.state()).toEqual(before)
+    expect(await t.setup.answerRepositorySetupQuestion("setup", "issues.budget", before.revision, digest, "keep"))
+      .toEqual({ value: "Keeping the current setup." })
+    expect(t.state()).toEqual(before)
+    expect(await t.setup.answerRepositorySetupQuestion("setup", "issues.budget", before.revision, digest, "m30"))
+      .toEqual({ value: "Draft updated." })
+    expect(t.state().draft.budgetMinutes).toBe(30)
+    expect(t.state().revision).toBe(before.revision + 1)
+    expect(t.calls).toEqual([])
+    expect(await t.setup.answerRepositorySetupQuestion("setup", "issues.budget", before.revision, digest, "m60"))
+      .toBe("This setup changed after the question was asked. Ask for setup guidance again to see the current question.")
+    expect(t.state().draft.budgetMinutes).toBe(30)
+  } finally { await t.close() }
+})
+
+test("an open setup question refuses candidate execution in the transcript without launching work", async () => {
+  const t = await fixture(async body => response(body))
+  try {
+    const prior = t.state()
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: "form-setup.ask:setup", kind: "flow-form", title: "Setup question", status: "active", createdAt: 2,
+      ordinal: t.store.nextOrdinal(), payload: { flow: "setup.ask", via: "agent", fields: [], draft: {}, given: { digest: setupCandidate(prior) } }
+    } }).isPersisted.promise
+    for (const operation of ["evaluate", "trial", "apply"] as const) {
+      expect(await t.setup.runRepositorySetup("setup", operation)).toBe("Answer the setup question first.")
+      expect(t.state()).toEqual(prior)
+    }
+    expect(t.calls).toEqual([])
+    expect([...t.store.collections.messages.values()].filter(message => message.text === "Answer the setup question first.")).toHaveLength(3)
+    await t.setup.configureRepositorySetup("setup", "budgetMinutes", 30)
+    expect(t.state().revision).toBe(prior.revision + 1)
+    expect(await t.setup.runRepositorySetup("setup", "evaluate")).toEqual({ value: "Handle issues: evaluate requested in the background." })
+    await Promise.all(t.background)
+    expect(t.calls).toHaveLength(1)
+    expect(t.state().request?.state).toBe("completed")
+  } finally { await t.close() }
+})
+
+test("an observe-only request reconnects under its persisted id and never posts a duplicate", async () => {
+  const observation = deferred()
+  const t = await fixture(async body => { await observation.promise; return response(body) })
+  try {
+    const current = t.state()
+    const request = { id: "persisted-request", operation: "evaluate" as const, revision: current.revision,
+      digest: setupCandidate(current), state: "failed" as const, observeOnly: true, error: "Connection lost" }
+    const card = t.store.collections.cards.get("setup")!
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, kind: "repository-setup",
+      payload: { ...current, request } } }).isPersisted.promise
+    expect(await t.setup.runRepositorySetup("setup", "trial")).toEqual({ value: "Setup reconnection requested." })
+    expect(t.state().request).toEqual({ ...request, state: "requested", error: undefined })
+    expect(t.calls.map(call => [call.method, call.body.requestId])).toEqual([["GET", request.id]])
+    expect(await t.setup.runRepositorySetup("setup", "evaluate")).toEqual({ value: "Setup reconnection requested." })
+    expect(t.calls).toHaveLength(1)
+    observation.release(); await Promise.all(t.background)
+    expect(t.state().request).toMatchObject({ id: request.id, state: "completed", observeOnly: true })
+    expect(t.state().evaluation?.requestId).toBe(request.id)
+    expect(t.calls.map(call => call.method)).toEqual(["GET"])
+  } finally { observation.release(); await t.close() }
+})
+
+test("a failed recovery remains retryable through the setup action without launching a new operation", async () => {
+  const discovery = deferred()
+  const t = await fixture(async () => { throw Error("Setup must not launch during recovery") })
+  t.recovery.answer = async (repo, job) => { await discovery.promise; return Response.json({ owner: "maintainer", repo, job,
+    registration: { state: "known" }, setup: { state: "none" } }) }
+  try {
+    const current = t.state()
+    const recovery = { id: "recover-after-error", baseRevision: current.revision, baseDigest: setupCandidate(current),
+      state: "failed" as const, registrationState: "unavailable" as const, error: "Offline" }
+    const card = t.store.collections.cards.get("setup")!
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, kind: "repository-setup",
+      payload: { ...current, recovery } } }).isPersisted.promise
+    expect(await t.setup.runRepositorySetup("setup", "evaluate")).toEqual({ value: "Setup recovery requested." })
+    expect(t.state().recovery).toEqual({ ...recovery, state: "requested", error: undefined })
+    expect(t.recovery.calls).toHaveLength(1)
+    expect(await t.setup.runRepositorySetup("setup", "evaluate")).toEqual({ value: "Setup recovery requested." })
+    expect(t.recovery.calls).toHaveLength(1)
+    expect(t.calls).toEqual([])
+    discovery.release(); await Promise.all(t.background)
+    expect(t.state().recovery).toMatchObject({ id: recovery.id, state: "completed", registrationState: "known" })
+    expect(t.state().request).toBeUndefined()
+  } finally { discovery.release(); await t.close() }
+})
+
+test("a refused local save names the storage failure in chat and permits the next setup edit", async () => {
+  const backing = memoryStorage()
+  let armed = false
+  const storage = { ...backing, setItem: (key: string, value: string) => {
+    if (armed && key.endsWith(".staged")) {
+      armed = false
+      throw Object.assign(new Error("The quota has been exceeded."), { name: "QuotaExceededError", code: 22 })
+    }
+    backing.setItem(key, value)
+  } }
+  const t = await fixture(async body => response(body), storage)
+  try {
+    const prior = t.state()
+    armed = true
+    const refusal = await t.setup.configureRepositorySetup("setup", "budgetMinutes", 30)
+    if (typeof refusal !== "string") throw Error("the refused write returned no sentence")
+    expect(refusal).toBe(browserWriteRefusal(Object.assign(new Error("quota"), { name: "QuotaExceededError", code: 22 })))
+    expect(t.state().draft.budgetMinutes).toBe(prior.draft.budgetMinutes)
+    expect([...t.store.collections.messages.values()].at(-1)?.text).toBe(refusal)
+    expect(t.calls).toEqual([])
+    expect(await t.setup.configureRepositorySetup("setup", "budgetMinutes", 30)).toEqual({ value: "Draft updated." })
+    expect(t.state().draft.budgetMinutes).toBe(30)
+  } finally { await t.close() }
+})
+
+test("a setup question that cannot open stays visibly retryable and reports the failure once", async () => {
+  const reported: Array<{ error: string; admitted: boolean }> = []
+  const t = await fixture(async body => response(body), memoryStorage(), doors({
+    guidanceFailed: (error, admitted) => { reported.push({ error, admitted }) }
+  }))
+  let attempts = 0
+  Object.assign(t.ctx.commands, { runAsAgent: async () => { attempts++; throw Error("Form unavailable") } })
+  try {
+    expect(await t.setup.guideRepositorySetup("setup")).toEqual({ value: "Setup guidance requested." })
+    await until(() => t.state().guidance?.state === "failed")
+    expect(attempts).toBe(2)
+    expect(t.state().guidance?.error).toBe("Form unavailable")
+    expect(reported).toEqual([{ error: "Form unavailable", admitted: false }])
+    expect(t.calls).toEqual([])
+    const failedId = t.state().guidance!.id
+    expect(await t.setup.guideRepositorySetup("setup")).toEqual({ value: "Setup guidance requested." })
+    await until(() => attempts === 4 && t.state().guidance?.state === "failed")
+    expect(t.state().guidance?.id).toBe(failedId)
+    expect(reported).toHaveLength(2)
+  } finally { await t.close() }
+})
+
+test("resuming an already recovered setup reconnects its busy request without a second launch", async () => {
+  const launch = deferred()
+  const t = await fixture(async body => { await launch.promise; return response(body) })
+  try {
+    const original = t.store.collections.cards.get("setup")!
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...original,
+      id: "setup:maintainer:example%2Frepo:issues", ordinal: t.store.nextOrdinal() } }).isPersisted.promise
+    await t.setup.openRepositorySetup("issues", "example/repo")
+    await Promise.all(t.background)
+    const card = setupCard(t)
+    const state = () => setupCard(t).payload
+    expect(state().recovery?.state).toBe("completed")
+    await t.setup.runRepositorySetup(card.id, "evaluate")
+    const id = state().request!.id
+    expect(t.calls.map(call => [call.method, call.body.requestId])).toEqual([["POST", id]])
+    t.setup.resumeRepositorySetups()
+    t.setup.resumeRepositorySetups()
+    expect(t.calls.map(call => [call.method, call.body.requestId])).toEqual([["POST", id]])
+    expect(state().request?.state).toBe("requested")
+    launch.release(); await Promise.all(t.background)
+    expect(state().request).toMatchObject({ id, state: "completed" })
+  } finally { launch.release(); await t.close() }
 })
 
 test("a launch acknowledgment never resolves the toast before the remote execution completes", async () => {
@@ -627,6 +919,162 @@ test.each(["completed", "failed"])("a due chore keeps a busy setup admission and
     expect(t.state().evaluation?.phase).toBe(phase)
     expect(t.state().active?.schedule?.nextFireAt).toBe(new Date(due + 60_000).toISOString())
   } finally { held.release(); await t.close(); timers.mockRestore(); clock.mockRestore() }
+})
+
+test("an account switch discards the pending schedule refresh from a busy old-owner setup", async () => {
+  let now = Date.UTC(2026, 8, 17, 9)
+  const due = now + 60_000, clock = spyOn(Date, "now").mockImplementation(() => now)
+  const originalTimeout = globalThis.setTimeout, scheduled: Array<() => void> = []
+  const timers = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (delay === 60_000) scheduled.push(() => callback(...args))
+    return originalTimeout(callback, delay, ...args)
+  }) as typeof setTimeout)
+  const held = deferred(), t = await fixture(async body => { await held.promise; return response(body) })
+  try {
+    const payload = { ...initialSetup("example/repo", "chores", "maintainer"), inspectedAt: 1 }
+    payload.draft.schedule = "* * * * *"
+    const policy = { revision: 1, digest: setupCandidate(payload), registrationId: "scheduled", sourceRevision: "source", enabled: true,
+      owned: true, workspaceId, draft: payload.draft, schedule: { expression: payload.draft.schedule, nextFireAt: new Date(due).toISOString() } }
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...t.store.collections.cards.get("setup")!, kind: "repository-setup", payload } }).isPersisted.promise
+    t.recovery.answer = async () => Response.json({ owner: "maintainer", repo: payload.repo, job: "chores",
+      registration: { state: "known", active: policy }, setup: { state: "none" } })
+    t.setup.resumeRepositorySetups()
+    await until(() => scheduled.length === 1)
+    await t.setup.runRepositorySetup("setup", "evaluate")
+    now = due; scheduled[0]!()
+    await until(() => t.state().active?.schedule === undefined)
+    expect(t.recovery.calls).toHaveLength(1)
+    Object.assign(t.ctx, { accountEpoch: t.ctx.accountEpoch + 1 })
+    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true,
+      admin: false, scopesPlain: null }).isPersisted.promise
+    t.setup.resumeRepositorySetups()
+    held.release(); await Promise.all(t.background)
+    expect(t.recovery.calls).toHaveLength(1)
+    expect(t.calls.map(call => call.method)).toEqual(["POST"])
+    expect([...t.store.collections.toasts.values()].some(toast => toast.status === "ok")).toBe(false)
+  } finally { held.release(); await t.close(); timers.mockRestore(); clock.mockRestore() }
+})
+
+test("a failed scheduled refresh reports the lost save without claiming updated registration", async () => {
+  let now = Date.UTC(2026, 8, 17, 9)
+  const due = now + 60_000, clock = spyOn(Date, "now").mockImplementation(() => now)
+  const originalTimeout = globalThis.setTimeout, scheduled: Array<() => void> = []
+  const timers = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (delay === 60_000) scheduled.push(() => callback(...args))
+    return originalTimeout(callback, delay, ...args)
+  }) as typeof setTimeout)
+  const backing = memoryStorage()
+  let refuse = false
+  const storage = { ...backing, setItem: (key: string, value: string) => {
+    if (refuse && key.endsWith(".staged")) {
+      refuse = false
+      throw Object.assign(new Error("The quota has been exceeded."), { name: "QuotaExceededError", code: 22 })
+    }
+    backing.setItem(key, value)
+  } }
+  const t = await fixture(async () => { throw Error("Schedule refresh must not launch work") }, storage)
+  try {
+    const payload = { ...initialSetup("example/repo", "chores", "maintainer"), inspectedAt: 1 }
+    payload.draft.schedule = "* * * * *"
+    const policy = { revision: 1, digest: setupCandidate(payload), registrationId: "scheduled", sourceRevision: "source", enabled: true,
+      owned: true, workspaceId, draft: payload.draft, schedule: { expression: payload.draft.schedule, nextFireAt: new Date(due).toISOString() } }
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...t.store.collections.cards.get("setup")!, kind: "repository-setup", payload } }).isPersisted.promise
+    t.recovery.answer = async () => Response.json({ owner: "maintainer", repo: payload.repo, job: "chores",
+      registration: { state: "known", active: policy }, setup: { state: "none" } })
+    t.setup.resumeRepositorySetups()
+    await until(() => scheduled.length === 1)
+    refuse = true; now = due; scheduled[0]!()
+    await until(() => t.ctx.failures.recent().some(failure => failure.seam === "setup.schedule"))
+    expect(t.ctx.failures.recent().filter(failure => failure.seam === "setup.schedule"))
+      .toEqual([expect.objectContaining({ subject: "setup", count: 1 })])
+    expect(t.recovery.calls).toHaveLength(1)
+    expect(t.calls).toEqual([])
+    expect(t.state().active?.schedule).toEqual(policy.schedule)
+  } finally { await t.close(); timers.mockRestore(); clock.mockRestore() }
+})
+
+test("a failed run-card open is reported while the completed setup remains usable", async () => {
+  const opened: string[] = []
+  const t = await fixture(async body => response(body), memoryStorage(), doors({
+    openRun: async runId => { opened.push(runId); throw Error("Run card unavailable") }
+  }))
+  try {
+    await t.setup.runRepositorySetup("setup", "evaluate")
+    await Promise.all(t.background)
+    await until(() => t.ctx.failures.recent().some(failure => failure.seam === "setup.open-run"))
+    expect(opened).toEqual(["run-1"])
+    expect(t.state().request?.state).toBe("completed")
+    expect(t.state().evaluation?.phase).toBe("completed")
+    expect(t.ctx.failures.recent().filter(failure => failure.seam === "setup.open-run"))
+      .toEqual([expect.objectContaining({ message: expect.stringContaining("Run card unavailable"), subject: "run-1", count: 1 })])
+    expect([...t.store.collections.toasts.values()].some(toast => toast.status === "failed")).toBe(false)
+  } finally { await t.close() }
+})
+
+test("a non-JSON host refusal stays retryable under the durable request id", async () => {
+  let refuse = true
+  const t = await fixture(async body => {
+    if (refuse) return new Response("gateway unavailable", { status: 503 })
+    return response(body)
+  })
+  try {
+    await t.setup.runRepositorySetup("setup", "evaluate"); await Promise.all(t.background)
+    const request = t.state().request!
+    expect(request).toMatchObject({ state: "failed", error: "The host refused the request." })
+    expect(t.state().evaluation).toBeUndefined()
+    expect(t.state().active).toBeUndefined()
+    expect([...t.store.collections.toasts.values()].map(toast => toast.status)).toEqual(["failed"])
+    refuse = false
+    await t.setup.retryRepositorySetup("setup"); await Promise.all(t.background)
+    expect(t.calls.map(call => call.body.requestId)).toEqual([request.id, request.id])
+    expect(t.state().request).toMatchObject({ id: request.id, state: "completed" })
+    expect(t.state().evaluation?.phase).toBe("completed")
+  } finally { await t.close() }
+})
+
+test("guidance survives a transient store settling error and opens once", async () => {
+  const t = await fixture(async body => response(body), memoryStorage(), doors())
+  const settle = t.store.settled?.bind(t.store)
+  let failOnce = true
+  Object.assign(t.store, { settled: async () => {
+    if (failOnce) { failOnce = false; throw Error("Store settling interrupted") }
+    return settle?.()
+  } })
+  try {
+    expect(await t.setup.guideRepositorySetup("setup")).toEqual({ value: "Setup guidance requested." })
+    await until(() => t.state().guidance?.state === "admitted")
+    expect(failOnce).toBe(false)
+    expect(t.asked.map(item => item.name)).toEqual(["setup.ask"])
+    expect(t.calls).toEqual([])
+  } finally { Object.assign(t.store, { settled: settle }); await t.close() }
+})
+
+test("a rendered setup question reports when its admission cannot be saved", async () => {
+  const backing = memoryStorage(), held = deferred()
+  let failedWrites = 0
+  const storage = { ...backing, setItem: (key: string, value: string) => {
+    if (failedWrites > 0 && key.endsWith(".staged")) {
+      failedWrites--
+      throw Object.assign(new Error("The quota has been exceeded."), { name: "QuotaExceededError", code: 22 })
+    }
+    backing.setItem(key, value)
+  } }
+  const reported: Array<{ error: string; admitted: boolean }> = []
+  const t = await fixture(async body => response(body), storage, doors({
+    guidanceFailed: (error, admitted) => { reported.push({ error, admitted }) }
+  }))
+  t.holdAsk(held.promise)
+  try {
+    await t.setup.guideRepositorySetup("setup")
+    await until(() => t.asked.length === 1)
+    failedWrites = 3
+    held.release()
+    await until(() => reported.length === 1)
+    expect(t.asked).toHaveLength(1)
+    expect(reported).toEqual([{ error: "The command's outcome could not be saved. Check its result before trying again.", admitted: true }])
+    expect(t.ctx.failures.recent().filter(failure => failure.seam === "setup.guidance")).toHaveLength(1)
+    expect(t.calls).toEqual([])
+  } finally { held.release(); await t.close() }
 })
 
 test("the composed app renders its own setup question and starts no conversation turn", async () => {
@@ -1822,6 +2270,49 @@ test("manual work and Discard draft read a registration enabled before the candi
     expect(setupCandidate(t.state())).not.toBe(registered)
     expect(await t.setup.runRepositorySetup("setup", "run")).toEqual({ value: "Work request is open." })
     expect(await t.setup.discardRepositorySetupDraft("setup")).toEqual({ value: "Keeping the current setup." })
+    expect(t.calls).toEqual([])
+  } finally { await t.close() }
+})
+
+test("recovered failed receipt replaces its earlier observation without duplicating history", () => {
+  const base = initialSetup("example/repo", "issues", "maintainer")
+  const recovered = recoveredInspection()
+  if (recovered.setup.state !== "found" || !recovered.setup.result.receipt) throw Error("expected recorded setup")
+  const failed = { ...recovered.setup.result.receipt, phase: "failed" as const, error: "Model unavailable" }
+  const older = { ...failed, requestId: "older-request", runId: "older-run", phase: "completed" as const, error: undefined }
+  const current: RepositorySetup = { ...base, previousReceipts: [{ ...failed, phase: "running", error: undefined }, older],
+    recovery: { id: "recover", baseRevision: base.revision, baseDigest: setupCandidate(base), state: "requested", registrationState: "unknown" } }
+  recovered.setup = { ...recovered.setup, result: { ...recovered.setup.result, inspection: undefined, receipt: failed } }
+  const projected = projectRecoveredSetup(current, recovered)
+  expect(projected.request).toMatchObject({ id: failed.requestId, state: "failed", error: "Model unavailable" })
+  expect(projected.receipt).toEqual(failed)
+  expect(projected.previousReceipts.map(receipt => [receipt.requestId, receipt.phase])).toEqual([
+    [older.requestId, "completed"], [failed.requestId, "failed"]
+  ])
+})
+
+test("manual Run falls back from a disabled selected step to the first enabled step", async () => {
+  const t = await fixture(async body => response(body))
+  try {
+    const original = t.state()
+    const draft = { ...original.draft, steps: original.draft.steps.map(step => step.id === "research" ? { ...step, mode: "off" as const } : step) }
+    const candidate = { ...original, draft, selectedStep: "research" }
+    const active = { revision: candidate.revision, digest: setupCandidate(candidate), registrationId: "registered",
+      sourceRevision: "source", enabled: true, owned: true }
+    const card = t.store.collections.cards.get("setup")!
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, kind: "repository-setup",
+      payload: { ...candidate, active } } }).isPersisted.promise
+    expect(await t.setup.runRepositorySetup("setup", "run")).toEqual({ value: "Work request is open." })
+    expect(t.state().manualDraft).toEqual({ stepId: "duplicates", prompt: "", source: "github" })
+    expect(t.state().view).toBe("work")
+    expect(t.calls).toEqual([])
+
+    const allOff = { ...t.state(), manualDraft: undefined, draft: { ...draft,
+      steps: draft.steps.map(step => ({ ...step, mode: "off" as const })) } }
+    await t.store.dispatch({ type: "card.upsert", actor: "system", card: { ...t.store.collections.cards.get("setup")!, kind: "repository-setup",
+      payload: { ...allOff, active: { ...active, digest: setupCandidate(allOff) } } } }).isPersisted.promise
+    expect(await t.setup.runRepositorySetup("setup", "run")).toBe("Choose an enabled step.")
+    expect(t.state().manualDraft).toBeUndefined()
     expect(t.calls).toEqual([])
   } finally { await t.close() }
 })
