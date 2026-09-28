@@ -27,7 +27,7 @@ import {
   SchemaRefMarkdownOutput
 } from "./Descriptor.ts"
 import type { EffectProblem } from "./internal/Authority.ts"
-import { projectEffects, unprojectableDelegation } from "./internal/Authority.ts"
+import { narrowDelegation, projectEffects, unprojectableDelegation } from "./internal/Authority.ts"
 import * as Frontmatter from "./internal/Frontmatter.ts"
 import * as Names from "./internal/Names.ts"
 
@@ -293,15 +293,9 @@ const deriveCapabilities = (
     return undefined
   }
 
-  if (delegation !== undefined) {
-    warnings.push({
-      code: "unprojectable_authority",
-      path,
-      message: "Delegated flow authority cannot be projected statically; the flow receives every capability"
-    })
-    return delegation.capabilities
-  }
-  return capabilities
+  // The declaration is the ceiling of the delegate grant: it narrows the
+  // wildcard and can never widen past it.
+  return delegation === undefined ? capabilities : narrowDelegation(delegation.capabilities, capabilities)
 }
 
 const deriveFlows = (

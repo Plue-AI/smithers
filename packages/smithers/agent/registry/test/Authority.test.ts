@@ -16,6 +16,15 @@ describe("Authority", () => {
     expect(maxTier("compensable", "irreversible")).toBe("irreversible")
   })
 
+  it("lets a declaration narrow a delegate grant and never widen it", () => {
+    expect(Authority.narrowDelegation(["*"], ["fs:read:**", "fs:read:**"])).toEqual(["fs:read:**"])
+    expect(Authority.narrowDelegation(["*"], [])).toEqual([])
+    expect(Authority.narrowDelegation(["fs:read:**"], ["fs:read:**", "proc:spawn:sh", "*"])).toEqual([
+      "fs:read:**"
+    ])
+    expect(Authority.narrowDelegation([], ["*"])).toEqual([])
+  })
+
   it("treats an empty capability list as sealed", () => {
     expect(inferEffectTier([])).toBe("sealed")
   })
@@ -141,7 +150,7 @@ describe("shared effects projection", () => {
       Authority.conservativeEffects
     ],
     [
-      "a non-empty delegate list",
+      "a delegate list narrowed by its declared capabilities",
       [
         "flows: [dangerous/write]",
         "capabilities: [fs:read]",
@@ -156,7 +165,7 @@ describe("shared effects projection", () => {
         "  flows: [\"dangerous/write\"],",
         "  effects: { reads: [], writes: [], mode: \"hermetic\", tier: \"sealed\" }"
       ],
-      Authority.conservativeEffects
+      { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" }
     ],
     [
       "an effects value that is not an object",

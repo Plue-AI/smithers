@@ -77,7 +77,7 @@ explains why each fallback is the conservative one.
 
 | Code                          | What happened                                                                                                                                                                                 |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unprojectable_authority`     | A markdown flow declared no `capabilities`, or it names collaborator `flows` whose authority discovery cannot read. The wildcard was used.                                                    |
+| `unprojectable_authority`     | A markdown flow declared no `capabilities`, so the wildcard was used. Declared `capabilities` narrow the grant of collaborator `flows`.                                                       |
 | `invalid_capabilities`        | A markdown `capabilities` value is not a string array. A space-separated string is accepted with this warning; anything else falls back to the wildcard.                                      |
 | `invalid_effect_declaration`  | `effects` is not an object, or `effects.reads`, `effects.writes`, `effects.mode`, or `effects.onConflict` is not a value the schema allows. The conservative reading was used.                |
 | `invalid_effect_tier`         | A declared `effects.tier` under-classifies the authority the capabilities imply, or is not one of the three tiers. The conservative tier was used.                                            |

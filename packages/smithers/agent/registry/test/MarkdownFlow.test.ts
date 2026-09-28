@@ -361,36 +361,42 @@ describe("MarkdownFlow", () => {
     expect(result.warnings.map((warning) => warning.code)).toEqual(["missing_name"])
   })
 
-  it("widens a delegating flow's declared authority and reports its sealed tier", () => {
+  it("narrows a delegating flow's wildcard grant to its declared capabilities", () => {
     const result = fromMarkdown([
       "---",
-      "description: Delegates a write",
-      "flows: [dangerous/write]",
-      "capabilities: [fs:read]",
+      "description: Delegates a check",
+      "flows: [coding/CommandCheck]",
+      "capabilities: [\"fs:read:**\", \"proc:spawn:sh -c *\", \"fs:read:**\"]",
       "effects:",
-      "  reads: []",
+      "  reads: [\"**\"]",
       "  writes: []",
-      "  mode: hermetic",
-      "  onConflict: serialize",
+      "  mode: expected",
       "  tier: sealed",
       "---",
       "body"
     ].join("\n"))
     const descriptor = Option.getOrThrow(result.descriptor)
 
-    expect(descriptor.capabilities).toEqual(["*"])
+    expect(descriptor.capabilities).toEqual(["fs:read:**", "proc:spawn:sh -c *"])
     expect(descriptor.effects).toEqual({
       reads: ["**"],
-      writes: ["**"],
+      writes: [],
       mode: "expected",
       onConflict: "serialize",
       tier: "irreversible"
     })
-    expect(result.warnings).toContainEqual(expect.objectContaining({ code: "unprojectable_authority" }))
+    expect(result.warnings.map((warning) => warning.code)).not.toContain("unprojectable_authority")
     expect(result.warnings).toContainEqual(expect.objectContaining({
       code: "invalid_effect_tier",
       message: "Effect tier sealed under-classifies declared authority; using irreversible"
     }))
+  })
+
+  it("keeps the wildcard for a delegating flow that declares no capabilities", () => {
+    const result = fromMarkdown("---\ndescription: Delegates\nflows: [coding/CommandCheck]\n---\nbody")
+
+    expect(Option.getOrThrow(result.descriptor).capabilities).toEqual(["*"])
+    expect(result.warnings).toContainEqual(expect.objectContaining({ code: "unprojectable_authority" }))
   })
 
   it.each([
@@ -585,7 +591,7 @@ body`)
       name: "review",
       description: "Review",
       flows: ["read-pr"],
-      capabilities: ["*"],
+      capabilities: ["Read"],
       effects: placed.effects,
       model: "opus",
       placement: "sandbox"

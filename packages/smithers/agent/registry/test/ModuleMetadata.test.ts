@@ -446,24 +446,37 @@ describe("ModuleMetadata", () => {
     expect(metadata.warnings).toEqual([])
   })
 
-  it("projects a non-empty literal flow list as conservative authority", () => {
+  it("narrows a non-empty literal flow list to the declared capabilities", () => {
     const metadata = ModuleMetadata.parse([
       "export default Flow.make({",
       "  description: \"Calls another flow.\",",
-      "  capabilities: [\"fs:read:.\"],",
+      "  capabilities: [\"fs:read:**\"],",
+      "  flows: [\"read-pr\"]",
+      "})"
+    ].join("\n"))
+
+    expect(metadata.capabilities).toEqual(["fs:read:**"])
+    expect(metadata.flows).toEqual(["read-pr"])
+    expect(metadata.effects).toEqual({
+      reads: [],
+      writes: [],
+      mode: "hermetic",
+      onConflict: "serialize",
+      tier: "sealed"
+    })
+    expect(metadata.warnings).toEqual([])
+  })
+
+  it("keeps the wildcard for a delegating module that declares no capabilities", () => {
+    const metadata = ModuleMetadata.parse([
+      "export default Flow.make({",
+      "  description: \"Calls another flow.\",",
       "  flows: [\"read-pr\"]",
       "})"
     ].join("\n"))
 
     expect(metadata.capabilities).toEqual(["*"])
-    expect(metadata.flows).toEqual(["read-pr"])
-    expect(metadata.effects).toEqual({
-      reads: ["**"],
-      writes: ["**"],
-      mode: "expected",
-      onConflict: "serialize",
-      tier: "irreversible"
-    })
+    expect(metadata.effects.tier).toBe("irreversible")
     expect(metadata.warnings).toContainEqual({
       message: "Flow authority cannot be projected statically; using the conservative wildcard"
     })

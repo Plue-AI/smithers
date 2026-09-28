@@ -56,6 +56,23 @@ export const unprojectableDelegation = (): EffectDeclaration & {
   ...conservativeEffects
 })
 
+/**
+ * Bounds a delegating flow's declared capabilities by its delegate grant. The
+ * declaration is the ceiling: a capability survives only when the grant is the
+ * wildcard or names it exactly, so a declaration may narrow the grant and can
+ * never widen it.
+ *
+ * @category authority
+ * @since 1.0.0-rc.1
+ */
+export const narrowDelegation = (
+  grant: ReadonlyArray<string>,
+  declared: ReadonlyArray<string>
+): ReadonlyArray<string> =>
+  grant.includes("*")
+    ? [...new Set(declared)]
+    : [...new Set(declared.filter((capability) => grant.includes(capability)))]
+
 const tierForCapability = (capability: string): EffectTier => {
   const normalized = capability.toLowerCase()
   if (

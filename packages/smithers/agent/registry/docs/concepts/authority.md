@@ -58,7 +58,12 @@ a member discovery cannot read widens to the wildcard.
 
 The case both body kinds share is a **non-empty `flows` list**. The flow
 delegates to another flow, and that flow's authority is not statically visible,
-so a declaration cannot inherit what discovery cannot read.
+so the delegate grant is the wildcard. A readable `capabilities` declaration is
+the ceiling of that grant: the descriptor carries the intersection, so a
+delegating flow that declares `["fs:read:**", "proc:spawn:sh -c *"]` runs with
+those two and no more. A declaration only narrows the grant and never widens
+it. A delegating flow that declares no `capabilities` keeps the wildcard, with
+an `unprojectable_authority` warning.
 
 The rest differ, because the two bodies say different things by staying silent:
 
@@ -83,9 +88,10 @@ The tier is an admission contract. `Executable.dispatchedAction` puts
 sealed would do two wrong things at once: cache its result as reusable, and
 disclose it to a model as read-only.
 
-That is why a descriptor that names a delegate flow can declare a cache policy
-and still never have a result reused. Its policy reaches admission and is
-refused there. The descriptor whose result travels is the one whose own
+That is why a descriptor that names a delegate flow and declares no
+capabilities can declare a cache policy and still never have a result reused.
+Its wildcard projects an `irreversible` tier, so its policy reaches admission
+and is refused there. The descriptor whose result travels is the one whose own
 capabilities project a `sealed` tier, with a `hermetic` effect declaration and
 no globbed read set. See
 [Reuse a discovered flow's result](../guides/reuse-a-flow-result.md).

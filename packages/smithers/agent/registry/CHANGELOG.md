@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- A delegating flow's declared `capabilities` are the ceiling of its delegate
+  grant. `flow.ts` and `flow.mdx` descriptors that name `flows` carry the
+  intersection of the declaration and the delegate's wildcard instead of `["*"]`;
+  a declaration only narrows and never widens. A delegating flow that declares
+  no capabilities keeps the wildcard
+  ([#2763](https://github.com/smithersai/smithers/issues/2763)).
+
 ### Added
 
 - `BudgetOnExceeded` includes `park`; flow budget metadata carries an optional

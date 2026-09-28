@@ -8,7 +8,7 @@
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { type EffectDeclaration, ModelSelection, type Placement } from "../Descriptor.ts"
-import { conservativeEffects, projectEffects, unprojectableDelegation } from "./Authority.ts"
+import { conservativeEffects, narrowDelegation, projectEffects, unprojectableDelegation } from "./Authority.ts"
 
 /**
  * @since 0.1.0
@@ -646,7 +646,13 @@ export const parse = (source: string): Metadata => {
       message: "Capabilities must be a string-literal array for discovery; using the conservative wildcard"
     })
   }
-  if (hasUnprojectableFlows) {
+  // A delegating flow that declares a readable capability list narrows the
+  // delegate grant to it; only an undeclared list keeps the wildcard.
+  const narrowsDelegation = hasUnprojectableFlows &&
+    capabilitiesSource !== undefined &&
+    literalCapabilities !== undefined &&
+    !parsedProperties.hasUnprojectableMembers
+  if (hasUnprojectableFlows && !narrowsDelegation) {
     warnings.push({
       message: "Flow authority cannot be projected statically; using the conservative wildcard"
     })
@@ -657,9 +663,11 @@ export const parse = (source: string): Metadata => {
         "Object spread or computed properties make schemas and authority unprojectable; using conservative projections"
     })
   }
-  const capabilities = literalCapabilities === undefined ||
-      hasUnprojectableFlows ||
-      parsedProperties.hasUnprojectableMembers
+  const capabilities = narrowsDelegation && delegation !== undefined
+    ? narrowDelegation(delegation.capabilities, literalCapabilities)
+    : literalCapabilities === undefined ||
+        hasUnprojectableFlows ||
+        parsedProperties.hasUnprojectableMembers
     ? delegation?.capabilities ?? ["*"]
     : literalCapabilities
 

@@ -657,9 +657,9 @@ describe("the annotation golden", () => {
       yield* execute(executable, filename, "registry-delegating-b", "tuned-2", { name: "one" })
 
       // `tuned` declares the same policy `cacheable` does AND `tier: "sealed"`,
-      // and still runs twice. Naming a delegate flow is what costs it the
-      // reuse: the delegate's authority is not statically visible, so discovery
-      // projects the conservative wildcard, the descriptor's effective tier
+      // and still runs twice. Naming a delegate flow without declaring
+      // capabilities is what costs it the reuse: the delegate's authority is
+      // not statically visible, so discovery projects the conservative wildcard, the descriptor's effective tier
       // becomes `irreversible`, and `ActionPersistence` caches a `sealed`
       // dispatch and nothing else. The policy reaches admission and is refused
       // there. Anything else would let a flow with unbounded authority claim

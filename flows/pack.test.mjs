@@ -73,17 +73,11 @@ const EXPECTED_FLOWS = [
 const FIXTURE = "migrate-smithers-v1/test/fixtures/smithers-0x-hello";
 
 /** The warning the registry attaches to every body that delegates to a flow. */
-const DELEGATED = "unprojectable_authority: Delegated flow authority cannot be projected statically; the flow receives every capability";
-
 /** Whether a body's frontmatter names `flows:` it delegates to. */
 const delegates = (text) => /^---\n[\s\S]*?^flows:/m.test(text);
 
-/**
- * The capabilities a body declares. The registry replaces a delegating body's
- * list with the conservative wildcard, so read that list from its frontmatter.
- */
-const declaredCapabilities = (text, descriptor) => {
-  if (!delegates(text)) return descriptor.capabilities;
+/** The capability list a delegating body's frontmatter declares. */
+const frontmatterCapabilities = (text) => {
   const line = /^capabilities: (\[.*\])$/m.exec(text);
   assert.ok(line, "a delegating body declares its capabilities as a JSON array");
   return JSON.parse(line[1]);
@@ -131,9 +125,14 @@ describe("the staged prompt bodies", () => {
 
       assert.deepEqual(
         result.warnings.map((warning) => `${warning.code}: ${warning.message}`),
-        delegates(text) ? [DELEGATED] : [],
+        [],
       );
       assert.ok(Option.isSome(result.descriptor), `${name} produced no descriptor`);
+      // A delegating body's declaration is the ceiling of its delegate grant,
+      // so the descriptor carries exactly what the frontmatter declares.
+      if (delegates(text)) {
+        assert.deepEqual([...result.descriptor.value.capabilities], frontmatterCapabilities(text));
+      }
 
       const descriptor = result.descriptor.value;
       assert.equal(descriptor.name, name);
@@ -185,7 +184,7 @@ describe("the capabilities the staged prompt bodies declare", () => {
 
     it(`${name} declares capabilities the permission kernel can parse`, () => {
       const text = readFileSync(file, "utf8");
-      const declared = declaredCapabilities(text, MarkdownFlow.fromMarkdown({
+      const declared = (MarkdownFlow.fromMarkdown({
         text,
         path: relative(repoRoot, file).split("\\").join("/"),
         baseDirectory: dirname(file),
@@ -193,7 +192,7 @@ describe("the capabilities the staged prompt bodies declare", () => {
         name: Option.some(name),
         dirBasename: name.split("/").pop(),
         provenance: { source: "project", root: flowsRoot },
-      }).descriptor.value);
+      }).descriptor.value).capabilities;
 
       for (const literal of declared) {
         // The registry stores whatever string the frontmatter carries, so a
@@ -212,7 +211,7 @@ describe("the capabilities the staged prompt bodies declare", () => {
 
     it(`${name} grants a real command line where it asks to spawn one`, () => {
       const text = readFileSync(file, "utf8");
-      const declared = declaredCapabilities(text, MarkdownFlow.fromMarkdown({
+      const declared = (MarkdownFlow.fromMarkdown({
         text,
         path: relative(repoRoot, file).split("\\").join("/"),
         baseDirectory: dirname(file),
@@ -220,7 +219,7 @@ describe("the capabilities the staged prompt bodies declare", () => {
         name: Option.some(name),
         dirBasename: name.split("/").pop(),
         provenance: { source: "project", root: flowsRoot },
-      }).descriptor.value);
+      }).descriptor.value).capabilities;
 
       const spawns = declared.filter((literal) => literal.startsWith("proc:spawn"));
       if (spawns.length === 0) return;
@@ -553,12 +552,9 @@ describe("discovery over the project flows directory", () => {
     const delegatingModules = ["checks/wiki"];
     // Registration and its setup child run only on the coding host, which implements their steps.
     const hiddenModules = ["register-repository", "register-repository/setup", "rollout"];
-    const [code, message] = DELEGATED.split(": ");
     assert.deepEqual(
       scan.warnings.map((warning) => `${warning.code} at ${relative(flowsRoot, warning.path).split("\\").join("/")}: ${warning.message}`).sort(),
       [
-        ...EXPECTED_FLOWS.filter((name) => name.startsWith("checks/")).map((name) => `${code} at ${name}/flow.mdx: ${message}`),
-        ...delegatingModules.map((name) => `unsupported_module_metadata at ${name}/flow.ts: Flow authority cannot be projected statically; using the conservative wildcard`),
         ...["checks/wiki", "tutorial-change"].map((name) => `unsupported_module_metadata at ${name}/flow.ts: Effect tier sealed under-classifies declared authority; using irreversible`),
         // `wiki` declares its own paths rather than inheriting the delegating
         // wildcard, so its sealed tier is raised only as far as those allow.

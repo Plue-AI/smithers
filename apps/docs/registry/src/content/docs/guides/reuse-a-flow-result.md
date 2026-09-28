@@ -72,10 +72,11 @@ id explicitly, independent of the host's chosen execution-ID source.
 `sealed` dispatch and nothing else. The tier on that dispatch is the
 descriptor's own, declared or inferred, and the bridge never widens it.
 
-So a descriptor that names a delegate flow cannot have a result reused. Naming
-a delegate makes its authority unreadable to discovery, which projects the
-conservative wildcard and an `irreversible` tier, and its policy reaches
-admission and is refused there. Anything else would let a flow with unbounded
+So a descriptor that names a delegate flow and declares no capabilities cannot
+have a result reused. Naming a delegate makes its authority unreadable to
+discovery, which projects the conservative wildcard and an `irreversible` tier,
+and its policy reaches admission and is refused there. Declared capabilities
+narrow that wildcard, and the narrowed set decides the tier. Anything else would let a flow with unbounded
 authority declare its own result reusable. See
 [Declared authority](/concepts/authority/).
 
