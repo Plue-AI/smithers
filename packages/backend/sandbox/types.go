@@ -387,10 +387,11 @@ type EgressProxyPolicy struct {
 	// AllowDomains is the proxy-level domain allowlist. Empty leaves the list
 	// to the provider: the hosted Microsandbox worker uses its deployment
 	// allowlist, else a default-deny list of package registries and model
-	// APIs. "*" admits any public host only where the deployment allowlist
-	// opts in with "*". Hosts a secret is bound to are always added. Private,
-	// link-local, and metadata ranges are always denied regardless of this
-	// list. (ironproxy.RenderConfig alone still renders empty as "*".)
+	// APIs. A reload naming "*" is refused unless the deployment allowlist
+	// opts in with "*"; a list sent at creation is enforced as given. Hosts a
+	// secret is bound to are always added. Private, link-local, and metadata
+	// ranges are always denied regardless of this list. (ironproxy.Render
+	// alone still renders an empty list with no AllowCIDRs as "*".)
 	AllowDomains []string            `json:"allowDomains,omitempty"`
 	Secrets      []EgressProxySecret `json:"secrets,omitempty"`
 	// HostRules narrows hosts: a host a rule names is reachable only by the
