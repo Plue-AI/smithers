@@ -392,6 +392,16 @@ const catalogPublicationTest = Smithers.Shell.Test({
   ]
 })
 
+/** The home page imports the app's chunk and stylesheets only from its own origin. */
+const sameOriginUrlTest = Smithers.Shell.Test({
+  shell: "node --test apps/site/scripts/same-origin-url.test.mjs",
+  data: [
+    Smithers.file("scripts/same-origin-url.test.mjs"),
+    Smithers.file("src/lib/sameOriginUrl.ts"),
+    Smithers.file("src/pages/index.astro")
+  ]
+})
+
 /** Keep the imported native bridge in the site's TypeScript program and CI checks. */
 const siteTypecheckTest = Smithers.Shell.Test({
   shell: "node --test apps/site/scripts/site-typecheck.test.mjs",
@@ -583,7 +593,7 @@ const securityReview = Smithers.SecurityReview({
         "Stylesheet hrefs or inline style text copied from the fetched page into document.head from a cross-origin source.",
         "start.href or appHref built from a query parameter, hash, or catalog response instead of the build-time AVAILABLE_REPOS entry."
       ],
-      paths: ["src/pages/index.astro", "src/lib/appHistory.ts"]
+      paths: ["src/pages/index.astro", "src/lib/appHistory.ts", "src/lib/sameOriginUrl.ts"]
     },
     {
       id: "build-time-secret-exposure",
@@ -644,6 +654,7 @@ export const Package = Smithers.Package({
     supportMatrixTest,
     catalogPublicationTest,
     siteTypecheckTest,
+    sameOriginUrlTest,
     docsRuntimeTests,
     examplesPages,
     llms,

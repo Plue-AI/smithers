@@ -52,6 +52,7 @@ const githubHref = "https://github.com/smithersai/smithers"
   import { bindPressActions } from "../../../app/src/mainview/runtime/PressActions"
   import { writerTakeoverRequested } from "../../../app/src/mainview/state/WriterOwnership"
   import { shouldResumeApp } from "../lib/appHistory"
+  import { sameOriginUrl } from "../lib/sameOriginUrl"
   /*
    * The app arrives in this document. After `load` and an idle moment the
    * page reads the prerendered app page (Get started for free's href) for the app's
@@ -113,6 +114,8 @@ const githubHref = "https://github.com/smithersai/smithers"
     const importApp = async (): Promise<AppMount> => {
       const response = await fetch(start.href, { priority: "low", credentials: "same-origin" } as RequestInit)
       if (!response.ok) throw new Error(`The app page answered HTTP ${response.status}.`)
+      // Every chunk and stylesheet the page names must stay on this origin, including after a redirect.
+      const pageUrl = sameOriginUrl(response.url || start.href, start.href, location.origin)
       const page = new DOMParser().parseFromString(await response.text(), "text/html")
       const chunk = page.querySelector("astro-island[component-url]")?.getAttribute("component-url")
       if (!chunk) throw new Error("The app page names no island chunk.")
@@ -120,7 +123,7 @@ const githubHref = "https://github.com/smithersai/smithers"
         const sheet = source instanceof HTMLLinkElement ? document.createElement("link") : document.createElement("style")
         if (sheet instanceof HTMLLinkElement) {
           sheet.rel = "stylesheet"
-          sheet.href = new URL(source.getAttribute("href") ?? "", start.href).href
+          sheet.href = sameOriginUrl(source.getAttribute("href") ?? "", pageUrl, location.origin)
         } else sheet.textContent = source.textContent
         document.head.append(sheet)
         return sheet instanceof HTMLLinkElement
@@ -129,8 +132,8 @@ const githubHref = "https://github.com/smithersai/smithers"
       })
       // Astro's own hydration order: the before-hydration script (the React refresh preamble in dev) runs first.
       const before = page.querySelector("astro-island[before-hydration-url]")?.getAttribute("before-hydration-url")
-      if (before) await import(/* @vite-ignore */ new URL(before, start.href).href)
-      const island = (await import(/* @vite-ignore */ new URL(chunk, start.href).href)) as { default?: Partial<AppMount> }
+      if (before) await import(/* @vite-ignore */ sameOriginUrl(before, pageUrl, location.origin))
+      const island = (await import(/* @vite-ignore */ sameOriginUrl(chunk, pageUrl, location.origin))) as { default?: Partial<AppMount> }
       await Promise.all(loaded)
       const mountApp = island.default?.mountApp
       const warmApp = island.default?.warmApp
