@@ -28,7 +28,7 @@
 export * from "./commandProvider.ts"
 export * from "./fileSystem.ts"
 export * from "./layerHost.ts"
-export * from "./NetworkPolicy.ts"
+export type { NetworkPolicy } from "./NetworkPolicy.ts"
 export * from "./Provider.ts"
 export * from "./Session.ts"
 export * from "./TestSession.ts"
