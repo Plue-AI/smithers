@@ -162,7 +162,8 @@ strings, and the provider ahead of the colon decides which credential is read:
 
 `--publish` needs a publish service URL in `SMITHERS_REVIEW_PUBLISH_URL` and an
 API key (`srk_…`, operator-issued) in `SMITHERS_REVIEW_PUBLISH_TOKEN`; both can
-also be set in `~/.smithers-review.json`.
+also be set in `~/.smithers-review.json`. The URL must use `https:`; `http:` is
+accepted only for a loopback host.
 
 ## The service
 

@@ -33,7 +33,26 @@ function loadPublishConfig(homeDir = homedir()): { url: string; token: string } 
       'no publish token: set SMITHERS_REVIEW_PUBLISH_TOKEN or write ~/.smithers-review.json with { "publishToken": "..." }',
     );
   }
-  return { url: url.replace(/\/$/, ""), token };
+  return { url: requireSecureUrl(url).replace(/\/$/, ""), token };
+}
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * The publish request carries the bearer token, so it goes only over https:.
+ * Plain http: is accepted for a loopback host, where no network sits between
+ * the CLI and the service.
+ */
+function requireSecureUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`invalid publish URL: ${url}`);
+  }
+  if (parsed.protocol === "https:") return url;
+  if (parsed.protocol === "http:" && LOOPBACK_HOSTS.has(parsed.hostname)) return url;
+  throw new Error(`insecure publish URL: ${parsed.origin} must use https: (http: only for localhost)`);
 }
 
 /**

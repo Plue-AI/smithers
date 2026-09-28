@@ -114,6 +114,41 @@ test.each(["artifact", "output"])("a partial %s write leaves the previous user-f
 });
 
 
+async function renderInRepo(repoDir: string, out = "") {
+  return Effect.runPromise(RenderTest.execute(Schema.decodeUnknownSync(RenderWalkthrough.payloadSchema)({
+    input: { repo: repoDir, out },
+    target: { repoDir, mode: "workspace", ref: "workspace" },
+    changes: { files: [{ path: "a.ts", status: "modified", diff: "", reviewed: true }] },
+    review, story: null, quiz: null,
+  }), { executionId: `render-${crypto.randomUUID()}` }).pipe(Effect.provide(testLayer())));
+}
+
+test.each([
+  [".smithers-review", ""],
+  [".smithers-review/.smithers-review-artifacts", ""],
+  ["reports", "reports/walkthrough.html"],
+])("render refuses to follow a checked-out %s symlink out of the repository", async (link, out) => {
+  const repo = fs.mkdtempSync(join(tmpdir(), "review-symlink-repo-"));
+  const victim = fs.mkdtempSync(join(tmpdir(), "review-symlink-victim-"));
+  dirs.push(repo, victim);
+  fs.mkdirSync(dirname(join(repo, link)), { recursive: true });
+  fs.symlinkSync(victim, join(repo, link));
+  await expect(renderInRepo(repo, out)).rejects.toMatchObject({
+    _tag: "smithers-review/WalkthroughUnwritable",
+    message: expect.stringContaining("symbolic link"),
+  });
+  expect(fs.readdirSync(victim, { recursive: true })).toEqual([]);
+});
+
+test("render still writes the default output inside a plain repository", async () => {
+  const repo = fs.mkdtempSync(join(tmpdir(), "review-plain-repo-"));
+  dirs.push(repo);
+  const result = await renderInRepo(repo);
+  expect(result.walkthrough.path).toBe(join(repo, ".smithers-review", "walkthrough.html"));
+  expect(fs.existsSync(result.walkthrough.path)).toBe(true);
+});
+
+
 test.each(["failed", "completed_with_errors", "completed_with_warnings"] as const)("verifier failure preserves %s status", async (status) => {
   const result = await Effect.runPromise(VerifyTest.execute({
     review: { ...review, status, ok: status !== "failed" }, verdicts: null, failure: "provider refused",

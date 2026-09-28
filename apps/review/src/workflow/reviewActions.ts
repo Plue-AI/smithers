@@ -299,7 +299,7 @@ export const renderWalkthroughLayer = RenderWalkthrough.toLayer(
       }));
       const outPath = walkthroughPath(target.repoDir, input.out);
       const artifactPath = yield* Effect.try({
-        try: () => writeWalkthroughArtifact(outPath, html),
+        try: () => writeWalkthroughArtifact(target.repoDir, outPath, html),
         catch: (cause) => new WalkthroughUnwritable({ path: outPath, message: reasonOf(cause) }),
       });
       return {

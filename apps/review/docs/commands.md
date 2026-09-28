@@ -39,6 +39,10 @@ beside the output. The workflow returns that file as `walkthrough.artifactPath`;
 The JSON summary exposes it as `walkthroughArtifactPath`. Retain these files
 while a run may resume or publish; remove them manually when no longer needed.
 Older recorded results without an artifact path must be rerun before publishing.
+A render inside the reviewed repository refuses to write through a symbolic
+link there, so a checked-out `.smithers-review` link cannot redirect the output.
+`--publish` sends its token only to an `https:` URL; `http:` is accepted for
+`localhost`, `127.0.0.1`, and `[::1]`.
 
 A review leaves its own files out of the change set it reviews: `.smithers-review/`,
 the `--out` file, its `.smithers-review-artifacts/` directory, and the `--db` file
