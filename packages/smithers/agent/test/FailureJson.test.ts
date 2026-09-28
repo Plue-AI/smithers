@@ -63,6 +63,23 @@ describe("the failure serializer every durable boundary shares", () => {
     })
   }
 
+  it("survives throwing accessors and reflective proxy traps", () => {
+    const getterFailure = { get message(): string { throw new Error("diagnostic getter failed") } }
+    const nestedGetter = { cause: getterFailure }
+    const arrayGetter = [getterFailure]
+    const trapped = new Proxy({}, {
+      getPrototypeOf() { throw new Error("prototype trap failed") },
+      ownKeys() { throw new Error("keys trap failed") }
+    })
+
+    for (const failure of [getterFailure, nestedGetter, arrayGetter, trapped]) {
+      const rendered = failureJson(failure)
+      expect(typeof rendered).toBe("string")
+      expect(rendered).not.toBe("")
+      expect(typeof AgentSession.settlementFailure(failure)).toBe("string")
+    }
+  })
+
   it("never throws, whatever the failure channel hands it", () => {
     let deep: Record<string, unknown> = {}
     for (let level = 0; level < 20_000; level++) deep = { deep }

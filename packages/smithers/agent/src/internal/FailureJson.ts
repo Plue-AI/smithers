@@ -86,7 +86,12 @@ const replacer = (_key: string, value: unknown): unknown =>
  * @since 1.0.0
  */
 export const failureJson = (error: unknown): unknown => {
-  if (isJsonValue(error)) return error
+  try {
+    if (isJsonValue(error)) return error
+  } catch {
+    // Admission reflects over arbitrary failures; getters and proxy traps can
+    // throw before either rendering fallback gets a chance to handle them.
+  }
   // `null` is JSON and has already returned, so anything here that is not an
   // object is a non-JSON primitive, and neither renderer below can carry one:
   // `JSON.stringify` rewrites `Infinity` and `NaN` to `null`, and
