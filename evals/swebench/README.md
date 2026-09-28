@@ -188,6 +188,8 @@ prompt-steered shell on this host with the docker socket, `CODEX_HOME` and the
 web in reach. The runner refuses `on` unless `SWB_CODEX_UNCONFINED=allowed` is
 also set, and prints a warning when it is. `sealed` keeps the same bypass so
 codex can reach the docker socket, with child proxies dead and web search off.
+`run-sample.sh codex` and `run-matrix.sh codex` apply the same check once,
+before the first instance, through `lib/codex-network.sh`.
 See [Lanes, and the sealed one](#lanes-and-the-sealed-one).
 
 For a ChatGPT-subscription control, set `SWB_CODEX_AUTH=chatgpt` and

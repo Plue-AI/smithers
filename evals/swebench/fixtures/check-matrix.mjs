@@ -286,6 +286,42 @@ exit 0
     before,
     "the fixture neither wrote to nor deleted from the checkout's artifact roots"
   )
+  // ---------------------------------------------------------------------
+  // A codex wave refuses a bad network condition before its first run. The
+  // matrix does not stop on a failing run, so without the up-front check every
+  // run would be recorded as a failure.
+  // ---------------------------------------------------------------------
+  const refusedLedger = join(temporary, "refused-ledger.txt")
+  const refusedStub = join(temporary, "refused-stub.sh")
+  writeFileSync(refusedStub, `#!/bin/bash\nprintf 'ran\\n' >> "${refusedLedger}"\nexit 2\n`)
+  chmodSync(refusedStub, 0o755)
+  for (
+    const [network, optIn, message] of [
+      ["on", undefined, /run-matrix\.sh: SWB_CODEX_NETWORK=on .*set SWB_CODEX_UNCONFINED=allowed to opt in/u],
+      ["bogus", "allowed", /run-matrix\.sh: SWB_CODEX_NETWORK must be on, sealed or off, got 'bogus'/u]
+    ]
+  ) {
+    const env = {
+      ...process.env,
+      SWB_ARTIFACT_ROOT: temporary,
+      SWB_RUN_CMD: refusedStub,
+      SWB_SAMPLE: join(temporary, "sample.json"),
+      SWB_DATASET: join(temporary, "dataset.json"),
+      SWB_SAMPLE_COUNT: String(instances.length),
+      SWB_MATRIX_OUT: join(temporary, "refused-matrix.json"),
+      SWB_CODEX_NETWORK: network
+    }
+    delete env.SWB_CODEX_UNCONFINED
+    if (optIn !== undefined) env.SWB_CODEX_UNCONFINED = optIn
+    const refused = spawnSync(join(root, "run-matrix.sh"), ["codex", "1", "1"], { encoding: "utf8", env })
+    assert.equal(refused.status, 2, `${refused.stdout}\n${refused.stderr}`)
+    assert.match(refused.stderr, message)
+    assert.equal(existsSync(refusedLedger), false, "no codex run started")
+    assert.equal(existsSync(join(temporary, "refused-matrix.json")), false, "no manifest recorded")
+    const sample = spawnSync(join(root, "run-sample.sh"), ["codex", "1"], { encoding: "utf8", env })
+    assert.equal(sample.status, 2, `${sample.stdout}\n${sample.stderr}`)
+    assert.match(sample.stderr, new RegExp(message.source.replace("run-matrix", "run-sample"), "u"))
+  }
 } finally {
   rmSync(temporary, { recursive: true, force: true })
 }

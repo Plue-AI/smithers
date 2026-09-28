@@ -3,6 +3,9 @@
 #
 #   run-sample.sh [flows|codex] [count] [timeout-seconds] [jobs]
 #
+# A codex wave reads SWB_CODEX_NETWORK (sealed by default; on also needs
+# SWB_CODEX_UNCONFINED=allowed) and refuses a bad value before any instance.
+#
 # Instances run concurrently, `jobs` at a time (default 3). What bounds that
 # number is disk, not CPU: every instance keeps a multi-GB extracted testbed for
 # the whole wave, and the machine this rig was written on had 27 GB free. The
@@ -26,6 +29,11 @@ JOBS="${4:-3}"
 case "$JOBS" in
   ''|*[!0-9]*|0) echo "jobs must be a positive integer"; exit 2 ;;
 esac
+# A codex wave checks its network condition once, before any instance runs.
+# See lib/codex-network.sh.
+if [ "$HARNESS" = "codex" ]; then
+  "$S/lib/codex-network.sh" run-sample.sh >/dev/null || exit 2
+fi
 
 if [ ! -f "$S/sample.json" ]; then
   echo "no sample at $S/sample.json — run ./bootstrap.sh first"; exit 1

@@ -28,27 +28,8 @@ if [ "$TRANSPORT" != "docker" ]; then
   echo "run-instance-codex.sh: the codex arm runs on SWB_TRANSPORT=docker only, got '$TRANSPORT'" >&2
   exit 2
 fi
-# The problem statement comes from a public issue tracker, so the prompt is
-# untrusted input. `sealed` is the default: codex still gets
-# `--dangerously-bypass-approvals-and-sandbox` (it must reach the docker socket
-# to run the project's tests), but every child command's proxy points at a dead
-# port and the web-search tool is off. `on` lifts that seal and hands a
-# prompt-steered shell this host, the docker socket, CODEX_HOME and the network,
-# so it is never implicit: the lane must also set SWB_CODEX_UNCONFINED=allowed,
-# the same opt-in shape as the flows arm's SWB_FLOWS_HOST_SHELL=allowed.
-NETWORK="${SWB_CODEX_NETWORK:-sealed}"
-case "$NETWORK" in
-  sealed|off) ;;
-  on)
-    if [ "${SWB_CODEX_UNCONFINED:-}" != "allowed" ]; then
-      echo "run-instance-codex.sh: SWB_CODEX_NETWORK=on runs codex unconfined with network on this host; set SWB_CODEX_UNCONFINED=allowed to opt in" >&2
-      exit 2
-    fi
-    echo "run-instance-codex.sh: WARNING: SWB_CODEX_NETWORK=on runs codex unconfined: a shell steered by an untrusted problem statement gets this host, the docker socket, CODEX_HOME and the network" >&2 ;;
-  *)
-    echo "run-instance-codex.sh: SWB_CODEX_NETWORK must be on, sealed or off, got '$NETWORK'" >&2
-    exit 2 ;;
-esac
+# `sealed` by default; `on` needs SWB_CODEX_UNCONFINED=allowed. See the helper.
+NETWORK="$("$S/lib/codex-network.sh" run-instance-codex.sh)" || exit 2
 INSTANCE="$1"
 BUDGET="${2:-1500}"
 MODEL="${3:-gpt-6-sol}"

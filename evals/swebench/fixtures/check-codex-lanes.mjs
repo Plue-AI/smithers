@@ -239,6 +239,7 @@ function runnerFixture(harness, scenario, check, overrideEnvironment = {}) {
         "lib/lock.sh",
         "lib/codex-auth.sh",
         "lib/transport.sh",
+        "lib/codex-network.sh",
         "lib/run-with-timeout.py"
       ]
     ) {

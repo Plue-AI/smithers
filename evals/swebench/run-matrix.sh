@@ -3,6 +3,9 @@
 #
 #   run-matrix.sh [flows|codex] [count-per-instance] [jobs] [timeout-seconds]
 #
+# A codex matrix reads SWB_CODEX_NETWORK (sealed by default; on also needs
+# SWB_CODEX_UNCONFINED=allowed) and refuses a bad value before the first run.
+#
 # `count-per-instance` attempts of each of the sample's first `SWB_SAMPLE_COUNT`
 # instances (5 by default), scheduled `jobs` at a time. `run-matrix.sh flows 5 3`
 # is the best-of-5 wave: 25 runs, three of them in flight.
@@ -54,6 +57,11 @@ esac
 case "$SAMPLE_COUNT" in
   ''|*[!0-9]*|0) echo "SWB_SAMPLE_COUNT must be a positive integer"; exit 2 ;;
 esac
+# The matrix does not stop on a failing run, so a bad codex network condition
+# would record every run as a failure. Check it once, before the first run.
+if [ "$HARNESS" = "codex" ]; then
+  "$S/lib/codex-network.sh" run-matrix.sh >/dev/null || exit 2
+fi
 
 SAMPLE="${SWB_SAMPLE:-$S/sample.json}"
 if [ ! -f "$SAMPLE" ]; then

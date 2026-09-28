@@ -188,9 +188,11 @@ const securityReview = Smithers.SecurityReview({
       paths: [
         "run-instance.sh",
         "run-instance-codex.sh",
+        "lib/codex-network.sh",
         "codex-backfill.sh",
         "fullbench.sh",
         "run-matrix.sh",
+        "run-sample.sh",
         "run-45.sh"
       ]
     },
