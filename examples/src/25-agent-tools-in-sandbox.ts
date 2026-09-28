@@ -7,8 +7,12 @@
  *
  * Only read/write flows are exposed, with capabilities scoped to the scratch
  * root and a host service that resolves relative paths there and rejects
- * absolute paths, traversal and links. The host must exclusively own the tree
- * during the run; this is not an OS boundary against concurrent host mutations.
+ * absolute paths, traversal and links. On POSIX the root must belong to the
+ * running user and grant no group or other permissions (mode & 0o077 === 0), so
+ * no other user can even reach the tree, whatever its inner modes, to swap a
+ * path component between the link check and the file operation. The host must still
+ * exclusively own the tree during the run; this is not an OS boundary against
+ * concurrent mutations by the same user.
  * The scripted seat makes the test deterministic and requires no API key.
  */
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
@@ -41,7 +45,7 @@ import * as Path from "effect/Path"
 import * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import { lstatSync, mkdirSync } from "node:fs"
+import { lstatSync, mkdirSync, statSync } from "node:fs"
 import { durableEngine } from "./durable-layer.ts"
 
 /** What the step must answer with. Nothing downstream parses model text. */
@@ -152,6 +156,22 @@ const confinedFileSystem = (root: string) => Effect.gen(function*() {
       description: "Scratch roots must not contain capability glob characters"
     })))
   }
+  // The link walk below checks, then acts, so it is only sound while no other
+  // principal can change the tree. On POSIX, refuse a root another user owns or
+  // that grants any group or other permission: a traversable root would let
+  // another user reach a writable inner directory. The check is POSIX only;
+  // Windows has no getuid and libuv reports every writable directory as 0o777.
+  const uid = process.getuid?.()
+  if (uid !== undefined) {
+    const rootInfo = statSync(canonicalRoot)
+    if (rootInfo.uid !== uid || (rootInfo.mode & 0o077) !== 0) {
+      return yield* Effect.fail(new PlatformError.PlatformError(new PlatformError.BadArgument({
+        module: "FileSystem",
+        method: "root",
+        description: "Scratch roots must be owned by this user and grant no group or other permissions"
+      })))
+    }
+  }
   const resolve = (requested: string) => Effect.try({
     try: () => {
       if (path.isAbsolute(requested) || requested.split(/[/\\]/).includes("..") || requested.includes("\0")) {
@@ -217,7 +237,7 @@ export const main = (filename: string, root: string, model?: Model.Model): Effec
   Effect.gen(function*() {
     const source = "notes.md"
     const target = "line-count.txt"
-    yield* Effect.sync(() => mkdirSync(root, { recursive: true }))
+    yield* Effect.sync(() => mkdirSync(root, { recursive: true, mode: 0o700 }))
     const { services, canonicalRoot } = yield* confinedFileSystem(root)
     const scratch = Context.get(services, FileSystem.FileSystem)
     yield* scratch.writeFileString(source, "alpha\nbeta\ngamma")

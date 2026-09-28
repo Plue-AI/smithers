@@ -97,6 +97,7 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "A confinedFileSystem method that calls host.* without passing the name through resolve().",
         "resolve() accepting an absolute path, a '..' segment, a NUL byte, a symlink component, or a hard-linked file.",
+        "confinedFileSystem accepting, on POSIX, a root another user owns or whose mode grants any group or other permission (mode & 0o077).",
         "Read/Write FlowBinding capabilities or effects wider than `${canonicalRoot}/**`, or a capabilityEnvelope without that resource."
       ],
       paths: ["src/25-agent-tools-in-sandbox.ts", "test/25-*.test.ts"]

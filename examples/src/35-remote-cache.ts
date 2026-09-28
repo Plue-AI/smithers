@@ -42,24 +42,38 @@ export interface Summary {
 }
 
 /** The recorded entries the in-process action cache holds, keyed by digest. */
-interface SharedTier {
+export interface SharedTier {
   readonly url: string
   readonly reads: () => number
   readonly writes: () => number
   readonly close: () => Promise<void>
 }
 
+/** The largest entry body the example tier accepts, in bytes. */
+export const maxEntryBytes = 1024 * 1024
+
 /**
  * A real HTTP action cache: `GET /ac/{key}` answers a stored entry or 404,
  * `PUT /ac/{key}` records one. `refusePut` makes every write answer 503, which
  * is how the third scenario reproduces an unreachable shared tier.
+ *
+ * A key that is not valid percent-encoding answers 400, and a body larger than
+ * `maxEntryBytes` answers 413, so a malformed request cannot crash or exhaust
+ * the process.
  */
-const startSharedTier = (refusePut: boolean): Promise<SharedTier> => {
+export const startSharedTier = (refusePut: boolean): Promise<SharedTier> => {
   const entries = new Map<string, string>()
   let reads = 0
   let writes = 0
   const server: Server = createServer((request, response) => {
-    const key = decodeURIComponent((request.url ?? "").replace(/^\/ac\//, ""))
+    let key: string
+    try {
+      key = decodeURIComponent((request.url ?? "").replace(/^\/ac\//, ""))
+    } catch {
+      request.resume()
+      response.writeHead(400).end()
+      return
+    }
     if (request.method === "GET") {
       reads++
       const entry = entries.get(key)
@@ -77,8 +91,21 @@ const startSharedTier = (refusePut: boolean): Promise<SharedTier> => {
         return
       }
       const chunks: Array<Buffer> = []
-      request.on("data", (chunk: Buffer) => chunks.push(chunk))
+      let size = 0
+      let tooLarge = false
+      request.on("data", (chunk: Buffer) => {
+        if (tooLarge) return
+        size += chunk.length
+        if (size > maxEntryBytes) {
+          tooLarge = true
+          chunks.length = 0
+          response.writeHead(413, { connection: "close" }).end()
+          return
+        }
+        chunks.push(chunk)
+      })
       request.on("end", () => {
+        if (tooLarge) return
         writes++
         entries.set(key, Buffer.concat(chunks).toString("utf8"))
         response.writeHead(201).end()

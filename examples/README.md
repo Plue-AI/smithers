@@ -60,8 +60,12 @@ symlinks (including dangling links), and hard-linked files. Nested file creation
 and replacement remain supported. Root names cannot contain capability glob
 characters (`*` or `?`).
 
-The host must exclusively own the scratch tree during the run. Path checks do
-not provide an OS boundary against another host process racing filesystem
-mutations. QuickJS bounds cell evaluation; the supplied host service confines
+On POSIX the scratch root must belong to the running user and grant no group or
+other permissions (mode `0700`); `main` creates it that way and refuses any other
+root, so no other user can reach the tree whatever its inner modes. Windows skips
+this check because it has no POSIX owner or mode bits.
+The host must still exclusively own the scratch tree during the run. Path checks
+do not provide an OS boundary against another process of the same user racing
+filesystem mutations. QuickJS bounds cell evaluation; the supplied host service confines
 tool access. The optional third `main` argument supplies a model for exercising
 other cells; the default model is scripted and requires no API key.

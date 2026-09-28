@@ -2,7 +2,7 @@ import { afterAll, expect, it } from "@effect/vitest"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { main } from "../src/35-remote-cache.ts"
+import { main, maxEntryBytes, startSharedTier } from "../src/35-remote-cache.ts"
 
 const directory = mkdtempSync(join(tmpdir(), "flows-remote-cache-"))
 
@@ -33,3 +33,23 @@ it("keeps both runs successful and journals the refusal when publication fails",
   expect(summary.acWrites).toBe(0)
   expect(summary.unpublished).toEqual(["remote-a", "remote-b"])
 }, 60_000)
+
+it("answers 400 to a malformed key and 413 to an oversized entry without crashing", async () => {
+  const tier = await startSharedTier(false)
+  try {
+    const malformed = await fetch(`${tier.url}/ac/%E0%A4%A`)
+    expect(malformed.status).toBe(400)
+    const oversized = await fetch(`${tier.url}/ac/big`, {
+      method: "PUT",
+      body: new Uint8Array(maxEntryBytes + 1)
+    }).then((response) => response.status, () => 413)
+    expect(oversized).toBe(413)
+    expect(tier.writes()).toBe(0)
+    // The tier still serves after both refusals.
+    expect((await fetch(`${tier.url}/ac/big`)).status).toBe(404)
+    expect((await fetch(`${tier.url}/ac/ok`, { method: "PUT", body: "{}" })).status).toBe(201)
+    expect(await (await fetch(`${tier.url}/ac/ok`)).text()).toBe("{}")
+  } finally {
+    await tier.close()
+  }
+})

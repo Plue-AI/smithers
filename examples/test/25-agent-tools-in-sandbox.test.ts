@@ -3,7 +3,7 @@ import * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { main } from "../src/25-agent-tools-in-sandbox.ts"
@@ -48,7 +48,8 @@ for (const attack of ["absolute", "traversal", "file-link", "directory-link", "d
     Effect.gen(function*() {
       const base = join(directory, attack)
       const root = join(base, "repo")
-      mkdirSync(root, { recursive: true })
+      mkdirSync(root, { recursive: true, mode: 0o700 })
+      chmodSync(root, 0o700)
       const sentinel = join(base, "sentinel.txt")
       writeFileSync(sentinel, "outside-marker")
       symlinkSync(sentinel, join(root, "file-link"))
@@ -92,3 +93,16 @@ ctx.done({ totalLines: page.totalLines, wrotePath: written.path, bytesWritten: w
     expect(summary.written).toBe("2")
     expect(readFileSync(join(root, "sub/count.txt"), "utf8")).toBe("one\ntwo")
   }), { timeout: 60_000 })
+
+for (const mode of [0o777, 0o755, 0o710]) {
+  it.effect(`refuses a scratch root with mode ${mode.toString(8)} that other users may reach`, () =>
+    Effect.gen(function*() {
+      const root = join(directory, `shared-root-${mode.toString(8)}`)
+      mkdirSync(root, { recursive: true })
+      chmodSync(root, mode)
+      const refused = yield* Effect.exit(main(join(directory, `shared-root-${mode.toString(8)}.sqlite`), root))
+      expect(refused._tag).toBe("Failure")
+      expect(String(refused)).toContain("grant no group or other permissions")
+      expect(existsSync(join(root, "notes.md"))).toBe(false)
+    }), { timeout: 60_000 })
+}

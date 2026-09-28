@@ -1,10 +1,11 @@
 import { afterAll, expect, it } from "@effect/vitest"
 import * as McpFlows from "@smthrs/mcp/McpFlows"
 import * as Effect from "effect/Effect"
+import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { main, serverName } from "../src/22-mcp-tools.ts"
+import { main, serverName, serverProgram } from "../src/22-mcp-tools.ts"
 
 const directory = mkdtempSync(join(tmpdir(), "flows-examples-"))
 
@@ -70,3 +71,20 @@ it("keeps the granting commentary on the declaration the adapter actually makes"
   expect(commentary).toContain(last)
   expect(commentary).not.toContain(`declares every tool \`"*"\``)
 })
+
+it("answers malformed lines with JSON-RPC errors and keeps serving", () => {
+  const output = execFileSync(process.execPath, [serverProgram], {
+    input: [
+      "not json",
+      "null",
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+    ].join("\n") + "\n",
+    encoding: "utf8",
+    timeout: 30_000
+  })
+  const replies = output.trim().split("\n").map((line) => JSON.parse(line))
+  expect(replies[0]).toEqual({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } })
+  expect(replies[1]).toEqual({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } })
+  expect(replies[2].id).toBe(1)
+  expect(replies[2].result.tools).toHaveLength(3)
+}, 60_000)

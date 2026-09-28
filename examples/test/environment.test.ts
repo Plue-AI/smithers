@@ -8,9 +8,11 @@ import { promisify } from "node:util"
 import { expect, it } from "vitest"
 
 it.skipIf(process.env.SMITHERS_LIVE_EXAMPLES === "1")(
-  "isolates the deterministic suite from an ambient OpenAI key",
+  "isolates the deterministic suite from every ambient provider key",
   () => {
     expect(process.env.OPENAI_API_KEY ?? "").toBe("")
+    expect(process.env.GEMINI_API_KEY ?? "").toBe("")
+    expect(process.env.SMITHERS_EXAMPLE_API_KEY ?? "").toBe("")
   }
 )
 
