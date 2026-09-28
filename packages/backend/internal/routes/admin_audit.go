@@ -57,13 +57,10 @@ func (h *AdminAuditHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	cursor, limit, parseErr := parsePagination(r)
+	cursor, limit, parseErr := parsePaginationWithLimits(r, 50, 100, "invalid limit value", false)
 	if parseErr != nil {
 		pkgerrors.WriteError(w, parseErr.(*pkgerrors.APIError))
 		return
-	}
-	if limit == 30 {
-		limit = 50 // audit log defaults to 50 per page
 	}
 
 	eventType := strings.TrimSpace(r.URL.Query().Get("event_type"))
