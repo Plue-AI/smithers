@@ -26,7 +26,7 @@ import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as EngineMigrations from "@smthrs/engine-store/Migrations"
 import * as OwnerIdentity from "@smthrs/engine-store/OwnerIdentity"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { Action, Flow, type FlowRuntime, HumanTask, Interpreter } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, FlowRuntime, HumanTask, Interpreter, WaitFor } from "@smthrs/flow"
 import * as Jj from "@smthrs/jj"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
 import { NotificationQueue } from "@smthrs/notifications"
@@ -65,6 +65,18 @@ const Request = Flow.make("nested/Request", {
   success: Schema.Json,
   error: HumanTask.HumanTaskFailed,
   body: () => PrepareWithWiki.child({})
+})
+
+const SharedParent = Flow.make("nested/SharedParent", {
+  payload: {},
+  success: Schema.String,
+  body: () => Node.succeed("unused")
+})
+
+const SharedApproval = Flow.make("nested/SharedApproval", {
+  payload: {},
+  success: Schema.String,
+  body: () => Node.succeed("unused")
 })
 
 const jj = Jj.make({
@@ -167,6 +179,79 @@ const settled = (runId: string, attempts = 4_000): Effect.Effect<string, unknown
   })
 
 describe("a human wait parked on a nested execution", () => {
+  it("shows a shared attached question once under each parent in every public reader", async () => {
+    const observed = await run(Effect.gen(function*() {
+      const control = yield* Control
+      const runtime = yield* ControlRuntime
+      const state = yield* DurableEngineState.DurableEngineState
+      const flowRuntime = yield* FlowRuntime.FlowRuntime
+      const token = DurableDeferred.tokenFromExecutionId(WaitFor.deferred("approval"), {
+        flow: SharedApproval,
+        executionId: "shared-approval"
+      })
+      yield* flowRuntime.register(SharedApproval, () =>
+        Effect.gen(function*() {
+          const instance = yield* FlowRuntime.FlowInstance
+          instance.waiting = {
+            reason: "approval",
+            token,
+            request: JSON.stringify({
+              task: "human",
+              name: "shared-question",
+              kind: "ask",
+              prompt,
+              attempt: 1,
+              maxAttempts: 3
+            })
+          }
+          return yield* Flow.suspend(instance)
+        }))
+      yield* flowRuntime.register(SharedParent, () =>
+        Effect.gen(function*() {
+          const instance = yield* FlowRuntime.FlowInstance
+          yield* flowRuntime.execute(SharedApproval, {
+            executionId: "shared-approval",
+            payload: {}
+          }).pipe(Effect.orDie)
+          instance.waiting = { reason: "event", token: `${instance.executionId}-event` }
+          return yield* Flow.suspend(instance)
+        }))
+
+      for (const parentId of ["parent-A", "parent-B"]) {
+        yield* flowRuntime.execute(SharedParent, { executionId: parentId, payload: {}, discard: true })
+        yield* TestDatabase.until(
+          state.waitingTree(parentId).pipe(
+            Effect.map((rows) => rows.some((row) => row.runId === "shared-approval"))
+          )
+        )
+      }
+      const parents = (yield* state.runParents("shared-approval")).map((edge) => edge.parentId)
+      const reads = yield* Effect.forEach(parents, (id) => AgentSession.readExecution(id))
+      const summaries = yield* Effect.forEach(parents, (id) => runtime.getRun(id))
+      const page = yield* control.list({ _tag: "runs", filters: { status: "waiting-approval" } })
+      return { parents, reads, summaries, page }
+    }))
+
+    expect(observed.parents).toEqual(["parent-A", "parent-B"])
+    for (const read of observed.reads) {
+      expect(read).toMatchObject({ _tag: "Observed", status: "waiting-approval" })
+      expect(read._tag === "Observed" ? read.pendingWaits?.map((wait) => wait.runId) : []).toEqual(["shared-approval"])
+    }
+    for (const summary of observed.summaries) {
+      expect(summary.status).toBe("waiting-approval")
+      expect(summary.pendingWaits?.map((wait) => wait.runId)).toEqual(["shared-approval"])
+      expect(summary.pendingWaits?.[0]?.request).toMatchObject({ prompt })
+    }
+    expect(observed.page._tag).toBe("runs")
+    if (observed.page._tag === "runs") {
+      const parents = observed.page.items.filter((item) => observed.parents.includes(item.runId))
+      expect(parents.map((item) => item.runId).sort()).toEqual(["parent-A", "parent-B"])
+      for (const parent of parents) {
+        expect(parent.pendingWaits?.map((wait) => wait.runId)).toEqual(["shared-approval"])
+      }
+    }
+  })
+
   it("rolls the root run up to waiting-approval and names the question", async () => {
     const observed = await run(Effect.gen(function*() {
       const control = yield* Control

@@ -17,7 +17,8 @@
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
-import { Flow } from "@smthrs/flow"
+import { FlowEngine } from "@smthrs/engine"
+import { DurableDeferred, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
 import { SqlJournal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
 import { RunStore } from "@smthrs/run-store"
@@ -27,9 +28,23 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
+import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as Migrations from "../src/Migrations.ts"
+import { withCrypto } from "./Sha256.ts"
 
 const TestFlow = Flow.make("WaitingTree/Test", {
+  payload: {},
+  success: Schema.String,
+  body: () => Node.succeed("unused")
+})
+
+const ParentFlow = Flow.make("WaitingTree/Parent", {
+  payload: {},
+  success: Schema.String,
+  body: () => Node.succeed("unused")
+})
+
+const SharedChildFlow = Flow.make("WaitingTree/SharedChild", {
   payload: {},
   success: Schema.String,
   body: () => Node.succeed("unused")
@@ -102,7 +117,144 @@ const withState = <A>(body: (state: DurableEngineState.Service) => Effect.Effect
     return yield* body(state)
   }).pipe(Effect.provide(services), Effect.orDie)
 
+const insertParent = (childId: string, parentId: string, seq: number) =>
+  Effect.gen(function*() {
+    const sql = yield* Effect.service(SqlClient.SqlClient)
+    const writer = yield* DurableWriter.DurableWriter
+    yield* writer.write(
+      sql`INSERT INTO flows_run_parents (child_id, parent_id, seq) VALUES (${childId}, ${parentId}, ${seq})`
+    )
+  })
+
 describe("waitingTree", () => {
+  it.effect("seeks each tree edge without scanning unrelated runs", () =>
+    withCrypto(Effect.scoped(
+      Effect.gen(function*() {
+        // Keep this fixture SQLite-specific: its EXPLAIN QUERY PLAN details are
+        // the deterministic cost evidence, independent of elapsed time.
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        yield* insertRun({ runId: "plan-root", createdAtMs: 1 })
+        yield* insertRun({
+          runId: "plan-child",
+          parent: "plan-root",
+          createdAtMs: 2,
+          waiting: { reason: "approval", token: "plan-token", request: clarification }
+        })
+        for (let index = 0; index < 500; index++) {
+          yield* insertRun({ runId: `unrelated-${index}`, createdAtMs: index + 3 })
+          yield* insertRun({
+            runId: `unrelated-child-${index}`,
+            parent: `unrelated-${index}`,
+            createdAtMs: index + 503
+          })
+        }
+        let statement: string | undefined
+        let parameters: ReadonlyArray<unknown> | undefined
+        const traced = new Proxy(sql, {
+          apply(target, thisArg, args) {
+            const query = Reflect.apply(target, thisArg, args)
+            const [compiled, values] = query.compile()
+            if (compiled.includes("WITH RECURSIVE") && compiled.includes("waiting_reason")) {
+              statement = compiled
+              parameters = values
+            }
+            return query
+          }
+        })
+        const state = yield* DurableEngineState.make.pipe(Effect.provideService(SqlClient.SqlClient, traced))
+        expect((yield* state.waitingTree("plan-root")).map((row) => row.runId)).toEqual(["plan-child"])
+        expect(statement).toBeDefined()
+        const plan = yield* sql.unsafe<{ detail: string }>(`EXPLAIN QUERY PLAN ${statement!}`, parameters)
+        const details = plan.map((row) => row.detail)
+        // The recursive step must probe the indexes of both durable edge kinds.
+        expect(
+          details.some((detail) =>
+            /SEARCH (?:TABLE )?flows_run_parents\b USING COVERING INDEX \S+ \(parent_id=\?\)/.test(detail)
+          ),
+          details.join("\n")
+        )
+          .toBe(true)
+        expect(
+          details.some((detail) => /SEARCH (?:TABLE )?flows_runs\b.*\(parent_run_id=\?\)/.test(detail)),
+          details.join("\n")
+        )
+          .toBe(true)
+        expect(details.some((detail) => /SCAN (?:TABLE )?flows_run_parents\b/.test(detail))).toBe(false)
+        expect(details.some((detail) => /SCAN (?:TABLE )?flows_runs\b/.test(detail))).toBe(false)
+      }).pipe(Effect.provide(
+        Layer.mergeAll(
+          SqlJournal.layer({ capacity: 1024, overflow: "reject" }),
+          RunStore.layer,
+          DurableEngineState.layer
+        ).pipe(Layer.provideMerge(Layer.provideMerge(Migrations.layer, TestDatabase.sqliteLayer)))
+      ))
+    )))
+
+  it.effect("a shared attached child's approval is visible from its second parent", () =>
+    withCrypto(Effect.scoped(
+      Effect.gen(function*() {
+        const state = yield* DurableEngineState.DurableEngineState
+        const store = yield* RunStore.RunStore
+        const runtime = yield* FlowRuntime.FlowRuntime
+        const driver = yield* RunDriver.make({
+          owner: { hostId: "waiting-tree", pid: 1, nonce: "shared-child" },
+          journalSource: "waiting-tree-shared-child",
+          isAlive: () => Effect.succeed(false),
+          engine: Effect.succeed(runtime)
+        })
+        const token = DurableDeferred.tokenFromExecutionId(WaitFor.deferred("approval"), {
+          flow: SharedChildFlow,
+          executionId: "shared-child"
+        })
+        yield* driver.register(SharedChildFlow, () =>
+          Effect.gen(function*() {
+            const instance = yield* FlowRuntime.FlowInstance
+            instance.waiting = { reason: "approval", token, request: clarification }
+            return yield* Flow.suspend(instance)
+          }))
+        yield* driver.register(ParentFlow, () =>
+          Effect.gen(function*() {
+            const instance = yield* FlowRuntime.FlowInstance
+            expect(instance.flow._tag).toBe(ParentFlow._tag)
+            expect((yield* store.get(instance.executionId)).status).toBe("running")
+            const child = yield* driver.execute(SharedChildFlow, {
+              executionId: "shared-child",
+              payload: {},
+              discard: false,
+              parent: instance
+            })
+            expect(child).toBeInstanceOf(Flow.Suspended)
+            expect((yield* store.get("shared-child")).status).toBe("suspended")
+            instance.waiting = { reason: "event", token: `${instance.executionId}-event` }
+            return yield* Flow.suspend(instance)
+          }))
+
+        for (const parentId of ["first-parent", "second-parent"]) {
+          expect(
+            yield* driver.execute(ParentFlow, {
+              executionId: parentId,
+              payload: {},
+              discard: false
+            })
+          ).toBeInstanceOf(Flow.Suspended)
+          expect((yield* store.get(parentId)).status).toBe("suspended")
+        }
+
+        expect((yield* store.get("shared-child")).status).toBe("suspended")
+        expect((yield* state.runParents("shared-child")).map((edge) => edge.parentId))
+          .toEqual(["first-parent", "second-parent"])
+        for (const parentId of ["first-parent", "second-parent"]) {
+          const tree = yield* state.waitingTree(parentId)
+          expect(tree.map((row) => [row.runId, row.reason])).toEqual([
+            [parentId, "event"],
+            ["shared-child", "approval"]
+          ])
+          expect(tree[1]!.token).toBe(token)
+          expect(tree[1]!.request).toEqual(JSON.parse(clarification))
+        }
+      }).pipe(Effect.provide(services), Effect.provide(FlowEngine.layerMemory))
+    )))
+
   it.effect("reports a human wait parked three executions below the run an operator named", () =>
     withState((state) =>
       Effect.gen(function*() {
@@ -180,17 +332,145 @@ describe("waitingTree", () => {
           createdAtMs: 2,
           waiting: { reason: "approval", token: "attached-token" }
         })
-        yield* insertRun({ runId: "detached", parent: "root", createdAtMs: 3, onParentExit: "detach" })
+        yield* insertRun({ runId: "other-root", createdAtMs: 3 })
+        yield* insertRun({ runId: "detached", parent: "root", createdAtMs: 4, onParentExit: "detach" })
+        yield* insertParent("detached", "other-root", 5)
         yield* insertRun({
           runId: "under-detached",
           parent: "detached",
-          createdAtMs: 4,
+          createdAtMs: 6,
           waiting: { reason: "approval", token: "hidden-token" }
         })
 
         expect((yield* state.waitingTree("root")).map((row) => row.runId)).toEqual(["attached"])
+        expect(yield* state.waitingTree("other-root")).toEqual([])
         // The detached run still owns its own subtree's question.
         expect((yield* state.waitingTree("detached")).map((row) => row.runId)).toEqual(["under-detached"])
+      })
+    ))
+
+  it.effect("deduplicates a shared wait reached through unequal-depth diamond paths", () =>
+    withState((state) =>
+      Effect.gen(function*() {
+        yield* insertRun({ runId: "root", createdAtMs: 1 })
+        yield* insertRun({ runId: "short", parent: "root", createdAtMs: 2 })
+        yield* insertRun({ runId: "long", parent: "root", createdAtMs: 3 })
+        yield* insertRun({ runId: "middle", parent: "long", createdAtMs: 4 })
+        yield* insertRun({
+          runId: "deep",
+          parent: "middle",
+          createdAtMs: 5,
+          waiting: { reason: "event", token: "deep-token" }
+        })
+        yield* insertRun({
+          runId: "shared",
+          parent: "short",
+          createdAtMs: 6,
+          waiting: { reason: "approval", token: "shared-token", request: clarification }
+        })
+        yield* insertParent("shared", "middle", 7)
+
+        const tree = yield* state.waitingTree("root")
+        // The newer, shallower shared wait must precede the older, deeper wait.
+        expect(tree.map((row) => [row.runId, row.reason])).toEqual([
+          ["shared", "approval"],
+          ["deep", "event"]
+        ])
+        expect(tree[0]!.request).toEqual(JSON.parse(clarification))
+        expect((yield* state.waitingTree("middle")).map((row) => row.runId)).toEqual(["deep", "shared"])
+      })
+    ))
+
+  it.effect("includes a wait at depth 64 and excludes one at depth 65", () =>
+    withState((state) =>
+      Effect.gen(function*() {
+        yield* insertRun({ runId: "depth-0", createdAtMs: 0 })
+        for (let depth = 1; depth <= 65; depth++) {
+          yield* insertRun({
+            runId: `depth-${depth}`,
+            parent: `depth-${depth - 1}`,
+            createdAtMs: depth,
+            ...(depth >= 64 ? { waiting: { reason: "approval", token: `depth-${depth}-token` } } : {})
+          })
+        }
+
+        expect((yield* state.waitingTree("depth-0")).map((row) => row.runId)).toEqual(["depth-64"])
+        expect((yield* state.waitingTree("depth-1")).map((row) => row.runId))
+          .toEqual(["depth-64", "depth-65"])
+      })
+    ))
+
+  it.effect("walks trampoline rounds and their attached children without a spawn edge for the round", () =>
+    withState((state) =>
+      Effect.gen(function*() {
+        yield* insertRun({ runId: "lineage", createdAtMs: 1, waiting: { reason: "event", token: "lineage-token" } })
+        yield* insertRun({ runId: "round-2", createdAtMs: 2 })
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const writer = yield* DurableWriter.DurableWriter
+        yield* writer.write(sql`UPDATE flows_runs SET parent_run_id = 'lineage' WHERE run_id = 'round-2'`)
+        yield* insertRun({
+          runId: "round-child",
+          parent: "round-2",
+          createdAtMs: 3,
+          waiting: { reason: "approval", token: "round-token", request: clarification }
+        })
+
+        expect(yield* state.runParents("round-2")).toEqual([])
+        expect((yield* state.waitingTree("lineage")).map((row) => [row.runId, row.reason])).toEqual([
+          ["lineage", "event"],
+          ["round-child", "approval"]
+        ])
+      })
+    ))
+
+  it.effect("keeps a detached spawn outside its parent but finds its later round's approval", () =>
+    withState((state) =>
+      Effect.gen(function*() {
+        yield* insertRun({ runId: "outside", createdAtMs: 1 })
+        yield* insertRun({
+          runId: "round-1",
+          parent: "outside",
+          createdAtMs: 2,
+          status: "completed",
+          onParentExit: "detach"
+        })
+        yield* insertRun({
+          runId: "round-2",
+          createdAtMs: 3,
+          onParentExit: "detach",
+          waiting: { reason: "approval", token: "round-2-token", request: clarification }
+        })
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const writer = yield* DurableWriter.DurableWriter
+        yield* writer.write(sql`UPDATE flows_runs SET parent_run_id = 'round-1' WHERE run_id = 'round-2'`)
+
+        expect(yield* state.runParents("round-2")).toEqual([])
+        expect(yield* state.waitingTree("outside")).toEqual([])
+        for (const runId of ["round-1", "round-2"]) {
+          const tree = yield* state.waitingTree(runId)
+          expect(tree.map((row) => [row.runId, row.reason, row.token])).toEqual([
+            ["round-2", "approval", "round-2-token"]
+          ])
+          expect(tree[0]!.request).toEqual(JSON.parse(clarification))
+        }
+      })
+    ))
+
+  it.effect("terminates and returns each wait once if corrupt SQL edges form a cycle", () =>
+    withState((state) =>
+      Effect.gen(function*() {
+        yield* insertRun({ runId: "cycle-root", createdAtMs: 1, waiting: { reason: "event", token: "root" } })
+        yield* insertRun({
+          runId: "cycle-child",
+          parent: "cycle-root",
+          createdAtMs: 2,
+          waiting: { reason: "approval", token: "child" }
+        })
+        // Bypass recordRunParent's cycle guard to exercise the reader's final bound.
+        yield* insertParent("cycle-root", "cycle-child", 3)
+
+        expect((yield* state.waitingTree("cycle-root")).map((row) => row.runId))
+          .toEqual(["cycle-root", "cycle-child"])
       })
     ))
 

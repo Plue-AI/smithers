@@ -231,15 +231,15 @@ const terminal = (status: RunStatus): boolean => status === "cancelled" || statu
 const maxWaitTreeDepth = 64
 
 /**
- * Whether a failure means this database has no engine execution columns yet.
+ * Whether this database lacks the engine's wait-tree schema.
  *
- * `execution_parent_id` is the one column to name. The wait walk also reads
- * `waiting_request`, which run-store's block installs, and a block installs
- * before the engine block that adds this column — so a database with the
- * column has the other, and a database without it fails here first.
+ * Run-store installs the wait and trampoline columns before the engine
+ * installs spawn edges and `execution_flow`. A control-only database can
+ * lack the latter without making its ordinary run listings unreadable.
  */
-const missingWaitTreeColumns = (cause: unknown): boolean =>
-  missingTable("flows_runs")(cause) || causeMessages(cause).some((message) => message.includes("execution_parent_id"))
+const missingWaitTreeSchema = (cause: unknown): boolean =>
+  missingTable("flows_runs")(cause) || missingTable("flows_run_parents")(cause) ||
+  causeMessages(cause).some((message) => message.includes("execution_flow"))
 
 /**
  * The question a park declared, as JSON, or nothing.
@@ -764,9 +764,8 @@ const makeRuntime = (
      * Open human waits in each run's tree, by every run that contains one.
      *
      * The walk goes UP, not down. Approval parks are rare and run trees are
-     * shallow, so starting from the parked rows and climbing
-     * `execution_parent_id` costs one recursion step per parked run per
-     * nesting level; starting from every run in scope and descending would
+     * shallow, so start from the parked rows and climb every spawn and
+     * trampoline edge; starting from every run in scope and descending would
      * re-walk the whole forest to find the same few rows. A wait therefore
      * appears under its own execution AND under every ancestor of it, which
      * is exactly what "does this run tree owe anybody an answer" asks.
@@ -774,9 +773,10 @@ const makeRuntime = (
      * The scope filters the ANCESTOR, not the parked row: a listing wants the
      * waits of the runs it is about to return, wherever those waits are held.
      *
-     * Missing column, missing evidence, as with the fork markers: a control
-     * plane over a database whose engine block predates `execution_parent_id`
-     * observes no nested waits rather than failing every listing.
+     * Collapse paths to each wait/ancestor pair at their shortest depth so
+     * shared descendants and cycles cannot duplicate or reorder a wait.
+     * A database without the engine's wait-tree schema observes no nested
+     * waits rather than failing every listing.
      */
     const humanWaits = (scope: IndexScope): Effect.Effect<
       ReadonlyMap<string, ReadonlyArray<PendingWait>>,
@@ -797,23 +797,31 @@ const makeRuntime = (
         WHERE waiting_reason = ${ControlExecutor.humanWaitReason}
           AND status NOT IN ('completed', 'failed', 'cancelled')
         UNION
-        SELECT human_waits.wait_run_id, step.execution_parent_id, human_waits.depth + 1
+        SELECT human_waits.wait_run_id, parent.run_id, human_waits.depth + 1
         FROM flows_runs step JOIN human_waits ON step.run_id = human_waits.ancestor_id
-        WHERE step.execution_parent_id IS NOT NULL AND human_waits.depth < ${maxWaitTreeDepth}
-          AND COALESCE(${Dialect.jsonText(sql, sql`step.state_json`, "$.onParentExit")}, 'cancel') <> 'detach'
+        JOIN flows_runs parent ON parent.run_id IN (
+          SELECT parent_id FROM flows_run_parents WHERE child_id = step.run_id
+          UNION ALL
+          SELECT step.parent_run_id WHERE step.parent_run_id IS NOT NULL
+        )
+        WHERE human_waits.depth < ${maxWaitTreeDepth}
+          AND (parent.run_id = step.parent_run_id
+            OR COALESCE(${Dialect.jsonText(sql, sql`step.state_json`, "$.onParentExit")}, 'cancel') <> 'detach')
+      ), reachable(wait_run_id, ancestor_id, depth) AS (
+        SELECT wait_run_id, ancestor_id, MIN(depth) FROM human_waits GROUP BY wait_run_id, ancestor_id
       )
       SELECT
-        human_waits.ancestor_id AS "ancestorId",
-        human_waits.depth AS "depth",
+        reachable.ancestor_id AS "ancestorId",
+        reachable.depth AS "depth",
         parked.run_id AS "runId",
         parked.execution_flow AS "flowId",
         parked.waiting_reason AS "waitingReason",
         parked.waiting_token AS "waitingToken",
         parked.waiting_request AS "waitingRequest",
         parked.created_at_ms AS "createdAtMs"
-      FROM human_waits JOIN flows_runs parked ON parked.run_id = human_waits.wait_run_id
-      WHERE ${within("human_waits.ancestor_id", scope)}
-      ORDER BY human_waits.ancestor_id, human_waits.depth, parked.created_at_ms, parked.run_id
+      FROM reachable JOIN flows_runs parked ON parked.run_id = reachable.wait_run_id
+      WHERE ${within("reachable.ancestor_id", scope)}
+      ORDER BY reachable.ancestor_id, reachable.depth, parked.created_at_ms, parked.run_id
     `.pipe(
         probe,
         Effect.map((rows) => {
@@ -835,7 +843,7 @@ const makeRuntime = (
           return index
         }),
         Effect.catchIf(
-          missingWaitTreeColumns,
+          missingWaitTreeSchema,
           () => Effect.succeed(new Map<string, ReadonlyArray<PendingWait>>())
         ),
         Effect.mapError(persistence("read nested human waits"))
@@ -1337,10 +1345,16 @@ const makeRuntime = (
           WHERE waiting_reason = ${ControlExecutor.humanWaitReason}
             AND status NOT IN ('completed', 'failed', 'cancelled')
           UNION
-          SELECT step.execution_parent_id, human_wait_ancestry.depth + 1
+          SELECT parent.run_id, human_wait_ancestry.depth + 1
           FROM flows_runs step JOIN human_wait_ancestry ON step.run_id = human_wait_ancestry.ancestorId
-          WHERE step.execution_parent_id IS NOT NULL AND human_wait_ancestry.depth < ${maxWaitTreeDepth}
-            AND COALESCE(${Dialect.jsonText(sql, sql`step.state_json`, "$.onParentExit")}, 'cancel') <> 'detach'
+          JOIN flows_runs parent ON parent.run_id IN (
+            SELECT parent_id FROM flows_run_parents WHERE child_id = step.run_id
+            UNION ALL
+            SELECT step.parent_run_id WHERE step.parent_run_id IS NOT NULL
+          )
+          WHERE human_wait_ancestry.depth < ${maxWaitTreeDepth}
+            AND (parent.run_id = step.parent_run_id
+              OR COALESCE(${Dialect.jsonText(sql, sql`step.state_json`, "$.onParentExit")}, 'cancel') <> 'detach')
         )`
         : sql.literal("")
       return sql<RunCursor>`
@@ -1361,10 +1375,9 @@ const makeRuntime = (
           (error) => includeSpawn && filters?.parentRunId !== undefined && missingTable("flows_run_parents")(error),
           () => runPageKeys(request, false, includeWaitRollup)
         ),
-        // A database whose engine block predates `execution_parent_id` has no
-        // nesting to roll up, so the page is the one it would have been.
+        // Without the engine's wait-tree schema, retain the ordinary page.
         Effect.catchIf(
-          (error) => includeWaitRollup && missingWaitTreeColumns(error),
+          (error) => includeWaitRollup && missingWaitTreeSchema(error),
           () => runPageKeys(request, includeSpawn, false)
         ),
         Effect.mapError(persistence("query runs"))

@@ -485,12 +485,12 @@ export interface Service {
    * waiting on you" about a run tree that was waiting on a person, which is
    * how run-3 parked forever with an empty approvals inbox.
    *
-   * The walk follows `execution_parent_id`, the column the engine's own
-   * spawn triggers maintain from `parent_run_id` and `flows_run_parents`, so
-   * it sees a child, a fork, and a trampoline round alike. The run itself is
-   * included and comes first; the rest follow in creation order. Rows of a
-   * settled execution are never listed — a wait a finished execution left
-   * behind is not one a person can answer.
+   * The walk follows every `flows_run_parents` spawn edge and `parent_run_id`
+   * link, so it sees shared children, forks, and trampoline rounds alike.
+   * Each run appears once, ordered by minimum depth, creation time, then run
+   * ID; the named run comes first. Rows of a settled execution are never
+   * listed — a wait a finished execution left behind is not one a person
+   * can answer.
    *
    * A DETACHED child and everything under it are skipped. `onParentExit:
    * "detach"` is a fire-and-forget spawn whose whole point is to outlive the
@@ -498,6 +498,8 @@ export interface Service {
    * waiting on, and reporting it here would tell a reader that a run which can
    * proceed cannot. Every other edge is attached: the run is waiting for that
    * child's value, whether its own row has flipped to `suspended` yet or not.
+   * Trampoline links continue the same run, so an inherited detach policy
+   * does not hide later rounds from that run's own tree.
    */
   readonly waitingTree: (runId: string) => Effect.Effect<ReadonlyArray<WaitingRow>>
   /**
@@ -1397,13 +1399,12 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
   /**
    * Every open wait in one run tree, the named run's own first.
    *
-   * The recursive term walks `execution_parent_id` downwards. It is bounded
-   * twice over: SQLite's recursive CTE visits each row once per distinct path
-   * and the engine refuses a cycle when the edge is written
-   * (`internal/CycleDetection`), so a diamond costs its paths and a cycle
-   * cannot be stored. The depth cap is the last guard, and it is generous
-   * enough that no authored nesting reaches it while still bounding a tree
-   * corrupted outside the engine.
+   * Walk the authoritative spawn and trampoline edges. UNION visits each
+   * (run, depth) pair once; the depth cap bounds even externally corrupted
+   * cycles. Grouping by run afterwards collapses unequal-depth DAG paths
+   * and orders each wait at its shortest attached distance from the root.
+   * Correlated edge lookups seek each parent's indexes instead of building
+   * an edge set from the database's entire execution history.
    */
   const waitingTree: Service["waitingTree"] = Effect.fn("DurableEngineState.waitingTree")((runId) =>
     sql<WaitingDatabaseRow>`
@@ -1411,10 +1412,17 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         SELECT run_id, 0 FROM flows_runs WHERE run_id = ${runId}
         UNION
         SELECT child.run_id, tree.depth + 1
-        FROM flows_runs child
-        JOIN tree ON child.execution_parent_id = tree.run_id
+        FROM tree
+        JOIN flows_runs child ON child.run_id IN (
+          SELECT child_id FROM flows_run_parents WHERE parent_id = tree.run_id
+          UNION ALL
+          SELECT run_id FROM flows_runs WHERE parent_run_id = tree.run_id
+        )
         WHERE tree.depth < ${waitingTreeMaxDepth}
-          AND COALESCE(${Dialect.jsonText(sql, sql`child.state_json`, "$.onParentExit")}, 'cancel') <> 'detach'
+          AND (child.parent_run_id = tree.run_id
+            OR COALESCE(${Dialect.jsonText(sql, sql`child.state_json`, "$.onParentExit")}, 'cancel') <> 'detach')
+      ), reachable(run_id, depth) AS (
+        SELECT run_id, MIN(depth) FROM tree GROUP BY run_id
       )
       SELECT
         parked.run_id AS "runId",
@@ -1422,11 +1430,11 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         parked.waiting_wake_at_ms AS "waitingWakeAtMs",
         parked.waiting_token AS "waitingToken",
         parked.waiting_request AS "waitingRequest"
-      FROM tree
-      JOIN flows_runs parked ON parked.run_id = tree.run_id
+      FROM reachable
+      JOIN flows_runs parked ON parked.run_id = reachable.run_id
       WHERE parked.waiting_reason IS NOT NULL
         AND parked.status NOT IN ('completed', 'failed', 'cancelled')
-      ORDER BY tree.depth, parked.created_at_ms, parked.run_id
+      ORDER BY reachable.depth, parked.created_at_ms, parked.run_id
     `.pipe(
       Effect.orDie,
       Effect.flatMap((rows) => decodeSweep(rows, "waiting run", waitingRowKey, decodeWaitingRowResult))
@@ -2114,9 +2122,9 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
     ),
     waitingTree: Effect.fn("DurableEngineState.waitingTree")((runId) =>
       Effect.sync(() => {
-        // Breadth-first over the same edges the SQL recursion walks, so a
-        // memory-backed composition orders a tree the way a durable one does:
-        // the named run first, then each generation beneath it.
+        // Breadth-first over recorded spawn edges: the named run first, then
+        // each generation beneath it. This memory view does not model the
+        // parent_run_id trampoline links that the SQL walk also follows.
         const found: Array<WaitingRow> = []
         const seen = new Set<string>([runId])
         let frontier: ReadonlyArray<string> = [runId]
