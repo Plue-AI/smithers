@@ -47,7 +47,7 @@ test.each([
   expect(frame).toContain("Select model")
   expect(frame).toContain("Search")
   expect(frame).toContain(`${selected + 1}/20`)
-  expect(choices.filter((row) => frame.includes(row.label)).map((row) => Number(row.key.slice(7)))).toEqual(shown)
+  expect(choices.filter((row) => frame.includes(row.label)).map((row) => Number(row.key.slice(7)))).toEqual([...shown])
 })
 test.each([12, 24])("empty picker at height %s shows refusal and accepts filter typing", async (height) => {
   const queries: string[] = []
