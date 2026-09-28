@@ -293,6 +293,11 @@ use a function expression to read it; ordinary arguments keep their positions.
   A host without it refuses every object capture.
 - Capturing an already-captured function keeps the inner source and folds both
   capture sets into one identity.
+- An operation whose source is a native body, such as a bound function, a
+  built-in, or a function Proxy (`function () { [native code] }`), is refused
+  with a `TypeError`: that text names no behavior, so two different functions
+  would share one digest. Capture the unbound function and declare the
+  receiver's values as captures instead.
 
 ### Identity.processNonce
 
@@ -305,6 +310,13 @@ hexadecimal characters. It exists so a second ephemeral encoding, such as the
 projection of an unregistered symbol, shares this process's value instead of
 minting a second one. It is seeded lazily on first use: reading entropy while
 the module evaluates is rejected by Cloudflare Workers with upload error 10021.
+
+Separate copies of this module in one realm share the nonce, the ephemeral
+ordinal, and the capture registry through a non-writable global. A copy refuses
+to load, with a `TypeError`, when that global holds anything other than two
+`WeakMap`s, a non-negative integer ordinal, and an unset or 32-hex nonce; it
+reads the maps only through the intrinsic `WeakMap` methods. Code that runs
+earlier in the realm and seeds a well-formed value cannot be detected.
 
 ### Identity.FunctionIdentity
 

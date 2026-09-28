@@ -53,6 +53,9 @@ interface CapturedMetadata {
   readonly captures: string
 }
 
+/** A key no caller holds, for side-effect-free brand probes. @private */
+const brandToken = {}
+
 /** @private */
 // Bundled hosts and dynamically imported flows can load separate compatible
 // copies. Identity belongs to the function, not to whichever copy inspects it.
@@ -63,19 +66,64 @@ interface IdentityState {
   ordinal: number
   nonce: string | undefined
 }
-const globals = globalThis as typeof globalThis & { [stateKey]?: IdentityState }
-const state = globals[stateKey] ??= {
-  captured: new WeakMap(),
-  ephemeral: new WeakMap(),
-  ordinal: 0,
-  nonce: undefined
+
+/** @private */
+const isWeakMap = (value: unknown): value is WeakMap<object, never> => {
+  try {
+    WeakMap.prototype.has.call(value, brandToken)
+    return true
+  } catch {
+    return false
+  }
 }
-const capturedMetadata = state.captured
+
+/**
+ * Adopts the realm's shared state only when every field has the shape this
+ * package writes. A malformed value was not written by a compatible copy, so
+ * it is refused rather than trusted: a forged map could assign chosen capture
+ * identities and a forged nonce could make ephemeral identities predictable.
+ * Code that runs before this module with a well-formed value is outside what
+ * a check can detect, because it already runs in this realm.
+ *
+ * @private
+ */
+const adoptState = (): IdentityState => {
+  const existing: unknown = Reflect.get(globalThis, stateKey)
+  if (existing === undefined) {
+    const created: IdentityState = { captured: new WeakMap(), ephemeral: new WeakMap(), ordinal: 0, nonce: undefined }
+    // Non-writable: a stray assignment cannot replace the state a later copy
+    // adopts. Configurable only so a test can evaluate a fresh copy.
+    Object.defineProperty(globalThis, stateKey, {
+      value: created,
+      writable: false,
+      enumerable: false,
+      configurable: true
+    })
+    return created
+  }
+  const candidate = existing as Partial<Record<keyof IdentityState, unknown>>
+  if (
+    typeof existing !== "object" || existing === null ||
+    !isWeakMap(candidate.captured) || !isWeakMap(candidate.ephemeral) ||
+    !Number.isSafeInteger(candidate.ordinal) || (candidate.ordinal as number) < 0 ||
+    !(candidate.nonce === undefined || (typeof candidate.nonce === "string" && /^[0-9a-f]{32}$/.test(candidate.nonce)))
+  ) {
+    throw new TypeError("@smthrs/crypto: malformed shared Identity state; refusing to adopt it")
+  }
+  return existing as IdentityState
+}
+const state = adoptState()
+
+// Intrinsic methods read once, so an adopted map's own or inherited overrides
+// never run on an identity lookup.
+const weakMapGet = WeakMap.prototype.get
+const weakMapSet = WeakMap.prototype.set
+/** @private */
+const capturedMetadataOf = (operation: object): CapturedMetadata | undefined =>
+  Reflect.apply(weakMapGet, state.captured, [operation])
 
 /** @private */
 const hex = (bytes: Uint8Array): string => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")
-
-const ephemeralIdentities = state.ephemeral
 
 /**
  * Returns the process-local nonce, seeding it on first use.
@@ -119,6 +167,16 @@ export const processNonce = (): string => nonce()
 const captureError = (path: string, reason: string): TypeError =>
   new TypeError(`Node.capture: capture at ${path} ${reason}; captures must be finite, inert data`)
 
+/**
+ * The NativeFunction body grammar: `{ [ native code ] }` with optional
+ * whitespace between tokens, ending the source. `[native code]` is not a
+ * JavaScript expression, so ordinary source ends this way only when a trailing
+ * comment spells it, and refusing that contrived case fails closed.
+ *
+ * @private
+ */
+const nativeSource = /\{\s*\[\s*native\s+code\s*\]\s*\}\s*$/
+
 /** @private */
 const maximumCaptureDepth = 256
 
@@ -132,7 +190,6 @@ interface CaptureSnapshot {
 // These intrinsics inspect brands without reading caller properties, iterating
 // collections, invoking coercion, or consulting Symbol.toStringTag. A plain
 // prototype is insufficient: callers can replace a built-in's prototype.
-const brandToken = {}
 const slotProbes: ReadonlyArray<(input: object) => unknown> = [
   (input) => Map.prototype.has.call(input, brandToken),
   (input) => Set.prototype.has.call(input, brandToken),
@@ -338,7 +395,7 @@ const capturedOperation = <Args extends ReadonlyArray<unknown>, A>(
   metadata: CapturedMetadata
 ): (...args: Args) => A => {
   const wrapped = (...args: Args): A => Reflect.apply(operation, copy, args)
-  capturedMetadata.set(wrapped, metadata)
+  Reflect.apply(weakMapSet, state.captured, [wrapped, metadata])
   return wrapped
 }
 
@@ -354,8 +411,14 @@ export const capture = <C extends Readonly<Record<string, unknown>>, Args extend
 ): (...args: Args) => A => {
   if (typeof operation !== "function") throw new TypeError("Node.capture requires a function operation")
   if (captures === null || typeof captures !== "object") throw captureError("$", "must be a record")
-  const metadata = capturedMetadata.get(operation)
+  const metadata = capturedMetadataOf(operation)
   const source = metadata?.source ?? Function.prototype.toString.call(operation)
+  // Bound functions, built-ins, and function Proxies all print a native body
+  // such as `function () { [native code] }`, so their source names no
+  // behavior and two different ones would share one digest.
+  if (nativeSource.test(source)) {
+    throw captureError("operation", "has native source (for example, a bound function); capture the unbound function")
+  }
   const clone = globalThis.structuredClone
   const snapshots = new Map<object, CaptureSnapshot>()
   snapshotCapture(captures, "$", new WeakSet(), 0, snapshots)
@@ -383,12 +446,12 @@ export const capture = <C extends Readonly<Record<string, unknown>>, Args extend
  */
 export const functionIdentity = (operation: unknown): FunctionIdentity => {
   if (typeof operation !== "function") throw new TypeError("function identity requires a function")
-  const metadata = capturedMetadata.get(operation)
+  const metadata = capturedMetadataOf(operation)
   const source = metadata?.source ?? Function.prototype.toString.call(operation)
-  let ephemeral = ephemeralIdentities.get(operation)
+  let ephemeral: string | undefined = Reflect.apply(weakMapGet, state.ephemeral, [operation])
   if (metadata === undefined && ephemeral === undefined) {
     ephemeral = `${nonce()}:${state.ordinal++}`
-    ephemeralIdentities.set(operation, ephemeral)
+    Reflect.apply(weakMapSet, state.ephemeral, [operation, ephemeral])
   }
   return {
     _tag: "FunctionIdentity",
