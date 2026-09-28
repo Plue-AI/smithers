@@ -8,7 +8,7 @@ Press Enter
 Wait for answer "Fixed"
 Press Ctrl+T
 Press Home
-Capture "The timeline at the start of the task."
+Capture "Timeline start."
 Press End
-Capture "The completed task, with its later results."
+Capture "Completed run."
 ```

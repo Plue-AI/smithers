@@ -7,7 +7,7 @@ sidebar:
 
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-The TUI reads everything from the environment.
+Use environment variables for defaults; command-line flags override them.
 
 ## Providers
 
@@ -34,7 +34,7 @@ Worker completions and monitors require a connected ChatGPT or Claude subscripti
 | `SMITHERS_TUI_WORKER_SEATS` | Fallback models for workers, comma-separated. |
 | `SMITHERS_TUI_WORKERS` | Six workers at once; more wait in order. |
 | `SMITHERS_TUI_APPROVE` | `all`; also `ask`, `deny`. `--approve` wins. |
-| `SMITHERS_TUI_BUDGET_TOKENS` | Unbounded. A token ceiling per turn and worker; `--budget-tokens` wins. |
+| `SMITHERS_TUI_BUDGET_TOKENS` | Unbounded. Checks estimated tokens before each model call, per turn and worker; `--budget-tokens` wins. |
 | `SMITHERS_TUI_SESSION_DIR` | Where conversations are stored. |
 | `VISUAL`, then `EDITOR` | Editor for Ctrl+G; falls back to `nano`. |
 | `SMITHERS_TUI_BIN`, `SMITHERS_BUN` | Which TUI build and Bun the launcher uses. |
@@ -50,4 +50,4 @@ Every turn includes `~/.smithers/agent/AGENTS.md`, then, from the repository roo
 
 ## Stored conversations
 
-Conversations are saved under `~/.smithers/tui/sessions/<directory>--<hash>/` as private JSONL files. Credential-shaped text is redacted; file patches are kept exactly so undo works. A damaged file is renamed `.damaged` and left out of the picker. Treat the folder as private project data.
+Conversations are saved under `~/.smithers/tui/sessions/<directory>--<hash>/` as private JSONL files. Credential-shaped text is redacted; file patches are kept exactly so undo works. An incomplete final line is dropped before the conversation continues. Damage earlier in the file renames it `.damaged` and leaves it out of the picker. Treat the folder as private project data.

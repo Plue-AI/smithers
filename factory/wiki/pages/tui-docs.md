@@ -26,4 +26,6 @@ Settings accept a base URL, model and API key; the key stays in tab memory and i
 
 ## Test boundary
 
+The native terminal suite runs from `apps/tui` with `bun test ./e2e` in isolated tmux panes, or through `//apps/tui:e2eTests` in the workspace runner. It covers the source renderer and relocated Node and compiled runtimes, using deterministic model replies with real terminal input, file effects, and saved receipts. The unit suite is `bun test ./test`; prerequisites and coverage are in `apps/tui/docs/testing.md`. Native terminal tests and documentation recordings use separate PTY drivers.
+
 The `test` script runs the Node unit tests, and `test:browser` runs the playground's browser suite against a controlled HTTP provider, including the former guide redirects. They are offline correctness tests, not evidence of a live model's quality or a hosted deployment. The Cloud `docs` gate runs the typecheck and unit tests; `:browserTests` needs a runner with the recording toolchain.

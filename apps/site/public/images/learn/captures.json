@@ -56,163 +56,163 @@
   "tui-background-worker.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording background-worker).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-composer.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording composer).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-custom-agent.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording custom-agent).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-custom-view.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording custom-view).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-deny-edit.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording deny-edit).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-estimates.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording estimates).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-fix-add.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording fix-add).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-flow-approval.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording flow-approval).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-flow-form.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording flow-form).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-fork-session.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording fork-session).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-instruction-context.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording instruction-context).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-model-picker.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording model-picker).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-monitor.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording monitor).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-print-mode.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording print-mode).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-provider-failure.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording provider-failure).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-queue.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording queue).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-repository-extension.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording repository-extension).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-resume-session.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording resume-session).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-review-diff.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording review-diff).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-run-flow.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording run-flow).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-shell-context.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording shell-context).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-text-search.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording text-search).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-timeline.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording timeline).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-transcript-filter.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording transcript-filter).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-undo-edit.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording undo-edit).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-worker-controls.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording worker-controls).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   },
   "tui-worker-tree.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording worker-tree).",
-    "revision": "3b0566798f",
+    "revision": "60f00de5dc",
     "captured": "2026-09-27"
   }
 }

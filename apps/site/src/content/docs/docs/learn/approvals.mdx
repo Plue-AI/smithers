@@ -24,7 +24,7 @@ Some steps wait for you: a file edit, a command, a launch. The run pauses until 
 </TabItem>
 <TabItem label="TUI">
 
-**Available now.** The request appears above the composer. Start the TUI with `--approve ask` to be asked, or `--approve deny` to refuse every call; the default allows every call. `SMITHERS_TUI_APPROVE` sets the same.
+**Available now.** The request appears above the composer. Start the TUI with `--approve ask` to be asked, or `--approve deny` to refuse edits, shell commands, and network calls; the default allows them. `SMITHERS_TUI_APPROVE` sets the same.
 
 ```sh
 smthrs tui --approve ask
@@ -65,7 +65,7 @@ Each entry carries the exact payload to approve. With nothing waiting, it prints
 </TabItem>
 <TabItem label="TUI">
 
-**Available now.** Press `y` to allow once or `n` to deny. Where offered, `a` allows that kind of call for the rest of the conversation. The keys work once the editor is empty. A flow asks once for each thing it may do.
+**Available now.** Press `y` to allow once or `n` to deny. Where offered, `a` allows that kind of call for the rest of the conversation. The keys work once the editor is empty and the 400 ms typing guard has elapsed. A flow asks once for each thing it may do.
 
 <AppScreenshot src="/images/learn/tui-flow-approval.gif" alt="A flow asks for its write, process, and network permissions in turn; pressing y allows each, and the run completes." caption="The TUI with a fixture flow." width={880} height={480} />
 

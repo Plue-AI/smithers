@@ -5,5 +5,5 @@ Scripts only. The recorder executes these in the real TUI; smithers.sh tutorials
 ```tui-script print-mode
 Use "print"
 Wait for "Ready."
-Capture "Run a one-shot task and print its result before exiting."
+Capture "Print a response and exit."
 ```

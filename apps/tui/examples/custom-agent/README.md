@@ -10,7 +10,8 @@ bun run tui apps/tui/examples/custom-agent   # from the repository root
 Type `/agent review look at the last change`. The tab opens at once and chat
 stays usable while the agent runs on GPT-6 Sol under the envelope its
 frontmatter declares.
-The `metadata.tui` block declares an `alt+r` key; the TUI binds contributed
-keys once the UI-ELEMENTS track of `.plans/tui-extensions.md` lands.
+The `metadata.tui` block binds `alt+r` to this agent. It appears under the
+agent's name in the key hints and `?` popup. Editing the frontmatter refreshes
+its contribution within 300 ms.
 
 `e2e/tui.test.ts` ("custom agents") runs this agent under the replay seat.

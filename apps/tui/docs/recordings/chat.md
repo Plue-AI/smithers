@@ -7,7 +7,7 @@ Use "basic"
 Type "Explain math.js"
 Press Ctrl+J
 Type "Keep it brief."
-Capture "Write a multiline task."
+Capture "Write a multiline message."
 Press Enter
 Wait for answer "Ready."
 Press ArrowUp

@@ -66,7 +66,7 @@ smthrs flow start review --data '{"args":"Review main"}' --detached
 </TabItem>
 <TabItem label="TUI">
 
-**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers, `c` opens it in chat, `x` stops, `r` retries with its earlier steps, `m` picks another model, `w` waits for the provider's reset. `/stop <id>` and `/retry <id>` work from anywhere.
+**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers, `x` stops, and `r` resumes with its earlier steps. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. `/stop <id>` and `/retry <id>` work from anywhere.
 
 <AppScreenshot src="/images/learn/tui-worker-controls.gif" alt="Stopping and retrying a worker from its TUI tab." caption="The TUI with a scripted test model." width={880} height={480} />
 

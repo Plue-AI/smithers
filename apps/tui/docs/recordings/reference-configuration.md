@@ -7,7 +7,7 @@ Use "basic"
 Type "!cat AGENTS.md"
 Press Enter
 Wait for "Keep changes small."
-Capture "Inspect the project instructions included with the task."
+Capture "Project instructions."
 Type "/conversation"
 Press Enter
 Wait for "exchanges"

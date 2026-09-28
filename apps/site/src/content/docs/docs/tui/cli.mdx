@@ -23,8 +23,10 @@ From a source checkout, use `bun run tui` with the same arguments.
 | `--approve all` | | Run edits, commands, and network calls. The default. |
 | `--approve ask` | | Ask first. Interactive only. |
 | `--approve deny` | | Refuse them. |
-| `--budget-tokens n` | | Stop each turn and worker at `n` tokens. Unbounded by default. |
+| `--budget-tokens n` | | Refuse a model call when its estimated total would exceed `n` tokens per turn or worker. Unbounded by default. |
 | `--help` | `-h` | Show options. |
+
+The token budget uses reported usage to estimate the next call. An admitted call can consume more than its estimate.
 
 ## One answer
 

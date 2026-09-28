@@ -50,7 +50,7 @@ first available non-Cerebras seat (usually the ChatGPT subscription from
 `codex login`); `SMITHERS_TUI_WORKER_SEAT` overrides it. Workers try the other
 detected non-Cerebras seats after a provider limit; `SMITHERS_TUI_WORKER_SEATS=a,b`
 sets that fallback order. The picker lists only
-providers this machine can reach. Print mode runs a task directly.
+providers this machine can reach. Print mode answers one request directly.
 
 Edits, shell commands, and network calls run without asking. `--approve ask`
 (or `SMITHERS_TUI_APPROVE=ask`) makes each wait for **y**/**n**; `deny` refuses
@@ -58,8 +58,9 @@ them. The flag wins over the variable, and `-p` cannot `ask`.
 
 Spending is unbounded by default. `--budget-tokens <n>` (or
 `SMITHERS_TUI_BUDGET_TOKENS=<n>`) stops each chat turn and each worker before a
-model call would take it past `n` tokens; the tab shows **Token budget
-reached**. The flag wins over the variable.
+model call's estimated total would pass `n` tokens; the tab shows **Token budget
+reached**. Estimates use reported usage; an admitted call can consume more than
+its estimate. The flag wins over the variable.
 
 ## Keys
 
@@ -153,7 +154,7 @@ Each turn is told the working directory, instruction files (the first of
 `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md` in every directory from the
 repository root down, or the working directory alone outside a repository,
 after `~/.smithers/agent/AGENTS.md`), and the conversation so far. A judged
-worker leaves out each instruction chunk Jev is at least 90% sure its task does
+worker leaves out each instruction chunk Jev is at least 90% sure its request does
 not need; the coordinator sees every file whole.
 Sessions are owner-only JSONL under `~/.smithers/tui/sessions/<cwd>--<hash>/`
 (`SMITHERS_TUI_SESSION_DIR` overrides). A torn last line is dropped; a file
@@ -227,7 +228,7 @@ A tab's one-line description comes from the worker's own seat. `r` or `/retry`
 resumes a failed, stopped, or parked tab on its requested model.
 Up to six workers can run at once (`SMITHERS_TUI_WORKERS` overrides the pool);
 later requests queue FIFO. They share the working directory, so
-independent tasks should name disjoint files. Worker transcripts persist in
+independent requests should name disjoint files. Worker transcripts persist in
 separate session files. The chat shows the workers a cell delegated as
 subagent cards after that cell (`@smthrs/rpc/SubagentCard`, shared with the
 GUI): `◐ Running 3 subagents (1/3)` and a `▰` bar, then equal-height cards,
@@ -364,8 +365,8 @@ shutdown limit.
 
 Every chat turn, worker tab and flow run gets a time and token estimate when it
 is requested, and is scored when it settles. A flow or a turn is estimated from
-its own past runs; a delegated task asks GPT-6 Luna with the most similar past
-tasks and the model's own past errors in the prompt, or takes the median task
+its own past runs; a delegated request asks GPT-6 Luna with the most similar past
+runs and the model's own past errors in the prompt, or takes the median run
 without a model. A model failure is logged with its reason and toasts once.
 Scores calibrate the next estimate. A running tab and a working turn show
 `~7m·250k` (time left, tokens) or `late`; the coordinator's `tab.eta` flow
@@ -425,12 +426,14 @@ Every refusal is a code and one line:
 
 ## Tests
 
-| Command           | What                                                                                          |
-| ----------------- | --------------------------------------------------------------------------------------------- |
-| `bun test ./test` | Transcript fold over a recorded run, and the pure modules                                     |
-| `bun test ./e2e`  | The TUI in a real PTY through [zmux](https://github.com/smithersai/zmux): keys in, screen out |
+| Command           | What                                                                      |
+| ----------------- | ------------------------------------------------------------------------- |
+| `bun test ./test` | Transcript fold over a recorded run, and the pure modules and tmux driver |
+| `bun test ./e2e`  | The TUI in isolated tmux panes: keys in, screen out                       |
 
-The end-to-end suite needs `zmuxd` (`$ZMUXD`, `PATH`, or `~/zmux/zig-out/bin`).
+Use the repository's pinned Node, Bun 1.4 or later, tmux (`PATH` or `TMUX_BIN`), Git, jj, ripgrep, and the native workspace helper. Build the helper with `cargo build --locked --release -p smithers-ffi --bin smithers-jj-export` from the repository root. Run both test commands above from `apps/tui`. Vim enables the real external-editor cases. Each suite uses private temporary directories and tmux sockets, cleans up its children, and recovers leftovers from killed runs. Packaged-runtime cases build and exercise the Node bundle and this platform's compiled binary.
+
+See [the verification guide](docs/testing.md) for coverage and limits.
 Its model turns replay `test/fixtures/fix-add.jsonl` through the replay seat:
 `SMITHERS_TUI_REPLAY=<file>` streams a run recorded with
 `SMITHERS_TUI_APPROVE=all SMITHERS_TUI_RECORD=<file> bun src/ask.ts "<prompt>"`, and its cells run for

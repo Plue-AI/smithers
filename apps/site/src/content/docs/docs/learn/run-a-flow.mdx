@@ -72,7 +72,9 @@ Needs sign-in and a [box](/docs/learn/boxes/) for the repository.
 /flow echo text=hello
 ```
 
-Quote values with spaces: `text="hello world"`. A missing input opens a form: Tab moves between fields, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. Each run gets its own tab; `/smithers` lists them.
+Quote values with spaces: `text="hello world"`. A missing input opens a form: Tab moves between fields, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. Each run gets its own tab; `/smithers` lists them. A completed run shows its result. A parked run keeps its question; `r` resumes the same run and `x` stops it.
+
+Discovery refreshes when `flows/` changes. Restart the TUI after editing a `flow.ts` that the host has already loaded. Run only one TUI or CLI flow executor per directory.
 
 <AppScreenshot src="/images/learn/tui-flow-form.gif" alt="Filling in a flow's input form in the TUI." caption="The TUI with fixture flows." width={880} height={480} />
 
