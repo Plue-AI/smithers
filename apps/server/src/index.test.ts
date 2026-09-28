@@ -4792,6 +4792,137 @@ describe("the turn routes under the ceiling", () => {
   })
 })
 
+describe("TestSignedInDailyAndGlobalLimits", () => {
+  const dayMs = 24 * 60 * 60 * 1000
+  const paths = ["/api/model/stream", "/api/agent/turn"] as const
+
+  const fixture = (seed: Record<string, number> = {}, failingStorageKey?: string) => {
+    const start = Date.now()
+    const stores = new Map<string, ReturnType<typeof memoryObjectStorage>>()
+    const calls: Array<{ key: string; max: string | null; windowMs: string | null }> = []
+    const namespace: NativeNamespace = {
+      idFromName: (name) => name,
+      get: (id) => ({
+        fetch: (request) => {
+          const key = String(id)
+          const url = new URL(request.url)
+          calls.push({ key, max: url.searchParams.get("max"), windowMs: url.searchParams.get("windowMs") })
+          let storage = stores.get(key)
+          if (storage === undefined) {
+            storage = memoryObjectStorage(seed[key] === undefined ? undefined : { window: { start, count: seed[key] } })
+            stores.set(key, storage)
+          }
+          const objectStorage = key === failingStorageKey
+            ? { ...storage, get: async () => { throw new Error(`storage failed for ${key}`) } }
+            : storage
+          return new TurnRateLimiter({ storage: objectStorage }).fetch(request)
+        }
+      })
+    }
+    const env: WorkerEnv = {
+      ...assetsEnv(),
+      IDENTITY_UPSTREAM_URL: "https://identity.test",
+      SMITHERS_CHAT_URL: "https://upstream.test/chat",
+      TURN_LIMITS: namespace
+    }
+    const count = (key: string) => (stores.get(key)?.data.get("window") as { count: number } | undefined)?.count ?? 0
+    return { env, calls, count, start }
+  }
+
+  const request = (path: typeof paths[number], runId: string) =>
+    post(path, path === "/api/model/stream" ? { messages: turnBody.messages } : { ...turnBody, runId }, SESSION)
+
+  // Only remote identity and model HTTP are stubbed. Worker routing, the TurnLimits
+  // service, and every keyed Durable Object counter execute their real code.
+  const withSeams = (run: (state: { login: (value: string) => void; modelCalls: () => number }) => Promise<void>) => {
+    let currentLogin = "will"
+    let modelCalls = 0
+    return withMockedFetch((outbound) => {
+      if (new URL(outbound.url).hostname === "identity.test") {
+        return Response.json({ login: currentLogin, allowlisted: true })
+      }
+      modelCalls += 1
+      return ndjsonUpstream([{ type: "done" }])
+    }, () => run({ login: (value) => { currentLogin = value }, modelCalls: () => modelCalls }))
+  }
+
+  for (const path of paths) {
+    test(`${path} spends the last daily admission, then refuses without calling the model`, async () => {
+      const { env, calls, count, start } = fixture({ "login:daily:will": 4999 })
+      await withSeams(async ({ modelCalls }) => {
+        const last = await worker.fetch(request(path, `daily-last-${path}`), env)
+        expect(last.status).toBe(200)
+        await last.text()
+        expect(modelCalls()).toBe(1)
+        expect(calls.map(({ key }) => key)).toEqual(["will", "login:daily:will", "login:all"])
+        expect(calls.map(({ max, windowMs }) => [max, windowMs])).toEqual([
+          ["1000", "3600000"], ["5000", String(dayMs)], ["50000", String(dayMs)]
+        ])
+        expect([count("will"), count("login:daily:will"), count("login:all")]).toEqual([1, 5000, 1])
+
+        const refused = await worker.fetch(request(path, `daily-over-${path}`), env)
+        expect(refused.status).toBe(429)
+        expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0)
+        const body = await refused.json() as { code: string; message: string; retryAt: string }
+        expect(body.code).toBe("turn_rate_limited")
+        expect(body.message).toContain("daily")
+        expect(Date.parse(body.retryAt)).toBe(start + dayMs)
+        expect(calls.slice(3).map(({ key }) => key)).toEqual(["will", "login:daily:will"])
+        expect([count("will"), count("login:daily:will"), count("login:all")]).toEqual([2, 5000, 1])
+        expect(modelCalls()).toBe(1)
+      })
+    })
+
+    test(`${path} shares the global day across logins but keeps daily buckets separate`, async () => {
+      const { env, calls, count, start } = fixture({ "login:daily:will": 5000, "login:all": 49999 })
+      await withSeams(async ({ login, modelCalls }) => {
+        const dailyRefusal = await worker.fetch(request(path, `will-daily-${path}`), env)
+        expect(dailyRefusal.status).toBe(429)
+        expect(calls.map(({ key }) => key)).toEqual(["will", "login:daily:will"])
+        expect(count("login:all")).toBe(0)
+        login("alice")
+        const last = await worker.fetch(request(path, `alice-last-${path}`), env)
+        expect(last.status).toBe(200)
+        await last.text()
+        expect(modelCalls()).toBe(1)
+        expect([count("login:daily:alice"), count("login:all")]).toEqual([1, 50000])
+        login("bob")
+        const refused = await worker.fetch(request(path, `bob-global-${path}`), env)
+        expect(refused.status).toBe(429)
+        const body = await refused.json() as { code: string; message: string; retryAt: string }
+        expect(body.code).toBe("turn_rate_limited")
+        expect(body.message).toContain("everyone")
+        expect(Date.parse(body.retryAt)).toBe(start + dayMs)
+        expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0)
+        expect([count("login:daily:bob"), count("login:all")]).toEqual([1, 50000])
+        expect(modelCalls()).toBe(1)
+      })
+    })
+
+    for (const failedKey of ["login:daily:will", "login:all"]) {
+      test(`${path} keeps admitting when ${failedKey} storage fails`, async () => {
+        const { env, calls, count } = fixture({}, failedKey)
+        const logged = spyOn(console, "error").mockImplementation(() => {})
+        try {
+          await withSeams(async ({ modelCalls }) => {
+            const response = await worker.fetch(request(path, `storage-failed-${failedKey}-${path}`), env)
+            expect(response.status).toBe(200)
+            await response.text()
+            expect(calls.map(({ key }) => key)).toEqual(["will", "login:daily:will", "login:all"])
+            expect(count("will")).toBe(1)
+            expect(count(failedKey)).toBe(0)
+            expect(count(failedKey === "login:all" ? "login:daily:will" : "login:all")).toBe(1)
+            expect(modelCalls()).toBe(1)
+          })
+          expect(logged).toHaveBeenCalledWith("turn-limit spend failed:", expect.any(Error))
+        } finally {
+          logged.mockRestore()
+        }
+      })
+    }
+  }
+})
+
 /*
  * The client-error route and its admin read (from clientErrorLog.test.ts).
  * The route is unauthenticated by design: it must record a crash that happens

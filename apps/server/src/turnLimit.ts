@@ -33,8 +33,9 @@ import { CryptoFailure } from "./Failures"
  * user who trips it has hit a bug, not a paywall, and must never be told to go
  * buy something.
  *
- * The state is one Durable Object per login, keyed by the validated login only:
- * a client cannot name its own bucket. Fixed windows, not a rolling log — the
+ * Each ceiling has its own Durable Object: hourly and daily per validated
+ * login, plus one shared signed-in bucket. A client cannot name its own
+ * bucket. Fixed windows, not a rolling log — the
  * ceiling is loose enough that the boundary effect (up to 2x across a window
  * edge) does not matter, and one counter is far cheaper than a timestamp list.
  */
@@ -70,13 +71,31 @@ export interface TurnCeiling {
    * nothing else. `erase` is the deletion outbox's address bucket, which a
    * browser retries on its own.
    */
-  readonly kind: "login" | "anonymous" | "anonymous-all" | "recommend" | "erase"
+  readonly kind: "login" | "login-daily" | "login-all" | "anonymous" | "anonymous-all" | "recommend" | "erase"
   readonly max: number
   readonly windowMs: number
 }
 
 /** The per-login ceiling above. */
 export const LOGIN_CEILING: TurnCeiling = { kind: "login", max: TURN_WINDOW_MAX, windowMs: TURN_WINDOW_MS }
+
+/** Five full hourly budgets per login bounds a loop that persists all day. */
+export const LOGIN_DAILY_CEILING: TurnCeiling = {
+  kind: "login-daily",
+  max: 5000,
+  windowMs: 24 * 60 * 60 * 1000
+}
+
+/** Ten full daily budgets bounds a loop spread across signed-in accounts. */
+export const LOGIN_ALL_CEILING: TurnCeiling = {
+  kind: "login-all",
+  max: 50_000,
+  windowMs: LOGIN_DAILY_CEILING.windowMs
+}
+
+/** Colons cannot occur in a GitHub login; the existing hourly key stays intact. */
+export const loginDailyKey = (login: string): string => `login:daily:${login}`
+export const LOGIN_ALL_KEY = "login:all"
 
 /**
  * Turns one signed-out visitor may start per day while exploring a public
@@ -248,8 +267,10 @@ const isBudget = (value: unknown): value is TurnBudget =>
  * always has it.
  *
  * When a bound object cannot be reached or answers something unreadable, a
- * login's or an erasure's ceiling admits: our own infrastructure hiccuping
- * must never lock a person out. The anonymous and recommend ceilings are COST
+ * signed-in ceiling (hourly, daily, or global) or an erasure's ceiling admits:
+ * our own infrastructure hiccuping must never lock a person out. Signed-in
+ * limits deliberately fail open to keep Chat usable; credit metering (#1759)
+ * bounds spend during an outage (#1912). The anonymous and recommend ceilings are COST
  * caps on the deployment's credentials, so they refuse as `unavailable`
  * instead: a flood that knocks the shared bucket over must not lift the cap.
  */
@@ -384,6 +405,10 @@ export const turnLimitResponse = (
         ? `Exploring without signing in has reached its daily limit for everyone, not just you. Sign in with GitHub to keep going, or come back in about ${
           waitLabel(seconds)
         }. Nothing was charged.`
+        : ceiling.kind === "login-daily"
+        ? `Chat's daily limit of ${ceiling.max} model calls has been reached. Try again in about ${waitLabel(seconds)}. Nothing was charged.`
+        : ceiling.kind === "login-all"
+        ? `Chat has reached its daily limit for everyone. Try again in about ${waitLabel(seconds)}. Nothing was charged.`
         : `That is more than ${ceiling.max} model calls in an hour, which no conversation reaches by hand — something is looping. Chat resumes on its own in about ${
           waitLabel(seconds)
         }. Nothing was charged and your balance is untouched.`,

@@ -14,6 +14,11 @@ import {
   anonymousBucketAddress,
   ERASE_CEILING,
   anonymousTurnKey,
+  LOGIN_CEILING,
+  LOGIN_ALL_CEILING,
+  LOGIN_ALL_KEY,
+  LOGIN_DAILY_CEILING,
+  loginDailyKey,
   TURN_WINDOW_MAX,
   TURN_WINDOW_MS,
   TurnLimits,
@@ -372,6 +377,107 @@ describe("the per-login turn ceiling (Durable Object state)", () => {
       }
     }
   })
+})
+
+describe("signed-in daily and global ceilings", () => {
+  test("the public ceiling contracts and bucket names are stable", () => {
+    expect(LOGIN_DAILY_CEILING).toEqual({ kind: "login-daily", max: 5000, windowMs: 24 * 60 * 60 * 1000 })
+    expect(LOGIN_ALL_CEILING).toEqual({ kind: "login-all", max: 50000, windowMs: 24 * 60 * 60 * 1000 })
+    expect(LOGIN_ALL_KEY).toBe("login:all")
+    expect(loginDailyKey("will")).toBe("login:daily:will")
+    expect(loginDailyKey("alice")).not.toBe(loginDailyKey("will"))
+    expect(loginDailyKey("will")).not.toBe(LOGIN_ALL_KEY)
+  })
+
+  for (const ceiling of [LOGIN_DAILY_CEILING, LOGIN_ALL_CEILING]) {
+    test(`${ceiling.kind} admits the last call, holds its retry time, and resets at exactly 24 hours`, async () => {
+      const opened = 1_700_000_000_000
+      const storage = memoryStorage({ window: { start: opened, count: ceiling.max - 1 } })
+      const spendAt = () => turnRateLimiterRequest(
+        new Request(`https://turn-limit.internal/spend?max=${ceiling.max}&windowMs=${ceiling.windowMs}`, { method: "POST" })
+      ).pipe(Effect.flatMap((response) => Effect.promise(() => response.json() as Promise<TurnBudget>)))
+      const budgets = await Effect.runPromise(
+        Effect.gen(function*() {
+          yield* TestClock.setTime(opened)
+          const last = yield* spendAt()
+          const refused = yield* spendAt()
+          yield* TestClock.adjust(ceiling.windowMs - 1)
+          const stillRefused = yield* spendAt()
+          yield* TestClock.adjust(1)
+          const reopened = yield* spendAt()
+          return { last, refused, stillRefused, reopened }
+        }).pipe(Effect.provide(Layer.mergeAll(storageLayer(storage), TestClock.layer())))
+      )
+      expect(budgets.last).toEqual({ allowed: true, remaining: 0 })
+      expect(budgets.refused).toEqual({ allowed: false, remaining: 0, retryAt: opened + ceiling.windowMs })
+      expect(budgets.stillRefused).toEqual(budgets.refused)
+      expect(budgets.reopened).toEqual({ allowed: true, remaining: ceiling.max - 1 })
+      expect(storage.data.get("window")).toEqual({ start: opened + ceiling.windowMs, count: 1 })
+    })
+  }
+
+  test("daily buckets remain per login and the global bucket spans logins", async () => {
+    const names: Array<string> = []
+    const buckets = new Map<string, ReturnType<typeof memoryStorage>>()
+    const limits: NativeNamespace = {
+      idFromName: (name) => { names.push(name); return name },
+      get: (id) => ({ fetch: (request) => {
+        const key = String(id)
+        let storage = buckets.get(key)
+        if (storage === undefined) {
+          storage = memoryStorage({ window: { start: Date.now(), count: key === LOGIN_ALL_KEY ? LOGIN_ALL_CEILING.max - 1 : key === loginDailyKey("will") ? LOGIN_DAILY_CEILING.max : 0 } })
+          buckets.set(key, storage)
+        }
+        return new TurnRateLimiter({ storage }).fetch(request)
+      } })
+    }
+    expect((await spendTurn(limits, loginDailyKey("will"), LOGIN_DAILY_CEILING)).allowed).toBe(false)
+    expect((await spendTurn(limits, loginDailyKey("alice"), LOGIN_DAILY_CEILING)).allowed).toBe(true)
+    expect((await spendTurn(limits, LOGIN_ALL_KEY, LOGIN_ALL_CEILING)).remaining).toBe(0)
+    expect((await spendTurn(limits, loginDailyKey("bob"), LOGIN_DAILY_CEILING)).allowed).toBe(true)
+    expect((await spendTurn(limits, LOGIN_ALL_KEY, LOGIN_ALL_CEILING)).allowed).toBe(false)
+    expect(names).toEqual([loginDailyKey("will"), loginDailyKey("alice"), LOGIN_ALL_KEY, loginDailyKey("bob"), LOGIN_ALL_KEY])
+    expect((buckets.get(loginDailyKey("alice"))!.data.get("window") as { count: number }).count).toBe(1)
+    expect((buckets.get(loginDailyKey("bob"))!.data.get("window") as { count: number }).count).toBe(1)
+  })
+
+  for (const ceiling of [LOGIN_CEILING, LOGIN_DAILY_CEILING, LOGIN_ALL_CEILING]) {
+    test(`${ceiling.kind} fails open without a namespace and on every unreadable object result`, async () => {
+      expect(await spendTurn(undefined, "bucket", ceiling)).toEqual({ allowed: true, remaining: ceiling.max })
+      const failures: ReadonlyArray<readonly [string, () => Promise<Response>]> = [
+        ["rejected fetch", async () => { throw new Error("Durable Object reset") }],
+        ["non-2xx", async () => new Response("storage failure", { status: 500 })],
+        ["invalid JSON", async () => new Response("not json", { status: 200 })],
+        ["malformed budget", async () => Response.json({ allowed: false })]
+      ]
+      const logged = spyOn(console, "error").mockImplementation(() => {})
+      try {
+        for (const [, fetch] of failures) {
+          const limits: NativeNamespace = { idFromName: (name) => name, get: () => ({ fetch }) }
+          expect(await spendTurn(limits, "bucket", ceiling)).toEqual({ allowed: true, remaining: ceiling.max })
+        }
+      } finally {
+        logged.mockRestore()
+      }
+    })
+  }
+
+  for (const ceiling of [LOGIN_DAILY_CEILING, LOGIN_ALL_CEILING]) {
+    test(`${ceiling.kind} refusal names its scope and stays clear of sign-in and billing`, async () => {
+      const retryAt = Date.now() + ceiling.windowMs
+      const response = turnLimitResponse({ allowed: false, remaining: 0, retryAt }, { "x-iso": "1" }, ceiling)
+      expect(response.status).toBe(429)
+      expect(response.headers.get("x-iso")).toBe("1")
+      expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0)
+      const body = await response.json() as { code: string; message: string; retryAt: string }
+      expect(body.code).toBe("turn_rate_limited")
+      expect(Date.parse(body.retryAt)).toBe(retryAt)
+      expect(body.message.toLowerCase()).toContain(ceiling.kind === "login-daily" ? "daily" : "everyone")
+      for (const word of ["sign in", "upgrade", "billing", "pay", "plan", "$"]) {
+        expect(body.message.toLowerCase()).not.toContain(word)
+      }
+    })
+  }
 })
 
 /*

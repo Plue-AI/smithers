@@ -76,6 +76,11 @@ import {
   anonymousTurnKey,
   ERASE_CEILING,
   eraseTurnKey,
+  LOGIN_CEILING,
+  LOGIN_DAILY_CEILING,
+  LOGIN_ALL_CEILING,
+  LOGIN_ALL_KEY,
+  loginDailyKey,
   TurnLimits,
   turnLimitResponse,
   TurnRateLimiter
@@ -263,10 +268,20 @@ const erasureBudget = (request: Request): Effect.Effect<Response | undefined, ne
     return budget.allowed ? undefined : turnLimitResponse(budget, ISOLATION_HEADERS, ERASE_CEILING)
   })
 
-/** The login's turn ceiling, spent before a model credential is. */
+/** Spend each signed-in ceiling before a model credential, stopping at the first refusal. */
 const loginBudget = (login: string): Effect.Effect<Response | undefined, never, TurnLimits> =>
   TurnLimits.use((limits) =>
-    Effect.map(limits.spend(login), (budget) => (budget.allowed ? undefined : turnLimitResponse(budget, ISOLATION_HEADERS)))
+    Effect.gen(function*() {
+      for (const [key, ceiling] of [
+        [login, LOGIN_CEILING],
+        [loginDailyKey(login), LOGIN_DAILY_CEILING],
+        [LOGIN_ALL_KEY, LOGIN_ALL_CEILING]
+      ] as const) {
+        const budget = yield* limits.spend(key, ceiling)
+        if (!budget.allowed) return turnLimitResponse(budget, ISOLATION_HEADERS, ceiling)
+      }
+      return undefined
+    })
   )
 
 /*
@@ -398,8 +413,8 @@ export const handleRequest = (request: Request): Effect.Effect<Response, never, 
     }
     // The routes that spend a model credential: the turn, the model stream
     // and, below them, the Models Test. Each gates on the session first and
-    // then on the login's turn ceiling, so a refusal costs one Durable
-    // Object read and never reaches an upstream. The cancel route above is
+    // then on the signed-in ceilings, so a refusal never reaches an
+    // upstream. The cancel route above is
     // deliberately unlimited: killing a turn must always work, and it
     // spends nothing.
     if (url.pathname === TURN_PATH) {
