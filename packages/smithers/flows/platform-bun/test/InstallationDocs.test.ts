@@ -31,7 +31,7 @@ describe("Installation docs", () => {
   it("documents construction-time JjError on every host factory", () => {
     const source = read("../src/BunHost.ts")
     for (const factory of ["layer", "layerAt", "layerContained", "layerContainedAt"]) {
-      const declaration = source.indexOf(`\nexport const ${factory}`)
+      const declaration = source.search(new RegExp(`\\nexport const ${factory}\\b`))
       expect(declaration, factory).toBeGreaterThan(0)
       const jsdoc = source.slice(source.lastIndexOf("/**", declaration), declaration)
       expect(flatten(jsdoc), factory).toMatch(/JjError/)

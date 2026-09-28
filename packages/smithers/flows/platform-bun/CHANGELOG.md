@@ -12,6 +12,14 @@
   straight to the `Jj` adapter, which threw a bare `TypeError` naming
   `NodeJj.layerAt` or `NodeJj.layerSpawnerAt`, carried no code, and echoed the
   whole string.
+- `BunHost.layerHttpClient`, the network slot on its own: the fetch client with
+  `redirect: "manual"` that every `BunHost` factory installs.
+
+### Removed
+
+- The `BunHost.BunHttpClient` re-export. Its `layer` follows redirects, so a
+  program that composed it instead of `BunHost.layer` reached origins the
+  capability kernel never authorized. Use `BunHost.layerHttpClient`.
 
 ## [1.0.0-rc.0] - 2026-09-01
 

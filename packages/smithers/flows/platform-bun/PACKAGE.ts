@@ -38,7 +38,7 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "A factory in src/BunHost.ts that merges BunHttpClient.layer without the RequestInit { redirect: \"manual\" } override.",
         "A RequestInit that sets redirect to \"follow\" or omits it, or a second HttpClient layer that shadows layerHttpClient.",
-        "Docs or README snippets that tell callers to provide the re-exported BunHttpClient.layer directly, which follows redirects."
+        "A re-export of @effect/platform-bun/BunHttpClient, whose layer follows redirects, or docs that tell callers to provide BunHttpClient.layer directly instead of BunHost.layerHttpClient."
       ],
       paths: ["src/BunHost.ts", "docs/**", "README.md"]
     },

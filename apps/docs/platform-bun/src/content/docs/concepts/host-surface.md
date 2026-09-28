@@ -129,7 +129,7 @@ rather than in-process, which is why the host needs that helper. See
 
 ## Taking one service without the other four
 
-`BunHost` re-exports the four single-slot modules, so a program that should
+`BunHost` re-exports the single-slot modules, so a program that should
 reach only part of the host has one import to take it from:
 
 ```ts
@@ -138,8 +138,11 @@ import { BunHost } from "@smthrs/platform-bun"
 BunHost.AtomicFileSystem // the filesystem implementation, with its options
 BunHost.BunFileSystem // the filesystem slot as this package spells it
 BunHost.BunChildProcessSpawner
-BunHost.BunHttpClient
+BunHost.layerHttpClient // the network slot, redirects stopped
 ```
+
+`@effect/platform-bun/BunHttpClient` is not re-exported: its `layer` follows
+redirects, which is the escape the section above closes.
 
 `AtomicFileSystem` is in that set for a specific reason: it owns the only
 configuration escape hatch the filesystem slot has, and a Bun program whose

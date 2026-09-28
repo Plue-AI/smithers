@@ -71,10 +71,10 @@ path and runner, with a separate cache for each spawner instance.
 
 ## Modules
 
-| Module          | What it provides                                                                                                                                                                                                                             |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BunHost`       | The closed Host bundle: `layer`, `layerAt`, `layerContained`, `layerContainedAt`, and the `BunHostError` those two root-bound factories throw; re-exports `AtomicFileSystem`, `BunChildProcessSpawner`, `BunFileSystem`, and `BunHttpClient` |
-| `BunFileSystem` | `@smthrs/platform-node`'s atomic `FileSystem`, plus `layerWith` for a host whose helper lives elsewhere                                                                                                                                      |
+| Module          | What it provides                                                                                                                                                                                                                                                                        |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BunHost`       | The closed Host bundle: `layer`, `layerAt`, `layerContained`, `layerContainedAt`, and the `BunHostError` those two root-bound factories throw; `layerHttpClient`, the network slot with redirects stopped; re-exports `AtomicFileSystem`, `BunChildProcessSpawner`, and `BunFileSystem` |
+| `BunFileSystem` | `@smthrs/platform-node`'s atomic `FileSystem`, plus `layerWith` for a host whose helper lives elsewhere                                                                                                                                                                                 |
 
 Three variants change one slot each. `BunHost.layerAt(root)` binds version
 control to one absolute repository root instead of the process working

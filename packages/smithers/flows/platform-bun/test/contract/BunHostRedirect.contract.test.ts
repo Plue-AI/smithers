@@ -57,20 +57,20 @@ afterAll(async () => {
   await Promise.all([close(origin), close(destination)])
 })
 
+const fetchRedirect = Effect.gen(function*() {
+  const client = yield* HttpClient
+  const response = yield* client.execute(
+    HttpClientRequest.get(`http://127.0.0.1:${originPort}/redirect`)
+  )
+  yield* response.text
+  return { location: response.headers.location, status: response.status }
+})
+
 describe("BunHost redirect contract", () => {
   it.effect("does not follow a 302 redirect to a second origin", () =>
     Effect.gen(function*() {
       destinationHits = 0
-      const response = yield* (
-        Effect.gen(function*() {
-          const client = yield* HttpClient
-          const response = yield* client.execute(
-            HttpClientRequest.get(`http://127.0.0.1:${originPort}/redirect`)
-          )
-          yield* response.text
-          return { location: response.headers.location, status: response.status }
-        }).pipe(Effect.provide(BunHost.layer))
-      )
+      const response = yield* fetchRedirect.pipe(Effect.provide(BunHost.layer))
 
       expect(response).toEqual({
         location: `http://127.0.0.1:${destinationPort}/must-not-be-hit`,
@@ -78,4 +78,22 @@ describe("BunHost redirect contract", () => {
       })
       expect(destinationHits).toBe(0)
     }))
+
+  it.effect("the standalone HttpClient layer does not follow a redirect either", () =>
+    Effect.gen(function*() {
+      destinationHits = 0
+      const response = yield* fetchRedirect.pipe(Effect.provide(BunHost.layerHttpClient))
+
+      expect(response).toEqual({
+        location: `http://127.0.0.1:${destinationPort}/must-not-be-hit`,
+        status: 302
+      })
+      expect(destinationHits).toBe(0)
+    }))
+
+  it("re-exports no HttpClient module that follows redirects by default", () => {
+    // `@effect/platform-bun/BunHttpClient.layer` follows redirects; handing it
+    // out beside the bundle made the unsafe client the one-import path.
+    expect(Object.keys(BunHost)).not.toContain("BunHttpClient")
+  })
 })

@@ -53,21 +53,15 @@ import * as BunFileSystem from "./BunFileSystem.ts"
  * `AtomicFileSystem.layerWith` without hand-composing the other four tags.
  *
  * `BunJj` is deliberately absent: it belongs to `@smthrs/jj` and is imported
- * from there, never re-exported here.
+ * from there, never re-exported here. So is `@effect/platform-bun/BunHttpClient`:
+ * its `layer` follows redirects to origins the capability kernel never
+ * authorized. The network slot on its own is {@link layerHttpClient}.
  *
  * @category re-exports
  * @since 1.0.0-rc.0
  * @slop
  */
-export {
-  AtomicFileSystem,
-  BunChildProcessSpawner,
-  BunCrypto,
-  BunFileSystem,
-  BunHttpClient,
-  HostLiveness,
-  ProcessReaper
-}
+export { AtomicFileSystem, BunChildProcessSpawner, BunCrypto, BunFileSystem, HostLiveness, ProcessReaper }
 
 /**
  * The complete closed Host service union provided by Bun.
@@ -218,8 +212,16 @@ const reaping = (options?: ContainedOptions): ProcessReaper.Options => ({
 /** The two services `BunChildProcessSpawner` resolves paths and files with. */
 const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer, BunCrypto.layer)
 
-/** Effect's fetch client, told never to follow a redirect on its own. */
-const layerHttpClient: Layer.Layer<HttpClient> = Layer.provide(
+/**
+ * The network slot on its own: Effect's fetch client, told never to follow a
+ * redirect. A `3xx` comes back to the caller with its `location` intact and the
+ * second origin uncontacted; following a redirect is `@smthrs/kernel`'s guarded
+ * `HttpClient.layer`, which rechecks every hop.
+ *
+ * @category layers
+ * @since 1.0.0-rc.0
+ */
+export const layerHttpClient: Layer.Layer<HttpClient> = Layer.provide(
   BunHttpClient.layer,
   Layer.succeed(BunHttpClient.RequestInit)({ redirect: "manual" })
 )

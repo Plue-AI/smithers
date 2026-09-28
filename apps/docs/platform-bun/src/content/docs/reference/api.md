@@ -65,6 +65,7 @@ implementation identities, and platform module re-exports.
 | `layerAt`          | `(root: string) => Layer.Layer<BunHost \| Crypto.Crypto, JjError>`                                            |
 | `layerContained`   | `(options?: ContainedOptions) => Layer.Layer<BunHost \| Crypto.Crypto, JjError, ProcessLedger>`               |
 | `layerContainedAt` | `(root: string, options?: ContainedOptions) => Layer.Layer<BunHost \| Crypto.Crypto, JjError, ProcessLedger>` |
+| `layerHttpClient`  | `Layer.Layer<HttpClient>`                                                                                     |
 
 `layer` provides all five Host services, including the runtime-independent
 `Path`. `Jj` is bound to the process working directory.
@@ -97,6 +98,12 @@ activation because they cannot launch the runtime supervisor.
 
 `layerContainedAt` is `layerContained` with `Jj` bound to `root`
 (`BunJj.layerSpawnerAt`). It refuses a root exactly as `layerAt` does.
+
+`layerHttpClient` is the network slot every factory above installs, on its
+own: `@effect/platform-bun`'s fetch client with `redirect: "manual"`. A `3xx`
+comes back with its `location` header intact and the second origin is never
+contacted. Following a redirect is `@smthrs/kernel`'s guarded
+`HttpClient.layer`, which rechecks the capability on every hop.
 
 ### BunHostError
 
@@ -187,7 +194,6 @@ the host has one place to take it from:
 | `BunChildProcessSpawner` | `@effect/platform-bun/BunChildProcessSpawner`.                                                                                                                            |
 | `BunCrypto`              | `@effect/platform-bun/BunCrypto`, the [Effect Crypto service](https://github.com/Effect-TS/effect/blob/main/packages/platform/bun/src/BunCrypto.ts) layer.                |
 | `BunFileSystem`          | This package's `BunFileSystem` module.                                                                                                                                    |
-| `BunHttpClient`          | `@effect/platform-bun/BunHttpClient`.                                                                                                                                     |
 | `HostLiveness`           | `@smthrs/platform-node/HostLiveness`, the [host liveness probe](https://platform-node.smithers.sh/reference/api/#liveness-and-reaping).                                                                 |
 | `ProcessReaper`          | `@smthrs/platform-node/ProcessReaper`, the [contained spawner](https://platform-node.smithers.sh/reference/api/#processreaperlayerspawner) and [orphan sweep](https://platform-node.smithers.sh/reference/api/#liveness-and-reaping). |
 
@@ -199,6 +205,10 @@ program whose helper is elsewhere must reach
 
 `BunJj` is deliberately absent. It belongs to [`@smthrs/jj`](https://jj.smithers.sh/reference/api/) and is
 imported from there, never re-exported here.
+
+`@effect/platform-bun/BunHttpClient` is deliberately absent too: its `layer`
+follows redirects to origins the capability kernel never authorized. Take the
+network slot on its own from `layerHttpClient`.
 
 ## BunFileSystem
 
