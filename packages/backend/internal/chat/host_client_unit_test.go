@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -85,6 +86,7 @@ func TestHTTPChatHostUnitRefusalDetailsAreBoundedAndValidUTF8(t *testing.T) {
 		{" \tprovider_unreachable\n", "provider_unreachable"},
 		{string([]byte{'b', 'a', 'd', 0xff, '!'}), "bad?!"},
 		{strings.Repeat("x", 513), strings.Repeat("x", 512)},
+		{strings.Repeat("x", 511) + "é", strings.Repeat("x", 511) + "?"},
 	} {
 		body := &chatHostUnitBody{Reader: strings.NewReader(item.raw)}
 		host, err := NewHTTPChatHost("https://host.invalid", &http.Client{Transport: chatHostUnitTransport(func(sent *http.Request) (*http.Response, error) {
@@ -132,4 +134,60 @@ func TestHTTPChatHostUnitMalformedPublicGrantNeverDispatches(t *testing.T) {
 	err = host.RunChatTurn(t.Context(), grant)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "encode chat model grant:")
+}
+
+func TestHTTPChatHostUnitInFlightDispatcherCancellationEndsTransport(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	arrived := make(chan struct{}, 1)
+	release := make(chan struct{})
+	completed := make(chan struct{})
+	answers := make(chan error, 1)
+	started := false
+	var calls atomic.Int64
+	defer func() {
+		cancel()
+		close(release)
+		if !started {
+			return
+		}
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-completed:
+		case <-timer.C:
+			t.Error("host worker did not stop after fixture release")
+		}
+	}()
+	host, err := NewHTTPChatHost("https://host.invalid", &http.Client{Transport: chatHostUnitTransport(func(sent *http.Request) (*http.Response, error) {
+		defer sent.Body.Close()
+		calls.Add(1)
+		select {
+		case arrived <- struct{}{}:
+		default:
+		}
+		select {
+		case <-sent.Context().Done():
+			return nil, sent.Context().Err()
+		case <-release:
+			return nil, &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed}
+		}
+	})}, "host-token")
+	require.NoError(t, err)
+	started = true
+	go func() { defer close(completed); answers <- host.RunChatTurn(ctx, chatHostUnitGrant()) }()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-arrived:
+	case <-timer.C:
+		t.Fatal("host transport did not receive the request")
+	}
+	cancel()
+	select {
+	case err := <-answers:
+		require.ErrorIs(t, err, context.Canceled)
+		require.Equal(t, int64(1), calls.Load(), "cancellation never retries the grant")
+	case <-timer.C:
+		t.Fatal("dispatcher cancellation did not stop in-flight host transport")
+	}
 }
