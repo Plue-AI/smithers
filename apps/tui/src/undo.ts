@@ -6,7 +6,8 @@
  */
 import { applyPatch, parsePatch, reversePatch, type StructuredPatch } from "diff"
 import { chmod, mkdir, stat, unlink, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
+import { real } from "./approvals.ts"
 import * as Changes from "./changes.ts"
 import type * as Transcript from "./transcript.ts"
 
@@ -18,6 +19,8 @@ export type Failure =
   | { readonly _tag: "Uncaptured"; readonly flows: ReadonlyArray<string> }
   /** A binary, large, or truncated change, labeled instead of diffed. */
   | { readonly _tag: "Unrendered"; readonly paths: ReadonlyArray<string> }
+  /** A receipt path that reaches outside the workspace, directly or through a symlink. */
+  | { readonly _tag: "Outside"; readonly paths: ReadonlyArray<string> }
   /** The files changed since the turn. */
   | { readonly _tag: "Conflict"; readonly paths: ReadonlyArray<string> }
   | { readonly _tag: "WriteFailed"; readonly path: string; readonly message: string; readonly restored: boolean }
@@ -112,6 +115,19 @@ export const target = (transcript: Transcript.Transcript, rowId: string): Target
   return { calls, paths: [...paths] }
 }
 
+/**
+ * Receipts come from a session file, so their paths are data: undo writes only
+ * where a path lands inside the workspace after following every symlink.
+ */
+const outside = (cwd: string, paths: ReadonlyArray<string>): Failure | undefined => {
+  const root = real(resolve(cwd))
+  const escaped = [...new Set(paths)].filter((path) => {
+    const inside = relative(root, real(resolve(cwd, path)))
+    return inside === "" || inside === ".." || inside.startsWith("../") || isAbsolute(inside)
+  })
+  return escaped.length === 0 ? undefined : { _tag: "Outside", paths: escaped.sort() }
+}
+
 /** Every file's restored content, reading only. Collects every conflicting path. */
 export const plan = async (
   cwd: string,
@@ -120,6 +136,18 @@ export const plan = async (
 ): Promise<Plan | Failure> => {
   // A shell diff is repository-wide and may hold other workers' edits; `target` never picks one, and neither does a plan.
   if (target.calls.some((call) => call.flow === "bash")) return { _tag: "Uncaptured", flows: ["bash"] }
+  const escaped = outside(
+    cwd,
+    target.calls.flatMap((call) =>
+      call.patches!.flatMap((patch) => {
+        const structured = parsed(patch)
+        if (structured === undefined) return [patch.path]
+        const { before, after } = sides(patch, structured)
+        return [before, after].filter((path): path is string => path !== undefined)
+      })
+    )
+  )
+  if (escaped !== undefined) return escaped
   const seeded = new Map<string, string | null | undefined>()
   const state = new Map<string, string | null | undefined>()
   const poisoned = new Set<string>()
@@ -200,6 +228,8 @@ export const commit = async (
   read: (path: string) => Promise<string | null | undefined> = Changes.read,
   write: typeof put = put
 ): Promise<Failure | undefined> => {
+  const escaped = outside(cwd, plan.files.map((file) => file.path))
+  if (escaped !== undefined) return escaped
   const moved: Array<string> = []
   const modes = new Map<string, number | undefined>()
   for (const file of plan.files) {
@@ -260,6 +290,8 @@ export const message = (failure: Failure): string => {
       return `Not undone · uncaptured: ${failure.flows.join(", ")}`
     case "Unrendered":
       return `Not undone · binary or large: ${failure.paths.join(", ")}`
+    case "Outside":
+      return `Not undone · outside workspace: ${failure.paths.join(", ")}`
     case "Conflict":
       return `Not undone · changed since: ${failure.paths.join(", ")}`
     case "WriteFailed":

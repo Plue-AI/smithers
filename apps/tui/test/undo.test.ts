@@ -795,3 +795,63 @@ describe("undo", () => {
     )
   })
 })
+
+describe("undo containment", () => {
+  const forged = (path: string, before: string | null, after: string | null) =>
+    ({
+      flow: "write",
+      identity: "forged",
+      patches: [Changes.patch(path, before, after)!]
+    }) as unknown as Parameters<typeof Undo.plan>[1]["calls"][number]
+
+  it("refuses a receipt whose path climbs out of the workspace, touching nothing", async () => {
+    const root = scratch()
+    const cwd = join(root, "repo")
+    mkdirSync(cwd)
+    put(root, "victim", "x\n")
+    const result = await Undo.plan(cwd, { calls: [forged("../victim", null, "x\n")], paths: ["../victim"] })
+    expect(result).toEqual({ _tag: "Outside", paths: ["../victim"] })
+    expect(get(root, "victim")).toBe("x\n")
+  })
+
+  it("refuses an absolute receipt path outside the workspace", async () => {
+    const root = scratch()
+    const cwd = join(root, "repo")
+    mkdirSync(cwd)
+    put(root, "victim", "after\n")
+    const victim = join(root, "victim")
+    const result = await Undo.plan(cwd, { calls: [forged(victim, "before\n", "after\n")], paths: [victim] })
+    expect(result).toEqual({ _tag: "Outside", paths: [victim] })
+    expect(get(root, "victim")).toBe("after\n")
+  })
+
+  it("refuses a path that reaches outside through a symlink in the workspace", async () => {
+    const root = scratch()
+    const cwd = join(root, "repo")
+    mkdirSync(join(root, "elsewhere"), { recursive: true })
+    mkdirSync(cwd)
+    put(root, "elsewhere/victim", "x\n")
+    Bun.spawnSync(["ln", "-s", join(root, "elsewhere"), join(cwd, "link")])
+    const result = await Undo.plan(cwd, { calls: [forged("link/victim", null, "x\n")], paths: ["link/victim"] })
+    expect(result).toEqual({ _tag: "Outside", paths: ["link/victim"] })
+    expect(get(root, "elsewhere/victim")).toBe("x\n")
+  })
+
+  it("words an outside refusal", () => {
+    expect(Undo.message({ _tag: "Outside", paths: ["../victim"] })).toBe("Not undone · outside workspace: ../victim")
+  })
+})
+
+describe("undo commit containment", () => {
+  it("refuses a plan whose path became a symlink out of the workspace after planning", async () => {
+    const root = scratch()
+    const cwd = join(root, "repo")
+    mkdirSync(join(root, "elsewhere"), { recursive: true })
+    mkdirSync(cwd)
+    put(root, "elsewhere/victim", "x\n")
+    Bun.spawnSync(["ln", "-s", join(root, "elsewhere"), join(cwd, "link")])
+    const plan: Undo.Plan = { calls: ["forged"], files: [{ path: "link/victim", current: "x\n", next: null }] }
+    expect(await Undo.commit(cwd, plan)).toEqual({ _tag: "Outside", paths: ["link/victim"] })
+    expect(get(root, "elsewhere/victim")).toBe("x\n")
+  })
+})

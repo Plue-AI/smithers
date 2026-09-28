@@ -187,7 +187,7 @@ The completion judge uses a connected subscription. Missing seats or invalid
 verdicts fail closed; no gateway key is required. **u** on a Summary or worker tab row
 reverses its captured changes after a confirm, all or nothing; a deleted
 file comes back with its mode. It refuses when a file
-changed since, a change is binary or large, or the turn ran a shell command
+changed since, a path lands outside the working directory (directly or through a symlink), a change is binary or large, or the turn ran a shell command
 that changed files: a shell diff can hold other workers' edits. The session
 records the undo and the next turn is told. `/new`, `/resume` and `/fork` wait
 for it.
