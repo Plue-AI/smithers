@@ -33,7 +33,7 @@ const wrongAnswers: ReadonlyArray<{ name: string; answers: Evaluator.RawAnswers 
   { name: "choice", answers: { notable: { type: "choice", choice: "yes" } } },
   { name: "score", answers: { notable: { type: "score", score: 1 } } }
 ]
-test.each(wrongAnswers)("a %s answer refuses once and the next valid response recovers", async ({ answers }) => {
+test.each([...wrongAnswers])("a %s answer refuses once and the next valid response recovers", async ({ answers }) => {
   let calls = 0
   const judge = Monitors.jev(async () => ({
     latencyMs: 0,
