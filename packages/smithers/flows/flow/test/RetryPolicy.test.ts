@@ -351,6 +351,44 @@ describe("expiration (issue #36)", () => {
 })
 
 describe("decide", () => {
+  it("honors a tool retry hint within policy bounds", () => {
+    const policy = RetryPolicy.make({
+      initialMs: 100,
+      factor: 2,
+      maxMs: 2_000,
+      maxAttempts: 3,
+      expirationMs: 5_000,
+      jitterRatio: 0.5,
+      nonRetryable: ["Fatal"]
+    })
+    const error = { retryAfterMs: 3_000 }
+    expect(RetryPolicy.decide(
+      RetryPolicy.make({ initialMs: 100, factor: 2, maxMs: 4_000 }),
+      { attempt: 1, error }
+    )).toEqual(RetryPolicy.retryAfter(3_000))
+    expect(RetryPolicy.decide(policy, { attempt: 1, error, elapsedMs: 0, random: 0 })).toEqual(
+      RetryPolicy.retryAfter(2_000)
+    )
+    expect(RetryPolicy.decide(policy, { attempt: 1, error, elapsedMs: 3_500 })).toEqual(
+      RetryPolicy.retryAfter(1_500)
+    )
+    expect(RetryPolicy.decide(policy, { attempt: 1, error: { retryAfterMs: 300 }, elapsedMs: 0 }))
+      .toEqual(RetryPolicy.retryAfter(300))
+    expect(RetryPolicy.decide(policy, { attempt: 1, error, elapsedMs: 4_950 })).toEqual(
+      RetryPolicy.giveUp("expired")
+    )
+    expect(RetryPolicy.decide(policy, { attempt: 3, error })).toEqual(RetryPolicy.giveUp("exhausted"))
+    expect(RetryPolicy.decide(policy, { attempt: 1, error: { _tag: "Fatal", retryAfterMs: 3000 } }))
+      .toEqual(RetryPolicy.giveUp("nonRetryable"))
+    for (const retryAfterMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, "3000"]) {
+      expect(RetryPolicy.decide(policy, { attempt: 1, error: { retryAfterMs } }))
+        .toEqual(RetryPolicy.retryAfter(100))
+    }
+    const accessor = Object.defineProperty({}, "retryAfterMs", { get: () => { throw new Error("read") } })
+    expect(RetryPolicy.decide(policy, { attempt: 1, error: accessor }))
+      .toEqual(RetryPolicy.retryAfter(100))
+  })
+
   it("keeps non-retryable integrity failures terminal across attempt and clock boundaries", () => {
     const policy = RetryPolicy.make({
       initialMs: 100,

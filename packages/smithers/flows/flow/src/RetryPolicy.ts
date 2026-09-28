@@ -487,7 +487,29 @@ export const decide = (
           Option.isSome(nextDelay(policy, options.attempt, { random: options.random }))
           ? giveUp("expired")
           : giveUp("exhausted"),
-      onSome: retryAfter
+      onSome: (delay) => {
+        // Tool failures may supply a delay instead of using policy backoff.
+        // Inspect only an own data property: failure payloads can be untrusted.
+        let hint: unknown
+        if (typeof options.error === "object" && options.error !== null) {
+          try {
+            const descriptor = Object.getOwnPropertyDescriptor(options.error, "retryAfterMs")
+            if (descriptor !== undefined && "value" in descriptor) hint = descriptor.value
+          } catch {
+            // An uninspectable failure falls back to the policy delay.
+          }
+        }
+        if (typeof hint !== "number" || !Number.isFinite(hint) || hint < 0) {
+          return retryAfter(delay)
+        }
+        return retryAfter(Math.min(
+          hint,
+          policy.maxMs,
+          policy.expirationMs !== undefined && options.elapsedMs !== undefined
+            ? Math.max(0, policy.expirationMs - options.elapsedMs)
+            : policy.maxMs
+        ))
+      }
     }
   )
 }
