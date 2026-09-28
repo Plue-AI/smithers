@@ -23,7 +23,7 @@ jj-lib = { workspace = true, features = ["git"] }
 anyhow = "1"
 base64 = "0.22"
 futures = "0.3"
-globset = "0.4"
+globset = "0.4.20"
 gix = "0.85"
 libc = "0.2"
 pollster = "1"

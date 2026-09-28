@@ -292,20 +292,22 @@ collapses `[.]` only afterwards, so this one survives and, as the last segment,
 names its anchor under the same rule. One addition: a `**` immediately before it
 addresses nothing, so `**/[.]` names nothing while `**/deep/[.]` names the
 directory. Anywhere but last, and in an exclusion, a `.` segment names an entry
-no directory holds. Matching is segment-wise and linear in the candidate's
-length, never a compiled regular expression, because a pattern of repeated `*x`
-fragments costs a regex engine exponential backtracking.
+no directory holds. Matching aligns path segments with bounded dynamic programming; each segment
+uses globset’s compiled, non-backtracking matcher.
 
 Two grammar bounds are refusals rather than silent truncation: a pattern longer
-than 4096 characters, and one whose braces expand past 64 alternatives, both
-fail as `BadArgument`. Both are enforced before any expansion or any walking, so
+than 4096 UTF-8 bytes, and one whose braces expand past 64 alternatives, both
+fail as `BadArgument`. The byte limit is checked before expansion; the alternative
+limit is enforced during bounded expansion. Each resulting alternative is
+validated before filesystem walking, so
 an over-large pattern costs no listing and answers with the typed refusal rather
 than with a fail-closed transport error. So do the three constructs this grammar
-does not implement: extglob (`+(a|b)`), POSIX classes (`[[:digit:]]`), brace
-ranges (`{1..3}`). Each of them means something to the
-native globber, so reading them as ordinary characters would not fail; it would
-answer a different question, and in an exclusion that means handing the caller
-the very paths it forbade. The refusal therefore covers the exclude list as well
+does not implement: extglob (`+(a|b)`), any `[:` opener inside a character
+class (including POSIX classes), and brace bodies containing `..` (including
+ranges such as `{1..3}` and sets containing that text). These checks conservatively
+reject unsupported syntax before filesystem access. Reading unsupported constructs
+as ordinary characters could answer a different question; an exclusion could
+then return the paths it was meant to remove. The refusal therefore covers the exclude list as well
 as the pattern, and it recognises a character class, so `[!(]*` is an ordinary
 negated class and not an extglob.
 

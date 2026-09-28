@@ -4,6 +4,29 @@
 
 ### Fixed
 
+- Atomic glob preserves dot-class text inside an outer character class and
+  recognizes dot segments only when they occupy the whole path segment.
+
+- Atomic glob refuses unsupported POSIX classes after literal character-class
+  members, including exclusions.
+
+- Atomic glob character classes stay active when another path segment contains
+  a literal closing bracket. Globstar exclusions remove descendants even when
+  their names also match a later directory anchor, while retaining the original
+  anchor consistently across selectors and absolute or relative exclusions.
+  Unclosed brackets in an earlier segment no longer bypass unsupported-extglob
+  validation. A leading literal `]` inside a character class no longer causes
+  valid class members to be mistaken for unsupported extglob syntax.
+- Atomic glob validates unsupported syntax separately in every expanded brace
+  alternative, so a literal bracket in one alternative cannot hide an extglob
+  exclusion in another.
+- Atomic glob selection and exclusion require an explicit dot for each hidden
+  path segment. A pattern such as `.hidden/*` no longer matches `.hidden/.secret`,
+  and `**/.wanted` cannot traverse an unmentioned hidden directory. Wildcard
+  selectors also skip those directories before opening or listing them.
+- Atomic glob patterns treat `/` as a path separator inside bracket expressions,
+  preserving literal bracket names. Absolute selectors and exclusions outside
+  the glob root no longer alias an in-root path sharing the root's name prefix.
 - A `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` that names a missing or unusable
   helper is refused with the variable's name and the same install hint as a
   missing helper, instead of a bare `ENOENT`.

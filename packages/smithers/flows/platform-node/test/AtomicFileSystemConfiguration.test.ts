@@ -163,6 +163,50 @@ describe("atomic helper configuration admission", () => {
     expect(result._tag).toBe("Failure")
   })
 
+  it("refuses an unusable environment override without falling back or spawning", async () => {
+    const root = await temporary()
+    const missing = join(root, "missing-helper")
+    vi.stubEnv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", missing)
+    const before = AtomicFileSystem.helperSpawns()
+    const error = await refused({})
+    expect(error.reason).toMatchObject({
+      _tag: "PermissionDenied",
+      method: "exists",
+      pathOrDescriptor: "/a",
+      description: expect.stringContaining(`SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${missing}`)
+    })
+    expect(error.reason.description).toContain("cargo build --locked")
+    expect(AtomicFileSystem.helperSpawns()).toBe(before)
+  })
+
+  it("gives an explicit executable precedence over the environment override", async () => {
+    const root = await temporary()
+    const explicit = join(root, "explicit-helper")
+    const configured = join(root, "environment-helper")
+    vi.stubEnv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", configured)
+    const before = AtomicFileSystem.helperSpawns()
+    const error = await refused({ executable: explicit })
+    expect(error.reason).toMatchObject({ _tag: "PermissionDenied", method: "exists" })
+    expect(error.reason.description).toContain(explicit)
+    expect(error.reason.description).not.toContain(configured)
+    expect(AtomicFileSystem.helperSpawns()).toBe(before)
+  })
+
+  it("rejects an environment helper supplied by the confined workspace", async () => {
+    const root = await temporary()
+    const binary = join(root, "helper")
+    await writeFile(binary, "#!/bin/sh\nexit 0\n", { mode: 0o755 })
+    vi.stubEnv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", binary)
+    const before = AtomicFileSystem.helperSpawns()
+    const error = await refused({}, { operation: "exists", path: join(root, "file"), boundaryRoot: root })
+    expect(error.reason).toMatchObject({
+      _tag: "PermissionDenied",
+      method: "exists",
+      description: expect.stringContaining(`outside the confined workspace: ${binary}`)
+    })
+    expect(AtomicFileSystem.helperSpawns()).toBe(before)
+  })
+
   it("resolves absolute and relative symlinks without admitting workspace executables", async () => {
     const root = await temporary()
     const bin = join(root, "helper")

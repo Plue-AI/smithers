@@ -28,7 +28,7 @@ import {
 } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { join, relative } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { promisify } from "node:util"
 import * as AtomicFileSystem from "../src/AtomicFileSystem.ts"
 
@@ -787,6 +787,8 @@ describe("Node atomic filesystem", () => {
         // a character class.
         [".*", undefined],
         [".hidden/*", undefined],
+        ["**/.hidden/**/.wanted", undefined],
+        ["[.]hidden/**/.wanted", undefined],
         ["[.]dot.txt", undefined],
         ["[.]*", undefined],
         // A one-member positive class is literal text to the globber, so `[.]`
@@ -820,9 +822,8 @@ describe("Node atomic filesystem", () => {
         ["[^t]*", undefined],
         ["[!.]*", undefined],
         ["**/[!.]*", undefined],
-        // Excluding a directory's contents leaves the directory entry itself,
-        // which is the native globber's own asymmetry between a trailing "**"
-        // used to select and one used to exclude.
+        // A trailing globstar exclusion retains its own directory anchor.
+        // This adapter pins the same answer for every selector.
         ["**/*", ["nested/**"]],
         ["**/*", ["nested"]]
       ]
@@ -830,12 +831,20 @@ describe("Node atomic filesystem", () => {
         const root = await temporaryDirectory()
         await mkdir(join(root, "nested", "deep"), { recursive: true })
         await mkdir(join(root, ".hidden"), { recursive: true })
+        await mkdir(join(root, ".hidden", "nested"), { recursive: true })
+        await mkdir(join(root, ".hidden", ".nested"), { recursive: true })
+        await mkdir(join(root, "visible", ".hidden", "nested"), { recursive: true })
+        await mkdir(join(root, "visible", ".hidden", ".nested"), { recursive: true })
         await writeFile(join(root, "top.txt"), "")
         await writeFile(join(root, "a-b.txt"), "")
         await writeFile(join(root, "(.txt"), "")
         await writeFile(join(root, "0.txt"), "")
         await writeFile(join(root, ".dot.txt"), "")
         await writeFile(join(root, ".hidden", "in.txt"), "")
+        await writeFile(join(root, ".hidden", "nested", ".wanted"), "")
+        await writeFile(join(root, ".hidden", ".nested", ".wanted"), "")
+        await writeFile(join(root, "visible", ".hidden", "nested", ".wanted"), "")
+        await writeFile(join(root, "visible", ".hidden", ".nested", ".wanted"), "")
         await writeFile(join(root, "nested", "mid.txt"), "")
         await writeFile(join(root, "nested", ".deep.txt"), "")
         await writeFile(join(root, "nested", "deep", "low.txt"), "")
@@ -889,6 +898,87 @@ describe("Node atomic filesystem", () => {
         ""
       ])
     }), 120_000)
+
+  it.live("requires each hidden path component to be named by its own glob segment", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      for (
+        const directory of [
+          ".hidden/nested",
+          ".hidden/.nested",
+          "visible/.hidden/nested",
+          "visible/.hidden/.nested"
+        ]
+      ) {
+        yield* Effect.promise(() => mkdir(join(root, directory), { recursive: true }))
+      }
+      for (
+        const path of [
+          ".hidden/.wanted",
+          ".hidden/nested/.wanted",
+          ".hidden/.nested/.wanted",
+          "visible/.hidden/nested/.wanted",
+          "visible/.hidden/.nested/.wanted",
+          ".hidden/.secret"
+        ]
+      ) {
+        yield* Effect.promise(() => writeFile(join(root, path), ""))
+      }
+
+      const found = yield* run(
+        root,
+        Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          const select = (pattern: string, exclude?: ReadonlyArray<string>) =>
+            Effect.map(
+              fs.glob(join(root, pattern), exclude === undefined ? { root } : { exclude, root }),
+              (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/")).sort()
+            )
+          return {
+            aligned: yield* select("**/.hidden/**/.wanted"),
+            explicitClass: yield* select("[.]hidden/**/.wanted"),
+            excludedWildcard: yield* select(".hidden/.*", [".hidden/*"]),
+            excludedExplicit: yield* select(".hidden/.*", [".hidden/.*"])
+          }
+        })
+      )
+      expect(found.aligned).toEqual([
+        ".hidden/.wanted",
+        ".hidden/nested/.wanted",
+        "visible/.hidden/nested/.wanted"
+      ])
+      expect(found.explicitClass).toEqual([".hidden/.wanted", ".hidden/nested/.wanted"])
+      expect(found.excludedWildcard).toEqual([".hidden/.nested", ".hidden/.secret", ".hidden/.wanted"])
+      expect(found.excludedExplicit).toEqual([])
+    }), 30_000)
+
+  it.live("does not enumerate a hidden directory for a wildcard selector", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      const hidden = join(root, ".hidden")
+      yield* Effect.promise(() => mkdir(hidden))
+      yield* Effect.promise(() => writeFile(join(root, "selected.txt"), ""))
+      yield* Effect.promise(() =>
+        Promise.all(
+          Array.from({ length: 40 }, (_, index) => writeFile(join(hidden, `entry-${index}-${"x".repeat(32)}.txt`), ""))
+        )
+      )
+
+      const outcome = yield* run(
+        root,
+        Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          return {
+            wildcard: yield* fs.glob(join(root, "**/*.txt"), { root }),
+            explicit: yield* Effect.flip(fs.glob(join(root, ".hidden/*.txt"), { root }))
+          }
+        }),
+        AtomicFileSystem.layerWith({ limits: { response: 1024 } })
+      )
+
+      expect(outcome.wildcard).toEqual([join(root, "selected.txt")])
+      expect(outcome.explicit).toMatchObject({ reason: { _tag: "BadResource" } })
+    }), 30_000)
 
   /**
    * An exclusion is a traversal boundary, so names below it must consume none
@@ -1077,7 +1167,7 @@ describe("Node atomic filesystem", () => {
       yield* Effect.promise(() => writeFile(join(root, "1.txt"), ""))
       yield* Effect.promise(() => writeFile(join(root, "private", "secret.txt"), ""))
 
-      const unsupported = ["+(a|b).txt", "[[:digit:]].txt", "{1..3}.txt"]
+      const unsupported = ["+(a|b).txt", "[[:digit:]].txt", "{1..3}.txt", "[a/@(private)/**", "[]]?(x)"]
       const refusals = yield* run(
         root,
         Effect.gen(function*() {
@@ -1096,6 +1186,171 @@ describe("Node atomic filesystem", () => {
 
       expect(refusals.asPattern).toEqual(unsupported.map(() => "BadArgument"))
       expect(refusals.asExclude).toEqual(unsupported.map(() => "BadArgument"))
+    }))
+
+  it.live("refuses unsupported syntax in each expanded brace alternative", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      for (const name of ["[a", "private", "keep.txt"]) {
+        yield* Effect.promise(() => writeFile(join(root, name), ""))
+      }
+      const patterns = ["{[a,@(private)}", "{[a,{keep.txt,@(private)}}", "{[a,+(private)}", "{@,+}(a|b)"]
+      const nodeRemaining = yield* Effect.promise(async () => {
+        const rows: Array<string> = []
+        for await (const row of glob("*", { cwd: root, exclude: [patterns[0]!] })) rows.push(row)
+        return rows.sort()
+      })
+      expect(nodeRemaining).toEqual(["keep.txt"])
+      yield* run(
+        root,
+        Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          for (const pattern of patterns) {
+            const selected = yield* Effect.result(fs.glob(join(root, pattern), { root }))
+            expect(selected, pattern).toMatchObject({ _tag: "Failure", failure: { reason: { _tag: "BadArgument" } } })
+            for (const excluded of [pattern, join(root, pattern)]) {
+              const result = yield* Effect.result(fs.glob(join(root, "*"), { root, exclude: [excluded] }))
+              expect(result, excluded).toMatchObject({ _tag: "Failure", failure: { reason: { _tag: "BadArgument" } } })
+            }
+          }
+          const supported = yield* fs.glob(join(root, "{[a,keep.txt}"), { root })
+          expect(supported.map((row) => relative(root, row)).sort()).toEqual(["[a", "keep.txt"])
+        })
+      )
+    }))
+
+  it.live("preserves dot-class text inside an already open character class", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      const names = ["[]", "[b]", "ab]", "bb]", "]b]", "a", "b", "keep.txt"]
+      yield* Effect.promise(() => mkdir(join(root, "x]")))
+      for (const directory of ["", "x]"]) {
+        for (const name of names) {
+          yield* Effect.promise(() => writeFile(join(root, directory, name), ""))
+        }
+      }
+      const all = [...names, "x]", ...names.map((name) => `x]/${name}`)].sort()
+      for (
+        const [pattern, selected] of [
+          ["[[.]]", ["[]"]],
+          ["[a[.]b]", ["[b]", "ab]"]],
+          ["[][.]b]", ["[b]", "]b]"]],
+          ["[!a[.]b]", ["]b]", "bb]"]],
+          ["[^a[.]b]", ["]b]", "bb]"]],
+          ["{[[.]],keep.txt}", ["[]", "keep.txt"]],
+          ["x]/[[.]]", ["x]/[]"]],
+          ["x]/[a[.]b]", ["x]/[b]", "x]/ab]"]]
+        ] as ReadonlyArray<readonly [string, ReadonlyArray<string>]>
+      ) {
+        const remaining = all.filter((name) => !selected.includes(name))
+        const native = yield* Effect.promise(async () => {
+          const selectedRows: Array<string> = []
+          const remainingRows: Array<string> = []
+          for await (const row of glob(pattern, { cwd: root })) selectedRows.push(row.replaceAll("\\", "/"))
+          for await (const row of glob("**/*", { cwd: root, exclude: [pattern] })) {
+            remainingRows.push(row.replaceAll("\\", "/"))
+          }
+          return { selected: selectedRows.sort(), remaining: remainingRows.sort() }
+        })
+        expect(native, pattern).toEqual({ selected, remaining })
+        const atomic = yield* run(
+          root,
+          Effect.gen(function*() {
+            const fs = yield* FileSystem.FileSystem
+            const relativePaths = (rows: ReadonlyArray<string>) =>
+              rows.map((row) => relative(root, row).replaceAll("\\", "/")).sort()
+            return {
+              selected: relativePaths(yield* fs.glob(join(root, pattern), { root })),
+              remaining: relativePaths(yield* fs.glob(join(root, "**/*"), { root, exclude: [pattern] })),
+              absoluteRemaining: relativePaths(
+                yield* fs.glob(join(root, "**/*"), { root, exclude: [join(root, pattern)] })
+              )
+            }
+          })
+        )
+        expect(atomic, pattern).toEqual({ selected, remaining, absoluteRemaining: remaining })
+      }
+    }))
+
+  // Windows normalizes trailing dots in directory names. The portable nested
+  // class cases above also run there; this fixture exercises a literal `a.`.
+  it.live.skipIf(process.platform === "win32")(
+    "keeps a dot class within a directory name separate from a standalone dot segment",
+    () =>
+      Effect.gen(function*() {
+        const root = yield* Effect.promise(() => temporaryDirectory())
+        for (const name of ["a", "a.", "["]) {
+          yield* Effect.promise(() => mkdir(join(root, name)))
+          yield* Effect.promise(() => writeFile(join(root, name, "x"), ""))
+        }
+        const all = ["[", "[/x", "a", "a.", "a./x", "a/x"]
+        for (
+          const [pattern, selected] of [
+            ["a[.]/x", ["a./x"]],
+            ["[a[.]/x", ["[/x", "a/x"]],
+            ["{a[.],[a[.]}/x", ["[/x", "a./x", "a/x"]]
+          ] as ReadonlyArray<readonly [string, ReadonlyArray<string>]>
+        ) {
+          const remaining = all.filter((name) => !selected.includes(name))
+          const native = yield* Effect.promise(async () => {
+            const rows: Array<string> = []
+            for await (const row of glob(pattern, { cwd: root })) rows.push(row.replaceAll("\\", "/"))
+            return rows.sort()
+          })
+          expect(native, pattern).toEqual(selected)
+          yield* run(
+            root,
+            Effect.gen(function*() {
+              const fs = yield* FileSystem.FileSystem
+              const relativePaths = (rows: ReadonlyArray<string>) =>
+                rows.map((row) => relative(root, row).replaceAll("\\", "/")).sort()
+              expect(relativePaths(yield* fs.glob(join(root, pattern), { root })), pattern).toEqual(selected)
+              for (const exclude of [pattern, join(root, pattern)]) {
+                expect(relativePaths(yield* fs.glob(join(root, "**/*"), { root, exclude: [exclude] })), exclude)
+                  .toEqual(remaining)
+              }
+            })
+          )
+        }
+      })
+  )
+
+  it.live("refuses POSIX classes after ordinary class members without rejecting literal colon or bracket classes", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      for (const name of ["1", "a", "g]", "[", "[g", "keep.txt", "x"]) {
+        yield* Effect.promise(() => writeFile(join(root, name), ""))
+      }
+      yield* run(
+        root,
+        Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          for (const pattern of ["[a[:digit:]]", "[!a[:digit:]]", "{keep.txt,[a[:digit:]]}"]) {
+            const selected = yield* Effect.result(fs.glob(join(root, pattern), { root }))
+            expect(selected, pattern).toMatchObject({ _tag: "Failure", failure: { reason: { _tag: "BadArgument" } } })
+            for (const excluded of [pattern, join(root, pattern)]) {
+              const result = yield* Effect.result(fs.glob(join(root, "*"), { root, exclude: [excluded] }))
+              expect(result, excluded).toMatchObject({ _tag: "Failure", failure: { reason: { _tag: "BadArgument" } } })
+            }
+          }
+          for (
+            const [pattern, expected] of [
+              ["[a:]", ["a"]],
+              ["[[]", ["["]],
+              ["[[][:digit:]", ["[g"]]
+            ] as const
+          ) {
+            const node = yield* Effect.promise(async () => {
+              const rows: Array<string> = []
+              for await (const row of glob(pattern, { cwd: root })) rows.push(row)
+              return rows.sort()
+            })
+            expect(node, pattern).toEqual(expected)
+            const atomic = yield* fs.glob(join(root, pattern), { root })
+            expect(atomic.map((row) => relative(root, row)).sort(), pattern).toEqual(expected)
+          }
+        })
+      )
     }))
 
   it.live("preserves the native empty answer for a relative selector containing a backslash", () =>
@@ -1125,6 +1380,245 @@ describe("Node atomic filesystem", () => {
       expect(atomic).toEqual(native)
       expect(atomic).toEqual([])
     }))
+
+  it.live("does not rewrite outside sibling selectors or exclusions into in-root matches", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(async () => realpath(await temporaryDirectory()))
+      const sibling = `${root}-sibling`
+      directories.add(sibling)
+      yield* Effect.promise(() => mkdir(sibling))
+      yield* Effect.promise(() => mkdir(join(root, "-sibling")))
+      yield* Effect.promise(() => writeFile(join(sibling, "outside.txt"), "outside"))
+      const inside = join(root, "-sibling", "outside.txt")
+      yield* Effect.promise(() => writeFile(inside, "inside sentinel"))
+      const info = yield* Effect.promise(() => lstat(root, { bigint: true }))
+
+      const publicError = yield* Effect.flip(run(
+        root,
+        Effect.flatMap(
+          FileSystem.FileSystem,
+          (fs) => fs.glob(join(sibling, "outside.txt"), { root })
+        )
+      ))
+      expect(publicError.reason._tag).toBe("PermissionDenied")
+
+      const found = yield* Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const extension = (fs as KernelFileSystem.AtomicHostFileSystem)[KernelFileSystem.AtomicFileSystemTypeId]
+        const request = (pattern: string, exclude: ReadonlyArray<string>) =>
+          extension.execute({
+            operation: "glob",
+            boundaryRoot: root,
+            rootIdentity: `${info.dev}:${info.ino}`,
+            logicalRoot: root,
+            options: { exclude },
+            pattern,
+            root
+          })
+        return {
+          selected: yield* request(join(sibling, "outside.txt"), []),
+          excluded: yield* request(join(root, "**/*.txt"), [join(sibling, "outside.txt")])
+        }
+      }).pipe(Effect.provide(AtomicFileSystem.layer))
+
+      expect(found.selected).toEqual([])
+      expect(found.excluded).toEqual([inside])
+    }))
+
+  it.live("keeps a character class active after a literal closing bracket in another segment", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      yield* Effect.promise(() => mkdir(join(root, "x]")))
+      for (const name of ["a", "b", "[ab]"]) {
+        yield* Effect.promise(() => writeFile(join(root, "x]", name), ""))
+      }
+      const pattern = "x]/[ab]"
+      const native = yield* Effect.promise(async () => {
+        const rows: Array<string> = []
+        for await (const row of glob(pattern, { cwd: root })) rows.push(row.replaceAll("\\", "/"))
+        return rows.sort()
+      })
+      const atomic = yield* run(
+        root,
+        Effect.flatMap(
+          FileSystem.FileSystem,
+          (fs) =>
+            Effect.map(
+              fs.glob(join(root, pattern), { root }),
+              (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/")).sort()
+            )
+        )
+      )
+      expect(native).toEqual(["x]/a", "x]/b"])
+      expect(atomic).toEqual(["x]/a", "x]/b"])
+      const excludedNative = yield* Effect.promise(async () => {
+        const rows: Array<string> = []
+        for await (const row of glob("x]/*", { cwd: root, exclude: [pattern] })) rows.push(row.replaceAll("\\", "/"))
+        return rows.sort()
+      })
+      const excludedAtomic = yield* run(
+        root,
+        Effect.flatMap(
+          FileSystem.FileSystem,
+          (fs) =>
+            Effect.map(
+              fs.glob(join(root, "x]/*"), { root, exclude: [pattern] }),
+              (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/")).sort()
+            )
+        )
+      )
+      expect(excludedNative).toEqual(["x]/[ab]"])
+      expect(excludedAtomic).toEqual(["x]/[ab]"])
+    }))
+
+  it.live("admits a literal closing bracket as the first character class member", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      // Keep the filesystem fixture valid on Windows; Rust units also check
+      // the '?' class member without creating an illegal Windows filename.
+      for (const name of ["(", "]", "keep.txt", "x"]) {
+        yield* Effect.promise(() => writeFile(join(root, name), ""))
+      }
+      for (
+        const [pattern, selected, remaining] of [
+          ["[]?(]", ["(", "]"], ["keep.txt", "x"]],
+          ["[!]?(]", ["x"], ["(", "]", "keep.txt"]],
+          ["[^]?(]", ["x"], ["(", "]", "keep.txt"]]
+        ] as const
+      ) {
+        const native = yield* Effect.promise(async () => {
+          const selectedRows: Array<string> = []
+          const remainingRows: Array<string> = []
+          for await (const row of glob(pattern, { cwd: root })) selectedRows.push(row)
+          for await (const row of glob("*", { cwd: root, exclude: [pattern] })) remainingRows.push(row)
+          return { selected: selectedRows.sort(), remaining: remainingRows.sort() }
+        })
+        expect(native, pattern).toEqual({ selected, remaining })
+        const atomic = yield* run(
+          root,
+          Effect.gen(function*() {
+            const fs = yield* FileSystem.FileSystem
+            const relativePaths = (rows: ReadonlyArray<string>) => rows.map((row) => relative(root, row)).sort()
+            return {
+              selected: relativePaths(yield* fs.glob(join(root, pattern), { root })),
+              remaining: relativePaths(yield* fs.glob(join(root, "*"), { root, exclude: [pattern] })),
+              absoluteRemaining: relativePaths(
+                yield* fs.glob(join(root, "*"), {
+                  root,
+                  exclude: [join(root, pattern)]
+                })
+              )
+            }
+          })
+        )
+        expect(atomic, pattern).toEqual({ selected, remaining, absoluteRemaining: remaining })
+      }
+    }))
+
+  // The published glob contract deliberately retains a trailing-globstar
+  // exclusion's own anchor for every selector. Node differs by selector shape,
+  // so use the contract's literal answers rather than Node for these rows.
+  it.live("retains globstar exclusion anchors while removing descendants for every selector", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      for (const name of ["deep/root.txt", "nested/deep/x/deep/leaf.txt", "keep.txt"]) {
+        yield* Effect.promise(() => mkdir(dirname(join(root, name)), { recursive: true }))
+        yield* Effect.promise(() => writeFile(join(root, name), ""))
+      }
+      for (
+        const [excluded, expected] of [
+          ["**/deep/**", [".", "deep", "keep.txt", "nested", "nested/deep"]],
+          ["nested/deep/**", [".", "deep", "deep/root.txt", "keep.txt", "nested", "nested/deep"]],
+          ["deep/**", [
+            ".",
+            "deep",
+            "keep.txt",
+            "nested",
+            "nested/deep",
+            "nested/deep/x",
+            "nested/deep/x/deep",
+            "nested/deep/x/deep/leaf.txt"
+          ]],
+          ["**/**", ["."]]
+        ] as const
+      ) {
+        for (const selector of ["**", "**/*"]) {
+          for (const exclude of [excluded, join(root, excluded)]) {
+            const atomic = yield* run(
+              root,
+              Effect.flatMap(
+                FileSystem.FileSystem,
+                (fs) =>
+                  Effect.map(
+                    fs.glob(join(root, selector), { root, exclude: [exclude] }),
+                    (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/") || ".").sort()
+                  )
+              )
+            )
+            expect(atomic, `${selector} excluding ${exclude}`).toEqual(
+              selector === "**" ? expected : expected.filter((row) => row !== ".")
+            )
+          }
+        }
+      }
+    }))
+
+  it.live("retains file and directory anchors and protects explicitly selected hidden paths", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      for (const name of ["file/deep", "directory/deep/leaf.txt", ".hidden/leaf.txt"]) {
+        yield* Effect.promise(() => mkdir(dirname(join(root, name)), { recursive: true }))
+        yield* Effect.promise(() => writeFile(join(root, name), ""))
+      }
+      for (
+        const [pattern, excluded, expected] of [
+          ["file/deep/**", "file/deep/**", ["file/deep"]],
+          ["directory/deep/**", "directory/deep/**", ["directory/deep"]],
+          ["directory/deep", "directory/deep/**", ["directory/deep"]],
+          [".hidden/**", "**/**", [".hidden", ".hidden/leaf.txt"]],
+          [".hidden/**", ".hidden/**", [".hidden"]]
+        ] as const
+      ) {
+        const atomic = yield* run(
+          root,
+          Effect.flatMap(
+            FileSystem.FileSystem,
+            (fs) =>
+              Effect.map(
+                fs.glob(join(root, pattern), { root, exclude: [excluded] }),
+                (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/")).sort()
+              )
+          )
+        )
+        expect(atomic, `${pattern} excluding ${excluded}`).toEqual(expected)
+      }
+    }))
+
+  it.live("treats a slash inside a bracket expression as a path separator", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      for (const name of ["a", "[a/]", "[a/]foo", "[a]foo"]) {
+        yield* Effect.promise(() => mkdir(join(root, name), { recursive: true }))
+        yield* Effect.promise(() => writeFile(join(root, name, "selected.txt"), ""))
+      }
+      const pattern = "[a/]*/**"
+      const expected = ["[a/]", "[a/]/selected.txt", "[a/]foo", "[a/]foo/selected.txt"]
+      const native = yield* Effect.promise(async () => {
+        const rows: Array<string> = []
+        for await (const row of glob(pattern, { cwd: root })) rows.push(row.replaceAll("\\", "/"))
+        return rows.sort()
+      })
+      const atomic = yield* run(
+        root,
+        Effect.flatMap(FileSystem.FileSystem, (fs) =>
+          Effect.map(
+            fs.glob(join(root, pattern), { root }),
+            (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/")).sort()
+          ))
+      )
+      expect(native).toEqual(expected)
+      expect(atomic).toEqual(expected)
+    }), 30_000)
 
   /**
    * The pending brace work is bounded before it can consume one Python frame

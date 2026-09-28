@@ -77,22 +77,23 @@ would answer for a name the pattern did not spell.
 
 ## Patterns the adapter refuses
 
-Five inputs fail as a typed `BadArgument`, checked before any expansion or
-walking, so an over-large pattern costs no listing and answers with the typed
-refusal rather than a fail-closed transport error:
+Five inputs fail as a typed `BadArgument` before filesystem walking. The byte
+limit is checked before brace expansion, which stops at its alternative limit.
+Each expanded alternative is checked for unsupported syntax before compilation,
+so refused patterns cost no directory listing:
 
-| Input                                 | Why                               |
-| ------------------------------------- | --------------------------------- |
-| a pattern longer than 4096 characters | a bound on what one call may cost |
-| braces expanding past 64 alternatives | brace expansion is multiplicative |
-| extglob, such as `+(a\|b)`            | not implemented                   |
-| POSIX classes, such as `[[:digit:]]`  | not implemented                   |
-| brace ranges, such as `{1..3}`        | not implemented                   |
+| Input                                             | Why                               |
+| ------------------------------------------------- | --------------------------------- |
+| a pattern longer than 4096 UTF-8 bytes            | a bound on what one call may cost |
+| braces expanding past 64 alternatives             | brace expansion is multiplicative |
+| extglob, such as `+(a\|b)`                        | not implemented                   |
+| `[:` inside an open class, such as `[a[:digit:]]` | not implemented                   |
+| brace bodies containing `..`, including `{1..3}`  | not implemented                   |
 
-The last three are refusals rather than literal characters on purpose. Each
-means something to the native globber, so reading it as an ordinary character
-would not fail: it would answer a different question, and in an exclusion that
-means handing the caller the very paths it forbade. The refusal covers the
+The last three checks conservatively refuse unsupported syntax, including
+unrecognized class names and non-range brace sets containing `..`. Treating an
+unsupported construct as literal text could make an exclusion return the paths
+it was meant to remove. The refusal covers the
 exclude list as well as the pattern, and it reads a character class as a class,
 so `[!(]*` is an ordinary negated class and not an extglob.
 
