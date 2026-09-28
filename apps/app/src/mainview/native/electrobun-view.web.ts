@@ -7,11 +7,25 @@
  * The Vite build in this package keeps the Hutch devkit alias and never sees
  * this file.
  */
-export class Electroview {
-  static defineRPC(): never {
+import type { SmithersNativeRPC } from "@smthrs/rpc/NativeRPC"
+
+type RequestProxy<Requests> = {
+  [Name in keyof Requests]: Requests[Name] extends { params: infer Params; response: infer Response }
+    ? (params: Params) => Promise<Response>
+    : never
+}
+
+type NativeRPC<Schema extends SmithersNativeRPC> = {
+  proxy: { request: RequestProxy<Schema["bun"]["requests"]> }
+}
+
+export class Electroview<Schema extends SmithersNativeRPC = SmithersNativeRPC> {
+  static defineRPC<Schema extends SmithersNativeRPC = SmithersNativeRPC>(
+    _options?: { handlers: Schema["webview"] }
+  ): NativeRPC<Schema> {
     throw new Error("web build")
   }
-  constructor() {
+  constructor(_options?: { rpc: NativeRPC<Schema> }) {
     throw new Error("web build")
   }
 }
