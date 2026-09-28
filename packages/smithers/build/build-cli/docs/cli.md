@@ -45,7 +45,7 @@ in the workspace declaration, then `.flows`. See
 | `--jobs`                 | `-j`  | integer 1+ | host parallelism | Maximum concurrent targets.                                       |
 | `--include-exclusive`    |       | boolean    | `false`          | Include exclusive targets in wildcard `ci` and `test` selections. |
 | `--cache` / `--no-cache` |       | boolean    | `true`           | Consult the cache before running. `--no-cache` still publishes.   |
-| `--known-red`            |       | path       | none             | JSON list of targets already red; only unlisted failures fail.    |
+| `--known-red`            |       | path       | none             | JSON list of reviewed failures; unmatched failures fail.          |
 
 Exclusive targets run alone after ready ordinary work drains, regardless of
 `--jobs`. Dependencies keep their ordering. Explicit labels, including
@@ -61,9 +61,10 @@ for required tools and possible host and cache writes.
 ### Known-red targets
 
 `--known-red <file>` names a JSON list of targets that already fail, each with
-an owner, a reason, the issue that tracks the fix, and a last day. The command still runs and reports those
-targets. It exits nonzero when a target outside the list fails, when a
-listed target fails after its `expires` day, or when a target outside the list
+an owner, a reason, the issue that tracks the fix, a last day, and a
+`failureDigest` of the reviewed diagnostic. The command still runs and reports
+those targets. It exits nonzero when a failure does not match the listed digest,
+when a listed target fails after its `expires` day, or when a target outside the list
 is skipped because a dependency failed: an entry excuses its own failure, not
 the consumers it kept from running. Paths resolve from `--workspace`.
 
@@ -76,15 +77,48 @@ the consumers it kept from running. Paths resolve from `--workspace`.
       "owner": "will",
       "reason": "path separators in snapshot names",
       "issue": "https://github.com/smithersai/smithers/issues/1",
-      "expires": "2026-10-09"
+      "expires": "2026-10-09",
+      "failureDigest": "sha256:253379cf8835d1a7559d89ddee8faa65e06dd0aa69c08f640385716e3cbd9ffd"
     }
   ]
 }
 ```
 
+Run with `--known-red` (an empty list works) and copy the digest from
+`observed failure: //target sha256:...` after reviewing the diagnostic. These
+hashes come from the original error before output redaction. Do not hash a
+redacted log. Alternatively use `KnownRed.fingerprint(result.error)` from
+`packages/smithers/build/build-cli/src/KnownRed.ts` on unredacted execution data.
+The example above hashes `snapshot path mismatch`. Digests must be `sha256:`
+plus 64 lowercase hex digits; missing digests and wildcards are rejected.
+Missing or blank diagnostics never match. Several reviewed digests may name
+the same target. Listed skipped dependents retain label-based excusal because
+they have no failure diagnostic of their own.
+
+Normalization v1 strips ANSI controls, converts CRLF to LF, and replaces UTC
+ISO timestamps at the start of log lines with `<timestamp>`. It also normalizes
+Effect log timestamps and Vitest's `Start at`, `Duration`, per-result durations,
+and worker timing hints. Test names, statuses, counts and all stdout/stderr
+failure content remain significant. It replaces
+Smithers temporary roots (`smthrs-` or `flows-` names ending in six random
+alphanumeric characters under `/tmp`, macOS `/var/folders/.../T`, or Windows
+`Users/.../AppData/Local/Temp`) with `<tmp>/<name>-<id>`, preserving the remaining
+path with `/` separators. JSON string values are normalized independently.
+Other paths, dates, diagnostic timings, exit codes, filenames, assertions and additional
+errors remain significant. Matching is exact, never a substring or pattern.
+
+The Windows migration pins six complete diagnostics from
+[CI run 36275726412](https://github.com/smithersai/smithers/actions/runs/36275726412).
+Thirteen label-only exceptions with redacted or truncated diagnostics were
+removed. Their repairs remain tracked in
+[#1974](https://github.com/smithersai/smithers/issues/1974); restoring an exception
+requires a complete reviewed diagnostic. Changes outside the documented
+normalization, including reordered output or appearing/disappearing slow-test
+lines, count as newly red until reviewed.
+
 `platforms` is optional and matches Node's `process.platform`. Each finding
 prints one line to standard error: `known red`, `newly red`, `not run`,
-`expired entry`, or `green again, remove from`. Delete an entry in the change that fixes its
+`observed failure` (for known and new failures), `expired entry`, or `green again, remove from`. Delete an entry in the change that fixes its
 target.
 
 ## Global options

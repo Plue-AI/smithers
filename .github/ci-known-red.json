@@ -1,46 +1,6 @@
 {
   "entries": [
     {
-      "label": "//packages/smithers:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): many suites; not yet split by cause. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-24"
-    },
-    {
-      "label": "//packages/smithers/agent:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): agent sessions end without a completed answer (HarnessError after 1 frame). Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-24"
-    },
-    {
-      "label": "//packages/smithers/agent/registry:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): not yet triaged. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-24"
-    },
-    {
-      "label": "//packages/smithers/build/build-cli:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): Go toolchain and Docker executions the Windows runner cannot provide. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-31"
-    },
-    {
       "label": "//packages/smithers/build/infra:suite",
       "platforms": [
         "win32"
@@ -48,17 +8,8 @@
       "owner": "will",
       "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): line coverage 99.36% under the 100% gate (POSIX-only branches). Windows is an advisory lane.",
       "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-17"
-    },
-    {
-      "label": "//packages/smithers/build/targets:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): not yet triaged. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-31"
+      "expires": "2026-10-17",
+      "failureDigest": "sha256:d49ca15cf4ff47e1b1f7106fb2fc1c611cbe03541001ced71c22396aa306b1ff"
     },
     {
       "label": "//packages/smithers/flows:test",
@@ -68,57 +19,8 @@
       "owner": "will",
       "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): CacheEnvironmentOption: the second run misses the step cache. Windows is an advisory lane.",
       "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-31"
-    },
-    {
-      "label": "//packages/smithers/flows/artifacts:bunTest",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-10"
-    },
-    {
-      "label": "//packages/smithers/flows/artifacts:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-10"
-    },
-    {
-      "label": "//packages/smithers/flows/database:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): NodeDatabaseGuard expects POSIX private file modes. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-17"
-    },
-    {
-      "label": "//packages/smithers/flows/engine-store:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the artifact store cannot serve workspace transactions (same fsync refusal). Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-10"
-    },
-    {
-      "label": "//packages/smithers/flows/jj:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): EPERM renaming inside .jj while a process holds it. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-17"
+      "expires": "2026-10-31",
+      "failureDigest": "sha256:e71142a8f6ce33d225182b599b4f1d70665df2fafc08cb4f6c5057a0695727fe"
     },
     {
       "label": "//packages/smithers/flows/platform-bun:bunTest",
@@ -128,7 +30,8 @@
       "owner": "will",
       "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
       "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-10"
+      "expires": "2026-10-10",
+      "failureDigest": "sha256:974737c115dd9de7e5c58489135524f6ad926513c58e2e300de9e567bf43153e"
     },
     {
       "label": "//packages/smithers/flows/platform-bun:test",
@@ -138,27 +41,8 @@
       "owner": "will",
       "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
       "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-10"
-    },
-    {
-      "label": "//packages/smithers/flows/sandbox:bunTest",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): sandbox fs open reports os error 2 for Windows paths. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-17"
-    },
-    {
-      "label": "//packages/smithers/flows/sandbox:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): spawn sh ENOENT: suites assume a POSIX shell. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-17"
+      "expires": "2026-10-10",
+      "failureDigest": "sha256:ffb732802b11ecd6b860cdad7c3d01f8fd529f507cf2b259b1361a304fa42f55"
     },
     {
       "label": "//packages/smithers/mcp:test",
@@ -168,17 +52,8 @@
       "owner": "will",
       "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): RealServer: closing the server's stdin does not fail the pending call. Windows is an advisory lane.",
       "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-31"
-    },
-    {
-      "label": "//packages/smithers/migrate:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): EPERM on fchmod. Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-24"
+      "expires": "2026-10-31",
+      "failureDigest": "sha256:a51e3a61838e36df839e7d9c2864fa27a79a931d0d4933031d7ce345e41edee5"
     },
     {
       "label": "//packages/testing:test",
@@ -188,7 +63,8 @@
       "owner": "will",
       "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): HostSuite dangling-symlink refusal (symlinks need privilege on Windows). Windows is an advisory lane.",
       "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-24"
+      "expires": "2026-10-24",
+      "failureDigest": "sha256:559a1a8101503e388ffeccd80188d9a81b259839211c29c4ee6b14639513bd2f"
     }
   ]
 }

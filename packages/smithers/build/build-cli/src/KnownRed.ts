@@ -1,7 +1,7 @@
 /**
  * The known-red list: targets already failing on the trunk, named with an
  * owner and an expiry, so an execution fails only on a target that turned red
- * since.
+ * since, including a different failure of the same target.
  *
  * A trunk that has been red for weeks gives no signal: every run fails, so a
  * new regression looks exactly like the old ones. Requiring the whole graph
@@ -21,7 +21,8 @@
  *       "owner": "will",
  *       "reason": "path separators in snapshot names",
  *       "issue": "https://github.com/smithersai/smithers/issues/1",
- *       "expires": "2026-10-09"
+ *       "expires": "2026-10-09",
+ *       "failureDigest": "sha256:253379cf8835d1a7559d89ddee8faa65e06dd0aa69c08f640385716e3cbd9ffd"
  *     }
  *   ]
  * }
@@ -30,13 +31,16 @@
  * `platforms` is optional and matches `process.platform`; omitted, the entry
  * applies on every platform. `issue` is required: a muted failure is tracked
  * work, so every entry names the issue that will clear it. `expires` is the
- * last day, in UTC, the entry holds.
+ * last day, in UTC, the entry holds. `failureDigest` binds the entry to the
+ * complete reviewed diagnostic, normalized by {@link fingerprint}.
  *
  * @since 1.0.0
  */
 
+import { createHash } from "node:crypto"
 import * as NodeFs from "node:fs/promises"
 import * as NodePath from "node:path"
+import { stripVTControlCharacters } from "node:util"
 import type * as Executor from "./Executor.ts"
 
 /**
@@ -52,6 +56,7 @@ export interface Entry {
   readonly reason: string
   readonly issue: string
   readonly expires: string
+  readonly failureDigest: string
 }
 
 /**
@@ -70,6 +75,7 @@ export interface Verdict {
   readonly source: string
   readonly known: ReadonlyArray<string>
   readonly newlyRed: ReadonlyArray<string>
+  readonly observed: ReadonlyArray<{ readonly label: string; readonly failureDigest: string }>
   readonly unrun: ReadonlyArray<string>
   readonly expired: ReadonlyArray<string>
   readonly recovered: ReadonlyArray<string>
@@ -93,6 +99,60 @@ export interface JudgedSummary extends Executor.Summary {
  */
 export class KnownRedError extends Error {
   override readonly name = "KnownRedError"
+}
+
+// Preserve filenames and all diagnostic content. Only Smithers mkdtemp roots
+// lose their host-specific prefix and six-character random suffix.
+const temporaryPath =
+  /(?:\/(?:private\/)?tmp\/|\/(?:private\/)?var\/folders\/[^/\s]+\/[^/\s]+\/T\/|[A-Za-z]:[\\/]Users[\\/][^\\/\s]+[\\/]AppData[\\/]Local[\\/]Temp[\\/])((?:smthrs|flows)-[\w-]+-)[A-Za-z0-9]{6}(?=[\\/\s"')]|$)/g
+
+const normalizeDiagnostic = (error: string): string =>
+  stripVTControlCharacters(error).replace(/\r\n/g, "\n")
+    .replace(/^\[?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\]?(?=\s)/gm, "<timestamp>")
+    .replace(/^\[\d{2}:\d{2}:\d{2}\.\d+\](?= (?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b)/gm, "<timestamp>")
+    .replace(/^([ \t]*Start at[ \t]+)\d{2}:\d{2}:\d{2}[ \t]*$/gm, "$1<timestamp>")
+    .replace(
+      /^[ \t]*Duration[ \t]+\d+(?:\.\d+)?(?:ms|s) \((?:(?:tests|import|transform|setup|worker|environment|collect|prepare) \d+(?:\.\d+)?(?:%|ms|s)(?:, )?)+\)[ \t]*$/gm,
+      " Duration <duration>"
+    )
+    .replace(/^([ \t]*[✓×❯].+) \d+(?:\.\d+)?m?s[ \t]*$/gm, "$1 <duration>")
+    .replace(
+      /^( +Isolate +\d+ workers spawned · ~)\d+(?:\.\d+)?m?s( startup each \(spawn \+ environment, per file\))$/gm,
+      "$1<duration>$2"
+    )
+    .replace(/^( +at least ~)\d+(?:\.\d+)?m?s( faster with isolate: false .*)$/gm, "$1<duration>$2")
+    .replace(temporaryPath, "<tmp>/$1<id>")
+    .replace(/<tmp>\/[^\s"')]+/g, (path) => path.replaceAll("\\", "/"))
+
+/**
+ * SHA-256 of the complete reviewed failure diagnostic (normalization v1).
+ *
+ * Normalizes CRLF, ANSI controls, leading UTC ISO log timestamps, and
+ * Smithers mkdtemp roots. JSON string values are normalized independently;
+ * keys, array order, exit codes, filenames and other numbers remain intact.
+ * Failed rows never match by substring, regular-expression or target alone.
+ * Listed skipped dependents retain label-based excusal; they have no diagnostic.
+ *
+ * @category judging
+ * @since 1.0.0
+ */
+export const fingerprint = (error: string): string => {
+  let normalized: string
+  try {
+    // Validate JSON, but keep its original tokens: reserializing the parsed
+    // value rounds large numbers and collapses duplicate keys.
+    JSON.parse(error)
+    normalized = error.replace(
+      /"(?:[^"\\]|\\.)*"/g,
+      (token: string, offset: number) =>
+        /^\s*:/.test(error.slice(offset + token.length))
+          ? token
+          : JSON.stringify(normalizeDiagnostic(JSON.parse(token) as string))
+    )
+  } catch {
+    normalized = normalizeDiagnostic(error)
+  }
+  return `sha256:${createHash("sha256").update(normalized).digest("hex")}`
 }
 
 const day = /^\d{4}-\d{2}-\d{2}$/
@@ -137,16 +197,24 @@ export const parse = (source: string, content: string): ReadonlyArray<Entry> => 
       }
       platforms = row.platforms.map((platform, position) => text(platform, `platforms[${position}]`, at))
     }
-    const key = `${label} ${platforms === undefined ? "*" : [...platforms].sort().join(",")}`
+    const owner = text(row.owner, "owner", at)
+    const reason = text(row.reason, "reason", at)
+    const issue = text(row.issue, "issue", at)
+    const failureDigest = text(row.failureDigest, "failureDigest", at)
+    if (!/^sha256:[a-f0-9]{64}$/.test(failureDigest)) {
+      throw new KnownRedError(`${at}: "failureDigest" must be sha256: followed by 64 lowercase hex digits`)
+    }
+    const key = `${label} ${platforms === undefined ? "*" : [...platforms].sort().join(",")} ${failureDigest}`
     if (seen.has(key)) throw new KnownRedError(`${at}: duplicate entry for ${label}`)
     seen.add(key)
     return {
       label,
       ...(platforms === undefined ? {} : { platforms }),
-      owner: text(row.owner, "owner", at),
-      reason: text(row.reason, "reason", at),
-      issue: text(row.issue, "issue", at),
-      expires
+      owner,
+      reason,
+      issue,
+      expires,
+      failureDigest
     }
   })
 }
@@ -189,14 +257,24 @@ export const judge = (
   const here = list.entries.filter((entry) =>
     entry.platforms === undefined || entry.platforms.includes(context.platform)
   )
-  const live = new Set(here.filter((entry) => entry.expires >= context.today).map((entry) => entry.label))
+  const active = here.filter((entry) => entry.expires >= context.today)
+  const live = new Set(active.map((entry) => entry.label))
+  const identities = new Set(active.map((entry) => `${entry.label} ${entry.failureDigest}`))
   const expired = here.filter((entry) => entry.expires < context.today).map((entry) => entry.label)
-  const failed = summary.results.filter((row) => row.status === "failed").map((row) => row.label)
+  const failed = summary.results.filter((row) => row.status === "failed")
   const green = new Set(
     summary.results.filter((row) => row.status === "ran" || row.status === "hit").map((row) => row.label)
   )
-  const known = failed.filter((label) => live.has(label))
-  const newlyRed = failed.filter((label) => !live.has(label))
+  const known: Array<string> = []
+  const newlyRed: Array<string> = []
+  const observed: Array<{ label: string; failureDigest: string }> = []
+  for (const row of failed) {
+    const failureDigest = row.error !== undefined && row.error.trim() !== "" ? fingerprint(row.error) : undefined
+    if (failureDigest !== undefined) observed.push({ label: row.label, failureDigest })
+    const matches = failureDigest !== undefined && identities.has(`${row.label} ${failureDigest}`)
+    if (matches) known.push(row.label)
+    else newlyRed.push(row.label)
+  }
   const unrun = summary.results
     .filter((row) => row.status === "skipped" && row.blockedBy !== undefined && !live.has(row.label))
     .map((row) => row.label)
@@ -207,6 +285,7 @@ export const judge = (
       source: list.source,
       known,
       newlyRed,
+      observed,
       unrun,
       expired,
       recovered: [...live].filter((label) => green.has(label))
@@ -222,7 +301,8 @@ export const judge = (
  */
 export const describe = (verdict: Verdict): ReadonlyArray<string> => [
   ...verdict.known.map((label) => `known red (${verdict.source}): ${label}`),
-  ...verdict.newlyRed.map((label) => `newly red, not in ${verdict.source}: ${label}`),
+  ...verdict.newlyRed.map((label) => `newly red, no matching failure in ${verdict.source}: ${label}`),
+  ...verdict.observed.map(({ label, failureDigest }) => `observed failure: ${label} ${failureDigest}`),
   ...verdict.unrun.map((label) => `not run, a dependency is red: ${label}`),
   ...verdict.expired.map((label) => `expired entry in ${verdict.source}, no longer excused: ${label}`),
   ...verdict.recovered.map((label) => `green again, remove from ${verdict.source}: ${label}`)
