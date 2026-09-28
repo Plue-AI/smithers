@@ -94,7 +94,6 @@ describe("coverage conformance", () => {
   const coverageFloorDeferred = new Set([
     "smithers",
     "smithers/agent/memory",
-    "smithers/agent/registry",
     "smithers/agent/std",
     "smithers/build",
     "smithers/build/build-cli",
@@ -506,18 +505,15 @@ describe("coverage conformance", () => {
       // the in-memory runtime's plan and approval maps are keyed by the
       // identity they are compared against, so a stored row can only
       // disagree with its key after a reach into private state; and
-      // `SqlControlRuntime` defends the SQLite driver's nested error objects,
-      // the PostgreSQL and MySQL "missing table" phrasings rc.0 never meets,
-      // a `RETURNING` row the same statement just inserted, an absent decoded input the
-      // card refuses first, and an approval-token read that finds neither the
-      // row it inserted nor the one already there.
+      // `SqlControlRuntime` has no remaining exclusions: explicit null input
+      // round trips through SQL, and sequence, approval-token, and run-key
+      // readback failures are exercised with real database triggers.
       "smithers/control/src/Cancellation.ts": 1,
       "smithers/control/src/Channels.ts": 1,
       "smithers/control/src/ControlClient.ts": 4,
       // Both idempotency lookup paths refer to plans retained by the same map.
       "smithers/control/src/ControlRuntime.ts": 6,
       "smithers/control/src/Lineage.ts": 1,
-      "smithers/control/src/SqlControlRuntime.ts": 7,
       "smithers/control/src/internal/planning.ts": 1,
       // The agent package's former hints (FlowEngineLike's canonicalization
       // mappers and AgentSession's process-loss fallbacks) were removed with
