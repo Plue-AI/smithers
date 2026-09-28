@@ -60,6 +60,7 @@ and `auth local login`; provider subscriptions use `auth connect claude|codex`.
 | `issue create/list/view/edit/close/reopen/comment` | Issues, cursor pagination (`--all`), additive labels and assignees. |
 | `wiki list/search/view/create/edit/delete/revisions/index/history` | Wiki pages, public/private selection and revision checks. |
 | `repo create/list/view/clone/fork/transfer/edit/archive/unarchive/delete` | Repository administration and cloning. |
+| `repo home [OWNER/REPO]` | List remote homepage blocks in server order with the saved login. |
 | `repo connect/disconnect/status/mirror-sync/push` | GitHub connection and lease-protected personal refs. |
 | `workspace create/list/view/delete/fork/snapshots/watch/ssh/shell/exec/cp/issue` | Boxes, terminal sessions, durable SSH commands, file copies and issue runs. |
 | `flow list/start --cloud`, `flow dispatch` | Repository flows; use `--repo OWNER/REPO` to select the repository. |
@@ -80,6 +81,13 @@ and `auth local login`; provider subscriptions use `auth connect claude|codex`.
 behavior remains. Backend commands detect the repository from git or jj when
 `--repo` is omitted. Use `--json` for structured output and `--help` or `--schema`
 for each command's complete arguments.
+
+`smthrs repo home OWNER/REPO` reads the remote homepage on `main`. Omit the
+argument to detect the repository as `repo view` does, or use `--repo OWNER/REPO`.
+It prints each block's type and title/name in server order; `--json` preserves the
+server response. Backend errors (including 400, 401, and 404) print the backend
+message and exit non-zero. Local `smthrs ls` reads apps from the checkout's
+`.smithers/home.json`; it does not request the remote homepage.
 
 The Go executable is removed. Its `status` is now `change status`, `run view` is
 `runs show --cloud`, other `run` operations are under `runs --cloud`, and

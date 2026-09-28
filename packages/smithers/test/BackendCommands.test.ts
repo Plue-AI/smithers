@@ -1,7 +1,11 @@
+import { spawnSync } from "node:child_process"
+import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { main } from "../src/cli/Entry.ts"
 import { type Host, repoFromRemote, resolveRepo } from "../src/commands/Open.ts"
 import { ask } from "../src/internal/backend/AgentDocs.ts"
 import { auth } from "../src/internal/backend/Auth.ts"
@@ -43,6 +47,238 @@ const fixture = async (env: Record<string, string> = {}) => {
 }
 const apiError = (status: number) => new APIError(status, { message: "failed" }, "GET", "/test", new Headers())
 const options = { repo: "owner/repo" }
+
+const homeFixture = async (
+  handler: (req: IncomingMessage, res: ServerResponse) => void
+) => {
+  const home = await mkdtemp(join(tmpdir(), "one-cli-home-"))
+  dirs.push(home)
+  const server = createServer(handler)
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("Expected a local HTTP port")
+  const origin = `http://127.0.0.1:${address.port}`
+  const environment = {
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, ".config"),
+    SMITHERS_API_ORIGIN: origin,
+    SMITHERS_AUTH_FILE: join(home, "auth.json"),
+    SMITHERS_DISABLE_SYSTEM_KEYRING: "1",
+    SMITHERS_AUDIENCE: "human"
+  }
+  await writeFile(
+    environment.SMITHERS_AUTH_FILE,
+    JSON.stringify({
+      api_url: origin,
+      host: "127.0.0.1",
+      token: "home-session-secret"
+    }),
+    { mode: 0o600 }
+  )
+  return {
+    home,
+    close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
+    run: async (args: string[]) => {
+      let output = "", error = "", code = 0
+      const signals = new EventEmitter()
+      await main({
+        argv: [...args, "--audience", "human"],
+        env: { ...environment },
+        stdout: {
+          isTTY: true,
+          columns: 80,
+          write: (text) => {
+            output += text
+          }
+        },
+        stderr: {
+          isTTY: false,
+          columns: 80,
+          write: (text) => {
+            error += text
+          }
+        },
+        on: (signal, listener) => {
+          signals.on(signal, listener)
+        },
+        removeListener: (signal, listener) => {
+          signals.removeListener(signal, listener)
+        },
+        setExitCode: (value) => {
+          code = value
+        }
+      })
+      expect(signals.eventNames()).toEqual([])
+      expect(output + error).not.toContain("home-session-secret")
+      return { output, error, code }
+    }
+  }
+}
+
+describe("repo home over local HTTP server", () => {
+  it("reads the selected repository's home with the saved login and prints blocks in server order", async () => {
+    const requests: Array<{ method: string | undefined; url: string | undefined; authorization: string | undefined }> =
+      []
+    const body = {
+      kind: "blocks",
+      blocks: [
+        { type: "prompt", title: "Start here" },
+        { type: "app", name: "Ship a change" }
+      ]
+    }
+    const f = await homeFixture((req, res) => {
+      requests.push({ method: req.method, url: req.url, authorization: req.headers.authorization })
+      res.setHeader("content-type", "application/json")
+      res.end(JSON.stringify(body))
+    })
+    try {
+      const result = await f.run(["repo", "home", "owner/repo"])
+      expect(result.code, result.output + result.error).toBe(0)
+      expect(requests).toEqual([{
+        method: "GET",
+        url: "/api/repos/owner/repo/home",
+        authorization: "token home-session-secret"
+      }])
+      const firstType = result.output.indexOf("prompt")
+      const firstTitle = result.output.indexOf("Start here")
+      const secondType = result.output.indexOf("app", firstTitle + 1)
+      const secondName = result.output.indexOf("Ship a change")
+      expect(firstType).toBeGreaterThanOrEqual(0)
+      expect(firstTitle).toBeGreaterThan(firstType)
+      expect(secondType).toBeGreaterThan(firstTitle)
+      expect(secondName).toBeGreaterThan(secondType)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it.each([0, 32])("prints all %i blocks without truncating the server order", async (count) => {
+    const blocks = Array.from({ length: count }, (_, index) => ({ type: "app", title: `App ${index}` }))
+    const f = await homeFixture((_req, res) => {
+      res.setHeader("content-type", "application/json")
+      res.end(JSON.stringify({ kind: "blocks", blocks }))
+    })
+    try {
+      const result = await f.run(["repo", "home", "--repo", "owner/repo"])
+      expect(result.code, result.output + result.error).toBe(0)
+      expect(result.output.split("\n").filter((line) => line.startsWith("app")))
+        .toEqual(blocks.map((block) => `app  ${block.title}`))
+      expect(result.output).not.toContain("Use --json")
+    } finally {
+      await f.close()
+    }
+  })
+
+  it.each([
+    ["control characters", "\u001b[31mred\u001b[0m\nsecond line\u0007bell", "red second line bell"],
+    ["a long title", "x".repeat(700), "x".repeat(500)]
+  ])("renders the human type and title for %s", async (_case, title, expectedTitle) => {
+    const f = await homeFixture((_req, res) => {
+      res.setHeader("content-type", "application/json")
+      res.end(JSON.stringify({ kind: "blocks", blocks: [{ type: "prompt", title }] }))
+    })
+    try {
+      const result = await f.run(["repo", "home", "owner/repo"])
+      expect(result.code, result.output + result.error).toBe(0)
+      expect(result.output.split("\n").filter((line) => line.startsWith("prompt")))
+        .toEqual([`prompt  ${expectedTitle}`])
+    } finally {
+      await f.close()
+    }
+  })
+
+  it("infers the repository from the checkout like repo view when no argument is given", async () => {
+    const urls: string[] = []
+    const f = await homeFixture((req, res) => {
+      urls.push(req.url ?? "")
+      res.setHeader("content-type", "application/json")
+      res.end(JSON.stringify({ kind: "none" }))
+    })
+    try {
+      const checkout = join(f.home, "checkout")
+      await mkdir(checkout)
+      const git = (args: string[]) => {
+        const result = spawnSync("git", args, { cwd: checkout, encoding: "utf8" })
+        expect(result.status, result.stderr).toBe(0)
+      }
+      git(["init", "-q"])
+      git(["remote", "add", "origin", "https://smithers.sh/owner/repo.git"])
+      process.chdir(checkout)
+      const view = await f.run(["repo", "view"])
+      const home = await f.run(["repo", "home"])
+      expect(view.code, view.output + view.error).toBe(0)
+      expect(home.code, home.output + home.error).toBe(0)
+      expect(urls).toEqual(["/api/repos/owner/repo", "/api/repos/owner/repo/home"])
+    } finally {
+      process.chdir(cwd)
+      await f.close()
+    }
+  })
+
+  it("returns the server's homepage document unchanged under --json", async () => {
+    const body = {
+      kind: "blocks",
+      blocks: [
+        { type: "text", title: "First", text: "Hello" },
+        { type: "links", name: "Resources", links: [{ label: "Guide", url: "/guide" }] }
+      ],
+      revision: 7
+    }
+    const f = await homeFixture((_req, res) => {
+      res.setHeader("content-type", "application/json")
+      res.end(JSON.stringify(body))
+    })
+    try {
+      const result = await f.run(["repo", "home", "owner/repo", "--json"])
+      expect(result.code, result.output + result.error).toBe(0)
+      expect(JSON.parse(result.output)).toEqual(body)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it.each([
+    [400, "repository homepage is invalid"],
+    [401, "login required"],
+    [404, "repository not found"]
+  ])("prints the backend's %i message and exits nonzero", async (status, message) => {
+    const f = await homeFixture((_req, res) => {
+      res.writeHead(status, { "content-type": "application/json" })
+      res.end(JSON.stringify({ message }))
+    })
+    try {
+      const result = await f.run(["repo", "home", "owner/repo"])
+      expect(result.code).not.toBe(0)
+      expect(result.output + result.error).toContain(message)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it("describes remote repo home separately from local smthrs ls", async () => {
+    let requests = 0
+    const f = await homeFixture((_req, res) => {
+      requests++
+      res.end("{}")
+    })
+    try {
+      const home = await f.run(["repo", "home", "--help"])
+      const ls = await f.run(["ls", "--help"])
+      expect(home.code, home.output + home.error).toBe(0)
+      expect(ls.code, ls.output + ls.error).toBe(0)
+      expect(home.output).toContain("repo home")
+      expect(home.output).toMatch(/homepage|home page/i)
+      expect(home.output).toContain("--repo")
+      expect(home.output).toContain("local smthrs ls")
+      expect(home.output).toContain("saved login")
+      expect(ls.output).toMatch(/local|workspace|target/i)
+      expect(ls.output).not.toContain("repository homepage")
+      expect(requests).toBe(0)
+    } finally {
+      await f.close()
+    }
+  })
+})
 
 describe("repository selection and transfer", () => {
   it.each([

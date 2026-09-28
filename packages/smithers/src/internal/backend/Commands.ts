@@ -9,7 +9,7 @@ import * as Presentation from "../../cli/Presentation.ts"
 import { admin } from "./Admin.ts"
 import { ask } from "./AgentDocs.ts"
 import { auth } from "./Auth.ts"
-import { Client, type Values } from "./Client.ts"
+import { Client, list, object, type Values } from "./Client.ts"
 import { copy } from "./Copy.ts"
 import { definitions } from "./Definitions.ts"
 import { local } from "./Local.ts"
@@ -96,7 +96,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
       mcp: interactive ? false as const : previous?.mcp ?? {
         annotations: {
           readOnlyHint:
-            /(?:^| )(?:list|view|show|status|stats|health|token|connections|get|index|history|revisions|logs|watch|checks|conflicts|files|diff)$/
+            /(?:^| )(?:list|view|home|show|status|stats|health|token|connections|get|index|history|revisions|logs|watch|checks|conflicts|files|diff)$/
               .test(name) || name.startsWith("search ")
         }
       },
@@ -116,28 +116,44 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
             ...(context.args.run ? { id: context.args.run } : {}),
             ...(context.args.flow ? { workflow: context.args.flow } : {})
           }
-        return Presentation.guard(context, async () => {
-          // The backend an MCP session reaches, and the login it presents, are
-          // host configuration: a caller never aims the host's credential elsewhere.
-          if (Presentation.current()?.transport === "mcp") {
-            if (["api", "auth login", "config set"].includes(name)) {
-              throw new Error("Login and API destination configuration are host-owned over MCP")
-            }
-            for (const flag of destinations) {
-              if (options[flag] !== undefined && options[flag] !== "") {
-                throw new Error(`--${flag} is not accepted over MCP; the backend destination is host-owned`)
+        return Presentation.guard(
+          context,
+          async () => {
+            // The backend an MCP session reaches, and the login it presents, are
+            // host configuration: a caller never aims the host's credential elsewhere.
+            if (Presentation.current()?.transport === "mcp") {
+              if (["api", "auth login", "config set"].includes(name)) {
+                throw new Error("Login and API destination configuration are host-owned over MCP")
+              }
+              for (const flag of destinations) {
+                if (options[flag] !== undefined && options[flag] !== "") {
+                  throw new Error(`--${flag} is not accepted over MCP; the backend destination is host-owned`)
+                }
               }
             }
-          }
-          const client = new Client(runtime, !Presentation.policy(context, runtime).structured)
-          try {
-            return client.redact(await handler(client, args, options))
-          } catch (error) {
-            throw new Error(String(client.redact(error instanceof Error ? error.message : String(error))))
-          } finally {
-            client.flushOutput()
-          }
-        })
+            const client = new Client(runtime, !Presentation.policy(context, runtime).structured)
+            try {
+              return client.redact(await handler(client, args, options))
+            } catch (error) {
+              throw new Error(String(client.redact(error instanceof Error ? error.message : String(error))))
+            } finally {
+              client.flushOutput()
+            }
+          },
+          name === "repo home" ?
+            {
+              next: [],
+              render: (value) => ({
+                human: Array.isArray(object(value).blocks)
+                  ? list(object(value).blocks).map((block) => {
+                    const row = object(block)
+                    return [row.type, row.title || row.name || ""].map(Presentation.clean).join("  ").trimEnd()
+                  }).join("\n")
+                  : undefined
+              })
+            } :
+            {}
+        )
       }
     }
     const temporary = Cli.create("root").command(leaf, command)

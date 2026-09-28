@@ -36,6 +36,7 @@ repositories["repo create"] = (c, a, o) =>
 repositories["repo list"] = (c, _a, o) =>
   c.request("GET", "/api/user/repos" + query({ page: o.page, per_page: o.limit }))
 repositories["repo view"] = (c, a, o) => c.request("GET", c.repoPath(o.repo || a.repo))
+repositories["repo home"] = (c, a, o) => c.request("GET", c.repoPath(o.repo || a.repo) + "/home")
 repositories["repo fork"] = (c, a, o) =>
   c.request("POST", c.repoPath(a.repo) + "/forks", pick(o, ["name", "organization"]))
 repositories["repo transfer"] = (c, a, o) => c.request("POST", c.repoPath(a.repo) + "/transfer", { new_owner: o.to })

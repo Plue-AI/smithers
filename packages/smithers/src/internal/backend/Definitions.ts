@@ -993,6 +993,14 @@ export const definitions = {
       "organization": z.string().describe("Organization to fork into").optional()
     })
   },
+  "repo home": {
+    description:
+      "List remote homepage blocks in server order using the saved login; local smthrs ls reads checkout apps",
+    args: z.object({
+      "repo": z.string().describe("Repository in OWNER/REPO format; detected when omitted").optional()
+    }),
+    options: z.object({ "repo": z.string().describe("Repository in OWNER/REPO format").optional() })
+  },
   "repo list": {
     description: "List your repositories",
     args: z.object({}),
