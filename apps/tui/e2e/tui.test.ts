@@ -169,13 +169,18 @@ console.log(checked.stdout);`,
 const successfulAnswer = async (
   started: Awaited<ReturnType<typeof start>>,
   expected = "Fixed",
-  timeoutMs = 120_000
+  timeoutMs = 120_000,
+  after = 0
 ) => {
-  const folder = sessionFolder(started.sessions)
-  const file = join(folder, readdirSync(folder).find((name) => name.endsWith(".jsonl"))!)
   const outcome = () => {
+    const folders = readdirSync(started.sessions, { withFileTypes: true }).filter((entry) => entry.isDirectory())
+    if (folders.length !== 1) return undefined
+    const folder = join(started.sessions, folders[0]!.name)
+    const journal = readdirSync(folder).find((name) => name.endsWith(".jsonl"))
+    if (journal === undefined) return undefined
+    const file = join(folder, journal)
     const records = Session.load(file)
-    const user = records.findLastIndex((record) => record.type === "user")
+    const user = records.findLastIndex((record, index) => index >= after && record.type === "user")
     return user < 0 ? undefined : records.slice(user + 1).findLast((record) => record.type === "outcome")
   }
   await started.tui.until(() => outcome() !== undefined, timeoutMs, "persisted turn outcome")
@@ -184,6 +189,105 @@ const successfulAnswer = async (
   expect(receipt?.type === "outcome" ? receipt.outcome.answer : undefined).toContain(expected)
   await started.tui.until(idle, 5_000, "completed turn UI")
   return receipt
+}
+
+const persistedReadCalls = (file: string) =>
+  Session.load(file).filter((record) =>
+    record.type === "event" && record.event._tag === "cell-call-settled" && record.event.flowName === "read"
+  )
+
+const persistedReadStarts = (file: string) =>
+  Session.load(file).flatMap((record) =>
+    record.type === "event" && record.event._tag === "cell-call-started" && record.event.call.flowName === "read"
+      ? [record.event.call]
+      : []
+  )
+
+const readTree = (starts: ReturnType<typeof persistedReadStarts>): string => {
+  expect(starts.length).toBeGreaterThan(0)
+  for (const call of starts) expect(call.effects.tier).toBe("sealed")
+  const trees = starts.map((call) => call.epoch?.tree)
+  expect(trees.every((tree) => typeof tree === "string" && tree.length > 0)).toBe(true)
+  expect(new Set(trees).size).toBe(1)
+  return trees[0]!
+}
+
+const expectSameReadKeyMaterial = (
+  starts: ReturnType<typeof persistedReadStarts>,
+  reference: ReturnType<typeof persistedReadStarts>[number]
+) => {
+  for (const call of starts) {
+    expect(call).toMatchObject({
+      input: reference.input,
+      effects: reference.effects,
+      capabilities: reference.capabilities,
+      identity: { declaration: reference.identity.declaration, layers: reference.identity.layers }
+    })
+  }
+}
+
+const expectReadContent = (reads: ReturnType<typeof persistedReadCalls>, content: string) => {
+  expect(reads.length).toBeGreaterThan(0)
+  for (const read of reads) {
+    expect(read).toMatchObject({
+      type: "event",
+      event: {
+        _tag: "cell-call-settled",
+        eventType: "flows.harness.cell-call-settled.v1",
+        flowName: "read",
+        result: { outcome: "success", value: { content } }
+      }
+    })
+  }
+}
+
+const readStatusSession = async () => {
+  const cwd = repository()
+  writeFileSync(join(cwd, "check-status.txt"), "2 checks passed")
+  const replay = replayCells([
+    `const status = await ctx.call("read", { path: "check-status.txt" }); ctx.done(status.content);`
+  ])
+  const started = await start({ cwd, replay })
+  await started.tui.type("Read the current check status.")
+  await started.tui.press(key.enter)
+  await successfulAnswer(started, "2 checks passed", 20_000)
+  const folder = sessionFolder(started.sessions)
+  const file = join(folder, readdirSync(folder).find((name) => name.endsWith(".jsonl"))!)
+  const initialReads = persistedReadCalls(file)
+  const initialStarts = persistedReadStarts(file)
+  expectReadContent(initialReads, "2 checks passed")
+  const initialTree = readTree(initialStarts)
+  return { started, file, initialReads, initialStarts, initialTree }
+}
+
+const expectChangedThenUnchangedRead = async (session: Awaited<ReturnType<typeof readStatusSession>>) => {
+  const { started, file, initialReads, initialStarts, initialTree } = session
+  const beforeSecondPrompt = Session.load(file).length
+  await started.tui.type("Read the current check status again.")
+  await started.tui.press(key.enter)
+  await successfulAnswer(started, "stop-monitor", 20_000, beforeSecondPrompt)
+  const changedReads = persistedReadCalls(file)
+  const changedStarts = persistedReadStarts(file)
+  expectReadContent(changedReads.slice(initialReads.length), "stop-monitor")
+  const secondTurnStarts = changedStarts.slice(initialStarts.length)
+  expectSameReadKeyMaterial(secondTurnStarts, initialStarts[0]!)
+  const changedTree = readTree(secondTurnStarts)
+  expect(changedTree).not.toBe(initialTree)
+
+  const beforeThirdPrompt = Session.load(file).length
+  let thirdWaitSettled = false
+  const thirdAnswer = successfulAnswer(started, "stop-monitor", 20_000, beforeThirdPrompt).finally(() => {
+    thirdWaitSettled = true
+  })
+  await Bun.sleep(300)
+  expect(thirdWaitSettled).toBe(false)
+  await started.tui.type("Read the unchanged check status.")
+  await started.tui.press(key.enter)
+  await thirdAnswer
+  expectReadContent(persistedReadCalls(file).slice(changedReads.length), "stop-monitor")
+  const thirdTurnStarts = persistedReadStarts(file).slice(changedStarts.length)
+  expectSameReadKeyMaterial(thirdTurnStarts, secondTurnStarts[0]!)
+  expect(readTree(thirdTurnStarts)).toBe(changedTree)
 }
 
 describe("startup", () => {
@@ -676,9 +780,34 @@ describe("! shell commands", () => {
     const screen = await tui.until((screen) => screen.includes("(exit 1)"), 10_000, "exit status")
     expect(screen).toContain("add is wrong")
   }, 60_000)
+
+  it("reads a shell write on the next replay turn (#1948)", async () => {
+    const session = await readStatusSession()
+    const { started, file } = session
+    await started.tui.type("!printf stop-monitor > check-status.txt")
+    await started.tui.press(key.enter)
+    await started.tui.until(
+      () =>
+        Session.load(file).some((record) =>
+          record.type === "shell" && record.result.command === "printf stop-monitor > check-status.txt" &&
+          record.result.exitCode === 0
+        ),
+      10_000,
+      "persisted shell write"
+    )
+    expect(readFileSync(join(started.cwd, "check-status.txt"), "utf8")).toBe("stop-monitor")
+    await expectChangedThenUnchangedRead(session)
+  }, 120_000)
 })
 
 describe("turns", () => {
+  it("reads an external edit made between replay turns (#1948)", async () => {
+    const session = await readStatusSession()
+    // Simulate an editor or another worker changing the shared tree while chat is idle.
+    writeFileSync(join(session.started.cwd, "check-status.txt"), "stop-monitor")
+    await expectChangedThenUnchangedRead(session)
+  }, 120_000)
+
   it("finishes coding with session storage inside the project", async () => {
     const cwd = repository()
     const replay = replayCells([
@@ -826,9 +955,10 @@ describe("turns", () => {
       replay: join(app, "test/fixtures/pong.jsonl")
     })
     await second.tui.until((screen) => screen.includes("before torn tail"), 5_000, "torn tail ignored")
+    const beforeResumedPrompt = Session.load(file).length
     await second.tui.type("after torn tail")
     await second.tui.press(key.enter)
-    await successfulAnswer(second, "pong", 10_000)
+    await successfulAnswer(second, "pong", 10_000, beforeResumedPrompt)
     await second.tui.stop()
     expect(Session.load(file).filter((record) => record.type === "user").map((record) => record.text))
       .toEqual(["before torn tail", "after torn tail"])
