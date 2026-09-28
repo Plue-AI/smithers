@@ -29,7 +29,10 @@ const entry = (sequence: number, payload: unknown) =>
 
 const branchLayers = Layer.mergeAll(
   TestJournal.layer(),
-  BranchShare.layerHmac({ activeKid: "primary", keys: [{ kid: "primary", secret: Redacted.make("payload-secret") }] })
+  BranchShare.layerHmac({
+    activeKid: "primary",
+    keys: [{ kid: "primary", secret: Redacted.make("payload-secret-0123456789abcdefg") }]
+  })
 )
 
 const submitOutcome = (

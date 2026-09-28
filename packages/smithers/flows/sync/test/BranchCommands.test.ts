@@ -5,6 +5,7 @@ import { Effect, Layer, Redacted, Stream } from "effect"
 import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as BranchCommands from "../src/BranchCommands.ts"
+import * as BranchProjection from "../src/BranchProjection.ts"
 import * as BranchProtocol from "../src/BranchProtocol.ts"
 import * as BranchShare from "../src/BranchShare.ts"
 import { SyncError } from "../src/SyncError.ts"
@@ -19,7 +20,7 @@ const commandId = (id: string) => id as BranchProtocol.CommandId
 
 const shareLayer = BranchShare.layerHmac({
   activeKid: "primary",
-  keys: [{ kid: "primary", secret: Redacted.make("commands-secret") }]
+  keys: [{ kid: "primary", secret: Redacted.make("commands-secret-0123456789abcdef") }]
 })
 
 const capabilityFor = (target: BranchProtocol.BranchId, access: BranchProtocol.Access) =>
@@ -58,6 +59,36 @@ describe("BranchCommands", () => {
       expect(died(outcome)).toBe(false)
       expect(SyncError.is(refusal)).toBe(true)
       expect(refusal?.code).toBe("invalid_request")
+    }))
+
+  // `participantId` is the client's claim. A write link that submitted under
+  // another participant's id was credited to that participant with nothing
+  // durable naming the capability that actually sent it.
+  it.effect("stamps the verified capability id on the durable command, whatever participant it claims", () =>
+    Effect.gen(function*() {
+      const page = yield* durable(
+        Effect.gen(function*() {
+          const commands = yield* BranchCommands.makeLive
+          const share = yield* BranchShare.BranchShare
+          const mallory = yield* share.mint({ branchId, capabilityId: "cap-mallory", access: "write", ttlMs: 600_000 })
+          yield* commands.submit({
+            capability: mallory,
+            submission: yield* BranchCommands.submission({
+              branchId,
+              commandId: commandId("c-spoof"),
+              participantId: alice,
+              name: BranchProtocol.SayCommand,
+              args: "sent by mallory"
+            })
+          })
+          return yield* entriesOf
+        })
+      )
+
+      expect(page.entries[0]?.payload).toMatchObject({ participantId: "alice", capabilityId: "cap-mallory" })
+      const state = BranchProjection.project(branchId, page.entries)
+      expect(state.messages.map(({ capabilityId }) => capabilityId)).toEqual(["cap-mallory"])
+      expect(state.commands.map(({ capabilityId }) => capabilityId)).toEqual(["cap-mallory"])
     }))
 
   it.effect("admits one command and records it on the branch journal", () =>

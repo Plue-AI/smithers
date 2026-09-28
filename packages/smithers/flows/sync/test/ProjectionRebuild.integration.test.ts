@@ -61,6 +61,7 @@ const expected = (count: number) => {
     seq,
     commandId: `command-${seq}`,
     participantId: seq % 2 === 0 ? "alice" : "bob",
+    capabilityId: "branch-reader",
     name: seq % 3 === 0 ? "branch.say" : "branch.edit",
     args: `value-${seq}-é😀`,
     target: seq % 3 === 0 ? "" : `field-${seq % 2}`
@@ -72,7 +73,8 @@ const expected = (count: number) => {
         target: command.target,
         value: command.args,
         seq: command.seq,
-        participantId: command.participantId
+        participantId: command.participantId,
+        capabilityId: command.capabilityId
       })
     }
   }
@@ -88,6 +90,7 @@ const expected = (count: number) => {
           seq: command.seq,
           commandId: command.commandId,
           participantId: command.participantId,
+          capabilityId: command.capabilityId,
           text: command.args
         })),
         fields: [...fields].sort(([a], [b]) => a.localeCompare(b)).map(([, value]) => value)

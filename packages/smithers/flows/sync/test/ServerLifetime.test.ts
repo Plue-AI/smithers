@@ -23,7 +23,7 @@ const seq = (value: number) => value as JournalEvent.Seq
 
 const shareLayer = BranchShare.layerHmac({
   activeKid: "primary",
-  keys: [{ kid: "primary", secret: Redacted.make("lifetime-secret") }]
+  keys: [{ kid: "primary", secret: Redacted.make("lifetime-secret-0123456789abcdef") }]
 })
 
 describe("subscription lifetime", () => {

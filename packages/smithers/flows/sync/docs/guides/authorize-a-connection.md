@@ -20,10 +20,10 @@ import * as WorkspaceShare from "@smthrs/sync/WorkspaceShare"
 const shareLayer = WorkspaceShare.layerConfig
 ```
 
-| Variable               | Meaning                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| `SMITHERS_SYNC_SECRET` | The HMAC signing secret, read as `Redacted` so it is never logged. Required. |
-| `SMITHERS_SYNC_KEY_ID` | The key name recorded in every capability's claims. Defaults to `primary`.   |
+| Variable               | Meaning                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `SMITHERS_SYNC_SECRET` | The HMAC signing secret, read as `Redacted` so it is never logged. Required; at least 32 bytes of UTF-8. |
+| `SMITHERS_SYNC_KEY_ID` | The key name recorded in every capability's claims. Defaults to `primary`.                               |
 
 There is deliberately no default secret. A deployment that configures neither
 name fails to construct the authority, and the read path stays closed.
@@ -92,18 +92,26 @@ A capability's claims carry the `kid` of the key that signed them, and the
 key while capabilities minted under the retired one are still outstanding:
 
 ```ts
-import * as Redacted from "effect/Redacted"
+import * as Config from "effect/Config"
+import * as Layer from "effect/Layer"
 
-const keyring: WorkspaceShare.Keyring = {
-  activeKid: "2026-q1",
-  keys: [
-    { kid: "2026-q1", secret: Redacted.make(process.env["SYNC_SECRET_CURRENT"]!) },
-    { kid: "2025-q4", secret: Redacted.make(process.env["SYNC_SECRET_RETIRED"]!) }
-  ]
-}
-
-const rotated = WorkspaceShare.layerHmac(keyring)
+const rotated = Layer.unwrap(
+  Effect.gen(function*() {
+    const keyring: WorkspaceShare.Keyring = {
+      activeKid: "2026-q1",
+      keys: [
+        { kid: "2026-q1", secret: yield* Config.Redacted("SYNC_SECRET_CURRENT") },
+        { kid: "2025-q4", secret: yield* Config.Redacted("SYNC_SECRET_RETIRED") }
+      ]
+    }
+    return WorkspaceShare.layerHmac(keyring)
+  })
+)
 ```
+
+`Config.Redacted` reads each secret without ever rendering it. An unset
+variable fails the layer with a `ConfigError` naming it, so the read path
+stays closed.
 
 New capabilities are signed with `activeKid`. Capabilities naming any key in
 `keys` still verify. Drop the retired key once its longest outstanding
@@ -116,7 +124,11 @@ fails with `invalid_request`:
 - an `activeKid` that names no key in the ring;
 - a `kid` listed twice;
 - a secret holding an unpaired surrogate, which UTF-8 would fold into the
-  same key bytes as a different secret.
+  same key bytes as a different secret;
+- a secret shorter than 32 bytes of UTF-8. Every capability carries its
+  claims and signature in the clear, so one observed capability lets an
+  attacker search a short secret offline and then forge capabilities.
+  Generate one with `openssl rand -base64 32`.
 
 A secret Web Crypto refuses to import fails with `unknown` instead, because
 the refusal is the platform's rather than the request's. The error's `cause`

@@ -70,7 +70,7 @@ describe("BranchCommands ambiguous commit recovery", () => {
               TestJournal.layer(),
               BranchShare.layerHmac({
                 activeKid: "primary",
-                keys: [{ kid: "primary", secret: Redacted.make("ambiguous-secret") }]
+                keys: [{ kid: "primary", secret: Redacted.make("ambiguous-secret-0123456789abcde") }]
               })
             )
           ),

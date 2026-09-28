@@ -56,8 +56,9 @@ Both authorities sign a length-prefixed encoding of their claims under
 HMAC-SHA-256, led by a scheme label, so neither's signature can be replayed as
 the other's under a shared secret. Length prefixes count UTF-8 bytes, and a
 claim set that does not survive UTF-8 (an unpaired surrogate) is refused with
-`invalid_request` rather than signed. Secrets are `Redacted` on both sides, and
-both carry a `kid` inside the signed claims, so keys rotate without
+`invalid_request` rather than signed. Secrets are `Redacted` on both sides and
+must be at least 32 bytes of UTF-8, or the keyring is refused with
+`invalid_request`. Both carry a `kid` inside the signed claims, so keys rotate without
 invalidating capabilities minted under a retired one. Each authority takes its
 own keyring: `BranchShare.layerConfig` reads `SMITHERS_SYNC_BRANCH_SECRET` and
 `SMITHERS_SYNC_BRANCH_KEY_ID`, `WorkspaceShare.layerConfig` reads
@@ -266,10 +267,10 @@ endpoint.
 
 ## Test helpers
 
-| Export                                                             | Source                                                                                                                         | Notes                                                  |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
-| `TestSync.layerTest`, `layerWorkspaceAuth`, `layerNoop`, `connect` | [src/test/TestSync.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/sync/src/test/TestSync.ts)     | a real server and client over an in-memory socket pair |
-| `TestSocket.makePair`, `Pair`, `TestFaults`, `FrameFilter`         | [src/test/TestSocket.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/sync/src/test/TestSocket.ts) | fault-injecting socket pair                            |
+| Export                                                               | Source                                                                                                                         | Notes                                                  |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| `TestSync.layerTest`, `layerTrustAllAsOwner`, `layerNoop`, `connect` | [src/test/TestSync.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/sync/src/test/TestSync.ts)     | a real server and client over an in-memory socket pair |
+| `TestSocket.makePair`, `Pair`, `TestFaults`, `FrameFilter`           | [src/test/TestSocket.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/sync/src/test/TestSocket.ts) | fault-injecting socket pair                            |
 
 Subscription fan-out is held to budgets, not only to frame assertions. The
 package's soak suite runs five concurrent workspace subscribers and requires an

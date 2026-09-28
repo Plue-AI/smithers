@@ -24,7 +24,7 @@ const commandId = (id: string) => id as BranchProtocol.CommandId
 
 const shareLayer = BranchShare.layerHmac({
   activeKid: "primary",
-  keys: [{ kid: "primary", secret: Redacted.make("bounds-secret") }]
+  keys: [{ kid: "primary", secret: Redacted.make("bounds-secret-0123456789abcdefgh") }]
 })
 
 const capabilityFor = (target: BranchProtocol.BranchId) =>

@@ -1,5 +1,24 @@
 # @smthrs/sync
 
+## Unreleased
+
+### Security
+
+- **Breaking.** `BranchShare` and `WorkspaceShare` keyrings refuse a signing
+  secret shorter than 32 bytes of UTF-8 with `invalid_request`. One observed
+  capability let an attacker search a short secret offline and forge
+  capabilities.
+- `BranchPresence` binds a live participant to the `capabilityId` that
+  announced it. Another capability's announce or leave for that participant is
+  refused with `unauthorized` until the lease lapses.
+- `BranchCommands.submit` stamps the verified `capabilityId` on the durable
+  command payload, and `BranchProjection` carries it on every message, command,
+  and field, so a command is attributed to the capability that sent it rather
+  than to the `participantId` the client claimed.
+- **Breaking.** `TestSync.layerWorkspaceAuth` is renamed
+  `TestSync.layerTrustAllAsOwner` so a composition that trusts every
+  connection as the owner says so where it is wired.
+
 ## [1.0.0-rc.0] - 2026-09-01
 
 ### Added

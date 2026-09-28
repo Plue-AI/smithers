@@ -276,7 +276,7 @@ describe("public snapshot admission", () => {
       Effect.provide(
         BranchShare.layerHmac({
           activeKid: "primary",
-          keys: [{ kid: "primary", secret: Redacted.make("snapshot-test-only") }]
+          keys: [{ kid: "primary", secret: Redacted.make("snapshot-test-only-0123456789abc") }]
         })
       )
     ))
@@ -285,7 +285,7 @@ describe("public snapshot admission", () => {
     let calls = 0
     const authority = WorkspaceShare.layerHmac({
       activeKid: "snapshot-key",
-      keys: [{ kid: "snapshot-key", secret: Redacted.make("snapshot-auth-test-only") }]
+      keys: [{ kid: "snapshot-key", secret: Redacted.make("snapshot-auth-test-only-01234567") }]
     })
     const stack = Layer.mergeAll(SyncServer.layer, SyncAuth.layer).pipe(
       Layer.provideMerge(Layer.mergeAll(
@@ -343,7 +343,7 @@ describe("public snapshot admission", () => {
     }).pipe(
       Effect.provide(SyncServer.layer.pipe(Layer.provideMerge(Layer.mergeAll(
         base,
-        TestSync.layerWorkspaceAuth,
+        TestSync.layerTrustAllAsOwner,
         Layer.succeed(SyncServer.SnapshotSource, {
           read: () => {
             const privateRecord = { public: snapshot, secret: "private-provider-state" }

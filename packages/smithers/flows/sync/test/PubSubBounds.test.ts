@@ -111,7 +111,7 @@ describe("bounded change feeds", () => {
       Effect.provide(
         BranchShare.layerHmac({
           activeKid: "primary",
-          keys: [{ kid: "primary", secret: Redacted.make("bounded-presence-secret") }]
+          keys: [{ kid: "primary", secret: Redacted.make("bounded-presence-secret-01234567") }]
         })
       )
     ))

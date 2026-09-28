@@ -38,7 +38,7 @@ const stack = Layer.mergeAll(
   journal,
   BranchShare.layerHmac({
     activeKid: "primary",
-    keys: [{ kid: "primary", secret: Redacted.make("process-recovery-secret") }]
+    keys: [{ kid: "primary", secret: Redacted.make("process-recovery-secret-01234567") }]
   }),
   RunCatalog.layerStatic([runId]),
   Layer.succeed(SyncRpcs.SyncAuth)((effect) => effect)

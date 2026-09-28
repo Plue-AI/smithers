@@ -17,7 +17,10 @@ import * as TestSync from "../src/test/TestSync.ts"
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
 const base = Layer.mergeAll(
   TestJournal.layer(),
-  BranchShare.layerHmac({ activeKid: "primary", keys: [{ kid: "primary", secret: Redacted.make("boundary-secret") }] })
+  BranchShare.layerHmac({
+    activeKid: "primary",
+    keys: [{ kid: "primary", secret: Redacted.make("boundary-secret-0123456789abcdef") }]
+  })
 )
 
 // JSON round trips exercise the encoded protocol, rather than passing service
@@ -65,7 +68,7 @@ describe("command admission through durable synchronization", () => {
             expect(receipt.status).toBe("admitted")
             const stored = (yield* journal.entries({ runId, limit: 1 })).entries
             expect(stored).toHaveLength(1)
-            expect(stored[0]?.payload).toEqual(submission)
+            expect(stored[0]?.payload).toEqual({ ...submission, capabilityId: "test" })
             const read = yield* server.read({ ...request, limit: 1 })
             expect(wireRead(JSON.parse(JSON.stringify(read))).entries).toEqual(stored)
             const live = yield* server.subscribe({ ...request, credit: 1 }).pipe(
@@ -125,7 +128,7 @@ describe("command admission through durable synchronization", () => {
         sourceId: BranchProtocol.commandSourceId(submission.commandId),
         sourceSeq: BranchProtocol.commandSourceSeq,
         eventType: BranchProtocol.CommandEvent,
-        payload: submission,
+        payload: { ...submission, capabilityId: "test" },
         meta: null
       }
       const reserved = bytes({
@@ -169,7 +172,7 @@ describe("command admission through durable synchronization", () => {
       })
       const client = yield* TestSync.connect(pair).pipe(
         Effect.provideService(SyncServer.SyncServer, server),
-        Effect.provide(TestSync.layerWorkspaceAuth)
+        Effect.provide(TestSync.layerTrustAllAsOwner)
       )
       const submit = (id: string) =>
         Effect.gen(function*() {
@@ -202,7 +205,11 @@ describe("command admission through durable synchronization", () => {
         "first",
         "second"
       ])
-      expect(received.every((entry) => bytes(entry.payload) === BranchCommands.defaultMaxCommandBytes)).toBe(true)
+      // The payload is the submission plus the verified capability id stamped on it.
+      const stamp = bytes({ capabilityId: "rpc" }) - bytes({}) + 1
+      expect(received.every((entry) => bytes(entry.payload) === BranchCommands.defaultMaxCommandBytes + stamp)).toBe(
+        true
+      )
       expect((yield* client.progress).delivered).toEqual([{ generation: 0, runId, afterSeq: 1 }])
       // This measures actual RPC envelopes traversing the socket pair, above
       // the journal-entry-only budget. The retained 1 MiB command maximum fits.

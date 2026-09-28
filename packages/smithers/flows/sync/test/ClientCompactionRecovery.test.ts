@@ -226,7 +226,7 @@ const services = SyncServer.layer.pipe(Layer.provideMerge(Layer.mergeAll(
   storage,
   publicSource,
   RunCatalog.layerStatic([runId]),
-  TestSync.layerWorkspaceAuth
+  TestSync.layerTrustAllAsOwner
 )))
 const owner = { hostId: "compactor", pid: 42, nonce: "checkpoint-owner" }
 

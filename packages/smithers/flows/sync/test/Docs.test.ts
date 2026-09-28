@@ -82,6 +82,23 @@ describe("keyring failure codes", () => {
   })
 })
 
+describe("copyable secret reads", () => {
+  const pages = ["docs/guides/authorize-a-connection.md", "docs/concepts/authorization.md", "docs/troubleshooting.md"]
+
+  it.each(pages)("%s never reads a secret with a non-null assertion", (page) => {
+    // `Redacted.make(process.env[...]!)` passes `undefined` when the variable
+    // is unset, and the authority then refuses it as an unpaired surrogate:
+    // closed, but with a diagnosis that sends the operator the wrong way.
+    expect(read(page)).not.toMatch(/process\.env\[[^\]]+\]!/)
+  })
+
+  it("states how the rotation snippet fails on an unset variable", () => {
+    const guide = read("docs/guides/authorize-a-connection.md")
+    expect(guide).toContain("Config.Redacted(\"SYNC_SECRET_CURRENT\")")
+    expect(paragraphs(guide).some((paragraph) => /unset variable fails .*`ConfigError`/.test(paragraph))).toBe(true)
+  })
+})
+
 describe("branch server authorization", () => {
   const server = read("src/BranchServer.ts")
   /** Procedures whose handler body raises its own SyncError or inspects the principal. */

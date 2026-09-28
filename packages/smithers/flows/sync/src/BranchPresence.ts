@@ -10,7 +10,10 @@
  * resurrect a stranger's caret.
  *
  * Every operation authorizes through {@link BranchShare}, so a capability for
- * one branch can neither read nor write another branch's roster.
+ * one branch can neither read nor write another branch's roster. A live
+ * participant is bound to the capability that announced it: announcing or
+ * leaving under that `participantId` with any other capability is refused
+ * with `unauthorized` until the lease lapses.
  *
  * @since 0.1.0
  */
@@ -129,6 +132,26 @@ export interface PresenceOptions {
   readonly maxParticipants?: number | undefined
 }
 
+/**
+ * One roster slot: the participant, and the capability that announced it.
+ *
+ * `participantId` is chosen by the client, so it proves nothing on its own.
+ * The slot is bound to the verified `capabilityId` of its first live
+ * announcement, and only that capability may refresh or leave it until the
+ * lease lapses. Without the binding any write link on the branch could
+ * rename, move the caret of, or evict another link's participant.
+ */
+interface Seat {
+  readonly participant: Participant
+  readonly capabilityId: string
+}
+
+const heldByAnother = (participantId: ParticipantId): SyncError =>
+  new SyncError({
+    code: "unauthorized",
+    message: `Participant ${participantId} is held by another share capability`
+  })
+
 /** The resolved, already-validated presence policy. */
 interface Resolved {
   readonly leaseMs: number
@@ -180,7 +203,9 @@ const defaults: Resolved = {
  *
  * Announcing requires write access: a read-only share link may watch the
  * roster but never appears on it, so a shared read link cannot be used to
- * impersonate a collaborator.
+ * impersonate a collaborator. A live participant belongs to the capability
+ * that announced it, so another write link can neither overwrite nor evict it.
+ * Holders of one link share its `capabilityId` and stay indistinguishable.
  *
  * The roster is keyed by branch and then by participant, so listing one branch
  * costs that branch plus a bounded sweep of other branches, and no two
@@ -222,14 +247,14 @@ const makeResolved = (
 ): Effect.Effect<Service, never, BranchShare.BranchShare> =>
   Effect.gen(function*() {
     const share = yield* BranchShare.BranchShare
-    const roster = new Map<BranchId, Map<ParticipantId, Participant>>()
+    const roster = new Map<BranchId, Map<ParticipantId, Seat>>()
     const changes = yield* PubSub.sliding<BranchId>(changesCapacity)
 
     const expire = (branchId: BranchId, nowMs: number) => {
       const branch = roster.get(branchId)
       if (branch === undefined) return undefined
-      for (const [participantId, participant] of branch) {
-        if (participant.leaseExpiresAtMs <= nowMs) branch.delete(participantId)
+      for (const [participantId, seat] of branch) {
+        if (seat.participant.leaseExpiresAtMs <= nowMs) branch.delete(participantId)
       }
       if (branch.size === 0) {
         roster.delete(branchId)
@@ -269,7 +294,7 @@ const makeResolved = (
       sweep(nowMs)
       const branch = expire(branchId, nowMs)
       if (branch === undefined) return []
-      return Array.from(branch.values(), detach).sort((left, right) =>
+      return Array.from(branch.values(), (seat) => detach(seat.participant)).sort((left, right) =>
         left.participantId < right.participantId ? -1 : 1
       )
     }
@@ -305,7 +330,10 @@ const makeResolved = (
         branchId: announcement.branchId,
         participantId: announcement.participantId
       })
-      yield* share.verify(announcement.capability, { branchId: announcement.branchId, access: "write" })
+      const claims = yield* share.verify(announcement.capability, {
+        branchId: announcement.branchId,
+        access: "write"
+      })
       // The wire schema IS `Announcement`, so a remote caller cannot reach
       // here with an empty name. An in-process caller can, and `Participant`
       // requires a `NonEmptyString`: without this the constructor threw a
@@ -319,8 +347,12 @@ const makeResolved = (
       // Run-out leases are dropped before the cap is judged, so a branch that
       // has simply been busy over time is never refused for a stale roster.
       live(announcement.branchId, nowMs)
-      const branch = roster.get(announcement.branchId) ?? new Map<ParticipantId, Participant>()
-      if (!branch.has(announcement.participantId) && branch.size >= maxParticipants) {
+      const branch = roster.get(announcement.branchId) ?? new Map<ParticipantId, Seat>()
+      const held = branch.get(announcement.participantId)
+      if (held !== undefined && held.capabilityId !== claims.capabilityId) {
+        return yield* Effect.fail(heldByAnother(announcement.participantId))
+      }
+      if (held === undefined && branch.size >= maxParticipants) {
         return yield* Effect.fail(
           new SyncError({
             code: "backpressure",
@@ -335,7 +367,7 @@ const makeResolved = (
         cursor: announcement.cursor,
         leaseExpiresAtMs: nowMs + leaseMs
       })
-      branch.set(announcement.participantId, participant)
+      branch.set(announcement.participantId, { participant, capabilityId: claims.capabilityId })
       roster.set(announcement.branchId, branch)
       yield* PubSub.publish(changes, announcement.branchId)
       return detach(participant)
@@ -344,9 +376,13 @@ const makeResolved = (
     const leave = Effect.fn("BranchPresence.leave")(function*(supplied: LeaveRequest) {
       const request = detachLeave(supplied)
       yield* Effect.annotateCurrentSpan({ branchId: request.branchId, participantId: request.participantId })
-      yield* share.verify(request.capability, { branchId: request.branchId, access: "write" })
-      const branch = roster.get(request.branchId)
+      const claims = yield* share.verify(request.capability, { branchId: request.branchId, access: "write" })
+      const branch = expire(request.branchId, yield* Clock.currentTimeMillis)
       if (branch !== undefined) {
+        const held = branch.get(request.participantId)
+        if (held !== undefined && held.capabilityId !== claims.capabilityId) {
+          return yield* Effect.fail(heldByAnother(request.participantId))
+        }
         branch.delete(request.participantId)
         if (branch.size === 0) roster.delete(request.branchId)
       }

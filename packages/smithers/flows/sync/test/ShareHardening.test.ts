@@ -16,7 +16,7 @@ import { SyncError } from "../src/SyncError.ts"
 import * as WorkspaceShare from "../src/WorkspaceShare.ts"
 import { died, refusalOf } from "./refusal.ts"
 
-const secret = "shared-hardening-secret"
+const secret = "shared-hardening-secret-01234567"
 const branchId = "branch-hardening" as ShareClaims["branchId"]
 
 const run = <A, E>(effect: Effect.Effect<A, E>) => effect.pipe(Effect.provide(TestClock.layer()))
@@ -78,7 +78,7 @@ describe("share claim encoding", () => {
       // The replacement character itself is a well-formed secret.
       yield* BranchShare.makeHmac({
         activeKid: "primary",
-        keys: [{ kid: "primary", secret: Redacted.make("key-\uFFFD") }]
+        keys: [{ kid: "primary", secret: Redacted.make("key-\uFFFD-0123456789abcdefghijklmnopqrstuv") }]
       })
     }))
 
@@ -352,8 +352,8 @@ describe("branch key rotation", () => {
     Effect.gen(function*() {
       const [minted, rotated, revoked] = yield* run(
         Effect.gen(function*() {
-          const retired = { kid: "2026-08", secret: Redacted.make("retired-secret") }
-          const active = { kid: "2026-09", secret: Redacted.make("active-secret") }
+          const retired = { kid: "2026-08", secret: Redacted.make("retired-secret-0123456789abcdefg") }
+          const active = { kid: "2026-09", secret: Redacted.make("active-secret-0123456789abcdefgh") }
           const old = yield* BranchShare.makeHmac({ activeKid: retired.kid, keys: [retired] })
           const capability = yield* old.mint({ branchId, capabilityId: "cap", access: "read", ttlMs: 60_000 })
           const rotated = yield* BranchShare.makeHmac({ activeKid: active.kid, keys: [active, retired] })
@@ -408,9 +408,9 @@ describe("branch key rotation", () => {
       const [defaultKid, namedKid, unconfigured] = yield* run(
         Effect.gen(function*() {
           return [
-            yield* mintedKid({ SMITHERS_SYNC_BRANCH_SECRET: "configured-secret" }),
+            yield* mintedKid({ SMITHERS_SYNC_BRANCH_SECRET: "configured-secret-0123456789abcd" }),
             yield* mintedKid({
-              SMITHERS_SYNC_BRANCH_SECRET: "configured-secret",
+              SMITHERS_SYNC_BRANCH_SECRET: "configured-secret-0123456789abcd",
               SMITHERS_SYNC_BRANCH_KEY_ID: "2026-09"
             }),
             yield* Effect.exit(mintedKid({}))

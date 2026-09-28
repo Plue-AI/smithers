@@ -185,7 +185,7 @@ each one.
 
 Public test subpaths are `@smthrs/sync/test/TestSocket` (`FrameFilter`,
 `TestFaults`, `Pair`, `makePair`) and `@smthrs/sync/test/TestSync`
-(`layerTest`, `layerWorkspaceAuth`, `layerNoop`, `connect`).
+(`layerTest`, `layerTrustAllAsOwner`, `layerNoop`, `connect`).
 
 ## Documentation
 

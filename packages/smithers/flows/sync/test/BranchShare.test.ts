@@ -5,6 +5,7 @@ import { vi } from "vitest"
 import * as BranchProtocol from "../src/BranchProtocol.ts"
 import * as BranchShare from "../src/BranchShare.ts"
 import { SyncError } from "../src/SyncError.ts"
+import * as WorkspaceShare from "../src/WorkspaceShare.ts"
 import { died, refusalOf } from "./refusal.ts"
 
 const branchId = "live-branch" as BranchProtocol.BranchId
@@ -12,7 +13,7 @@ const otherBranchId = "other-branch" as BranchProtocol.BranchId
 
 const authority = BranchShare.makeHmac({
   activeKid: "primary",
-  keys: [{ kid: "primary", secret: Redacted.make("share-secret") }]
+  keys: [{ kid: "primary", secret: Redacted.make("share-secret-0123456789abcdefghi") }]
 })
 
 const run = <A, E>(effect: Effect.Effect<A, E>) => effect.pipe(Effect.provide(TestClock.layer()))
@@ -23,37 +24,45 @@ const mintWrite = Effect.flatMap(
 )
 
 describe("BranchShare", () => {
-  it.effect("refuses an empty HMAC key but accepts and uses a one-byte key", () =>
+  it.effect("refuses a signing secret shorter than 32 bytes and accepts one of exactly 32", () =>
     Effect.gen(function*() {
-      const [empty, shortClaims] = yield* run(
+      const importKey = vi.spyOn(crypto.subtle, "importKey")
+      const [empty, short, workspaceShort, exactClaims] = yield* run(
         Effect.gen(function*() {
           const empty = yield* Effect.exit(
             BranchShare.makeHmac({ activeKid: "primary", keys: [{ kid: "primary", secret: Redacted.make("") }] })
           )
-          const short = yield* BranchShare.makeHmac({
+          // One observed capability is an offline oracle for its secret, so a
+          // one-byte secret let anyone brute-force the key and forge links.
+          const short = yield* Effect.exit(
+            BranchShare.makeHmac({ activeKid: "primary", keys: [{ kid: "primary", secret: Redacted.make("a") }] })
+          )
+          const workspaceShort = yield* Effect.exit(
+            WorkspaceShare.makeHmac({
+              activeKid: "primary",
+              keys: [{ kid: "primary", secret: Redacted.make("a".repeat(31)) }]
+            })
+          )
+          const exact = yield* BranchShare.makeHmac({
             activeKid: "primary",
-            keys: [{ kid: "primary", secret: Redacted.make("x") }]
+            keys: [{ kid: "primary", secret: Redacted.make("b".repeat(32)) }]
           })
-          const capability = yield* short.mint({
-            branchId,
-            capabilityId: "short-key",
-            access: "read",
-            ttlMs: 1_000
-          })
-          return [empty, yield* short.verify(capability, { branchId, access: "read" })] as const
+          const capability = yield* exact.mint({ branchId, capabilityId: "exact-key", access: "read", ttlMs: 1_000 })
+          return [empty, short, workspaceShort, yield* exact.verify(capability, { branchId, access: "read" })] as const
         })
       )
+      const imports = importKey.mock.calls.length
+      importKey.mockRestore()
 
-      // Web Crypto rejects only the zero-byte key; this service imposes no
-      // minimum strength policy of its own, and a one-byte secret therefore
-      // mints and verifies. The rejection crosses as the authority's own typed
-      // error rather than as the Web Crypto defect underneath it.
-      const emptyRefusal = refusalOf(empty)
-      expect(died(empty)).toBe(false)
-      expect(SyncError.is(emptyRefusal)).toBe(true)
-      expect(emptyRefusal?.code).toBe("unknown")
-      expect(emptyRefusal?.message).toBe("Web Crypto could not import the HMAC signing key")
-      expect(shortClaims.capabilityId).toBe("short-key")
+      const refusals = [refusalOf(empty), refusalOf(short), refusalOf(workspaceShort)]
+      expect([died(empty), died(short), died(workspaceShort)]).toEqual([false, false, false])
+      for (const refusal of refusals) {
+        expect(refusal?.code).toBe("invalid_request")
+        expect(refusal?.message).toBe("The HMAC signing secret must be at least 32 bytes of UTF-8")
+      }
+      // Refused before Web Crypto sees the bytes: only the 32-byte key imports.
+      expect(imports).toBe(1)
+      expect(exactClaims.capabilityId).toBe("exact-key")
     }))
 
   it.effect("mints a capability whose claims are scoped, timed, and verifiable", () =>
@@ -222,7 +231,7 @@ describe("BranchShare", () => {
           Effect.provide(
             BranchShare.layerHmac({
               activeKid: "primary",
-              keys: [{ kid: "primary", secret: Redacted.make("layer-secret") }]
+              keys: [{ kid: "primary", secret: Redacted.make("layer-secret-0123456789abcdefghi") }]
             })
           )
         )
@@ -300,7 +309,10 @@ describe("BranchShare", () => {
       const importKeySpy = vi.spyOn(crypto.subtle, "importKey").mockRejectedValueOnce(importFailure)
       const importError = yield* run(
         Effect.flip(
-          BranchShare.makeHmac({ activeKid: "primary", keys: [{ kid: "primary", secret: Redacted.make("broken") }] })
+          BranchShare.makeHmac({
+            activeKid: "primary",
+            keys: [{ kid: "primary", secret: Redacted.make("broken-0123456789abcdefghijklmnopqrstuv") }]
+          })
         )
       )
       importKeySpy.mockRestore()

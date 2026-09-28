@@ -107,11 +107,11 @@ describe("frame vectors", () => {
  * check the package's encoding against an independent implementation of the
  * same rule rather than against itself:
  *
- *     crypto.createHmac("sha256", Buffer.from("vector-secret", "utf8"))
+ *     crypto.createHmac("sha256", Buffer.from("vector-secret-0123456789abcdefgh", "utf8"))
  *       .update(Buffer.from(canonical, "utf8")).digest("hex")
  */
 describe("signing vectors", () => {
-  const secret = Redacted.make("vector-secret")
+  const secret = Redacted.make("vector-secret-0123456789abcdefgh")
 
   it.effect("freezes the branch authority's signature over fixed claims", () =>
     Effect.gen(function*() {
@@ -129,7 +129,7 @@ describe("signing vectors", () => {
       // canonical:
       // 27:@smthrs/sync/BranchShare/v210:vector-kid13:vector-branch17:vector-capability4:read1:05:60000
       expect(capability.signature).toBe(
-        "327d2f713b3a40f9c07357c2274519db29c89847960abb791cca7d45e0811304"
+        "d0c5ddd57dc1e03bb6c98cb73bd9aae245c7b3c8b17514945c68276a847f97a3"
       )
     }).pipe(Effect.provide(TestClock.layer())))
 
@@ -149,7 +149,7 @@ describe("signing vectors", () => {
       // canonical:
       // 30:@smthrs/sync/WorkspaceShare/v110:vector-kid17:vector-capability4:read1:05:60000
       expect(capability.signature).toBe(
-        "fcaff8470a37ff0d014d1c63915e78fcf96b40394529b5a5d661219e050da83c"
+        "e2fed097e508c17323c6689fca24f10503fbca5fcb790863caa779d8f3008bf3"
       )
     }).pipe(Effect.provide(TestClock.layer())))
 })

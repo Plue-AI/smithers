@@ -80,10 +80,25 @@ export const constantTimeEquals = (left: string, right: string): boolean => {
 }
 
 /**
+ * The fewest UTF-8 bytes a signing secret may carry: the HMAC-SHA-256 output
+ * length, the minimum RFC 2104 section 3 recommends.
+ *
+ * Every capability carries its claims and their signature in the clear, so one
+ * observed capability is an offline oracle for the secret. A short secret such
+ * as `a` falls to exhaustive search in seconds, and the attacker then mints
+ * branch and workspace capabilities of their own.
+ *
+ * @category constants
+ * @since 1.0.0-rc.1
+ */
+export const minSecretBytes = 32
+
+/**
  * Imports a raw secret as a non-extractable Web Crypto HMAC-SHA-256 signing
  * key. Fails with `invalid_request` when the secret does not survive UTF-8
- * (an unpaired surrogate), and with a `SyncError` carrying the rejection as
- * `cause` when Web Crypto refuses the import.
+ * (an unpaired surrogate) or is shorter than {@link minSecretBytes}, and with
+ * a `SyncError` carrying the rejection as `cause` when Web Crypto refuses the
+ * import.
  *
  * @category crypto
  * @since 0.1.0
@@ -98,6 +113,14 @@ export const importHmacKey = (secret: string): Effect.Effect<CryptoKey, SyncErro
       new SyncError({
         code: "invalid_request",
         message: "The HMAC signing secret carries an unpaired surrogate"
+      })
+    )
+  }
+  if (bytes.length < minSecretBytes) {
+    return Effect.fail(
+      new SyncError({
+        code: "invalid_request",
+        message: `The HMAC signing secret must be at least ${minSecretBytes} bytes of UTF-8`
       })
     )
   }

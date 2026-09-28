@@ -30,7 +30,7 @@ const layer = Layer.mergeAll(
   TestJournal.layer(),
   BranchShare.layerHmac({
     activeKid: "primary",
-    keys: [{ kid: "primary", secret: Redacted.make("convergence-secret") }]
+    keys: [{ kid: "primary", secret: Redacted.make("convergence-secret-0123456789abc") }]
   }),
   RunCatalog.layerStatic([runId])
 )
@@ -111,7 +111,13 @@ describe("branch convergence", () => {
         "joined from another tab",
         "renaming next"
       ])
-      expect(left.fields).toEqual([{ target: "title", value: "Shared branch", seq: left.seq, participantId: bob }])
+      expect(left.fields).toEqual([{
+        target: "title",
+        value: "Shared branch",
+        seq: left.seq,
+        participantId: bob,
+        capabilityId: "cap"
+      }])
       expect([...seqs].sort((a, b) => a - b)).toEqual(seqs)
     }))
 
@@ -262,6 +268,12 @@ describe("branch convergence", () => {
       expect(left).toEqual(right)
       expect(left.commands).toHaveLength(2)
       expect(right.commands).toHaveLength(2)
-      expect(left.fields).toEqual([{ target: "title", value: "Bob title", seq: left.seq, participantId: bob }])
+      expect(left.fields).toEqual([{
+        target: "title",
+        value: "Bob title",
+        seq: left.seq,
+        participantId: bob,
+        capabilityId: "field-cap"
+      }])
     }))
 })

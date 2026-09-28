@@ -51,7 +51,8 @@ const field = (fields: { readonly seq: number; readonly participantId: string })
   target: "title",
   value: `by-${fields.participantId}`,
   seq: fields.seq as JournalEvent.Seq,
-  participantId: participant(fields.participantId)
+  participantId: participant(fields.participantId),
+  capabilityId: ""
 })
 
 describe("BranchProjection", () => {
@@ -231,7 +232,7 @@ describe("BranchProjection", () => {
     ])
 
     expect(state.commands).toEqual([
-      { seq: 0, commandId: "c1", participantId: "alice", name: "branch.rename", args: "", target: "" }
+      { seq: 0, commandId: "c1", participantId: "alice", name: "branch.rename", args: "", target: "", capabilityId: "" }
     ])
   })
 
@@ -269,9 +270,9 @@ describe("BranchProjection", () => {
     ])
 
     expect(state.fields).toEqual([
-      { target: "assignee", value: "alice", seq: 3, participantId: "alice" },
-      { target: "note", value: "shared note", seq: 1, participantId: "alice" },
-      { target: "title", value: "Bob's title", seq: 2, participantId: "bob" }
+      { target: "assignee", value: "alice", seq: 3, participantId: "alice", capabilityId: "" },
+      { target: "note", value: "shared note", seq: 1, participantId: "alice", capabilityId: "" },
+      { target: "title", value: "Bob's title", seq: 2, participantId: "bob", capabilityId: "" }
     ])
   })
 

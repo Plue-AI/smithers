@@ -323,6 +323,12 @@ export type SubmitRequest = typeof SubmitRequest.Type
  * so a row written before those fields existed still decodes rather than
  * failing the whole ledger rebuild.
  *
+ * `capabilityId` is the verified id of the share capability that submitted the
+ * command, stamped by `BranchCommands.submit` and never read from the client.
+ * `participantId` is whatever the client claimed, so attribute a command to
+ * its `capabilityId`. A row admitted before the field existed decodes with
+ * `""`, which no capability can carry.
+ *
  * @category schemas
  * @since 0.1.0
  */
@@ -333,7 +339,8 @@ export class CommandEventPayload extends Schema.Class<CommandEventPayload>(
   participantId: ParticipantId,
   name: Schema.NonEmptyString,
   args: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed(""))),
-  target: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("")))
+  target: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed(""))),
+  capabilityId: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("")))
 }) {}
 
 /**

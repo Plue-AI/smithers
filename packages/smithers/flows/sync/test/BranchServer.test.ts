@@ -34,7 +34,10 @@ import { connect } from "./fixtures/branchRpc.ts"
 
 const base = Layer.mergeAll(
   TestJournal.layer(),
-  BranchShare.layerHmac({ activeKid: "primary", keys: [{ kid: "primary", secret: Redacted.make("wire-secret") }] }),
+  BranchShare.layerHmac({
+    activeKid: "primary",
+    keys: [{ kid: "primary", secret: Redacted.make("wire-secret-0123456789abcdefghij") }]
+  }),
   BranchIds.layer
 )
 const services = Layer.mergeAll(BranchPresence.layerWith({ leaseMs: 600_000 }), BranchCommands.layer).pipe(

@@ -46,6 +46,8 @@ export const Message = Schema.Struct({
   seq: JournalEvent.Seq,
   commandId: CommandId,
   participantId: ParticipantId,
+  /** The verified share capability that submitted the message. */
+  capabilityId: Schema.String,
   text: Schema.String
 })
 /**
@@ -66,6 +68,8 @@ export const AppliedCommand = Schema.Struct({
   seq: JournalEvent.Seq,
   commandId: CommandId,
   participantId: ParticipantId,
+  /** The verified share capability that submitted the command. */
+  capabilityId: Schema.String,
   name: Schema.NonEmptyString,
   args: Schema.String,
   target: Schema.String
@@ -88,7 +92,9 @@ export const Field = Schema.Struct({
   target: Schema.NonEmptyString,
   value: Schema.String,
   seq: JournalEvent.Seq,
-  participantId: ParticipantId
+  participantId: ParticipantId,
+  /** The verified share capability that wrote the winning value. */
+  capabilityId: Schema.String
 })
 /**
  * The value form of {@link Field}.
@@ -220,6 +226,7 @@ export const apply = (state: State, entry: JournalEvent.Entry): State => {
       seq: entry.seq,
       commandId: commandSubmission.commandId,
       participantId: commandSubmission.participantId,
+      capabilityId: commandSubmission.capabilityId,
       text: commandSubmission.args
     })
     : state.messages
@@ -230,7 +237,8 @@ export const apply = (state: State, entry: JournalEvent.Entry): State => {
         target: commandSubmission.target,
         value: commandSubmission.args,
         seq: entry.seq,
-        participantId: commandSubmission.participantId
+        participantId: commandSubmission.participantId,
+        capabilityId: commandSubmission.capabilityId
       }
       const winner = resolveField(
         state.fields.find((field) => field.target === commandSubmission.target),
@@ -272,6 +280,7 @@ export const project = (branchId: BranchId, entries: Iterable<JournalEvent.Entry
         seq: entry.seq,
         commandId: submission.commandId,
         participantId: submission.participantId,
+        capabilityId: submission.capabilityId,
         text: submission.args
       })
     }
@@ -280,7 +289,8 @@ export const project = (branchId: BranchId, entries: Iterable<JournalEvent.Entry
         target: submission.target,
         value: submission.args,
         seq: entry.seq,
-        participantId: submission.participantId
+        participantId: submission.participantId,
+        capabilityId: submission.capabilityId
       }
       fields.set(submission.target, resolveField(fields.get(submission.target), candidate))
     }

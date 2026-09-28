@@ -88,7 +88,7 @@ for (const live of [false, true]) {
       expect(corrupted).toBe(1)
       expect(applied).toBe(0)
       expect((yield* client.progress).delivered).toEqual([])
-    }).pipe(Effect.provide(Layer.mergeAll(TestSync.layerWorkspaceAuth)), Effect.scoped))
+    }).pipe(Effect.provide(Layer.mergeAll(TestSync.layerTrustAllAsOwner)), Effect.scoped))
 }
 
 it.live("refuses a malformed snapshot on the actual JSON wire without advancing progress", () =>
@@ -117,4 +117,4 @@ it.live("refuses a malformed snapshot on the actual JSON wire without advancing 
     expect(corrupted).toBe(1)
     expect((yield* client.progress).delivered).toEqual([])
     expect((yield* client.progress).applied).toEqual([])
-  }).pipe(Effect.provide(TestSync.layerWorkspaceAuth), Effect.scoped))
+  }).pipe(Effect.provide(TestSync.layerTrustAllAsOwner), Effect.scoped))

@@ -76,7 +76,7 @@ const services = SyncServer.layer.pipe(Layer.provideMerge(Layer.mergeAll(
   storage,
   source,
   RunCatalog.layerStatic([runId]),
-  TestSync.layerWorkspaceAuth
+  TestSync.layerTrustAllAsOwner
 )))
 const emit = (value: unknown) =>
   Effect.sync(() => {

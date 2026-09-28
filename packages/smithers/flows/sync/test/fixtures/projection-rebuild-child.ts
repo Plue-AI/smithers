@@ -75,11 +75,11 @@ const storage = SqlJournal.layer({ capacity: 64, overflow: "reject" }).pipe(
 const auth = Layer.mergeAll(
   BranchShare.layerHmac({
     activeKid: "primary",
-    keys: [{ kid: "primary", secret: Redacted.make("projection-rebuild-test") }]
+    keys: [{ kid: "primary", secret: Redacted.make("projection-rebuild-test-01234567") }]
   }),
   WorkspaceShare.layerHmac({
     activeKid: "test",
-    keys: [{ kid: "test", secret: Redacted.make("workspace-rebuild-test") }]
+    keys: [{ kid: "test", secret: Redacted.make("workspace-rebuild-test-012345678") }]
   })
 )
 const program = Effect.gen(function*() {

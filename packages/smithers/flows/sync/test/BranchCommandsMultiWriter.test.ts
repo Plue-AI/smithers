@@ -69,7 +69,7 @@ const runRace = (rightParticipant: BranchProtocol.ParticipantId) =>
         TestJournal.layer(),
         BranchShare.layerHmac({
           activeKid: "primary",
-          keys: [{ kid: "primary", secret: Redacted.make("multi-writer-secret") }]
+          keys: [{ kid: "primary", secret: Redacted.make("multi-writer-secret-0123456789ab") }]
         })
       )
     ),

@@ -128,7 +128,7 @@ const securityReview = Smithers.SecurityReview({
         "A remote client of a gateway wired with a published noop or test layer reads every workspace run without a credential.",
       lookFor: [
         "A `makeNoop` authority whose `verify` succeeds, or a `SyncServer.layerNoop` that returns journal data.",
-        "The published `./test/TestSync` export `layerWorkspaceAuth` (trusts every connection as owner) reachable from a non-test composition."
+        "The published `./test/TestSync` export `layerTrustAllAsOwner` (trusts every connection as owner) reachable from a non-test composition."
       ],
       paths: ["src/test/**", "src/WorkspaceShare.ts", "src/BranchShare.ts", "src/SyncServer.ts", "src/SyncAuth.ts"]
     },

@@ -438,7 +438,7 @@ const makeWith = (
           })
         })
 
-      const journalInput = (submission: CommandSubmission): JournalEvent.Input =>
+      const journalInput = (submission: CommandSubmission, capabilityId: string): JournalEvent.Input =>
         new JournalEvent.Input({
           runId: branchRunId(submission.branchId),
           sourceId: commandSourceId(submission.commandId),
@@ -450,12 +450,17 @@ const makeWith = (
             participantId: submission.participantId,
             name: submission.name,
             args: submission.args,
-            target: submission.target
+            target: submission.target,
+            capabilityId
           },
           meta: null
         })
 
-      const admit = (request: SubmitRequest, state: BranchState): Effect.Effect<CommandReceipt, SyncError> =>
+      const admit = (
+        request: SubmitRequest,
+        capabilityId: string,
+        state: BranchState
+      ): Effect.Effect<CommandReceipt, SyncError> =>
         Effect.gen(function*() {
           const submission = request.submission
           yield* hydrate(submission.branchId, state)
@@ -465,7 +470,7 @@ const makeWith = (
           // log — participants own no branch run, and command admissions are
           // first-writer-wins on the command id.
           const receipt = yield* journal.emitDurableUnfenced(
-            journalInput(submission)
+            journalInput(submission, capabilityId)
           ).pipe(
             // A `Duplicate` receipt is another writer landing the identical
             // submission first: the journal deduplicated durably and returned
@@ -505,7 +510,12 @@ const makeWith = (
           commandId: request.submission.commandId,
           participantId: request.submission.participantId
         })
-        yield* share.verify(request.capability, { branchId: request.submission.branchId, access: "write" })
+        // The verified capability, not the client's `participantId`, is who
+        // submitted: it is stamped on the durable payload for attribution.
+        const claims = yield* share.verify(request.capability, {
+          branchId: request.submission.branchId,
+          access: "write"
+        })
         const bytes = SyncProtocol.encodedByteLength(request.submission)
         if (bytes > maxCommandBytes) {
           // Refused BEFORE the append: an oversized command must never reach
@@ -517,7 +527,7 @@ const makeWith = (
             })
           )
         }
-        const input = journalInput(request.submission)
+        const input = journalInput(request.submission, claims.capabilityId)
         // The journal owns these fields. Reserve their largest encoded forms,
         // so acceptance does not depend on wall clock or current history length.
         // Event identity repeats run/source IDs; their escaping and UTF-8 cost
@@ -541,7 +551,7 @@ const makeWith = (
         // cannot serialize (and therefore stall) legitimate collaborators,
         // and it is this BRANCH's permit so a slow branch stalls only itself.
         return yield* RcMap.get(branches, request.submission.branchId).pipe(
-          Effect.flatMap((state) => state.permit.withPermit(admit(request, state))),
+          Effect.flatMap((state) => state.permit.withPermit(admit(request, claims.capabilityId, state))),
           Effect.scoped
         )
       })

@@ -28,16 +28,19 @@ const layerNoopAuth = Layer.succeed(SyncRpcs.SyncAuth)((effect) => effect)
  * they exercise paging and streaming without provisioning capabilities,
  * while the authentication suites use the production `SyncAuth.layer`.
  *
+ * Never compose it into a served transport: every network client would read
+ * every workspace run as the owner. The name says so at the call site.
+ *
  * @category layers
- * @since 0.1.0
+ * @since 1.0.0-rc.1
  */
-export const layerWorkspaceAuth = Layer.succeed(SyncRpcs.SyncAuth)((effect) =>
+export const layerTrustAllAsOwner = Layer.succeed(SyncRpcs.SyncAuth)((effect) =>
   Effect.provideService(effect, SyncPrincipal.SyncPrincipal, SyncPrincipal.workspace("test-workspace-owner"))
 )
 
 /**
  * Provides the durable in-memory journal, a mutable empty run catalog, the
- * owner-trusting {@link layerWorkspaceAuth} middleware, and the production
+ * owner-trusting {@link layerTrustAllAsOwner} middleware, and the production
  * sync server.
  *
  * Tests that need runs in the workspace may register them through their own
@@ -51,7 +54,7 @@ export const layerTest = SyncServer.layer.pipe(
     Layer.mergeAll(
       TestJournal.layer(),
       RunCatalog.layerMemory(),
-      layerWorkspaceAuth
+      layerTrustAllAsOwner
     )
   )
 )

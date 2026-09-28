@@ -14,7 +14,7 @@ import { connect, type Requirements } from "./fixtures/branchRpc.ts"
 const base = Layer.mergeAll(
   BranchShare.layerHmac({
     activeKid: "primary",
-    keys: [{ kid: "primary", secret: Redacted.make("roster-watch-secret") }]
+    keys: [{ kid: "primary", secret: Redacted.make("roster-watch-secret-0123456789ab") }]
   }),
   BranchCommands.layerNoop,
   BranchPresence.layerNoop,

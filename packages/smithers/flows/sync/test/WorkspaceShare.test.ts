@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
-import { ConfigProvider, Effect, Layer, Redacted } from "effect"
+import { Config, ConfigProvider, Effect, Layer, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { SyncError } from "../src/SyncError.ts"
 import * as WorkspaceShare from "../src/WorkspaceShare.ts"
@@ -7,7 +7,7 @@ import { died, refusalOf } from "./refusal.ts"
 
 const key = (kid: string, secret: string): WorkspaceShare.Key => ({ kid, secret: Redacted.make(secret) })
 
-const keyring: WorkspaceShare.Keyring = { activeKid: "k1", keys: [key("k1", "workspace-secret")] }
+const keyring: WorkspaceShare.Keyring = { activeKid: "k1", keys: [key("k1", "workspace-secret-0123456789abcde")] }
 
 const run = <A, E>(effect: Effect.Effect<A, E>) => effect.pipe(Effect.provide(TestClock.layer()))
 
@@ -96,12 +96,15 @@ describe("WorkspaceShare", () => {
           const minted = yield* before.mint({ capabilityId: "cap-old", access: "read", ttlMs: 60_000 })
           const rotated = yield* WorkspaceShare.makeHmac({
             activeKid: "k2",
-            keys: [key("k1", "workspace-secret"), key("k2", "next-secret")]
+            keys: [key("k1", "workspace-secret-0123456789abcde"), key("k2", "next-secret-0123456789abcdefghij")]
           })
           const still = yield* rotated.verify(minted, { access: "read" })
           const fresh = yield* rotated.mint({ capabilityId: "cap-new", access: "read", ttlMs: 60_000 })
           // A keyring that dropped k1 entirely refuses the old capability.
-          const dropped = yield* WorkspaceShare.makeHmac({ activeKid: "k2", keys: [key("k2", "next-secret")] })
+          const dropped = yield* WorkspaceShare.makeHmac({
+            activeKid: "k2",
+            keys: [key("k2", "next-secret-0123456789abcdefghij")]
+          })
           const refused = yield* Effect.flip(dropped.verify(minted, { access: "read" }))
           return [still, fresh.claims.kid, refused] as const
         })
@@ -119,9 +122,14 @@ describe("WorkspaceShare", () => {
         Effect.gen(function*() {
           return [
             yield* Effect.flip(
-              WorkspaceShare.makeHmac({ activeKid: "k1", keys: [key("k1", "a"), key("k1", "b")] })
+              WorkspaceShare.makeHmac({
+                activeKid: "k1",
+                keys: [key("k1", "a-0123456789abcdefghijklmnopqrst"), key("k1", "b-0123456789abcdefghijklmnopqrst")]
+              })
             ),
-            yield* Effect.flip(WorkspaceShare.makeHmac({ activeKid: "k9", keys: [key("k1", "a")] }))
+            yield* Effect.flip(
+              WorkspaceShare.makeHmac({ activeKid: "k9", keys: [key("k1", "a-0123456789abcdefghijklmnopqrst")] })
+            )
           ] as const
         })
       )
@@ -200,9 +208,9 @@ describe("WorkspaceShare", () => {
     Effect.gen(function*() {
       const [defaultKid, namedKid] = yield* run(
         Effect.gen(function*() {
-          const first = yield* mintedKid({ SMITHERS_SYNC_SECRET: "configured-secret" })
+          const first = yield* mintedKid({ SMITHERS_SYNC_SECRET: "configured-secret-0123456789abcd" })
           const second = yield* mintedKid({
-            SMITHERS_SYNC_SECRET: "configured-secret",
+            SMITHERS_SYNC_SECRET: "configured-secret-0123456789abcd",
             SMITHERS_SYNC_KEY_ID: "2026-08"
           })
           return [first, second] as const
@@ -231,5 +239,36 @@ describe("WorkspaceShare", () => {
       // rather than crashing on it.
       expect(died(exit)).toBe(false)
       expect(refusalOf(exit)).toBeDefined()
+    }))
+  it.effect("the guide's rotation keyring fails with a ConfigError naming an unset secret", () =>
+    Effect.gen(function*() {
+      // The shape docs/guides/authorize-a-connection.md tells readers to copy.
+      const rotated = Layer.unwrap(
+        Effect.gen(function*() {
+          const keyring: WorkspaceShare.Keyring = {
+            activeKid: "2026-q1",
+            keys: [
+              { kid: "2026-q1", secret: yield* Config.Redacted("SYNC_SECRET_CURRENT") },
+              { kid: "2025-q4", secret: yield* Config.Redacted("SYNC_SECRET_RETIRED") }
+            ]
+          }
+          return WorkspaceShare.layerHmac(keyring)
+        })
+      )
+      const build = (environment: Record<string, string>) =>
+        run(Effect.exit(Effect.provide(
+          Effect.service(WorkspaceShare.WorkspaceShare),
+          rotated.pipe(Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(environment))))
+        )))
+
+      const missing = yield* build({ SYNC_SECRET_CURRENT: "c".repeat(32) })
+      expect(died(missing)).toBe(false)
+      const refusal = refusalOf(missing)
+      expect(refusal).toBeDefined()
+      expect(refusal).not.toBeInstanceOf(SyncError)
+      expect(String(refusal)).toContain("SYNC_SECRET_RETIRED")
+
+      const complete = yield* build({ SYNC_SECRET_CURRENT: "c".repeat(32), SYNC_SECRET_RETIRED: "r".repeat(32) })
+      expect(complete._tag).toBe("Success")
     }))
 })

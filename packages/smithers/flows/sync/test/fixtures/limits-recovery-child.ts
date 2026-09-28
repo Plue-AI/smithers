@@ -31,9 +31,9 @@ const base = Layer.mergeAll(
   journalLayer,
   BranchShare.layerHmac({
     activeKid: "primary",
-    keys: [{ kid: "primary", secret: Redacted.make("disk-limits-test") }]
+    keys: [{ kid: "primary", secret: Redacted.make("disk-limits-test-0123456789abcde") }]
   }),
-  TestSync.layerWorkspaceAuth
+  TestSync.layerTrustAllAsOwner
 )
 const program = Effect.gen(function*() {
   const journal = yield* Journal.Journal
@@ -66,6 +66,8 @@ const program = Effect.gen(function*() {
         })
         const submission = { ...blank, args: prefix + "x".repeat(limit + offset - bytes(blank)) }
         assert.equal(bytes(submission), limit + offset)
+        // What the journal stores: the submission plus its verified capability id.
+        const admitted = { ...submission, capabilityId: "limit-reader" }
         const attached = yield* Deferred.make<void>()
         const observed = Journal.Journal.of({
           ...journal,
@@ -88,7 +90,7 @@ const program = Effect.gen(function*() {
               ...request,
               apply: (entry) =>
                 Effect.sync(() => {
-                  assert.deepEqual(entry.payload, submission)
+                  assert.deepEqual(entry.payload, admitted)
                 })
             })
               .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
@@ -100,11 +102,11 @@ const program = Effect.gen(function*() {
               assert.deepEqual((yield* remote.progress).applied, [])
             } else {
               yield* commands.submit({ capability, submission })
-              assert.deepEqual((yield* Fiber.join(live)).map((entry) => entry.payload), [submission])
+              assert.deepEqual((yield* Fiber.join(live)).map((entry) => entry.payload), [admitted])
             }
           }
           const stored = (yield* journal.entries({ runId, limit: 2 })).entries
-          assert.deepEqual(stored.map((entry) => entry.payload), offset > 0 ? [] : [submission])
+          assert.deepEqual(stored.map((entry) => entry.payload), offset > 0 ? [] : [admitted])
           if (offset <= 0) {
             const fresh = yield* TestSync.connect(yield* TestSocket.makePair()).pipe(
               Effect.provideService(SyncServer.SyncServer, server)
@@ -113,11 +115,11 @@ const program = Effect.gen(function*() {
               ...request,
               apply: (entry) =>
                 Effect.sync(() => {
-                  assert.deepEqual(entry.payload, submission)
+                  assert.deepEqual(entry.payload, admitted)
                 })
             })
               .pipe(Stream.take(1), Stream.runCollect)
-            assert.deepEqual(entries.map((entry) => entry.payload), [submission])
+            assert.deepEqual(entries.map((entry) => entry.payload), [admitted])
             assert.deepEqual((yield* fresh.progress).applied, [{ generation: 0, runId, afterSeq: 0 }])
             const reconstructed = yield* BranchCommands.makeLiveWith({ maxCommandBytes: limit })
             assert.equal((yield* reconstructed.submit({ capability, submission })).status, "duplicate")

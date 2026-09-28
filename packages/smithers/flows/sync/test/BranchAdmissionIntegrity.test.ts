@@ -77,7 +77,7 @@ describe("branch write admission integrity", () => {
         Effect.provide(
           BranchShare.layerHmac({
             activeKid: "primary",
-            keys: [{ kid: "primary", secret: Redacted.make("hydrate-test") }]
+            keys: [{ kid: "primary", secret: Redacted.make("hydrate-test-0123456789abcdefghi") }]
           })
         )
       ))
@@ -138,7 +138,8 @@ describe("branch write admission integrity", () => {
         participantId: "alice",
         name: "branch.say",
         args: "authorized bytes",
-        target: ""
+        target: "",
+        capabilityId: "write"
       }])
       expect(
         (yield* journal.entries({ runId: BranchProtocol.branchRunId("foreign" as BranchProtocol.BranchId), limit: 10 }))
@@ -150,7 +151,7 @@ describe("branch write admission integrity", () => {
           TestJournal.layer(),
           BranchShare.layerHmac({
             activeKid: "primary",
-            keys: [{ kid: "primary", secret: Redacted.make("admission-test") }]
+            keys: [{ kid: "primary", secret: Redacted.make("admission-test-0123456789abcdefg") }]
           })
         )
       )

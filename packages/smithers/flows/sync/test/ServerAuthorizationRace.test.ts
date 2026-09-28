@@ -14,7 +14,7 @@ for (const live of [false, true]) {
       const runId = BranchProtocol.branchRunId(branchId)
       const share = yield* BranchShare.makeHmac({
         activeKid: "primary",
-        keys: [{ kid: "primary", secret: Redacted.make("authorization-race") }]
+        keys: [{ kid: "primary", secret: Redacted.make("authorization-race-0123456789abc") }]
       })
       const entered = yield* Deferred.make<void>()
       const release = yield* Deferred.make<void>()

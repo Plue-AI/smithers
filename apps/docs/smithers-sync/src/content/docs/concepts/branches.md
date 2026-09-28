@@ -77,6 +77,12 @@ commands, so the projection has exactly one decoder. `branch.say` is the
 command that appends a chat message; a command's `target` names the shared
 field it durably edits and is `""` for one that only appends.
 
+A command's `participantId` is whatever the submitting client claimed.
+`BranchCommands.submit` stamps the verified `capabilityId` of the share
+capability that sent it onto the durable payload, and the projection carries it
+on every message, applied command, and field. Attribute a command by its
+`capabilityId`; a row admitted before the field existed decodes it as `""`.
+
 Sync admission and command hydration validate known command records before
 advancing progress. Malformed commands and foreign run/branch identities fail
 typed; they cannot become a partial hydration or a new durable write. Hydration
@@ -106,7 +112,11 @@ replaying a branch must not resurrect a stranger's caret.
 
 Announcing requires write access, so a read-only share link may watch the roster
 but never appears on it, and a shared read link cannot be used to impersonate a
-collaborator. A branch holds at most
+collaborator. A live participant is bound to the verified `capabilityId` that
+first announced it: an announce or leave for that `participantId` under any
+other capability is refused with `unauthorized` until the lease lapses, so one
+write link cannot rename, move, or evict another link's participant. Holders of
+the same link share its `capabilityId` and are not told apart. A branch holds at most
 `BranchPresence.defaultMaxParticipants` participants at once; a further announce
 is refused with `backpressure`.
 

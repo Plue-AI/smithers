@@ -29,7 +29,7 @@ const branchRun = BranchProtocol.branchRunId(branchId)
 
 const keyring: WorkspaceShare.Keyring = {
   activeKid: "k1",
-  keys: [{ kid: "k1", secret: Redacted.make("auth-suite-secret") }]
+  keys: [{ kid: "k1", secret: Redacted.make("auth-suite-secret-0123456789abcd") }]
 }
 
 /**
@@ -47,7 +47,7 @@ const stack = Layer.mergeAll(SyncServer.layerHandlers, SyncAuth.layer).pipe(
       RunCatalog.layerStatic([engineRun, branchRun]),
       BranchShare.layerHmac({
         activeKid: "primary",
-        keys: [{ kid: "primary", secret: Redacted.make("auth-branch-secret") }]
+        keys: [{ kid: "primary", secret: Redacted.make("auth-branch-secret-0123456789abc") }]
       })
     )
   )

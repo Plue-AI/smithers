@@ -13,10 +13,10 @@ stands in for a WebSocket, and it can drop, stall, and break frames on demand.
 
 Two subpaths ship for this:
 
-| Import                         | What it gives you                                                                                                      |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `@smthrs/sync/test/TestSocket` | `makePair`, the `Pair` it returns, its `TestFaults` controls, and the `FrameFilter` type. Runs anywhere.               |
-| `@smthrs/sync/test/TestSync`   | `layerTest`, `layerWorkspaceAuth`, `layerNoop`, and `connect`. Binds the Node SQLite test journal, so it is Node only. |
+| Import                         | What it gives you                                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `@smthrs/sync/test/TestSocket` | `makePair`, the `Pair` it returns, its `TestFaults` controls, and the `FrameFilter` type. Runs anywhere.                 |
+| `@smthrs/sync/test/TestSync`   | `layerTest`, `layerTrustAllAsOwner`, `layerNoop`, and `connect`. Binds the Node SQLite test journal, so it is Node only. |
 
 ## Bind a server to a client
 
@@ -192,7 +192,7 @@ that returns bytes hands them to the next filter.
 
 ## Choose the authorization the test needs
 
-`layerTest` uses `TestSync.layerWorkspaceAuth`, which trusts every connection
+`layerTest` uses `TestSync.layerTrustAllAsOwner`, which trusts every connection
 as the workspace owner. That is what a replication-mechanics test wants: it
 exercises paging and streaming without provisioning capabilities.
 
@@ -211,7 +211,7 @@ import { Layer, Redacted } from "effect"
 
 const keyring: WorkspaceShare.Keyring = {
   activeKid: "k1",
-  keys: [{ kid: "k1", secret: Redacted.make("test-secret") }]
+  keys: [{ kid: "k1", secret: Redacted.make("test-secret-fixture-only-not-for-prod") }]
 }
 
 const servingStack = Layer.mergeAll(SyncServer.layerHandlers, SyncAuth.layer).pipe(

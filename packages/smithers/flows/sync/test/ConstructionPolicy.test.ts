@@ -34,7 +34,7 @@ const client = {} as Parameters<typeof SyncClient.make>[0]["client"]
 
 const shareLayer = BranchShare.layerHmac({
   activeKid: "primary",
-  keys: [{ kid: "primary", secret: Redacted.make("construction-secret") }]
+  keys: [{ kid: "primary", secret: Redacted.make("construction-secret-0123456789ab") }]
 })
 
 const runId = (value: string) => value as JournalEvent.RunId

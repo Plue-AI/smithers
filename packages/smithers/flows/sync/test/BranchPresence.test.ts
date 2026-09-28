@@ -17,7 +17,7 @@ const layer = BranchPresence.layerWith({ leaseMs }).pipe(
   Layer.provideMerge(
     BranchShare.layerHmac({
       activeKid: "primary",
-      keys: [{ kid: "primary", secret: Redacted.make("presence-secret") }]
+      keys: [{ kid: "primary", secret: Redacted.make("presence-secret-0123456789abcdef") }]
     })
   )
 )
@@ -363,6 +363,82 @@ describe("BranchPresence", () => {
     }))
 })
 
+describe("BranchPresence participant ownership", () => {
+  const mintAs = (capabilityId: string) =>
+    Effect.flatMap(
+      BranchShare.BranchShare,
+      (share) => share.mint({ branchId, capabilityId, access: "write", ttlMs: 600_000 })
+    )
+
+  it.effect("refuses another write capability's announce or leave for a live participant", () =>
+    Effect.gen(function*() {
+      const [spoof, evict, roster, reclaimed] = yield* run(
+        Effect.gen(function*() {
+          const presence = yield* BranchPresence.BranchPresence
+          const alice = yield* mintAs("cap-alice")
+          const mallory = yield* mintAs("cap-mallory")
+          yield* presence.announce({
+            capability: alice,
+            branchId,
+            participantId: participant("alice"),
+            displayName: "Alice",
+            cursor: null
+          })
+          const spoof = yield* Effect.flip(presence.announce({
+            capability: mallory,
+            branchId,
+            participantId: participant("alice"),
+            displayName: "Mallory",
+            cursor: null
+          }))
+          const evict = yield* Effect.flip(
+            presence.leave({ capability: mallory, branchId, participantId: participant("alice") })
+          )
+          const roster = yield* presence.list({ capability: alice, branchId })
+          // Once the owner's lease lapses the id is free for anyone again.
+          yield* TestClock.adjust(Duration.millis(leaseMs))
+          const reclaimed = yield* presence.announce({
+            capability: mallory,
+            branchId,
+            participantId: participant("alice"),
+            displayName: "Mallory",
+            cursor: null
+          })
+          return [spoof, evict, roster, reclaimed] as const
+        })
+      )
+
+      for (const refusal of [spoof, evict]) {
+        expect(refusal.code).toBe("unauthorized")
+        expect(refusal.message).toBe("Participant alice is held by another share capability")
+      }
+      expect(roster.map((entry) => entry.displayName)).toEqual(["Alice"])
+      expect(reclaimed.displayName).toBe("Mallory")
+    }))
+
+  it.effect("lets the owning capability renew and leave its own participant", () =>
+    Effect.gen(function*() {
+      const roster = yield* run(
+        Effect.gen(function*() {
+          const presence = yield* BranchPresence.BranchPresence
+          const alice = yield* mintAs("cap-alice")
+          const announcement = {
+            capability: alice,
+            branchId,
+            participantId: participant("alice"),
+            displayName: "Alice",
+            cursor: null
+          }
+          yield* presence.announce(announcement)
+          yield* presence.announce({ ...announcement, displayName: "Alice B." })
+          yield* presence.leave({ capability: alice, branchId, participantId: participant("alice") })
+          return yield* presence.list({ capability: alice, branchId })
+        })
+      )
+      expect(roster).toEqual([])
+    }))
+})
+
 describe("BranchPresence request detachment", () => {
   /**
    * A share whose `verify` parks after the signature check until released, so
@@ -371,7 +447,7 @@ describe("BranchPresence request detachment", () => {
   const pausedShare = Effect.gen(function*() {
     const share = yield* BranchShare.makeHmac({
       activeKid: "primary",
-      keys: [{ kid: "primary", secret: Redacted.make("presence-secret") }]
+      keys: [{ kid: "primary", secret: Redacted.make("presence-secret-0123456789abcdef") }]
     })
     const entered = yield* Deferred.make<void>()
     const release = yield* Deferred.make<void>()
@@ -446,7 +522,7 @@ describe("BranchPresence request detachment", () => {
       expect(joined.cursor?.cardId).toBe("card-1")
       const readOnly = yield* BranchShare.makeHmac({
         activeKid: "primary",
-        keys: [{ kid: "primary", secret: Redacted.make("presence-secret") }]
+        keys: [{ kid: "primary", secret: Redacted.make("presence-secret-0123456789abcdef") }]
       })
       const capability = yield* readOnly.mint({
         branchId: otherBranchId,
@@ -470,7 +546,7 @@ describe("BranchPresence request detachment", () => {
       yield* Fiber.join(gone)
       const readOnly = yield* BranchShare.makeHmac({
         activeKid: "primary",
-        keys: [{ kid: "primary", secret: Redacted.make("presence-secret") }]
+        keys: [{ kid: "primary", secret: Redacted.make("presence-secret-0123456789abcdef") }]
       })
       const capability = yield* readOnly.mint({
         branchId: otherBranchId,

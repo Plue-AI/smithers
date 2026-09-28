@@ -118,13 +118,16 @@ retried as a transport failure.
 ## invalid_request from the keyring
 
 **Symptom.** `WorkspaceShare.makeHmac` or `BranchShare.makeHmac` fails with
-"The workspace keyring names kid `K` twice" or "The branch keyring's active kid
-names no key in the ring".
+"The workspace keyring names kid `K` twice", "The branch keyring's active kid
+names no key in the ring", or "The HMAC signing secret must be at least 32 bytes
+of UTF-8".
 
 **Cause.** The keyring is malformed. A duplicate `kid` makes verification
-ambiguous, and an `activeKid` with no matching key leaves nothing to mint with.
+ambiguous, an `activeKid` with no matching key leaves nothing to mint with, and
+a short secret can be searched offline from one observed capability.
 
-**Fix.** Correct the keyring before the layer is built. Rotation adds the new
+**Fix.** Correct the keyring before the layer is built. Generate each secret
+with `openssl rand -base64 32`. Rotation adds the new
 key to `keys` and points `activeKid` at it, keeping the retired key in the ring
 so capabilities minted under it still verify.
 

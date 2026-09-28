@@ -136,7 +136,7 @@ const program = Effect.gen(function*() {
   yield* RpcServer.make(SyncRpcs.SyncRpcs, { disableFatalDefects: true }).pipe(
     Effect.provideService(RpcServer.Protocol, serverProtocol),
     Effect.provide(SyncServer.layerHandlers.pipe(Layer.provide(Layer.succeed(SyncServer.SyncServer, server)))),
-    Effect.provide(TestSync.layerWorkspaceAuth),
+    Effect.provide(TestSync.layerTrustAllAsOwner),
     Effect.forkScoped
   )
   const connect = Effect.gen(function*() {
