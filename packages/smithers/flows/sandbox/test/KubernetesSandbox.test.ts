@@ -10,6 +10,7 @@ import {
   makeHandle,
   ProcessId
 } from "effect/unstable/process/ChildProcessSpawner"
+import { createHmac } from "node:crypto"
 import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -26,7 +27,7 @@ import { stalledFinalizer } from "./stalledFinalizer.ts"
 // -----------------------------------------------------------------------------
 
 // The fake emulates only what kubectl and the API server contribute — the
-// run/wait/get/exec/delete verbs, server-side Pod uniqueness, phases, exit
+// run/wait/get/label/exec/delete verbs, server-side Pod uniqueness, phases, exit
 // codes, and stderr text — and every guest command runs through a real
 // `/bin/sh` against a real directory, so pidfiles, signals, `base64`, and
 // `pgrep` are all genuine. The fixed guest pid directory is remapped under
@@ -80,8 +81,8 @@ interface Response {
 
 interface Pod {
   manifest: {
-    metadata: { labels: Record<string, string> }
-    spec: { containers: Array<{ name: string; image: string }> }
+    metadata: { uid?: string; labels: Record<string, string> }
+    spec: { containers: Array<{ name: string; image: string; command?: ReadonlyArray<string> }> }
   }
   phase: string
   readonly env: Record<string, string>
@@ -166,19 +167,27 @@ const cluster = (fault: (args: ReadonlyArray<string>) => Response | undefined = 
             entry: { name: string; value: string }
           ) => [entry.name, entry.value])
         )
+        const labels = args.includes("--labels")
+          ? Object.fromEntries(args[args.indexOf("--labels") + 1]!.split(",").map((label) => label.split("=")))
+          : {}
         pods.set(name, {
           phase: "Running",
           env,
-          manifest: manifest ?? {
-            metadata: {
-              labels: args.includes("--labels")
-                ? Object.fromEntries(args[args.indexOf("--labels") + 1]!.split(",").map((label) => label.split("=")))
-                : {}
-            },
-            spec: { containers: [{ name, image: args[args.indexOf("--image") + 1]! }] }
-          }
+          manifest: manifest === undefined
+            ? {
+              metadata: { uid: crypto.randomUUID(), labels },
+              spec: { containers: [{ name, image: args[args.indexOf("--image") + 1]! }] }
+            }
+            : { ...manifest, metadata: { ...manifest.metadata, uid: crypto.randomUUID() } }
         })
         return canned({ stdout: `pod/${name} created\n` })
+      }
+      if (args[0] === "label") {
+        const pod = pods.get(args[1]!.slice(4))
+        if (pod === undefined) return canned({ exitCode: 1, stderr: `Error from server (NotFound)\n` })
+        const [key, value] = args.at(-1)!.split("=")
+        pod.manifest.metadata.labels[key!] = value!
+        return canned({ stdout: `pod/${args[1]!.slice(4)} labeled\n` })
       }
       if (args[0] === "wait") {
         const name = args.find((arg) => arg.startsWith("pod/"))?.slice(4) ?? ""
@@ -199,6 +208,8 @@ const cluster = (fault: (args: ReadonlyArray<string>) => Response | undefined = 
           : canned({
             stdout: args.at(-1) === "json"
               ? JSON.stringify({ ...pod.manifest, status: { phase: pod.phase } })
+              : args.at(-1) === "jsonpath={.metadata.uid}"
+              ? pod.manifest.metadata.uid ?? ""
               : pod.phase
           })
       }
@@ -368,7 +379,16 @@ describe("KubernetesSandbox", () => {
           if (args[0] === "get") {
             return {
               stdout: JSON.stringify({
-                metadata: { labels: { "smithers.dev/sandbox-fingerprint": label } },
+                metadata: {
+                  uid: "uid-1",
+                  labels: {
+                    "smithers.dev/sandbox-fingerprint": label,
+                    // The seal the provider's wire contract names:
+                    // HMAC-SHA256(key, fingerprint NUL uid), 60 hex digits.
+                    "smithers.dev/sandbox-seal": "s1-" +
+                      createHmac("sha256", "operator-key").update(`${label}\0uid-1`).digest("hex").slice(0, 60)
+                  }
+                },
                 spec: {
                   serviceAccountName: "runner",
                   containers: [
@@ -388,10 +408,14 @@ describe("KubernetesSandbox", () => {
           image: "img",
           workdir,
           serviceAccount: "runner",
-          createArgs
+          createArgs,
+          reattachKey: "operator-key"
         })
         yield* Effect.scoped(provider.acquire("match"))
         expect(fake.calls.some(({ args }) => args[0] === "wait")).toBe(true)
+        // Adopted, not replaced: the sealed leftover is never deleted before use.
+        expect(fake.calls.findIndex(({ args }) => args[0] === "delete"))
+          .toBeGreaterThan(fake.calls.findIndex(({ args }) => args[0] === "wait"))
       }
     }))
 
@@ -628,7 +652,12 @@ describe("KubernetesSandbox", () => {
   it.effect("reattaches an existing Pod and preserves its files", () =>
     Effect.gen(function*() {
       const fake = cluster()
-      const provider = KubernetesSandbox.make({ spawner: fake.spawner, image: "alpine", workdir })
+      const provider = KubernetesSandbox.make({
+        spawner: fake.spawner,
+        image: "alpine",
+        workdir,
+        reattachKey: "operator-key"
+      })
       const leaked = yield* Scope.make()
       const first = yield* Effect.provideService(provider.acquire("resume"), Scope.Scope, leaked)
       yield* first.writeFile(`${first.workdir}/kept.bin`, new Uint8Array([0, 255, 1]))
@@ -647,6 +676,87 @@ describe("KubernetesSandbox", () => {
         .toBe(true)
       expect(yield* Scope.close(leaked, Exit.void)).toBeUndefined()
     }), 30_000)
+
+  it.effect(
+    "replaces a squatted Pod that matches every public check instead of adopting it",
+    () =>
+      Effect.gen(function*() {
+        for (const reattachKey of [undefined, "operator-key"]) {
+          // The squatter has pods/create and pods/get, not pods/exec. The
+          // fingerprint is a hash of public configuration, so it learns the
+          // label by computing it (here: from a dry acquire elsewhere), and it
+          // copies a real seal off one of the victim's earlier Pods.
+          const probe = cluster()
+          const options = { image: "img", workdir, ...reattachKey === undefined ? {} : { reattachKey } }
+          const earlier = yield* Scope.make()
+          const genuine = yield* Effect.provideService(
+            KubernetesSandbox.make({ spawner: probe.spawner, ...options }).acquire("victim"),
+            Scope.Scope,
+            earlier
+          )
+          const copied = { ...probe.pods.get(genuine.remoteId)!.manifest.metadata.labels }
+          yield* Scope.close(earlier, Exit.void)
+
+          const fake = cluster()
+          fake.pods.set(genuine.remoteId, {
+            phase: "Running",
+            env: {},
+            manifest: {
+              metadata: { uid: "squatter-uid", labels: copied },
+              spec: {
+                containers: [{ name: genuine.remoteId, image: "img", command: ["/bin/sh", "-c", "steal"] }]
+              }
+            }
+          })
+          const squatter = fake.pods.get(genuine.remoteId)
+          const provider = KubernetesSandbox.make({ spawner: fake.spawner, ...options })
+          yield* acquired(provider, (session) =>
+            Effect.gen(function*() {
+              expect(session.remoteId).toBe(genuine.remoteId)
+              // The Pod the session runs in is a fresh one, not the squatter's.
+              const current = fake.pods.get(genuine.remoteId)!
+              expect(current).not.toBe(squatter)
+              expect(current.manifest.metadata.uid).not.toBe("squatter-uid")
+            }), "victim")
+          const verbs = fake.calls.map((call) => call.args[0])
+          // The squatter was deleted before the replacement was created, and
+          // nothing was exec'd while it still held the name.
+          const deleted = verbs.indexOf("delete")
+          expect(deleted).toBeGreaterThan(-1)
+          expect(deleted).toBeLessThan(verbs.lastIndexOf("run"))
+          expect(verbs.indexOf("exec")).toBeGreaterThan(deleted)
+          expect(fake.pods.size).toBe(0)
+        }
+      }),
+    30_000
+  )
+
+  it.effect(
+    "replaces a crash-left Pod when no reattach key was given, or the key changed",
+    () =>
+      Effect.gen(function*() {
+        for (const [first, second] of [[undefined, undefined], ["old-key", "new-key"], ["key", undefined]] as const) {
+          const fake = cluster()
+          const leaked = yield* Scope.make()
+          const firstSession = yield* Effect.provideService(
+            KubernetesSandbox.make({ spawner: fake.spawner, image: "alpine", workdir, reattachKey: first })
+              .acquire("fresh"),
+            Scope.Scope,
+            leaked
+          )
+          yield* firstSession.writeFile(`${firstSession.workdir}/gone.txt`, new Uint8Array([1]))
+          const leftover = fake.pods.get(firstSession.remoteId)
+          yield* acquired(
+            KubernetesSandbox.make({ spawner: fake.spawner, image: "alpine", workdir, reattachKey: second }),
+            () => Effect.sync(() => expect(fake.pods.get(firstSession.remoteId)).not.toBe(leftover)),
+            "fresh"
+          )
+          expect(fake.calls.filter((call) => call.args[0] === "run")).toHaveLength(3)
+          yield* Scope.close(leaked, Exit.void)
+        }
+      }),
+    30_000
+  )
 
   it.effect(
     "replaces a leftover Pod finished in a terminal phase instead of waiting on it",

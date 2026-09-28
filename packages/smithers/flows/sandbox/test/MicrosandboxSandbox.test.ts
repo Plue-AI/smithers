@@ -2326,6 +2326,63 @@ describe("MicrosandboxSandbox snapshots", () => {
       expect(fake.machines.has(machine)).toBe(false)
     }))
 
+  it.effect("refuses a disk holding a secret base64-, percent-, or JSON-encoded, at any alignment", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("prepared", ownership("installation-a", "host"))
+      const disk = fake.machineRoot("prepared")
+      const special = "p@ss/word+\"with\"\\=chars&more?~"
+      const b64 = (text: string) => Buffer.from(text).toString("base64")
+      const encoded: Record<string, string> = {
+        "b64-0": b64(token),
+        "b64-1": `auth: ${b64(`x${token}`)}\n`,
+        "b64-2": b64(`u:${token}`),
+        "b64url": Buffer.from(`??${special}`).toString("base64url"),
+        "url": `https://x:${encodeURIComponent(special)}@host/`,
+        "json": JSON.stringify({ password: special })
+      }
+      for (const [file, content] of Object.entries(encoded)) writeFileSync(join(disk, "etc", file), content)
+      const refused = yield* Effect.flip(
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: [token, special]
+        })
+      )
+      const found = refused.message.replace(/^.*on its disk at /, "").split(", ").sort()
+      expect(found).toEqual(Object.keys(encoded).map((file) => `/etc/${file}`).sort())
+      expect(fake.snapshots.size).toBe(0)
+    }))
+
+  it.effect("removes cloud and agent sign-in files before capture", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("prepared", ownership("installation-a", "host"))
+      const disk = fake.machineRoot("prepared")
+      const files = [
+        ".aws/credentials",
+        ".config/gcloud/application_default_credentials.json",
+        ".gemini/oauth_creds.json",
+        ".config/github-copilot/hosts.json"
+      ]
+      for (const file of files) {
+        mkdirSync(join(disk, "root", file, ".."), { recursive: true })
+        writeFileSync(join(disk, "root", file), `secret=${token}`)
+      }
+      expect(
+        yield* MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: [token]
+        })
+      ).toBe("base.1")
+      expect(holding(fake.snapshots.get("base.1")!.disk!, token)).toEqual([])
+    }))
+
   it.effect("searches for a multi-line secret's longest line, so an armor line elsewhere does not refuse", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()

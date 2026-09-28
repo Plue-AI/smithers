@@ -19,6 +19,7 @@
 
 import * as Effect from "effect/Effect"
 import { attemptIn } from "../internal/attempt.ts"
+import { encodeBase64 } from "../internal/base64.ts"
 import { runGuest } from "../internal/microsandboxProcess.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import type { Sdk } from "./Sdk.ts"
@@ -67,7 +68,8 @@ export const snapshotFamily = (name: string): string | undefined => {
 
 /**
  * Files that hold nothing but credentials, relative to a home directory:
- * git's store, netrc, PyPI, GitHub CLI, Cargo, and the agent CLIs' sign-ins.
+ * git's store, netrc, PyPI, GitHub CLI, Cargo, AWS, Google Cloud, and the
+ * agent CLIs' sign-ins.
  * {@link captureSnapshot} removes these from every home before it captures.
  * Files that mix credentials with configuration, such as `.npmrc` or Docker's
  * `config.json`, stay; the secret search refuses one that holds a token.
@@ -78,8 +80,15 @@ const credentialFiles: ReadonlyArray<string> = [
   ".pypirc",
   ".config/gh/hosts.yml",
   ".cargo/credentials.toml",
+  ".aws/credentials",
+  ".config/gcloud/application_default_credentials.json",
+  ".config/gcloud/credentials.db",
+  ".config/gcloud/access_tokens.db",
   ".claude/.credentials.json",
   ".codex/auth.json",
+  ".gemini/oauth_creds.json",
+  ".config/github-copilot/hosts.json",
+  ".config/github-copilot/apps.json",
   ".local/share/opencode/auth.json"
 ]
 
@@ -107,11 +116,45 @@ const scrubScript = (search: boolean): string =>
 /** The fewest bytes a secret's searched line may hold; a shorter one would match unrelated files. */
 const minimumPatternBytes = 8
 
+const encoder = new TextEncoder()
+
 /**
- * What the disk is searched for: each secret's longest line. A multi-line
- * secret such as a PEM key is found by its body, not by an armor or brace
- * line any file might hold. `tooShort` names the first secret whose longest
- * line is too short to search for.
+ * The base64 characters `line` determines wherever it sits in an encoded
+ * stream: one run per byte alignment (0, 1, or 2 bytes before it), cut to the
+ * characters no neighbouring byte touches.
+ */
+const base64Forms = (line: string): ReadonlyArray<string> => {
+  const bytes = encoder.encode(line)
+  return [0, 1, 2].map((lead) => {
+    const padded = new Uint8Array(lead + bytes.length)
+    padded.set(bytes, lead)
+    const whole = Math.floor(padded.length / 3) * 4
+    return encodeBase64(padded).slice(lead === 0 ? 0 : lead + 1, whole)
+  })
+}
+
+/**
+ * Each line is searched raw and in the encodings preparation tools commonly
+ * write a token in: base64 and base64url at every alignment (Basic auth,
+ * Docker's `auths`, Kubernetes secrets), percent-encoding (URLs, form bodies),
+ * and JSON string escaping.
+ */
+const encodedForms = (line: string): ReadonlyArray<string> => {
+  const base64 = base64Forms(line)
+  return [
+    line,
+    ...base64,
+    ...base64.map((form) => form.replaceAll("+", "-").replaceAll("/", "_")),
+    encodeURIComponent(line),
+    JSON.stringify(line).slice(1, -1)
+  ].filter((form) => encoder.encode(form).length >= minimumPatternBytes)
+}
+
+/**
+ * What the disk is searched for: each secret's longest line, raw and in its
+ * {@link encodedForms}. A multi-line secret such as a PEM key is found by its
+ * body, not by an armor or brace line any file might hold. `tooShort` names
+ * the first secret whose longest line is too short to search for.
  */
 const secretPatterns = (
   secrets: ReadonlyArray<string>
@@ -119,8 +162,8 @@ const secretPatterns = (
   const patterns: Array<string> = []
   for (const [index, secret] of secrets.entries()) {
     const longest = secret.split(/\r?\n/).reduce((best, line) => line.length > best.length ? line : best, "")
-    if (new TextEncoder().encode(longest).length < minimumPatternBytes) return { tooShort: index }
-    patterns.push(longest)
+    if (encoder.encode(longest).length < minimumPatternBytes) return { tooShort: index }
+    patterns.push(...encodedForms(longest))
   }
   return { patterns: [...new Set(patterns)] }
 }
@@ -142,7 +185,7 @@ const scrubbed = (
       args: ["-c", scrubScript(patterns.length > 0)],
       cwd: "/",
       env: {},
-      stdin: patterns.length > 0 ? new TextEncoder().encode(`${patterns.join("\n")}\n`) : undefined
+      stdin: patterns.length > 0 ? encoder.encode(`${patterns.join("\n")}\n`) : undefined
     }, searched),
     ({ code, stderr, stdout }) => {
       // grep lists what it found even when it could not read every file.
@@ -195,9 +238,11 @@ export interface CaptureOptions {
  * A snapshot is restored into every later machine, so a credential left on
  * the disk would reach all of them. Before the capture the machine is started
  * if stopped, the credential files of `/root` and every `/home/*` are removed
- * (git's store, `.netrc`, `.pypirc`, GitHub CLI, Cargo, and the Claude,
- * Codex, and OpenCode sign-ins), and the whole disk is searched for the
- * longest line of every value in `secrets`; a value still found anywhere
+ * (git's store, `.netrc`, `.pypirc`, GitHub CLI, Cargo, AWS, Google Cloud,
+ * and the Claude, Codex, Gemini, Copilot, and OpenCode sign-ins), and the
+ * whole disk is searched for the longest line of every value in `secrets`,
+ * raw, base64 or base64url at any alignment, percent-encoded, or
+ * JSON-escaped; a value still found anywhere
  * refuses the capture and names the files, never the value. A secret whose
  * longest line is under 8 bytes is refused before any guest call. Hand credentials
  * to later machines at run time, after the restore.

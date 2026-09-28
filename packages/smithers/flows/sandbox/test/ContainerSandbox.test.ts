@@ -325,6 +325,16 @@ describe("ContainerSandbox", () => {
       }
     }))
 
+  it.effect("refuses a container name the CLI would parse as an option, before any engine call", () =>
+    Effect.gen(function*() {
+      const fake = engine(() => undefined)
+      const provider = ContainerSandbox.make({ spawner: fake.spawner, image: "img", namePrefix: "" })
+      const refused = yield* Effect.flip(Effect.scoped(provider.acquire("-uroot")))
+      expect(refused).toMatchObject({ code: "spawn_error" })
+      expect(refused.message).toContain("starts with \"-\"")
+      expect(fake.calls).toEqual([])
+    }))
+
   it.effect("reattaches matching explicit creation options and reordered environment records", () =>
     Effect.gen(function*() {
       for (const createArgs of [[], ["--memory", "1g"], ["--privileged", "--volume", "/:/host"]]) {

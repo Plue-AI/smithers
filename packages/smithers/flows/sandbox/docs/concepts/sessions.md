@@ -50,7 +50,7 @@ the finalizer does:
 | --------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `DirectorySandbox`    | the recursive create finds a crash-left directory and its files | nothing; the directory is removed                                    |
 | `ContainerSandbox`    | a refused create whose name `container inspect` finds           | nothing; `rm --force` ends the container                             |
-| `KubernetesSandbox`   | an `AlreadyExists` answer                                       | nothing; the Pod is force deleted                                    |
+| `KubernetesSandbox`   | an `AlreadyExists` Pod sealed under the same `reattachKey`      | nothing; the Pod is force deleted                                    |
 | `MicrosandboxSandbox` | `sandboxAlreadyExists` connects or restarts                     | nothing for `ephemeral`; a `sticky` machine stays running on purpose |
 | `VercelSandbox`       | `getOrCreate` with `persistent` and `resume`                    | the persistent sandbox, stopped                                      |
 | `DaytonaSandbox`      | `get(name)` before `create`                                     | nothing; teardown deletes the sandbox                                |

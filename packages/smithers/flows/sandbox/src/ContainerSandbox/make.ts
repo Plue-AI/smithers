@@ -64,7 +64,10 @@ export interface ContainerSandboxOptions {
   readonly limits?: ResourceLimits | undefined
   /** Extra `create` arguments, an escape hatch for engine-specific shaping. */
   readonly createArgs?: ReadonlyArray<string> | undefined
-  /** The container-name prefix. Default `smthrs-sbx-`. */
+  /**
+   * The container-name prefix. Default `smthrs-sbx-`. A name that would start
+   * with `-` is refused at acquire: the CLI would read it as an option.
+   */
   readonly namePrefix?: string | undefined
 }
 
@@ -203,6 +206,16 @@ export const make = (options: ContainerSandboxOptions): Provider => {
           creationEnv.map(([key, value]) => `${key}=${value}\n`).join("")
         )
         const name = `${prefix}${sessionSlug(sessionKey)}`
+        // The name is a positional argument of `start`, `exec`, and `rm`; one
+        // that starts with `-` would be parsed as an option instead.
+        if (name.startsWith("-")) {
+          return yield* Effect.fail(
+            new ProviderError({
+              code: "spawn_error",
+              message: `the container name ${JSON.stringify(name)} starts with "-"; set a namePrefix that does not`
+            })
+          )
+        }
         const fingerprint = yield* configurationFingerprint({
           provider: "ContainerSandbox/v1",
           owner: sessionKey,

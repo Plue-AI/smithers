@@ -436,10 +436,22 @@ const encoder = new TextEncoder()
  * The line a wrapped command prints after it ends, carrying its exit status.
  *
  * `session-manager-plugin` exits zero whatever the remote command did, so the
- * status has to travel in-band. The nonce keeps a command that happens to
- * print a sentinel of its own from being mistaken for the wrapper's.
+ * status has to travel in-band. The nonce is 128 random bits per framed run,
+ * so it cannot be predicted before the run starts: a per-session counter let
+ * guest code print a later run's sentinel ahead of time. It is not secret
+ * once the run starts, because it rides on the wrapper's argv, so a process
+ * already running in the task can read it and print the sentinel first.
+ * `unframe` taking the first sentinel closes only the narrower case of a
+ * detached child printing one after the wrapper's own status.
  */
-const sentinel = (nonce: number): string => `__smthrs_exit_${nonce}_`
+const sentinel = (nonce: string): string => `__smthrs_exit_${nonce}_`
+
+/** A fresh, unguessable sentinel nonce. */
+const freshNonce = (): string => {
+  const bytes = new Uint8Array(16)
+  globalThis.crypto.getRandomValues(bytes)
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
 
 /**
  * What the transport handed back once the plugin's own framing is removed.
@@ -458,20 +470,22 @@ interface Unframed {
  * `Starting session with SessionId` line before the command's output and an
  * `Exiting session` line after, and every newline arrives as `\r\n`. The
  * command's output is what lies between the banner and the sentinel.
+ *
+ * The FIRST sentinel is the wrapper's: it prints once, when the command ends,
+ * and anything after it (a detached child that outlived the command, still
+ * holding the terminal) is footer, never a second status.
  */
-const unframe = (run: GatheredRun, nonce: number): Unframed => {
+const unframe = (run: GatheredRun, nonce: string): Unframed => {
   const text = decoder.decode(run.stdout).replaceAll("\r\n", "\n")
   const banner = text.match(/^Starting session with SessionId: .*$/m)
   const start = banner === null || banner.index === undefined
     ? 0
     : banner.index + banner[0].length + 1
-  const marker = new RegExp(`\\n${sentinel(nonce)}(\\d+)__`, "g")
-  let last: RegExpExecArray | null = null
-  for (let match = marker.exec(text); match !== null; match = marker.exec(text)) last = match
-  if (last === null) return { payload: text.slice(Math.min(start, text.length)), code: undefined }
+  const first = new RegExp(`\\n${sentinel(nonce)}(\\d+)__`).exec(text.slice(start))
+  if (first === null) return { payload: text.slice(Math.min(start, text.length)), code: undefined }
   return {
-    payload: text.slice(Math.min(start, last.index), last.index),
-    code: Number.parseInt(last[1]!, 10)
+    payload: text.slice(start, start + first.index),
+    code: Number.parseInt(first[1]!, 10)
   }
 }
 
@@ -481,7 +495,7 @@ const unframe = (run: GatheredRun, nonce: number): Unframed => {
  * absolute shell path prevents a task-level PATH override from disabling the
  * provider's own framing, read, write, kill, or preparation plumbing.
  */
-const framedScript = (script: string, nonce: number): string =>
+const framedScript = (script: string, nonce: string): string =>
   `/bin/sh -c ${CommandLine.quote(`( ${script} ); printf '\\n${sentinel(nonce)}%s__\\n' "$?"`)}`
 
 /**
@@ -499,7 +513,7 @@ const spawnScript = (
   cwd: string,
   environment: ReturnType<typeof environmentInput>,
   pidfile: string,
-  nonce: number
+  nonce: string
 ): string =>
   `/bin/sh -c ${
     CommandLine.quote(
@@ -687,11 +701,11 @@ export const make = (input: AwsSandboxOptions): Provider => {
           failure("unavailable", `\`${program} ecs execute-command\` exited ${run.code}: ${run.stderr.trim()}`)
         // One-shot guest scripts: reads, writes, kills, and the workspace
         // preparation. Each opens its own session and reports its own status.
-        let nextNonce = 0
+        let nextPid = 0
         const run = (script: string, stdin?: Stream.Stream<Uint8Array>): Effect.Effect<Unframed, ProviderError> =>
           Effect.scoped(
             Effect.gen(function*() {
-              const nonce = nextNonce++
+              const nonce = freshNonce()
               const handle = yield* spawnTransport(framedScript(script, nonce), stdin)
               const gathered = yield* gather(handle, `${program} ecs execute-command`)
               if (gathered.code !== 0) return yield* Effect.fail(transportFailure(gathered))
@@ -767,8 +781,8 @@ export const make = (input: AwsSandboxOptions): Provider => {
             yield* checkEnvironmentNames(spawnOptions.env)
             const environment = environmentInput(envPrefix(spawnOptions.env), undefined)
             if (spawnOptions.stdin !== undefined || environment.stdin !== undefined) yield* requireStreaming
-            const nonce = nextNonce++
-            const pidfile = `${pidDirectory}/${nonce}.pid`
+            const nonce = freshNonce()
+            const pidfile = `${pidDirectory}/${nextPid++}.pid`
             const fed = yield* redirect(command, spawnOptions.stdin)
             const remote = spawnScript(fed, resolveCwd(spawnOptions.cwd ?? ""), environment, pidfile, nonce)
             const handle = yield* spawnTransport(remote, environment.stdin)

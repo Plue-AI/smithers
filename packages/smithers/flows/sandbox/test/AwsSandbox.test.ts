@@ -341,7 +341,7 @@ const fakeCli = (faults: CliFaults = {}) => {
         wait !== undefined ||
         (faults.removeResult !== undefined && remote.includes("rm -f ") && remote.includes(".smthrs-stdin/"))
       ) {
-        const marker = /__smthrs_exit_\d+_/.exec(remote)![0]
+        const marker = /__smthrs_exit_[0-9a-f]+_/.exec(remote)![0]
         return makeHandle({
           pid: 0 as never,
           exitCode: Effect.as(wait ?? Effect.void, ExitCode(0)),
@@ -409,7 +409,7 @@ const fakeCli = (faults: CliFaults = {}) => {
         )
         : Stream.fromEffect(
           Effect.map(child.exitCode, () => {
-            const marker = /__smthrs_exit_\d+_/.exec(remote)?.[0] ?? "__smthrs_exit_missing_"
+            const marker = /__smthrs_exit_[0-9a-f]+_/.exec(remote)?.[0] ?? "__smthrs_exit_missing_"
             return crlf(encoder.encode(`${guestResult.payload}\n${marker}${guestResult.code}__\n`))
           })
         )
@@ -1592,27 +1592,65 @@ describe("AwsSandbox", () => {
         // plugin reported zero.
         expect(ran).toEqual({ stdout: "framed\n", code: 4 })
 
-        // The workspace is the only part of these lines this test cannot know.
-        const framing = (command: string): string => command.replaceAll(root, "<workdir>")
+        // The workspace and the random nonce are the parts of these lines this
+        // test cannot know.
+        const framing = (command: string): string =>
+          command.replaceAll(root, "<workdir>").replace(/__smthrs_exit_[0-9a-f]{32}_/, "__smthrs_exit_<nonce>_")
         const first = cli.calls[0]!
         expect(first.args.at(-2)).toBe("--command")
         expect(framing(first.args.at(-1)!)).toBe(
           "/bin/sh -c '( mkdir -p <workdir> && rm -rf /tmp/.smthrs-sbx && mkdir -p /tmp/.smthrs-sbx ); "
-            + "printf '\\''\\n__smthrs_exit_0_%s__\\n'\\'' \"$?\"'"
+            + "printf '\\''\\n__smthrs_exit_<nonce>_%s__\\n'\\'' \"$?\"'"
         )
         // A spawned command records its pid, honors a cancellation left before
         // it started, and prints the same sentinel with its own nonce.
         const spawned = cli.calls.find((call) => call.args.at(-1)?.includes("echo framed") === true)!
         expect(framing(spawned.args.at(-1)!)).toBe(
-          "/bin/sh -c 'if [ -e /tmp/.smthrs-sbx/1.pid.cancel ]; then c=143; "
+          "/bin/sh -c 'if [ -e /tmp/.smthrs-sbx/0.pid.cancel ]; then c=143; "
             + "elif cd <workdir>; then /bin/sh -c '\\''echo framed; exit 4'\\'' & p=$!; "
-            + "echo \"$p\" > /tmp/.smthrs-sbx/1.pid; if [ -e /tmp/.smthrs-sbx/1.pid.cancel ]; "
+            + "echo \"$p\" > /tmp/.smthrs-sbx/0.pid; if [ -e /tmp/.smthrs-sbx/0.pid.cancel ]; "
             + "then kill -s TERM \"$p\" 2>/dev/null; fi; wait \"$p\"; c=$?; else c=127; fi; "
-            + "printf '\\''\\n__smthrs_exit_1_%s__\\n'\\'' \"$c\"'"
+            + "printf '\\''\\n__smthrs_exit_<nonce>_%s__\\n'\\'' \"$c\"'"
         )
       }),
     60_000
   )
+
+  it.effect(
+    "ignores a sentinel a detached child prints after the wrapper's status",
+    () =>
+      Effect.gen(function*() {
+        // Guest code reads its own wrapper's nonce off the process table, exits
+        // 3, and leaves a child that prints a forged success line after the
+        // wrapper's real one. The first sentinel is the status.
+        const ran = yield* acquired(
+          transportProvider(fakeEcs(), fakeCli()),
+          (session) =>
+            output(
+              session,
+              "n=$(ps -o args= -p $PPID | grep -oE '__smthrs_exit_[0-9a-f]{32}_'); "
+                + "[ -n \"$n\" ] || exit 99; "
+                + "( sleep 0.3; printf '\\n%s0__\\n' \"$n\"; printf '\\n__smthrs_exit_1_0__\\n' ) & exit 3"
+            )
+        )
+        expect(ran.code).toBe(3)
+      }),
+    60_000
+  )
+
+  it.effect("draws a fresh 128-bit sentinel nonce for every framed run", () =>
+    Effect.gen(function*() {
+      const cli = fakeCli()
+      yield* acquired(transportProvider(fakeEcs(), cli), (session) =>
+        Effect.gen(function*() {
+          yield* output(session, "true")
+          yield* output(session, "true")
+        }))
+      const nonces = cli.calls.map((call) => /__smthrs_exit_([0-9a-f]+)_/.exec(call.remote)?.[1])
+      expect(nonces.length).toBeGreaterThanOrEqual(3)
+      for (const nonce of nonces) expect(nonce).toMatch(/^[0-9a-f]{32}$/)
+      expect(new Set(nonces).size).toBe(nonces.length)
+    }), 60_000)
 
   it.effect("passes the sandbox conformance suite through the CLI session transport", () =>
     Effect.gen(function*() {

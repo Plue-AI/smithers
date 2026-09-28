@@ -74,14 +74,27 @@ export interface KubernetesSandboxOptions {
   readonly nodeSelector?: Readonly<Record<string, string>> | undefined
   readonly createArgs?: ReadonlyArray<string> | undefined
   readonly namePrefix?: string | undefined
+  /**
+   * An operator secret that lets a later process reattach a Pod this one
+   * left behind. Each fresh Pod is labelled with an HMAC of its fingerprint
+   * and its server-assigned `metadata.uid` under this key, and only a leftover
+   * carrying a valid seal is adopted. Without it, and for any leftover whose
+   * seal is missing or wrong, the leftover is deleted and a fresh Pod created.
+   * Keep the same value across restarts that should resume a session.
+   */
+  readonly reattachKey?: string | undefined
 }
 
 const decoder = new TextDecoder()
 const readyTimeout = "300s"
 const maximumPodNameLength = 63
 const fingerprintLabel = "smithers.dev/sandbox-fingerprint"
+const sealLabel = "smithers.dev/sandbox-seal"
 const inspectedPod = Schema.Struct({
-  metadata: Schema.Struct({ labels: Schema.Record(Schema.String, Schema.String) }),
+  metadata: Schema.Struct({
+    uid: Schema.optional(Schema.String),
+    labels: Schema.Record(Schema.String, Schema.String)
+  }),
   spec: Schema.Struct({
     hostNetwork: Schema.optional(Schema.Boolean),
     hostPID: Schema.optional(Schema.Boolean),
@@ -106,6 +119,29 @@ const inspectedPod = Schema.Struct({
  * and `exec` would refuse it, so it is deleted and replaced instead.
  */
 const terminalPhases = new Set(["Succeeded", "Failed"])
+
+/**
+ * The seal a Pod created by a holder of `key` carries: an HMAC-SHA256 of the
+ * configuration fingerprint and the Pod's server-assigned uid, as a label
+ * value (`s1-` and 60 hex digits). Binding the uid means a seal copied off a
+ * deleted Pod does not validate a new Pod created under the same name.
+ */
+const sealOf = (key: string, fingerprint: string, uid: string) =>
+  Effect.tryPromise({
+    try: async () => {
+      const subtle = globalThis.crypto.subtle
+      const hmacKey = await subtle.importKey(
+        "raw",
+        new TextEncoder().encode(key),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      )
+      const mac = await subtle.sign("HMAC", hmacKey, new TextEncoder().encode(`${fingerprint}\0${uid}`))
+      return "s1-" + Array.from(new Uint8Array(mac), (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 60)
+    },
+    catch: providerFailure("unavailable", "could not seal the sandbox pod")
+  })
 
 const podNameOf = (prefix: string, sessionKey: string): string => {
   const slug = sessionSlug(sessionKey).toLowerCase().replaceAll(/[^a-z0-9-]/g, "-")
@@ -167,10 +203,16 @@ const overrideArgs = (name: string, options: KubernetesSandboxOptions): Readonly
  *
  * The provider creates or reattaches a deterministically named Pod, waits for
  * it to become Ready, and registers forced deletion as the acquiring scope's
- * finalizer. A leftover Pod already in a terminal phase (Succeeded or Failed)
- * is not reattached: `kubectl wait` would block on it for its whole timeout,
- * so on `AlreadyExists` the provider inspects the phase and replaces a
- * terminal Pod with a fresh one. Commands and file transfers use
+ * finalizer. On `AlreadyExists` the provider inspects the leftover. One whose
+ * configuration or fingerprint differs is refused without being touched. One
+ * that matches is adopted only when it is live and carries a valid
+ * {@link KubernetesSandboxOptions.reattachKey} seal; otherwise it is deleted
+ * and replaced. The fingerprint is a hash of configuration anyone who knows
+ * the flow can compute, so a principal with `pods/create` but not
+ * `pods/exec` could otherwise pre-create a Pod under the session's name,
+ * label, and image with its own command, and receive the session's exec'd
+ * commands, stdin, and environment. A terminal leftover (Succeeded or
+ * Failed) is always replaced, because `kubectl wait` would block on it. Commands and file transfers use
  * `kubectl exec`, so no host filesystem or platform module is required. File
  * contents cross the text boundary as base64 — written through the exec's
  * stdin, read back with `base64 < path`, a redirect every guest `base64`
@@ -298,10 +340,10 @@ export const make = (input: KubernetesSandboxOptions): Provider => {
           })
           return yield* run(["create", "-f", "-"], manifest)
         })
-        yield* Effect.acquireRelease(
+        const origin = yield* Effect.acquireRelease(
           Effect.gen(function*() {
             const created = yield* create
-            if (created.code === 0) return
+            if (created.code === 0) return "fresh" as const
             if (!/(?:AlreadyExists|already exists)/i.test(created.stderr)) {
               return yield* Effect.fail(
                 new ProviderError({
@@ -335,8 +377,14 @@ export const make = (input: KubernetesSandboxOptions): Provider => {
                 })
               )
             }
-            if (!terminalPhases.has(held.status.phase)) return
-            yield* step(`the finished pod ${name} could not be replaced`, [
+            const sealed = options.reattachKey !== undefined && held.metadata.uid !== undefined &&
+              held.metadata.labels[sealLabel] === (yield* sealOf(options.reattachKey, fingerprint, held.metadata.uid))
+            if (sealed && !terminalPhases.has(held.status.phase)) return "adopted" as const
+            // An unsealed leftover is not trusted with the session: anyone who
+            // may create Pods here can build one that matches every check
+            // above. It is replaced, and a replacement that loses a race for
+            // the name fails below instead of being adopted.
+            yield* step(`the leftover pod ${name} could not be replaced`, [
               "delete",
               `pod/${name}`,
               "--force",
@@ -351,6 +399,7 @@ export const make = (input: KubernetesSandboxOptions): Provider => {
                 })
               )
             }
+            return "fresh" as const
           }),
           () =>
             finalizeWithin(
@@ -358,6 +407,31 @@ export const make = (input: KubernetesSandboxOptions): Provider => {
               `pod ${name}`
             )
         )
+        // Seal a fresh Pod after the finalizer is registered, so a failed
+        // seal still deletes it. A crash before the seal leaves an unsealed
+        // Pod, which the next acquire replaces rather than adopts.
+        if (origin === "fresh" && options.reattachKey !== undefined) {
+          const uid = decoder.decode(
+            (yield* step(`the pod ${name} could not be inspected`, [
+              "get",
+              "pod",
+              name,
+              "-o",
+              "jsonpath={.metadata.uid}"
+            ])).stdout
+          ).trim()
+          if (uid === "") {
+            return yield* Effect.fail(
+              new ProviderError({ code: "unavailable", message: `the pod ${name} reported no uid to seal` })
+            )
+          }
+          yield* step(`the pod ${name} could not be sealed`, [
+            "label",
+            `pod/${name}`,
+            "--overwrite",
+            `${sealLabel}=${yield* sealOf(options.reattachKey, fingerprint, uid)}`
+          ])
+        }
         yield* step(`the pod ${name} did not become Ready`, [
           "wait",
           "--for=condition=Ready",
