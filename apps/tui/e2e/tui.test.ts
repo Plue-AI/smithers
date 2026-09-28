@@ -362,7 +362,7 @@ describe("ctrl+c and ctrl+d", () => {
     await new Promise((resolve) => setTimeout(resolve, 700))
     expect(tui.exited).toBeUndefined()
     await tui.press(key.ctrlC + key.ctrlC)
-    expect((await tui.waitForExit()).code).toBe(0)
+    expect(await tui.waitForExit()).toEqual({ code: 0 })
   }, 60_000)
 
   it("exits on ctrl+d only when the editor is empty", async () => {
@@ -373,7 +373,7 @@ describe("ctrl+c and ctrl+d", () => {
     expect(tui.exited).toBeUndefined()
     await tui.press(key.backspace)
     await tui.press(key.ctrlD)
-    expect((await tui.waitForExit()).code).toBe(0)
+    expect(await tui.waitForExit()).toEqual({ code: 0 })
   }, 60_000)
 })
 
@@ -485,7 +485,7 @@ describe("esc", () => {
       pid = Number(readFileSync(join(cwd, "shell.pid"), "utf8").trim())
       await tui.type("/quit")
       await tui.press(key.enter)
-      expect((await tui.waitForExit(5_000)).code).toBe(0)
+      expect(await tui.waitForExit(5_000)).toEqual({ code: 0 })
       expect(() => process.kill(-pid!, 0)).toThrow()
     } finally {
       if (pid !== undefined) {
@@ -707,9 +707,9 @@ describe("turns", () => {
   }, 30_000)
 
   it.each([40, 110])(
-    "replays a whole recorded turn at %i columns: cells stream, flows run, the answer lands",
+    "replays a whole coding turn at %i columns: cells stream, flows run, the answer lands",
     async (cols) => {
-      const started = await start({ cols, cwd: repository({ git: true }) })
+      const started = await start({ cols, cwd: repository({ git: true }), replay: codingReplay() })
       const { tui, cwd } = started
       await tui.type("node check.mjs fails. Fix it and show it passes.")
       await tui.press(key.enter)
@@ -1322,7 +1322,7 @@ describe("runtime views", () => {
   it(
     "navigates summary rows with hjkl/arrows, expands code, toggles the real diff, and returns focus to chat",
     async () => {
-      const started = await start({ cwd: repository({ git: true }) })
+      const started = await start({ cwd: repository({ git: true }), replay: codingReplay() })
       const { tui } = started
       await tui.type("node check.mjs fails. Fix it and show it passes.")
       await tui.press(key.enter)
@@ -1358,9 +1358,9 @@ describe("runtime views", () => {
     180_000
   )
 
-  /** Runs the recorded turn in a git repository and selects the `Updated math.js` row in the Summary. */
+  /** Runs the coding turn in a git repository and selects the `Updated math.js` row in the Summary. */
   const editRow = async (options: { readonly sessions?: string } = {}) => {
-    const started = await start({ cwd: repository({ git: true }), ...options })
+    const started = await start({ cwd: repository({ git: true }), replay: codingReplay(), ...options })
     await started.tui.type("node check.mjs fails. Fix it and show it passes.")
     await started.tui.press(key.enter)
     await successfulAnswer(started)

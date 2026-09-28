@@ -34,6 +34,20 @@ export const key = {
   backspace: "\x7f"
 } as const
 
+/** A process's exit status, or the signal that killed it. */
+export type Exit = { readonly code: number } | { readonly code: null; readonly signal: number }
+
+/**
+ * Reads `#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}`. tmux marks a
+ * pane dead at PTY EOF, which can precede reaping its process; until then
+ * neither the status nor the signal is known, so the process has not exited.
+ */
+export const exitOf = (format: string): Exit | undefined => {
+  const [dead, status, signal] = format.split(":")
+  if (dead !== "1" || (status === "" && signal === "")) return undefined
+  return status === "" ? { code: null, signal: Number(signal) } : { code: Number(status) }
+}
+
 export class Tui {
   private readonly terminal: Terminal
   private stopped = false
@@ -115,9 +129,8 @@ export class Tui {
     return Number(this.run(["display-message", "-p", "#{pane_pid}"]).trim())
   }
 
-  get exited(): { readonly code: number | null } | undefined {
-    const [dead, status] = this.run(["display-message", "-p", "#{pane_dead}:#{pane_dead_status}"]).trim().split(":")
-    return dead === "1" ? { code: status === "" ? null : Number(status) } : undefined
+  get exited(): Exit | undefined {
+    return exitOf(this.run(["display-message", "-p", "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}"]).trim())
   }
 
   async resize(cols: number, rows: number): Promise<void> {
@@ -194,7 +207,7 @@ export class Tui {
     throw new Error(`timed out waiting for ${label}; screen:\n${this.screen()}`)
   }
 
-  async waitForExit(timeoutMs = 5_000): Promise<{ readonly code: number | null }> {
+  async waitForExit(timeoutMs = 5_000): Promise<Exit> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
       const exited = this.exited

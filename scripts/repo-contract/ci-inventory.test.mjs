@@ -154,7 +154,7 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
   const selected = (label, job) => inventory.rows.filter((row) => row.label === label && row.job === job && row.required && row.selectedRoot)
   for (const [label, job] of [
     ["//apps/app:check", "apps-e2e"], ["//apps/app:unitTests", "apps-e2e"], ["//apps/app:browserE2e", "apps-e2e"],
-    ["//apps/tui:check", "apps-e2e"], ["//apps/tui:unitTests", "apps-e2e"],
+    ["//apps/tui:check", "apps-e2e"], ["//apps/tui:unitTests", "apps-e2e"], ["//apps/tui:e2eTests", "apps-e2e"],
     ["//apps/server:check", "test"], ["//apps/server:unitTests", "test"],
     ["//apps/review:unitTests", "test"], ["//apps/bug-worker:unitTests", "test"],
     ["//apps/review:check", "test"], ["//apps/review:checkTests", "test"],
@@ -198,7 +198,8 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
       assert.ok(row.runtimes.includes(`Node ${nodeRelease}`), row.job + " must report the pinned Node release")
     const name = row.label.split(":").at(-1)
     if (/^browser|^e2e|faults$/i.test(name)) {
-      assert.ok(name === "browserE2e" || name === "faults", `${row.label}: classify and verify this suite's E2E runner`)
+      assert.ok(name === "browserE2e" || name === "faults" || row.label === "//apps/tui:e2eTests",
+        `${row.label}: classify and verify this suite's E2E runner`)
     }
     if (/unitTests$/.test(row.label)) {
       // One required UI job owns the app's three tiers and the TUI suite; each
@@ -212,6 +213,16 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
       assert.ok(row.runner.includes("scripts/run-pr-e2e.mjs"))
       const entry = readFileSync(join(root, row.cwd, "scripts/run-pr-e2e.mjs"), "utf8")
       assert.match(entry, /\["exec", "playwright", "test"\]/)
+    }
+    if (row.label === "//apps/tui:e2eTests") {
+      // The terminal tier types raw keys into the production entry inside a private tmux server.
+      assert.equal(row.rule, "NodeTest")
+      assert.deepEqual(row.runner, ["bun", "test", "./e2e"])
+      const driver = readFileSync(join(root, row.cwd, "e2e/tmux.ts"), "utf8")
+      assert.match(driver, /process\.env\.TMUX_BIN \?\? "tmux"/)
+      assert.match(driver, /spawnSync\(binary\(\), \["-S", this\.socket/)
+      assert.match(readFileSync(join(root, row.cwd, "e2e/tui.test.ts"), "utf8"),
+        /Tui\.start\(\{[^}]*command: `bun \$\{join\(app, "src", "main\.tsx"\)\}/)
     }
     // Ambient helper/fixture/config/dependency/runtime/seed inputs are safe only
     // while the general NodeTest/Vitest runners always execute fresh work.

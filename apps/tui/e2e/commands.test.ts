@@ -132,7 +132,7 @@ it("names, compacts, and resumes a conversation through the startup picker", asy
   await submit("/conversation")
   await tui!.until((screen) => screen.includes("1 exchanges"))
   await submit("/exit")
-  expect((await tui!.waitForExit()).code).toBe(0)
+  expect(await tui!.waitForExit()).toEqual({ code: 0 })
 }, 45_000)
 
 it("copies the last answer and reports a failed clipboard without losing the conversation", async () => {
