@@ -318,6 +318,12 @@ describe("Input.expandGlob", () => {
     ])
   })
 
+  it("skips file links whose targets loop or pass through a regular file", async () => {
+    await Fs.symlink(at("src/loop.ts"), at("src/loop.ts"))
+    await Fs.symlink(at("src/index.ts/child"), at("src/not-a-directory.ts"))
+    expect(await Input.expandGlob(root, "", "src/*.ts")).toEqual(["src/index.ts"])
+  })
+
   /**
    * A `PACKAGE.ts` that is a link is a package marker exactly when the workspace
    * index would import it. Deciding otherwise would erase a boundary the index

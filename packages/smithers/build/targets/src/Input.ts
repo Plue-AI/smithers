@@ -603,6 +603,8 @@ interface Scan {
   readonly io: SafeFs.Io
   readonly cacheDirectory: string
   readonly packageScoped: boolean
+  /** Apply source ignore rules, host-directory exclusions, and repository boundaries. */
+  readonly sourceFilters: boolean
   readonly repositoryBoundaries: ReadonlyArray<string>
   readonly enteredRepositories: ReadonlySet<string>
   readonly found: Array<string>
@@ -660,6 +662,7 @@ const readIgnore = async (
   relative: string
 ): Promise<ReturnType<typeof createIgnore> | undefined> => {
   checkCancelled(scan)
+  if (!scan.sourceFilters) return undefined
   const text = await SafeFs.readText(
     NodePath.join(scan.root, relative, ".gitignore"),
     scanOptions(scan, ignoreNoun)
@@ -876,7 +879,7 @@ const walk = async (
   checkCancelled(scan)
   const relative = opened.relative
   if (bounded && scan.packageScoped && await isPackage(scan, relative, opened.entries)) return
-  if (bounded && isRepository(opened.entries)) return
+  if (bounded && scan.sourceFilters && isRepository(opened.entries)) return
   const matcher = await permitted(scan, () => readIgnore(scan, relative))
   const next = matcher === undefined ? scopes : [...scopes, { base: relative, matcher }]
   // Classify this listing without I/O first, then open the children that need
@@ -884,22 +887,24 @@ const walk = async (
   // opens and per-link stats rather than CPU-bound, so a serial descent costs
   // seconds on a package with thousands of directories, while an unbounded one
   // holds a descriptor per directory in the whole tree. Discovery order cannot
-  // escape: both callers sort `scan.found` before returning it.
+  // escape: callers sort `scan.found` before returning it.
   const directories: Array<string> = []
   const links: Array<string> = []
   for (const entry of opened.entries) {
     checkCancelled(scan)
-    if (entry.name === ".git" || entry.name === "node_modules") continue
     const child = relative === "" ? entry.name : `${relative}/${entry.name}`
     const directory = entry.isDirectory()
-    if (isWorkspaceStatePath(scan.cacheDirectory, child)) continue
-    const repository = scan.repositoryBoundaries.find((boundary) => child === boundary)
-    if (directory && repository !== undefined && !scan.enteredRepositories.has(repository)) continue
-    if (
-      scan.repositoryBoundaries.some((boundary) =>
-        child === `${boundary}/.flows` || child.startsWith(`${boundary}/.flows/`)
-      )
-    ) continue
+    if (scan.sourceFilters) {
+      if (entry.name === ".git" || entry.name === "node_modules") continue
+      if (isWorkspaceStatePath(scan.cacheDirectory, child)) continue
+      const repository = scan.repositoryBoundaries.find((boundary) => child === boundary)
+      if (directory && repository !== undefined && !scan.enteredRepositories.has(repository)) continue
+      if (
+        scan.repositoryBoundaries.some((boundary) =>
+          child === `${boundary}/.flows` || child.startsWith(`${boundary}/.flows/`)
+        )
+      ) continue
+    }
     if (isIgnored(next, child, directory)) continue
     if (directory) directories.push(child)
     else if (entry.isFile()) addFile(scan, child)
@@ -1008,6 +1013,7 @@ export const expandGlob = async (
     io,
     cacheDirectory,
     packageScoped: options.packageScoped ?? true,
+    sourceFilters: true,
     repositoryBoundaries,
     enteredRepositories,
     found: [],
@@ -1084,6 +1090,7 @@ export const discoverFiles = async (
       options.cacheDirectory ?? Config.defaultCacheDirectory
     ),
     packageScoped: false,
+    sourceFilters: true,
     repositoryBoundaries: await declaredSubmodules(root, io, options.signal),
     enteredRepositories: new Set(),
     found: [],
@@ -1099,6 +1106,53 @@ export const discoverFiles = async (
   const opened = await openDirectory(scan, "")
   if (opened === undefined) throw new Error(`workspace is not a directory: ${workspaceRoot}`)
   await walk(scan, opened, [], false)
+  return scan.found.sort()
+}
+
+/**
+ * Lists the files of a declared output directory without source-input filters.
+ *
+ * The directory is literal. Ignore rules, package and repository markers, and
+ * host-directory names do not remove produced files. Workspace confinement,
+ * scan limits, cancellation, and file-link admission match declared input scans.
+ * Directory links are never followed.
+ *
+ * @category expansion
+ * @since 0.1.0
+ */
+export const listOutputFiles = async (
+  workspaceRoot: string,
+  directory: string,
+  options: {
+    readonly io?: SafeFs.Io | undefined
+    readonly limits?: Partial<ScanLimits> | undefined
+    readonly signal?: AbortSignal | undefined
+  } = {}
+): Promise<ReadonlyArray<string>> => {
+  const io = options.io ?? SafeFs.defaultIo
+  const scan: Scan = {
+    root: await SafeFs.canonicalRoot(workspaceRoot, io),
+    io,
+    cacheDirectory: Config.defaultCacheDirectory,
+    packageScoped: false,
+    sourceFilters: false,
+    // Source-only cache and repository settings are inert for output inventories.
+    repositoryBoundaries: [],
+    enteredRepositories: new Set(),
+    found: [],
+    limits: validatedScanLimits(options.limits),
+    signal: options.signal,
+    permits: makePermits(walkConcurrency),
+    directories: 0,
+    entries: 0,
+    files: 0,
+    ignoreBytes: 0,
+    failure: undefined
+  }
+  const relative = resolvePath("", directory)
+  const chain = await openChain(scan, relative === "." ? "" : relative)
+  if (chain === undefined) throw new Error(`declared output directory is unavailable: ${directory}`)
+  await walk(scan, chain[chain.length - 1]!, [], false)
   return scan.found.sort()
 }
 

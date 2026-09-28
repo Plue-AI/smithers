@@ -2464,9 +2464,20 @@ const visit = async (
         selection = { family: "repository", rule, lane: { kind: "published", manifestPath } }
         break
       }
-      case "Api.Compat":
-        selection = { family: "files", rule, lane: { kind: "api-compat" } }
+      case "Api.Compat": {
+        const compatAttrs = attrs as (typeof NodeArtifact.ApiCompatAttrs)["Type"]
+        selection = {
+          family: "files",
+          rule,
+          lane: {
+            kind: "api-compat",
+            baselineLabel: labelFor(compatAttrs.baseline),
+            surfaceLabel: labelFor(compatAttrs.surface),
+            manifestPath: Input.resolvePath(packagePath, compatAttrs.manifest.path)
+          }
+        }
         break
+      }
       case "Overlay":
         selection = { family: "files", rule, lane: { kind: "overlay" } }
         break

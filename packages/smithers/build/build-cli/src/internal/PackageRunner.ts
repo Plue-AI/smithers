@@ -12,7 +12,6 @@ import * as Exec from "@smthrs/targets/Exec"
 import * as ExecSandbox from "@smthrs/targets/ExecSandbox"
 import * as GithubTarget from "@smthrs/targets/GithubTarget"
 import * as Input from "@smthrs/targets/Input"
-import type * as NodeArtifact from "@smthrs/targets/NodeArtifact"
 import type * as Reference from "@smthrs/targets/Reference"
 import type * as Secret from "@smthrs/targets/Secret"
 import * as Shell from "@smthrs/targets/Shell"
@@ -82,17 +81,11 @@ const joined = <A>(run: (signal: AbortSignal) => Promise<A>): Effect.Effect<A, u
 /** Wall-clock cap on one `smithers memory` backend invocation. */
 const memoryBackendTimeoutMs = 60_000
 
-/**
- * The workspace-relative files an agent lane's prompt renders under
- * `=== FILES ===`: the lane's own declared file inputs except the prompt and
- * any git-diff declaration (the diff slice carries that), plus the files of
- * every Filegroup its `data` names, through nested filegroups. Sorted and
- * deduplicated so the rendering is stable.
- */
-const laneDataFiles = (
+/** Collects planned source paths, following only the named Filegroup dependencies. */
+const declaredSourceFiles = (
   node: PackageNode,
   nodes: ReadonlyMap<string, PackageNode>,
-  promptPath: string
+  dependencies: ReadonlyArray<string>
 ): ReadonlyArray<string> => {
   const files = new Set<string>()
   const collect = (candidate: PackageNode): void => {
@@ -111,10 +104,18 @@ const laneDataFiles = (
     collect(dependency)
     for (const inner of dependency.dependencies) walk(inner)
   }
-  for (const label of node.lane?.kind === "agent" ? node.lane.dataLabels : []) walk(label)
-  files.delete(promptPath)
+  for (const label of dependencies) walk(label)
   return [...files].sort()
 }
+
+/** Prompt data includes declared inputs and nested data Filegroups, excluding the prompt itself. */
+const laneDataFiles = (
+  node: PackageNode,
+  nodes: ReadonlyMap<string, PackageNode>,
+  promptPath: string
+): ReadonlyArray<string> =>
+  declaredSourceFiles(node, nodes, node.lane?.kind === "agent" ? node.lane.dataLabels : [])
+    .filter((path) => path !== promptPath)
 
 /**
  * The confinement one package node runs under.
@@ -2271,16 +2272,12 @@ export const executeEffect = (
               )
             }
             case "Api.Compat": {
+              if (node.lane?.kind !== "api-compat") return fail("Api.Compat planned no producers")
+              const lane = node.lane
               const cached = yield* cacheGet(node)
               if (cached !== undefined) return green("hit")
-              const compatAttrs = node.declaration[Target.TargetTypeId]
-                .attrs as (typeof NodeArtifact.ApiCompatAttrs)["Type"]
-              const baselineLabel = index.labelOf(compatAttrs.baseline) ??
-                node.dependencies.find((label) => planned.nodes.get(label)?.rule === "Npm.Published")
-              const surfaceLabel = index.labelOf(compatAttrs.surface) ??
-                node.dependencies.find((label) => label !== baselineLabel)
-              const baseline = baselineLabel === undefined ? undefined : planned.nodes.get(baselineLabel)
-              const surface = surfaceLabel === undefined ? undefined : planned.nodes.get(surfaceLabel)
+              const baseline = planned.nodes.get(lane.baselineLabel)
+              const surface = planned.nodes.get(lane.surfaceLabel)
               if (baseline === undefined || surface === undefined) {
                 return fail("Api.Compat could not resolve baseline and surface")
               }
@@ -2288,11 +2285,8 @@ export const executeEffect = (
                 Effect.gen(function*() {
                   const paths: Array<string> = []
                   for (const directory of roots) {
-                    paths.push(
-                      ...(yield* joined((signal) =>
-                        Input.expandGlob(root, "", `${directory}/**/*.d.ts`, { cacheDirectory, signal })
-                      ))
-                    )
+                    const files = yield* joined((signal) => Input.listOutputFiles(root, directory, { signal }))
+                    paths.push(...files.filter((path) => path.endsWith(".d.ts")))
                   }
                   const rows = yield* joined((signal) =>
                     Input.digestFiles(root, [...new Set(paths)].sort(), { signal })
@@ -2306,7 +2300,7 @@ export const executeEffect = (
               const current = JSON.parse(
                 yield* joined(() =>
                   Fs.readFile(
-                    NodePath.join(root, ...Input.resolvePath(node.packagePath, compatAttrs.manifest.path).split("/")),
+                    NodePath.join(root, ...lane.manifestPath.split("/")),
                     "utf8"
                   )
                 )
@@ -2464,15 +2458,15 @@ export const executeEffect = (
               if (node.lane?.kind === "files-digest") {
                 const producer = planned.nodes.get(node.lane.targetLabel)
                 if (producer === undefined) return fail(`digest target ${node.lane.targetLabel} was not planned`)
-                const paths: Array<string> = []
+                const paths: Array<string> = [...producer.outFiles]
+                // Filegroups expose their admitted sources rather than generated outputs.
+                // Reuse the planner's resolved paths, including missing literal members.
+                if (producer.rule === "Filegroup") {
+                  paths.push(...declaredSourceFiles(producer, planned.nodes, producer.dependencies))
+                }
                 for (const outDir of producer.outDirs) {
                   paths.push(
-                    ...(yield* joined((signal) =>
-                      Input.expandGlob(root, "", `${outDir}/**`, {
-                        cacheDirectory,
-                        signal
-                      })
-                    ))
+                    ...(yield* joined((signal) => Input.listOutputFiles(root, outDir, { signal })))
                   )
                 }
                 const actual = yield* joined((signal) =>
@@ -2492,7 +2486,10 @@ export const executeEffect = (
                   )
                 }
                 const expected: unknown = baseline.value
-                if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+                if (
+                  JSON.stringify(expected) !==
+                    JSON.stringify(actual.map((row) => ({ ...row, digest: row.digest ?? null })))
+                ) {
                   return fail(`file digest differs from ${node.lane.expectedPath}`)
                 }
                 yield* cachePut(node, { kind: "files-digest" })

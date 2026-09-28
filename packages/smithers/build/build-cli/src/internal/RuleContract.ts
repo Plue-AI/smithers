@@ -126,7 +126,12 @@ export type LaneData =
     readonly files: ReadonlyArray<Input.FileDigest>
   }
   | { readonly kind: "published"; readonly manifestPath: string }
-  | { readonly kind: "api-compat" }
+  | {
+    readonly kind: "api-compat"
+    readonly baselineLabel: string
+    readonly surfaceLabel: string
+    readonly manifestPath: string
+  }
   | { readonly kind: "overlay" }
   | { readonly kind: "outward"; readonly required: ReadonlyArray<string> }
   | { readonly kind: "inert" }

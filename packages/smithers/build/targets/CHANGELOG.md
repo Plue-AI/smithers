@@ -15,6 +15,9 @@ of it.
   An issue an agent source (`run`, `linear`, `trial`) files starts
   credentialed work without a maintainer's trigger label only when its source
   is listed.
+- Added `Input.listOutputFiles` for bounded, confined output inventories without
+  source ignore or package-boundary filters.
+
 - Added `Target.guard`, so a rule that refuses something its schema cannot
   express keeps its `id`, `attrs` schema, and `kinds` instead of erasing them
   behind a hand-written `Target.AnyTarget` wrapper. Every catalog rule now
