@@ -8,7 +8,9 @@ import * as Redaction from "@smthrs/journal/Redaction"
 import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
 import { Effect } from "effect"
 import { Cli, z } from "incur"
+import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
+import { join } from "node:path"
 import { cancelAll } from "../commands/CancelAll.ts"
 import * as FlowCatalog from "../commands/FlowCatalog.ts"
 import * as Globals from "../commands/Globals.ts"
@@ -157,8 +159,14 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       }),
       alias: { detached: "d" },
       run: (c) =>
-        guard(c, () =>
-          Bridge.invoke(
+        guard(c, () => {
+          if (!Bridge.isRemote(c.options, runtime)) {
+            const root = Project.root(c.options.root, process.cwd())
+            if (!existsSync(join(root, "flows")) && !existsSync(join(root, ".flows"))) {
+              throw new Error(`No flows found in ${root}`)
+            }
+          }
+          return Bridge.invoke(
             [
               "up",
               c.args.flow,
@@ -170,7 +178,8 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
             ],
             c.options,
             runtime
-          ))
+          )
+        })
     })
     .command("execute", {
       description: "Execute a previously approved plan payload",

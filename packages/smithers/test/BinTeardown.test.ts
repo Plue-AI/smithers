@@ -120,8 +120,14 @@ describe("smithers entrypoint", () => {
     expect(status(entrypoint, Exit.succeed(undefined))).toBe(0)
   })
 
-  it("reports the interrupt status for a cause carrying only interrupts", () => {
-    expect(status(entrypoint, Exit.failCause(Cause.interrupt(1)))).toBe(130)
+  it("reports an interrupt without a signal on stderr and exits 1", () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      expect(status(entrypoint, Exit.failCause(Cause.interrupt(1)))).toBe(1)
+      expect(stderr).toHaveBeenCalledWith("smthrs: startup was interrupted without a signal\n")
+    } finally {
+      stderr.mockRestore()
+    }
   })
 
   it("reports success for a help request and a usage status for one with errors", () => {

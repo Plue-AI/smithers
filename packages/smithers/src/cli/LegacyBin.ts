@@ -101,7 +101,8 @@ const teardown: Runtime.Teardown = (exit, onExit) => {
     return
   }
   if (Cause.hasInterruptsOnly(exit.cause)) {
-    onExit(130)
+    process.stderr.write("smthrs: startup was interrupted without a signal\n")
+    onExit(1)
     return
   }
 

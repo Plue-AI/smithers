@@ -1062,6 +1062,23 @@ describe("the --json stdout contract", processBudget, () => {
   })
 })
 
+describe("flow start outside a repository", processBudget, () => {
+  it("names the empty directory instead of silently exiting 130", () =>
+    inEmptyDirectory((cwd) => {
+      const result = spawnSync(process.execPath, ["--no-warnings", executable, "flow", "start", "missing"], {
+        cwd,
+        encoding: "utf8",
+        timeout: 10_000,
+        env: { ...process.env, HOME: cwd, NODE_OPTIONS: "" }
+      })
+      expect(result.error).toBeUndefined()
+      expect(result.status).not.toBe(0)
+      expect(result.status).not.toBe(130)
+      expect(result.stdout).toBe("")
+      expect(result.stderr).toContain(cwd)
+    }))
+})
+
 describe("the signal exit codes", processBudget, () => {
   const interrupted = async (signal: "SIGINT" | "SIGTERM") => {
     const cwd = mkdtempSync(temporaryDirectoryPrefix)
