@@ -27,6 +27,20 @@ command identity. The CLI does not yet expose a dedicated delivery-status
 lookup. A definite incompatible wait raises `NoMatchingWait`; retries preserve
 that refusal. A signal initially submitted to a settled run returns `Terminal`.
 
+A human wait, one parked with reason `approval` such as a `HumanTask`
+question, is an approval gate. `Control.signal` stamps the caller's principal
+on the admitted command. Before the executor completes a human wait, it asks
+`ApprovalAuthority` whether that principal may approve the wait's `Node`
+target, with the wait name as `requestId`, the wait token as `digest`, and
+scope `once`. A refused principal fails `Unauthorized`, the command is
+rejected, and the wait stays open. A replay after restart is judged by the
+principal recorded at admission; a command with no recorded principal cannot
+answer a human wait. Plain `WaitFor` events need no approval.
+
+A signal from a webhook channel carries the principal
+`{ id: <channel name>, kind: "channel" }`. It can answer a human wait only if
+the host delegates approval to that principal.
+
 `WaitFor` names one durable fact per `(flowName, executionId, name)`. Calling
 it twice with the same name in the same execution intentionally observes the
 same fact. Use distinct names for distinct rendezvous points. This is not a

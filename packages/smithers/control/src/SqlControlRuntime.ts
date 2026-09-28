@@ -216,6 +216,15 @@ const decodeStoredJson = <S extends Schema.Top>(
     catch: () => storedFailure(location, "$", "stored value is not valid JSON")
   }).pipe(Effect.flatMap((value) => decodeStoredValue(location, schema, value)))
 
+/** The admitting principal a signal command recorded, spread onto the command. */
+const signalPrincipal = (
+  json: string | null
+): Effect.Effect<{ readonly principal?: Principal }, PersistenceError> =>
+  json === null ? Effect.succeed({}) : Effect.map(
+    decodeStoredJson("control_signal_commands.principal_json", Principal, json),
+    (principal) => ({ principal })
+  )
+
 /** A random identifier that does not depend on any Node API. */
 const randomId = (): string => globalThis.crypto.randomUUID()
 
@@ -1851,10 +1860,12 @@ const makeRuntime = (
         // fact, it does not decide who runs next.
         appendMessage(runId, "signal", signal)
       ),
-      admitSignal: Effect.fn("SqlControlRuntime.admitSignal")(function*(commandId, runId, signal) {
+      admitSignal: Effect.fn("SqlControlRuntime.admitSignal")(function*(commandId, runId, signal, principal) {
         yield* requireRow(runId)
-        yield* writer.write(sql`INSERT INTO control_signal_commands (command_id, run_id, payload_json)
-          VALUES (${commandId}, ${runId}, ${JSON.stringify(signal)}) ON CONFLICT(command_id) DO NOTHING`).pipe(
+        const payloadJson = JSON.stringify(signal)
+        const principalJson = principal === undefined ? null : JSON.stringify(principal)
+        yield* writer.write(sql`INSERT INTO control_signal_commands (command_id, run_id, payload_json, principal_json)
+          VALUES (${commandId}, ${runId}, ${payloadJson}, ${principalJson}) ON CONFLICT(command_id) DO NOTHING`).pipe(
           Effect.mapError(persistence("admit signal command"))
         )
       }),
@@ -1866,9 +1877,11 @@ const makeRuntime = (
             payloadJson: string
             token: string | null
             state: "pending" | "delivered" | "rejected" | "terminal"
+            principalJson: string | null
           }
         >`
-          SELECT command_id AS "commandId", run_id AS "runId", payload_json AS "payloadJson", wait_token AS token, state
+          SELECT command_id AS "commandId", run_id AS "runId", payload_json AS "payloadJson", wait_token AS token, state,
+            principal_json AS "principalJson"
           FROM control_signal_commands WHERE command_id = ${commandId}`.pipe(query("read signal command"))
         const row = rows[0]
         if (row === undefined) return undefined
@@ -1877,7 +1890,8 @@ const makeRuntime = (
           runId: row.runId,
           token: row.token,
           state: row.state,
-          signal: yield* decodeStoredJson("control_signal_commands.payload_json", SignalPayload, row.payloadJson)
+          signal: yield* decodeStoredJson("control_signal_commands.payload_json", SignalPayload, row.payloadJson),
+          ...yield* signalPrincipal(row.principalJson)
         }
       }),
       pendingSignals: Effect.gen(function*() {
@@ -1890,9 +1904,11 @@ const makeRuntime = (
               payloadJson: string
               token: string | null
               state: "pending"
+              principalJson: string | null
             }
           >`
-          SELECT seq, command_id AS "commandId", run_id AS "runId", payload_json AS "payloadJson", wait_token AS token, state
+          SELECT seq, command_id AS "commandId", run_id AS "runId", payload_json AS "payloadJson", wait_token AS token, state,
+            principal_json AS "principalJson"
           FROM control_signal_commands WHERE state = 'pending' AND seq > ${after} ORDER BY seq LIMIT 100`.pipe(
             query("read pending signals")
           )
@@ -1902,9 +1918,19 @@ const makeRuntime = (
         const decoded = yield* Effect.forEach(
           rows,
           (row) =>
-            decodeStoredJson("control_signal_commands.payload_json", SignalPayload, row.payloadJson).pipe(
-              Effect.map((signal) =>
-                Option.some({ commandId: row.commandId, runId: row.runId, token: row.token, state: row.state, signal })
+            Effect.all([
+              decodeStoredJson("control_signal_commands.payload_json", SignalPayload, row.payloadJson),
+              signalPrincipal(row.principalJson)
+            ]).pipe(
+              Effect.map(([signal, principal]) =>
+                Option.some({
+                  commandId: row.commandId,
+                  runId: row.runId,
+                  token: row.token,
+                  state: row.state,
+                  signal,
+                  ...principal
+                })
               ),
               Effect.catch((error) =>
                 writer.write(

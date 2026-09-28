@@ -28,19 +28,19 @@ interface Service {
 Each answer is a small closed vocabulary, and every value in it is a real
 deployment:
 
-| Method                | Answer                             | Means                                                                      |
-| --------------------- | ---------------------------------- | -------------------------------------------------------------------------- |
-| `launch`              | `accepted`                         | This executor took the launch. The plane writes `running`.                 |
-|                       | `pending`                          | It queued the launch. The plane releases the row as `control.run.pending`. |
-|                       | fails `LaunchFailed`               | Nothing will ever drive this run. The plane settles the row as `failed`.   |
-| `requestCancel`       | `recorded`                         | This call set `cancel_requested_at_ms` on the engine row.                  |
-|                       | `already-requested`                | The column was already set, so the attribution record already exists.      |
-|                       | `unknown`                          | This executor's engine has no row for the run.                             |
-|                       | `{ _tag: "Terminal", status }`     | The engine row has already settled.                                        |
-| `deliverSignal`       | `delivered`, `no-match`, `unknown` | See [Deliver a signal](/guides/signal-a-run/).                                 |
-| `resumeRun`           | `resuming`                         | This executor hosts the run, took the fence, and is re-driving it.         |
-|                       | `unknown`                          | It drives no execution for this run.                                       |
-| `settleCancelledPark` |                                    | Finishes a parked execution whose cancellation is already durable.         |
+| Method                | Answer                                        | Means                                                                      |
+| --------------------- | --------------------------------------------- | -------------------------------------------------------------------------- |
+| `launch`              | `accepted`                                    | This executor took the launch. The plane writes `running`.                 |
+|                       | `pending`                                     | It queued the launch. The plane releases the row as `control.run.pending`. |
+|                       | fails `LaunchFailed`                          | Nothing will ever drive this run. The plane settles the row as `failed`.   |
+| `requestCancel`       | `recorded`                                    | This call set `cancel_requested_at_ms` on the engine row.                  |
+|                       | `already-requested`                           | The column was already set, so the attribution record already exists.      |
+|                       | `unknown`                                     | This executor's engine has no row for the run.                             |
+|                       | `{ _tag: "Terminal", status }`                | The engine row has already settled.                                        |
+| `deliverSignal`       | `delivered`, `no-match`, `refused`, `unknown` | See [Deliver a signal](/guides/signal-a-run/).                                 |
+| `resumeRun`           | `resuming`                                    | This executor hosts the run, took the fence, and is re-driving it.         |
+|                       | `unknown`                                     | It drives no execution for this run.                                       |
+| `settleCancelledPark` |                                               | Finishes a parked execution whose cancellation is already durable.         |
 
 `already-requested` is not a detail. The write is first-writer-wins and every
 repeat of `cancel` re-runs the whole mutation, so answering `recorded` to all

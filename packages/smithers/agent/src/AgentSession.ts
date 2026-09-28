@@ -2311,6 +2311,30 @@ export const deliverSignal = (
     }
     const parsed = yield* parseWakeToken(input.runId, token)
     if (!namesWaitPoint(parsed.deferredName, input.signal.name)) return "no-match" as const
+    // A human wait is an approval gate, and a signal is not an approval: its
+    // admitting principal must be one `ApprovalAuthority` lets approve this
+    // wait's `Node` target, exactly as `Control.approve` would check it. The
+    // principal was stamped at admission, so a replay after restart is judged
+    // as the original caller. No principal, or no runtime to ask, refuses.
+    if (reason === ControlExecutor.humanWaitReason) {
+      if (Option.isNone(control) || input.principal === undefined) return "refused" as const
+      const authorized = yield* control.value.authorizeApproval({
+        principal: input.principal,
+        target: {
+          _tag: "Node",
+          runId: input.runId,
+          requestId: input.signal.name,
+          digest: token,
+          envelope: { capabilities: [], flows: [], budget: {} }
+        },
+        decision: "approved",
+        scope: "once"
+      }).pipe(
+        Effect.as(true),
+        Effect.catchTag("/control/Unauthorized", () => Effect.succeed(false))
+      )
+      if (!authorized) return "refused" as const
+    }
     // First binding wins in control.db. A crash before or after completion
     // retries this exact token; the command can never move to a later wait.
     if (input.commandId !== undefined) {

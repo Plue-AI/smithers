@@ -9,7 +9,7 @@
  */
 
 import * as Sha256 from "@smthrs/crypto/Sha256"
-import { Context, Effect, Layer, Ref, type Schema, Semaphore } from "effect"
+import { Clock, Context, Effect, Layer, Ref, type Schema, Semaphore } from "effect"
 import { Control } from "./Control.ts"
 import { type ControlError, InvalidInput, type Unauthorized, Unavailable } from "./ControlError.ts"
 import { ControlRuntime } from "./ControlRuntime.ts"
@@ -367,10 +367,14 @@ const makeWith = (runtime: InboundReceiptStore) =>
             const key = scopedKey(snapshot.channel, externalKey)
             let receipt: Receipt
             if (mapped._tag === "Signal") {
+              // The channel is the caller, not the local operator: a webhook
+              // body names the run and wait, so a signal it maps to answers a
+              // human wait only if the host delegates approval to this channel.
               receipt = yield* control.signal({
                 runId: mapped.runId,
                 signal: mapped.signal,
-                idempotencyKey: key
+                idempotencyKey: key,
+                principal: { id: snapshot.channel, kind: "channel", stampedAt: yield* Clock.currentTimeMillis }
               })
             } else {
               const plan = yield* control.plan({

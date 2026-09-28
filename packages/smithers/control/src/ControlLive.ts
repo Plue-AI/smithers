@@ -34,6 +34,7 @@ import {
   type PlanDigestMismatch,
   type PlanNotFound,
   type RunNotFound,
+  Unauthorized,
   Unavailable
 } from "./ControlError.ts"
 import type { CancelRecord, Launch } from "./ControlExecutor.ts"
@@ -1643,7 +1644,11 @@ export const layer: Layer.Layer<
                 if (terminal(current.status)) {
                   return { _tag: "Terminal" as const, runId: current.runId, status: current.status }
                 }
-                yield* runtime.admitSignal(durableKey, input.runId, input.signal)
+                // The admitting identity is stored with the command: whether the
+                // signal may answer a human wait is decided at delivery, which
+                // can be a replay after restart with no caller present.
+                const principal = yield* runtime.stampPrincipal(input.principal)
+                yield* runtime.admitSignal(durableKey, input.runId, input.signal, principal)
                 yield* emit(input.runId, "control.signal.admitted", {
                   commandId: durableKey,
                   runId: input.runId,
@@ -1666,6 +1671,12 @@ export const layer: Layer.Layer<
             if (delivery === "no-match") {
               yield* runtime.settleSignal(durableKey, "rejected")
               return yield* new NoMatchingWait({ runId: input.runId, waitName: input.signal.name })
+            }
+            if (delivery === "refused") {
+              yield* runtime.settleSignal(durableKey, "rejected")
+              return yield* new Unauthorized({
+                message: `This caller has no authority to answer "${input.signal.name}" on run ${input.runId}`
+              })
             }
             if (delivery === "delivered") {
               yield* runtime.settleSignal(durableKey, "delivered")

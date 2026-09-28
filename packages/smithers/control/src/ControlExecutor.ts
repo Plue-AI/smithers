@@ -12,7 +12,7 @@ import type { ExecutionFact } from "@smthrs/journal"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import type { LaunchFailed, PersistenceError } from "./ControlError.ts"
 import type { StoredPlan } from "./ControlRuntime.ts"
-import type { ApprovalTarget, PendingWait, RunId, RunSummary, SignalPayload } from "./ControlSchema.ts"
+import type { ApprovalTarget, PendingWait, Principal, RunId, RunSummary, SignalPayload } from "./ControlSchema.ts"
 
 /**
  * One stored plan and the run summary it is being started as.
@@ -122,6 +122,12 @@ export interface Signal {
   readonly token?: string | null
   readonly runId: RunId
   readonly signal: SignalPayload
+  /**
+   * Who admitted the signal. A human wait ({@link humanWaitReason}) completes
+   * only when `ApprovalAuthority` authorizes this principal to approve the
+   * wait's `Node` target; without one the signal is `refused`.
+   */
+  readonly principal?: Principal | undefined
 }
 
 /**
@@ -134,11 +140,14 @@ export interface Signal {
  * executor is driving no execution for the run at all — another process may
  * be, or none is yet — so the recorded message is the whole delivery and the
  * executor that eventually drives the run replays it at its next start.
+ * `refused` means the signal named an open human wait and `ApprovalAuthority`
+ * did not authorize its principal to answer it: the wait stays open, and
+ * `Control.signal` fails `Unauthorized`.
  *
  * @category models
  * @since 0.1.0
  */
-export type SignalDelivery = "delivered" | "no-match" | "unknown"
+export type SignalDelivery = "delivered" | "no-match" | "refused" | "unknown"
 
 /**
  * Current engine observation. Missing execution is distinct from a running one.

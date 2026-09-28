@@ -57,6 +57,22 @@ for (const [name, layer] of backends) {
         }).pipe(Effect.provide(layer), Effect.scoped)
       ))
 
+    it("keeps the admitting principal for a replay to authorize", () =>
+      Effect.runPromise(
+        Effect.gen(function*() {
+          const runtime = yield* ControlRuntime
+          const runId = yield* start
+          const principal = { id: "alice", kind: "operator", stampedAt: 7 }
+          yield* runtime.admitSignal("attributed", runId, { name: "ready", payload: null }, principal)
+          yield* runtime.admitSignal("anonymous", runId, { name: "ready", payload: null })
+          expect((yield* runtime.signalCommand("attributed"))?.principal).toEqual(principal)
+          expect(yield* runtime.signalCommand("anonymous")).not.toHaveProperty("principal")
+          const pending = yield* runtime.pendingSignals
+          expect(pending.find((command) => command.commandId === "attributed")?.principal).toEqual(principal)
+          expect(pending.find((command) => command.commandId === "anonymous")).not.toHaveProperty("principal")
+        }).pipe(Effect.provide(layer), Effect.scoped)
+      ))
+
     it("keeps legacy signal history readable without turning it into retryable inbox work", () =>
       Effect.runPromise(
         Effect.gen(function*() {

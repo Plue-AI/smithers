@@ -35,9 +35,11 @@ import { Registry } from "@smthrs/registry"
 import * as AttemptStore from "@smthrs/run-store/AttemptStore"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import * as CacheStore from "@smthrs/step-cache/CacheStore"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Exit, Layer, Schema } from "effect"
 import { describe, expect, it } from "vitest"
+import type * as ApprovalAuthority from "../src/ApprovalAuthority.ts"
 import { Control } from "../src/Control.ts"
+import { Unauthorized } from "../src/ControlError.ts"
 import * as ControlExecutor from "../src/ControlExecutor.ts"
 import * as ControlLive from "../src/ControlLive.ts"
 import { ControlRuntime } from "../src/ControlRuntime.ts"
@@ -65,6 +67,14 @@ const Request = Flow.make("nested/Request", {
   success: Schema.Json,
   error: HumanTask.HumanTaskFailed,
   body: () => PrepareWithWiki.child({})
+})
+
+/** A plain `WaitFor` gate: an event, not a question, so any signal answers it. */
+const Gate = Flow.make("nested/Gate", {
+  payload: {},
+  success: Schema.Json,
+  error: WaitFor.WaitForRequestInvalid,
+  body: () => WaitFor.action.call({ name: "shipped" })
 })
 
 const SharedParent = Flow.make("nested/SharedParent", {
@@ -104,7 +114,9 @@ const engine = Layer.mergeAll(
   HumanTask.layer,
   Interpreter.layer(Request),
   Interpreter.layer(PrepareWithWiki),
-  Interpreter.layer(PreparePlan)
+  Interpreter.layer(PreparePlan),
+  WaitFor.layer,
+  Interpreter.layer(Gate)
 ).pipe(
   Layer.provideMerge(Action.layerImplementations),
   Layer.provideMerge(
@@ -137,22 +149,31 @@ const signalBridge = Layer.effect(ControlExecutor.ControlExecutor)(
   })
 )
 
-const plane = Layer.provideMerge(
-  ControlLive.layer,
-  Layer.mergeAll(
-    SqlControlRuntime.layer({}).pipe(Layer.orDie),
-    NotificationQueue.layer,
-    signalBridge,
-    Registry.layerNoop()
+const plane = (options: SqlControlRuntime.Options = {}) =>
+  Layer.provideMerge(
+    ControlLive.layer,
+    Layer.mergeAll(
+      SqlControlRuntime.layer(options).pipe(Layer.orDie),
+      NotificationQueue.layer,
+      signalBridge,
+      Registry.layerNoop()
+    )
   )
-)
 
-const stack = Layer.merge(plane, engine).pipe(Layer.provideMerge(database))
+const stackWith = (options: SqlControlRuntime.Options = {}) =>
+  Layer.merge(plane(options), engine).pipe(Layer.provideMerge(database))
 
-const run = <A, E, R>(body: Effect.Effect<A, E, R>): Promise<A> =>
+const runWith = (options: SqlControlRuntime.Options) => <A, E, R>(body: Effect.Effect<A, E, R>): Promise<A> =>
   Effect.runPromise(
-    Effect.provide(body, stack as unknown as Layer.Layer<R>).pipe(Effect.scoped, Effect.orDie)
+    Effect.provide(body, stackWith(options) as unknown as Layer.Layer<R>).pipe(Effect.scoped, Effect.orDie)
   )
+
+const run = runWith({})
+
+/** A host policy that lets nobody approve anything. */
+const refusingAuthority: ApprovalAuthority.Service = {
+  authorize: () => Effect.fail(new Unauthorized({ message: "no approver is delegated" }))
+}
 
 /** Polls until some execution below the root is parked on the human wait. */
 const parkedBelow = (
@@ -346,5 +367,47 @@ describe("a human wait parked on a nested execution", () => {
     }))
 
     expect(failure.name).toBe("/control/NoMatchingWait")
+  })
+})
+
+describe("a signal addressed to a human wait", () => {
+  it("is refused when ApprovalAuthority refuses its principal, and the wait stays open", async () => {
+    const observed = await runWith({ approvalAuthority: refusingAuthority })(Effect.gen(function*() {
+      const control = yield* Control
+      const state = yield* DurableEngineState.DurableEngineState
+      yield* Request.execute({}, { executionId: "run-7", discard: true })
+      const parked = yield* parkedBelow("run-7")
+      const exit = yield* Effect.exit(control.signal({
+        runId: "run-7",
+        signal: { name: "coding-clarification", payload: "the scheduler owns it" },
+        idempotencyKey: "signal:run-7:clarify"
+      }))
+      const open = yield* state.waitingTree("run-7")
+      return { exit, token: parked.token, open: open.map((row) => row.token) }
+    }))
+
+    expect(Exit.isFailure(observed.exit)).toBe(true)
+    if (Exit.isFailure(observed.exit)) {
+      expect(String(observed.exit.cause)).toContain("/control/Unauthorized")
+    }
+    expect(observed.open).toContain(observed.token)
+  })
+
+  it("still delivers a plain WaitFor event signal under that same refusing authority", async () => {
+    const observed = await runWith({ approvalAuthority: refusingAuthority })(Effect.gen(function*() {
+      const control = yield* Control
+      const state = yield* DurableEngineState.DurableEngineState
+      yield* Gate.execute({}, { executionId: "run-8", discard: true })
+      yield* TestDatabase.until(state.waitingTree("run-8").pipe(Effect.map((rows) => rows.length > 0)))
+      const receipt = yield* control.signal({
+        runId: "run-8",
+        signal: { name: "shipped", payload: "v1" },
+        idempotencyKey: "signal:run-8:shipped"
+      })
+      return { receipt, status: yield* settled("run-8") }
+    }))
+
+    expect(observed.receipt._tag).toBe("Accepted")
+    expect(observed.status).toBe("completed")
   })
 })

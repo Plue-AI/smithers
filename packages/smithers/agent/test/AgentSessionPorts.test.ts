@@ -718,7 +718,10 @@ describe("durable signal admission and engine observation", () => {
         const delivery = yield* AgentSession.deliverSignal({
           runId,
           token: bound.asToken,
-          signal: { name: "approval", payload: "late reply" }
+          signal: { name: "approval", payload: "late reply" },
+          // The human wait authorizes its answerer first; this case is about
+          // the recheck after completion, so the answerer is the approver.
+          principal: { id: "local", kind: "operator", stampedAt: 0 }
         }).pipe(Effect.provideService(FlowRuntime.FlowRuntime, {
           ...engine,
           // Model an adapter that cannot complete yet; the durable read decides
@@ -731,6 +734,44 @@ describe("durable signal admission and engine observation", () => {
       }))
     }
   )
+
+  it.each(
+    [
+      ["no admitting principal", "with-control", undefined],
+      ["a principal ApprovalAuthority refuses", "with-control", { id: "mallory", kind: "agent", stampedAt: 0 }],
+      ["no control plane to ask", "controlless", { id: "local", kind: "operator", stampedAt: 0 }]
+    ] as const
+  )("refuses a signal that answers a human wait with %s", async (_label, host, principal) => {
+    await (host === "controlless" ? runControlless : run)(Effect.gen(function*() {
+      const state = yield* DurableEngineState.DurableEngineState
+      const store = yield* RunStore.RunStore
+      const runId = `human-refused-${host}-${principal?.id ?? "none"}`
+      const owner = { hostId: runId, pid: 1, nonce: runId }
+      const wait = new DurableDeferred.TokenParsed({
+        flowName: Gated._tag,
+        executionId: runId,
+        deferredName: "WaitFor/approval"
+      })
+      yield* store.create(runId, "{}")
+      yield* store.claimAndOwn(
+        runId,
+        { status: "pending", owner: null, heartbeatAtMs: null },
+        owner,
+        yield* Clock.currentTimeMillis
+      )
+      yield* state.park(runId, { reason: "approval", token: wait.asToken }, owner)
+      const before = yield* state.waiting(runId)
+      expect(
+        yield* AgentSession.deliverSignal({
+          runId,
+          signal: { name: "approval", payload: "answered by signal" },
+          ...(principal === undefined ? {} : { principal })
+        })
+      ).toBe("refused")
+      expect(yield* state.waiting(runId)).toEqual(before)
+      expect(yield* state.deferred(wait)).toEqual(Option.none())
+    }))
+  })
 
   it.each(["completed", "failed", "cancelled"] as const)(
     "refuses an uncompleted bound wait after its actual execution becomes %s",

@@ -148,6 +148,14 @@ export interface SignalCommand {
   readonly signal: SignalPayload
   readonly token: string | null
   readonly state: "pending" | "delivered" | "rejected" | "terminal"
+  /**
+   * Who admitted the signal, stamped at admission. The executor checks it
+   * against `authorizeApproval` before the signal may complete a human wait,
+   * and a replay after restart reads it here because no caller is present.
+   * Absent on commands admitted before the column existed, which therefore
+   * cannot answer a human wait.
+   */
+  readonly principal?: Principal | undefined
 }
 
 /**
@@ -481,7 +489,8 @@ export interface Service {
   readonly admitSignal: (
     commandId: string,
     runId: RunId,
-    signal: SignalPayload
+    signal: SignalPayload,
+    principal?: Principal | undefined
   ) => Effect.Effect<void, RunNotFound | PersistenceError>
   readonly signalCommand: (commandId: string) => Effect.Effect<SignalCommand | undefined, PersistenceError>
   readonly pendingSignals: Effect.Effect<ReadonlyArray<SignalCommand>, PersistenceError>
@@ -1201,10 +1210,20 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
         deliverSignal: Effect.fn("ControlRuntime.deliverSignal")((runId, signal) =>
           Effect.tap(requireRun(runId), (run) => Effect.sync(() => void run.signals.push(snapshot(signal))))
         ),
-        admitSignal: Effect.fn("ControlRuntime.admitSignal")(function*(commandId, runId, signal) {
+        admitSignal: Effect.fn("ControlRuntime.admitSignal")(function*(commandId, runId, signal, principal) {
           yield* requireRun(runId)
           if (!signalCommands.has(commandId)) {
-            signalCommands.set(commandId, snapshot({ commandId, runId, signal, token: null, state: "pending" }))
+            signalCommands.set(
+              commandId,
+              snapshot({
+                commandId,
+                runId,
+                signal,
+                token: null,
+                state: "pending",
+                ...(principal === undefined ? {} : { principal })
+              })
+            )
           }
         }),
         signalCommand: (commandId) => Effect.sync(() => snapshot(signalCommands.get(commandId))),
