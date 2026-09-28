@@ -404,8 +404,9 @@ func (service *Service) nextObservation(checkpoint *RuntimeCheckpoint, progresse
 func (service *Service) observationBackoff(idlePolls int) time.Duration {
 	delay := service.observationDelay
 	for range idlePolls {
-		if delay >= service.maxObservationDelay {
-			break
+		// Compare before doubling so even the largest admitted durations saturate safely.
+		if delay >= service.maxObservationDelay-delay {
+			return service.maxObservationDelay
 		}
 		delay *= 2
 	}
