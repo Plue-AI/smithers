@@ -454,4 +454,415 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn revision_resolution_accepts_current_change_and_commit_ids() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        std::fs::write(root.join("file.txt"), "version one\n").unwrap();
+        let saved = snapshot(&root, Some("saved")).unwrap();
+        let settings = user_settings().unwrap();
+        let (workspace, repo) = load(&settings, &root).unwrap();
+        let current = wc_commit(&repo, workspace.workspace_name()).unwrap();
+
+        assert_eq!(
+            resolve_revision(&repo, &current, "@").unwrap().id(),
+            current.id()
+        );
+        assert_eq!(
+            resolve_revision(&repo, &current, &saved.commit_id)
+                .unwrap()
+                .id()
+                .hex(),
+            saved.commit_id
+        );
+        assert_eq!(
+            resolve_revision(&repo, &current, &saved.change_id)
+                .unwrap()
+                .id()
+                .hex(),
+            saved.commit_id
+        );
+        assert_eq!(short_change_id(&current).len(), 12);
+
+        for (symbol, message) in [
+            ("", "empty revision string"),
+            (
+                "not-a-reference",
+                "revision \"not-a-reference\" doesn't exist",
+            ),
+            ("kkkkkkkkkkkk", "revision \"kkkkkkkkkkkk\" doesn't exist"),
+            ("ffffffffffff", "revision \"ffffffffffff\" doesn't exist"),
+        ] {
+            let error = resolve_revision(&repo, &current, symbol).unwrap_err();
+            assert_eq!(error.code, crate::error::ErrorCode::InvalidRef);
+            assert_eq!(error.message, message);
+        }
+    }
+
+    #[test]
+    fn init_is_idempotent_and_missing_workspace_has_clear_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        std::fs::write(root.join("keep.txt"), "keep\n").unwrap();
+        let settings = user_settings().unwrap();
+        let (workspace, repo) = load(&settings, &root).unwrap();
+        let original = wc_commit(&repo, workspace.workspace_name())
+            .unwrap()
+            .id()
+            .clone();
+
+        let missing: WorkspaceNameBuf = "missing".into();
+        let error = wc_commit(&repo, &missing).unwrap_err();
+        assert_eq!(error.code, crate::error::ErrorCode::Unknown);
+        assert_eq!(
+            error.message,
+            "workspace 'missing' has no working-copy commit (forgotten?)"
+        );
+
+        init(&root).unwrap();
+        assert_eq!(std::fs::read(root.join("keep.txt")).unwrap(), b"keep\n");
+        let (workspace, repo) = load(&settings, &root).unwrap();
+        assert_eq!(
+            wc_commit(&repo, workspace.workspace_name()).unwrap().id(),
+            &original
+        );
+    }
+
+    #[test]
+    fn one_character_revision_prefixes_reject_real_ambiguity() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        let mut saved = Vec::new();
+        for index in 0..17 {
+            saved.push(snapshot(&root, Some(&format!("change {index}"))).unwrap());
+        }
+        let settings = user_settings().unwrap();
+        let (workspace, repo) = load(&settings, &root).unwrap();
+        let current = wc_commit(&repo, workspace.workspace_name()).unwrap();
+
+        for (label, prefixes) in [
+            (
+                "change id",
+                saved.iter().map(|s| &s.change_id).collect::<Vec<_>>(),
+            ),
+            (
+                "commit id",
+                saved.iter().map(|s| &s.commit_id).collect::<Vec<_>>(),
+            ),
+        ] {
+            let prefix = ('a'..='z')
+                .chain('0'..='9')
+                .find(|prefix| prefixes.iter().filter(|id| id.starts_with(*prefix)).count() >= 2)
+                .unwrap();
+            let symbol = prefix.to_string();
+            let error = resolve_revision(&repo, &current, &symbol).unwrap_err();
+            assert_eq!(error.code, crate::error::ErrorCode::InvalidRef);
+            assert_eq!(
+                error.message,
+                format!("{label} prefix \"{symbol}\" is ambiguous")
+            );
+        }
+    }
+
+    #[test]
+    fn hidden_change_id_reports_that_its_commit_is_no_longer_visible() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        let settings = user_settings().unwrap();
+        let (workspace, repo) = load(&settings, &root).unwrap();
+
+        let mut tx = repo.start_transaction();
+        let hidden = tx
+            .repo_mut()
+            .new_commit(
+                vec![repo.store().root_commit_id().clone()],
+                repo.store().empty_merged_tree(),
+            )
+            .set_description("temporary branch")
+            .write()
+            .block_on()
+            .unwrap();
+        let repo = tx.commit("create temporary branch").block_on().unwrap();
+        assert!(repo.view().heads().contains(hidden.id()));
+
+        let mut tx = repo.start_transaction();
+        tx.repo_mut().remove_head(hidden.id());
+        let repo = tx.commit("hide temporary branch").block_on().unwrap();
+        assert!(!repo.view().heads().contains(hidden.id()));
+        let current = wc_commit(&repo, workspace.workspace_name()).unwrap();
+        let symbol = short_change_id(&hidden);
+        let error = resolve_revision(&repo, &current, &symbol).unwrap_err();
+        assert_eq!(error.code, crate::error::ErrorCode::InvalidRef);
+        assert_eq!(
+            error.message,
+            format!("revision \"{symbol}\" doesn't exist (the change is hidden)")
+        );
+    }
+
+    #[test]
+    fn divergent_change_id_rejects_multiple_visible_commits() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        let settings = user_settings().unwrap();
+        let (workspace, repo) = load(&settings, &root).unwrap();
+        let parent = repo.store().root_commit_id().clone();
+        let tree = repo.store().empty_merged_tree();
+
+        let mut tx = repo.start_transaction();
+        let first = tx
+            .repo_mut()
+            .new_commit(vec![parent.clone()], tree.clone())
+            .set_description("branch one")
+            .write()
+            .block_on()
+            .unwrap();
+        let second = tx
+            .repo_mut()
+            .new_commit(vec![parent], tree)
+            .set_change_id(first.change_id().clone())
+            .set_description("branch two")
+            .write()
+            .block_on()
+            .unwrap();
+        let repo = tx.commit("create divergent change").block_on().unwrap();
+        assert!(repo.view().heads().contains(first.id()));
+        assert!(repo.view().heads().contains(second.id()));
+        let current = wc_commit(&repo, workspace.workspace_name()).unwrap();
+        let symbol = short_change_id(&first);
+        let error = resolve_revision(&repo, &current, &symbol).unwrap_err();
+        assert_eq!(error.code, crate::error::ErrorCode::InvalidRef);
+        assert_eq!(
+            error.message,
+            format!("change id \"{symbol}\" is divergent")
+        );
+    }
+
+    #[test]
+    fn stale_loaded_repository_reloads_after_another_operation() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        let settings = user_settings().unwrap();
+        let (mut old_workspace, mut old_repo) = load(&settings, &root).unwrap();
+        let original_op = old_repo.op_id().clone();
+
+        std::fs::write(root.join("new.txt"), "from newer operation\n").unwrap();
+        let saved = snapshot(&root, Some("newer")).unwrap();
+        assert_eq!(old_repo.op_id(), &original_op);
+        let current = snapshot_working_copy(&mut old_workspace, &mut old_repo).unwrap();
+        assert_ne!(old_repo.op_id(), &original_op);
+        assert_eq!(
+            current.tree_ids(),
+            wc_commit(&old_repo, old_workspace.workspace_name())
+                .unwrap()
+                .tree_ids()
+        );
+        assert_eq!(
+            std::fs::read(root.join("new.txt")).unwrap(),
+            b"from newer operation\n"
+        );
+        assert!(
+            old_repo
+                .store()
+                .get_commit(&jj_lib::backend::CommitId::try_from_hex(saved.commit_id).unwrap())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn stale_working_copy_refuses_repo_tree_change_without_checkout() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        std::fs::write(root.join("keep.txt"), "still on disk\n").unwrap();
+        snapshot(&root, Some("base")).unwrap();
+        let settings = user_settings().unwrap();
+        let (mut workspace, repo) = load(&settings, &root).unwrap();
+        let name = workspace.workspace_name().to_owned();
+        let current = wc_commit(&repo, &name).unwrap();
+        assert_ne!(current.tree_ids(), &repo.store().empty_merged_tree_id());
+
+        let mut tx = repo.start_transaction();
+        let next = tx
+            .repo_mut()
+            .rewrite_commit(&current)
+            .set_tree(repo.store().empty_merged_tree())
+            .write()
+            .block_on()
+            .unwrap();
+        tx.repo_mut()
+            .set_wc_commit(name, next.id().clone())
+            .unwrap();
+        tx.repo_mut().rebase_descendants().block_on().unwrap();
+        let mut newer_repo = tx
+            .commit("advance repo without checkout")
+            .block_on()
+            .unwrap();
+
+        let error = snapshot_working_copy(&mut workspace, &mut newer_repo).unwrap_err();
+        assert_eq!(error.code, crate::error::ErrorCode::Unknown);
+        assert!(error.message.contains("working copy"));
+        assert!(error.message.contains("stale"));
+        assert!(error.message.contains(root.to_str().unwrap()));
+        assert_eq!(
+            std::fs::read(root.join("keep.txt")).unwrap(),
+            b"still on disk\n"
+        );
+    }
+
+    #[test]
+    fn direct_working_copy_snapshot_detects_edits_then_stabilizes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        let settings = user_settings().unwrap();
+        let (mut workspace, mut repo) = load(&settings, &root).unwrap();
+        let before = wc_commit(&repo, workspace.workspace_name()).unwrap();
+
+        std::fs::write(root.join("new.txt"), "new\n").unwrap();
+        let changed = snapshot_working_copy(&mut workspace, &mut repo).unwrap();
+        assert_eq!(changed.change_id(), before.change_id());
+        assert_ne!(changed.tree_ids(), before.tree_ids());
+        assert_eq!(
+            status_render::status(&repo.store().empty_merged_tree(), &changed.tree(), "id")
+                .unwrap(),
+            "Working copy changes:\nA new.txt\nWorking copy  (@) : id\n"
+        );
+
+        let unchanged = snapshot_working_copy(&mut workspace, &mut repo).unwrap();
+        assert_eq!(unchanged.id(), changed.id());
+        assert_eq!(unchanged.tree_ids(), changed.tree_ids());
+    }
+
+    #[test]
+    fn restore_and_diff_keep_bytes_and_identity_after_invalid_refs() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        std::fs::write(root.join("note.txt"), "before\n").unwrap();
+        let first = snapshot(&root, Some("first")).unwrap();
+        std::fs::write(root.join("note.txt"), "after\n").unwrap();
+        let second = snapshot(&root, Some("second")).unwrap();
+
+        let expected = diff(&root, &first.commit_id, &second.commit_id).unwrap();
+        assert!(expected.contains("-before\n+after\n"), "{expected}");
+        assert_eq!(
+            diff(&root, &second.commit_id, &second.commit_id).unwrap(),
+            ""
+        );
+        let current_id = status(&root).unwrap().lines().last().unwrap().to_owned();
+
+        for invalid in ["", "missing", "not-a-rev!"] {
+            let before = std::fs::read(root.join("note.txt")).unwrap();
+            let error = restore(&root, invalid).unwrap_err();
+            assert_eq!(error.code, crate::error::ErrorCode::InvalidRef);
+            assert!(error.message.contains(if invalid.is_empty() {
+                "empty revision"
+            } else {
+                invalid
+            }));
+            assert_eq!(std::fs::read(root.join("note.txt")).unwrap(), before);
+            assert_eq!(status(&root).unwrap().lines().last().unwrap(), current_id);
+        }
+        let diff_error = diff(&root, "missing", &second.commit_id).unwrap_err();
+        assert_eq!(diff_error.code, crate::error::ErrorCode::InvalidRef);
+        assert_eq!(diff_error.message, "revision \"missing\" doesn't exist");
+        assert_eq!(std::fs::read(root.join("note.txt")).unwrap(), b"after\n");
+
+        restore(&root, &first.commit_id).unwrap();
+        assert_eq!(std::fs::read(root.join("note.txt")).unwrap(), b"before\n");
+        assert_eq!(diff(&root, "@", &first.commit_id).unwrap(), "");
+        assert_eq!(status(&root).unwrap().lines().last().unwrap(), current_id);
+        restore(&root, &first.commit_id).unwrap();
+        assert_eq!(std::fs::read(root.join("note.txt")).unwrap(), b"before\n");
+    }
+
+    #[test]
+    fn adding_from_forgotten_current_workspace_refuses_before_destination_mutation() {
+        for destination_exists in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("repo");
+            init(&root).unwrap();
+            std::fs::write(root.join("keep.txt"), b"preserved\n").unwrap();
+            snapshot(&root, Some("preserved")).unwrap();
+            workspace_forget(&root, "default").unwrap();
+
+            let destination = temp.path().join("lane");
+            if destination_exists {
+                std::fs::create_dir(&destination).unwrap();
+            }
+            let error = workspace_add(&root, "lane", destination.to_str().unwrap()).unwrap_err();
+            assert_eq!(error.code, crate::error::ErrorCode::Unknown);
+            assert_eq!(
+                error.message,
+                "workspace 'default' has no working-copy commit (forgotten?)"
+            );
+            assert_eq!(
+                std::fs::read(root.join("keep.txt")).unwrap(),
+                b"preserved\n"
+            );
+            assert_eq!(destination.exists(), destination_exists);
+            if destination_exists {
+                assert_eq!(std::fs::read_dir(&destination).unwrap().count(), 0);
+            }
+            let settings = user_settings().unwrap();
+            let (_, repo) = load(&settings, &root).unwrap();
+            assert!(repo.view().wc_commit_ids().is_empty());
+        }
+    }
+
+    #[test]
+    fn workspace_lifecycle_refusals_leave_repository_and_destinations_unchanged() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        init(&root).unwrap();
+        std::fs::write(root.join("base.txt"), "base\n").unwrap();
+        snapshot(&root, Some("base")).unwrap();
+
+        let lane = temp.path().join("lane");
+        let empty_name = workspace_add(&root, "", lane.to_str().unwrap()).unwrap_err();
+        assert_eq!(empty_name.code, crate::error::ErrorCode::Unknown);
+        assert_eq!(empty_name.message, "workspace name cannot be empty");
+        assert!(!lane.exists());
+
+        let blocked = temp.path().join("blocked");
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::write(blocked.join("keep.txt"), "untouched").unwrap();
+        let occupied = workspace_add(&root, "lane", blocked.to_str().unwrap()).unwrap_err();
+        assert_eq!(occupied.code, crate::error::ErrorCode::Unknown);
+        assert!(occupied.message.contains("not an empty directory"));
+        assert_eq!(
+            std::fs::read(blocked.join("keep.txt")).unwrap(),
+            b"untouched"
+        );
+        assert_eq!(std::fs::read(root.join("base.txt")).unwrap(), b"base\n");
+
+        std::fs::create_dir(&lane).unwrap();
+        workspace_add(&root, "lane", lane.to_str().unwrap()).unwrap();
+        assert_eq!(std::fs::read(lane.join("base.txt")).unwrap(), b"base\n");
+        let duplicate = temp.path().join("duplicate");
+        let error = workspace_add(&root, "lane", duplicate.to_str().unwrap()).unwrap_err();
+        assert_eq!(error.code, crate::error::ErrorCode::Unknown);
+        assert_eq!(error.message, "workspace 'lane' already exists");
+        assert!(!duplicate.exists());
+
+        workspace_forget(&root, "lane").unwrap();
+        assert_eq!(std::fs::read(lane.join("base.txt")).unwrap(), b"base\n");
+        let settings = user_settings().unwrap();
+        let (_, repo) = load(&settings, &root).unwrap();
+        let lane_name: WorkspaceNameBuf = "lane".into();
+        assert!(repo.view().get_wc_commit_id(&lane_name).is_none());
+        workspace_forget(&root, "lane").unwrap();
+        workspace_add(&root, "lane", duplicate.to_str().unwrap()).unwrap();
+        assert_eq!(
+            std::fs::read(duplicate.join("base.txt")).unwrap(),
+            b"base\n"
+        );
+    }
 }

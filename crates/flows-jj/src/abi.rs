@@ -205,6 +205,52 @@ mod wasm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{Value, json};
+
+    fn response(bytes: &[u8]) -> Value {
+        serde_json::from_slice(&call_json(bytes)).unwrap()
+    }
+
+    fn request(value: Value) -> Value {
+        response(&serde_json::to_vec(&value).unwrap())
+    }
+
+    #[test]
+    fn response_codec_preserves_control_characters_and_unicode_in_every_string_payload() {
+        let text = "quote\" slash\\ newline\n tab\t nul\0 日本語 🦀";
+        let cases = [
+            (
+                Response::Ok(OkPayload::Snapshot {
+                    commit_id: text.into(),
+                    change_id: text.into(),
+                }),
+                json!({"ok": {"commitId": text, "changeId": text}}),
+            ),
+            (
+                Response::Ok(OkPayload::Diff { diff: text.into() }),
+                json!({"ok": {"diff": text}}),
+            ),
+            (
+                Response::Ok(OkPayload::Status {
+                    status: text.into(),
+                }),
+                json!({"ok": {"status": text}}),
+            ),
+            (
+                Response::Err(ErrPayload {
+                    code: ErrorCode::Unknown,
+                    message: text.into(),
+                    command: text.into(),
+                }),
+                json!({"err": {"code": "unknown", "message": text, "command": text}}),
+            ),
+        ];
+        for (response, expected) in cases {
+            let bytes = encode(&response);
+            assert!(!bytes.contains(&0), "NUL must be JSON-escaped on the wire");
+            assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), expected);
+        }
+    }
 
     #[test]
     fn panic_becomes_err_response() {
@@ -225,5 +271,145 @@ mod tests {
                 .unwrap()
                 .contains("boom 42")
         );
+    }
+
+    #[test]
+    fn non_string_panic_has_stable_fallback() {
+        let json = catching(|| panic::panic_any(7_u8));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&json).unwrap(),
+            json!({"err": {"code": "unknown", "message": "jj: panic: unknown panic", "command": "jj"}})
+        );
+    }
+
+    #[test]
+    fn owned_string_panic_keeps_its_message() {
+        let json = catching(|| panic::panic_any(String::from("owned panic")));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&json).unwrap(),
+            json!({"err": {"code": "unknown", "message": "jj: panic: owned panic", "command": "jj"}})
+        );
+    }
+
+    #[test]
+    fn malformed_requests_return_complete_errors_and_allow_recovery() {
+        for malformed in [
+            &b""[..],
+            &b"\xff"[..],
+            &b"{"[..],
+            &b"{\"op\":\"unknown\",\"root\":\"/repo\"}"[..],
+            &b"{\"op\":\"status\",\"root\":null}"[..],
+        ] {
+            let result = response(malformed);
+            let error = result["err"].as_object().unwrap();
+            assert_eq!(result.as_object().unwrap().len(), 1);
+            assert_eq!(error.len(), 3);
+            assert_eq!(error["code"], "unknown");
+            assert_eq!(error["command"], "jj");
+            assert!(
+                error["message"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("jj: malformed request: ")
+            );
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        let init = serde_json::to_vec(&json!({"op": "init", "root": root})).unwrap();
+        assert_eq!(response(&init), json!({"ok": {}}));
+        assert!(root.join(".jj").is_dir());
+    }
+
+    #[test]
+    fn valid_operation_failure_uses_its_command_and_bare_message() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        let init = serde_json::to_vec(&json!({"op": "init", "root": root})).unwrap();
+        assert_eq!(response(&init), json!({"ok": {}}));
+
+        let restore =
+            serde_json::to_vec(&json!({"op": "restore", "root": root, "changeId": "missing"}))
+                .unwrap();
+        assert_eq!(
+            response(&restore),
+            json!({"err": {"code": "invalid_ref", "message": "revision \"missing\" doesn't exist", "command": "jj restore --from missing"}})
+        );
+        let status = serde_json::to_vec(&json!({"op": "status", "root": root})).unwrap();
+        let status_response = response(&status);
+        assert_eq!(status_response.as_object().unwrap().len(), 1);
+        assert!(
+            status_response["ok"]["status"]
+                .as_str()
+                .unwrap()
+                .starts_with("The working copy has no changes.\n")
+        );
+    }
+
+    #[test]
+    fn dispatch_round_trips_every_operation_and_recovers_after_refusal() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        assert_eq!(
+            request(json!({"op": "init", "root": root})),
+            json!({"ok": {}})
+        );
+        std::fs::write(root.join("note.txt"), "before\n").unwrap();
+        let first = request(json!({"op": "snapshot", "root": root, "message": "first"}));
+        let first_id = first["ok"]["commitId"].as_str().unwrap();
+        assert_eq!(first["ok"].as_object().unwrap().len(), 2);
+        assert_eq!(first_id.len(), 128);
+
+        std::fs::write(root.join("note.txt"), "after\n").unwrap();
+        let second = request(json!({"op": "snapshot", "root": root}));
+        let second_id = second["ok"]["commitId"].as_str().unwrap();
+        assert_ne!(first_id, second_id);
+        let diff = request(json!({"op": "diff", "root": root, "from": first_id, "to": second_id}));
+        assert_eq!(diff.as_object().unwrap().len(), 1);
+        let diff_text = diff["ok"]["diff"].as_str().unwrap();
+        assert!(
+            diff_text.contains("--- a/note.txt\n+++ b/note.txt\n"),
+            "{diff_text}"
+        );
+        assert!(diff_text.contains("-before\n+after\n"), "{diff_text}");
+
+        let invalid =
+            request(json!({"op": "diff", "root": root, "from": "missing", "to": second_id}));
+        assert_eq!(invalid["err"]["code"], "invalid_ref");
+        assert_eq!(
+            invalid["err"]["command"],
+            format!("jj diff --from missing --to {second_id} --git")
+        );
+        assert_eq!(
+            invalid["err"]["message"],
+            "revision \"missing\" doesn't exist"
+        );
+        assert_eq!(std::fs::read(root.join("note.txt")).unwrap(), b"after\n");
+
+        assert_eq!(
+            request(json!({"op": "restore", "root": root, "changeId": first_id})),
+            json!({"ok": {}})
+        );
+        assert_eq!(std::fs::read(root.join("note.txt")).unwrap(), b"before\n");
+        let status = request(json!({"op": "status", "root": root}));
+        assert!(
+            status["ok"]["status"]
+                .as_str()
+                .unwrap()
+                .contains("M note.txt\n")
+        );
+
+        let lane = temp.path().join("lane");
+        assert_eq!(
+            request(json!({"op": "workspaceAdd", "root": root, "name": "lane", "path": lane})),
+            json!({"ok": {}})
+        );
+        assert_eq!(std::fs::read(lane.join("note.txt")).unwrap(), b"after\n");
+        assert_eq!(
+            request(json!({"op": "workspaceForget", "root": root, "name": "lane"})),
+            json!({"ok": {}})
+        );
+        assert_eq!(std::fs::read(lane.join("note.txt")).unwrap(), b"after\n");
+        assert!(request(json!({"op": "status", "root": root}))["ok"]["status"].is_string());
     }
 }

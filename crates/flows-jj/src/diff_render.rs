@@ -178,3 +178,276 @@ fn render_unified_hunks(output: &mut String, contents: Diff<&BStr>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jj_lib::backend::{CommitId, TreeId};
+    use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
+    use jj_lib::default_backend_factories::{
+        default_backend_factories, default_working_copy_factories,
+    };
+    use jj_lib::repo::Repo as _;
+    use jj_lib::settings::UserSettings;
+    use jj_lib::workspace::Workspace;
+    use std::path::Path;
+
+    const USER_CONFIG: &str = r#"
+user.name = "Flows"
+user.email = "flows@localhost"
+operation.hostname = "flows"
+operation.username = "flows"
+"#;
+
+    fn committed_trees(root: &Path, ids: &[&str]) -> (Arc<Store>, Vec<MergedTree>) {
+        let mut config = StackedConfig::with_defaults();
+        config.add_layer(ConfigLayer::parse(ConfigSource::User, USER_CONFIG).unwrap());
+        let settings = UserSettings::from_config(config).unwrap();
+        let workspace = Workspace::load(
+            &settings,
+            root,
+            &default_backend_factories(),
+            &default_working_copy_factories(),
+        )
+        .unwrap();
+        let repo = workspace
+            .repo_loader()
+            .clone()
+            .load_at_head()
+            .block_on()
+            .unwrap();
+        let store = repo.store().clone();
+        let trees = ids
+            .iter()
+            .map(|id| {
+                store
+                    .get_commit(&CommitId::try_from_hex(id).unwrap())
+                    .unwrap()
+                    .tree()
+            })
+            .collect();
+        (store, trees)
+    }
+
+    fn hunks(before: &[u8], after: &[u8]) -> String {
+        let mut output = String::new();
+        render_unified_hunks(&mut output, Diff::new(BStr::new(before), BStr::new(after)));
+        output
+    }
+
+    #[test]
+    fn empty_ranges_number_the_preceding_line() {
+        assert_eq!(to_line_number(&(0..0)), 0);
+        assert_eq!(to_line_number(&(4..4)), 4);
+        assert_eq!(to_line_number(&(0..1)), 1);
+        assert_eq!(to_line_number(&(4..7)), 5);
+    }
+
+    #[test]
+    fn hunks_render_insert_delete_and_unchanged_context() {
+        assert_eq!(hunks(b"", b""), "");
+        assert_eq!(hunks(b"", b"new\n"), "@@ -0,0 +1,1 @@\n+new\n");
+        assert_eq!(hunks(b"old\n", b""), "@@ -1,1 +0,0 @@\n-old\n");
+        assert_eq!(
+            hunks(b"before\nold\nafter\n", b"before\nnew\nafter\n"),
+            "@@ -1,3 +1,3 @@\n before\n-old\n+new\n after\n"
+        );
+        assert_eq!(hunks(b"same\n", b"same\n"), "");
+    }
+
+    #[test]
+    fn missing_final_newline_is_marked_on_each_affected_side() {
+        assert_eq!(
+            hunks(b"old", b"new"),
+            "@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n"
+        );
+        assert_eq!(
+            hunks(b"old\n", b"new"),
+            "@@ -1,1 +1,1 @@\n-old\n+new\n\\ No newline at end of file\n"
+        );
+        assert_eq!(
+            hunks(b"old", b"new\n"),
+            "@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n"
+        );
+    }
+
+    #[test]
+    fn unicode_lines_remain_utf8_in_the_rendered_diff() {
+        assert_eq!(
+            hunks("café\n".as_bytes(), "雪\n".as_bytes()),
+            "@@ -1,1 +1,1 @@\n-café\n+雪\n"
+        );
+    }
+
+    #[test]
+    fn eof_changes_keep_context_and_line_numbers() {
+        assert_eq!(
+            hunks(b"one\ntwo\n", b"one\ntwo\nthree\n"),
+            "@@ -1,2 +1,3 @@\n one\n two\n+three\n"
+        );
+        assert_eq!(
+            hunks(b"one\ntwo\nthree\n", b"one\ntwo\n"),
+            "@@ -1,3 +1,2 @@\n one\n two\n-three\n"
+        );
+    }
+
+    #[test]
+    fn separated_changes_form_two_hunks_with_bounded_context() {
+        let before = b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n";
+        let after =
+            b"1\nTWO\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\nNINETEEN\n20\n";
+        assert_eq!(
+            hunks(before, after),
+            "@@ -1,5 +1,5 @@\n 1\n-2\n+TWO\n 3\n 4\n 5\n@@ -16,5 +16,5 @@\n 16\n 17\n 18\n-19\n+NINETEEN\n 20\n"
+        );
+    }
+
+    #[test]
+    fn blank_and_crlf_lines_keep_their_exact_bytes() {
+        assert_eq!(
+            hunks(b"same\r\n\r\nold\r\n", b"same\r\n\r\nnew\r\n"),
+            "@@ -1,3 +1,3 @@\n same\r\n \r\n-old\r\n+new\r\n"
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_is_replaced_without_losing_hunk_structure() {
+        assert_eq!(hunks(b"old\n", b"\xff\n"), "@@ -1,1 +1,1 @@\n-old\n+�\n");
+    }
+
+    #[test]
+    fn git_diff_renders_sorted_add_delete_and_modify_from_real_trees() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        crate::ops::init(&root).unwrap();
+        std::fs::write(root.join("old.txt"), "bye\n").unwrap();
+        std::fs::write(root.join("same.txt"), "before\n").unwrap();
+        let first = crate::ops::snapshot(&root, Some("first")).unwrap();
+        std::fs::remove_file(root.join("old.txt")).unwrap();
+        std::fs::write(root.join("same.txt"), "after\n").unwrap();
+        std::fs::write(root.join("added 雪.txt"), "fresh\n").unwrap();
+        let second = crate::ops::snapshot(&root, Some("second")).unwrap();
+        let (store, trees) = committed_trees(&root, &[&first.commit_id, &second.commit_id]);
+        let [before, after] = &trees[..] else {
+            unreachable!()
+        };
+
+        assert_eq!(git_diff(&store, before, before).unwrap(), "");
+        assert_eq!(
+            git_diff(&store, before, after).unwrap(),
+            "diff --git a/added 雪.txt b/added 雪.txt\nnew file mode 100644\nindex 0000000000..87085db9d1\n--- /dev/null\n+++ b/added 雪.txt\n@@ -0,0 +1,1 @@\n+fresh\ndiff --git a/old.txt b/old.txt\ndeleted file mode 100644\nindex cfb6327021..0000000000\n--- a/old.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-bye\ndiff --git a/same.txt b/same.txt\nindex 826666ae63..e349b46ad1 100644\n--- a/same.txt\n+++ b/same.txt\n@@ -1,1 +1,1 @@\n-before\n+after\n"
+        );
+    }
+
+    #[test]
+    fn git_diff_uses_binary_summary_for_add_and_content_change() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        crate::ops::init(&root).unwrap();
+        let empty = crate::ops::snapshot(&root, Some("empty")).unwrap();
+        std::fs::write(root.join("blob.bin"), b"\0old").unwrap();
+        let first = crate::ops::snapshot(&root, Some("first")).unwrap();
+        std::fs::write(root.join("blob.bin"), b"\0new").unwrap();
+        let second = crate::ops::snapshot(&root, Some("second")).unwrap();
+        let (store, trees) = committed_trees(
+            &root,
+            &[&empty.commit_id, &first.commit_id, &second.commit_id],
+        );
+        let [no_blob, old_blob, new_blob] = &trees[..] else {
+            unreachable!()
+        };
+
+        assert_eq!(
+            git_diff(&store, no_blob, old_blob).unwrap(),
+            "diff --git a/blob.bin b/blob.bin\nnew file mode 100644\nindex 0000000000..b6fa74ce2b\nBinary files /dev/null and b/blob.bin differ\n"
+        );
+        assert_eq!(
+            git_diff(&store, old_blob, new_blob).unwrap(),
+            "diff --git a/blob.bin b/blob.bin\nindex b6fa74ce2b..c78cc65337 100644\nBinary files a/blob.bin and b/blob.bin differ\n"
+        );
+        assert_eq!(
+            git_diff(&store, new_blob, no_blob).unwrap(),
+            "diff --git a/blob.bin b/blob.bin\ndeleted file mode 100644\nindex c78cc65337..0000000000\nBinary files a/blob.bin and /dev/null differ\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_diff_reports_mode_only_and_mode_plus_content_changes() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        crate::ops::init(&root).unwrap();
+        let script = root.join("script.sh");
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let first = crate::ops::snapshot(&root, Some("first")).unwrap();
+
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let executable = crate::ops::snapshot(&root, Some("executable")).unwrap();
+
+        std::fs::write(&script, "#!/bin/sh\necho hi\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let changed = crate::ops::snapshot(&root, Some("changed")).unwrap();
+
+        let (store, trees) = committed_trees(
+            &root,
+            &[&first.commit_id, &executable.commit_id, &changed.commit_id],
+        );
+        let [plain, executable, changed] = &trees[..] else {
+            unreachable!()
+        };
+        assert_eq!(
+            git_diff(&store, plain, executable).unwrap(),
+            "diff --git a/script.sh b/script.sh\nold mode 100644\nnew mode 100755\n"
+        );
+        assert_eq!(
+            git_diff(&store, executable, changed).unwrap(),
+            "diff --git a/script.sh b/script.sh\nold mode 100755\nnew mode 100644\nindex e6fbc01834..4a5509e881\n--- a/script.sh\n+++ b/script.sh\n@@ -1,1 +1,2 @@\n #!/bin/sh\n+echo hi\n"
+        );
+    }
+
+    #[test]
+    fn git_diff_renders_simple_backend_rename_as_add_and_delete() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        crate::ops::init(&root).unwrap();
+        std::fs::write(root.join("z-old.txt"), "payload\n").unwrap();
+        let first = crate::ops::snapshot(&root, Some("first")).unwrap();
+        std::fs::rename(root.join("z-old.txt"), root.join("a-new.txt")).unwrap();
+        let second = crate::ops::snapshot(&root, Some("second")).unwrap();
+        let (store, trees) = committed_trees(&root, &[&first.commit_id, &second.commit_id]);
+        let [before, after] = &trees[..] else {
+            unreachable!()
+        };
+        assert_eq!(
+            git_diff(&store, before, after).unwrap(),
+            "diff --git a/a-new.txt b/a-new.txt\nnew file mode 100644\nindex 0000000000..e502eec8fc\n--- /dev/null\n+++ b/a-new.txt\n@@ -0,0 +1,1 @@\n+payload\ndiff --git a/z-old.txt b/z-old.txt\ndeleted file mode 100644\nindex e502eec8fc..0000000000\n--- a/z-old.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-payload\n"
+        );
+    }
+
+    #[test]
+    fn git_diff_surfaces_missing_tree_as_unknown_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        crate::ops::init(&root).unwrap();
+        let first = crate::ops::snapshot(&root, Some("first")).unwrap();
+        let (store, trees) = committed_trees(&root, &[&first.commit_id]);
+        let [valid] = &trees[..] else { unreachable!() };
+        let missing = MergedTree::resolved(store.clone(), TreeId::from_bytes(&[0xff; 64]));
+        let error = git_diff(&store, valid, &missing).unwrap_err();
+        assert_eq!(error.code, crate::error::ErrorCode::Unknown);
+        assert!(
+            error.message.contains("of type tree not found"),
+            "{}",
+            error.message
+        );
+        let missing_id = "ff".repeat(64);
+        assert!(
+            error.message.contains(missing_id.as_str()),
+            "{}",
+            error.message
+        );
+    }
+}

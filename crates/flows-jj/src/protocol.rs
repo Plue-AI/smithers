@@ -107,3 +107,114 @@ pub enum Response {
     #[serde(rename = "err")]
     Err(ErrPayload),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn every_request_command_uses_the_public_cli_shape() {
+        let cases = [
+            (r#"{"op":"init","root":"/repo"}"#, "jj init"),
+            (
+                r#"{"op":"snapshot","root":"/repo"}"#,
+                "jj describe --quiet && jj new --quiet",
+            ),
+            (
+                r#"{"op":"snapshot","root":"/repo","message":null}"#,
+                "jj describe --quiet && jj new --quiet",
+            ),
+            (
+                r#"{"op":"snapshot","root":"/repo","message":""}"#,
+                "jj describe -m \"\" --quiet && jj new --quiet",
+            ),
+            (
+                r#"{"op":"snapshot","root":"/repo","message":"line\n\"quoted\" 雪"}"#,
+                "jj describe -m \"line\\n\\\"quoted\\\" 雪\" --quiet && jj new --quiet",
+            ),
+            (
+                r#"{"op":"restore","root":"/repo","changeId":"ab-12"}"#,
+                "jj restore --from ab-12",
+            ),
+            (
+                r#"{"op":"diff","root":"/repo","from":"left","to":"right"}"#,
+                "jj diff --from left --to right --git",
+            ),
+            (
+                r#"{"op":"workspaceAdd","root":"/repo","name":"other","path":"/work/雪"}"#,
+                "jj workspace add --name other /work/雪",
+            ),
+            (
+                r#"{"op":"workspaceAdd","root":"/repo","name":"two words","path":"/work/space dir"}"#,
+                "jj workspace add --name two words /work/space dir",
+            ),
+            (
+                r#"{"op":"workspaceForget","root":"/repo","name":"other"}"#,
+                "jj workspace forget other",
+            ),
+            (r#"{"op":"status","root":"/repo"}"#, "jj status"),
+        ];
+        for (json, command) in cases {
+            let request: Request = serde_json::from_str(json).unwrap();
+            assert_eq!(request.command(), command, "request {json}");
+        }
+    }
+
+    #[test]
+    fn request_parser_rejects_missing_or_wrongly_typed_fields() {
+        for json in [
+            r#"{"op":"status"}"#,
+            r#"{"op":"status","root":null}"#,
+            r#"{"op":"snapshot","root":"/repo","message":7}"#,
+            r#"{"op":"restore","root":"/repo","change_id":"id"}"#,
+            r#"{"op":"diff","root":"/repo","from":"a"}"#,
+            r#"{"op":"workspaceAdd","root":"/repo","name":"n"}"#,
+            r#"{"op":"workspaceForget","root":"/repo","name":false}"#,
+            r#"{"op":"unknown","root":"/repo"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<Request>(json).is_err(),
+                "accepted {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn response_envelopes_and_payloads_are_exact() {
+        let cases = [
+            (Response::Ok(OkPayload::Unit {}), json!({"ok": {}})),
+            (
+                Response::Ok(OkPayload::Snapshot {
+                    commit_id: "c雪".into(),
+                    change_id: "x".into(),
+                }),
+                json!({"ok": {"commitId": "c雪", "changeId": "x"}}),
+            ),
+            (
+                Response::Ok(OkPayload::Diff {
+                    diff: "-old\n+new\n".into(),
+                }),
+                json!({"ok": {"diff": "-old\n+new\n"}}),
+            ),
+            (
+                Response::Ok(OkPayload::Status {
+                    status: "A 雪\n".into(),
+                }),
+                json!({"ok": {"status": "A 雪\n"}}),
+            ),
+            (
+                Response::Err(ErrPayload {
+                    code: ErrorCode::InvalidRef,
+                    message: "bad ref".into(),
+                    command: "jj restore --from x".into(),
+                }),
+                json!({"err": {"code": "invalid_ref", "message": "bad ref", "command": "jj restore --from x"}}),
+            ),
+        ];
+        for (response, expected) in cases {
+            let actual: Value = serde_json::to_value(response).unwrap();
+            assert_eq!(actual, expected);
+        }
+    }
+}

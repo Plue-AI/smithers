@@ -117,3 +117,89 @@ impl_from_unknown!(
     jj_lib::workspace_store::WorkspaceStoreError,
     std::io::Error,
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("outer")]
+    struct Outer {
+        #[source]
+        source: Middle,
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("middle")]
+    struct Middle {
+        #[source]
+        source: io::Error,
+    }
+
+    #[test]
+    fn constructors_preserve_code_message_and_display() {
+        for (error, code, message) in [
+            (OpError::conflict("busy"), ErrorCode::Conflict, "busy"),
+            (
+                OpError::invalid_ref("bad 雪"),
+                ErrorCode::InvalidRef,
+                "bad 雪",
+            ),
+            (
+                OpError::unknown("disk failed"),
+                ErrorCode::Unknown,
+                "disk failed",
+            ),
+        ] {
+            assert_eq!(error.code, code);
+            assert_eq!(error.message, message);
+            assert_eq!(error.to_string(), message);
+        }
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::Conflict).unwrap(),
+            "\"conflict\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::InvalidRef).unwrap(),
+            "\"invalid_ref\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::Unknown).unwrap(),
+            "\"unknown\""
+        );
+    }
+
+    #[test]
+    fn source_chain_preserves_each_cause_in_order() {
+        let outer = Outer {
+            source: Middle {
+                source: io::Error::new(io::ErrorKind::PermissionDenied, "denied"),
+            },
+        };
+        assert_eq!(error_chain(&outer), "outer: middle: denied");
+        let op = OpError::unknown_source(outer);
+        assert_eq!(op.code, ErrorCode::Unknown);
+        assert_eq!(op.message, "outer: middle: denied");
+    }
+
+    #[test]
+    fn checkout_classifies_concurrency_and_other_failures() {
+        let concurrent = OpError::from(CheckoutError::ConcurrentCheckout);
+        assert_eq!(concurrent.code, ErrorCode::Conflict);
+        assert_eq!(concurrent.message, "Concurrent checkout");
+
+        let missing = OpError::from(CheckoutError::SourceNotFound {
+            source: Box::new(io::Error::new(io::ErrorKind::NotFound, "gone")),
+        });
+        assert_eq!(missing.code, ErrorCode::Unknown);
+        assert_eq!(
+            missing.message,
+            "Current working-copy commit not found: gone"
+        );
+
+        let io_error = OpError::from(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
+        assert_eq!(io_error.code, ErrorCode::Unknown);
+        assert_eq!(io_error.message, "denied");
+    }
+}
