@@ -996,9 +996,9 @@ describe("MicrosandboxSandbox", () => {
           // DNS reaches only the host resolver, matching the vendor's `Rule.allowDns()`.
           { ...allow({ kind: "group", group: "host" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
           allow({ kind: "domain", domain: "registry.npmjs.org" }),
-          // A vendor domain-suffix rule matches the apex and every name below
-          // it (microsandbox 0.6.16 typings), so `*.github.com` admits
-          // `github.com` too, as NetworkPolicy documents.
+          // A vendor domain-suffix rule also matches its apex, and the vendor
+          // takes the first matching rule, so a deny on the apex comes first.
+          { ...allow({ kind: "domain", domain: "github.com" }), action: "deny" },
           allow({ kind: "domainSuffix", suffix: "github.com" })
         ]
       }
@@ -1006,6 +1006,63 @@ describe("MicrosandboxSandbox", () => {
       expect(settings["networkPolicy"]).toEqual(policy)
       expect(settings["disableNetwork"]).toBeUndefined()
       expect(settings["labels"]).toMatchObject({ "smithers.network": JSON.stringify(policy) })
+    }))
+
+  it.effect("maps an empty allowlist to deny-all egress without the DNS exception", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      yield* inSession(
+        MicrosandboxSandbox.make({ sdk: fake.sdk, workdir: join(root, "empty-allow-ws"), network: { allow: [] } }),
+        "empty-allow",
+        () => Effect.void
+      )
+      expect(fake.recorded.builds[0]!.settings["networkPolicy"])
+        .toEqual({ defaultEgress: "deny", defaultIngress: "deny", rules: [] })
+    }))
+
+  it.effect("admits a *. entry's subdomains but its apex only when another entry names it", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      type Policy = {
+        readonly rules: ReadonlyArray<{
+          readonly destination: { readonly kind: string; readonly domain?: string; readonly suffix?: string }
+          readonly action: string
+        }>
+      }
+      const policyFor = (allow: ReadonlyArray<string>) =>
+        Effect.gen(function*() {
+          yield* inSession(
+            MicrosandboxSandbox.make({ sdk: fake.sdk, workdir: join(root, "apex-ws"), network: { allow } }),
+            "apex",
+            () => Effect.void
+          )
+          return fake.recorded.builds.at(-1)!.settings["networkPolicy"] as Policy
+        })
+      // The vendor's first-match-wins evaluation, with a domain-suffix rule
+      // matching its apex as microsandbox 0.6.16 does.
+      const admits = (policy: Policy, name: string) => {
+        const rule = policy.rules.find(({ destination }) =>
+          destination.kind === "domain"
+            ? destination.domain === name
+            : destination.kind === "domainSuffix" &&
+              (name === destination.suffix || name.endsWith(`.${destination.suffix}`))
+        )
+        return rule?.action === "allow"
+      }
+      const wildcard = yield* policyFor(["*.example.com"])
+      expect(admits(wildcard, "example.com")).toBe(false)
+      expect(admits(wildcard, "api.example.com")).toBe(true)
+      expect(admits(wildcard, "a.b.example.com")).toBe(true)
+      expect(admits(wildcard, "example.org")).toBe(false)
+      const withApex = yield* policyFor(["*.example.com", "example.com"])
+      expect(admits(withApex, "example.com")).toBe(true)
+      expect(admits(withApex, "api.example.com")).toBe(true)
+      const nested = yield* policyFor(["*.b.example.com", "*.example.com"])
+      expect(admits(nested, "b.example.com")).toBe(true)
+      expect(admits(nested, "a.b.example.com")).toBe(true)
+      expect(admits(nested, "example.com")).toBe(false)
+      const mixedCase = yield* policyFor(["*.Example.com", "EXAMPLE.com"])
+      expect(admits(mixedCase, "EXAMPLE.com")).toBe(true)
     }))
 
   it("refuses a malformed allowlist at construction", () => {

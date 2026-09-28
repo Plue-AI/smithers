@@ -10,10 +10,10 @@
  * `"none"` gives the guest no network. `{ allow }` denies egress except to
  * the listed hosts: each entry is an exact DNS name such as
  * `registry.npmjs.org`, or `*.` followed by one, such as `*.npmjs.org`, which
- * matches every name below that suffix. Whether a `*.` entry also admits the
- * suffix itself is the provider's rule: Microsandbox's domain-suffix match
- * admits it, and Vercel and Daytona do not document either way, so list the
- * apex separately when it must be reachable. An empty list denies all egress.
+ * matches every name below that suffix. List the suffix itself separately
+ * when it must be reachable: Microsandbox denies it unless listed, and Vercel
+ * and Daytona do not document either way. An empty list denies all egress,
+ * DNS included.
  *
  * A provider enforces the policy with its own mechanism or refuses it when
  * `make` is called, before any machine exists; it never accepts a policy it

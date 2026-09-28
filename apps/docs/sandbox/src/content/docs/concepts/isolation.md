@@ -79,9 +79,9 @@ Every provider takes the neutral option
 `network: "none" | { allow: string[] }`. `"none"` gives the guest no network.
 `{ allow }` denies egress except to the listed hosts: exact DNS names such as
 `registry.npmjs.org`, or `*.` and a name, such as `*.npmjs.org`, for every name
-below it. Microsandbox also admits the apex of a `*.` entry; Vercel and
-Daytona do not document whether they do, so list the apex separately when it
-must be reachable. An empty list denies all egress. A provider that cannot
+below it. List the apex of a `*.` entry separately when it must be reachable:
+Microsandbox denies it unless listed, and Vercel and Daytona do not document
+whether they admit it. An empty list denies all egress, DNS included. A provider that cannot
 enforce the policy throws when `make` is called, before any machine exists.
 
 | Provider              | `"none"`                  | `{ allow }`                                            | Reattaching an existing machine                     |

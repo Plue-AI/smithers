@@ -134,8 +134,8 @@ export interface MicrosandboxSandboxOptions {
   readonly detached?: boolean | undefined
   /**
    * The guest network. `"none"` boots without networking; `{ allow }` denies
-   * ingress and all egress but DNS to the host resolver and the listed hosts;
-   * a `*.` entry also admits its apex. Default: the vendor's own policy. Exclusive with `networkPolicy`.
+   * ingress and all egress but DNS to the host resolver and the listed hosts,
+   * and an empty list denies DNS too. Default: the vendor's own policy. Exclusive with `networkPolicy`.
    */
   readonly network?: GuestNetworkPolicy | undefined
   /**
@@ -241,21 +241,30 @@ const guestNetwork = (options: MicrosandboxSandboxOptions): GuestNetwork => {
     ports: [],
     action: "allow" as const
   })
+  const exact = network.allow.filter((host) => !host.startsWith("*."))
+  const suffixes = network.allow.filter((host) => host.startsWith("*.")).map((host) => host.slice(2))
+  // A vendor domain-suffix rule also matches its apex, and the vendor takes
+  // the first matching rule, so each suffix's apex is denied ahead of the
+  // suffixes unless an exact entry or a shorter suffix admits it.
+  const admitted = (apex: string) => {
+    const name = apex.toLowerCase()
+    return exact.some((host) => host.toLowerCase() === name) ||
+      suffixes.some((suffix) => name.endsWith(`.${suffix.toLowerCase()}`))
+  }
   return {
     defaultEgress: "deny",
     defaultIngress: "deny",
-    rules: [
+    rules: network.allow.length === 0 ? [] : [
       // Resolving an allowed name needs DNS, and only the host resolver
       // answers it: the vendor's own `Rule.allowDns()` shape. DNS to any other
       // resolver stays denied, so it cannot carry data out.
       { ...egress({ kind: "group", group: "host" }), protocols: ["udp", "tcp"], ports: [{ start: 53, end: 53 }] },
-      ...network.allow.map((host) =>
-        egress(
-          host.startsWith("*.")
-            ? { kind: "domainSuffix", suffix: host.slice(2) }
-            : { kind: "domain", domain: host }
-        )
-      )
+      ...exact.map((domain) => egress({ kind: "domain", domain })),
+      ...suffixes.filter((suffix) => !admitted(suffix)).map((domain) => ({
+        ...egress({ kind: "domain", domain }),
+        action: "deny" as const
+      })),
+      ...suffixes.map((suffix) => egress({ kind: "domainSuffix", suffix }))
     ]
   }
 }
