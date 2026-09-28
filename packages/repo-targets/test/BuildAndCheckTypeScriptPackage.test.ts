@@ -364,6 +364,21 @@ describe("BuildAndCheckTypeScriptPackage option propagation", () => {
     expect(Target.metadata(narrowed.fmt).inputs).toEqual(Target.metadata(standard.fmt).inputs)
   })
 
+  it("keys check on the base tsconfig the test tsconfig extends", () => {
+    // tsconfig.test.json extends tsconfig.json, and Typecheck digests only the
+    // tsconfig it names. Loosening a compiler option in the base must re-key
+    // check itself, including when the caller relocates the base.
+    const standard = BuildAndCheckTypeScriptPackage({ packageManager, cwd: "packages/example" })
+    expect(attrsOf<Typecheck.Attrs>(standard.check).tsconfig).toEqual(Input.file("tsconfig.test.json"))
+    expect(attrsOf<Typecheck.Attrs>(standard.check).srcs).toContainEqual(Input.file("tsconfig.json"))
+    const relocated = BuildAndCheckTypeScriptPackage({
+      packageManager,
+      cwd: "packages/example",
+      tsconfig: Input.file("tsconfig.build.json")
+    })
+    expect(attrsOf<Typecheck.Attrs>(relocated.check).srcs).toContainEqual(Input.file("tsconfig.build.json"))
+  })
+
   it("moves the typechecked and formatted test tree with testSources", () => {
     const relocated = BuildAndCheckTypeScriptPackage({
       packageManager,
@@ -374,6 +389,7 @@ describe("BuildAndCheckTypeScriptPackage option propagation", () => {
     expect(attrsOf<Typecheck.Attrs>(relocated.check).srcs).toEqual([
       Input.glob("src/**/*.ts"),
       Input.glob("spec/**/*.ts"),
+      Input.file("tsconfig.json"),
       Input.glob("//packages/repo-targets/test-utils/effect-property.*")
     ])
     expect(attrsOf<Dprint.Attrs>(relocated.fmt).sources).toEqual([
@@ -396,7 +412,10 @@ describe("BuildAndCheckTypeScriptPackage option propagation", () => {
       Input.file("//packages/smithers/scripts/compile-commonjs.mjs")
     ])
     expect(attrsOf<Typecheck.Attrs>(relocated.check).srcs).toEqual([
-      moved, Input.glob("test/**/*.ts"), Input.glob("//packages/repo-targets/test-utils/effect-property.*")
+      moved,
+      Input.glob("test/**/*.ts"),
+      Input.file("tsconfig.json"),
+      Input.glob("//packages/repo-targets/test-utils/effect-property.*")
     ])
     expect(attrsOf<Vitest.Attrs>(relocated.test).sources).toEqual([
       moved, Input.glob("//packages/repo-targets/test-utils/effect-property.*")

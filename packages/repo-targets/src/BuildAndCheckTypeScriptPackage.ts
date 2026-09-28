@@ -207,9 +207,13 @@ export const BuildAndCheckTypeScriptPackage = (options: Options): PackageTargets
     outDir: "dist",
     cwd
   })
+  // The test tsconfig extends the package tsconfig, and `Typecheck` keys only
+  // the file it names, so `check` declares the base as its own input. A
+  // loosened compiler option in the base then re-keys `check` directly
+  // instead of relying on the `lib` dependency key to carry it.
   const check = Typecheck({
     ...(options.packageManager === undefined ? {} : { packageManager: options.packageManager }),
-    srcs: [sources, testSources, Input.glob("//packages/repo-targets/test-utils/effect-property.*")],
+    srcs: [sources, testSources, tsconfig, Input.glob("//packages/repo-targets/test-utils/effect-property.*")],
     deps: [lib, ...deps],
     tsconfig: testTsconfig,
     buildMode: false,
