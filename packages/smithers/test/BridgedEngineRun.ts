@@ -73,7 +73,7 @@ import * as TriggersDispatchReader from "@smthrs/triggers/DispatchReader"
 import * as SqlTriggerStore from "@smthrs/triggers/SqlTriggerStore"
 import type * as Trigger from "@smthrs/triggers/Trigger"
 import * as TriggerStore from "@smthrs/triggers/TriggerStore"
-import { Context, Effect, Layer, Option, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema, type Scope } from "effect"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -436,8 +436,7 @@ export const planGraph = (input: unknown): {
 export const planOf = (
   input: FixtureInput,
   planId: string
-): Effect.Effect<Plan.Plan, unknown, never> =>
-  plan(input, planId).pipe(Effect.provide(NodeCrypto.layer)) as Effect.Effect<Plan.Plan, unknown, never>
+): Effect.Effect<Plan.Plan, unknown, never> => plan(input, planId).pipe(Effect.provide(NodeCrypto.layer))
 
 /**
  * The host policy that lets a relayed decision through.
@@ -756,7 +755,7 @@ const engineLayer = (
               )
             ),
             services
-          ) as Effect.Effect<void>,
+          ).pipe(Effect.orDie),
         catalog: held.catalog,
         refresh,
         observe: (runId: string) =>
@@ -765,9 +764,15 @@ const engineLayer = (
               Effect.provideService(RunStore.RunStore, runs),
               Effect.provideService(DurableEngineState.DurableEngineState, state)
             )
-          ) as Effect.Effect<ControlExecutor.ExecutionObservation>,
+          ),
         deliverSignal: (input: ControlExecutor.Signal) =>
-          Effect.orDie(AgentSession.deliverSignal(input)) as Effect.Effect<ControlExecutor.SignalDelivery>,
+          // `AgentSession` provides its captured services here too: signal
+          // delivery reads `DurableEngineState` and `FlowRuntime`.
+          AgentSession.deliverSignal(input).pipe(
+            Effect.provideService(DurableEngineState.DurableEngineState, state),
+            Effect.provideContext(services),
+            Effect.orDie
+          ),
         parkedBelow,
         settled,
         journal,
@@ -1031,3 +1036,17 @@ export const stackWith = (options: StackOptions = {}) =>
  * @category layers
  */
 export const stack = stackWith()
+
+/**
+ * Runs one body against a bridged stack.
+ *
+ * The body may use only what `layer` provides, so a service removed from the
+ * stack fails the compile instead of dying with "Service not found".
+ *
+ * @since 1.0.0
+ * @category runners
+ */
+export const runOn = <ROut, LE, A, E>(
+  layer: Layer.Layer<ROut, LE, Scope.Scope>,
+  body: Effect.Effect<A, E, NoInfer<ROut> | Scope.Scope>
+): Promise<A> => Effect.runPromise(Effect.scoped(Effect.provide(body, layer)))

@@ -59,7 +59,7 @@ export const servedSuite = (label: string): ServedSuite => {
       body.pipe(
         Effect.provide(controlClient({ ...options, url: current().url }).layer),
         Effect.scoped
-      ) as Effect.Effect<A, E>
+      )
     )
 
   return {

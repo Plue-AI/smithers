@@ -256,6 +256,6 @@ export const controlClient = (
     ...(options.credential === undefined ? {} : { credential: options.credential })
   }).pipe(
     Layer.provide([NodeHttpClient.layerUndici, websocket, RpcSerialization.layerNdjson])
-  ) as unknown as Layer.Layer<ControlService.Control>
+  )
   return { layer, sockets }
 }

@@ -145,7 +145,7 @@ const layerEngineRun = (filename: string, implementation: (path: string) => Effe
         execute: (executionId: string, path: string) =>
           Effect.exit(RealRun.execute({ path }, { executionId })).pipe(
             Effect.provideContext(services)
-          ) as Effect.Effect<Exit.Exit<string, unknown>>,
+          ),
         kinds: (executionId: string) =>
           journal.entries({ runId: JournalEvent.RunId.make(executionId), limit: 500 }).pipe(
             Effect.map((page) => page.entries.map((entry) => entry.eventType)),

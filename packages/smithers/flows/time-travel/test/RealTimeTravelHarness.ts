@@ -76,8 +76,11 @@ export const realLayer = (filename: string) => {
     SqlTimeTravelStore.layer,
     NodeJj.layer
   ).pipe(Layer.provideMerge(migrated))
-  return TimeTravel.layer.pipe(Layer.provideMerge(persistence))
+  return TimeTravel.layer.pipe(Layer.provideMerge(persistence)) satisfies Layer.Layer<never, unknown, Scope.Scope>
 }
+
+/** Everything {@link realLayer} provides, read off the composition itself. */
+export type RealServices = Layer.Success<ReturnType<typeof realLayer>>
 
 const ownerIsAlive = (owner: OwnerId): Effect.Effect<boolean> =>
   Effect.sync(() => {
@@ -125,11 +128,14 @@ export const realEngineLayer = (filename: string, hostId: string) => {
   ).pipe(Layer.provideMerge(infrastructure)) satisfies Layer.Layer<never, unknown, Scope.Scope>
 }
 
-export const runRealEngine = <A, E, R>(
+/** Everything {@link realEngineLayer} provides, read off the composition itself. */
+export type RealEngineServices = Layer.Success<ReturnType<typeof realEngineLayer>>
+
+export const runRealEngine = <A, E>(
   filename: string,
   hostId: string,
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A> => Effect.scoped(effect.pipe(Effect.provide(realEngineLayer(filename, hostId)))) as Effect.Effect<A>
+  effect: Effect.Effect<A, E, RealEngineServices | Scope.Scope>
+) => Effect.scoped(effect.pipe(Effect.provide(realEngineLayer(filename, hostId))))
 
 const SealedStep = Action.make("time-travel/e2e/sealed-step", {
   payload: {},
@@ -220,10 +226,10 @@ export const parkCompensableFlow = (
     )
   })
 
-export const runReal = <A, E, R>(
+export const runReal = <A, E>(
   filename: string,
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A> => Effect.scoped(effect.pipe(Effect.provide(realLayer(filename)))) as Effect.Effect<A>
+  effect: Effect.Effect<A, E, RealServices | Scope.Scope>
+) => Effect.scoped(effect.pipe(Effect.provide(realLayer(filename))))
 
 /**
  * Resolves with the first JSON object line a crash fixture prints on stdout.
