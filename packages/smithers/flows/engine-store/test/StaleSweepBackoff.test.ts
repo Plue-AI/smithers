@@ -26,6 +26,7 @@ import { Journal, SqlJournal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import * as Clock from "effect/Clock"
+import type * as Crypto from "effect/Crypto"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -116,13 +117,10 @@ const insertRunOwnedBy = (runId: string, owner: Ownership.OwnerId, heartbeatAtMs
 const insertStaleRun = (index: number) =>
   insertRunOwnedBy(runIdOf(index), { hostId: "live-host", pid: 424242, nonce: runIdOf(index) }, index)
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  withCrypto(
-    Effect.scoped(effect as Effect.Effect<A, E, Scope.Scope>).pipe(
-      Effect.provide(services),
-      Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
-  )
+type Services = Layer.Success<typeof services> | TestClock.TestClock | Crypto.Crypto | Scope.Scope
+
+const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+  withCrypto(Effect.scoped(effect).pipe(Effect.provide(services), Effect.provide(TestClock.layer())))
 
 /** Every `steal-refused-owner-alive` decision journaled for one run. */
 const refusalsOf = (runId: string) =>

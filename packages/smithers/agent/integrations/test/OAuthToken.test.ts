@@ -395,7 +395,7 @@ const withCredentials = <A, E>(
       const cipher = yield* WebCryptoCipher.make({ key: HOST_KEY })
       const credentials = Credential.make({ store, cipher, authorize: options.authorize })
       return yield* use(credentials, store)
-    }).pipe(Effect.provide(TestDatabase.layer), Effect.scoped, Effect.orDie) as Effect.Effect<A>
+    }).pipe(Effect.provide(TestDatabase.layer), Effect.scoped, Effect.orDie)
   )
 
 describe("OAuthToken credential store", () => {

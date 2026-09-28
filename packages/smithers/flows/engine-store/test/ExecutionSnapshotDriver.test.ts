@@ -94,7 +94,7 @@ describe("driver cancellation acknowledgement", () => {
                 }))
               const caller = yield* Effect.forkChild(
                 Effect.exit(
-                  engine.execute(CancelFlow as never, { executionId: "cancel", payload: {} }) as Effect.Effect<unknown>
+                  engine.execute(CancelFlow, { executionId: "cancel", payload: {} })
                 ),
                 { startImmediately: true }
               )

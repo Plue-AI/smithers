@@ -770,7 +770,7 @@ describe("a malformed sweep row is skipped, not fatal (B-08)", () => {
             Effect.provide(migratedDatabase),
             Effect.provide(Logger.layer([capture]))
           )
-        ) as Effect.Effect<void>
+        )
       )
 
       // The registration survived, and every readable row was swept.

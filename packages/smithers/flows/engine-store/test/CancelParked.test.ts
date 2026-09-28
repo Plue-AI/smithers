@@ -13,9 +13,12 @@ import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import * as Clock from "effect/Clock"
+import type * as Crypto from "effect/Crypto"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import type * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
@@ -33,12 +36,21 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const withEngine = <A>(
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | TestClock.TestClock
+  | Crypto.Crypto
+  | Scope.Scope
+
+const withEngine = <A, E>(
   body: (
     engine: FlowRuntime.FlowRuntime["Service"],
     store: RunStore.Service,
     state: DurableEngineState.Service
-  ) => Effect.Effect<A, any, any>
+  ) => Effect.Effect<A, E, Services>
 ) => {
   const state = DurableEngineState.makeMemory()
   return withCrypto(
@@ -59,7 +71,7 @@ const withEngine = <A>(
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layer()),
       Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
+    )
   )
 }
 
@@ -76,10 +88,10 @@ describe("cancel requests reach parked runs (issue #27)", () => {
       const result = yield* withEngine((engine, store, state) =>
         Effect.gen(function*() {
           yield* engine.register(
-            EventFlow as never,
-            (() => Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`)) as never
+            EventFlow,
+            () => Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`)
           )
-          yield* engine.execute(EventFlow as never, {
+          yield* engine.execute(EventFlow, {
             executionId: "cancel-parked-sweep",
             payload: {},
             discard: true
@@ -125,15 +137,15 @@ describe("cancel requests reach parked runs (issue #27)", () => {
       const result = yield* withEngine((engine, store) =>
         Effect.gen(function*() {
           yield* engine.register(
-            EventFlow as never,
-            (() =>
+            EventFlow,
+            () =>
               Effect.sync(() => {
                 bodyRuns += 1
               }).pipe(
                 Effect.andThen(Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`))
-              )) as never
+              )
           )
-          yield* engine.execute(EventFlow as never, {
+          yield* engine.execute(EventFlow, {
             executionId: "cancel-parked-resume",
             payload: {},
             discard: true
@@ -145,7 +157,7 @@ describe("cancel requests reach parked runs (issue #27)", () => {
 
           // An unrelated resume arrives (operator poke). The activation guard
           // must observe the pending cancel before the flow body re-runs.
-          yield* engine.execute(EventFlow as never, {
+          yield* engine.execute(EventFlow, {
             executionId: "cancel-parked-resume",
             payload: {},
             discard: true

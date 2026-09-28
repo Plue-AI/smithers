@@ -20,8 +20,10 @@ import * as Notifying from "@smthrs/journal/test/Notifying"
 import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -51,7 +53,16 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const provide = <A>(effect: Effect.Effect<A, any, any>, state: DurableEngineState.Service) =>
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | TestClock.TestClock
+  | Layer.Success<ReturnType<typeof Action.layerCacheEnvironment>>
+  | Crypto.Crypto
+
+const provide = <A, E>(effect: Effect.Effect<A, E, Services>, state: DurableEngineState.Service) =>
   withCrypto(
     effect.pipe(
       Effect.provideService(DurableEngineState.DurableEngineState, state),
@@ -65,7 +76,7 @@ const provide = <A>(effect: Effect.Effect<A, any, any>, state: DurableEngineStat
       // the mirror below can reproduce it; leaving it undeclared would pin
       // each key to its own execution.
       Effect.provide(Action.layerCacheEnvironment(environment))
-    ) as Effect.Effect<A>
+    )
   )
 
 // The engine derives a sealed action's string idempotency key through the
@@ -190,7 +201,7 @@ describe("non-retryable verdict durability across resume", () => {
               Journal.Journal,
               blocked
             )
-            yield* engine.register(ReplayFlow, () => fatal as never)
+            yield* engine.register(ReplayFlow, () => fatal)
             yield* engine.execute(ReplayFlow, {
               executionId: "non-retryable-run",
               payload: {},
@@ -212,7 +223,7 @@ describe("non-retryable verdict durability across resume", () => {
           // dispatch, and no backoff sleep (the clock is never advanced).
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
-            yield* engine.register(ReplayFlow, () => fatal as never)
+            yield* engine.register(ReplayFlow, () => fatal)
             const result = yield* engine.poll(ReplayFlow, "non-retryable-run")
             expect(Option.isNone(result)).toBe(true)
             yield* engine.execute(ReplayFlow, {
@@ -273,7 +284,7 @@ describe("non-retryable verdict durability across resume", () => {
           // First run records the failure durably and fails the run.
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
-            yield* engine.register(ReplayFlow, () => flaky as never)
+            yield* engine.register(ReplayFlow, () => flaky)
             yield* engine.execute(ReplayFlow, {
               executionId: "failed-row-run",
               payload: {},

@@ -29,7 +29,7 @@ const run = <A>(
     const sql = yield* Effect.service(SqlClient.SqlClient)
     const store = yield* SqlTimeTravelStore.make
     return yield* body(store, sql)
-  }).pipe(Effect.provide(TestDatabase.layer)) as Effect.Effect<A, unknown>
+  }).pipe(Effect.provide(TestDatabase.layer))
 
 const fileHandle = <A>(
   filename: string,
@@ -46,7 +46,7 @@ const fileHandle = <A>(
       const store = yield* SqlTimeTravelStore.make
       return yield* body(store, sql)
     }).pipe(Effect.provide(database))
-  ) as Effect.Effect<A, unknown>
+  )
 }
 
 const insertRun = (

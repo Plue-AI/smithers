@@ -12,12 +12,15 @@ import { Action, DurableClock, DurableDeferred, Flow, FlowRuntime } from "@smthr
 import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { RunStore } from "@smthrs/run-store"
+import type * as Crypto from "effect/Crypto"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import type * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
@@ -33,12 +36,20 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const withEngine = <A>(
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | Crypto.Crypto
+  | Scope.Scope
+
+const withEngine = <A, E>(
   body: (
     engine: FlowRuntime.FlowRuntime["Service"],
     store: RunStore.Service,
     state: DurableEngineState.Service
-  ) => Effect.Effect<A, any, any>
+  ) => Effect.Effect<A, E, Services>
 ) => {
   const state = DurableEngineState.makeMemory()
   return withCrypto(
@@ -58,7 +69,7 @@ const withEngine = <A>(
     ).pipe(
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layer())
-    ) as Effect.Effect<A>
+    )
   )
 }
 
@@ -88,8 +99,8 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
             execute: FlowRuntime.annotateWaiting({ reason: "approval", token: "winner" })
           })
           yield* engine.register(
-            RaceFlow as never,
-            (() =>
+            RaceFlow,
+            () =>
               Effect.gen(function*() {
                 const instance = yield* FlowRuntime.FlowInstance
                 const slowFiber = yield* slow.pipe(Effect.forkChild)
@@ -98,9 +109,9 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
                 yield* Deferred.succeed(release, undefined)
                 yield* Fiber.join(slowFiber)
                 return instance.waiting
-              })) as never
+              })
           )
-          return yield* engine.execute(RaceFlow as never, {
+          return yield* engine.execute(RaceFlow, {
             executionId: "annotated-waiting-race",
             payload: {}
           })
@@ -122,14 +133,14 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
       const result = yield* withEngine((engine, store, state) =>
         Effect.gen(function*() {
           yield* engine.register(
-            ApprovalFlow as never,
-            (() =>
+            ApprovalFlow,
+            () =>
               Effect.gen(function*() {
                 yield* FlowRuntime.annotateWaiting({ reason: "approval", token: "request-42" })
                 return yield* Effect.map(DurableDeferred.await(gate), (value) => `approved:${value}`)
-              })) as never
+              })
           )
-          yield* engine.execute(ApprovalFlow as never, {
+          yield* engine.execute(ApprovalFlow, {
             executionId: "annotated-approval",
             payload: {},
             discard: true
@@ -138,13 +149,13 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
           const approvalSweep = yield* state.waitingRuns({ reason: "approval" })
 
           // Resolving the approval wakes the run and completes it normally.
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: ApprovalFlow._tag,
             executionId: "annotated-approval",
             deferredName: gate.name,
             exit: Exit.succeed("yes")
           })
-          yield* engine.execute(ApprovalFlow as never, {
+          yield* engine.execute(ApprovalFlow, {
             executionId: "annotated-approval",
             payload: {},
             discard: true
@@ -191,10 +202,10 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
       const result = yield* withEngine((engine, store, state) =>
         Effect.gen(function*() {
           yield* engine.register(
-            GatedFlow as never,
-            (() => Effect.map(waitPoint, (value) => `approved:${value}`)) as never
+            GatedFlow,
+            () => Effect.map(waitPoint, (value) => `approved:${value}`)
           )
-          const running = yield* engine.execute(GatedFlow as never, {
+          const running = yield* engine.execute(GatedFlow, {
             executionId: "annotated-action",
             payload: {},
             discard: false
@@ -213,7 +224,7 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
           const parked = yield* state.waiting("annotated-action")
           const approvalSweep = yield* state.waitingRuns({ reason: "approval" })
 
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: GatedFlow._tag,
             executionId: "annotated-action",
             deferredName: gate.name,
@@ -223,7 +234,7 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
             if ((yield* store.get("annotated-action")).status === "completed") break
             yield* Effect.yieldNow
           }
-          yield* engine.execute(GatedFlow as never, { executionId: "annotated-action", payload: {}, discard: false })
+          yield* engine.execute(GatedFlow, { executionId: "annotated-action", payload: {}, discard: false })
           const finished = yield* store.get("annotated-action")
           const afterWake = yield* state.waiting("annotated-action")
           return { parked, approvalSweep, finished, afterWake }
@@ -252,14 +263,14 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
       const result = yield* withEngine((engine, _store, state) =>
         Effect.gen(function*() {
           yield* engine.register(
-            QuotaFlow as never,
-            (() =>
+            QuotaFlow,
+            () =>
               Effect.gen(function*() {
                 yield* FlowRuntime.annotateWaiting({ reason: "quota", wakeAt: 60_000 })
                 return yield* Effect.map(DurableDeferred.await(gate), (value) => value)
-              })) as never
+              })
           )
-          yield* engine.execute(QuotaFlow as never, {
+          yield* engine.execute(QuotaFlow, {
             executionId: "annotated-quota",
             payload: {},
             discard: true
@@ -287,8 +298,8 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
       const result = yield* withEngine((engine, store, state) =>
         Effect.gen(function*() {
           yield* engine.register(
-            TwoStageFlow as never,
-            (() =>
+            TwoStageFlow,
+            () =>
               Effect.gen(function*() {
                 yield* FlowRuntime.annotateWaiting({ reason: "approval", token: "request-42" })
                 const approved = yield* DurableDeferred.await(gate)
@@ -300,9 +311,9 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
                   inMemoryThreshold: "1 second"
                 })
                 return `approved:${approved}`
-              })) as never
+              })
           )
-          yield* engine.execute(TwoStageFlow as never, {
+          yield* engine.execute(TwoStageFlow, {
             executionId: "annotated-two-stage",
             payload: {},
             discard: true
@@ -311,13 +322,13 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
 
           // Resolve the approval gate; the next drive replays the annotation,
           // passes through the resolved gate, and parks on the durable timer.
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: TwoStageFlow._tag,
             executionId: "annotated-two-stage",
             deferredName: gate.name,
             exit: Exit.succeed("yes")
           })
-          yield* engine.execute(TwoStageFlow as never, {
+          yield* engine.execute(TwoStageFlow, {
             executionId: "annotated-two-stage",
             payload: {},
             discard: true

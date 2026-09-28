@@ -9,7 +9,7 @@ import type { PluginError } from "../src/PluginError.ts"
 import * as Plugins from "../src/Plugins.ts"
 import * as Resolve from "../src/Resolve.ts"
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
 describe("Config.merge", () => {
   it("deep-merges JSON records and replaces arrays and scalars", () => {

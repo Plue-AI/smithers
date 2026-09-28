@@ -13,6 +13,7 @@ import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
 import { CacheStore } from "@smthrs/step-cache"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
@@ -44,7 +45,15 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const provide = <A>(effect: Effect.Effect<A, any, any>, state: DurableEngineState.Service) =>
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | TestClock.TestClock
+  | Crypto.Crypto
+
+const provide = <A, E>(effect: Effect.Effect<A, E, Services>, state: DurableEngineState.Service) =>
   withCrypto(
     effect.pipe(
       Effect.provideService(DurableEngineState.DurableEngineState, state),
@@ -52,7 +61,7 @@ const provide = <A>(effect: Effect.Effect<A, any, any>, state: DurableEngineStat
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layer()),
       Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
+    )
   )
 
 describe("durable schedule-to-close origin", () => {
@@ -89,7 +98,7 @@ describe("durable schedule-to-close origin", () => {
           // mid-backoff and the run is released for reclaim.
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
-            yield* engine.register(OriginFlow, () => flaky as never)
+            yield* engine.register(OriginFlow, () => flaky)
             yield* engine.execute(OriginFlow, {
               executionId: "retry-origin",
               payload: {},
@@ -114,7 +123,7 @@ describe("durable schedule-to-close origin", () => {
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
             yield* engine.register(OriginFlow, () =>
-              flaky as never)
+              flaky)
             const fiber = yield* engine.execute(OriginFlow, {
               executionId: "retry-origin",
               payload: {},
@@ -190,7 +199,7 @@ describe("durable schedule-to-close origin", () => {
         Effect.gen(function*() {
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
-            yield* engine.register(OriginFlow, () => flaky as never)
+            yield* engine.register(OriginFlow, () => flaky)
             yield* engine.execute(OriginFlow, {
               executionId: "retry-origin-pruned",
               payload: {},
@@ -216,7 +225,7 @@ describe("durable schedule-to-close origin", () => {
           yield* TestClock.adjust("500 seconds")
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
-            yield* engine.register(OriginFlow, () => flaky as never)
+            yield* engine.register(OriginFlow, () => flaky)
             const fiber = yield* engine.execute(OriginFlow, {
               executionId: "retry-origin-pruned",
               payload: {},
@@ -240,11 +249,7 @@ describe("durable schedule-to-close origin", () => {
           Effect.provide(OwnerIdentity.layer),
           Effect.provide(journalWithDatabase),
           Effect.provide(TestClock.layer())
-        ) as unknown as Effect.Effect<{
-          dispatchesBeforeRestart: number
-          dispatchesAfterRestart: number
-          row: { status: string; stateJson: string }
-        }>
+        )
       )
 
       expect(result.dispatchesBeforeRestart).toBeGreaterThan(1)

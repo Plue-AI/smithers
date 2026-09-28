@@ -43,7 +43,7 @@ export interface HarnessContext {
 
 export interface Harness {
   readonly label: string
-  readonly run: <A>(body: (context: HarnessContext) => Effect.Effect<A, any, never>) => Effect.Effect<A>
+  readonly run: <A, E>(body: (context: HarnessContext) => Effect.Effect<A, E, never>) => Effect.Effect<A, unknown>
 }
 
 const owner: Ownership.OwnerId = { hostId: "contract", pid: 1, nonce: "owner" }

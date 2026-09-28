@@ -1,5 +1,4 @@
 import { describe, expect, it } from "@effect/vitest"
-import type { DurableWriter } from "@smthrs/database/DurableWriter"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
@@ -10,7 +9,6 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Schema from "effect/Schema"
-import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
@@ -87,14 +85,7 @@ const provideJournal = <A, E, R>(
     Effect.provide(TestStores.layer()),
     Effect.provide(DurableEngineState.layerMemory),
     Effect.provide(TestClock.layer())
-  ) as Effect.Effect<
-    A,
-    E,
-    Exclude<
-      R,
-      DurableWriter | Journal.Journal | RunStore.RunStore | DurableEngineState.DurableEngineState | Scope.Scope
-    >
-  >
+  )
 
 describe("RunDriver ownership", () => {
   it.effect("refuses a workspace-routed run before taking any ownership", () =>

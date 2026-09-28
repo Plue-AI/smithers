@@ -52,7 +52,7 @@ const withBroker = <A, E>(
         secret: Redacted.make("personal-secret")
       })
       return yield* body(credentials)
-    }).pipe(Effect.provide(TestDatabase.layer), Effect.scoped) as Effect.Effect<A>
+    }).pipe(Effect.provide(TestDatabase.layer), Effect.scoped)
   )
 
 const policy = personalPolicy({ personalPrincipals: ["assistant"] })

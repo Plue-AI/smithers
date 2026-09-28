@@ -16,7 +16,10 @@ const observer = (name: string, sink: Array<string>, extra: Partial<FlowsPlugin>
 const namesFor = (resolved: Resolve.Resolved, hook: string): ReadonlyArray<string> =>
   (resolved.handlers.get(hook) ?? []).map((record) => record.plugin)
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
+
+// Plugin layers type their requirements as `any`; these fixtures require no services.
+const closed = <ROut = never>(layer: Layer.Layer<any, PluginError, any>) => layer as Layer.Layer<ROut, PluginError>
 
 describe("Resolve.resolve", () => {
   it("flattens nested arrays and drops falsy entries", async () => {
@@ -166,7 +169,7 @@ describe("Resolve.layer", () => {
   it("is empty when no plugin contributes a layer", async () => {
     const resolved = await run(Resolve.resolve([observer("a", [])]))
     const merged = Resolve.layer(resolved)
-    await run(Effect.void.pipe(Effect.provide(merged as unknown as Layer.Layer<never>)))
+    await run(Effect.void.pipe(Effect.provide(closed(merged))))
   })
 
   it("merges layers left to right so earlier services are visible to later ones", async () => {
@@ -177,11 +180,7 @@ describe("Resolve.layer", () => {
       { name: "late", layer: second },
       { name: "early", enforce: "pre", layer: first }
     ]))
-    await run(
-      Effect.void.pipe(
-        Effect.provide(Resolve.layer(resolved) as unknown as Layer.Layer<never, PluginError>)
-      ) as Effect.Effect<void>
-    )
+    await run(Effect.void.pipe(Effect.provide(closed(Resolve.layer(resolved)))))
     expect(built).toEqual(["first", "second"])
   })
 
@@ -190,8 +189,8 @@ describe("Resolve.layer", () => {
     const value = await run(
       Alpha.pipe(
         Effect.map((alpha) => alpha.value),
-        Effect.provide(Resolve.layer(resolved) as unknown as Layer.Layer<Alpha>)
-      ) as Effect.Effect<string>
+        Effect.provide(closed<Alpha>(Resolve.layer(resolved)))
+      )
     )
     expect(value).toBe("alpha")
   })
@@ -204,8 +203,8 @@ describe("Resolve.layer", () => {
     const value = await run(
       Alpha.pipe(
         Effect.map((alpha) => alpha.value),
-        Effect.provide(Resolve.layer(resolved) as unknown as Layer.Layer<Alpha>)
-      ) as Effect.Effect<string>
+        Effect.provide(closed<Alpha>(Resolve.layer(resolved)))
+      )
     )
     // This pins the current layer-collision decision for plugin authors.
     expect(value).toBe("second")
@@ -215,12 +214,12 @@ describe("Resolve.layer", () => {
     const broken = Layer.effectDiscard(Effect.fail("boom" as const))
     const resolved = await run(Resolve.resolve([{ name: "broken", layer: broken }]))
     const exit = await Effect.runPromiseExit(
-      Effect.void.pipe(Effect.provide(Resolve.layer(resolved) as unknown as Layer.Layer<never, PluginError>))
+      Effect.void.pipe(Effect.provide(closed(Resolve.layer(resolved))))
     )
     expect(Exit.isFailure(exit)).toBe(true)
     const error = await run(
       Effect.void.pipe(
-        Effect.provide(Resolve.layer(resolved) as unknown as Layer.Layer<never, PluginError>),
+        Effect.provide(closed(Resolve.layer(resolved))),
         Effect.flip
       )
     )

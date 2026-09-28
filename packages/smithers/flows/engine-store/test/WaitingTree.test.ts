@@ -94,11 +94,13 @@ const insertRun = (options: {
     }
   })
 
-const withState = <A>(body: (state: DurableEngineState.Service) => Effect.Effect<A, unknown, any>) =>
+type Services = Layer.Success<typeof services>
+
+const withState = <A>(body: (state: DurableEngineState.Service) => Effect.Effect<A, unknown, Services>) =>
   Effect.gen(function*() {
     const state = yield* DurableEngineState.DurableEngineState
     return yield* body(state)
-  }).pipe(Effect.provide(services), Effect.orDie) as Effect.Effect<A>
+  }).pipe(Effect.provide(services), Effect.orDie)
 
 describe("waitingTree", () => {
   it.effect("reports a human wait parked three executions below the run an operator named", () =>

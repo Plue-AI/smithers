@@ -18,7 +18,7 @@ const withStore = <A, E>(
   use: (store: PlanStore.Service) => Effect.Effect<A, E, SqlClient.SqlClient>
 ) =>
   withCrypto(
-    Effect.flatMap(PlanStore.PlanStore, use).pipe(Effect.provide(stores)) as Effect.Effect<A, E, never>
+    Effect.flatMap(PlanStore.PlanStore, use).pipe(Effect.provide(stores))
   )
 
 /** The message SQLite's `RAISE(ABORT, ...)` carried, through the SqlError. */

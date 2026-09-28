@@ -6,9 +6,11 @@ import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { type Ownership, RunStore } from "@smthrs/run-store"
 import * as Cause from "effect/Cause"
+import type * as Crypto from "effect/Crypto"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
@@ -35,15 +37,19 @@ const jj = Jj.make({
  * durable state and journal: the first suspends the flow, the second is the
  * post-restart engine.
  */
-const withRestart = <A>(
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | Crypto.Crypto
+  | Scope.Scope
+
+const withRestart = <A, E>(
   body: (
-    makeEngine: Effect.Effect<
-      FlowRuntime.FlowRuntime["Service"],
-      never,
-      RunStore.RunStore | DurableEngineState.DurableEngineState | Journal.Journal | Jj.Jj | StepBoundary.Service
-    >,
+    makeEngine: Effect.Effect<FlowRuntime.FlowRuntime["Service"], never, Services>,
     store: RunStore.RunStore["Service"]
-  ) => Effect.Effect<A, any, any>
+  ) => Effect.Effect<A, E, Services>
 ) =>
   withCrypto(
     Effect.scoped(
@@ -64,7 +70,7 @@ const withRestart = <A>(
             previous
           )
         })
-        return yield* body(makeEngine as any, store)
+        return yield* body(makeEngine, store)
       }).pipe(
         Effect.provideService(
           DurableEngineState.DurableEngineState,
@@ -75,7 +81,7 @@ const withRestart = <A>(
     ).pipe(
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layer())
-    ) as Effect.Effect<A, unknown>
+    )
   )
 
 describe("durable deferred outcomes across a restart", () => {
@@ -94,7 +100,7 @@ describe("durable deferred outcomes across a restart", () => {
     options: {
       readonly handler: (
         prefix: string
-      ) => Effect.Effect<string, string, any>
+      ) => Effect.Effect<string, string, FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance>
       readonly exit: Exit.Exit<string, string>
       readonly assert: (exit: Exit.Exit<string, unknown>) => void
     }
@@ -127,8 +133,8 @@ describe("durable deferred outcomes across a restart", () => {
         const result = yield* withRestart((makeEngine, store) =>
           Effect.gen(function*() {
             const first = yield* makeEngine
-            yield* first.register(flow as any, handler as any)
-            yield* first.execute(flow as any, {
+            yield* first.register(flow, handler)
+            yield* first.execute(flow, {
               executionId: "restart-run",
               payload: {},
               discard: true
@@ -136,7 +142,7 @@ describe("durable deferred outcomes across a restart", () => {
             const suspended = yield* store.get("restart-run")
 
             const restarted = yield* makeEngine
-            yield* restarted.register(flow as any, handler as any)
+            yield* restarted.register(flow, handler)
             yield* restarted.deferredDone(gate, {
               flowName: flow._tag,
               executionId: "restart-run",
@@ -149,7 +155,7 @@ describe("durable deferred outcomes across a restart", () => {
               )
             )
             const exit = yield* Effect.exit(
-              restarted.execute(flow as any, {
+              restarted.execute(flow, {
                 executionId: "restart-run",
                 payload: {},
                 discard: false
@@ -373,14 +379,14 @@ describe("partial dependency readiness across a restart", () => {
 
           // only the first dependency becomes ready
           const afterFirstEngine = yield* makeEngine
-          yield* afterFirstEngine.register(flow as any, handler as any)
+          yield* afterFirstEngine.register(flow, handler)
           yield* afterFirstEngine.deferredDone(first, {
             flowName: flow._tag,
             executionId: "partial-run",
             deferredName: first.name,
             exit: Exit.succeed("a")
           })
-          yield* afterFirstEngine.execute(flow as any, {
+          yield* afterFirstEngine.execute(flow, {
             executionId: "partial-run",
             payload: {},
             discard: true
@@ -389,14 +395,14 @@ describe("partial dependency readiness across a restart", () => {
 
           // and only then the second one
           const finalEngine = yield* makeEngine
-          yield* finalEngine.register(flow as any, handler as any)
+          yield* finalEngine.register(flow, handler)
           yield* finalEngine.deferredDone(second, {
             flowName: flow._tag,
             executionId: "partial-run",
             deferredName: second.name,
             exit: Exit.succeed("b")
           })
-          const value = yield* finalEngine.execute(flow as any, {
+          const value = yield* finalEngine.execute(flow, {
             executionId: "partial-run",
             payload: {},
             discard: false
@@ -459,14 +465,14 @@ describe("partial dependency readiness across a restart", () => {
 
           // resolve the *later* dependency first
           const restarted = yield* makeEngine
-          yield* restarted.register(flow as any, handler as any)
+          yield* restarted.register(flow, handler)
           yield* restarted.deferredDone(second, {
             flowName: flow._tag,
             executionId: "ooo-run",
             deferredName: second.name,
             exit: Exit.succeed("b") as any
           })
-          yield* restarted.execute(flow as any, {
+          yield* restarted.execute(flow, {
             executionId: "ooo-run",
             payload: {},
             discard: true
@@ -474,14 +480,14 @@ describe("partial dependency readiness across a restart", () => {
           const stillSuspended = yield* store.get("ooo-run")
 
           const finalEngine = yield* makeEngine
-          yield* finalEngine.register(flow as any, handler as any)
+          yield* finalEngine.register(flow, handler)
           yield* finalEngine.deferredDone(first, {
             flowName: flow._tag,
             executionId: "ooo-run",
             deferredName: first.name,
             exit: Exit.succeed("a") as any
           })
-          const value = yield* finalEngine.execute(flow as any, {
+          const value = yield* finalEngine.execute(flow, {
             executionId: "ooo-run",
             payload: {},
             discard: false
@@ -667,7 +673,7 @@ describe("registration does not re-arm a settled run (B-03)", () => {
               journalSource: "b03-test",
               isAlive: () => Effect.succeed(false)
             })
-            yield* engine.register(B03Flow as never, (() => Effect.succeed("ok")) as never)
+            yield* engine.register(B03Flow, () => Effect.succeed("ok"))
             // Registration schedules the drive; flushing today's queue is not
             // a receipt for the drive's future writes. Wait for the actual
             // post-commit terminal event without starting another drive.
@@ -708,15 +714,7 @@ describe("registration does not re-arm a settled run (B-03)", () => {
           Effect.provide(TestStores.layerAt(":memory:")),
           Effect.provide(TestClock.layer()),
           Effect.orDie
-          // The `as never` flow casts above erase the requirement channel, so
-          // it re-widens to `unknown` here and has to be restated.
-        ) as unknown as Effect.Effect<{
-          readonly settled: ReadonlyArray<{ readonly wakes: number; readonly armed: number }>
-          readonly live: { readonly wakes: number; readonly armed: number }
-          readonly pendingBefore: ReadonlyArray<string>
-          readonly completionsBefore: ReadonlyArray<string>
-          readonly liveRow: RunStore.RunRow
-        }>
+        )
       )
 
       // Not one resume scheduled and not one timer armed for history.

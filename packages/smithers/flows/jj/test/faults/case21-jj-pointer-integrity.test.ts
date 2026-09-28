@@ -66,7 +66,7 @@ describe.skipIf(!jjInstalled)("case21 jj pointer integrity", () => {
     })
 
   const run = <A, E>(effect: Effect.Effect<A, E, Jj>): Promise<A> =>
-    Effect.runPromise(Effect.provide(effect, NodeJj.layer) as Effect.Effect<A, E>)
+    Effect.runPromise(Effect.provide(effect, NodeJj.layer))
 
   it("restores the tree a commit id addresses, not the one on disk", async () => {
     const file = join(repository, "ledger.txt")

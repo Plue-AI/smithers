@@ -20,24 +20,20 @@ const migratedDatabase = Layer.provideMerge(Migrations.layer, TestDatabase.layer
  */
 interface Harness {
   readonly label: string
-  readonly run: <A>(
-    body: (state: DurableEngineState.Service) => Effect.Effect<A, any, never>
-  ) => Effect.Effect<A>
+  readonly run: <A, E>(
+    body: (state: DurableEngineState.Service) => Effect.Effect<A, E, never>
+  ) => Effect.Effect<A, unknown>
 }
 
 const sqlHarness: Harness = {
   label: "sql",
-  run: <A>(body: (state: DurableEngineState.Service) => Effect.Effect<A, any, never>) =>
-    withCrypto(
-      Effect.flatMap(DurableEngineState.make, body).pipe(
-        Effect.provide(migratedDatabase)
-      ) as Effect.Effect<A>
-    )
+  run: <A, E>(body: (state: DurableEngineState.Service) => Effect.Effect<A, E, never>) =>
+    withCrypto(Effect.flatMap(DurableEngineState.make, body).pipe(Effect.provide(migratedDatabase)))
 }
 
 const memoryHarness: Harness = {
-  run: <A>(body: (state: DurableEngineState.Service) => Effect.Effect<A, any, never>) =>
-    withCrypto(body(DurableEngineState.makeMemory()) as Effect.Effect<A>),
+  run: <A, E>(body: (state: DurableEngineState.Service) => Effect.Effect<A, E, never>) =>
+    withCrypto(body(DurableEngineState.makeMemory())),
   label: "memory"
 }
 

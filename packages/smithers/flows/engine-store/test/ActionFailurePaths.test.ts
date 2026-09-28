@@ -70,7 +70,7 @@ const run = <A, E>(
     effect.pipe(
       Effect.provide(Layer.mergeAll(TestStores.layer(), boundary, jj)),
       Effect.scoped
-    ) as Effect.Effect<A, E, Crypto.Crypto>
+    )
   )
 
 const activate = (runId: string, owner: Ownership.OwnerId) =>

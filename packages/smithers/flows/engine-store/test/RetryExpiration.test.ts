@@ -13,9 +13,11 @@ import { Journal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import type * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -37,12 +39,21 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const withRestart = <A>(
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | TestClock.TestClock
+  | Crypto.Crypto
+  | Scope.Scope
+
+const withRestart = <A, E>(
   body: (
-    makeEngine: Effect.Effect<FlowRuntime.FlowRuntime["Service"], never, any>,
+    makeEngine: Effect.Effect<FlowRuntime.FlowRuntime["Service"], never, Services>,
     store: RunStore.Service,
     attempts: AttemptStore.Service
-  ) => Effect.Effect<A, any, any>
+  ) => Effect.Effect<A, E, Services>
 ) =>
   withCrypto(
     Effect.scoped(
@@ -53,7 +64,7 @@ const withRestart = <A>(
           owner: { hostId: "retry-expiration-host" },
           journalSource: "retry-expiration-test",
           isAlive: () => Effect.succeed(false)
-        }) as Effect.Effect<FlowRuntime.FlowRuntime["Service"], never, any>
+        })
         return yield* body(makeEngine, store, attempts)
       }).pipe(
         Effect.provideService(
@@ -66,7 +77,7 @@ const withRestart = <A>(
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layer()),
       Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
+    )
   )
 
 describe("expirationMs survives a restart mid-retry (issue #45)", () => {
@@ -124,8 +135,8 @@ describe("expirationMs survives a restart mid-retry (issue #45)", () => {
           // down mid-retry, exactly like process death.
           const firstScope = yield* Scope.make()
           const first = yield* makeEngine.pipe(Scope.provide(firstScope))
-          yield* first.register(flow as never, handler as never)
-          const driveFiber = yield* first.execute(flow as never, {
+          yield* first.register(flow, handler)
+          const driveFiber = yield* first.execute(flow, {
             executionId: "retry-expiration-run",
             payload: {},
             discard: true
@@ -158,8 +169,8 @@ describe("expirationMs survives a restart mid-retry (issue #45)", () => {
           // budget already exhausted, so it must give up immediately instead
           // of re-dispatching the body with a reset origin.
           const restarted = yield* makeEngine
-          yield* restarted.register(flow as never, handler as never)
-          const resumeFiber = yield* restarted.execute(flow as never, {
+          yield* restarted.register(flow, handler)
+          const resumeFiber = yield* restarted.execute(flow, {
             executionId: "retry-expiration-run",
             payload: {},
             discard: true

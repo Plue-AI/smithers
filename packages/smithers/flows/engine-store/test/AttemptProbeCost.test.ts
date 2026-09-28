@@ -15,7 +15,6 @@ import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
 import { CacheStore } from "@smthrs/step-cache"
-import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
@@ -31,6 +30,7 @@ import { withCrypto } from "./Sha256.ts"
 const ProbeFlow = Flow.make("AttemptProbeCost/Flow", {
   payload: {},
   success: Schema.String,
+  error: Schema.String,
   body: opaqueHandlerBody
 })
 
@@ -92,8 +92,8 @@ describe("attempt probe cost over SQL durable state (issue #77)", () => {
               owner: { hostId: "probe-cost-host" },
               journalSource: "probe-cost-test",
               isAlive: () => Effect.succeed(false)
-            }).pipe(Effect.updateContext(Context.add(AttemptStore.AttemptStore, counting)))
-            yield* engine.register(ProbeFlow, () => steady as never)
+            }).pipe(Effect.provideService(AttemptStore.AttemptStore, counting))
+            yield* engine.register(ProbeFlow, () => steady)
             const fiber = yield* engine.execute(ProbeFlow, {
               executionId: "probe-cost",
               payload: {},
@@ -109,7 +109,7 @@ describe("attempt probe cost over SQL durable state (issue #77)", () => {
           Effect.provide(StepBoundary.layerTest()),
           Effect.provide(stores),
           Effect.provide(TestClock.layer())
-        ) as unknown as Effect.Effect<{ row: { status: string } }>
+        )
       )
 
       expect(dispatches).toBe(1)

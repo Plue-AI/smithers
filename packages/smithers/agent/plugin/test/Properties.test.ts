@@ -54,7 +54,7 @@ const oracleMerge = (base: JsonRecord, patch: JsonRecord): JsonRecord => {
   return output
 }
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
 describe("deterministic plugin properties", () => {
   it("matches an independent recursive Config.merge oracle over strict JSON records", () => {

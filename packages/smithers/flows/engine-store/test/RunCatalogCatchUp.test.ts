@@ -13,7 +13,6 @@
  */
 import { describe, expect, it } from "@effect/vitest"
 import { RunStore } from "@smthrs/run-store"
-import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -30,9 +29,7 @@ type Services = SqlClient.SqlClient | RunStore.RunStore
 
 /** Opens an independent composition over one database file. */
 const onFile = (filename: string) => <A, E>(body: Effect.Effect<A, E, Services | Scope.Scope>) =>
-  withCrypto(
-    Effect.scoped(body).pipe(Effect.provide(TestStores.layerAt(filename))) as Effect.Effect<A, E, Crypto.Crypto>
-  )
+  withCrypto(Effect.scoped(body).pipe(Effect.provide(TestStores.layerAt(filename))))
 
 const temporaryFile = Effect.gen(function*() {
   const directory = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "run-catalog-")))

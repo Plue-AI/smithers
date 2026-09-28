@@ -21,10 +21,12 @@ import { Node } from "@smthrs/plan"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
 import { CacheStore } from "@smthrs/step-cache"
 import * as Cause from "effect/Cause"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
@@ -148,7 +150,7 @@ const services = Layer.mergeAll(
 /** One engine incarnation over already-provided stores, and what it dispatched. */
 const incarnation = (
   hostId: string,
-  flows: ReadonlyArray<Flow.Any>,
+  interpreters: ReadonlyArray<Layer.Layer<never, never, FlowRuntime.FlowRuntime | Action.Implementations>>,
   storeOverride?: RunStore.RunStore["Service"]
 ) =>
   Effect.gen(function*() {
@@ -168,7 +170,7 @@ const incarnation = (
           return value + 1
         })
       ),
-      ...flows.map((flow) => Interpreter.layer(flow as never))
+      ...interpreters
     ).pipe(
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
@@ -215,10 +217,11 @@ const invalidRoundStore = (
       )
   })
 
+type DurableServices = Layer.Success<typeof services>
+
 /** Runs one body against a fresh database and the real durable stores. */
-const durable = <A, E, R>(
-  body: Effect.Effect<A, E, R>
-) => withCrypto(body.pipe(Effect.scoped, Effect.provide(services)) as Effect.Effect<A>)
+const durable = <A, E>(body: Effect.Effect<A, E, DurableServices | Crypto.Crypto | Scope.Scope>) =>
+  withCrypto(Effect.scoped(body.pipe(Effect.provide(services))))
 
 const roundId = (lineageId: string, ordinal: number) => sha256(JSON.stringify(["flow-round/v2", lineageId, ordinal]))
 
@@ -228,7 +231,7 @@ describe("a durable lineage", () => {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
         const state = yield* DurableEngineState.DurableEngineState
-        const { calls, wiring } = yield* incarnation("counter-host", [Counter])
+        const { calls, wiring } = yield* incarnation("counter-host", [Interpreter.layer(Counter)])
 
         const value = yield* Counter.execute({ value: 0, target: 3 }, {
           executionId: "durable-lineage"
@@ -300,13 +303,14 @@ describe("a durable lineage", () => {
           isAlive: () => Effect.succeed(false)
         })
         const calls: Array<number> = []
+        const increment = Increment.toLayer(({ value }) =>
+          Effect.sync(() => {
+            calls.push(value)
+            return value + 1
+          })
+        )
         const wiring = Layer.mergeAll(
-          Increment.toLayer(({ value }) =>
-            Effect.sync(() => {
-              calls.push(value)
-              return value + 1
-            })
-          ),
+          increment,
           Interpreter.layer(Counter),
           Layer.mergeAll(
             // The constructed child payload always satisfies its schema, so
@@ -317,6 +321,8 @@ describe("a durable lineage", () => {
             ),
             Interpreter.layer(Parent)
           ).pipe(
+            // `Counter.execute` declares the increment it hands off to.
+            Layer.provide(increment),
             Layer.provideMerge(Action.layerImplementations)
           )
         ).pipe(
@@ -347,14 +353,14 @@ describe("a durable lineage", () => {
     Effect.gen(function*() {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
-        const first = yield* incarnation("replay-first", [Counter])
+        const first = yield* incarnation("replay-first", [Interpreter.layer(Counter)])
         const value = yield* Counter.execute({ value: 0, target: 3 }, {
           executionId: "replay-lineage"
         }).pipe(Effect.provide(first.wiring))
 
         // A second incarnation over the same storage: the lineage is settled, so
         // asking for it again is a read.
-        const second = yield* incarnation("replay-second", [Counter])
+        const second = yield* incarnation("replay-second", [Interpreter.layer(Counter)])
         const replayed = yield* Counter.execute({ value: 0, target: 3 }, {
           executionId: "replay-lineage"
         }).pipe(Effect.provide(second.wiring))
@@ -383,7 +389,7 @@ describe("a durable lineage", () => {
         // This worker knows the first leg only. It settles round 0, opens round
         // 1 durably, and then has nothing that can drive it — the crash window
         // the derived id exists for.
-        const partial = yield* incarnation("crash-partial", [LegOne])
+        const partial = yield* incarnation("crash-partial", [Interpreter.layer(LegOne)])
         yield* LegOne.execute({ value: 0 }, {
           executionId: "crash-lineage",
           discard: true
@@ -394,7 +400,7 @@ describe("a durable lineage", () => {
 
         // A worker that knows both legs picks the lineage up from the root, and
         // re-derives the id of the round that is already durable.
-        const whole = yield* incarnation("crash-whole", [LegOne, LegTwo])
+        const whole = yield* incarnation("crash-whole", [Interpreter.layer(LegOne), Interpreter.layer(LegTwo)])
         const value = yield* LegOne.execute({ value: 0 }, {
           executionId: "crash-lineage"
         }).pipe(Effect.provide(whole.wiring))
@@ -419,7 +425,7 @@ describe("a durable lineage", () => {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
         const racing = cancelRaceStore(store, "handoff-cancel-race", "completed")
-        const { calls, wiring } = yield* incarnation("handoff-cancel-host", [Counter], racing)
+        const { calls, wiring } = yield* incarnation("handoff-cancel-host", [Interpreter.layer(Counter)], racing)
         yield* Counter.execute({ value: 0, target: 2 }, {
           executionId: "handoff-cancel-race",
           discard: true
@@ -444,7 +450,7 @@ describe("a durable lineage", () => {
               ? store.transitionOwned(runId, { hostId: "other", pid: 1, nonce: "other" }, status, stateJson, guard)
               : store.transitionOwned(runId, claimant, status, stateJson, guard)
         })
-        const { calls, wiring } = yield* incarnation("handoff-fence-host", [Counter], fenceLost)
+        const { calls, wiring } = yield* incarnation("handoff-fence-host", [Interpreter.layer(Counter)], fenceLost)
         yield* Counter.execute({ value: 0, target: 2 }, {
           executionId: "handoff-fence-race",
           discard: true
@@ -531,7 +537,7 @@ describe("a durable lineage", () => {
                 testCase.metadata
               )
 
-            const { wiring } = yield* incarnation(`${testCase.name}-host`, [Counter])
+            const { wiring } = yield* incarnation(`${testCase.name}-host`, [Interpreter.layer(Counter)])
             const exit = yield* Counter.execute({ value: 0, target: 2 }, {
               executionId: testCase.name
             }).pipe(Effect.exit, Effect.provide(wiring))
@@ -558,7 +564,7 @@ describe("a durable lineage", () => {
     Effect.gen(function*() {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
-        const { calls, wiring } = yield* incarnation("bounded-host", [Bounded])
+        const { calls, wiring } = yield* incarnation("bounded-host", [Interpreter.layer(Bounded)])
         const exit = yield* Bounded.execute({ value: 0, target: 99 }, {
           executionId: "bounded-lineage"
         }).pipe(Effect.exit, Effect.provide(wiring))
@@ -582,7 +588,7 @@ describe("a durable lineage", () => {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
         const malformed = invalidRoundStore(store, "invalid-round-lineage")
-        const { calls, wiring } = yield* incarnation("invalid-round-host", [Counter], malformed)
+        const { calls, wiring } = yield* incarnation("invalid-round-host", [Interpreter.layer(Counter)], malformed)
         const exit = yield* Counter.execute({ value: 0, target: 2 }, {
           executionId: "invalid-round-lineage"
         }).pipe(Effect.exit, Effect.provide(wiring))
@@ -606,7 +612,11 @@ describe("a durable lineage", () => {
         const store = yield* RunStore.RunStore
         const racing = cancelRaceStore(store, "invalid-round-cancel-race", "failed")
         const malformed = invalidRoundStore(racing, "invalid-round-cancel-race")
-        const { calls, wiring } = yield* incarnation("invalid-round-cancel-host", [Counter], malformed)
+        const { calls, wiring } = yield* incarnation(
+          "invalid-round-cancel-host",
+          [Interpreter.layer(Counter)],
+          malformed
+        )
         yield* Counter.execute({ value: 0, target: 2 }, {
           executionId: "invalid-round-cancel-race",
           discard: true
@@ -624,7 +634,7 @@ describe("a durable lineage", () => {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
         const racing = cancelRaceStore(store, "budget-cancel-race", "failed")
-        const { calls, wiring } = yield* incarnation("budget-cancel-host", [SingleRound], racing)
+        const { calls, wiring } = yield* incarnation("budget-cancel-host", [Interpreter.layer(SingleRound)], racing)
         yield* SingleRound.execute({ value: 0, target: 2 }, {
           executionId: "budget-cancel-race",
           discard: true
@@ -640,7 +650,10 @@ describe("a durable lineage", () => {
     Effect.gen(function*() {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
-        const { calls, wiring } = yield* incarnation("origin-budget-host", [OriginBounded, LegTwo])
+        const { calls, wiring } = yield* incarnation("origin-budget-host", [
+          Interpreter.layer(OriginBounded),
+          Interpreter.layer(LegTwo)
+        ])
         const exit = yield* OriginBounded.execute({ value: 0 }, {
           executionId: "origin-budget-lineage"
         }).pipe(Effect.exit, Effect.provide(wiring))
@@ -661,7 +674,7 @@ describe("a durable lineage", () => {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
         const state = yield* DurableEngineState.DurableEngineState
-        const { calls, wiring } = yield* incarnation("park-host", [Opening, Gate])
+        const { calls, wiring } = yield* incarnation("park-host", [Interpreter.layer(Opening), Interpreter.layer(Gate)])
         const registered = yield* Layer.build(wiring)
 
         yield* Opening.execute({ value: 0 }, {
@@ -711,7 +724,7 @@ describe("the lineage columns", () => {
   it.effect("are indexed together so a lineage reads back in round order", () =>
     Effect.gen(function*() {
       const ordinals = yield* durable(Effect.gen(function*() {
-        const { wiring } = yield* incarnation("order-host", [Counter])
+        const { wiring } = yield* incarnation("order-host", [Interpreter.layer(Counter)])
         yield* Counter.execute({ value: 0, target: 3 }, {
           executionId: "order-lineage"
         }).pipe(Effect.provide(wiring))

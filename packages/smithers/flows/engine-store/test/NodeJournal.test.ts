@@ -280,7 +280,7 @@ const recordAgainst = (failure: Journal.JournalError) =>
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layerAt(":memory:")),
       Effect.orDie
-    ) as Effect.Effect<Exit.Exit<void, never>, never, never>
+    )
   )
 
 describe("a node record the journal refuses", () => {

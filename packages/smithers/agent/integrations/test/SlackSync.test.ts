@@ -141,7 +141,7 @@ const adapterFor = (server: SlackFixture, options: Partial<Options> = {}) =>
   })
 
 const run = <A, E>(effect: Effect.Effect<A, E, SourceStore>): Promise<A> =>
-  Effect.runPromise(effect.pipe(Effect.provide(layerMemory)) as Effect.Effect<A, E>)
+  Effect.runPromise(effect.pipe(Effect.provide(layerMemory)))
 
 const failure = async (effect: Effect.Effect<unknown, IntegrationError>): Promise<IntegrationError> => {
   const error = Exit.findErrorOption(await Effect.runPromise(Effect.exit(effect)))

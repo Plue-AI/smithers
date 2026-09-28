@@ -36,7 +36,7 @@ const remote = <A, E>(body: Effect.Effect<A, E, Control.Control>): Promise<A> =>
     body.pipe(
       Effect.provide(controlClient({ url: server.url, credential: server.token }).layer),
       Effect.scoped
-    ) as Effect.Effect<A, E>
+    )
   )
 
 describe("case14 gateway RPC round trip", () => {

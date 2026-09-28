@@ -168,7 +168,7 @@ const withSql = <A>(
     const sql = yield* Effect.service(SqlClient.SqlClient)
     const store = yield* SqlTimeTravelStore.make
     return yield* body(store, sql)
-  }).pipe(Effect.provide(TestDatabase.layer)) as Effect.Effect<A, unknown>
+  }).pipe(Effect.provide(TestDatabase.layer))
 
 describe("TimeTravelStore conformance", () => {
   it.effect("answers frame reads, descendants, archive evidence, and owner fences identically", () =>

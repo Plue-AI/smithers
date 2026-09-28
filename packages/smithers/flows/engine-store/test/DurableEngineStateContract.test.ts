@@ -76,7 +76,7 @@ const sqlHarness: Harness = {
             }).pipe(Effect.orDie)
         }
         return yield* body(context)
-      }).pipe(Effect.provide(migratedDatabase)) as Effect.Effect<never>
+      }).pipe(Effect.provide(migratedDatabase))
     )
 }
 
@@ -111,7 +111,7 @@ const memoryHarness: Harness = {
         }),
       deleteRun: (runId) => Effect.sync(() => void runs.delete(runId))
     }
-    return withCrypto(body(context) as Effect.Effect<never>)
+    return withCrypto(body(context))
   }
 }
 

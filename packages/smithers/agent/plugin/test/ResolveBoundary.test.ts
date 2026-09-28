@@ -7,7 +7,10 @@ import { PluginError } from "../src/PluginError.ts"
 import * as Plugins from "../src/Plugins.ts"
 import * as Resolve from "../src/Resolve.ts"
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
+
+// Plugin layers type their requirements as `any`; these fixtures require no services.
+const closed = <ROut = never>(layer: Layer.Layer<any, PluginError, any>) => layer as Layer.Layer<ROut, PluginError>
 
 const refusal = async (input: unknown, options?: Resolve.Options) =>
   run(Resolve.resolve(input as never, options).pipe(Effect.flip))
@@ -411,7 +414,7 @@ describe("cache-environment admission", () => {
     expect(Object.isFrozen(resolved.cacheEnvironment?.capabilities["fs"])).toBe(true)
 
     const environment = await run(
-      Action.CurrentCacheEnvironment.pipe(Effect.provide(Resolve.layer(resolved)))
+      Action.CurrentCacheEnvironment.pipe(Effect.provide(closed(Resolve.layer(resolved))))
     )
     expect(environment).toBe(resolved.cacheEnvironment)
   })
@@ -437,7 +440,7 @@ describe("cache-environment admission", () => {
   it("still wraps a validated layer that later fails to construct", async () => {
     const broken = Layer.effectDiscard(Effect.die("layer defect"))
     const resolved = await run(Resolve.resolve([{ name: "broken", layer: broken }]))
-    const error = await run(Effect.void.pipe(Effect.provide(Resolve.layer(resolved)), Effect.flip))
+    const error = await run(Effect.void.pipe(Effect.provide(closed(Resolve.layer(resolved))), Effect.flip))
     expect(error).toMatchObject({ code: "layer_failed", plugin: "broken" })
   })
 })

@@ -14,8 +14,12 @@ import { Context, Effect, Layer } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Kernel from "../src/Kernel.ts"
 import * as Plugin from "../src/Plugin.ts"
+import type { PluginError } from "../src/PluginError.ts"
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
+
+// Plugin layers type their requirements as `any`; these fixtures require no services.
+const closed = <ROut = never>(layer: Layer.Layer<any, PluginError, any>) => layer as Layer.Layer<ROut, PluginError>
 
 class Marker extends Context.Service<Marker, string>()("CacheEnvironment/Marker") {}
 
@@ -34,7 +38,7 @@ describe("the kernel declares the cache environment (issue #88)", () => {
         // same merged layer.
         expect(yield* Marker).toBe("host")
         return yield* Action.CurrentCacheEnvironment
-      }).pipe(Effect.provide(kernel.layer))
+      }).pipe(Effect.provide(closed<Marker>(kernel.layer)))
     )
     // Asserted as a whole value, not just `.layers`: `undefined` is the
     // engine's "nothing was declared" state, which scopes sealed cache keys
@@ -48,7 +52,7 @@ describe("the kernel declares the cache environment (issue #88)", () => {
     const environment = await run(
       Effect.gen(function*() {
         return yield* Action.CurrentCacheEnvironment
-      }).pipe(Effect.provide(kernel.layer))
+      }).pipe(Effect.provide(closed(kernel.layer)))
     )
     expect(environment).toBeUndefined()
   })
@@ -67,7 +71,7 @@ describe("the kernel declares the cache environment (issue #88)", () => {
     const environment = await run(
       Effect.gen(function*() {
         return yield* Action.CurrentCacheEnvironment
-      }).pipe(Effect.provide(kernel.layer))
+      }).pipe(Effect.provide(closed(kernel.layer)))
     )
     expect(environment).toEqual({
       layers: ["flows-plugin-model-sonnet@1.4.0", "Host=node"],
@@ -81,7 +85,7 @@ describe("the kernel declares the cache environment (issue #88)", () => {
       {},
       { cacheEnvironment: { layers: [], capabilities: {} } }
     ))
-    const environment = await run(Action.CurrentCacheEnvironment.pipe(Effect.provide(kernel.layer)))
+    const environment = await run(Action.CurrentCacheEnvironment.pipe(Effect.provide(closed(kernel.layer))))
     expect(environment).toEqual({
       layers: ["flows-plugin-model-sonnet@1.4.0"],
       capabilities: {}

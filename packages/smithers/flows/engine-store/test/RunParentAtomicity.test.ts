@@ -23,6 +23,7 @@ import { SqlJournal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
 import { RunStore } from "@smthrs/run-store"
 import * as Cause from "effect/Cause"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
@@ -53,13 +54,10 @@ const services = Layer.mergeAll(
 
 const parentInstance = (executionId: string) => ({ executionId } as FlowRuntime.FlowInstance["Service"])
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  withCrypto(
-    Effect.scoped(effect as Effect.Effect<A, E, Scope.Scope>).pipe(
-      Effect.provide(services),
-      Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
-  )
+type Services = Layer.Success<typeof services> | TestClock.TestClock | Crypto.Crypto | Scope.Scope
+
+const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+  withCrypto(Effect.scoped(effect).pipe(Effect.provide(services), Effect.provide(TestClock.layer())))
 
 describe("run-parent edge atomicity (issues #80/#81)", () => {
   it.effect("commits the parent edge and the run row together, or neither (issue #80)", () =>

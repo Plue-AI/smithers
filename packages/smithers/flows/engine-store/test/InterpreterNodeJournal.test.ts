@@ -12,7 +12,7 @@ import { Journal, JournalEvent } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { RunStore } from "@smthrs/run-store"
-import { type Crypto, Effect, Exit, Layer, Schema, Scope } from "effect"
+import { Effect, Exit, Layer, Schema, Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -195,7 +195,7 @@ it("holds one row per node across a park and a resume", async () => {
           const parked = (yield* runs.get("parking-run")).status
           const duringPark = yield* nodeRows("parking-run")
 
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: Parking._tag,
             executionId: "parking-run",
             deferredName: gate.name,
@@ -212,16 +212,7 @@ it("holds one row per node across a park and a resume", async () => {
         Effect.provide(StepBoundary.layerTest()),
         Effect.provide(TestStores.layerAt(join(root, "state.sqlite"))),
         Effect.orDie
-      ) as Effect.Effect<
-        {
-          readonly parked: string
-          readonly duringPark: ReadonlyArray<NodeRow>
-          readonly status: string
-          readonly afterResume: ReadonlyArray<NodeRow>
-        },
-        never,
-        Crypto.Crypto
-      >
+      )
     )
 
     expect(observed.parked).toBe("suspended")
@@ -292,11 +283,7 @@ it("settles a second run's cached nodes clean, and the first run's built", async
         Effect.provide(StepBoundary.layerTest()),
         Effect.provide(TestStores.layerAt(join(root, "state.sqlite"))),
         Effect.orDie
-      ) as Effect.Effect<
-        { readonly first: ReadonlyArray<NodeRow>; readonly second: ReadonlyArray<NodeRow> },
-        never,
-        Crypto.Crypto
-      >
+      )
     )
 
     // The bodies ran once, for the first run. The second run's dispatches
@@ -395,14 +382,7 @@ it("joins every attempt record to the plan node that dispatched it", async () =>
         Effect.provide(StepBoundary.layerTest()),
         Effect.provide(TestStores.layerAt(join(root, "state.sqlite"))),
         Effect.orDie
-      ) as Effect.Effect<
-        {
-          readonly nodes: ReadonlyArray<NodeRow>
-          readonly attempts: ReadonlyArray<Record<string, unknown>>
-        },
-        never,
-        Crypto.Crypto
-      >
+      )
     )
 
     const settled = observed.nodes.filter((row) => row.eventType === "flows.engine.node-settled")
@@ -495,7 +475,7 @@ it("keeps the settlement the first walk wrote when the resumed walk observes ano
           yield* Beside.execute({ path: "abcd" }, { executionId: "beside-run", discard: true })
           const runs = yield* RunStore.RunStore
           const duringPark = yield* nodeRows("beside-run")
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: Beside._tag,
             executionId: "beside-run",
             deferredName: gate.name,
@@ -509,15 +489,7 @@ it("keeps the settlement the first walk wrote when the resumed walk observes ano
         Effect.provide(StepBoundary.layerTest()),
         Effect.provide(TestStores.layerAt(join(root, "state.sqlite"))),
         Effect.orDie
-      ) as Effect.Effect<
-        {
-          readonly duringPark: ReadonlyArray<NodeRow>
-          readonly status: string
-          readonly afterResume: ReadonlyArray<NodeRow>
-        },
-        never,
-        Crypto.Crypto
-      >
+      )
     )
 
     expect(observed.status).toBe("completed")

@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import { createHash, webcrypto } from "node:crypto"
 import {
   Action,
@@ -62,8 +63,10 @@ const services = Layer.mergeAll(
   Layer.merge(Layer.succeed(Jj.Jj, jj))
 )
 
-const durable = <A, E, R>(body: Effect.Effect<A, E, R>) =>
-  Effect.scoped(body.pipe(Effect.provide(services), Effect.provide(hostCrypto))) as Effect.Effect<A>
+type DurableServices = Layer.Success<typeof services>
+
+const durable = <A, E>(body: Effect.Effect<A, E, DurableServices | Crypto.Crypto | Scope.Scope>) =>
+  Effect.scoped(body.pipe(Effect.provide(services), Effect.provide(hostCrypto)))
 
 type Implementation = Layer.Layer<never, never, Action.Implementations | FlowRuntime.FlowRuntime>
 

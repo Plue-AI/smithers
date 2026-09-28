@@ -222,7 +222,7 @@ const drive = <A, E>(
   }).pipe(
     Effect.provide(engineLayer(harness, handlers)),
     Effect.scoped
-  ) as Effect.Effect<A, E>
+  )
 }
 
 const entries = Effect.gen(function*() {

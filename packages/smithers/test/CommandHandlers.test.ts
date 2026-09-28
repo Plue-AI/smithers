@@ -70,16 +70,16 @@ const testControl = TestControl.layer({ now: () => 0, flows: [demoFlow] })
 // invocation gets rather than opening a `.flows/` beside the test run.
 const services = Layer.mergeAll(TestConsole.layer, Output.layer, NodeControl.layerMemoryRemote)
 
-const run = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-  control: Layer.Layer<ControlService.Control, unknown, unknown>
+const run = <A, E>(
+  effect: Effect.Effect<A, E, ControlService.Control | Layer.Success<typeof services> | NodeServices.NodeServices>,
+  control: Layer.Layer<ControlService.Control, unknown>
 ) =>
   Effect.runPromise(
     effect.pipe(
       Effect.provide(control),
       Effect.provide(services),
       Effect.provide(NodeServices.layer)
-    ) as Effect.Effect<A, E>
+    )
   )
 
 /** Plans, approves, and launches `demo/ship`, returning the run identifier. */

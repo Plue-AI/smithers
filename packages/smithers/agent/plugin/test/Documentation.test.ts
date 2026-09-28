@@ -8,7 +8,7 @@ import * as Resolve from "../src/Resolve.ts"
 const packageRoot = fileURLToPath(new URL("../", import.meta.url))
 const read = (file: string) => readFileSync(join(packageRoot, file), "utf8")
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
 const refusal = async (input: unknown, options?: Resolve.Options) =>
   run(Resolve.resolve(input as never, options).pipe(Effect.flip))

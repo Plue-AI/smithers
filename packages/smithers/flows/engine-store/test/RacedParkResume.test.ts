@@ -19,12 +19,14 @@ import { Action, DurableClock, DurableDeferred, Flow, FlowRuntime, HumanTask, In
 import { Journal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
 import { AttemptStore, type Ownership, RunStore } from "@smthrs/run-store"
+import type * as Crypto from "effect/Crypto"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as ActionPersistence from "../src/internal/ActionPersistence.ts"
 import * as EffectRecords from "../src/internal/EffectRecords.ts"
@@ -42,13 +44,19 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const provide = <A>(effect: Effect.Effect<A, any, any>) =>
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layerAt>>
+  | StepBoundary.Service
+  | Jj.Jj
+  | Crypto.Crypto
+
+const provide = <A, E>(effect: Effect.Effect<A, E, Services>) =>
   withCrypto(
     effect.pipe(
       Effect.provideService(Jj.Jj, jj),
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layerAt(":memory:"))
-    ) as Effect.Effect<A>
+    )
   )
 
 const makeEngine = EngineStore.make({
@@ -101,8 +109,8 @@ describe("a flow body parked on a raced deferred resumes durably", () => {
       const store = yield* RunStore.RunStore
       const parked = yield* Effect.scoped(Effect.gen(function*() {
         const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-        yield* engine.register(RaceFlow as never, racedHandler as never)
-        yield* engine.execute(RaceFlow as never, {
+        yield* engine.register(RaceFlow, racedHandler)
+        yield* engine.execute(RaceFlow, {
           executionId: "raced-park",
           payload: {},
           discard: true
@@ -112,14 +120,14 @@ describe("a flow body parked on a raced deferred resumes durably", () => {
 
       const settled = yield* Effect.scoped(Effect.gen(function*() {
         const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-        yield* engine.register(RaceFlow as never, racedHandler as never)
-        yield* engine.deferredDone(gate as never, {
+        yield* engine.register(RaceFlow, racedHandler)
+        yield* engine.deferredDone(gate, {
           flowName: RaceFlow._tag,
           executionId: "raced-park",
           deferredName: gate.name,
           exit: Exit.succeed("answered")
         })
-        yield* engine.execute(RaceFlow as never, {
+        yield* engine.execute(RaceFlow, {
           executionId: "raced-park",
           payload: {},
           discard: true
@@ -148,7 +156,17 @@ const Asked = Flow.make("RacedParkResume/HumanTask", {
  * would park forever against an unregistered flow.
  */
 const asking = <A, E>(
-  body: (engine: FlowRuntime.FlowRuntime["Service"]) => Effect.Effect<A, E, any>
+  body: (
+    engine: FlowRuntime.FlowRuntime["Service"]
+  ) => Effect.Effect<
+    A,
+    E,
+    | Services
+    | Layer.Success<typeof HumanTask.layer>
+    | Layer.Success<typeof Action.layerImplementations>
+    | FlowRuntime.FlowRuntime
+    | Scope.Scope
+  >
 ) =>
   provide(Effect.scoped(Effect.gen(function*() {
     const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]

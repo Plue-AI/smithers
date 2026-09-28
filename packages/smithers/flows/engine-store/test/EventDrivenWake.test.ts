@@ -13,12 +13,14 @@ import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { DurableDeferred, Flow, FlowRuntime, RetryPolicy } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import * as Clock from "effect/Clock"
+import type * as Crypto from "effect/Crypto"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import type * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
@@ -46,11 +48,21 @@ const hourPolicy = RetryPolicy.make({
   maxMs: 3_600_000
 })
 
-const withEngine = <A>(
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | TestClock.TestClock
+  | WakeBus.WakeBus
+  | Crypto.Crypto
+  | Scope.Scope
+
+const withEngine = <A, E>(
   wakeBusLayer: Layer.Layer<WakeBus.WakeBus>,
   body: (
-    makeEngine: Effect.Effect<unknown, never, any>
-  ) => Effect.Effect<A, any, any>
+    makeEngine: Effect.Effect<unknown, never, Services>
+  ) => Effect.Effect<A, E, Services>
 ) =>
   withCrypto(
     Effect.scoped(
@@ -60,7 +72,7 @@ const withEngine = <A>(
           journalSource: "wake-test",
           isAlive: () => Effect.succeed(false)
         })
-        return yield* body(makeEngine as never)
+        return yield* body(makeEngine)
       }).pipe(
         Effect.provideService(
           DurableEngineState.DurableEngineState,
@@ -73,7 +85,7 @@ const withEngine = <A>(
       Effect.provide(TestStores.layer()),
       Effect.provide(wakeBusLayer),
       Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
+    )
   )
 
 /** Yields until the bus reports `count` waiters parked on `executionId`. */
@@ -104,8 +116,8 @@ describe("event-driven wake", () => {
         Effect.gen(function*() {
           const bus = yield* WakeBus.WakeBus
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-          yield* engine.register(EventFlow as never, handler as never)
-          const caller = yield* engine.execute(EventFlow as never, {
+          yield* engine.register(EventFlow, handler)
+          const caller = yield* engine.execute(EventFlow, {
             executionId: "wake-event",
             payload: {},
             discard: false
@@ -114,7 +126,7 @@ describe("event-driven wake", () => {
           // TestClock time that this test never grants.
           yield* untilWaiters(bus, "wake-event", 1)
 
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: EventFlow._tag,
             executionId: "wake-event",
             deferredName: gate.name,
@@ -145,8 +157,8 @@ describe("event-driven wake", () => {
         Effect.gen(function*() {
           const bus = yield* WakeBus.WakeBus
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-          yield* engine.register(InterruptFlow as never, handler as never)
-          const caller = yield* engine.execute(InterruptFlow as never, {
+          yield* engine.register(InterruptFlow, handler)
+          const caller = yield* engine.execute(InterruptFlow, {
             executionId: "wake-interrupted",
             payload: {},
             discard: false
@@ -182,8 +194,8 @@ describe("event-driven wake", () => {
         Effect.gen(function*() {
           const bus = yield* WakeBus.WakeBus
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-          yield* engine.register(FollowedFlow as never, handler as never)
-          const follow = engine.execute(FollowedFlow as never, {
+          yield* engine.register(FollowedFlow, handler)
+          const follow = engine.execute(FollowedFlow, {
             executionId: "wake-followed",
             payload: {},
             discard: false,
@@ -222,7 +234,7 @@ describe("event-driven wake", () => {
           }
           const later = drives
 
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: FollowedFlow._tag,
             executionId: "wake-followed",
             deferredName: gate.name,
@@ -255,10 +267,10 @@ describe("event-driven wake", () => {
           const bus = yield* WakeBus.WakeBus
           const state = yield* DurableEngineState.DurableEngineState
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-          yield* engine.register(JoinedFlow as never, handler as never)
+          yield* engine.register(JoinedFlow, handler)
           // Admission drives the run to its park; the discard follower then
           // dispatches the round again and parks on the bus.
-          yield* engine.execute(JoinedFlow as never, {
+          yield* engine.execute(JoinedFlow, {
             executionId: "wake-joined",
             payload: {},
             discard: true,
@@ -267,7 +279,7 @@ describe("event-driven wake", () => {
           yield* untilWaiters(bus, "wake-joined", 1)
           const parked = { drives, waiting: yield* state.waiting("wake-joined") }
 
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: JoinedFlow._tag,
             executionId: "wake-joined",
             deferredName: gate.name,
@@ -276,11 +288,11 @@ describe("event-driven wake", () => {
           // A parked run already polls as `Suspended`; wait for the answer.
           yield* TestDatabase.until(
             Effect.map(
-              engine.poll(JoinedFlow as never, "wake-joined"),
+              engine.poll(JoinedFlow, "wake-joined"),
               (result) => result._tag === "Some" && result.value._tag === "Complete"
             )
           )
-          return { parked, drives, value: yield* engine.poll(JoinedFlow as never, "wake-joined") }
+          return { parked, drives, value: yield* engine.poll(JoinedFlow, "wake-joined") }
         }))
 
       // The follower's dispatch joined the park: no second claim, no replay,
@@ -316,8 +328,8 @@ describe("event-driven wake", () => {
         (makeEngine) =>
           Effect.gen(function*() {
             const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-            yield* engine.register(FallbackFlow as never, handler as never)
-            const caller = yield* engine.execute(FallbackFlow as never, {
+            yield* engine.register(FallbackFlow, handler)
+            const caller = yield* engine.execute(FallbackFlow, {
               executionId: "wake-fallback",
               payload: {},
               discard: false
@@ -326,7 +338,7 @@ describe("event-driven wake", () => {
             // first poll wait. Observe the caller entering that wait before
             // completion re-drives the run, so only the fallback tick can wake it.
             yield* Deferred.await(parked)
-            yield* engine.deferredDone(gate as never, {
+            yield* engine.deferredDone(gate, {
               flowName: FallbackFlow._tag,
               executionId: "wake-fallback",
               deferredName: gate.name,

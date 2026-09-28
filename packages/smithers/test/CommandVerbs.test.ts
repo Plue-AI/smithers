@@ -97,9 +97,9 @@ const json = Effect.fnUntraced(function*(args: ReadonlyArray<string>) {
   return JSON.parse(rendered) as unknown
 })
 
-const run = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-  control: Layer.Layer<ControlService.Control, unknown, unknown>,
+const run = <A, E>(
+  effect: Effect.Effect<A, E, ControlService.Control | Layer.Success<typeof services> | NodeServices.NodeServices>,
+  control: Layer.Layer<ControlService.Control, unknown>,
   root?: string
 ) =>
   Effect.runPromise(
@@ -110,7 +110,7 @@ const run = <A, E, R>(
         Project.layer(root ?? process.cwd(), Project.legacyRoot(undefined, root ?? process.cwd()))
       ),
       Effect.provide(NodeServices.layer)
-    ) as Effect.Effect<A, E>
+    )
   )
 
 /** Plans, approves, and launches `demo/ship`, returning the run identifier. */

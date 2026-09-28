@@ -21,7 +21,6 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
@@ -124,25 +123,11 @@ describe("the parked-run sweep fetches only actionable rows (issue #68)", () => 
               actionableCancel: getCounts.get("actionable-cancel") ?? 0,
               actionableReleased: getCounts.get("actionable-released") ?? 0
             }
-          }) as Effect.Effect<
-            {
-              neutralQuota: number
-              neutralEvent: number
-              actionableCancel: number
-              actionableReleased: number
-            },
-            never,
-            Scope.Scope
-          >
+          })
         ).pipe(
           Effect.provide(services),
           Effect.provide(TestClock.layer())
-        ) as Effect.Effect<{
-          neutralQuota: number
-          neutralEvent: number
-          actionableCancel: number
-          actionableReleased: number
-        }>
+        )
       )
 
       // The sweep still examines and wakes the actionable rows…

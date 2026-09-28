@@ -14,7 +14,7 @@ const event = (id: number): ExternalEvent => ({
 })
 
 const run = <A, E>(effect: Effect.Effect<A, E, CursorStore>) =>
-  Effect.runPromise(effect.pipe(Effect.provide(layerMemory)) as Effect.Effect<A, E>)
+  Effect.runPromise(effect.pipe(Effect.provide(layerMemory)))
 
 describe("runWithCursor", () => {
   it("commits each proposed cursor only after the handler succeeds, turn after turn", async () => {

@@ -128,7 +128,7 @@ const drive = <A, E>(
   }).pipe(
     Effect.provide(engineLayer),
     Effect.scoped
-  ) as Effect.Effect<A, E>
+  )
 
 const handoffSeq = (entries: ReadonlyArray<JournalEvent.Entry>): number => {
   const handoff = entries.find((entry) =>

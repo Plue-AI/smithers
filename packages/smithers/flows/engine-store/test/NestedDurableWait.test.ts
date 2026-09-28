@@ -21,8 +21,10 @@ import { describe, expect, it } from "@effect/vitest"
 import { Action, DurableClock, DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import { RunStore } from "@smthrs/run-store"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
@@ -58,12 +60,20 @@ const completed = (store: RunStore.Service, runId: string) =>
     return row
   })
 
-const withEngine = <A>(
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | Crypto.Crypto
+  | Scope.Scope
+
+const withEngine = <A, E>(
   state: DurableEngineState.Service,
   body: (
-    makeEngine: Effect.Effect<unknown, never, any>,
+    makeEngine: Effect.Effect<unknown, never, Services>,
     store: RunStore.Service
-  ) => Effect.Effect<A, any, any>
+  ) => Effect.Effect<A, E, Services>
 ) =>
   withCrypto(
     Effect.scoped(
@@ -74,7 +84,7 @@ const withEngine = <A>(
           journalSource: "nested-wait-test",
           isAlive: () => Effect.succeed(false)
         })
-        return yield* body(makeEngine as never, store)
+        return yield* body(makeEngine, store)
       }).pipe(
         Effect.provideService(DurableEngineState.DurableEngineState, state),
         Effect.provideService(Jj.Jj, jj)
@@ -82,7 +92,7 @@ const withEngine = <A>(
     ).pipe(
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layer())
-    ) as Effect.Effect<A>
+    )
   )
 
 describe("a durable wait taken inside an action, under the run's own instance", () => {
@@ -118,8 +128,8 @@ describe("a durable wait taken inside an action, under the run's own instance", 
       const result = yield* withEngine(state, (makeEngine, store) =>
         Effect.gen(function*() {
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-          yield* engine.register(NestedFlow as never, handler as never)
-          yield* engine.execute(NestedFlow as never, {
+          yield* engine.register(NestedFlow, handler)
+          yield* engine.execute(NestedFlow, {
             executionId: "parking-nested",
             payload: {},
             discard: true
@@ -165,8 +175,8 @@ describe("a durable wait taken inside an action, under the run's own instance", 
               (yield* makeEngine.pipe(Effect.provideService(Scope.Scope, firstScope))) as FlowRuntime.FlowRuntime[
                 "Service"
               ]
-            yield* engine.register(SignalFlow as never, handler as never)
-            yield* engine.execute(SignalFlow as never, {
+            yield* engine.register(SignalFlow, handler)
+            yield* engine.execute(SignalFlow, {
               executionId: "parking-signal",
               payload: {},
               discard: true
@@ -177,10 +187,10 @@ describe("a durable wait taken inside an action, under the run's own instance", 
             if (restart) {
               yield* Scope.close(firstScope, Exit.void)
               engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-              yield* engine.register(SignalFlow as never, handler as never)
+              yield* engine.register(SignalFlow, handler)
             }
 
-            yield* engine.deferredDone(gate as never, {
+            yield* engine.deferredDone(gate, {
               flowName: SignalFlow._tag,
               executionId: "parking-signal",
               deferredName: gate.name,
@@ -236,8 +246,8 @@ describe("a durable wait taken inside an action, under the run's own instance", 
       const result = yield* withEngine(state, (makeEngine, store) =>
         Effect.gen(function*() {
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-          yield* engine.register(ApprovalFlow as never, handler as never)
-          yield* engine.execute(ApprovalFlow as never, {
+          yield* engine.register(ApprovalFlow, handler)
+          yield* engine.execute(ApprovalFlow, {
             executionId: "parking-approval",
             payload: {},
             discard: true
@@ -246,7 +256,7 @@ describe("a durable wait taken inside an action, under the run's own instance", 
           const parked = yield* state.waiting("parking-approval")
           const sweep = yield* state.waitingRuns({ reason: "approval" })
 
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: ApprovalFlow._tag,
             executionId: "parking-approval",
             deferredName: gate.name,

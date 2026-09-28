@@ -1,4 +1,3 @@
-import type { DurableWriter } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
@@ -52,14 +51,7 @@ const provideJournal = <A, E, R>(
     Effect.provide(TestStores.layer()),
     Effect.provide(DurableEngineState.layerMemory),
     Effect.provide(TestClock.layer())
-  ) as Effect.Effect<
-    A,
-    E,
-    Exclude<
-      R,
-      DurableWriter | Journal.Journal | RunStore.RunStore | DurableEngineState.DurableEngineState | Scope.Scope
-    >
-  >
+  )
 
 /**
  * The same services over one real SQLite database, `DurableEngineState`
@@ -77,14 +69,7 @@ const provideSql = <A, E, R>(
     Effect.scoped,
     Effect.provide(TestStores.layerAt(":memory:")),
     Effect.provide(TestClock.layer())
-  ) as Effect.Effect<
-    A,
-    E,
-    Exclude<
-      R,
-      DurableWriter | Journal.Journal | RunStore.RunStore | DurableEngineState.DurableEngineState | Scope.Scope
-    >
-  >
+  )
 
 /** Interrupts a run mid-action via driver-scope close (process shutdown). */
 const releaseMidAction = (executionId: string) =>

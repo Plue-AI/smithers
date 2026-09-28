@@ -21,6 +21,7 @@ import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Journal, SqlJournal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
 import { Ownership, RunStore } from "@smthrs/run-store"
+import type * as Crypto from "effect/Crypto"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -90,13 +91,10 @@ const decisionsOf = (runId: string) =>
       .map((entry) => entry.payload as { readonly decision: string; readonly evidence?: string })
   })
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  withCrypto(
-    Effect.scoped(effect as Effect.Effect<A, E, Scope.Scope>).pipe(
-      Effect.provide(services),
-      Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
-  )
+type Services = Layer.Success<typeof services> | TestClock.TestClock | Crypto.Crypto | Scope.Scope
+
+const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+  withCrypto(Effect.scoped(effect).pipe(Effect.provide(services), Effect.provide(TestClock.layer())))
 
 const staleAfterMs = Duration.toMillis(Ownership.heartbeatStaleAfter)
 const heartbeatMs = Duration.toMillis(Ownership.heartbeatInterval)

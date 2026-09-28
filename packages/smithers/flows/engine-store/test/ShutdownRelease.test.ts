@@ -1,4 +1,3 @@
-import type { DurableWriter } from "@smthrs/database/DurableWriter"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #26: a drive-fiber interruption that is not an operator
@@ -56,14 +55,7 @@ const provideJournal = <A, E, R>(
     Effect.provide(TestStores.layer()),
     Effect.provide(DurableEngineState.layerMemory),
     Effect.provide(TestClock.layer())
-  ) as Effect.Effect<
-    A,
-    E,
-    Exclude<
-      R,
-      DurableWriter | Journal.Journal | RunStore.RunStore | DurableEngineState.DurableEngineState | Scope.Scope
-    >
-  >
+  )
 
 describe("shutdown releases instead of cancelling (issue #26)", () => {
   it.effect("an external drive-fiber interruption parks the run reclaimably", () =>

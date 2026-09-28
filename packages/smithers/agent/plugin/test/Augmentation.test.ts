@@ -32,7 +32,7 @@ const harnessHooks = {
   agentTurnStart: "parallel"
 } as const satisfies Record<string, Hooks.HookKind>
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
 describe("module augmentation", () => {
   it("lets one plugin object carry kernel and host hooks in one bounded catalog", async () => {

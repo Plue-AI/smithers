@@ -104,18 +104,16 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
       )
       // One built context shared by every round, the way `ManagedRuntime` shared
       // it before: the stores and the durable state must survive across runs.
-      const services = yield* Layer.build(
-        Layer.mergeAll(
-          TestStores.layer(),
-          TestClock.layer(),
-          Layer.succeed(DurableEngineState.DurableEngineState, state),
-          Layer.succeed(Jj.Jj, jj),
-          Action.layerCacheEnvironment({ layers: [], capabilities: {} }),
-          boundary
-        ).pipe(Layer.provideMerge(NodeCrypto.layer))
-      )
-      const run = <A, E>(effect: Effect.Effect<A, E, unknown>) =>
-        Effect.provide(effect as Effect.Effect<A, E, never>, services)
+      const layer = Layer.mergeAll(
+        TestStores.layer(),
+        TestClock.layer(),
+        Layer.succeed(DurableEngineState.DurableEngineState, state),
+        Layer.succeed(Jj.Jj, jj),
+        Action.layerCacheEnvironment({ layers: [], capabilities: {} }),
+        boundary
+      ).pipe(Layer.provideMerge(NodeCrypto.layer))
+      const services = yield* Layer.build(layer)
+      const run = <A, E>(effect: Effect.Effect<A, E, Layer.Success<typeof layer>>) => Effect.provide(effect, services)
       const makeEngine = EngineStore.make({
         owner: { hostId: "quarantine-host" },
         journalSource: "quarantine-test",
@@ -127,7 +125,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
       const keyDigest = yield* run(
         Effect.gen(function*() {
           const engine = yield* makeEngine
-          yield* engine.register(QuarantineFlow, () => sealed as never)
+          yield* engine.register(QuarantineFlow, () => sealed)
           yield* engine.execute(QuarantineFlow, {
             executionId: "quarantine-probe",
             payload: {},
@@ -237,7 +235,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
                 })
             })
           ))
-          yield* engine.register(QuarantineFlow, () => sealed as never)
+          yield* engine.register(QuarantineFlow, () => sealed)
           yield* engine.execute(QuarantineFlow, {
             executionId: "quarantine-run",
             payload: {},
@@ -275,7 +273,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
       const resumed = yield* run(
         Effect.gen(function*() {
           const engine = yield* makeEngine
-          yield* engine.register(QuarantineFlow, () => sealed as never)
+          yield* engine.register(QuarantineFlow, () => sealed)
           yield* engine.execute(QuarantineFlow, {
             executionId: "quarantine-run",
             payload: {},

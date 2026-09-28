@@ -23,6 +23,7 @@ import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import { RunStore } from "@smthrs/run-store"
 import * as Cause from "effect/Cause"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
@@ -42,13 +43,19 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const provide = <A>(effect: Effect.Effect<A, any, any>) =>
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layerAt>>
+  | StepBoundary.Service
+  | Jj.Jj
+  | Crypto.Crypto
+
+const provide = <A, E>(effect: Effect.Effect<A, E, Services>) =>
   withCrypto(
     effect.pipe(
       Effect.provideService(Jj.Jj, jj),
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layerAt(":memory:"))
-    ) as Effect.Effect<A>
+    )
   )
 
 const makeEngine = EngineStore.make({
@@ -86,11 +93,14 @@ interface Drivable {
   readonly execute: (
     payload: { readonly id: string },
     options: { readonly executionId: string }
-  ) => Effect.Effect<unknown, unknown, any>
-  readonly poll: (executionId: string) => Effect.Effect<Option.Option<any>, unknown, any>
+  ) => Effect.Effect<unknown, unknown, FlowRuntime.FlowRuntime>
+  readonly poll: (executionId: string) => Effect.Effect<Option.Option<any>, unknown, FlowRuntime.FlowRuntime>
 }
 
-const drive = (flow: Flow.Any, executionId: string) =>
+const drive = <Error extends Schema.Top & { readonly DecodingServices: never; readonly EncodingServices: never }>(
+  flow: Flow.Flow<string, typeof Undeclared.payloadSchema, typeof Schema.Void, Error, any>,
+  executionId: string
+) =>
   provide(Effect.scoped(Effect.gen(function*() {
     const driven = flow as unknown as Drivable
     const store = yield* RunStore.RunStore
@@ -98,7 +108,7 @@ const drive = (flow: Flow.Any, executionId: string) =>
     const wired = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       effect.pipe(
         Effect.provide(
-          Interpreter.layer(flow as never).pipe(
+          Interpreter.layer(flow).pipe(
             Layer.provideMerge(Action.layerImplementations),
             Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine as never))
           )
@@ -130,7 +140,7 @@ const settledDefect = (polled: Option.Option<any>): string => {
 describe("a plan action with no implementation, on the durable SQLite engine", () => {
   it.live("settles the run failed and names the action, for a flow declaring no error", () =>
     Effect.gen(function*() {
-      const { first, polled, row, second } = yield* drive(Undeclared as never, "undeclared-settles")
+      const { first, polled, row, second } = yield* drive(Undeclared, "undeclared-settles")
 
       // The refusal reaches the caller as a defect naming the action, not as
       // a schema issue about the flow's own error channel.
@@ -151,7 +161,7 @@ describe("a plan action with no implementation, on the durable SQLite engine", (
 
   it.live("settles the run failed for a flow that declares an error schema of its own", () =>
     Effect.gen(function*() {
-      const { polled, row } = yield* drive(Declared as never, "declared-settles")
+      const { polled, row } = yield* drive(Declared, "declared-settles")
 
       expect(row.status).toBe("failed")
       expect(row.owner).toBeNull()

@@ -33,6 +33,7 @@ import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import { SqlJournal } from "@smthrs/journal"
 import { RunStore } from "@smthrs/run-store"
+import type * as Crypto from "effect/Crypto"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -69,13 +70,10 @@ const services = Layer.mergeAll(
   DurableEngineState.layer
 ).pipe(Layer.provideMerge(migratedDatabase))
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  withCrypto(
-    Effect.scoped(effect as Effect.Effect<A, E, Scope.Scope>).pipe(
-      Effect.provide(services),
-      Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
-  )
+type Services = Layer.Success<typeof services> | TestClock.TestClock | Crypto.Crypto | Scope.Scope
+
+const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+  withCrypto(Effect.scoped(effect).pipe(Effect.provide(services), Effect.provide(TestClock.layer())))
 
 /**
  * Distinct driver instances over ONE store: separate owners, separate live

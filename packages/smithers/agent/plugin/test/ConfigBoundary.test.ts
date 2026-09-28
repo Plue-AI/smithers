@@ -4,7 +4,7 @@ import * as Config from "../src/Config.ts"
 import * as Boundary from "../src/internal/Boundary.ts"
 import * as Kernel from "../src/Kernel.ts"
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
 describe("plugin configuration snapshots", () => {
   it.each([Config.FlowsConfig, Config.ResolvedConfig])(

@@ -95,8 +95,8 @@ const parkByShutdown = (executionId: string, wait: DurableWait) => {
         }).pipe(Scope.provide(engineScope))) as FlowRuntime.FlowRuntime["Service"]
         const suspended = yield* Latch.make(false)
         yield* engine.register(
-          TestFlow as never,
-          (() =>
+          TestFlow,
+          () =>
             Effect.gen(function*() {
               const waiter = yield* Effect.forkChild(wait, { startImmediately: true })
               // A durable wait suspends by interrupting its own fiber, so its
@@ -104,9 +104,9 @@ const parkByShutdown = (executionId: string, wait: DurableWait) => {
               yield* Fiber.await(waiter)
               yield* Latch.open(suspended)
               return yield* Effect.never
-            })) as never
+            })
         )
-        yield* engine.execute(TestFlow as never, {
+        yield* engine.execute(TestFlow, {
           executionId,
           payload: {},
           discard: true
@@ -128,7 +128,7 @@ const parkByShutdown = (executionId: string, wait: DurableWait) => {
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layer()),
       Effect.orDie
-    ) as unknown as Effect.Effect<Park>
+    )
   )
 }
 

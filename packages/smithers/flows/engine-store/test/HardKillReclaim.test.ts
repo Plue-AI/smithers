@@ -106,15 +106,10 @@ const insertHardKilledRun = (runId: string) =>
     `).pipe(Effect.orDie)
   })
 
-const run = <A, E, R>(
-  effect: Effect.Effect<A, E, R>
-) =>
-  withCrypto(
-    Effect.scoped(effect as Effect.Effect<A, E, Scope.Scope>).pipe(
-      Effect.provide(services),
-      Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
-  )
+type Services = Layer.Success<typeof services> | TestClock.TestClock | Crypto.Crypto | Scope.Scope
+
+const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+  withCrypto(Effect.scoped(effect).pipe(Effect.provide(services), Effect.provide(TestClock.layer())))
 
 /** Everything `TestStores.layerAt` provides, so the file case says no `any`. */
 type TestStoresServices = Layer.Success<ReturnType<typeof TestStores.layerAt>>
@@ -223,14 +218,7 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
 
       const onFile = <A, E>(
         body: Effect.Effect<A, E, Crypto.Crypto | Scope.Scope | TestStoresServices>
-      ) =>
-        withCrypto(
-          Effect.scoped(body).pipe(Effect.provide(TestStores.layerAt(filename))) as Effect.Effect<
-            A,
-            E,
-            Crypto.Crypto
-          >
-        )
+      ) => withCrypto(Effect.scoped(body).pipe(Effect.provide(TestStores.layerAt(filename))))
 
       const result = yield* Effect.gen(function*() {
         // The dead owner's composition: it claims the run and is killed, so

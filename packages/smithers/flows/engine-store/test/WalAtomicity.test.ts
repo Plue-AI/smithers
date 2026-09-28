@@ -30,6 +30,7 @@ import { AttemptStore, Ownership, RunStore } from "@smthrs/run-store"
 import { CacheStore } from "@smthrs/step-cache"
 import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
+import type * as Crypto from "effect/Crypto"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -85,13 +86,10 @@ const services = Layer.mergeAll(
   DurableEngineState.layer
 ).pipe(Layer.provideMerge(migratedDatabase), Layer.merge(StepBoundary.layerTest()), Layer.merge(jj))
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  withCrypto(
-    Effect.scoped(effect as Effect.Effect<A, E, Scope.Scope>).pipe(
-      Effect.provide(services),
-      Effect.provide(TestClock.layer())
-    ) as Effect.Effect<A>
-  )
+type Services = Layer.Success<typeof services> | TestClock.TestClock | Crypto.Crypto | Scope.Scope
+
+const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+  withCrypto(Effect.scoped(effect).pipe(Effect.provide(services), Effect.provide(TestClock.layer())))
 
 class CrashInjected extends Error {
   override readonly name = "CrashInjected"

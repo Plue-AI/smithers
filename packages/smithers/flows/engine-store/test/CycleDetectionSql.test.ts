@@ -24,17 +24,17 @@ const migratedDatabase = Layer.provideMerge(Migrations.layer, TestDatabase.layer
  * atomic, exactly one of two jointly cycle-closing writers fails with
  * `RunParentCycleError`, and the durable graph stays acyclic.
  */
-const run = <A>(
+const run = <A, E>(
   body: (
     services: readonly [DurableEngineState.Service, DurableEngineState.Service]
-  ) => Effect.Effect<A, any, never>
+  ) => Effect.Effect<A, E, never>
 ) =>
   withCrypto(
     Effect.gen(function*() {
       const first = yield* DurableEngineState.make
       const second = yield* DurableEngineState.make
       return yield* body([first, second])
-    }).pipe(Effect.provide(migratedDatabase)) as Effect.Effect<A>
+    }).pipe(Effect.provide(migratedDatabase))
   )
 
 const cycleFailure = (exit: Exit.Exit<unknown, unknown>) =>
@@ -175,11 +175,9 @@ describe("cross-connection cycle rejection (issue #74)", () => {
           Layer.provideMerge(
             Migrations.layer,
             Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename }))
-          ) as unknown as Layer.Layer<never>
+          )
         )
-        return yield* (DurableEngineState.make.pipe(
-          Effect.provide(context as never)
-        ) as Effect.Effect<DurableEngineState.Service>)
+        return yield* DurableEngineState.make.pipe(Effect.provide(context))
       })
 
       const result = yield* withCrypto(
@@ -197,10 +195,7 @@ describe("cross-connection cycle rejection (issue #74)", () => {
             ...(yield* first.runParents("xproc-b"))
           ]
           return { exits, edges }
-        })) as Effect.Effect<{
-          readonly exits: ReadonlyArray<Exit.Exit<void, DurableEngineState.RunParentCycleError>>
-          readonly edges: ReadonlyArray<DurableEngineState.RunParentEdge>
-        }>
+        }))
       )
 
       const failures = result.exits.filter(Exit.isFailure)

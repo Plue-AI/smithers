@@ -1,4 +1,3 @@
-import type { DurableWriter } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * A durable cancellation must reach the linked children of the run it
@@ -31,7 +30,6 @@ import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Latch from "effect/Latch"
 import * as Schema from "effect/Schema"
-import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
@@ -70,14 +68,7 @@ const provide = <A, E, R>(
     Effect.provide(TestStores.layer()),
     Effect.provide(DurableEngineState.layerMemory),
     Effect.provide(TestClock.layer())
-  ) as Effect.Effect<
-    A,
-    E,
-    Exclude<
-      R,
-      DurableWriter | Journal.Journal | RunStore.RunStore | DurableEngineState.DurableEngineState | Scope.Scope
-    >
-  >
+  )
 
 const state = (executionId: string) =>
   JSON.stringify({ version: 1, flowName: CascadeFlow._tag, payload: {}, executionId })

@@ -9,10 +9,13 @@ import { DurableClock, DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { RunStore } from "@smthrs/run-store"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
@@ -28,16 +31,20 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const withEngine = <A>(
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | Crypto.Crypto
+  | Scope.Scope
+
+const withEngine = <A, E>(
   state: DurableEngineState.Service,
   body: (
-    makeEngine: Effect.Effect<
-      unknown,
-      never,
-      any
-    >,
+    makeEngine: Effect.Effect<unknown, never, Services>,
     store: RunStore.Service
-  ) => Effect.Effect<A, any, any>
+  ) => Effect.Effect<A, E, Services>
 ) =>
   withCrypto(
     Effect.scoped(
@@ -48,7 +55,7 @@ const withEngine = <A>(
           journalSource: "parking-test",
           isAlive: () => Effect.succeed(false)
         })
-        return yield* body(makeEngine as never, store)
+        return yield* body(makeEngine, store)
       }).pipe(
         Effect.provideService(DurableEngineState.DurableEngineState, state),
         Effect.provideService(Jj.Jj, jj)
@@ -56,7 +63,7 @@ const withEngine = <A>(
     ).pipe(
       Effect.provide(StepBoundary.layerTest()),
       Effect.provide(TestStores.layer())
-    ) as Effect.Effect<A>
+    )
   )
 
 describe("suspended runs park with a waiting reason", () => {
@@ -74,8 +81,8 @@ describe("suspended runs park with a waiting reason", () => {
       const result = yield* withEngine(state, (makeEngine, store) =>
         Effect.gen(function*() {
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-          yield* engine.register(EventFlow as never, handler as never)
-          yield* engine.execute(EventFlow as never, {
+          yield* engine.register(EventFlow, handler)
+          yield* engine.execute(EventFlow, {
             executionId: "parking-event",
             payload: {},
             discard: true
@@ -84,13 +91,13 @@ describe("suspended runs park with a waiting reason", () => {
           const parked = yield* state.waiting("parking-event")
           const sweep = yield* state.waitingRuns({ reason: "event" })
 
-          yield* engine.deferredDone(gate as never, {
+          yield* engine.deferredDone(gate, {
             flowName: EventFlow._tag,
             executionId: "parking-event",
             deferredName: gate.name,
             exit: Exit.succeed("open")
           })
-          yield* engine.execute(EventFlow as never, {
+          yield* engine.execute(EventFlow, {
             executionId: "parking-event",
             payload: {},
             discard: true
@@ -123,8 +130,8 @@ describe("suspended runs park with a waiting reason", () => {
       const result = yield* withEngine(state, (makeEngine, store) =>
         Effect.gen(function*() {
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
-          yield* engine.register(TimerFlow as never, handler as never)
-          yield* engine.execute(TimerFlow as never, {
+          yield* engine.register(TimerFlow, handler)
+          yield* engine.execute(TimerFlow, {
             executionId: "parking-timer",
             payload: {},
             discard: true

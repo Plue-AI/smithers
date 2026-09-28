@@ -216,7 +216,7 @@ describe("SourceStore (SQLite) durability and migrations", () => {
         ),
         Effect.scoped,
         Effect.orDie
-      ) as Effect.Effect<A>
+      )
     )
 
   it("keeps records, cursors and revocations across a second open of the same file", async () => {

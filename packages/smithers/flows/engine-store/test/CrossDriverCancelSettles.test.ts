@@ -83,21 +83,21 @@ describe("a cross-driver cancel settles the execute fiber (N-09)", () => {
 
             const running = yield* Deferred.make<void>()
             yield* engine.register(
-              CancelFlow as never,
+              CancelFlow,
               // A body that never returns on its own: the only thing that can
               // end this run is the cancellation.
-              (() => Deferred.succeed(running, undefined).pipe(Effect.andThen(Effect.never))) as never
+              () => Deferred.succeed(running, undefined).pipe(Effect.andThen(Effect.never))
             )
             const caller = yield* Effect.forkChild(
               Effect.exit(
-                engine.execute(CancelFlow as never, { executionId: runId, payload: {} }) as Effect.Effect<unknown>
+                engine.execute(CancelFlow, { executionId: runId, payload: {} })
               ),
               { startImmediately: true }
             )
             yield* Deferred.await(running)
             const beforeCancel = yield* store.get(runId)
 
-            yield* other.interrupt(CancelFlow as never, runId)
+            yield* other.interrupt(CancelFlow, runId)
 
             // Driver A observes the request on its heartbeat cadence and
             // closes the run; the caller has to end with it. The bound is
@@ -123,11 +123,7 @@ describe("a cross-driver cancel settles the execute fiber (N-09)", () => {
         ).pipe(
           Effect.provide(TestStores.layer()),
           Effect.provide(TestClock.layer())
-        ) as Effect.Effect<{
-          readonly beforeCancel: RunStore.RunStatus
-          readonly settled: Exit.Exit<unknown, unknown> | undefined
-          readonly row: RunStore.RunRow
-        }>
+        )
       )
 
       expect(result.beforeCancel).toBe("running")

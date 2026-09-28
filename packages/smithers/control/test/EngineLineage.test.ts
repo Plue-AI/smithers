@@ -16,7 +16,7 @@ import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as EngineMigrations from "@smthrs/engine-store/Migrations"
 import * as OwnerIdentity from "@smthrs/engine-store/OwnerIdentity"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as Jj from "@smthrs/jj"
 import { Journal, JournalEvent } from "@smthrs/journal"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
@@ -164,7 +164,7 @@ const timeTravel = TimeTravel.layer.pipe(
 
 const stack = Layer.merge(controlPlane(), timeTravel).pipe(
   Layer.provideMerge(database)
-) as unknown as Layer.Layer<DurableStack | FlowRuntime.FlowRuntime | TimeTravel.TimeTravel>
+)
 
 const summaries = (listed: ListResponse): ReadonlyArray<RunSummary> => listed._tag === "runs" ? listed.items : []
 
@@ -178,7 +178,7 @@ const observe = <A>(
       // Counts 0 -> 1 -> 2 -> 3: rounds 0 and 1 hand off, round 2 finishes.
       yield* Counter.execute({ value: 0, target: 3 }, { executionId: trampolineRunId })
       return yield* body(yield* Control)
-    }).pipe(Effect.provide(stack), Effect.scoped, Effect.orDie) as Effect.Effect<A>
+    }).pipe(Effect.provide(stack), Effect.scoped, Effect.orDie)
   )
 
 const forkOriginId = "engine-lineage-fork-origin"
@@ -212,7 +212,7 @@ const observeFork = <A>(
         }
       })
       return yield* body(yield* Control, fork.runId)
-    }).pipe(Effect.provide(stack), Effect.scoped, Effect.orDie) as Effect.Effect<A>
+    }).pipe(Effect.provide(stack), Effect.scoped, Effect.orDie)
   )
 
 describe("control run lineage over engine-created rows", () => {

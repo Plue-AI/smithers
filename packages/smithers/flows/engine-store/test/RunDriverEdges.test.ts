@@ -72,14 +72,7 @@ const provideJournal = <A, E, R>(
     Effect.scoped,
     Effect.provide(TestStores.layer()),
     Effect.provide(DurableEngineState.layerMemory)
-  ) as Effect.Effect<
-    A,
-    E,
-    Exclude<
-      R,
-      DurableWriter | Journal.Journal | RunStore.RunStore | DurableEngineState.DurableEngineState | Scope.Scope
-    >
-  >
+  )
 
 const storeError = (code: RunStore.RunStoreErrorCode, method: string) =>
   new RunStore.RunStoreError({ code, method, message: `${code}: ${method}`, cause: undefined })
@@ -1194,14 +1187,7 @@ const provideJournalWithTestClock = <A, E, R>(
     Effect.provide(TestStores.layer()),
     Effect.provide(DurableEngineState.layerMemory),
     Effect.provide(TestClock.layer())
-  ) as Effect.Effect<
-    A,
-    E,
-    Exclude<
-      R,
-      DurableWriter | Journal.Journal | RunStore.RunStore | DurableEngineState.DurableEngineState | Scope.Scope
-    >
-  >
+  )
 
 describe("RunDriver parked-cancel sweep", () => {
   it.effect("ignores parked entries whose run row can no longer be read", () =>
@@ -1551,7 +1537,7 @@ describe("RunDriver atomic waiting markers", () => {
             wakeDepths,
             recovered
           }
-        }).pipe(Effect.scoped, Effect.provide(TestStores.layerAt(":memory:")))
+        }).pipe(Effect.provide(TestStores.layerAt(":memory:")), Effect.scoped)
       )
 
     it.effect(`${implementation}: rolls back its own released marker when the release transition loses the fence`, () =>

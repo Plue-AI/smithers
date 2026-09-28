@@ -105,10 +105,10 @@ describe("the cancel sweeper survives transient defects (issue #44)", () => {
             })) as FlowRuntime.FlowRuntime["Service"]
 
             yield* engine.register(
-              EventFlow as never,
-              (() => Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`)) as never
+              EventFlow,
+              () => Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`)
             )
-            const caller = yield* engine.execute(EventFlow as never, {
+            const caller = yield* engine.execute(EventFlow, {
               executionId: "sweeper-resilience-cancel",
               payload: {},
               discard: false
@@ -144,11 +144,7 @@ describe("the cancel sweeper survives transient defects (issue #44)", () => {
           Effect.provide(StepBoundary.layerTest()),
           Effect.provide(TestStores.layer()),
           Effect.provide(TestClock.layer())
-        ) as Effect.Effect<{
-          afterBusy: RunStore.RunRow
-          row: RunStore.RunRow
-          remainingBusyPolls: number
-        }>
+        )
       )
 
       // The defect was actually exercised…
@@ -183,10 +179,10 @@ describe("the cancel sweeper survives transient defects (issue #44)", () => {
             })) as FlowRuntime.FlowRuntime["Service"]
 
             yield* engine.register(
-              EventFlow as never,
-              (() => Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`)) as never
+              EventFlow,
+              () => Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`)
             )
-            const caller = yield* engine.execute(EventFlow as never, {
+            const caller = yield* engine.execute(EventFlow, {
               executionId: "sweeper-wake-defect-cancel",
               payload: {},
               discard: false
@@ -224,11 +220,7 @@ describe("the cancel sweeper survives transient defects (issue #44)", () => {
           Effect.provide(StepBoundary.layerTest()),
           Effect.provide(TestStores.layer()),
           Effect.provide(TestClock.layer())
-        ) as Effect.Effect<{
-          afterDefect: RunStore.RunRow
-          row: RunStore.RunRow
-          remainingWakeFailures: number
-        }>
+        )
       )
 
       // The wake defect was actually exercised…

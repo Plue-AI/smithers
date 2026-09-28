@@ -29,7 +29,7 @@ const dispatchHooks = {
   testFirst: "first"
 } as const satisfies Record<string, Hooks.HookKind>
 
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E>)
+const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
 const dispatcherFor = async (plugins: ReadonlyArray<FlowsPlugin<FlowsHooks>>) =>
   Plugins.make(await run(Resolve.resolve(plugins, { hooks: dispatchHooks })))

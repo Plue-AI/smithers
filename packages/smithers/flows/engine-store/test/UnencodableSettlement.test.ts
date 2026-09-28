@@ -20,10 +20,13 @@ import { Flow } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import { RunStore } from "@smthrs/run-store"
 import type * as Cause from "effect/Cause"
+import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as ExitEncoding from "../src/internal/ExitEncoding.ts"
@@ -41,11 +44,19 @@ const jj = Jj.make({
   status: () => Effect.succeed("")
 })
 
-const withEngine = <A>(
+type Services =
+  | Layer.Success<ReturnType<typeof TestStores.layer>>
+  | StepBoundary.Service
+  | DurableEngineState.DurableEngineState
+  | Jj.Jj
+  | Crypto.Crypto
+  | Scope.Scope
+
+const withEngine = <A, E>(
   body: (
     engine: FlowRuntime.FlowRuntime["Service"],
     store: RunStore.Service
-  ) => Effect.Effect<A, any, any>
+  ) => Effect.Effect<A, E, Services>
 ) => {
   const state = DurableEngineState.makeMemory()
   return withCrypto(
@@ -67,7 +78,7 @@ const withEngine = <A>(
       Effect.provide(TestStores.layer()),
       // The projection logs a warning; the suite reads the row, not the log.
       Effect.provide(Logger.layer([]))
-    ) as Effect.Effect<A>
+    )
   )
 }
 
@@ -91,13 +102,13 @@ describe("a run whose failure the flow's own codec cannot encode", () => {
       const row = yield* withEngine((engine, store) =>
         Effect.gen(function*() {
           yield* engine.register(
-            UnencodableFlow as never,
-            (() =>
+            UnencodableFlow,
+            () =>
               Effect.fail(
                 new SeatRejected({ code: "quota_exceeded", message: "You have no credits remaining" })
-              )) as never
+              )
           )
-          yield* engine.execute(UnencodableFlow as never, {
+          yield* engine.execute(UnencodableFlow, {
             executionId: "unencodable-settlement",
             payload: {},
             discard: true
@@ -143,10 +154,10 @@ describe("a run whose failure the flow's own codec cannot encode", () => {
       const exit = yield* withEngine((engine) =>
         Effect.gen(function*() {
           yield* engine.register(
-            UnencodableFlow as never,
-            (() => Effect.fail(new SeatRejected({ code: "authentication", message: "no key" }))) as never
+            UnencodableFlow,
+            () => Effect.fail(new SeatRejected({ code: "authentication", message: "no key" }))
           )
-          return yield* Effect.exit(engine.execute(UnencodableFlow as never, {
+          return yield* Effect.exit(engine.execute(UnencodableFlow, {
             executionId: "unencodable-answer",
             payload: {}
           }))
