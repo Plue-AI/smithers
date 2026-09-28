@@ -34,19 +34,30 @@ for (const [label, source, expected] of [
   })
 }
 
-for (const source of [
-  "", "null\n", "[]\n", "packages: null\n", "packages: packages/*\n",
-  "packages: {}\n", "packages: []\n", "packages: [null]\n", "packages: [true]\n",
-  "packages: [1]\n", "packages: [{}]\n", "packages: [[]]\n", "packages: ['']\n",
-  "packages: [packages/*, null]\n", "packages: [unterminated\n",
-  "packages: [packages/a]\npackages: [packages/b]\n"
+for (const [source, error] of [
+  ["", /has no packages list/],
+  ["null\n", /has no packages list/],
+  ["[]\n", /has no packages list/],
+  ["packages: null\n", /has no packages list/],
+  ["packages: packages/*\n", /has no packages list/],
+  ["packages: {}\n", /has no packages list/],
+  ["packages: []\n", /has an empty packages list/],
+  ["packages: [null]\n", /packages must contain nonempty strings/],
+  ["packages: [true]\n", /packages must contain nonempty strings/],
+  ["packages: [1]\n", /packages must contain nonempty strings/],
+  ["packages: [{}]\n", /packages must contain nonempty strings/],
+  ["packages: [[]]\n", /packages must contain nonempty strings/],
+  ["packages: ['']\n", /packages must contain nonempty strings/],
+  ["packages: [packages/*, null]\n", /packages must contain nonempty strings/],
+  ["packages: [unterminated\n", { name: "YAMLParseError", code: "BAD_INDENT" }],
+  ["packages: [packages/a]\npackages: [packages/b]\n", { name: "YAMLParseError", code: "DUPLICATE_KEY" }]
 ]) {
   test(`workspace YAML refuses invalid package patterns ${JSON.stringify(source)}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "smithers-workspace-yaml-invalid-"))
     try {
       const path = join(root, "pnpm-workspace.yaml")
       await writeFile(path, source)
-      assert.throws(() => readWorkspacePatterns(path))
+      assert.throws(() => readWorkspacePatterns(path), error)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
