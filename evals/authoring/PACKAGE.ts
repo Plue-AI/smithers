@@ -30,11 +30,20 @@ const fireworksCredential = Smithers.HttpSecret(fireworksKey, ["https://api.fire
 const validator = Smithers.file("//evals/authoring/validate.ts")
 const validatorTests = Smithers.file("//evals/authoring/validate.test.ts")
 const dataset = Smithers.file("//evals/authoring/data/pilot-sft.jsonl")
+const workspaceManifests = [
+  Smithers.file("//package.json"),
+  Smithers.glob("//packages/**/package.json"),
+  Smithers.glob("//apps/**/package.json"),
+  Smithers.glob("//evals/**/package.json"),
+  Smithers.file("//examples/package.json"),
+  Smithers.file("//flows/package.json")
+]
 
 /**
  * Proves every row of the SFT dataset is a well-formed chat example before it
  * is uploaded or trained on. Offline and deterministic: it reads only the
- * committed dataset, so its verdict is reproducible and it belongs in `ci`.
+ * committed dataset and workspace package manifests, so its verdict is
+ * reproducible and it belongs in `ci`.
  *
  * @since 0.1.0
  * @category test
@@ -42,7 +51,7 @@ const dataset = Smithers.file("//evals/authoring/data/pilot-sft.jsonl")
 const test = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   runner: Smithers.entrypoint(validator),
-  srcs: [validator, dataset],
+  srcs: [validator, dataset, ...workspaceManifests],
   deps: [],
   cwd
 })
@@ -58,7 +67,7 @@ const test = Smithers.NodeTest({
 const validatorTest = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   runner: Smithers.testRunner([validatorTests]),
-  srcs: [validator, validatorTests, dataset],
+  srcs: [validator, validatorTests, dataset, ...workspaceManifests],
   deps: [],
   cwd
 })

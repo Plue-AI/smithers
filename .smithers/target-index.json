@@ -18889,6 +18889,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/std/src/internal/Diagnostics.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/std/src/internal/EnvelopePrecheck.ts"
       },
       {
@@ -22917,6 +22921,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/migrate/src/internal/Tsconfig.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/migrate/src/internal/Versions.ts"
       },
       {
@@ -25281,6 +25289,33 @@
       {
         "kind": "file",
         "path": "evals/authoring/data/pilot-sft.jsonl"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/**/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/**/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/**/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "examples/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "flows/package.json"
       }
     ],
     "outputs": [],
@@ -25314,6 +25349,33 @@
       {
         "kind": "file",
         "path": "evals/authoring/data/pilot-sft.jsonl"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/**/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/**/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/**/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "examples/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "flows/package.json"
       }
     ],
     "outputs": [],

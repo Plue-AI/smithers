@@ -6,15 +6,107 @@
  * `firectl dataset create` ships it to Fireworks. `firectl` uploads each row
  * verbatim, so the gate also rejects anything that must not leave this machine:
  * top-level metadata beside `messages`, absolute host paths, and credential
- * shapes. It reads its dataset relative to its own location, so the check is
- * independent of the working directory the runner spawns it from. It depends
- * on nothing outside the runtime.
+ * shapes. Assistant code may only import public paths from current workspace
+ * packages. It reads its dataset and workspace graph relative to this file,
+ * independently of the runner's working directory.
  */
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import * as ts from "typescript"
 
 const roles = new Set(["system", "user", "assistant", "tool"])
 const messageKeys = new Set(["role", "content"])
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
+
+/** Read the package names and public paths from the root's declared workspaces. */
+const workspaceExports = (): ReadonlyMap<string, ReadonlyMap<string, unknown>> => {
+  const root = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as {
+    workspaces: ReadonlyArray<string>
+  }
+  const packages = new Map<string, ReadonlyMap<string, unknown>>()
+  for (const pattern of root.workspaces) {
+    const directories = pattern.endsWith("/*")
+      ? readdirSync(join(workspaceRoot, pattern.slice(0, -2)), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => `${pattern.slice(0, -1)}${entry.name}`)
+      : [pattern]
+    for (const directory of directories) {
+      const manifest = join(workspaceRoot, directory, "package.json")
+      if (!existsSync(manifest)) continue
+      const pkg = JSON.parse(readFileSync(manifest, "utf8")) as {
+        name?: string
+        exports?: Record<string, unknown> | string | null
+      }
+      if (pkg.name) {
+        const exposed = pkg.exports === undefined
+          ? { ".": true }
+          : typeof pkg.exports === "object" && pkg.exports !== null
+            ? pkg.exports
+            : { ".": pkg.exports }
+        packages.set(pkg.name, new Map(Object.entries(exposed)))
+      }
+    }
+  }
+  return packages
+}
+
+const publicPackages = workspaceExports()
+
+/** Parse assistant TypeScript so comments and quoted examples are not imports. */
+const importSpecifiers = (code: string): ReadonlyArray<string> => {
+  const source = ts.createSourceFile("assistant.ts", code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const specifiers: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      specifiers.push(node.moduleSpecifier.text)
+    } else if (
+      ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) &&
+      node.moduleReference.expression && ts.isStringLiteralLike(node.moduleReference.expression)
+    ) {
+      specifiers.push(node.moduleReference.expression.text)
+    } else if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
+      node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      specifiers.push(node.arguments[0].text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return specifiers
+}
+
+const isExposed = (exports: ReadonlyMap<string, unknown>, subpath: string): boolean => {
+  if (exports.has(subpath)) return exports.get(subpath) !== null
+  const wildcard = [...exports.keys()]
+    .filter((key) => {
+      const star = key.indexOf("*")
+      if (star < 0) return false
+      const prefix = key.slice(0, star)
+      const suffix = key.slice(star + 1)
+      return subpath.length >= prefix.length + suffix.length &&
+        subpath.startsWith(prefix) && subpath.endsWith(suffix)
+    })
+    .sort((a, b) => b.length - a.length)[0]
+  return wildcard !== undefined && exports.get(wildcard) !== null
+}
+
+const workspaceImportProblem = (specifier: string): string | undefined => {
+  if (!specifier.startsWith("@smthrs/")) return undefined
+  const parts = specifier.split("/")
+  const name = parts.slice(0, 2).join("/")
+  const exports = publicPackages.get(name)
+  if (!exports) return `imports ${JSON.stringify(specifier)} from a missing workspace package`
+  const subpath = parts.length === 2 ? "." : `./${parts.slice(2).join("/")}`
+  if (!isExposed(exports, subpath)) return `imports unpublished path ${JSON.stringify(specifier)}`
+  return undefined
+}
 
 /**
  * Content that must never reach the training corpus: a home directory reveals
@@ -72,6 +164,12 @@ const validateRow = (parsed: unknown, row: number): ReadonlyArray<string> => {
     }
     for (const { label, pattern } of forbidden) {
       if (pattern.test(message.content)) problems.push(`${at}: content contains ${label}`)
+    }
+    if (message.role === "assistant") {
+      for (const specifier of importSpecifiers(message.content)) {
+        const problem = workspaceImportProblem(specifier)
+        if (problem) problems.push(`${at}: ${problem}`)
+      }
     }
   })
 

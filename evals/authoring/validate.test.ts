@@ -36,6 +36,51 @@ describe("validateDataset", () => {
     assert.deepEqual(validateDataset(readFileSync(path, "utf8")), [])
   })
 
+  test("accepts current public workspace imports in assistant code", () => {
+    assert.deepEqual(validateDataset(row(withAssistant([
+      'import * as AgentAction from "@smthrs/agent/AgentAction"',
+      'import * as AgentEvent from "@smthrs/harness/AgentEvent"',
+      'import * as Command from "@smthrs/fs/Command"',
+      'export { Flow } from "@smthrs/flow"'
+    ].join("\n")))), [])
+  })
+
+  test("rejects removed workspace packages and unpublished subpaths", () => {
+    rejects(
+      row(withAssistant('import * as AgentAction from "@smthrs/engine-harness/AgentAction"')),
+      'missing workspace package'
+    )
+    rejects(
+      row(withAssistant('import * as CellHarness from "@smthrs/harness/CellHarness"')),
+      'unpublished path'
+    )
+    rejects(
+      row(withAssistant('import {\n  AgentAction\n} from "@smthrs/engine-harness"')),
+      'missing workspace package'
+    )
+    rejects(row(withAssistant('import "@smthrs/engine-harness"')), 'missing workspace package')
+    rejects(row(withAssistant('import\n  * as Old from "@smthrs/engine-harness"')), 'missing workspace package')
+    rejects(row(withAssistant('import Old = require("@smthrs/engine-harness")')), 'missing workspace package')
+    rejects(row(withAssistant('const Old = await import("@smthrs/engine-harness")')), 'missing workspace package')
+    rejects(row(withAssistant('import * as Private from "@smthrs/fs/internal/Secret"')), 'unpublished path')
+  })
+
+  test("checks assistant code but does not treat quoted prompts or comments as imports", () => {
+    const example = 'import * as Old from "@smthrs/engine-harness/AgentAction"'
+    assert.deepEqual(validateDataset(row({
+      messages: [
+        good.messages[0],
+        { role: "user", content: `Replace ${example}` },
+        { role: "assistant", content: [
+          `// ${example}`,
+          `/*\n${example}\n*/`,
+          `const prompt = \`\n${example}\n\``,
+          'export default Flow.make("demo", {})'
+        ].join("\n") }
+      ]
+    })), [])
+  })
+
   test("rejects a non-object row instead of crashing", () => {
     rejects("null", "row 1: not a JSON object")
     rejects("[1]", "row 1: not a JSON object")

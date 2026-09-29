@@ -10,7 +10,7 @@ first-class build-system targets, so none of them is a copy-paste shell command.
 | Path                   | What it is                                                     |
 | ---------------------- | -------------------------------------------------------------- |
 | `data/pilot-sft.jsonl` | The pilot SFT dataset: 10 OpenAI chat-format rows.             |
-| `validate.ts`          | Dataset validator. Exit code is the verdict; no external deps. |
+| `validate.ts`          | Chat and workspace-import gate. Exit code is the verdict.      |
 | `validate.test.ts`     | Regression tests for the validator's rejections.               |
 | `PACKAGE.ts`           | The targets below.                                             |
 
@@ -26,6 +26,11 @@ reach Fireworks or a trained model:
 - content with a host home path (`/Users/<name>`, `/home/<name>`,
   `C:\Users\<name>`, `~/`, `~<name>/`) or a
   credential shape (Fireworks, OpenAI-style, GitHub, AWS, Slack, private key).
+- assistant code that imports a missing `@smthrs/*` workspace package or a
+  path absent from that package's public exports, using a literal specifier.
+
+The import gate parses assistant TypeScript and reads the root `workspaces` list
+and package manifests. It does not typecheck or execute the assistant code.
 
 Reference repository files by repo-relative path, such as
 `examples/ralph-loop.jsx`.
@@ -34,8 +39,8 @@ Reference repository files by repo-relative path, such as
 
 Deterministic, cache-eligible, and part of `ci`:
 
-- `//evals/authoring:test` — proves every dataset row is a well-formed chat
-  example. Run it with `pnpm exec smithers-build test
+- `//evals/authoring:test` — checks chat shape, sensitive content, and public
+  workspace imports. Run it with `pnpm exec smithers-build test
   '//evals/authoring:test'`.
 - `//evals/authoring:validatorTest` — proves the validator rejects the rows it
   must.
