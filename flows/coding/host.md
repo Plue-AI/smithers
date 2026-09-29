@@ -33,6 +33,9 @@ provisioned landing binding and reserved `SMITHERS_JJHUB_TOKEN` and
 With a project it also registers `factory/Todo`, which routes each stack request (a TODO) on Jev before it is planned (see [todo.ts](todo.ts)), and `coding/verify`, which the mythical stack runs
 on rebased candidates, and `coding/wiki` when the project enables its wiki: the stack
 runs it after every fold to refresh and review the declared pages.
+These routes ship as host built-ins beside `coding` and `coding/implementation`,
+so a repository needs only its project file and never a `flows/coding/` tree; a
+repository's own flow of the same name wins.
 See [project-config.md](project-config.md) for missing and invalid file behavior.
 
 `--help` and `--version` work before opening the repository or resolving provider credentials. The same `Serve.refuse` policy requires a credential and explicit `--listen` for a non-loopback bind. The Plue service owns its workspace lifetime lock and process scope.

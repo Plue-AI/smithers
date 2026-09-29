@@ -18,6 +18,10 @@ import {
 import Dispatch from "../coding/dispatch/flow.ts"
 import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
+import Request from "../coding/request/flow.ts"
+import Verify from "../coding/verify/flow.ts"
+import Vibe from "../coding/vibe/flow.ts"
+import CodingWiki from "../coding/wiki/flow.ts"
 import Register from "../register-repository/flow.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
 import { JobInput, JobResult, OperationResult, SetupInput, TriggerRequest } from "./schema.ts"
@@ -69,6 +73,10 @@ const policySources = [
   "../coding/flow.ts",
   "../coding/dispatch/flow.ts",
   "../coding/implementation/flow.ts",
+  "../coding/request/flow.ts",
+  "../coding/verify/flow.ts",
+  "../coding/vibe/flow.ts",
+  "../coding/wiki/flow.ts",
   "../coding/planning-authority.ts",
   "../coding/immutable-source.ts",
   ...[
@@ -145,7 +153,21 @@ export const authoringBodies: Effect.Effect<ReadonlyMap<string, string>, Error, 
   }
 )
 
-export const provisionBuiltins = (stateRoot: string, policy: string) =>
+/**
+ * The optional coding routes a configured host serves (`configuredCodingRoutes`).
+ * They ship as built-ins like `coding/implementation`, so a repository with
+ * `.smithers/coding-project.json` and no `flows/coding/` tree still serves them
+ * and never vendors coding bundles. A repository's own flow of the same name wins.
+ */
+const codingRoutes = {
+  "coding/request": { flow: Request, description: "Plan and implement one coding request." },
+  "coding/verify": { flow: Verify, description: "Re-run a Change's required checks on a rebased candidate." },
+  "coding/vibe": { flow: Vibe, description: "Land one approved coding request." },
+  "coding/wiki": { flow: CodingWiki, description: "Refresh the repository wiki after a fold." }
+} as const satisfies Record<string, { readonly flow: RuntimeFlow.Any; readonly description: string }>
+export type CodingRoute = keyof typeof codingRoutes
+
+export const provisionBuiltins = (stateRoot: string, policy: string, routes: ReadonlyArray<CodingRoute> = []) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
     const root = path.join(stateRoot, "builtin-flows", policy)
@@ -182,12 +204,18 @@ export const provisionBuiltins = (stateRoot: string, policy: string) =>
       { name: "coding", flow: ImplementPlan, description: "Execute a native coding plan with its required checks." },
       { name: "coding/dispatch", flow: Dispatch, description: "Run one dispatched agent turn in this workspace." },
       { name: "coding/implementation", flow: ImplementAtoms, description: "Implement one native coding atom." },
+      ...routes.map((name) => ({ name, ...codingRoutes[name] })),
       {
         name: "register-repository",
         flow: Register,
         description: "Analyze this repository from its link, wait for Smithers review, then set it up."
       }
     ]
+    // The policy root outlives a configuration change (landing unbound, wiki
+    // off), so a route this host no longer serves must not stay discoverable.
+    for (const name of Object.keys(codingRoutes) as ReadonlyArray<CodingRoute>) {
+      if (!routes.includes(name)) yield* fs.remove(path.join(root, name), { recursive: true, force: true })
+    }
     const modules = new Map<string, { body: string; declaration: unknown }>()
     for (const entry of entries) {
       const directory = path.join(root, entry.name)

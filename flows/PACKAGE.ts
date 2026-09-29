@@ -181,11 +181,12 @@ const codingPolicy = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/coding-host.test.ts"),
+    Smithers.file("//flows/test/coding-builtin-routes.test.ts"),
     Smithers.file("//flows/test/coding-runtime-bridge.test.ts"),
     Smithers.file("//flows/test/coding-gates.test.ts"),
     Smithers.file("//flows/test/coding-planning-wiki-prior.test.ts")
   ]),
-  // `coding-host.test.ts` loads the checked-in project configuration.
+  // `coding-host.test.ts` and `coding-builtin-routes.test.ts` load the checked-in project configuration.
   srcs: [...codingSources, ...codingProjectInputs],
   deps: codingDependencies,
   cwd,

@@ -30,6 +30,7 @@ import { evaluatorLayer } from "../repository/jev-checks.ts"
 import { failureLayer, jobFlows, modelLayers, modelNames } from "../repository/jobs.ts"
 import {
   bindRepositoryRegistry,
+  type CodingRoute,
   provisionBuiltins,
   repositoryCatalog,
   repositoryRegistration,
@@ -120,16 +121,50 @@ export interface Options extends NativeOptions {
 }
 
 /** The optional routes advertised by this configured host. */
-export const configuredCodingRoutes = (options: Pick<Options, "planning" | "landing">) => [
-  ...(options.planning === undefined ? [] : [{ name: "coding/request", capability: "coding-request/v1" }]),
+export const configuredCodingRoutes = (
+  options: Pick<Options, "planning" | "landing">
+): ReadonlyArray<{ readonly name: CodingRoute; readonly capability: string }> => [
+  ...(options.planning === undefined ? [] : [{ name: "coding/request" as const, capability: "coding-request/v1" }]),
   ...(options.planning === undefined || options.landing === undefined
     ? []
-    : [{ name: "coding/vibe", capability: "coding-vibe/v1" }]),
+    : [{ name: "coding/vibe" as const, capability: "coding-vibe/v1" }]),
   // The mythical stack verifies rebased candidates with the same checks.
-  ...(options.planning === undefined ? [] : [{ name: "coding/verify", capability: "coding-verify/v1" }]),
+  ...(options.planning === undefined ? [] : [{ name: "coding/verify" as const, capability: "coding-verify/v1" }]),
   // The stack service refreshes the repository wiki the project declares.
-  ...(options.planning?.wiki === true ? [{ name: "coding/wiki", capability: "coding-wiki/v1" }] : [])
+  ...(options.planning?.wiki === true ? [{ name: "coding/wiki" as const, capability: "coding-wiki/v1" }] : [])
 ]
+
+/** The built-ins this configured host writes: the defaults plus its configured coding routes. */
+export const provisionHostBuiltins = (
+  stateRoot: string,
+  policy: string,
+  options: Pick<Options, "planning" | "landing">
+) => provisionBuiltins(stateRoot, policy, configuredCodingRoutes(options).map((route) => route.name))
+
+/**
+ * The executables a configured host refuses to serve without, by name.
+ *
+ * A module that IS its own flow reports no delegate, so `undefined` is the
+ * whole of what this host requires of it. A flow that regressed into
+ * delegating reports a name here and fails the same check.
+ */
+export const missingCodingExecutables = (
+  built: Pick<Executable.Catalog, "executables">,
+  options: Pick<Options, "planning" | "landing">
+): ReadonlyArray<string> => {
+  const required: ReadonlyArray<readonly [string, string | undefined]> = [
+    ["coding", undefined],
+    ["coding/dispatch", undefined],
+    ["coding/implementation", undefined],
+    ...configuredCodingRoutes(options).map((route) => [route.name, undefined] as const),
+    ["repository/setup", RunSetup._tag],
+    ["repository/trigger", RunTrigger._tag],
+    ["repository-jobs/issues", RunJob._tag]
+  ]
+  return required.filter(([name, delegate]) =>
+    !built.executables.some((entry) => entry.descriptor.name === name && entry.delegate === delegate)
+  ).map(([name]) => name)
+}
 
 /** Resolve at host startup, including accounts connected since workspace boot. */
 export const optionsFromEnv = (environment: Readonly<Record<string, string | undefined>>) =>
@@ -359,7 +394,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             seats: effectiveSeats(options)
           })
         )
-        const builtins = yield* provisionBuiltins(stateRoot, repositoryPolicy)
+        const builtins = yield* provisionHostBuiltins(stateRoot, repositoryPolicy, options)
         const registry = Layer.effect(Registry.Registry)(
           Effect.map(Registry.Registry, (base) =>
             bindRepositoryRegistry(
@@ -526,24 +561,11 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           Layer.tap((context) =>
             Effect.gen(function*() {
               const built = Context.get(context, Executable.Catalog)
-              // A module that IS its own flow reports no delegate, so `undefined` is
-              // the whole of what this host requires of it. A flow that regressed into
-              // delegating reports a name here and fails the same check.
-              const required: ReadonlyArray<readonly [string, string | undefined]> = [
-                ["coding", undefined],
-                ["coding/dispatch", undefined],
-                ["coding/implementation", undefined],
-                ...configuredCodingRoutes(options).map((route) => [route.name, undefined] as const),
-                ["repository/setup", RunSetup._tag],
-                ["repository/trigger", RunTrigger._tag],
-                ["repository-jobs/issues", RunJob._tag]
-              ]
-              for (const [name, delegate] of required) {
-                if (!built.executables.some((entry) => entry.descriptor.name === name && entry.delegate === delegate)) {
-                  return yield* Effect.die(
-                    new Error(`Required coding executable ${name} is unavailable; inspect the catalog refusal`)
-                  )
-                }
+              const [missing] = missingCodingExecutables(built, options)
+              if (missing !== undefined) {
+                return yield* Effect.die(
+                  new Error(`Required coding executable ${missing} is unavailable; inspect the catalog refusal`)
+                )
               }
               // Plue's adapter verifies the owning workspace binding. A missing native
               // binary, incorrect repository binding or invalid receipt prevents serve.
