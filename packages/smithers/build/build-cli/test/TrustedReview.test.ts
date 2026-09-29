@@ -121,6 +121,7 @@ describe("TrustedReview Git boundary", () => {
     expect(await Fs.stat(marker).then(() => true, () => false)).toBe(false)
 
     const plan = await run(options(root, trusted, candidate))
+    if (!plan.planned) throw new Error("expected a planned review")
     expect(plan).toMatchObject({
       policyRevision: trusted,
       revision: candidate,
@@ -140,6 +141,7 @@ describe("TrustedReview Git boundary", () => {
     const candidate = git(root, "rev-parse", "HEAD")
 
     const plan = await run(options(root, trusted, candidate))
+    if (!plan.planned) throw new Error("expected a planned review")
     expect(plan.policyChanges).toEqual(declarations.slice().sort())
     expect(plan.files).toEqual(expect.arrayContaining(declarations))
     const prepared = await prepare(options(root, trusted, candidate))

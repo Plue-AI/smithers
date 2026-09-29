@@ -273,7 +273,7 @@ export const run = async (options: Options) => {
     deletedFiles: prepared.snapshot.filter((file) => file.deleted).map((file) => file.path),
     labels: prepared.policies.map(({ label }) => label)
   }
-  if (options.plan) return { ...receipt, ok: true, planned: true, files: prepared.snapshot.map(({ path }) => path) }
+  if (options.plan) return { ...receipt, ok: true, planned: true as const, files: prepared.snapshot.map(({ path }) => path) }
   const reviews = []
   for (const { label, payload, snapshot } of prepared.policies) {
     const result = await Effect.runPromise(Effect.result(
@@ -291,5 +291,5 @@ export const run = async (options: Options) => {
         : { status: "failed" as const, error: result.failure })
     })
   }
-  return { ...receipt, ok: reviews.every((review) => review.status === "completed"), planned: false, reviews }
+  return { ...receipt, ok: reviews.every((review) => review.status === "completed"), planned: false as const, reviews }
 }
