@@ -84,10 +84,11 @@ describe("ChildProcessSpawner real Node lifecycle", () => {
       const output = yield* withGuardedSpawner({
         attended: false,
         rules: [new Permission.Rule({ effect: "allow", pattern })]
-      }, () => Effect.gen(function*() {
-        const spawner = yield* EffectChildProcessSpawner
-        return yield* spawner.string(command)
-      }))
+      }, () =>
+        Effect.gen(function*() {
+          const spawner = yield* EffectChildProcessSpawner
+          return yield* spawner.string(command)
+        }))
       expect(JSON.parse(output)).toEqual({ ordinary: "kept", special: "kept-env" })
     }))
 

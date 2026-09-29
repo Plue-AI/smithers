@@ -446,7 +446,9 @@ describe("GrantStore bounded input", () => {
   it.effect("preserves __proto__ metadata in attended and unattended requests", () =>
     Effect.scoped(
       Effect.gen(function*() {
-        const meta = JSON.parse('{"ordinary":"kept","__proto__":{"note":"kept-meta"},"nested":{"__proto__":{"note":"nested"},"ordinary":true}}') as Record<string, unknown>
+        const meta = JSON.parse(
+          "{\"ordinary\":\"kept\",\"__proto__\":{\"note\":\"kept-meta\"},\"nested\":{\"__proto__\":{\"note\":\"nested\"},\"ordinary\":true}}"
+        ) as Record<string, unknown>
         const unattended = yield* make({ attended: false })
         const failure = yield* Effect.flip(unattended.check(safe, meta))
         expect(failure).toBeInstanceOf(PermissionRequired)

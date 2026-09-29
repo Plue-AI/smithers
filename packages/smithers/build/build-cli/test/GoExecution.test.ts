@@ -54,8 +54,14 @@ const hasGo = await (async () => {
 // Use an installed older launcher; the test never installs a toolchain or
 // relies on a download while the target is running in its closed sandbox.
 const olderGo = await (async (): Promise<string | undefined> => {
-  const candidates = [goPath, NodePath.join(Os.homedir(), "go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.6." +
-    `${process.platform}-${process.arch === "x64" ? "amd64" : process.arch}/bin/go`)]
+  const candidates = [
+    goPath,
+    NodePath.join(
+      Os.homedir(),
+      "go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.6." +
+        `${process.platform}-${process.arch === "x64" ? "amd64" : process.arch}/bin/go`
+    )
+  ]
   for (const candidate of candidates) {
     if (candidate === undefined) continue
     try {
