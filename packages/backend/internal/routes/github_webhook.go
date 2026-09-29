@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -34,8 +35,12 @@ func (h *GitHubWebhookHandler) PostGitHubWebhook(w http.ResponseWriter, r *http.
 		return
 	}
 
-	payload, err := io.ReadAll(io.LimitReader(r.Body, gitHubWebhookMaxBodyBytes))
+	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, gitHubWebhookMaxBodyBytes))
 	if err != nil {
+		if middleware.IsMaxBytesError(err) {
+			errors.WriteError(w, errors.RequestEntityTooLarge("request body too large"))
+			return
+		}
 		errors.WriteError(w, errors.BadRequest("invalid github webhook payload"))
 		return
 	}

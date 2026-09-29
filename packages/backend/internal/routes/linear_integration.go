@@ -627,8 +627,12 @@ func (h *LinearIntegrationHandler) GetLinearSyncRun(w http.ResponseWriter, r *ht
 }
 
 func (h *LinearIntegrationHandler) PostLinearWebhook(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB limit
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20)) // 1 MiB limit
 	if err != nil {
+		if middleware.IsMaxBytesError(err) {
+			errors.WriteError(w, errors.RequestEntityTooLarge("request body too large"))
+			return
+		}
 		errors.WriteError(w, errors.BadRequest("failed to read request body"))
 		return
 	}

@@ -209,8 +209,12 @@ func (h *BillingHandler) PostOrgRefresh(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *BillingHandler) PostStripeWebhook(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
+		if middleware.IsMaxBytesError(err) {
+			errors.WriteError(w, errors.RequestEntityTooLarge("request body too large"))
+			return
+		}
 		errors.WriteError(w, errors.BadRequest("failed to read request body"))
 		return
 	}
