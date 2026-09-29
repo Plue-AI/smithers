@@ -496,7 +496,7 @@ describe("Checks.run ties the default export to the flow that runs", () => {
       const root = copyFixture("jsx-single.migrated")
       const file = writeFlow(
         root,
-        `${declared}\nexport default Flow.make({ description: "Real.", input: Schema.Void, output: Schema.Unknown })\n`,
+        `${declared}\nexport default Flow.make("bad", { description: "Real.", payload: Schema.Void, success: Schema.Unknown, body: () => Node.succeed(1) })\n`,
         "flows/bad/flow.ts"
       )
       const results = yield* run(root, [file])
@@ -508,11 +508,15 @@ describe("Checks.run ties the default export to the flow that runs", () => {
   it.effect("fails when a lone default export carries no behavior at all", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single.migrated")
-      const file = writeFlow(root, "export default Flow.make({ description: \"Real.\" })\n", "flows/bad/flow.ts")
+      const file = writeFlow(
+        root,
+        "export default Flow.make(\"bad\", { description: \"Real.\", payload: {} })\n",
+        "flows/bad/flow.ts"
+      )
       const results = yield* run(root, [file])
 
       expect(named(results, CHECK).ok).toBe(false)
-      expect(named(results, CHECK).findings[0]?.message).toContain("missing_body")
+      expect(named(results, CHECK).findings[0]?.message).toContain("callable `body`")
     }))
 
   it.effect("accepts a default export whose body reaches the flow beside it", () =>
@@ -520,14 +524,14 @@ describe("Checks.run ties the default export to the flow that runs", () => {
       const root = copyFixture("jsx-single.migrated")
       const delegating = writeFlow(
         root,
-        `${declared}\nexport default Flow.make({ description: "Real.", body: (input) => SimpleExample.call(input) })\n`,
+        `${declared}\nexport default Flow.make("bad", { description: "Real.", payload: {}, body: (input) => SimpleExample.call(input) })\n`,
         "flows/bad/flow.ts"
       )
       expect(named(yield* run(root, [delegating]), CHECK).ok).toBe(true)
 
       const elsewhere = writeFlow(
         root,
-        `${declared}\nexport default Flow.make({ description: "Real.", body: (input) => Other.call(input) })\n`,
+        `${declared}\nexport default Flow.make("bad", { description: "Real.", payload: {}, body: (input) => Other.call(input) })\n`,
         "flows/bad/flow.ts"
       )
       const results = yield* run(root, [elsewhere], emptyCheckpoint)
@@ -539,16 +543,85 @@ describe("Checks.run ties the default export to the flow that runs", () => {
     Effect.gen(function*() {
       const root = copyFixture("jsx-single.migrated")
       const bodies = [
-        // The shape the tool emits: one `@smthrs/flow` declaration, tag first.
-        "export default Flow.make(\"greeting\", { description: \"Real.\", payload: {}, body: () => Node.succeed(1) })\n",
-        "export default Flow.make({ description: \"Real.\", body: (input) => Node.succeed(input) })\n",
-        "export default Flow.make({ description: \"Real.\", model: \"anthropic:claude-sonnet-5\" })\n"
+        "export default Flow.make(\"bad\", { description: \"Real.\", payload: {}, body: () => Node.succeed(1) })\n",
+        "export default Flow.make('bad', { description: 'Real.', payload: {}, body(input) { return Node.succeed(input) } })\n",
+        "const payload = {}\nconst body = () => Node.succeed(1)\nexport default Flow.make('bad', { description: 'Real.', payload, body })\n",
+        "export default Flow.make('bad', { description: 'Real.', 'payload': {}, \"body\": () => Node.succeed(1) })\n"
       ]
 
       for (const body of bodies) {
         const file = writeFlow(root, body, "flows/bad/flow.ts")
 
         expect(named(yield* run(root, [file]), CHECK).ok, body).toBe(true)
+      }
+    }))
+
+  it.effect("rejects obsolete factories, missing tags, and missing bodies", () =>
+    Effect.gen(function*() {
+      const root = copyFixture("jsx-single.migrated")
+      const cases: ReadonlyArray<readonly [string, string, string]> = [
+        [
+          "object-first",
+          "export default Flow.make({ description: \"Real.\", body: () => Node.succeed(1) })\n",
+          "Flow.make"
+        ],
+        [
+          "model-only",
+          "export default Flow.make({ description: \"Real.\", model: \"anthropic:probe\" })\n",
+          "Flow.make"
+        ],
+        [
+          "empty tag",
+          "export default Flow.make(\"\", { description: \"Real.\", body: () => Node.succeed(1) })\n",
+          "Flow.make"
+        ],
+        [
+          "computed tag",
+          "export default Flow.make(tag, { description: \"Real.\", body: () => Node.succeed(1) })\n",
+          "Flow.make"
+        ],
+        [
+          "extra argument",
+          "export default Flow.make(\"bad\", { description: \"Real.\", body: () => Node.succeed(1) }, extra)\n",
+          "Flow.make"
+        ],
+        [
+          "tagged without body",
+          "export default Flow.make(\"bad\", { description: \"Real.\", payload: {}, model: \"anthropic:probe\" })\n",
+          "callable `body`"
+        ],
+        [
+          "tagged without payload",
+          "export default Flow.make(\"bad\", { description: \"Real.\", body: () => Node.succeed(1) })\n",
+          "payload"
+        ],
+        [
+          "null body",
+          "export default Flow.make(\"bad\", { description: \"Real.\", payload: {}, body: null })\n",
+          "callable `body`"
+        ],
+        [
+          "undefined body",
+          "export default Flow.make(\"bad\", { description: \"Real.\", payload: {}, body: undefined })\n",
+          "callable `body`"
+        ],
+        [
+          "number body",
+          "export default Flow.make(\"bad\", { description: \"Real.\", payload: {}, body: 1 })\n",
+          "callable `body`"
+        ],
+        [
+          "string body",
+          "export default Flow.make(\"bad\", { description: \"Real.\", payload: {}, body: \"noop\" })\n",
+          "callable `body`"
+        ]
+      ]
+
+      for (const [title, body, message] of cases) {
+        const file = writeFlow(root, body, "flows/bad/flow.ts")
+        const result = named(yield* run(root, [file]), CHECK)
+        expect(result.ok, title).toBe(false)
+        expect(result.findings[0]?.message, title).toContain(message)
       }
     }))
 })
@@ -612,7 +685,8 @@ describe("the module the emitter writes passes these checks", () => {
       expect(named(dropped, "every flow module's descriptor describes the flow it declares").ok).toBe(true)
 
       // A body-less descriptor beside the flow, admitting something else.
-      const drifted = `${named_}\nexport default Flow.make({ description: "Greets.", input: Schema.Void })\n`
+      const drifted =
+        `${named_}\nexport default Flow.make("greeting", { description: "Greets.", payload: Schema.Void })\n`
       const results = yield* run(root, [writeFlow(root, module(drifted), "flows/greeting/flow.ts")], checkpoint)
       expect(named(results, "every flow module declares a description").ok).toBe(true)
       expect(named(results, "every flow module's descriptor describes the flow it declares").ok).toBe(false)

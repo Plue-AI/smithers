@@ -1000,19 +1000,19 @@ the command it spawns.
 enforcement half of the migration contract. The prompt asks; these checks
 decide, and a failed check fails the round exactly as a failed test does:
 
-| Check                                                         | What it refuses                                                                                                                                                               |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| no old import remains                                         | a migrated file still reaching the 0.x facade through any import, `export ... from`, `require(...)`, or dynamic `import(...)`                                                 |
-| no JSX pragma remains                                         | `@jsxImportSource` with no runtime to point at                                                                                                                                |
-| no react import under the flows directory                     | React inside a flow                                                                                                                                                           |
-| no escape hatch introduced                                    | an `as any`, `as unknown as`, `@ts-ignore`, or `@ts-expect-error` this unit added                                                                                             |
-| no scheduler loop under the flows directory                   | `setInterval` or `while (true)` polling; the engine owns scheduling                                                                                                           |
-| no direct database access under the flows directory           | `new Database(`, `bun:sqlite`, `node:sqlite`                                                                                                                                  |
-| every flow module declares a description                      | a `flow.ts` whose default export is not a `Flow.make` call carrying a `description` string literal                                                                            |
-| every flow module's descriptor describes the flow it declares | a default export that admits an `input`/`output` no durable flow in the module declares, one whose `body` calls something else, or a lone declaration with no behavior at all |
-| every TODO marker is reported                                 | a `TODO(migrate-smithers-v1)` with no `unresolved` or `unsupported` entry                                                                                                     |
-| every seat comes from the source or from a decision           | a seat naming a model that appears as a string literal in neither the unit's old source nor a recorded decision                                                               |
-| run state is byte-identical                                   | any change, addition, or removal under a 0.x database, log, or state directory                                                                                                |
+| Check                                                         | What it refuses                                                                                                                                           |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| no old import remains                                         | a migrated file still reaching the 0.x facade through any import, `export ... from`, `require(...)`, or dynamic `import(...)`                             |
+| no JSX pragma remains                                         | `@jsxImportSource` with no runtime to point at                                                                                                            |
+| no react import under the flows directory                     | React inside a flow                                                                                                                                       |
+| no escape hatch introduced                                    | an `as any`, `as unknown as`, `@ts-ignore`, or `@ts-expect-error` this unit added                                                                         |
+| no scheduler loop under the flows directory                   | `setInterval` or `while (true)` polling; the engine owns scheduling                                                                                       |
+| no direct database access under the flows directory           | `new Database(`, `bun:sqlite`, `node:sqlite`                                                                                                              |
+| every flow module declares a description                      | a `flow.ts` whose default export is not a `Flow.make` call carrying a `description` string literal                                                        |
+| every flow module's descriptor describes the flow it declares | a default export without a nonempty literal tag, payload schema or field object, or callable body; a body that does not reach the flow declared beside it |
+| every TODO marker is reported                                 | a `TODO(migrate-smithers-v1)` with no `unresolved` or `unsupported` entry                                                                                 |
+| every seat comes from the source or from a decision           | a seat naming a model that appears as a string literal in neither the unit's old source nor a recorded decision                                           |
+| run state is byte-identical                                   | any change, addition, or removal under a 0.x database, log, or state directory                                                                            |
 
 Every one of these is parsed rather than matched where a match would be a lie.
 The old-import check reads the module specifiers out of the syntax tree and
@@ -1025,17 +1025,14 @@ constructor the registry's own tokenizer looks for: a description on a
 `Widget.make`, on a bare `make`, or on a namespace alias is a description no
 registry ever reads.
 
-The descriptor check is the other half of that. A migrated module default-exports
-the flow itself, tag and `body` included, which is what the tool emits: one
-declaration, so the contract the control plane admits is the one that runs.
-Discovery reads the default export and never a named one, so the two ways a
-module can still admit one thing and run another are both refused. A default
-export that names a durable flow the module declares beside it has to reach it by
-`body`; the contract is accepted as the binding instead, meaning the default
-export's `input` and `output` are that flow's `payload` and `success`, with
-`{ ... }` fields and `Schema.Struct({ ... })` read as the same thing. A module
-with no durable flow of its own has to carry its own `body`, `model`, or `flows`,
-or calling it fails with `missing_body`.
+The descriptor check requires exactly `Flow.make("<tag>", { ... })` with a
+nonempty literal tag, a `payload` schema or field object (including `{}` for no
+input), and a callable `body`. Object-first declarations and `model` or `flows`
+without a body are rejected. When a module declares another flow beside the
+default export, the default body's call must reach that flow. These checks run
+before archiving the old source, even without a project typecheck command.
+They inspect syntax without executing generated code; the project's typecheck
+and tests validate referenced values and runtime behavior.
 
 The escape-hatch check counts each kind separately against
 `checkpointFiles.sources`, so a project that already had an `as any` in a

@@ -16,17 +16,30 @@ included. Run it only on a trusted checkout or inside a sandbox.
 
 ## What the derivation produces
 
-| Kind      | Derived from                                                                                                            |
-| --------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Install   | The `packageManager` field, else the lockfile: `bun install`, `pnpm install`, `yarn install`, or `npm install`.         |
-| Format    | `dprint check` when the project has a `dprint.json`, else `prettier --check .` when it configures prettier.             |
-| Typecheck | One `tsc --noEmit -p <path>` per `tsconfig.json`, excluding `tsconfig.test.json`, sorted by path.                       |
-| Test      | `repoCommands.test` from `smithers.config.ts`, else the root `test` script run through the project's package manager.   |
-| Discovery | The registry's own discovery scan over the flows directory. Not overridable: it is what proves a migrated flow is real. |
+| Kind      | Derived from                                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Install   | The `packageManager` field, else the lockfile: `bun install`, `pnpm install`, `yarn install`, or `npm install`.           |
+| Format    | `dprint check` when the project has a `dprint.json`, else `prettier --check .` when it configures prettier.               |
+| Typecheck | One `tsc --noEmit -p <path>` per `tsconfig.json`, excluding `tsconfig.test.json`, sorted by path.                         |
+| Test      | `repoCommands.test` from `smithers.config.ts`, else the root `test` script run through the project's package manager.     |
+| Discovery | The registry's own discovery scan over the flows directory. Not overridable: confirms the registry can discover the flow. |
 
 The formatter runs in check mode on purpose. A verification asks a question,
 and a formatter that rewrites the repository answers it by editing files the
 unit does not own.
+
+## Required declaration checks
+
+Before archiving an old workflow, migration also checks that its replacement
+uses `export default Flow.make("<tag>", { description: "...", payload: {}, body: ... })`.
+The tag must be a nonempty literal. A payload schema or field object (including
+`{}` for no input) and a body are required. Legacy
+object-first declarations and `model` or `flows` without a body fail even when
+the project has no typecheck command. Failed replacements leave the original
+source in place and record the failed check in the migration report.
+
+These static checks do not execute generated code or prove its behavior.
+Use the project's typecheck and tests to verify the implementation.
 
 ## Override any of them
 

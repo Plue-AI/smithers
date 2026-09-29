@@ -14,12 +14,13 @@ import * as Checkpoint from "@smthrs/migrate/flow/Checkpoint"
 import * as MigrateFlow from "@smthrs/migrate/flow/MigrateFlow"
 import type * as Options from "@smthrs/migrate/flow/Options"
 import type * as Transform from "@smthrs/migrate/flow/Transform"
+import * as Verify from "@smthrs/migrate/flow/Verify"
 import * as Report from "@smthrs/migrate/Report"
 import * as Scan from "@smthrs/migrate/Scan"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import { TestClock } from "effect/testing"
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { copyFixture, fixture, hashTree } from "../fixtures/helpers.ts"
 
@@ -66,6 +67,15 @@ const owned = (outline: Transform.UnitOutline): ReadonlyArray<string> =>
 /** Everything outside the tool's own directory, which is where the backup lives. */
 const project = (hashes: ReadonlyMap<string, string>): ReadonlyMap<string, string> =>
   new Map([...hashes].filter(([path]) => !path.startsWith(".smithers-migrate/")))
+
+/** A legacy workflow without project commands or configuration. */
+const bareWorkflow = (): string => {
+  const root = copyFixture("jsx-single")
+  for (const entry of readdirSync(root)) {
+    if (entry !== "simple-workflow.jsx") rmSync(join(root, entry), { recursive: true, force: true })
+  }
+  return root
+}
 
 /** A verification every command of which passed, so `finish` reaches its checks. */
 const passing: Report.VerificationResult = {
@@ -189,6 +199,105 @@ describe("MigrateFlow.postconditions", () => {
 })
 
 describe("MigrateFlow.finish", () => {
+  for (
+    const [name, generated, reason] of [
+      [
+        "object-first legacy factory",
+        "import { Flow } from \"@smthrs/flow\"\nexport default Flow.make({ description: \"Real.\", model: \"anthropic:probe\" })\n",
+        "Flow.make"
+      ],
+      [
+        "tagged flow without payload",
+        "import { Flow } from \"@smthrs/flow\"\nimport { Node } from \"@smthrs/plan\"\nexport default Flow.make(\"simple-workflow\", { description: \"Real.\", body: () => Node.succeed(1) })\n",
+        "payload"
+      ]
+    ] as const
+  ) {
+    it.effect(`keeps the source when ${name} cannot load without a project typecheck`, () =>
+      Effect.gen(function*() {
+        const root = bareWorkflow()
+        const chosen = options(root, { commands: { typecheck: [] } })
+        const scanned = yield* MigrateFlow.scan(chosen)
+        const outline = MigrateFlow.outlines(scanned, chosen).find((entry) => entry.id === "workflow:simple-workflow")!
+        const source = join(root, "simple-workflow.jsx")
+        const original = readFileSync(source, "utf8")
+        const checkpoint = yield* Checkpoint.take({
+          root,
+          unit: outline.id,
+          files: owned(outline),
+          backupDir: join(root, ".smithers-migrate", "backup"),
+          allowNoVcs: true,
+          treeExclude: [".smithers-migrate"]
+        })
+        const target = join(root, "flows", "simple-workflow", "flow.ts")
+        mkdirSync(join(root, "flows", "simple-workflow"), { recursive: true })
+        writeFileSync(target, generated)
+
+        const verification = yield* Verify.run({ root, commands: { typecheck: [], flowsDir: "flows" } })
+        expect(verification.typecheck).toEqual([])
+        expect(Verify.verdict(verification)).toBe("pass")
+        const outcome = yield* MigrateFlow.finish({
+          options: chosen,
+          outline,
+          checkpoint,
+          runStateRoots: [],
+          result: answered(outline.id, ["flows/simple-workflow/flow.ts"]),
+          verification,
+          repairRounds: 0
+        })
+
+        expect(outcome.status).toBe("failed")
+        expect(
+          outcome.unresolved.find((entry) =>
+            entry.construct === "every flow module's descriptor describes the flow it declares"
+          )
+        )
+          .toMatchObject({ file: "flows/simple-workflow/flow.ts", reason: expect.stringContaining(reason) })
+        expect(readFileSync(source, "utf8")).toBe(original)
+        expect(existsSync(target)).toBe(false)
+        expect(existsSync(join(root, ".smithers-migrate", "archive", "simple-workflow.jsx"))).toBe(false)
+      }).pipe(Effect.provide(platform)))
+  }
+
+  it.effect("archives the source for a tagged flow with a body when no project typecheck is configured", () =>
+    Effect.gen(function*() {
+      const root = bareWorkflow()
+      const chosen = options(root, { commands: { typecheck: [] } })
+      const scanned = yield* MigrateFlow.scan(chosen)
+      const outline = MigrateFlow.outlines(scanned, chosen).find((entry) => entry.id === "workflow:simple-workflow")!
+      const source = join(root, "simple-workflow.jsx")
+      const original = readFileSync(source, "utf8")
+      const checkpoint = yield* Checkpoint.take({
+        root,
+        unit: outline.id,
+        files: owned(outline),
+        backupDir: join(root, ".smithers-migrate", "backup"),
+        allowNoVcs: true,
+        treeExclude: [".smithers-migrate"]
+      })
+      const target = join(root, "flows", "simple-workflow", "flow.ts")
+      mkdirSync(join(root, "flows", "simple-workflow"), { recursive: true })
+      writeFileSync(target, golden)
+
+      const verification = yield* Verify.run({ root, commands: { typecheck: [], flowsDir: "flows" } })
+      expect(Verify.verdict(verification)).toBe("pass")
+      const outcome = yield* MigrateFlow.finish({
+        options: chosen,
+        outline,
+        checkpoint,
+        runStateRoots: [],
+        result: answered(outline.id, ["flows/simple-workflow/flow.ts"]),
+        verification,
+        repairRounds: 0
+      })
+
+      expect(outcome.status).toBe("migrated")
+      expect(readFileSync(target, "utf8")).toBe(golden)
+      expect(existsSync(source)).toBe(false)
+      expect(readFileSync(join(root, ".smithers-migrate", "archive", "simple-workflow.jsx"), "utf8"))
+        .toBe(original)
+    }).pipe(Effect.provide(platform)))
+
   for (const verification of [passing, null]) {
     it.effect(`restores edits and an unexpected target directory when verification is ${verification === null ? "absent" : "passing"}`, () =>
       Effect.gen(function*() {

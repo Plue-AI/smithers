@@ -87,32 +87,33 @@ export interface CheckpointFiles {
  */
 const descriptorConstructor = "Flow.make"
 
-/**
- * The options object of the default-exported flow declaration, when the module
- * has one in the shape discovery accepts.
- *
- * The object is looked for among the arguments rather than at a fixed index:
- * `@smthrs/flow`'s `Flow.make("tag", { ... })`, which a migrated
- * `flows/<name>/flow.ts` default-exports, names its tag first, and discovery
- * reads the declaration data out of the object wherever it sits.
- */
-const defaultDescriptor = (source: ts.SourceFile): ts.ObjectLiteralExpression | undefined => {
+/** The default-exported factory call, before validating its runtime contract. */
+const defaultFactory = (source: ts.SourceFile): ts.CallExpression | undefined => {
   for (const statement of source.statements) {
     if (!ts.isExportAssignment(statement) || statement.isExportEquals === true) continue
     const call = statement.expression
-    if (!ts.isCallExpression(call)) continue
-    if (Ts.calleeName(call) !== descriptorConstructor) continue
-    const options = call.arguments.find((argument) => ts.isObjectLiteralExpression(argument))
-    if (options !== undefined) return options
+    if (ts.isCallExpression(call) && Ts.calleeName(call) === descriptorConstructor) return call
   }
   return undefined
 }
 
-/** The initializer of one property of an object literal, by name. */
-const property = (options: ts.ObjectLiteralExpression, name: string): ts.Expression | undefined => {
+/** Discovery reads literal metadata independently of the executable contract. */
+const defaultDescriptor = (source: ts.SourceFile): ts.ObjectLiteralExpression | undefined =>
+  defaultFactory(source)?.arguments.find((argument) => ts.isObjectLiteralExpression(argument))
+
+/** The initializer or method of one property of an object literal, by name. */
+const property = (
+  options: ts.ObjectLiteralExpression,
+  name: string
+): ts.Expression | ts.MethodDeclaration | undefined => {
   for (const member of options.properties) {
-    if (!ts.isPropertyAssignment(member) || member.name === undefined) continue
-    if (member.name.getText() === name) return member.initializer
+    if (ts.isShorthandPropertyAssignment(member)) {
+      if (ts.isIdentifier(member.name) && member.name.text === name) return member.name
+      continue
+    }
+    if (!ts.isPropertyAssignment(member) && !ts.isMethodDeclaration(member)) continue
+    if (!(ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) || member.name.text !== name) continue
+    return ts.isPropertyAssignment(member) ? member.initializer : member
   }
   return undefined
 }
@@ -141,18 +142,6 @@ const declaresDescription = (file: string, text: string): boolean => {
  */
 interface DeclaredFlow {
   readonly name: string
-  readonly payload: string | undefined
-  readonly success: string | undefined
-}
-
-/** A schema expression with its formatting removed, for comparison. */
-const schemaText = (value: ts.Expression | undefined): string | undefined => {
-  if (value === undefined) return undefined
-  const text = value.getText().replaceAll(/\s+/g, " ").trim()
-  // `Flow.make` takes struct FIELDS or a schema: `{ topic: Schema.String }`
-  // and `Schema.Struct({ topic: Schema.String })` are one contract written
-  // two ways, so both spell the same comparison key.
-  return text.startsWith("{") ? `Schema.Struct(${text})` : text
 }
 
 const declaredFlows = (source: ts.SourceFile): ReadonlyArray<DeclaredFlow> => {
@@ -168,19 +157,16 @@ const declaredFlows = (source: ts.SourceFile): ReadonlyArray<DeclaredFlow> => {
       if (options === undefined || !ts.isObjectLiteralExpression(options)) continue
       if (property(options, "body") === undefined) continue
       if (!ts.isIdentifier(declaration.name)) continue
-      flows.push({
-        name: declaration.name.text,
-        payload: schemaText(property(options, "payload")),
-        success: schemaText(property(options, "success"))
-      })
+      flows.push({ name: declaration.name.text })
     }
   }
   return flows
 }
 
 /** The `X` of an arrow function whose whole body is `X.call(...)`. */
-const delegateTarget = (value: ts.Expression): string | undefined => {
-  if (!ts.isArrowFunction(value)) return undefined
+const delegateTarget = (value: ts.Expression | ts.MethodDeclaration): string | undefined => {
+  if (!ts.isArrowFunction(value) && !ts.isMethodDeclaration(value)) return undefined
+  if (value.body === undefined) return undefined
   const body = ts.isBlock(value.body)
     ? value.body.statements.length === 1 && ts.isReturnStatement(value.body.statements[0]!)
       ? value.body.statements[0].expression
@@ -204,7 +190,7 @@ const delegateTarget = (value: ts.Expression): string | undefined => {
  * module can still admit one thing and run another are both refused here. A
  * default export that names a durable flow the module declares beside it has
  * to reach it, by `body`; one that names nothing has to carry its own
- * behavior, or calling it fails with `missing_body` and nothing runs.
+ * behavior, or it cannot be called.
  */
 const describesTheFlowItDeclares = (
   file: string,
@@ -216,43 +202,54 @@ const describesTheFlowItDeclares = (
   // check; saying it twice would only hide which contract it broke.
   if (options === undefined) return []
   const line = Fs.positionAt(text, options.getStart(source)).line
-  const flows = declaredFlows(source)
+  const call = defaultFactory(source)!
+  const [tag, descriptor] = call.arguments
+  if (
+    call.arguments.length !== 2 || tag === undefined ||
+    !(ts.isStringLiteral(tag) || ts.isNoSubstitutionTemplateLiteral(tag)) ||
+    tag.text.trim() === "" || descriptor !== options
+  ) {
+    return [{
+      file,
+      line,
+      message: "the executable flow requires Flow.make(\"<tag>\", { ... body }) with a nonempty literal tag"
+    }]
+  }
   const body = property(options, "body")
-  if (flows.length === 0) {
-    // A descriptor that declares a `model`, or the one flow it delegates to,
-    // runs on the registry's `agent` delegate
-    // (`@smthrs/registry`'s `Executable.ts` `delegateFor`), so it is executable
-    // without a body of its own.
-    const executable = body !== undefined ||
-      property(options, "model") !== undefined ||
-      property(options, "flows") !== undefined
-    return executable ? [] : [{
-      file,
-      line,
-      message: "the default descriptor declares no flow and no `body`, so calling it fails with `missing_body`"
-    }]
-  }
-  if (body !== undefined) {
-    const target = delegateTarget(body)
-    return target !== undefined && flows.some((flow) => flow.name === target) ? [] : [{
-      file,
-      line,
-      message: `the default descriptor's body does not call ${
-        flows.map((flow) => flow.name).join(" or ")
-      }, the flow this module declares`
-    }]
-  }
-  const input = schemaText(property(options, "input"))
-  const output = schemaText(property(options, "output"))
-  const matched = flows.filter((flow) =>
-    (flow.payload === undefined || flow.payload === input) && (flow.success === undefined || flow.success === output)
+  // Do not execute generated code here. Refuse absent and visibly non-callable
+  // bodies; the project's typecheck and tests validate references and calls.
+  const callable = body !== undefined && (
+    ts.isArrowFunction(body) || ts.isFunctionExpression(body) || ts.isMethodDeclaration(body) ||
+    ts.isCallExpression(body) || ts.isPropertyAccessExpression(body) ||
+    (ts.isIdentifier(body) && body.text !== "undefined")
   )
-  return matched.length > 0 ? [] : [{
+  if (!callable) {
+    return [{
+      file,
+      line,
+      message: "the default flow requires a callable `body`; model or flows cannot replace it"
+    }]
+  }
+  const payload = property(options, "payload")
+  if (
+    payload === undefined || !(ts.isObjectLiteralExpression(payload) || ts.isCallExpression(payload) ||
+      ts.isPropertyAccessExpression(payload) || (ts.isIdentifier(payload) && payload.text !== "undefined"))
+  ) {
+    return [{
+      file,
+      line,
+      message: "the default flow requires a `payload` schema or field object, including {} for no input"
+    }]
+  }
+  const flows = declaredFlows(source)
+  if (flows.length === 0) return []
+  const target = delegateTarget(body)
+  return target !== undefined && flows.some((flow) => flow.name === target) ? [] : [{
     file,
     line,
-    message: `the default descriptor admits ${input ?? "no input"} to ${output ?? "no output"}, which none of ${
-      flows.map((flow) => flow.name).join(", ")
-    } declares`
+    message: `the default descriptor's body does not call ${
+      flows.map((flow) => flow.name).join(" or ")
+    }, the flow this module declares`
   }]
 }
 
