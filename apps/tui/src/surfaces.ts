@@ -142,3 +142,37 @@ export const useSurface = () => {
     stepTab
   }
 }
+
+/** What Ctrl+S does. */
+export type SummaryKey =
+  /** Show the Summary, remembering `from` for the way back and selecting `select`'s row. */
+  | { readonly kind: "summary"; readonly from: string; readonly select?: string }
+  | { readonly kind: "show"; readonly surface: string }
+  /** A main view keeps chat beside it: switch focus between them. */
+  | { readonly kind: "focus" }
+
+/**
+ * Ctrl+S opens the Summary from the chat or a worker, tree or flow tab, with that tab's worker or flow
+ * run selected, and on the Summary goes back to the tab it came from while that tab exists, else to the
+ * chat. A main view or a `ui:` view switches focus instead: a plugin's tab leaves the strip once hidden.
+ */
+export const summaryKey = (state: {
+  readonly surface: string
+  /** The shown panel is a main view. */
+  readonly main: boolean
+  /** The tab Ctrl+S last opened the Summary from. */
+  readonly from?: string
+  readonly strip: ReadonlyArray<Chip>
+}): SummaryKey => {
+  if (state.main || state.surface.startsWith("ui:")) return { kind: "focus" }
+  if (state.surface === "summary") {
+    const back = state.from !== undefined && state.strip.some((chip) => chip.id === state.from) ? state.from : "chat"
+    return { kind: "show", surface: back }
+  }
+  const select = state.surface.startsWith("tab:") || state.surface.startsWith("tree:")
+    ? state.surface.slice(state.surface.indexOf(":") + 1)
+    : state.surface.startsWith("flow:")
+    ? state.surface
+    : undefined
+  return { kind: "summary", from: state.surface, ...(select === undefined ? {} : { select }) }
+}

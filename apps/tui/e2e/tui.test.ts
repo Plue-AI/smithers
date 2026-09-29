@@ -2053,6 +2053,23 @@ describe("worker tabs", () => {
     await tui.until((screen) => screen.includes("Requested the investigation."), 5_000, "esc closes")
   }, 60_000)
 
+  it("opens the Summary on the worker with ctrl+s and returns to its tab", async () => {
+    const tui = await launch()
+    await tui.press(key.ctrlS)
+    // The cards pane is the selected row's: the worker's, not the chat's review.
+    await tui.until(
+      (screen) => screen.includes("tab Pane") && /┌─Investigation─+┐/.test(screen),
+      5_000,
+      "overview on the worker"
+    )
+    await tui.press(key.ctrlS)
+    await tui.until(
+      (screen) => screen.includes("Subagent · Investigation") && screen.includes("esc Chat"),
+      5_000,
+      "the worker's tab, its panel with the keys"
+    )
+  }, 60_000)
+
   for (const action of ["s"]) {
     it(`keeps typeahead after the worker's ${action} focus action`, async () => {
       const tui = await launch()

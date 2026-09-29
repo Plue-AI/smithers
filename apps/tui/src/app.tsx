@@ -348,6 +348,11 @@ export function App(props: AppProps) {
       readonly graph?: boolean
     }
   >({ pane: "tree" })
+  /** The tab Ctrl+S opened the Summary from, for its way back; cleared once another tab shows. */
+  const summaryFrom = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (surface !== "summary") summaryFrom.current = undefined
+  }, [surface])
   useEffect(() => workspace.subscribe(() => setRevision((value) => value + 1)), [workspace])
   useEffect(() => () => workspace.dispose(), [workspace])
   useEffect(() => runs.subscribe(() => setRevision((value) => value + 1)), [runs])
@@ -1884,13 +1889,17 @@ export function App(props: AppProps) {
     }
     if (key.ctrl && key.name === "s") {
       key.preventDefault()
+      const act = Surfaces.summaryKey({ surface, main: focusMain, from: summaryFrom.current, strip: surfaces })
       flushSync(() => {
-        if (surface === "summary" && !focusMain) showTab("chat")
-        else {
-          if (!focusMain) setSurface(surface === "chat" ? "summary" : surface)
-          setPanelFocus(!panelFocus)
+        if (act.kind === "focus") return setPanelFocus(!panelFocus)
+        if (act.kind === "show") return showTab(act.surface)
+        showTab("summary")
+        if (act.select !== undefined) {
+          setOverview({ selected: act.select, pane: "tree" })
         }
       })
+      // After the render, so a pending effect from an earlier tab change cannot clear it.
+      if (act.kind === "summary") summaryFrom.current = act.from
       return
     }
     if (focusMain && key.ctrl && key.name === "\\") {
