@@ -21,9 +21,10 @@ import type * as Scope from "effect/Scope"
 import * as EffectBoundary from "../EffectBoundary.ts"
 import type { Frame } from "../Frame.ts"
 import { error, type TimeTravelError } from "../TimeTravelError.ts"
-import { type Fork as ForkRecord, TimeTravelStore } from "../TimeTravelStore.ts"
+import { type Fork as ForkRecord, type ForkOverride, forkOverrideMessage, TimeTravelStore } from "../TimeTravelStore.ts"
 import * as Compensation from "./Compensation.ts"
 import type { EffectHandlerRegistry } from "./EffectHandlerRegistry.ts"
+import * as ForkOverrideRule from "./ForkOverride.ts"
 import * as HistoryLimit from "./HistoryLimit.ts"
 import * as JournalPages from "./JournalPages.ts"
 import * as StepHook from "./StepHook.ts"
@@ -52,6 +53,12 @@ export interface ForkOptions {
   readonly workspaceRoot: string
   /** A CLI-created branch outlives the process that created it. */
   readonly retainWorkspace?: boolean | undefined
+  /**
+   * An already-encoded edit the child is committed with. A sealed-result
+   * override whose step never started at the frame is refused before any id
+   * is minted or workspace provisioned.
+   */
+  readonly override?: ForkOverride | undefined
   /** Journal page size for the suffix scan; defaults to the store's own. */
   readonly pageSize?: number | undefined
   /**
@@ -338,6 +345,20 @@ export const fork = (
       const plan = yield* Compensation.assess(effects, snapshot?.changeId)
       const warnings = normalize(plan.assessments)
 
+      // The store re-checks the override inside its commit; this pass only
+      // keeps a refusal visible from the started attempts from provisioning a
+      // lane it would forget a moment later.
+      const override = options.override
+      if (override !== undefined) {
+        const started = yield* store.attemptsAt(options.parentRunId, options.frame)
+        const refused = override._tag === "Input"
+          ? ForkOverrideRule.inputRefusal(options.parentRunId, started.length)
+          : started.some((attempt) => attempt.stepKeyDigest === override.stepKeyDigest)
+          ? undefined
+          : error("not_found", forkOverrideMessage(options.parentRunId, options.frame, override.stepKeyDigest))
+        if (refused !== undefined) return yield* Effect.fail(refused)
+      }
+
       const jj = yield* Jj
       /**
        * MINT, THEN PROVISION, THEN COMMIT — in that order, on purpose.
@@ -384,7 +405,7 @@ export const fork = (
        */
       const result = yield* Effect.uninterruptibleMask((restore) =>
         restore(StepHook.run("fork", options.hooks?.beforeStep, "commit-fork")).pipe(
-          Effect.andThen(store.createFork(options.parentRunId, options.frame, childRunId)),
+          Effect.andThen(store.createFork(options.parentRunId, options.frame, childRunId, override)),
           Effect.onError(() => forgetLane(jj, workspaceName, "after a refused commit")),
           Effect.tap(() =>
             options.retainWorkspace === true

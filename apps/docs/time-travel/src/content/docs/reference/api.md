@@ -155,9 +155,14 @@ interface ReplayOptions {
 interface ForkOptions {
   readonly workspaceRoot?: string | undefined
   readonly retainWorkspace?: boolean | undefined
+  readonly override?: ForkOverride | undefined
   readonly pageSize?: number | undefined
   readonly maxHistoryEntries?: number | undefined
 }
+
+type ForkOverride =
+  | { readonly stepKey: string; readonly schema: Schema.Top; readonly sealedResult: unknown }
+  | { readonly schema: Schema.Top; readonly input: unknown }
 
 interface RewindOptions {
   readonly detachedChildren?: "block" | "cancel" | undefined
@@ -173,7 +178,8 @@ through `Journal.maxEntriesLimit` (10,000). Any other value is refused with
 `invalid` before reading the journal. `maxHistoryEntries` overrides
 `Options.maxHistoryEntries` for one call. `workspaceRoot` defaults to `.flows/forks` and only moves which lane
 the derived workspace name lands in. `retainWorkspace` keeps the child lane
-registered after the service scope closes. `detachedChildren` defaults to
+registered after the service scope closes. `override` edits the child: see
+[Fork with an edited step result or input](/guides/fork-a-run/#fork-with-an-edited-step-result-or-input). `detachedChildren` defaults to
 `"block"`. `wholeRepo` restores the jj operation the frame recorded instead of
 only its working-copy tree, so bookmark moves, rebases, `describe`, and
 `abandon` after the frame are undone too, even when no compensable effect was
@@ -305,13 +311,14 @@ const layer = TimeTravel.layerWith({ isAlive: Ownership.leaseLiveness() })
 The coordinate system. Import as `Frame` from the barrel, or from
 `@smthrs/time-travel/Frame`.
 
-| Export                 | Signature                                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `Frame`                | Schema and type: `{ lineageId: string; seq: number }`. `seq` is a non-negative integer.        |
-| `LineageEdgeKind`      | Schema and type: `"child" \| "fork" \| "continuation"`.                                        |
-| `LineageEdge`          | Schema and type: `{ parentRunId, parentSeq, childRunId, kind, attached }`.                     |
-| `forkCreatedEventType` | `"flows.time-travel.fork-created"`, the journal event type marking a run as fork-created.      |
-| `ForkCreated`          | Schema and type: `{ parentRunId, forkJournalOffset, childRunId }`, the payload of that record. |
+| Export                    | Signature                                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `Frame`                   | Schema and type: `{ lineageId: string; seq: number }`. `seq` is a non-negative integer.        |
+| `LineageEdgeKind`         | Schema and type: `"child" \| "fork" \| "continuation"`.                                        |
+| `LineageEdge`             | Schema and type: `{ parentRunId, parentSeq, childRunId, kind, attached }`.                     |
+| `forkCreatedEventType`    | `"flows.time-travel.fork-created"`, the journal event type marking a run as fork-created.      |
+| `ForkCreated`             | Schema and type: `{ parentRunId, forkJournalOffset, childRunId }`, the payload of that record. |
+| `forkOverriddenEventType` | `"flows.time-travel.fork-overridden"`, the record above the marker naming a fork override.     |
 
 `seq` counts journal records, so frame `n` means "after the first `n` records
 were durable", and `0` is the state before the run wrote anything. `attached`
@@ -356,17 +363,18 @@ moment the code under test reaches a third.
 
 ### Models
 
-| Export          | Shape                                                                                                          |
-| --------------- | -------------------------------------------------------------------------------------------------------------- |
-| `Snapshot`      | `{ runId, frame, changeId, planDigest? }`. The anchor at a frame. An absent digest means no plan was in force. |
-| `AttemptRef`    | `{ stepKeyDigest, attempt }`. An attempt row as `flows_attempts` addresses it.                                 |
-| `Descendants`   | `{ attached: LineageEdge[]; detached: LineageEdge[] }`.                                                        |
-| `Audit`         | `{ id, runId, frame, status, rateLimit?, detail? }` with `status` of `in_progress`, `completed`, or `failed`.  |
-| `AuditPatch`    | `{ status?, rateLimit?, detail? }`. The only keys an open audit row may be advanced through.                   |
-| `Receipt`       | `{ id, auditId, effectId, receipt }`. Proof one side effect was compensated.                                   |
-| `ArchiveResult` | `{ archived: number; orphaned: LineageEdge[] }`.                                                               |
-| `Fork`          | `{ runId, edge }`. The row `createFork` commits; a fork's warnings ride `ForkResult`.                          |
-| `ForkIntent`    | `{ childRunId, parentRunId, parentSeq, reservedAtMs }`. A minted fork id whose fork has not committed.         |
+| Export          | Shape                                                                                                             |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `Snapshot`      | `{ runId, frame, changeId, planDigest? }`. The anchor at a frame. An absent digest means no plan was in force.    |
+| `AttemptRef`    | `{ stepKeyDigest, attempt }`. An attempt row as `flows_attempts` addresses it.                                    |
+| `Descendants`   | `{ attached: LineageEdge[]; detached: LineageEdge[] }`.                                                           |
+| `Audit`         | `{ id, runId, frame, status, rateLimit?, detail? }` with `status` of `in_progress`, `completed`, or `failed`.     |
+| `AuditPatch`    | `{ status?, rateLimit?, detail? }`. The only keys an open audit row may be advanced through.                      |
+| `Receipt`       | `{ id, auditId, effectId, receipt }`. Proof one side effect was compensated.                                      |
+| `ArchiveResult` | `{ archived: number; orphaned: LineageEdge[] }`.                                                                  |
+| `Fork`          | `{ runId, edge }`. The row `createFork` commits; a fork's warnings ride `ForkResult`.                             |
+| `ForkIntent`    | `{ childRunId, parentRunId, parentSeq, reservedAtMs }`. A minted fork id whose fork has not committed.            |
+| `ForkOverride`  | `SealedResult { stepKeyDigest, outcome }` or `Input { payload }`, already encoded. The edit `createFork` commits. |
 
 Three helpers travel with them:
 
@@ -386,24 +394,24 @@ from either.
 
 ### Service
 
-| Method                                                            | What it does                                                                                                                                                                                                                                                                                   |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `snapshotAt(runId, frame)`                                        | The anchor recorded at a frame, or `undefined`.                                                                                                                                                                                                                                                |
-| `recordSnapshot(snapshot)`                                        | Records one anchor. Written by the snapshot projector, never by a caller.                                                                                                                                                                                                                      |
-| `recordSnapshots(snapshots)`                                      | Records a batch of anchors in one write. The projector hands it one journal page's anchors at a time, so a page costs one transaction on the SQL store.                                                                                                                                        |
-| `latestSnapshots(runId)`                                          | The last anchor recorded on each lineage of a run, the projector's resume point. Empty for a run with no anchors.                                                                                                                                                                              |
-| `stateAt(runId, frame)`                                           | The run state **at** a frame as encoded JSON, derived by replaying the run-decision records, not read off the run row's latest state.                                                                                                                                                          |
-| `attemptsAt(runId, frame)`                                        | The attempts that had been admitted at a frame, derived the same way.                                                                                                                                                                                                                          |
-| `descendants(runId, frame)`                                       | The lineage edges hanging off this run at or after a frame, split into attached and detached.                                                                                                                                                                                                  |
-| `writeAudit(audit)`                                               | Opens the audit trail for a rewind, before anything is compensated or truncated.                                                                                                                                                                                                               |
-| `updateAudit(id, patch)`                                          | Advances an open audit row. Any key outside `AuditPatch` is refused `invalid`.                                                                                                                                                                                                                 |
-| `pendingAudits()`                                                 | Every audit row still `in_progress`. Recovery drains this on layer build.                                                                                                                                                                                                                      |
-| `archiveAndTruncate(runId, frame, receipts, owner, childOwners?)` | Refuses malformed frames with `invalid`. Truncates a run back to a frame, archiving rather than deleting, removing deferred completions and clock deadlines named by archived records, and persisting the receipts. Fenced on the caller's ownership and on every non-terminal attached child. |
-| `archivedAt(runId, seq)`                                          | Whether the archive holds a record at that coordinate. Recovery's commit-point evidence.                                                                                                                                                                                                       |
-| `nextForkId(parentRunId, frame)`                                  | Mints and durably reserves the run id the next fork off that frame will carry, without creating a run.                                                                                                                                                                                         |
-| `abandonForkIntents(staleBeforeMs)`                               | Every reservation older than `staleBeforeMs` whose fork never committed, handed back exactly once.                                                                                                                                                                                             |
-| `createFork(parentRunId, frame, childRunId?)`                     | Branches a new run off a frame, copying the journal prefix and the attempts that existed there, and recording the `fork` edge. The parent is untouched.                                                                                                                                        |
-| `recordReceipt(receipt)`                                          | Persists one compensation receipt against its audit row, before the journal range that effect belongs to is truncated.                                                                                                                                                                         |
+| Method                                                            | What it does                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `snapshotAt(runId, frame)`                                        | The anchor recorded at a frame, or `undefined`.                                                                                                                                                                                                                                                    |
+| `recordSnapshot(snapshot)`                                        | Records one anchor. Written by the snapshot projector, never by a caller.                                                                                                                                                                                                                          |
+| `recordSnapshots(snapshots)`                                      | Records a batch of anchors in one write. The projector hands it one journal page's anchors at a time, so a page costs one transaction on the SQL store.                                                                                                                                            |
+| `latestSnapshots(runId)`                                          | The last anchor recorded on each lineage of a run, the projector's resume point. Empty for a run with no anchors.                                                                                                                                                                                  |
+| `stateAt(runId, frame)`                                           | The run state **at** a frame as encoded JSON, derived by replaying the run-decision records, not read off the run row's latest state.                                                                                                                                                              |
+| `attemptsAt(runId, frame)`                                        | The attempts that had been admitted at a frame, derived the same way.                                                                                                                                                                                                                              |
+| `descendants(runId, frame)`                                       | The lineage edges hanging off this run at or after a frame, split into attached and detached.                                                                                                                                                                                                      |
+| `writeAudit(audit)`                                               | Opens the audit trail for a rewind, before anything is compensated or truncated.                                                                                                                                                                                                                   |
+| `updateAudit(id, patch)`                                          | Advances an open audit row. Any key outside `AuditPatch` is refused `invalid`.                                                                                                                                                                                                                     |
+| `pendingAudits()`                                                 | Every audit row still `in_progress`. Recovery drains this on layer build.                                                                                                                                                                                                                          |
+| `archiveAndTruncate(runId, frame, receipts, owner, childOwners?)` | Refuses malformed frames with `invalid`. Truncates a run back to a frame, archiving rather than deleting, removing deferred completions and clock deadlines named by archived records, and persisting the receipts. Fenced on the caller's ownership and on every non-terminal attached child.     |
+| `archivedAt(runId, seq)`                                          | Whether the archive holds a record at that coordinate. Recovery's commit-point evidence.                                                                                                                                                                                                           |
+| `nextForkId(parentRunId, frame)`                                  | Mints and durably reserves the run id the next fork off that frame will carry, without creating a run.                                                                                                                                                                                             |
+| `abandonForkIntents(staleBeforeMs)`                               | Every reservation older than `staleBeforeMs` whose fork never committed, handed back exactly once.                                                                                                                                                                                                 |
+| `createFork(parentRunId, frame, childRunId?, override?)`          | Branches a new run off a frame, copying the journal prefix and the attempts that existed there, and recording the `fork` edge. The parent is untouched. An `override` replaces a copied sealed result or the child's input in the same transaction, and is refused when the prefix contradicts it. |
+| `recordReceipt(receipt)`                                          | Persists one compensation receipt against its audit row, before the journal range that effect belongs to is truncated.                                                                                                                                                                             |
 
 Every method fails as `TimeTravelError`.
 

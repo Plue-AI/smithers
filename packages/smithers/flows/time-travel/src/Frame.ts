@@ -101,6 +101,17 @@ export type LineageEdge = typeof LineageEdge.Type
  */
 export const forkCreatedEventType = "flows.time-travel.fork-created"
 /**
+ * The journal event type recording the edit a fork override applied.
+ *
+ * It sits directly above the fork-created marker, which stays exactly
+ * `(parentRunId, forkJournalOffset, childRunId)` so copied-record proofs keep
+ * matching. The payload names the edit, never the edited value.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const forkOverriddenEventType = "flows.time-travel.fork-overridden"
+/**
  * The payload of a {@link forkCreatedEventType} record: which run this one was
  * forked from, and how much of that run's journal was copied.
  *

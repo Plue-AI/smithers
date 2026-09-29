@@ -34,7 +34,8 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as EffectBoundary from "./EffectBoundary.ts"
-import { forkCreatedEventType, Frame, type LineageEdge, LineageEdgeKind } from "./Frame.ts"
+import { forkCreatedEventType, forkOverriddenEventType, Frame, type LineageEdge, LineageEdgeKind } from "./Frame.ts"
+import * as ForkOverride from "./internal/ForkOverride.ts"
 import * as LineageTree from "./internal/LineageTree.ts"
 import * as Migrations from "./Migrations.ts"
 import { error, TimeTravelError } from "./TimeTravelError.ts"
@@ -100,11 +101,19 @@ const auditFromRow = (row: AuditRow) =>
 const attemptRefsJson = (refs: ReadonlyArray<TimeTravelStore.AttemptRef>): string =>
   JSON.stringify(refs.map((ref) => [ref.stepKeyDigest, ref.attempt]))
 
-const restartableStateJson = (stateJson: string, forkKeyRunIds: ReadonlyArray<string>) =>
+const restartableStateJson = (
+  stateJson: string,
+  forkKeyRunIds: ReadonlyArray<string>,
+  override: TimeTravelStore.ForkOverride | undefined
+) =>
   Schema.decodeUnknownEffect(RunStateJson)(stateJson).pipe(
     Effect.flatMap((state) => {
       const { cancellation: _, result: __, ...restartable } = state
-      return Schema.encodeEffect(RunStateJson)({ ...restartable, forkKeyRunIds })
+      return Schema.encodeEffect(RunStateJson)({
+        ...restartable,
+        ...(override?._tag === "Input" ? { payload: override.payload } : {}),
+        forkKeyRunIds
+      })
     }),
     Effect.mapError((cause) => error("unknown", "could not materialize executable fork state", cause))
   )
@@ -404,6 +413,43 @@ export const make: Effect.Effect<
       Dialect.isPostgres(sql)
         ? sql`SELECT value ->> 0, (value ->> 1)::numeric FROM jsonb_array_elements(${attemptRefsJson(refs)}::jsonb)`
         : sql`SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(${attemptRefsJson(refs)})`
+
+    /**
+     * Replaces the sealed result the child inherited for one step.
+     *
+     * Only a succeeded attempt carries a result the engine replays verbatim,
+     * so a step with none at the frame is refused and the whole fork rolls
+     * back. The read-set proof is dropped with the outcome: the edited result
+     * was never computed from the reads the key describes, so replaying it
+     * must never publish it into the shared step cache.
+     */
+    const overrideSealedResult = (
+      childRunId: string,
+      parentRunId: string,
+      frame: TimeTravelStore.Snapshot["frame"],
+      override: Extract<TimeTravelStore.ForkOverride, { readonly _tag: "SealedResult" }>
+    ) =>
+      Effect.gen(function*() {
+        const rows = yield* sql<{ readonly attempt: number; readonly meta_json: string }>`
+          SELECT attempt, meta_json FROM flows_attempts
+          WHERE run_id = ${childRunId} AND step_key_digest = ${override.stepKeyDigest} AND state = 'succeeded'
+        `
+        if (rows.length === 0) {
+          return yield* Effect.fail(
+            error("not_found", TimeTravelStore.forkOverrideMessage(parentRunId, frame, override.stepKeyDigest))
+          )
+        }
+        const outcome = yield* encodeJson(override.outcome)
+        for (const row of rows) {
+          // `meta_json` is always the executor's attempt-meta object.
+          const { readSetVerified: _, ...unverified } = (yield* decodeJson(row.meta_json)) as Record<string, unknown>
+          const metaJson = yield* encodeJson(unverified)
+          yield* sql`
+            UPDATE flows_attempts SET outcome_json = ${outcome}, meta_json = ${metaJson}
+            WHERE run_id = ${childRunId} AND step_key_digest = ${override.stepKeyDigest} AND attempt = ${row.attempt}
+          `
+        }
+      })
 
     const attemptsAtFrame = (
       runId: string,
@@ -964,7 +1010,7 @@ export const make: Effect.Effect<
           ).pipe(Effect.mapError(mapError))
         ))
       ),
-      createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId) =>
+      createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId, override) =>
         Effect.annotateCurrentSpan({ parentRunId, lineageId: frame.lineageId, seq: frame.seq }).pipe(Effect.andThen(
           writer.write(
             Effect.gen(function*() {
@@ -1022,6 +1068,21 @@ export const make: Effect.Effect<
                   "fork frame crosses an unfinished irreversible action; choose a frame before its boundary or after completion"
                 ))
               }
+              if (override !== undefined) {
+                const records = (rows: ReadonlyArray<{ readonly seq: number; readonly payload_json: string }>) =>
+                  Effect.forEach(
+                    rows,
+                    (row) => Effect.map(decodeJson(row.payload_json), (payload) => ({ seq: Number(row.seq), payload }))
+                  )
+                const refused = ForkOverride.refusal(
+                  parentRunId,
+                  frame,
+                  override,
+                  yield* records(yield* prefix(parentRunId, frame, EventTypes.attemptStarted, true)),
+                  yield* records(yield* prefix(parentRunId, frame, EventTypes.attemptFinished, true))
+                )
+                if (refused !== undefined) return yield* Effect.fail(refused)
+              }
               const runId = childRunId ?? (yield* mintForkId(parentRunId, frame))
               // The committed edge takes over the ordinal the reservation
               // held, so the intent is consumed in the same transaction.
@@ -1051,7 +1112,8 @@ export const make: Effect.Effect<
               )
               const stateJson = yield* restartableStateJson(
                 derived ?? parentState[0]!.state_json,
-                [parentRunId, ...(parent.forkKeyRunIds ?? [])]
+                [parentRunId, ...(parent.forkKeyRunIds ?? [])],
+                override
               )
               yield* sql`
             INSERT INTO flows_runs (
@@ -1108,6 +1170,7 @@ export const make: Effect.Effect<
               WHERE run_id = ${parentRunId}
                 AND (step_key_digest, attempt) IN (${attemptRefsSelect(attempts)})
             `
+              if (override?._tag === "SealedResult") yield* overrideSealedResult(runId, parentRunId, frame, override)
               /**
                * THE FRAME'S ANCHORS CROSS THE FORK WITH IT.
                *
@@ -1162,6 +1225,24 @@ export const make: Effect.Effect<
               ${JSON.stringify({ lineageId: frame.lineageId })}
             )
           `
+              if (override !== undefined) {
+                yield* sql`
+              INSERT INTO flows_journal_events
+                (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
+                 event_type, payload_json, meta_json)
+              VALUES (
+                ${runId},
+                ${frame.seq + 2},
+                ${`fork:${runId}:overridden`},
+                ${"flows/time-travel/fork-override"},
+                ${frame.seq + 2},
+                ${nowMs},
+                ${forkOverriddenEventType},
+                ${JSON.stringify(ForkOverride.payload(runId, override))},
+                ${JSON.stringify({ lineageId: frame.lineageId })}
+              )
+            `
+              }
               return {
                 runId,
                 edge: {

@@ -59,14 +59,18 @@ export { ReadOnlyTimeTravel, TimeTravel } from "./TimeTravel.ts"
  */
 export type {
   ForkOptions,
+  ForkOverride,
   ForkResult,
+  InputOverride,
   Options,
+  OverrideSchema,
   Position,
   Projection,
   RateLimitDecision,
   ReplayOptions,
   RewindOptions,
   RewindResult,
+  SealedResultOverride,
   Service
 } from "./TimeTravel.ts"
 

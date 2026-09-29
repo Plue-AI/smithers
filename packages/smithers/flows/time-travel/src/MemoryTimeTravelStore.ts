@@ -22,7 +22,8 @@ import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import { forkCreatedEventType, Frame, type LineageEdge } from "./Frame.ts"
+import { forkCreatedEventType, forkOverriddenEventType, Frame, type LineageEdge } from "./Frame.ts"
+import * as ForkOverride from "./internal/ForkOverride.ts"
 import * as LineageTree from "./internal/LineageTree.ts"
 import { error, TimeTravelError } from "./TimeTravelError.ts"
 import * as TimeTravelStore from "./TimeTravelStore.ts"
@@ -471,7 +472,7 @@ export const make = (options: Options = {}): TimeTravelStore.Service & { readonl
         }))
       )
     ),
-    createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId) =>
+    createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId, override) =>
       Effect.annotateCurrentSpan({ parentRunId, lineageId: frame.lineageId, seq: frame.seq }).pipe(
         Effect.andThen(atomic(() => {
           fail("createFork:start")
@@ -505,6 +506,16 @@ export const make = (options: Options = {}): TimeTravelStore.Service & { readonl
           ) {
             throw error("not_found", TimeTravelStore.forkFrameMessage(parentRunId, frame))
           }
+          if (override !== undefined) {
+            const refused = ForkOverride.refusal(
+              parentRunId,
+              frame,
+              override,
+              framed(parentRunId, frame, EventTypes.attemptStarted),
+              framed(parentRunId, frame, EventTypes.attemptFinished)
+            )
+            if (refused !== undefined) throw refused
+          }
           const runId = childRunId ?? mintForkId(parentRunId, frame)
           // The committed edge takes over the ordinal the reservation held.
           forkIntents = forkIntents.filter((intent) => intent.childRunId !== runId)
@@ -522,6 +533,16 @@ export const make = (options: Options = {}): TimeTravelStore.Service & { readonl
             eventType: forkCreatedEventType,
             payload: { parentRunId, forkJournalOffset: frame.seq, childRunId: runId }
           })
+          if (override !== undefined) {
+            records.push({
+              runId,
+              seq: frame.seq + 2,
+              eventId: `fork:${runId}:overridden`,
+              lineageId: frame.lineageId,
+              eventType: forkOverriddenEventType,
+              payload: ForkOverride.payload(runId, override)
+            })
+          }
           // The frame's anchors cross the fork with the prefix, mirroring the
           // SQL store: the child's history must be self-contained without a
           // later projection of its copied journal.

@@ -275,6 +275,38 @@ export const Fork = Schema.Struct({
  */
 export type Fork = typeof Fork.Type
 /**
+ * An encoded edit a fork commits on the child in place of the parent's
+ * history: a replacement for one step's sealed result, or a replacement root
+ * input. The caller has already encoded the value through the step's or the
+ * flow's own JSON codec; the store writes it verbatim.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const ForkOverride = Schema.Union([
+  Schema.TaggedStruct("SealedResult", {
+    stepKeyDigest: JournalEvent.Identifier,
+    outcome: Schema.Unknown
+  }),
+  Schema.TaggedStruct("Input", { payload: Schema.Unknown })
+])
+/**
+ * The value form of {@link ForkOverride}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type ForkOverride = typeof ForkOverride.Type
+/**
+ * The refusal message for a sealed-result override whose step has no
+ * succeeded attempt at the fork frame.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const forkOverrideMessage = (parentRunId: string, frame: Frame, stepKeyDigest: string): string =>
+  `step ${stepKeyDigest} has no sealed result at ${frame.lineageId}@${frame.seq} of ${parentRunId}`
+/**
  * A fork id that has been minted and durably reserved, whose fork has not
  * committed yet.
  *
@@ -439,11 +471,18 @@ export interface Service {
    * `childRunId` is the id {@link Service.nextForkId} minted for this fork.
    * Omitting it mints one inside the same transaction, which is what a caller
    * that provisions nothing beforehand wants.
+   *
+   * `override` is applied to the child inside the same transaction: a
+   * `SealedResult` replaces the outcome of the step's succeeded attempt the
+   * child inherited, refusing `not_found` when there is none, and an `Input`
+   * replaces the payload the child is restarted with. Either is recorded by a
+   * fork-overridden record directly above the fork-created marker.
    */
   readonly createFork: (
     parentRunId: string,
     frame: Frame,
-    childRunId?: string
+    childRunId?: string,
+    override?: ForkOverride
   ) => Effect.Effect<Fork, TimeTravelError>
   /**
    * Persists one compensation receipt against its audit row, before the

@@ -128,6 +128,43 @@ A runnable version of this walkthrough is
 [`05-time-travel-fork.ts`](https://github.com/smithersai/smithers/blob/main/examples/src/05-time-travel-fork.ts)
 in the Smithers examples on GitHub.
 
+## Fork with an edited step result or input
+
+`ForkOptions.override` commits one edit on the child. Each override is
+validated and encoded through the schema you pass, so a value the schema
+refuses fails `invalid` before any child exists.
+
+Replace one step's sealed result. `stepKey` is the `stepKeyDigest` on the
+parent's `flows.engine.attempt-started` record, and `schema` is the action's
+declared success schema:
+
+```ts
+yield * timeTravel.fork(position, {
+  override: { stepKey, schema: Schema.Number, sealedResult: 42 }
+})
+```
+
+The child replays the edited value instead of running the step, and never
+publishes it into the shared step cache. Fork at the frame where the step's
+attempt finished: a frame where a later step already started is refused
+`invalid`, because that step may have read the old result. A step without a
+succeeded attempt at the frame is refused `not_found`.
+
+Replace the root input with the flow's payload schema:
+
+```ts
+yield * timeTravel.fork(position, {
+  override: { schema: Analyse.payloadSchema, input: { topic: "billing" } }
+})
+```
+
+Step keys do not include the input, so an input override needs a frame before
+the first step started; any later frame is refused `invalid`. Drive the child
+with the new input.
+
+The child records the edit under `Frame.forkOverriddenEventType`, directly
+above the fork-created marker. The record names the edit, never its value.
+
 ## Bound what the fork reads
 
 `ForkOptions.maxHistoryEntries` caps the suffix the fork assesses for this one
@@ -136,14 +173,14 @@ call, overriding the service default. A suffix past the cap fails
 
 ## Failures
 
-| Code              | Cause                                                                                                     |
-| ----------------- | --------------------------------------------------------------------------------------------------------- |
-| `already_crossed` | The frame lies inside an irreversible action after its boundary and before its completion receipt.        |
-| `live_parent`     | The parent run, or an ancestor of it, is running, claimed, or owned, so it has no settled prefix to copy. |
-| `not_found`       | The frame addresses no record of that run.                                                                |
-| `invalid`         | A malformed option, or a durable payload that does not decode.                                            |
-| `limit_exceeded`  | The suffix the fork would assess is longer than the cap allows.                                           |
-| `unknown`         | The store, the journal, or Jujutsu failed. The cause is attached.                                         |
+| Code              | Cause                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- |
+| `already_crossed` | The frame lies inside an irreversible action after its boundary and before its completion receipt.          |
+| `live_parent`     | The parent run, or an ancestor of it, is running, claimed, or owned, so it has no settled prefix to copy.   |
+| `not_found`       | The frame addresses no record of that run, or an overridden step has no succeeded attempt at the frame.     |
+| `invalid`         | A malformed option, an override its schema or the frame refuses, or a durable payload that does not decode. |
+| `limit_exceeded`  | The suffix the fork would assess is longer than the cap allows.                                             |
+| `unknown`         | The store, the journal, or Jujutsu failed. The cause is attached.                                           |
 
 If the process dies after the lane is provisioned and before the store commits
 the fork, the next build of `TimeTravel.layer` forgets the lane and the

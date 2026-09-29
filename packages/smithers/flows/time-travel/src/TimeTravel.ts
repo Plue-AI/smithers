@@ -53,7 +53,11 @@ import * as Replay from "./internal/Replay.ts"
 import * as Rewind from "./internal/Rewind.ts"
 import * as SnapshotProjector from "./internal/SnapshotProjector.ts"
 import { error, type TimeTravelError } from "./TimeTravelError.ts"
-import { TimeTravelStore } from "./TimeTravelStore.ts"
+import {
+  type ForkOverride as EncodedForkOverride,
+  ForkOverride as EncodedForkOverrideSchema,
+  TimeTravelStore
+} from "./TimeTravelStore.ts"
 
 /**
  * Where in history an operation acts: a run, and a frame inside it.
@@ -133,6 +137,57 @@ export type ForkResult = ForkOperation.Result
 export type RewindResult = Rewind.Result
 
 /**
+ * A schema a fork override is validated and encoded with: the step's declared
+ * success schema, or the flow's payload schema. It must encode without
+ * services, because the fork writes the encoded value straight to the store.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type OverrideSchema = Schema.Top & { readonly EncodingServices: never }
+
+/**
+ * Replaces one step's sealed result on the child.
+ *
+ * `stepKey` is the step key digest the parent's attempt records carry, and
+ * the step must have a succeeded attempt at the frame. `sealedResult` is the
+ * decoded value; it is encoded through `schema` exactly as the engine encodes
+ * an action's success, so a value the schema refuses fails the fork before
+ * any child exists. The child replays this value instead of re-running the
+ * step, and never publishes it into the shared step cache.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface SealedResultOverride<S extends OverrideSchema = OverrideSchema> {
+  readonly stepKey: string
+  readonly schema: S
+  readonly sealedResult: S["Type"]
+}
+
+/**
+ * Replaces the root input the child restarts with.
+ *
+ * `input` is encoded through the flow's payload `schema`; steps whose keys the
+ * new input leaves unchanged replay from the copied prefix, and the rest run.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface InputOverride<S extends OverrideSchema = OverrideSchema> {
+  readonly schema: S
+  readonly input: S["Type"]
+}
+
+/**
+ * An edit a fork commits on the child in place of the parent's history.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type ForkOverride = SealedResultOverride | InputOverride
+
+/**
  * How a fork chooses its workspace, and how much history it may assess.
  *
  * The workspace name is derived from the child run id the fork mints, never
@@ -150,6 +205,8 @@ export interface ForkOptions {
   readonly maxHistoryEntries?: number | undefined
   /** Keep the child workspace registered after this service scope closes. */
   readonly retainWorkspace?: boolean | undefined
+  /** An edited step result or root input for the child. */
+  readonly override?: ForkOverride | undefined
 }
 
 /**
@@ -225,6 +282,26 @@ export interface Service {
 export class ReadOnlyTimeTravel extends Context.Service<ReadOnlyTimeTravel, Pick<Service, "replay" | "inspect">>()(
   "@smthrs/time-travel/ReadOnlyTimeTravel"
 ) {}
+
+/** Encodes a fork override through its own schema before anything durable. */
+const encodeOverride = (
+  override: ForkOverride | undefined
+): Effect.Effect<EncodedForkOverride | undefined, TimeTravelError> => {
+  if (override === undefined) return Effect.succeed(undefined)
+  const value = "sealedResult" in override ? override.sealedResult : override.input
+  return Schema.encodeUnknownEffect(Schema.toCodecJson(override.schema))(value).pipe(
+    Effect.mapError((cause) => error("invalid", "fork override does not match its schema", cause)),
+    Effect.flatMap((encoded) =>
+      "sealedResult" in override
+        ? Schema.decodeUnknownEffect(EncodedForkOverrideSchema)({
+          _tag: "SealedResult",
+          stepKeyDigest: override.stepKey,
+          outcome: encoded
+        }).pipe(Effect.mapError((cause) => error("invalid", "fork override stepKey is not a step key", cause)))
+        : Effect.succeed<EncodedForkOverride>({ _tag: "Input", payload: encoded })
+    )
+  )
+}
 
 /** Decode caller coordinates before reading history or starting a mutation. */
 const validatePosition = (position: Position) =>
@@ -600,6 +677,7 @@ export const makeWith = (
           })
           yield* validatePageSize("fork", options?.pageSize)
           const maxEntries = yield* HistoryLimit.resolve(options?.maxHistoryEntries, historyLimit)
+          const override = yield* encodeOverride(options?.override)
           return yield* provided(
             // The anchors a fork restores from are a projection of the engine's
             // own records, folded on demand: an ordinary engine run writes
@@ -609,6 +687,7 @@ export const makeWith = (
               frame: decoded.frame,
               workspaceRoot: options?.workspaceRoot ?? workspaceRoot,
               retainWorkspace: options?.retainWorkspace,
+              override,
               pageSize: options?.pageSize,
               maxEntries,
               refreshAnchors: refreshAnchors(decoded.runId, decoded.frame.seq, maxEntries)
