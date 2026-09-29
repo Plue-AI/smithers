@@ -32,6 +32,20 @@ rules to behavior that applies throughout their directory trees.
   or undifferentiated features. Publish benchmark claims only with reproducible
   methods, artifacts, and limitations.
 
+## Claim an issue before working it (Will, 2026-09-29)
+
+Every agent, session, machine, and Cloud worker claims an issue before starting
+it, so work is never duplicated. Use `node scripts/issue-claim.mjs
+check|claim|release <repo>#<n> --by <agent/session>`.
+
+- Claim: the `in-progress` label plus the comment `Claimed by <agent/session>
+  on <host> at <UTC>; expires <UTC+6h>`. If another agent holds an unexpired
+  claim, do not start; pick another issue (exit 2).
+- Claim again before expiry to refresh. A claim over 6 h old without a
+  refreshing comment may be taken over; the tool records the takeover.
+- Release when done, failed, or abandoned: remove the label and comment the
+  landed commit or the reason (`release --note`).
+
 ## Zero tech debt; one backend (Will, 2026-09-25)
 
 No tech debt. Finish every migration in the same effort: delete the old path,

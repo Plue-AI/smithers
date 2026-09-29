@@ -518,6 +518,22 @@ const githubTriage = Smithers.NodeTest({
 })
 
 /**
+ * The shared issue-claim convention: an `in-progress` label plus a dated,
+ * expiring claim comment. The suite fakes the GitHub API and proves that a live
+ * claim blocks other agents, a stale one can be taken over, and racing claimants
+ * agree on the first.
+ *
+ * @since 1.0.0
+ * @category test
+ */
+const issueClaim = Smithers.NodeTest({
+  summary: "Agents claim an issue before work and release it after; a live claim blocks others and a stale one can be taken over.",
+  runner: Smithers.testRunner([Smithers.file("//scripts/issue-claim.test.mjs")]),
+  srcs: [Smithers.file("//scripts/issue-claim.mjs")],
+  deps: []
+})
+
+/**
  * Keeps the attribution inventory in the published wasm package current.
  *
  * @since 1.0.0
@@ -799,6 +815,7 @@ export const Package = Smithers.Package({
     dependencyBoundariesUnit,
     effectVersion,
     githubTriage,
+    issueClaim,
     lint,
     localSmithers,
     localSmithersUnit,

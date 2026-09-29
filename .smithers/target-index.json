@@ -51922,6 +51922,32 @@
     }
   },
   {
+    "label": "//scripts:issueClaim",
+    "package": "scripts",
+    "name": "issueClaim",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "summary": "Agents claim an issue before work and release it after; a live claim blocks others and a stale one can be taken over.",
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/issue-claim.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/issue-claim.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:lint",
     "package": "scripts",
     "name": "lint",
