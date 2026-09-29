@@ -107,18 +107,18 @@ The normalized events one model call emits. Every protocol lowers its own
 wire vocabulary into these, so a consumer reads one stream shape whichever
 provider answered.
 
-| Export                                            | Kind       | Behavior                                                                                                                                                                                                                                                                                  |
-| ------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Usage`                                           | struct     | Optional `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`, `cacheWriteTokens`, `totalTokens`. A missing count is not a zero count.                                                                                                                                   |
-| `TextStart` / `TextDelta` / `TextEnd`             | structs    | Open, extend, and close a text part. `id` correlates the events of one part.                                                                                                                                                                                                              |
-| `ThinkingStart` / `ThinkingDelta` / `ThinkingEnd` | structs    | The same for a reasoning part. `ThinkingStart.signature` carries the provider's attestation.                                                                                                                                                                                              |
-| `ToolCallStart` / `ToolCallDelta` / `ToolCallEnd` | structs    | The same for a tool call. `ToolCallEnd.arguments` repeats the complete argument text when the provider sends it.                                                                                                                                                                          |
-| `ToolResult`                                      | struct     | `{ type: "tool-result", id, output, isError? }`: a harness report, not part of the settled message.                                                                                                                                                                                       |
-| `UsageEvent`                                      | struct     | `Usage` counters as a `type: "usage"` stream event.                                                                                                                                                                                                                                       |
-| `Retry`                                           | struct     | `{ type: "retry", attempt, code, delayMillis }`: a bounded model-boundary retry, recorded so run reports can count transport recovery. `delayMillis` defaults to `0`.                                                                                                                     |
-| `Settle`                                          | struct     | `{ type: "settle", stopReason, responseId?, sessionId?, itemIds? }`. Ends the stream and states why; a stream without one was interrupted. `itemIds` carries stored provider reasoning items a continuation replays by reference; `sessionId` is the vendor session a wrapped CLI seat answered from.                                                                     |
-| `ModelEvent`                                      | union      | The tagged union of all of the above, with a constructor per member attached (for example `ModelEvent.TextStart({ type: "text-start", id })`) and `settledMessage` attached.                                                                                                              |
-| `settledMessage(events)`                          | destructor | Folds an iterable of events into `{ message: AssistantMessage, usage: Usage }`. No `settle` event means interruption, represented as `stopReason: "aborted"` rather than an exception. Partial tool-call argument text is preserved verbatim; validate arguments before executing a tool. |
+| Export                                            | Kind       | Behavior                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Usage`                                           | struct     | Optional `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`, `cacheWriteTokens`, `totalTokens`. A missing count is not a zero count.                                                                                                                                               |
+| `TextStart` / `TextDelta` / `TextEnd`             | structs    | Open, extend, and close a text part. `id` correlates the events of one part.                                                                                                                                                                                                                          |
+| `ThinkingStart` / `ThinkingDelta` / `ThinkingEnd` | structs    | The same for a reasoning part. `ThinkingStart.signature` carries the provider's attestation.                                                                                                                                                                                                          |
+| `ToolCallStart` / `ToolCallDelta` / `ToolCallEnd` | structs    | The same for a tool call. `ToolCallEnd.arguments` repeats the complete argument text when the provider sends it.                                                                                                                                                                                      |
+| `ToolResult`                                      | struct     | `{ type: "tool-result", id, output, isError? }`: a harness report, not part of the settled message.                                                                                                                                                                                                   |
+| `UsageEvent`                                      | struct     | `Usage` counters as a `type: "usage"` stream event.                                                                                                                                                                                                                                                   |
+| `Retry`                                           | struct     | `{ type: "retry", attempt, code, delayMillis }`: a bounded model-boundary retry, recorded so run reports can count transport recovery. `delayMillis` defaults to `0`.                                                                                                                                 |
+| `Settle`                                          | struct     | `{ type: "settle", stopReason, responseId?, sessionId?, itemIds? }`. Ends the stream and states why; a stream without one was interrupted. `itemIds` carries stored provider reasoning items a continuation replays by reference; `sessionId` is the vendor session a wrapped CLI seat answered from. |
+| `ModelEvent`                                      | union      | The tagged union of all of the above, with a constructor per member attached (for example `ModelEvent.TextStart({ type: "text-start", id })`) and `settledMessage` attached.                                                                                                                          |
+| `settledMessage(events)`                          | destructor | Folds an iterable of events into `{ message: AssistantMessage, usage: Usage }`. No `settle` event means interruption, represented as `stopReason: "aborted"` rather than an exception. Partial tool-call argument text is preserved verbatim; validate arguments before executing a tool.             |
 
 ## `ModelError`
 
@@ -155,6 +155,7 @@ The codes and their retryability:
 | `authentication`          | The credential was rejected.                          | no        |
 | `rate_limited`            | A transient limit.                                    | yes       |
 | `quota_exceeded`          | The account has no usable balance or quota.           | no        |
+| `out_of_credit`           | Hosted proxy credit is exhausted.                     | no        |
 | `content_policy`          | The provider refused on safety grounds.               | no        |
 | `provider_internal`       | The provider failed on its own side.                  | yes       |
 | `transport`               | The connection failed.                                | yes       |
@@ -171,7 +172,7 @@ itself, so nothing about the request's settlement is known.
 
 | Export                                     | Kind        | Behavior                                                                                                                                                        |
 | ------------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ModelErrorCode`                           | schema      | The twelve-literal code vocabulary above.                                                                                                                       |
+| `ModelErrorCode`                           | schema      | The thirteen-literal code vocabulary above.                                                                                                                     |
 | `ModelError`                               | error class | As described above.                                                                                                                                             |
 | `isContextOverflow(providerCode, message)` | refinement  | Whether a provider's own code and message describe a context overflow. Protocol adapters call it ahead of their generic bad-request branch.                     |
 | `isQuotaExhausted(providerCode, message)`  | refinement  | Whether a provider's own code and message describe an exhausted account rather than a transient rate limit, so a durable consumer can park instead of retrying. |
@@ -190,7 +191,7 @@ read for a fault: the fault arrives typed.
 `ModelError` registers its codes with `Fault`: `rate_limited` and
 `quota_exceeded` are `wait`; `invalid_request` and
 `context_overflow` are `factory`, because the agent built the request;
-`authentication` and `content_policy` are `user`; the rest are `dependency`.
+`authentication`, `content_policy` and `out_of_credit` are `user`; the rest are `dependency`.
 `Evaluator.faults` is the same table for Jev's codes, shared by
 `EvaluatorError` and `ClassifierError`.
 
@@ -689,10 +690,10 @@ original state.
 
 Static facts about known provider models, read from a model id alone.
 
-| Export                            | Kind     | Behavior                                                                                                                                                                                                                                   |
-| --------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `contextWindowTokensFor(modelId)` | resolver | The context window in tokens, matched case-insensitively against the id. A million-token row is anchored to the bare id, so a cloud-prefixed or suffixed id falls through to the conservative row. Unknown ids answer 128,000, never zero. |
-| `knownContextWindowTokens(modelId)` | resolver | The same match, but `undefined` for an id no row names, so a caller that must not show an unmeasured window can omit it. |
+| Export                              | Kind     | Behavior                                                                                                                                                                                                                                   |
+| ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `contextWindowTokensFor(modelId)`   | resolver | The context window in tokens, matched case-insensitively against the id. A million-token row is anchored to the bare id, so a cloud-prefixed or suffixed id falls through to the conservative row. Unknown ids answer 128,000, never zero. |
+| `knownContextWindowTokens(modelId)` | resolver | The same match, but `undefined` for an id no row names, so a caller that must not show an unmeasured window can omit it.                                                                                                                   |
 
 `@smthrs/agent` re-exports this as `SeatResolver.contextWindowTokensFor`, and
 the built-in harness calls it for the compaction budget of a seat whose host

@@ -171,6 +171,8 @@ Fault.register(
     authentication: "user",
     rate_limited: "wait",
     quota_exceeded: "wait",
+    // Hosted credit is spent: the person adds credit, then resumes.
+    out_of_credit: "user",
     content_policy: "user",
     provider_internal: "dependency",
     transport: "dependency",

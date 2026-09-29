@@ -105,6 +105,7 @@ describe("FailureCopy.describe", () => {
         ["transport", "dependency"],
         ["call_timeout", "dependency"],
         ["invalid_provider_output", "dependency"],
+        ["out_of_credit", "user"],
         ["unknown", "dependency"]
       ] as const
     ) {
