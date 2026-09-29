@@ -87,7 +87,10 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
           : name === "CN-23" ? ["scripts/canary/invite-probe.ts"] : null
         if (!args) throw new Error("Unknown required check")
         for (let attempt = 0; attempt < (name === "CN-1" ? 3 : 1); attempt++) {
-          if ((await command(["bun", ...args])).exitCode === 0) { passed = true; break }
+          if ((await command(["bun", ...args], name === "site" ? siteProbeTimeout : undefined)).exitCode === 0) {
+            passed = true
+            break
+          }
           if (name === "CN-1" && attempt < 2) await sleep(20_000)
         }
       }
@@ -95,6 +98,13 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
     }
   }
 }
+
+/**
+ * The site probe reads its few hundred legacy aliases one at a time (see
+ * site-checks.ts); against canary.smithers.sh that took 43 s on 2026-09-28, so
+ * the 30 s default killed a passing probe and rolled back every release.
+ */
+export const siteProbeTimeout = 300_000
 
 /** Atomic replacement prevents a partially written recovery target. */
 export const writeRolloutReceipt = (directory: string, receipt: WorkerRolloutReceipt): void => {

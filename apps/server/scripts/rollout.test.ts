@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { readLiveFacts, decideDeploy } from "./deployGuard"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
-import { dryRunChecks, readPreviousRevision, workerRolloutHost, writeRolloutReceipt } from "./rollout"
+import { dryRunChecks, readPreviousRevision, siteProbeTimeout, workerRolloutHost, writeRolloutReceipt } from "./rollout"
 import { rollout } from "../../../flows/rollout/runtime.ts"
 
 const previous = { version: "11111111-1111-1111-1111-111111111111", revision: "a".repeat(40) }
@@ -133,4 +133,20 @@ test("a failed fix-forward writes verified rollback evidence and the next deploy
       expect(JSON.parse(readFileSync(join(directory, "last-rollback.json"), "utf8"))).toEqual(evidence)
     } finally { rmSync(directory, { recursive: true, force: true }) }
   }
+})
+
+test("the sequential site probe gets its own timeout; other checks keep 30 s", async () => {
+  const timeouts = new Map<string, number | undefined>()
+  const host = workerRolloutHost({
+    previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake", inviteConfigured: true,
+    publish: async () => next, record: async () => {},
+    run: async (cmd, options) => { timeouts.set(cmd[1]!, options.timeout); return { exitCode: 0, output: "" } },
+    sleep: async () => {}
+  })
+  for (const name of ["CN-1", "site", "CN-18", "CN-23"]) await host.check(name, next, "candidate")
+  // The probe measured 43 s against canary.smithers.sh; a 30 s kill rolled back every release.
+  expect(timeouts.get("scripts/canary/site-probe.ts")).toBe(siteProbeTimeout)
+  expect(siteProbeTimeout).toBeGreaterThan(43_000 * 3)
+  for (const probe of ["scripts/canary/build-probe.ts", "scripts/canary/workers-health.ts", "scripts/canary/invite-probe.ts"])
+    expect(timeouts.get(probe)).toBe(30_000)
 })

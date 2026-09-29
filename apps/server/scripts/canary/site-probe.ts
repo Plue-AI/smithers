@@ -40,7 +40,12 @@ const legacy = JSON.parse(
 
 const checks = await runSiteChecks(
   async (url) => {
-    const response = await fetch(url, { redirect: "manual", cache: "no-store", headers: { "cache-control": "no-cache" } })
+    const response = await fetch(url, {
+      redirect: "manual",
+      cache: "no-store",
+      headers: { "cache-control": "no-cache" },
+      signal: AbortSignal.timeout(20_000)
+    })
     return observeSiteResponse(response)
   },
   { origin, legacyPaths: legacy.paths }
