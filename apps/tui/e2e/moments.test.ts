@@ -35,8 +35,9 @@ it("offers Raise cap on a capped worker's toast, and the button opens its cap fo
     await tui.press(key.ctrlS)
     await tui.until((screen) => screen.includes("Needs you 1"), 5_000, "overview")
     await tui.press(" ")
+    // A cap is a policy stop, and the peek names it in product words (tabs.ts faultLabel).
     await tui.until(
-      (screen) => screen.includes("Token budget reached · not your fault"),
+      (screen) => screen.includes("Token budget reached · cap reached"),
       5_000,
       "whose fault in the peek"
     )
