@@ -126,11 +126,12 @@ const provider = ExaWebSearch.layer("exa-api-key")
 
 It needs [`@smthrs/control`](https://control.smithers.sh/reference/api/)'s `Credential` service and
 [`@smthrs/kernel`](https://kernel.smithers.sh/reference/api/)'s `HttpClient`. It maps provider outcomes onto
-the standard codes: a 429 or a refusal carrying `Retry-After` becomes `timeout`
-with the advice in the message, a 401 or 403 becomes `provider_unavailable`, a
-5xx becomes `provider_unavailable` naming the status, and any other non-2xx
-becomes `request_failed`. Snippets are clipped at 2,000 characters, the
-request is bounded at 30 seconds, and a response body over 5 MiB fails with
+the standard codes: a 429 or a refusal carrying `Retry-After` becomes
+`rate_limited` with the advice in the message, a 401 or 403 becomes
+`provider_unavailable`, a 5xx becomes `provider_unavailable` naming the status,
+and any other non-2xx becomes `request_failed`. A request or response deadline
+becomes `timeout`. Snippets are clipped at 2,000 characters, the request is
+bounded at 30 seconds, and a response body over 5 MiB fails with
 `response_too_large` before it is decoded.
 
 A host with no provider binds `WebSearch.layerNoop`, and the call fails with
