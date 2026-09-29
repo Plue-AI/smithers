@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -78,10 +79,12 @@ func TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel(t *testing.
 			filepath.Join(root, "flows/test/fixtures/workspace-provider-seat.ts"))
 		command.Dir = root
 		command.Env = []string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH")}
-		output, err := command.CombinedOutput()
-		require.NoError(t, err, string(output))
+		var stderr bytes.Buffer
+		command.Stderr = &stderr
+		output, err := command.Output()
+		require.NoError(t, err, "stdout: %s\nstderr: %s", output, stderr.String())
 		var resolved struct{ Model, URL string }
-		require.NoError(t, json.Unmarshal(output, &resolved), string(output))
+		require.NoError(t, json.Unmarshal(output, &resolved), "stdout: %s\nstderr: %s", output, stderr.String())
 		require.Equal(t, model, resolved.Model)
 		require.Equal(t, server.URL+route, resolved.URL)
 	}

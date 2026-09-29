@@ -164,14 +164,14 @@ func TestDispatchAgentRun_LostClaimPreservesWinner(t *testing.T) {
 	loserRun, err := q.GetWorkflowRunByRunID(ctx, loserRunID)
 	require.NoError(t, err)
 	require.Equal(t, "failure", loserRun.Status)
-	require.False(t, loserRun.AgentTokenHash.Valid, "loser's own callback token must be revoked")
-	var taskStatus, stepStatus string
-	err = pool.QueryRow(ctx, `SELECT status FROM workflow_tasks WHERE workflow_run_id = $1`, loserRunID).Scan(&taskStatus)
+	require.False(t, loserRun.AgentTokenHash.Valid, "the loser must stop before minting a callback token")
+	var taskCount, stepCount int
+	err = pool.QueryRow(ctx, `SELECT count(*) FROM workflow_tasks WHERE workflow_run_id = $1`, loserRunID).Scan(&taskCount)
 	require.NoError(t, err)
-	err = pool.QueryRow(ctx, `SELECT status FROM workflow_steps WHERE workflow_run_id = $1`, loserRunID).Scan(&stepStatus)
+	err = pool.QueryRow(ctx, `SELECT count(*) FROM workflow_steps WHERE workflow_run_id = $1`, loserRunID).Scan(&stepCount)
 	require.NoError(t, err)
-	require.Equal(t, "failed", taskStatus)
-	require.Equal(t, "failure", stepStatus)
+	require.Zero(t, taskCount, "the loser must stop before creating a task")
+	require.Zero(t, stepCount, "the loser must stop before creating a step")
 
 	releaseOnce.Do(func() { close(admission.release) })
 	select {
@@ -190,6 +190,7 @@ func TestDispatchAgentRun_LostClaimPreservesWinner(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "failure", winnerRun.Status)
 	require.False(t, winnerRun.AgentTokenHash.Valid)
+	var taskStatus, stepStatus string
 	err = pool.QueryRow(ctx, `SELECT status FROM workflow_tasks WHERE workflow_run_id = $1`, winnerRunID).Scan(&taskStatus)
 	require.NoError(t, err)
 	err = pool.QueryRow(ctx, `SELECT status FROM workflow_steps WHERE workflow_run_id = $1`, winnerRunID).Scan(&stepStatus)
