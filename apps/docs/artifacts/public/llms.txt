@@ -1,0 +1,6 @@
+# @smthrs/artifacts
+
+> Effect service for the Smithers content-addressed artifact store, local and remote
+
+- [@smthrs/artifacts documentation](https://artifacts.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

@@ -8,6 +8,7 @@ import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSy
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
+import { sites } from "../../docs/shared/manifest.mjs"
 
 const site = join(dirname(fileURLToPath(import.meta.url)), "..")
 const repo = join(site, "..", "..")
@@ -29,6 +30,10 @@ test("generate-llms --check names the stale file and the fix command", () => {
     for (const rel of ["scripts/generate-llms.mjs", "scripts/docs-text.mjs", "src/content/docs/docs", "src/data", "public/llms.txt", "public/llms-full.txt"]) {
       copy(root, join("apps/site", rel))
     }
+    copy(root, "apps/docs/shared/manifest.mjs")
+    for (const entry of sites) copy(root, join(entry.dir, "package.json"))
+    const generate = spawnSync(process.execPath, [join(root, "apps/site/scripts/generate-llms.mjs")], { encoding: "utf8", stdio: "pipe" })
+    assert.equal(generate.status, 0, generate.stderr)
     assert.equal(check(root, "generate-llms.mjs").status, 0, "the copied tree starts clean")
     appendFileSync(join(root, "apps/site/public/llms.txt"), "stale\n")
     const result = check(root, "generate-llms.mjs")

@@ -1,0 +1,6 @@
+# smthrs
+
+> The `smthrs` command for npx, and a migration notice for Smithers 1.0: importing this package throws.
+
+- [smthrs documentation](https://smthrs.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

@@ -1,0 +1,6 @@
+# @smthrs/fs
+
+> Private metadata routing and schema-checked command projections for Smithers flows
+
+- [@smthrs/fs documentation](https://fs.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

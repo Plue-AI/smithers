@@ -4,7 +4,7 @@
  *
  * Generates every per-package docs site under apps/docs/ from manifest.mjs:
  * package.json, astro.config.mjs, alchemy.run.ts, tsconfig.json, PACKAGE.ts,
- * src/content.config.ts, the Starlight stylesheet, and the favicon and logo
+ * src/content.config.ts, public/llms.txt, the Starlight stylesheet, and the favicon and logo
  * assets. The generator is the source of truth for all of it: edit this file
  * (or shared/starlight.css, shared/assets/), rerun it, and `--check` guards
  * the drift under lint, the same contract as apps/site's sync scripts.
@@ -208,6 +208,7 @@ const filesFor = (site) => {
   files.set("tsconfig.json", tsconfig())
   files.set("PACKAGE.ts", packageTs(site))
   files.set("src/content.config.ts", contentConfig())
+  files.set("public/llms.txt", `# ${site.name}\n\n> ${site.description}\n\n- [${site.name} documentation](https://${site.domain}/): Package documentation.\n- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.\n`)
   files.set("src/styles/starlight.css", readFileSync(join(sharedRoot, "starlight.css")))
   files.set("src/docs-assets/logo.png", readFileSync(join(sharedRoot, "assets/logo.png")))
   files.set("public/favicon.png", readFileSync(join(sharedRoot, "assets/favicon.png")))

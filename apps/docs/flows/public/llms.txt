@@ -1,0 +1,6 @@
+# @smthrs/flows
+
+> Barrel package re-exporting the whole @smthrs durable flow engine
+
+- [@smthrs/flows documentation](https://flows.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

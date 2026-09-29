@@ -1,0 +1,6 @@
+# @smthrs/capability
+
+> Capability values and permission failures: the leaf vocabulary of the Smithers permission kernel
+
+- [@smthrs/capability documentation](https://capability.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

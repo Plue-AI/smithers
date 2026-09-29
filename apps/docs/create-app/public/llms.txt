@@ -1,0 +1,6 @@
+# @smthrs/create-app
+
+> Declare a Smithers app in one PACKAGE.ts: file-routed flows, panes, and Cloudflare targets
+
+- [@smthrs/create-app documentation](https://create-app.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

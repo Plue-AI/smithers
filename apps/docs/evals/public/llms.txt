@@ -1,0 +1,6 @@
+# @smthrs/evals
+
+> Fixed-suite evaluation, baselines, regression reports, and score gates for flows
+
+- [@smthrs/evals documentation](https://evals.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

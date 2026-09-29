@@ -1,0 +1,6 @@
+# @smthrs/registry
+
+> Portable flow descriptor discovery and progressive-disclosure registry services
+
+- [@smthrs/registry documentation](https://registry.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

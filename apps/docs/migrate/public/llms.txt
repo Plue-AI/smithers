@@ -1,0 +1,6 @@
+# @smthrs/migrate
+
+> Upgrades Smithers 0.x projects to Smithers 1.0 flows and writes an auditable migration report
+
+- [@smthrs/migrate documentation](https://migrate.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

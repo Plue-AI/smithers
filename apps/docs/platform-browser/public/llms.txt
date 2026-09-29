@@ -1,0 +1,6 @@
+# @smthrs/platform-browser
+
+> Browser implementations of Effect platform services backed by ZenFS and just-bash
+
+- [@smthrs/platform-browser documentation](https://platform-browser.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

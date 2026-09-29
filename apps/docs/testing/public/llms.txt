@@ -1,0 +1,6 @@
+# @smthrs/testing
+
+> Testing and conformance library for flows
+
+- [@smthrs/testing documentation](https://testing.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

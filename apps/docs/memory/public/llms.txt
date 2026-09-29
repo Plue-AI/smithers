@@ -1,0 +1,6 @@
+# @smthrs/memory
+
+> Effect services for durable cross-run facts, history, notes, recall, and maintenance
+
+- [@smthrs/memory documentation](https://memory.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

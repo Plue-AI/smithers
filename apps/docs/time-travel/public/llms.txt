@@ -1,0 +1,6 @@
+# @smthrs/time-travel
+
+> Durable replay, fork, and rewind primitives for flows
+
+- [@smthrs/time-travel documentation](https://time-travel.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

@@ -1,0 +1,6 @@
+# @smthrs/plan
+
+> The persisted flows plan: a keyed action graph, its append-only store, and its diff
+
+- [@smthrs/plan documentation](https://plan.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

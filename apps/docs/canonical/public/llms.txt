@@ -1,0 +1,6 @@
+# @smthrs/canonical
+
+> RFC 8785 canonical JSON as an Effect Schema
+
+- [@smthrs/canonical documentation](https://canonical.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

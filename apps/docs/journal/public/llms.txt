@@ -1,0 +1,6 @@
+# @smthrs/journal
+
+> Effect services for the Smithers event journal: the immutable run history and the owner fence on its durable channel
+
+- [@smthrs/journal documentation](https://journal.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

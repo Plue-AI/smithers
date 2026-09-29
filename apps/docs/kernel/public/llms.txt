@@ -1,0 +1,6 @@
+# @smthrs/kernel
+
+> Capability kernel: effect tiers, monotone capability sets, grant store, and permission-decorating layers over the Host services
+
+- [@smthrs/kernel documentation](https://kernel.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

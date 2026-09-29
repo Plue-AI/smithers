@@ -1,0 +1,6 @@
+# @smthrs/engine
+
+> The runtime that executes @smthrs/flow flows, plus HTTP and RPC transport projections
+
+- [@smthrs/engine documentation](https://engine.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

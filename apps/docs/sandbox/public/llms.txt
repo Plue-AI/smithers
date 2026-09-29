@@ -1,0 +1,6 @@
+# @smthrs/sandbox
+
+> Provisioned machines, provider-neutral remote process execution, conformance, and sandbox liveness for flows
+
+- [@smthrs/sandbox documentation](https://sandbox.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

@@ -1,0 +1,6 @@
+# @smthrs/run-store
+
+> Effect services for flows run state, attempts, and ownership arbitration
+
+- [@smthrs/run-store documentation](https://run-store.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

@@ -1,0 +1,6 @@
+# @smthrs/sync
+
+> Workspace read-path sync protocol, server, and client for flows
+
+- [@smthrs/sync documentation](https://smithers-sync.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

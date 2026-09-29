@@ -1,0 +1,6 @@
+# @smthrs/harness
+
+> The Smithers built-in agent loop: a cell-first controller whose model turns produce JavaScript cells that run in a persistent realm and reach the world only through durable flow calls
+
+- [@smthrs/harness documentation](https://harness.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

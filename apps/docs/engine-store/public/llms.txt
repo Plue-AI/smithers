@@ -1,0 +1,6 @@
+# @smthrs/engine-store
+
+> Effect services for durable engine action persistence and replay boundaries
+
+- [@smthrs/engine-store documentation](https://engine-store.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

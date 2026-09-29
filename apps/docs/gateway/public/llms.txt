@@ -1,0 +1,6 @@
+# @smthrs/gateway
+
+> Effect workspace gateway contracts, projections, and supervision ports for flows
+
+- [@smthrs/gateway documentation](https://gateway.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

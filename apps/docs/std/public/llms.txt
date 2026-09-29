@@ -1,0 +1,6 @@
+# @smthrs/std
+
+> The flows standard tool library: filesystem, search, HTTP, web-search, shell, and language-server flows
+
+- [@smthrs/std documentation](https://std.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

@@ -1,0 +1,6 @@
+# @smthrs/triggers
+
+> Durable cron triggers and channel contracts for flows
+
+- [@smthrs/triggers documentation](https://triggers.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

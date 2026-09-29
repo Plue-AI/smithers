@@ -1,0 +1,6 @@
+# @smthrs/model
+
+> Schema-first Effect model protocols, routes, and streaming events for flows
+
+- [@smthrs/model documentation](https://model.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

@@ -1,0 +1,6 @@
+# @smthrs/scorers
+
+> Flow-native scoring, durable observations, and asynchronous score runners for flows
+
+- [@smthrs/scorers documentation](https://scorers.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

@@ -1,0 +1,6 @@
+# @smthrs/plan-store
+
+> The persisted plan's append-only SQLite store and the migrations that own its tables
+
+- [@smthrs/plan-store documentation](https://plan-store.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

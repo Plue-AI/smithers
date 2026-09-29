@@ -1,0 +1,6 @@
+# @smthrs/step-cache
+
+> Effect service for the flows content-addressed step result cache
+
+- [@smthrs/step-cache documentation](https://step-cache.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

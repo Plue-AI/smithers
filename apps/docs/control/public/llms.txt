@@ -1,0 +1,6 @@
+# @smthrs/control
+
+> Control services and RPC projections for flows
+
+- [@smthrs/control documentation](https://control.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

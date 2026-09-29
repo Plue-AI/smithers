@@ -4,6 +4,7 @@ import { cpSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSyn
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
+import { sites } from "./manifest.mjs"
 
 /** Run the actual generator against a one-site manifest under a temp dir. */
 const fixture = (t, row = {}) => {
@@ -48,6 +49,24 @@ test("a second run reports the generated site clean", (t) => {
   const { run } = fixture(t)
   run()
   assert.match(run("--check"), /1 sites clean/)
+})
+
+test("every package docs site has an llms.txt linked from the root index", () => {
+  const index = readFileSync(new URL("../../site/public/llms.txt", import.meta.url), "utf8")
+  const listed = [...index.matchAll(/^- \[[^\]]+\]\(https:\/\/([a-z0-9-]+)\.smithers\.sh\/llms\.txt\)/gm)].map((match) => match[1])
+  assert.deepEqual(listed.sort(), sites.map((site) => site.slug).sort())
+  for (const site of sites) {
+    const content = readFileSync(join(site.siteDir, "public/llms.txt"), "utf8")
+    assert.match(content, new RegExp(`^# ${site.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "m"))
+    assert.match(content, new RegExp(`https://${site.domain.replaceAll(".", "\\.")}/`))
+  }
+})
+
+test("generated public llms.txt advertises the package docs", (t) => {
+  const { run, read } = fixture(t)
+  run()
+  assert.match(read("public/llms.txt"), /^# fixture\n/m)
+  assert.match(read("public/llms.txt"), /https:\/\/fixture\.example\//)
 })
 
 test("a site name with quotes stays inside the generated summary string", (t) => {

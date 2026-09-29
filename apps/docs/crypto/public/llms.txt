@@ -1,0 +1,6 @@
+# @smthrs/crypto
+
+> Strict SHA-256 hashing with injected and synchronous Effect entry points
+
+- [@smthrs/crypto documentation](https://crypto.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

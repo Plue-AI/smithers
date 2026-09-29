@@ -1,0 +1,6 @@
+# @smthrs/notifications
+
+> Durable notification queue, admission policy, and journal projection for flows
+
+- [@smthrs/notifications documentation](https://notifications.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

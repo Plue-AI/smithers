@@ -1,0 +1,6 @@
+# @smthrs/patterns
+
+> Higher-order flow patterns and decorators for flows. It composes @smthrs/flow and the one effect model in @smthrs/plan/Effects, and imports no Node built-ins.
+
+- [@smthrs/patterns documentation](https://smithers-patterns.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

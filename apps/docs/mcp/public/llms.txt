@@ -1,0 +1,6 @@
+# @smthrs/mcp
+
+> Model Context Protocol client and flow adapter: projects a remote MCP server's tools as ordinary FlowBinding.Source entries
+
+- [@smthrs/mcp documentation](https://mcp.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

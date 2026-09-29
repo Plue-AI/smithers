@@ -1,0 +1,6 @@
+# @smthrs/flow
+
+> The flow authoring model: flows, actions, durable waits, retry policy, and the runtime port they execute against
+
+- [@smthrs/flow documentation](https://flow.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

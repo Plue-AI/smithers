@@ -13,6 +13,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs"
 import { join, dirname, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { docsText } from "./docs-text.mjs"
+import { sites } from "../../docs/shared/manifest.mjs"
 
 const siteRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
 const docsRoot = join(siteRoot, "src/content/docs/docs")
@@ -87,6 +88,9 @@ for (const g of groups) {
   const list = byGroup(g)
   if (list.length > 0) sections.push(`## ${groupLabel[g]}\n\n` + list.map(link).join("\n"))
 }
+sections.push("## Package documentation\n\n" + sites.map((site) =>
+  `- [${site.name}](https://${site.domain}/llms.txt)${site.description ? `: ${site.description}` : ""}`
+).join("\n"))
 sections.push("## Optional\n\n" + byGroup("examples").map(link).join("\n"))
 const llmsTxt = sections.join("\n\n") + "\n"
 

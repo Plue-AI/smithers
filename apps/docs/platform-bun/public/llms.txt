@@ -1,0 +1,6 @@
+# @smthrs/platform-bun
+
+> Bun Host bundle for flows: Effect's Bun platform services composed into the closed Host surface
+
+- [@smthrs/platform-bun documentation](https://platform-bun.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

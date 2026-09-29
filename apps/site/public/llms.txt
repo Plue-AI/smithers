@@ -269,6 +269,58 @@
 - [Compatibility policy](https://smithers.sh/docs/migration/compatibility/): The frozen Smithers 1.0.0-rc.0 compatibility policy: what rc.0 does not provide, what it preserves, and what flows require to run.
 - [Upgrade from 0.x to 1.0](https://smithers.sh/docs/migration/1.0/): Migrate a Smithers 0.x JSX project to the 1.0 authoring model with smthrs migrate, and look up every removed 0.x command and flag.
 
+## Package documentation
+
+- [@smthrs/agent](https://agent.smithers.sh/llms.txt): The Smithers agent: the production agent loop composed on the durable engine, plus the two adapters that run it, AgentSession for control-plane runs and AgentAction for typed workflow steps
+- [@smthrs/chain](https://chain.smithers.sh/llms.txt): The Agent Chain spine: an append-only journal, keyed replayable calls, and the trampoline that runs model-authored flow scripts
+- [@smthrs/evals](https://evals.smithers.sh/llms.txt): Fixed-suite evaluation, baselines, regression reports, and score gates for flows
+- [@smthrs/fs](https://fs.smithers.sh/llms.txt): Private metadata routing and schema-checked command projections for Smithers flows
+- [@smthrs/harness](https://harness.smithers.sh/llms.txt): The Smithers built-in agent loop: a cell-first controller whose model turns produce JavaScript cells that run in a persistent realm and reach the world only through durable flow calls
+- [@smthrs/integrations](https://integrations.smithers.sh/llms.txt): GitHub, Linear, Telegram, Slack, Google Calendar, Gmail, and X adapters over the Smithers control plane
+- [@smthrs/memory](https://memory.smithers.sh/llms.txt): Effect services for durable cross-run facts, history, notes, recall, and maintenance
+- [@smthrs/model](https://model.smithers.sh/llms.txt): Schema-first Effect model protocols, routes, and streaming events for flows
+- [@smthrs/plugin](https://plugin.smithers.sh/llms.txt): Vite-style typed plugin kernel for flows: hooks, resolution, and config execution
+- [@smthrs/registry](https://registry.smithers.sh/llms.txt): Portable flow descriptor discovery and progressive-disclosure registry services
+- [@smthrs/scorers](https://scorers.smithers.sh/llms.txt): Flow-native scoring, durable observations, and asynchronous score runners for flows
+- [@smthrs/std](https://std.smithers.sh/llms.txt): The flows standard tool library: filesystem, search, HTTP, web-search, shell, and language-server flows
+- [@smthrs/triggers](https://triggers.smithers.sh/llms.txt): Durable cron triggers and channel contracts for flows
+- [@smthrs/control](https://control.smithers.sh/llms.txt): Control services and RPC projections for flows
+- [@smthrs/create-app](https://create-app.smithers.sh/llms.txt): Declare a Smithers app in one PACKAGE.ts: file-routed flows, panes, and Cloudflare targets
+- [@smthrs/cli](https://cli.smithers.sh/llms.txt): Node command-line interface for Smithers control
+- [@smthrs/artifacts](https://artifacts.smithers.sh/llms.txt): Effect service for the Smithers content-addressed artifact store, local and remote
+- [@smthrs/canonical](https://canonical.smithers.sh/llms.txt): RFC 8785 canonical JSON as an Effect Schema
+- [@smthrs/capability](https://capability.smithers.sh/llms.txt): Capability values and permission failures: the leaf vocabulary of the Smithers permission kernel
+- [@smthrs/core](https://core.smithers.sh/llms.txt): Schema-first flow signatures and metadata over @smthrs/flow: one options object that lowers to a declared action and the flow that calls it
+- [@smthrs/crypto](https://crypto.smithers.sh/llms.txt): Strict SHA-256 hashing with injected and synchronous Effect entry points
+- [@smthrs/database](https://database.smithers.sh/llms.txt): A driver-neutral SQL contract with a bounded write-retry seam, plus the composed migration ladder
+- [@smthrs/flows](https://flows.smithers.sh/llms.txt): Barrel package re-exporting the whole @smthrs durable flow engine
+- [@smthrs/engine-store](https://engine-store.smithers.sh/llms.txt): Effect services for durable engine action persistence and replay boundaries
+- [@smthrs/engine](https://engine.smithers.sh/llms.txt): The runtime that executes @smthrs/flow flows, plus HTTP and RPC transport projections
+- [@smthrs/flow](https://flow.smithers.sh/llms.txt): The flow authoring model: flows, actions, durable waits, retry policy, and the runtime port they execute against
+- [@smthrs/jj](https://jj.smithers.sh/llms.txt): Jujutsu version control as a portable Effect host service
+- [@smthrs/journal](https://journal.smithers.sh/llms.txt): Effect services for the Smithers event journal: the immutable run history and the owner fence on its durable channel
+- [@smthrs/kernel](https://kernel.smithers.sh/llms.txt): Capability kernel: effect tiers, monotone capability sets, grant store, and permission-decorating layers over the Host services
+- [@smthrs/keys](https://keys.smithers.sh/llms.txt): Canonical flow-key derivation and stored-key validation
+- [@smthrs/observability](https://observability.smithers.sh/llms.txt): Observability for flows: default OTLP export wiring plus Effect-native logger, metric, and OpenTelemetry SDK layers
+- [@smthrs/patterns](https://smithers-patterns.smithers.sh/llms.txt): Higher-order flow patterns and decorators for flows. It composes @smthrs/flow and the one effect model in @smthrs/plan/Effects, and imports no Node built-ins.
+- [@smthrs/plan](https://plan.smithers.sh/llms.txt): The persisted flows plan: a keyed action graph, its append-only store, and its diff
+- [@smthrs/plan-store](https://plan-store.smithers.sh/llms.txt): The persisted plan's append-only SQLite store and the migrations that own its tables
+- [@smthrs/platform-browser](https://platform-browser.smithers.sh/llms.txt): Browser implementations of Effect platform services backed by ZenFS and just-bash
+- [@smthrs/platform-bun](https://platform-bun.smithers.sh/llms.txt): Bun Host bundle for flows: Effect's Bun platform services composed into the closed Host surface
+- [@smthrs/platform-node](https://platform-node.smithers.sh/llms.txt): Node.js Host bundle for flows: Effect's Node platform services composed into the closed Host surface
+- [@smthrs/run-store](https://run-store.smithers.sh/llms.txt): Effect services for flows run state, attempts, and ownership arbitration
+- [@smthrs/sandbox](https://sandbox.smithers.sh/llms.txt): Provisioned machines, provider-neutral remote process execution, conformance, and sandbox liveness for flows
+- [@smthrs/step-cache](https://step-cache.smithers.sh/llms.txt): Effect service for the flows content-addressed step result cache
+- [@smthrs/sync](https://smithers-sync.smithers.sh/llms.txt): Workspace read-path sync protocol, server, and client for flows
+- [@smthrs/time-travel](https://time-travel.smithers.sh/llms.txt): Durable replay, fork, and rewind primitives for flows
+- [@smthrs/gateway](https://gateway.smithers.sh/llms.txt): Effect workspace gateway contracts, projections, and supervision ports for flows
+- [@smthrs/mcp](https://mcp.smithers.sh/llms.txt): Model Context Protocol client and flow adapter: projects a remote MCP server's tools as ordinary FlowBinding.Source entries
+- [@smthrs/migrate](https://migrate.smithers.sh/llms.txt): Upgrades Smithers 0.x projects to Smithers 1.0 flows and writes an auditable migration report
+- [@smthrs/notifications](https://notifications.smithers.sh/llms.txt): Durable notification queue, admission policy, and journal projection for flows
+- [@smthrs/errors](https://errors.smithers.sh/llms.txt): SmithersError and the error codes the integration adapters raise
+- [@smthrs/testing](https://testing.smithers.sh/llms.txt): Testing and conformance library for flows
+- [smthrs](https://smthrs.smithers.sh/llms.txt): The `smthrs` command for npx, and a migration notice for Smithers 1.0: importing this package throws.
+
 ## Optional
 
 - [Define and run](https://smithers.sh/docs/examples/01-define-and-run/): Define a typed flow and run it on the in-memory engine.

@@ -1,0 +1,6 @@
+# @smthrs/agent
+
+> The Smithers agent: the production agent loop composed on the durable engine, plus the two adapters that run it, AgentSession for control-plane runs and AgentAction for typed workflow steps
+
+- [@smthrs/agent documentation](https://agent.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

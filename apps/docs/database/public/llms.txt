@@ -1,0 +1,6 @@
+# @smthrs/database
+
+> A driver-neutral SQL contract with a bounded write-retry seam, plus the composed migration ladder
+
+- [@smthrs/database documentation](https://database.smithers.sh/): Package documentation.
+- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.
