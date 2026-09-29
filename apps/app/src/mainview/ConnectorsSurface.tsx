@@ -1,11 +1,20 @@
 import { dynamicFlowProps, flowAction } from "./flows/FlowAction"
-import { Alert, AlertDescription, AlertTitle, Badge, Button, Separator } from "@smthrs/ui"
+import { Badge, Button, Separator } from "@smthrs/ui"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "./FailureNotice"
 import { useLiveQuery } from "@tanstack/react-db"
 import { FolderGit2, GitPullRequest, Plug, Server } from "lucide-react"
 import type { KeyboardEvent } from "react"
 import { useController } from "./ControllerContext"
 import { rovingKeyDown } from "./RovingKeyDown"
 import { SurfaceHeader } from "./SurfaceChrome"
+
+/** A failed local connect keeps only the reducer's message, so it is the Details of one sentence. */
+export const CONNECTOR_FAILURE: UserFailureCopy = {
+  fault: "infra",
+  sentence: "Smithers could not connect this repository. Not your fault.",
+  actions: []
+}
 
 /*
  * The connect surface (Wave 10, §2e): extension-store grammar — a compact
@@ -118,12 +127,7 @@ export function ConnectorsSurface() {
 
       <main className="connectors-content">
         {operation?.error ?
-          (
-            <Alert variant="destructive">
-              <AlertTitle>Repository not connected</AlertTitle>
-              <AlertDescription>{operation.error}</AlertDescription>
-            </Alert>
-          ) :
+          <FailureNotice data-testid="connector-failure" failure={describedFailure("ConnectorFailed", CONNECTOR_FAILURE, operation.error)} /> :
           null}
 
         <div className="connect-store-list" role="list" aria-label="Connectors" onKeyDown={onRowsKeyDown}>

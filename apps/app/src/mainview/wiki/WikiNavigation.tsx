@@ -8,6 +8,8 @@ import type { RunCommand } from "../cards/CardFamily"
 import type { WikiIndexPage, WikiIndexRow, WikiSpace, WorldDocument } from "../state/AppState"
 import { resolveTargetRepo } from "../state/RepoContext"
 import { wikiContentPath, wikiDocumentId } from "./CloudWiki"
+import { wikiIndexFailure } from "./CloudWikiFailure"
+import { FailureNotice } from "../FailureNotice"
 
 /*
  * The wiki's navigation (#1922), shared by the Wiki pane and the Wiki card:
@@ -113,13 +115,15 @@ export const WikiTree = ({ scope, documents, selectedId, onRunCommand, testId = 
     (tag === null || page.tags.includes(tag)) &&
     (needle === "" || `${page.title} ${page.path} ${page.aliases.join(" ")}`.toLowerCase().includes(needle)))
   const selectedPath = index.pages.find((page) => indexDocumentId(repo, page) === selectedId)?.path
+  const indexFailure = wikiIndexFailure(index)
   return <div className="wiki-tree" data-testid={testId} data-space={space}>
     <input className="wiki-tree-search" type="search" aria-label="Search pages" placeholder="Search" value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
     {index.tags.length === 0 ? null : <div className="wiki-tree-tags" role="group" aria-label="Tags">
       {index.tags.map((candidate) => <button key={candidate} type="button" className="wiki-tag" aria-pressed={tag === candidate}
         onClick={() => setTag(tag === candidate ? null : candidate)}>#{candidate}</button>)}
     </div>}
-    {index.error === undefined ? null : <p className="wiki-tree-error" role="alert">{index.error}</p>}
+    {indexFailure === null ? null : <FailureNotice failure={indexFailure} className="wiki-tree-error" data-testid="wiki-tree-error"
+      actions={{ retry: flowAction(onRunCommand, "wiki.space", flowArgs("wiki.space", { space, repo })) }} />}
     <FileTree
       nodeProps={(node) => { const page = indexPageAt(index, node.path); return page !== undefined && !isAttachment(page) && !documents.some((document) => document.id === indexDocumentId(repo, page)) ? flowProps("wiki.cloud.open") : flowProps("wiki.select") }}
       nodes={pages.map((page) => ({ path: page.path, label: isAttachment(page) ? page.path.split("/").pop() ?? page.path : page.title }))}

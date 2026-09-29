@@ -12,7 +12,11 @@ test("a pending launch states only Requested and a refusal offers the existing R
   expect(render()).toContain('role="status">Requested</p>')
   expect(render()).not.toContain("<button")
   request.error = { stage: "launch", code: "provider_unavailable", message: "Provider unavailable" }
-  expect(render()).toContain('role="alert">Provider unavailable</p>')
+  const refused = render()
+  expect(refused).toContain('<p>Smithers could not start this run. Not your fault.</p>')
+  expect(refused).not.toContain("<p>Provider unavailable")
+  expect(refused).toContain('<details><summary>Details</summary><pre tabindex="0">provider_unavailable — Provider unavailable</pre></details>')
+  expect(refused).toContain('data-fault="infra" data-failure="run.launch.launch"')
   expect(render()).toContain('data-flow="flow.run.retry"')
   expect(render()).toContain(">Retry</button>")
 })

@@ -97,8 +97,26 @@ describe("the run inbox card", () => {
     card.payload.listRequest.state = "failed"
     card.payload.observationError = "Gateway unavailable"
     const failed = render(<RunListCardBody card={card} onRunCommand={() => {}} />)
-    expect(failed.querySelector('[role="alert"]')?.textContent).toContain("Gateway unavailable")
+    const notice = failed.querySelector<HTMLElement>('[data-testid="run-list-failure"]')!
+    expect(notice.getAttribute("role")).toBe("alert")
+    expect(notice.dataset.failure).toBe("runs.list.failed")
+    expect(notice.dataset.fault).toBe("infra")
+    expect(notice.querySelector(":scope > p")?.textContent).toBe("Smithers could not load this repository's runs. Not your fault.")
+    expect(notice.querySelector(":scope > p")?.textContent).not.toContain("Gateway unavailable")
+    expect((notice.querySelector("details") as HTMLDetailsElement).open).toBe(false)
+    expect(notice.querySelector("details pre")?.textContent).toBe("Gateway unavailable")
     expect(failed.textContent).not.toContain("No runs match.")
+  })
+
+  test("a partial read says some runs could not be read and keeps the gateway's words behind Details", () => {
+    const card = runListCard([{ runId: "run-new", flowId: "deploy", status: "parked", createdAt: 5, turns: 1, calls: 2 }])
+    card.payload.listRequest = { id: "request", owner: "owner", repo: REPO, state: "complete" }
+    card.payload.observationError = "HTTP 503 · statuses unavailable"
+    const notice = render(<RunListCardBody card={card} onRunCommand={() => {}} />).querySelector<HTMLElement>('[data-testid="run-list-failure"]')!
+    expect(notice.dataset.failure).toBe("runs.list.partial")
+    expect(notice.querySelector(":scope > p")?.textContent).toBe("Smithers could not read every run. Not your fault.")
+    expect(notice.querySelector(":scope > p")?.textContent).not.toContain("503")
+    expect(notice.querySelector("details pre")?.textContent).toBe("HTTP 503 · statuses unavailable")
   })
 
   const runs = [
@@ -313,7 +331,13 @@ describe("the approvals inbox card", () => {
         onDecideApproval={() => {}}
       />
     )
-    expect(refused.textContent).toContain("Stale: already decided")
+    const notice = refused.querySelector<HTMLElement>('[data-testid="approval-decision-failure"]')!
+    expect(notice.dataset.failure).toBe("approval.decide")
+    expect(notice.dataset.fault).toBe("infra")
+    expect(notice.querySelector(":scope > p")?.textContent).toBe("Smithers could not record this decision. Not your fault.")
+    expect(notice.querySelector(":scope > p")?.textContent).not.toContain("Stale")
+    expect((notice.querySelector("details") as HTMLDetailsElement).open).toBe(false)
+    expect(notice.querySelector("details pre")?.textContent).toBe("Stale: already decided")
   })
 
   /*

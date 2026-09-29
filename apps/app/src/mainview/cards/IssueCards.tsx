@@ -33,6 +33,26 @@ import {
   StatePill
 } from "./GithubParts"
 import { Octicon } from "./Octicon"
+import type { UserFailure, UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+
+type GithubRead = NonNullable<Extract<Card, { kind: "issue-list" }>["payload"]["github"]>
+
+/* Why the GitHub half of an issue list failed, by what the read left; the raw text stays behind Details. */
+export const ISSUE_GITHUB_FAILURES: Readonly<Record<"unreachable" | "refused" | "sync", UserFailureCopy>> = {
+  unreachable: { fault: "infra", sentence: "Smithers could not reach GitHub issues for this repository. Not your fault.", actions: ["retry"] },
+  refused: { fault: "dependency", sentence: "GitHub did not list this repository's issues. Not your fault.", actions: ["retry"] },
+  sync: { fault: "dependency", sentence: "Smithers could not sync GitHub updates for this repository. Not your fault.", actions: ["retry"] }
+}
+
+/** The list's GitHub failure, or null when the read answered cleanly. */
+export const issueGithubFailure = (github: GithubRead): UserFailure | null => {
+  if (github.refusal !== null) {
+    const key = github.source === "unreachable" ? "unreachable" : "refused"
+    return describedFailure(`IssueGithub.${key}`, ISSUE_GITHUB_FAILURES[key], github.refusal)
+  }
+  return github.syncError === null ? null : describedFailure("IssueGithub.sync", ISSUE_GITHUB_FAILURES.sync, github.syncError)
+}
 
 export interface IssueCardActions {
   readonly onRunCommand: RunCommand
@@ -139,15 +159,22 @@ export const IssueListCardBody = ({
         </span>
         <span className="ghc-toolbar-repo">{repoLabel(repo)}</span>
       </div>
-      {github !== undefined && (github.refusal !== null || github.stale || github.syncError !== null) ?
+      {github !== undefined && github.refusal === null && (github.stale || github.syncError !== null && github.syncedAt !== null) ?
         (
           <p className="ghc-note">
-            {github.refusal !== null
-              ? `GitHub: ${github.refusal}`
-              : `GitHub updates${github.stale ? " may be out of date" : " couldn't sync"}${github.syncedAt !== null ? ` · last synced ${dateLabel(github.syncedAt)}` : ""}${github.syncError !== null ? `: ${github.syncError}` : ""}`}
+            {github.stale
+              ? `GitHub updates may be out of date${github.syncedAt !== null ? ` · last synced ${dateLabel(github.syncedAt)}` : ""}`
+              : `Last synced ${dateLabel(github.syncedAt!)}`}
           </p>
         ) :
         null}
+      {github === undefined ? null : (() => {
+        const failure = issueGithubFailure(github)
+        return failure === null ? null : (
+          <FailureNotice className="ghc-note" data-testid="issue-list-github-failure" role="status" failure={failure}
+            actions={{ retry: flowAction(onRunCommand, "issues.list", flowArgs("issues.list", { filter, repo, kind })) }} />
+        )
+      })()}
       {issues.length === 0 ?
         (
           <p className="world-card-empty ghc-empty">

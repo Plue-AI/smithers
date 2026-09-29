@@ -1,5 +1,7 @@
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 /**
  * The run reads as current status, goals and journal rows. A persisted row
  * selection opens its code and evidence. The timeline view adds the debugger.
@@ -650,7 +652,7 @@ const TurnDetail = ({ card, model, selected, scope, frame }: {
           {span.detail.printed === undefined ? null : <Block title="Printed" text={span.detail.printed} />}
           {span.detail.input === undefined ? null : <Block title="Input" text={json(span.detail.input)} />}
           {span.detail.output === undefined ? null : <Block title={span.kind === "model" ? "Model" : "Output"} text={span.detail.output} />}
-          {span.detail.message === undefined ? null : <Block title="Failure" text={span.detail.message} alert />}
+          {span.detail.message === undefined ? null : <CallFailure message={span.detail.message} />}
         </div>
       ))}
       {selected.kind === "execution" || selected.kind === "event" || selected.kind === "run" ? <SpanPane span={selected} model={model} runId={runId} /> : null}
@@ -716,7 +718,7 @@ export const SpanPane = (
       {detail.printed !== undefined ? <Block title="Printed" text={detail.printed} /> : null}
       {detail.input !== undefined ? <Block title="Input" text={json(detail.input)} /> : null}
       {detail.output !== undefined ? <Block title="Output" text={detail.output} /> : null}
-      {detail.message !== undefined ? <Block title="Failure" text={detail.message} alert /> : null}
+      {detail.message !== undefined ? <CallFailure message={detail.message} /> : null}
       {detail.fields !== undefined ?
         (
           <Block
@@ -729,11 +731,17 @@ export const SpanPane = (
   )
 }
 
-const Block = (
-  { title, text, alert = false }: { readonly title: string; readonly text: string; readonly alert?: boolean }
-) => (
+const Block = ({ title, text }: { readonly title: string; readonly text: string }) => (
   <div className="run-trace-block">
     <h5>{title}</h5>
-    <pre className="run-trace-code" tabIndex={0} aria-label={title} {...(alert ? { role: "alert" } : {})}>{text}</pre>
+    <pre className="run-trace-code" tabIndex={0} aria-label={title}>{text}</pre>
   </div>
+)
+
+/* A call's recorded failure: one sentence, and the journal's own words behind Details. */
+export const CALL_FAILED: UserFailureCopy = { fault: "factory", sentence: "This call failed. Not your fault.", actions: [] }
+
+const CallFailure = ({ message }: { readonly message: string }) => (
+  <FailureNotice className="run-trace-block run-trace-failure" data-testid="run-trace-failure"
+    failure={describedFailure("run.trace.call", CALL_FAILED, message)} />
 )

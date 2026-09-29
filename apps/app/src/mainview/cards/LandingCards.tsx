@@ -16,6 +16,8 @@ import { flowArgs } from "../flows/FlowArgs"
 import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 import {
   Avatar,
   AvatarStack,
@@ -178,12 +180,19 @@ const checksSummary = (checks: LandingPayload["checks"]): { readonly tone: Tone;
   return { tone: "open", icon: "check-circle-fill", text: "All checks have passed" }
 }
 
-const ReadFailure = ({ message, retry }: { readonly message: string; readonly retry: ReturnType<typeof flowAction> }) => (
-  <div className="ghc-tab-empty" role="alert"><p>{message}</p><Button size="sm" variant="outline" {...retry}>Retry</Button></div>
+/* A tab whose read failed, by tab; the seam's own words stay behind Details. */
+export const LANDING_READ_FAILURES: Readonly<Record<"commits" | "files", UserFailureCopy>> = {
+  commits: { fault: "infra", sentence: "Smithers could not load the commits of this pull request. Not your fault.", actions: ["retry"] },
+  files: { fault: "infra", sentence: "Smithers could not load the files of this pull request. Not your fault.", actions: ["retry"] }
+}
+
+const ReadFailure = ({ tab, detail, retry }: { readonly tab: "commits" | "files"; readonly detail: string; readonly retry: ReturnType<typeof flowAction> }) => (
+  <FailureNotice className="ghc-tab-empty" data-testid={`landing-${tab}-failure`}
+    failure={describedFailure(`LandingRead.${tab}`, LANDING_READ_FAILURES[tab], detail)} actions={{ retry }} />
 )
 
 const CommitsTab = ({ commits, error, retry }: { readonly commits: ReadonlyArray<LandingCommit> | undefined; readonly error?: string; readonly retry: ReturnType<typeof flowAction> }) => {
-  if (error !== undefined) return <ReadFailure message={error} retry={retry} />
+  if (error !== undefined) return <ReadFailure tab="commits" detail={error} retry={retry} />
   if (commits === undefined) return <p className="ghc-tab-empty">Commits unavailable.</p>
   if (commits.length === 0) return <p className="ghc-tab-empty">No commits in this stack.</p>
   return (
@@ -210,7 +219,7 @@ const CommitsTab = ({ commits, error, retry }: { readonly commits: ReadonlyArray
 }
 
 const FilesTab = ({ files, error, retry }: { readonly files: ReadonlyArray<LandingFile> | undefined; readonly error?: string; readonly retry: ReturnType<typeof flowAction> }) => {
-  if (error !== undefined) return <ReadFailure message={error} retry={retry} />
+  if (error !== undefined) return <ReadFailure tab="files" detail={error} retry={retry} />
   if (files === undefined) return <p className="ghc-tab-empty">Files unavailable.</p>
   if (files.length === 0) return <p className="ghc-tab-empty">No file changes in this pull request.</p>
   return (

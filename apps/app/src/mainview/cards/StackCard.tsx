@@ -12,7 +12,7 @@ import { useClock } from "@smthrs/ui/clock"
  * repository homepage (`S.Home.Stack`); the snapshot is the stack seam's live
  * read, never card state.
  */
-import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
+import type { MythicalItem, MythicalItemState, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
 import { Button } from "@smthrs/ui"
 import { useContext, useSyncExternalStore } from "react"
 import { ControllerContext } from "../ControllerContext"
@@ -74,9 +74,46 @@ const ItemCells = ({ item, repo, onRunCommand, retry = true, reason, progress }:
         <Button size="sm" variant="ghost"
           {...flowAction(onRunCommand, "history.retry", flowArgs("history.retry", { id: item.id, repo }))}>Retry</Button>
       ) : null}
-      {reason === undefined ? null : <span className="world-card-path stack-reason">{reason}</span>}
+      {reason === undefined ? null : <ItemReason item={item} reason={reason} />}
     </>
 )
+
+/*
+ * What a row's reason line is, by the item's state: the planner's own words to
+ * a person (shown as is), a stop whose sentence is ours (the server's words
+ * behind Details), or a note on a moving change (behind Details, the row's
+ * state word being its sentence).
+ */
+const ITEM_REASONS: Readonly<Record<MythicalItemState, UserFailureCopy | "words" | "note">> = {
+  skipped: "words",
+  declined: "words",
+  queued: "note",
+  running: "note",
+  delivering: "note",
+  integrating: "note",
+  verifying: "note",
+  proposing: "note",
+  waiting: "note",
+  proposed: "note",
+  landed: "note",
+  cancelled: { fault: "user", sentence: "The issue closed before work started.", actions: [] },
+  rejected: { fault: "user", sentence: "Its pull request closed without merging.", actions: [] },
+  retrying: { fault: "infra", sentence: "A conflict or failed check sent this back to a lane. Not your fault.", actions: [] },
+  blocked: { fault: "infra", sentence: "Smithers ran out of attempts on this issue. Not your fault.", actions: [] },
+  unknown: { fault: "bug", sentence: "Smithers stopped this change for a reason it could not read. Not your fault.", actions: [] }
+}
+
+const ItemReason = ({ item, reason }: { readonly item: MythicalItem; readonly reason: string }) => {
+  // Conflict paths are the stack's own structured words, never server prose.
+  const conflict = item.state === "retrying" && (item.integration?.conflict?.paths ?? []).length > 0
+  const kind = conflict ? "words" : ITEM_REASONS[item.state]
+  if (kind === "words") return <span className="world-card-path stack-reason">{reason}</span>
+  if (kind === "note") {
+    return <details className="world-card-path stack-reason"><summary>Details</summary><pre tabIndex={0}>{reason}</pre></details>
+  }
+  return <FailureNotice role="status" className="world-card-path stack-reason" data-testid={`stack-item-${item.id}-reason`}
+    failure={describedFailure(`stack.item.${item.state}`, kind, reason)} />
+}
 
 const StateWord = ({ item, word = itemStateLabel(item) }: { readonly item: MythicalItem; readonly word?: string }) =>
   <span className="stack-state" data-state={item.state}>{word}</span>
@@ -204,6 +241,9 @@ const MetricsTable = ({ stack }: { readonly stack: MythicalStack }) => {
   )
 }
 
+/* A failed Wiki refresh: our sentence, the refresh's own words behind Details. */
+const WIKI_FAILED: UserFailureCopy = { fault: "infra", sentence: "Smithers could not refresh the Wiki. Not your fault.", actions: ["retry"] }
+
 /** The repository Wiki the stack keeps current: its state, its pages (the cloud Wiki), and Retry when a refresh failed. */
 const WikiRow = ({ wiki, repo, onRunCommand }: {
   readonly wiki: MythicalWiki
@@ -218,10 +258,9 @@ const WikiRow = ({ wiki, repo, onRunCommand }: {
       <Button size="sm" variant="ghost" data-testid="stack-wiki-pages" {...flowAction(onRunCommand, "wiki.cloud", repo)}>{row.pages}</Button>
       {row.edited === undefined ? null : <span className="world-card-path" data-testid="stack-wiki-edited">{row.edited}</span>}
       {row.failure === undefined ? null : (
-        <>
-          <Button size="sm" variant="ghost" data-testid="stack-wiki-retry" {...flowAction(onRunCommand, "wiki.create", repo)}>Retry</Button>
-          {row.failure === "" ? null : <span className="world-card-path stack-reason">{row.failure}</span>}
-        </>
+        <FailureNotice className="world-card-path stack-reason" data-testid="stack-wiki-failure"
+          failure={describedFailure("stack.wiki", WIKI_FAILED, row.failure)}
+          actions={{ retry: flowAction(onRunCommand, "wiki.create", repo) }} />
       )}
     </div>
   )

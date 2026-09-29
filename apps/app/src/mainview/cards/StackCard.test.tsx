@@ -197,6 +197,49 @@ describe("the History card", () => {
   })
 })
 
+describe("a row's reason line", () => {
+  const reasonOf = (html: string, id: string) => {
+    const start = html.indexOf(`data-testid="stack-item-${id}"`)
+    return html.slice(start, html.indexOf("</li>", start))
+  }
+
+  test("a stop shows our sentence by state; the server's words stay behind Details", () => {
+    const cases = [
+      ["rejected", "user", "Its pull request closed without merging."],
+      ["cancelled", "user", "The issue closed before work started."],
+      ["retrying", "infra", "A conflict or failed check sent this back to a lane. Not your fault."]
+    ] as const
+    for (const [state, fault, sentence] of cases) {
+      // The change row of the item carries its reason line whichever issue group it sits in.
+      const changes = [{ changeId: "kchangeaaaa", commitId: "c1", title: "Change", kind: "item" as const, state: "landed" as const, itemId: "i1", issue: 1 }]
+      const full = render({ snapshot: { stack: { ...STACK, changes, items: [item("i1", state, { reason: "exit 137 at lane.ts:40" })] }, error: null } })
+      const start = full.indexOf('data-testid="stack-change-kchangeaaaa"')
+      const html = full.slice(start, full.indexOf("</li>", start))
+      expect(html).toMatch(new RegExp(`role="status"[^>]*data-fault="${fault}"[^>]*data-failure="stack.item.${state}"`))
+      expect(html).toContain(`<p>${sentence}</p>`)
+      expect(html).toContain('<pre tabindex="0">exit 137 at lane.ts:40</pre>')
+      expect(html.slice(0, html.indexOf("<details>"))).not.toContain("exit 137")
+    }
+  })
+
+  test("a note on a moving change is only a collapsed Details under the state word", () => {
+    const html = reasonOf(render({ snapshot: { stack: { ...STACK, changes: [], items: [item("i1", "queued", { reason: "HTTP 503 from lane" })] }, error: null } }), "i1")
+    expect(html).toContain('data-state="queued">queued<')
+    expect(html).toContain('<details class="world-card-path stack-reason"><summary>Details</summary><pre tabindex="0">HTTP 503 from lane</pre></details>')
+    expect(html).not.toContain("failure-notice")
+  })
+
+  test("the planner's words and conflict paths stay the visible line", () => {
+    const html = render({ snapshot: { stack: { ...STACK, changes: [], items: [
+      item("i1", "declined", { reason: "Already done." }),
+      item("i2", "retrying", { reason: "conflict", integration: { conflict: { paths: ["src/a.ts"] } } })
+    ] }, error: null } })
+    expect(reasonOf(html, "i1")).toContain('<span class="world-card-path stack-reason">Already done.</span>')
+    expect(reasonOf(html, "i2")).toContain('<span class="world-card-path stack-reason">src/a.ts</span>')
+    expect(render({ snapshot: { stack: { ...STACK, changes: [], items: [item("i3", "landed")] }, error: null } })).not.toContain("stack-reason")
+  })
+})
+
 describe("the Wiki row", () => {
   const wiki = (state: MythicalWiki["state"], extra: Partial<MythicalWiki> = {}): MythicalWiki =>
     ({ state, commit: "c3", pages: 12, edited: 0, attempt: 1, ...extra })
@@ -228,13 +271,18 @@ describe("the Wiki row", () => {
     expect(row(withWiki(wiki("current", { edited: 3 })))).toContain(">3 edited<")
   })
 
-  test("Retry only on a failed refresh, with the error as its one line", () => {
+  test("a failed refresh says our sentence with Retry, its error only behind Details", () => {
     const html = row(withWiki(wiki("failed", { error: "2 pages failed review" })))
     expect(html).toContain('data-state="failed">failed<')
+    expect(html).toMatch(/role="alert"[^>]*data-fault="infra"[^>]*data-failure="stack.wiki"[^>]*data-testid="stack-wiki-failure"/)
+    expect(html).toContain("<p>Smithers could not refresh the Wiki. Not your fault.</p>")
     expect(html).toContain(`data-flow="wiki.create" data-flow-args="${REPO}"`)
     expect(html).toContain(">Retry<")
-    expect(html).toContain("2 pages failed review")
+    expect(html).toContain('<details><summary>Details</summary><pre tabindex="0">2 pages failed review</pre></details>')
+    expect(html.slice(0, html.indexOf("<details>"))).not.toContain("2 pages failed review")
     expect(wikiRow(wiki("failed")).failure).toBe("")
-    expect(row(withWiki(wiki("failed")))).toContain(">Retry<")
+    const bare = row(withWiki(wiki("failed")))
+    expect(bare).toContain(">Retry<")
+    expect(bare).not.toContain("<details>")
   })
 })

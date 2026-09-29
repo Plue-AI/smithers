@@ -42,9 +42,9 @@ for (const theme of ["light", "dark"] as const) test(`retained PR history recove
   if (await page.getByTestId("composer-input").isVisible()) await page.getByTestId("composer-input").press("Escape")
   await expect(page.getByTestId("composer-input")).toBeHidden()
   await card.getByRole("tab", { name: /Commits/ }).click()
-  await expect(card.getByRole("alert")).toContainText("Commits unavailable")
+  await expect(card.getByTestId("landing-commits-failure").locator(":scope > p")).toHaveText("Smithers could not load the commits of this pull request. Not your fault.")
   await card.getByRole("tab", { name: /Files changed/ }).click()
-  await expect(card.getByRole("alert")).toContainText("Files unavailable")
+  await expect(card.getByTestId("landing-files-failure").locator(":scope > p")).toHaveText("Smithers could not load the files of this pull request. Not your fault.")
   if (process.env.CAPTURE_DIR) {
     await page.evaluate(theme => {
       const label = document.createElement("div")

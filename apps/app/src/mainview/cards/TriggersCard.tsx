@@ -26,11 +26,23 @@ import { timeLabel as clockLabel } from "../Timestamps"
 import { describeEvent, describeSchedule } from "./TriggerEvents"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 
 type TriggerListCard = Extract<Card, { kind: "trigger-list" }>
 
 export interface TriggerListCardActions {
   readonly onRunCommand: RunCommand
+}
+
+/*
+ * A failed schedule request, by which request failed; the seam's words stay
+ * behind Details. A preparation keeps its own named Retry (it names the
+ * schedule), so its copy offers no generic one.
+ */
+export const TRIGGER_FAILURES: Readonly<Record<"preparation" | "pause", UserFailureCopy>> = {
+  preparation: { fault: "infra", sentence: "Smithers could not prepare this schedule. Not your fault.", actions: [] },
+  pause: { fault: "infra", sentence: "Smithers could not pause this schedule. Not your fault.", actions: ["retry"] }
 }
 
 /** The live state of one registered trigger, in words: only what Smithers Cloud stated. */
@@ -110,22 +122,18 @@ export const TriggerListCardBody = ({
           </ul>
         )}
       {(card.payload.preparations ?? []).filter(request => request.phase === "failed").map(request => (
-        <div key={request.id} className="workflow-list-row">
-          <span role="status">{request.error}</span>
+        <FailureNotice key={request.id} role="status" className="workflow-list-row" data-testid={`trigger-preparation-failure-${request.id}`}
+          failure={describedFailure("TriggerPreparationFailed", TRIGGER_FAILURES.preparation, request.error ?? "")}>
           <Button variant="ghost" size="sm" aria-label={`Retry preparation for ${request.draft.slug}`}
             {...flowAction(onRunCommand, "triggers.register", flowArgs("triggers.register", { repo, ...request.draft }))}>
             Retry
           </Button>
-        </div>
+        </FailureNotice>
       ))}
       {(card.payload.pauseRequests ?? []).filter(request => request.phase === "failed").map(request => (
-        <div key={request.id} className="workflow-list-row">
-          <span role="status">{request.error}</span>
-          <Button variant="ghost" size="sm"
-            {...flowAction(onRunCommand, "triggers.pause", flowArgs("triggers.pause", { repo, slug: request.slug }))}>
-            Retry
-          </Button>
-        </div>
+        <FailureNotice key={request.id} role="status" className="workflow-list-row" data-testid={`trigger-pause-failure-${request.id}`}
+          failure={describedFailure("TriggerPauseFailed", TRIGGER_FAILURES.pause, request.error ?? "")}
+          actions={{ retry: flowAction(onRunCommand, "triggers.pause", flowArgs("triggers.pause", { repo, slug: request.slug })) }} />
       ))}
       <Button
         variant="ghost"

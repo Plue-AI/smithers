@@ -9,7 +9,8 @@ import { RAW_ERROR_RENDER_ALLOWLIST } from "./RawErrorRenderAllowlist"
  * as a plain sentence, with the raw text behind a collapsed Details.
  *
  * This check is lexical, so it counts every error-named `.message`, `.stack`,
- * `String(<error>)` and `errorMessage(` in a UI file. The allowlist holds the
+ * `String(<error>)` and `errorMessage(` in a UI file, and every JSX child that
+ * prints an error-named string (`{payload.error}`, `{observationError}`). The allowlist holds the
  * sites that predate the rule, per file and by count. A new site fails; a file
  * that dropped a site fails until its entry shrinks, so the list only gets
  * shorter. It reaches empty when every surface uses the presenter.
@@ -17,13 +18,17 @@ import { RAW_ERROR_RENDER_ALLOWLIST } from "./RawErrorRenderAllowlist"
 
 const SOURCE_ROOT = join(import.meta.dir, "..")
 const APP_ROOT = join(SOURCE_ROOT, "..")
-const ERROR_NAME = "(?:error|Error|err|cause|reason|failure|Failure|refusal|exception)"
+const ERROR_NAME = "(?:error|Error|err|cause|reason|failure|Failure|refusal|Refusal|exception)"
+/* A JSX child: not an attribute value, a call argument, a destructure or an import. */
+const JSX_CHILD = "(?<![=(,]\\s*)(?<!\\b(?:const|let|var|import|type|return|export)\\s+)"
 const RAW_ERROR_RENDER = new RegExp(
   [
-    `\\b${ERROR_NAME}\\??\\)?\\.message\\b`,
-    `\\b${ERROR_NAME}\\??\\)?\\.stack\\b`,
+    `\\b\\w*${ERROR_NAME}\\??\\)?\\.message\\b`,
+    `\\b\\w*${ERROR_NAME}\\??\\)?\\.stack\\b`,
     `\\bString\\(\\s*${ERROR_NAME}\\s*\\)`,
-    `\\berrorMessage\\(`
+    `\\berrorMessage\\(`,
+    `${JSX_CHILD}\\{\\s*[\\w.?]*\\.(?:error|syncError|decisionError|refusal)\\s*\\}`,
+    `${JSX_CHILD}\\{\\s*\\w*(?:[eE]rror|[rR]efusal)\\s*\\}`
   ].join("|"),
   "g"
 )
@@ -54,10 +59,29 @@ describe("UI files never render a raw error", () => {
         "{(cause as Error).message}",
         "{String(error)}",
         "{errorMessage(reason)}",
-        "<pre>{err.stack}</pre>"
+        "<pre>{err.stack}</pre>",
+        "<p>{codeError.message}</p>",
+        "{terminalRefusal.message}",
+        "<p>{payload.error}</p>",
+        "<span>{sync.resolution.error}</span>",
+        "<p>{observationError}</p>",
+        "<p>{error}</p>",
+        "<p>{refusal}</p>",
+        "<span>{github.syncError}</span>"
       ]
     ) expect(countSites(line)).toBe(1)
-    for (const line of ["{entry.message.text}", "{row?.message}", "{failure.sentence}"]) expect(countSites(line)).toBe(0)
+    for (
+      const line of [
+        "{entry.message.text}",
+        "{row?.message}",
+        "{failure.sentence}",
+        "<UpgradeDoor refusal={refusal} />",
+        "const { error } = this.state",
+        "import { type Refusal } from \"x\"",
+        "describedFailure(tag, copy, payload.error)",
+        "{payload.error === undefined ? null : x}"
+      ]
+    ) expect(countSites(line)).toBe(0)
   })
 
   test("only allowlisted files keep raw error sites, and never more than listed", () => {

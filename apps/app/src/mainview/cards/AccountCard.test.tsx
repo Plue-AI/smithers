@@ -65,8 +65,10 @@ test("legacy account cards without provider evidence do not claim GitHub authori
 test("failed permissions keep a keyboard Retry door on the Account card", () => {
   const html = renderToStaticMarkup(<AccountCardBody card={{ id: "account", kind: "account", title: "Account", status: "error", createdAt: 1, ordinal: 1,
     payload: { login: "owner", provider: "github", allowlisted: true, accessRequested: false, scopes: [], boxes: [],
-      refresh: { id: "read", state: "failed", error: "Permissions could not be loaded." } } }} onRunCommand={() => {}} />)
-  expect(html).toContain('role="alert"')
-  expect(html).toContain("Permissions could not be loaded.")
+      refresh: { id: "read", state: "failed", error: "Permissions could not be loaded (HTTP 500)." } } }} onRunCommand={() => {}} />)
+  expect(html).toMatch(/role="alert"[^>]*data-fault="infra"[^>]*data-failure="AccountPermissionsFailed"/)
+  expect(html).toContain("<p>Smithers could not load your permissions. Not your fault.</p>")
+  expect(html).toContain('<details><summary>Details</summary><pre tabindex="0">Permissions could not be loaded (HTTP 500).</pre></details>')
+  expect(html.slice(0, html.indexOf("<details>"))).not.toContain("HTTP 500")
   expect(html).toMatch(/<button[^>]*data-flow="account.show"[^>]*>Retry<\/button>/)
 })

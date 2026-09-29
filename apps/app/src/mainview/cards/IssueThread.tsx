@@ -16,6 +16,8 @@ import { resolvePersona, type PersonaRef } from "../Persona"
 import type { Card } from "../state/AppState"
 import { dayLabel, timeLabel } from "../Timestamps"
 import type { CardProjectionAuthority, RunCommand } from "./CardFamily"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 
 type IssueCard = Extract<Card, { kind: "issue" }>
 type IssueRow = Extract<Card, { kind: "issue-list" }>["payload"]["issues"][number]
@@ -161,6 +163,30 @@ const Composer = ({ card, onRunCommand }: { readonly card: IssueCard; readonly o
   )
 }
 
+/* What a chat's delivery trouble says, by the mirror's state; its own error text stays behind Details. */
+export const THREAD_SYNC_FAILURES: Readonly<Record<NonNullable<Sync["state"]> | "unknown", UserFailureCopy>> = {
+  synced: { fault: "dependency", sentence: "Smithers had trouble syncing this chat. Not your fault.", actions: [] },
+  pending: { fault: "dependency", sentence: "Smithers is still trying to deliver the latest message. Not your fault.", actions: [] },
+  dispatching: { fault: "dependency", sentence: "Smithers is still trying to deliver the latest message. Not your fault.", actions: [] },
+  outcome_unknown: { fault: "dependency", sentence: "Smithers does not know whether the latest message arrived. Not your fault.", actions: [] },
+  failed: { fault: "dependency", sentence: "Smithers could not deliver the latest message. Not your fault.", actions: [] },
+  unsupported: { fault: "dependency", sentence: "The latest message was not delivered to this chat. Not your fault.", actions: [] },
+  unknown: { fault: "dependency", sentence: "Smithers had trouble syncing this chat. Not your fault.", actions: [] }
+}
+
+/* A resolution the owner chose that did not save, by its request status. */
+export const THREAD_RESOLUTION_FAILURES: Readonly<Record<NonNullable<Sync["resolution"]>["status"], UserFailureCopy>> = {
+  requested: { fault: "wait", sentence: "Smithers is still saving your resolution. Not your fault.", actions: [] },
+  failed: { fault: "infra", sentence: "Smithers could not save your resolution. Not your fault.", actions: [] }
+}
+
+/* A message that did not send, by its pending status. */
+export const THREAD_MESSAGE_FAILURES: Readonly<Record<NonNullable<IssueCard["payload"]["pendingComments"]>[number]["status"], UserFailureCopy>> = {
+  requested: { fault: "wait", sentence: "Smithers is still sending this message. Not your fault.", actions: [] },
+  failed: { fault: "infra", sentence: "Smithers could not send this message. Not your fault.", actions: ["retry"] },
+  unknown: { fault: "infra", sentence: "Smithers does not know whether this message was sent. Not your fault.", actions: ["retry"] }
+}
+
 /** The mirror's delivery state, only when it is not simply synced; the record's own word. */
 const syncStateWords = (sync: Sync): string | undefined =>
   sync.state === undefined || sync.state === "synced" ? undefined : sync.state.replace("_", " ")
@@ -193,8 +219,10 @@ export const IssueThreadBody = ({ card, onRunCommand, projectionStore }: { reado
           {sync === undefined ? null : (
             <span className="thread-slack-state" data-state={sync.state}>
               {syncState === undefined ? null : <span className="thread-slack">{syncState}</span>}
-              {sync.error ? <span role="status">{sync.error}</span> : null}
-              {sync.resolution?.error ? <span role="alert">{sync.resolution.error}</span> : null}
+              {sync.error ? <FailureNotice role="status" className="thread-sync-failure" data-testid="thread-sync-failure"
+                failure={describedFailure(`ThreadSync.${sync.state ?? "unknown"}`, THREAD_SYNC_FAILURES[sync.state ?? "unknown"], sync.error)} /> : null}
+              {sync.resolution?.error ? <FailureNotice className="thread-sync-failure" data-testid="thread-resolution-failure"
+                failure={describedFailure(`ThreadResolution.${sync.resolution.status}`, THREAD_RESOLUTION_FAILURES[sync.resolution.status], sync.resolution.error)} /> : null}
               {sync.state === "outcome_unknown" && sync.deliveryId !== undefined ? <Button {...flowAction(onRunCommand, "issues.sync.resolve", flowArgs("issues.sync.resolve", { cardId: card.id, deliveryId: sync.deliveryId }))}>Resolve</Button> : null}
               {syncLink === undefined ? <span className="thread-slack">{sync.provider}</span>
                 : <a className="thread-slack thread-slack-link" href={syncLink} target="_blank" rel="noreferrer">{sync.provider} ↗</a>}
@@ -222,16 +250,24 @@ export const IssueThreadBody = ({ card, onRunCommand, projectionStore }: { reado
             <div className="thread-message-head">
               {request.persona !== undefined && request.persona.username !== "" ? <AgentMark persona={resolvePersona({ name: request.persona.username, iconUrl: request.persona.iconUrl }, context.profiles)} size={28} onRunCommand={onRunCommand} />
                 : viewer === undefined ? null : <AgentMark persona={viewer} size={28} />}
-              <span className="thread-pending-word" role={request.status === "requested" ? undefined : "status"}>
-                {request.status === "requested" ? "sending…" : request.status === "unknown" ? "Delivery unknown" : "Not delivered"}
-              </span>
-              {request.status === "requested" ? null : (
-                <Button size="sm" variant="outline" {...flowAction(onRunCommand, "issues.comment.retry", flowArgs("issues.comment.retry", { cardId: card.id, requestId: request.id }))}>Retry</Button>
+              {request.error !== undefined && request.status !== "requested" ? null : (
+                <>
+                  <span className="thread-pending-word" role={request.status === "requested" ? undefined : "status"}>
+                    {request.status === "requested" ? "sending…" : request.status === "unknown" ? "Delivery unknown" : "Not delivered"}
+                  </span>
+                  {request.status === "requested" ? null : (
+                    <Button size="sm" variant="outline" {...flowAction(onRunCommand, "issues.comment.retry", flowArgs("issues.comment.retry", { cardId: card.id, requestId: request.id }))}>Retry</Button>
+                  )}
+                </>
               )}
             </div>
             <div className="thread-message-body">
               <Markdown className="smithers-card-markdown" content={request.text} />
-              {request.error === undefined ? null : <p className="sui-approval-error">{request.error}</p>}
+              {request.error === undefined ? null : (
+                <FailureNotice role="status" className="thread-pending-failure" data-testid={`thread-pending-failure-${request.id}`}
+                  failure={describedFailure(`ThreadMessage.${request.status}`, THREAD_MESSAGE_FAILURES[request.status], request.error)}
+                  actions={{ retry: flowAction(onRunCommand, "issues.comment.retry", flowArgs("issues.comment.retry", { cardId: card.id, requestId: request.id })) }} />
+              )}
             </div>
           </li>
         ))}

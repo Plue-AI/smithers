@@ -62,7 +62,16 @@ export function ToastStack({
             : <X size={17} className="toast-icon" aria-hidden="true" />}
           <div className="toast-body">
             <AlertTitle className="toast-title">{line?.text ?? toast.title}</AlertTitle>
-            {toast.detail !== "" ? <AlertDescription className="toast-detail">{toast.detail}</AlertDescription> : null}
+            {toast.detail === "" ? null
+              /*
+               * A failed toast's detail is whatever its producer caught — often
+               * an error message or a server body — so the title stays the
+               * line and the detail waits behind a collapsed native Details.
+               * Running, done and cancelled details are the work's own progress
+               * words and stay in view.
+               */
+              : toast.status === "failed" ? <details className="toast-detail"><summary>Details</summary><pre tabIndex={0}>{toast.detail}</pre></details>
+              : <AlertDescription className="toast-detail">{toast.detail}</AlertDescription>}
             <ToastActionButton toast={toast} onAction={action => { if (toast.status !== "running") onDismiss(toast.id); onAction(action) }} />
             <div className="toast-worker-actions">
               {workerToastActions(cards.find(card => card.id === toast.sourceCard), cards).filter(available).map(action =>

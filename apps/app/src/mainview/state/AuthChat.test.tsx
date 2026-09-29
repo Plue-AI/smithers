@@ -4,7 +4,7 @@ import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { afterAll,afterEach,describe,expect,test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
-import App from "../App"
+import App, { ACCESS_REQUEST_FAILED } from "../App"
 import { ControllerTestProvider } from "../ControllerContext"
 import { openRequestedRepo,requestedRepo } from "../RepoLink"
 import type { AppController as AppControllerType } from "./AppController"
@@ -482,6 +482,27 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const request = host.querySelector<HTMLButtonElement>("[data-flow=\"auth.request-access\"]")
     expect(request?.textContent).toContain("Request access")
     expect(host.querySelector("textarea")?.placeholder).toBe("Ask Smithers to work on something…")
+  })
+
+  test("a failed access request adds one fixed sentence and never the server's refusal", async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const controller = createAppController(store, silentAgent, {
+      ...backend({
+        "/api/auth/session": json(200, { login: "newcomer", allowlisted: false, admin: false })
+      })
+    })
+    await controller.loadSession()
+    await settled()
+    const raw = "HTTP 500 access_queue_unavailable: pq: relation does not exist"
+    store.dispatch({ type: "identity.access.failed", actor: "system", message: raw })
+    await settled()
+
+    const { host, markup } = mount(controller)
+    expect(markup()).toContain(ACCESS_REQUEST_FAILED)
+    expect(markup()).not.toContain("access_queue_unavailable")
+    expect(markup()).not.toContain("HTTP 500")
+    // The request door stays beside the line; it is the retry.
+    expect(host.querySelector("[data-flow=\"auth.request-access\"]")).not.toBeNull()
   })
 
   test("a definitive $0 keeps the composer live, and a healthy composer renders NO status text (§2g)", async () => {

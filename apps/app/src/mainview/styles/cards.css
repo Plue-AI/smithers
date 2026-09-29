@@ -2045,7 +2045,8 @@
 .run-trace-kv dt { color: var(--text-muted); }
 .run-trace-kv dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .run-trace-block { display: flex; flex-direction: column; gap: 0.25rem; }
-.run-trace-code {
+.run-trace-code,
+.run-trace-failure pre {
 	margin: 0;
 	max-height: 10rem;
 	overflow: auto;
@@ -2061,7 +2062,8 @@
 	word-break: break-word;
 }
 .run-trace-code[role="alert"] { border-color: var(--danger-border); background: var(--danger-soft); }
-.run-trace-code:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.run-trace-code:focus-visible,
+.run-trace-failure pre:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .run-trace-banner {
 	margin: 0;
 	padding: var(--sp-2) var(--sp-3);

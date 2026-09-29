@@ -9,9 +9,14 @@ import { flowAction } from "../flows/FlowAction"
  * exists here: no billing, usage or seat rows, because no seam holds them.
  */
 import { Button } from "@smthrs/ui"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
+
+/* A failed permissions read; the read's own words stay behind Details. */
+const PERMISSIONS_FAILED: UserFailureCopy = { fault: "infra", sentence: "Smithers could not load your permissions. Not your fault.", actions: ["retry"] }
 
 /** The allowlist answer in words: allowed, requested and waiting, or not yet allowed. */
 export const accessLabel = (payload: { readonly allowlisted: boolean; readonly accessRequested: boolean }): string =>
@@ -74,10 +79,9 @@ export const AccountCardBody = ({
         </table>
       </>
     )}
-    {card.payload.refresh?.state === "failed" && <div role="alert">
-      <p>{card.payload.refresh.error}</p>
-      <Button size="sm" variant="outline" {...flowAction(onRunCommand, "account.show")}>Retry</Button>
-    </div>}
+    {card.payload.refresh?.state === "failed" && <FailureNotice data-testid="account-permissions-failure"
+      failure={describedFailure("AccountPermissionsFailed", PERMISSIONS_FAILED, card.payload.refresh.error)}
+      actions={{ retry: flowAction(onRunCommand, "account.show") }} />}
     <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "auth.sign-out")}>
       Sign out
     </Button>

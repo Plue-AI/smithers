@@ -16,6 +16,10 @@ import { activeRepositoryId } from "../state/RepoContext"
 import { settledPill } from "./CardFamily"
 import { WikiTree, useWikiScope } from "../wiki/WikiNavigation"
 import { pageLinksOf, WikiPageView } from "../wiki/WikiPageView"
+import { cloudWikiPageFailure } from "../wiki/CloudWikiFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { IntegrationRow } from "@smthrs/rpc/Threads"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 
 
 
@@ -73,7 +77,9 @@ export const ConnectCardBody = ({
             {INTEGRATION_SYNCS[row.id]}{row.detail === undefined ? "" : <> ↔ <code>{row.detail}</code></>}
             {row.lastSyncAt === undefined ? null : <> · synced {ageLabel(row.lastSyncAt)}</>}
           </span>
-          {row.error === undefined ? null : <span className="connect-store-error" role="alert">{row.error}</span>}
+          {row.error === undefined ? null : <FailureNotice className="connect-store-error" data-testid={`integration-failure-${row.id}`}
+            failure={describedFailure(`IntegrationFailed.${row.id}`, INTEGRATION_FAILURES[row.id], row.error)}
+            actions={{ retry: flowAction(onRunCommand, "integrations.list", flowArgs("integrations.list", { repo: card.payload.integrations!.repo })) }} />}
         </span>
         {row.state === "connected" ? <Badge variant="success">Connected ✓</Badge>
           : row.state === "unavailable" ? <Badge variant="outline">Unavailable</Badge>
@@ -86,6 +92,13 @@ export const ConnectCardBody = ({
 
 const INTEGRATION_NAMES = { slack: "Slack", linear: "Linear" } as const
 const INTEGRATION_SYNCS = { slack: "conversations", linear: "issues" } as const
+/** A row in `error` names its service; the server's words (or a Linear remediation code) are only its Details. */
+export const INTEGRATION_FAILURES: Readonly<Record<IntegrationRow["id"], UserFailureCopy>> = {
+  slack: { fault: "infra", sentence: "Smithers can't sync Slack right now. Not your fault.", actions: ["retry"] },
+  linear: { fault: "infra", sentence: "Smithers can't sync Linear right now. Not your fault.", actions: ["retry"] }
+}
+/** A browser card's error is a refusal whose type did not survive; the page's words are only its Details. */
+export const BROWSER_READ_FAILURE: UserFailureCopy = { fault: "infra", sentence: "That page couldn't be read. Not your fault.", actions: [] }
 
 /*
  * The world query's embedded answer card (§2c″) — the answer rides in the chat
@@ -123,6 +136,7 @@ export const WorldCardBody = ({
   const view = card.payload.view ?? "outline"
   const cloud = document?.cloud
   const readOnly = cloud !== undefined && (cloud.phase === "cached" || cloud.phase === "deleted")
+  const pageFailure = cloud === undefined ? null : cloudWikiPageFailure(cloud)
   return (
     <div className="world-card-workspace">
       <aside className="world-card-sidebar" aria-label={`${WIKI_DISPLAY_NAME} documents`}>
@@ -172,7 +186,7 @@ export const WorldCardBody = ({
             <Button size="sm" variant="ghost" data-testid="wiki-card-history"
               {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug: cloud.slug, repo: cloud.repo }))}>History</Button>
             {cloud.phase === "cached" ? <p>This is a saved copy. Refresh to resume collaboration.</p> : null}
-            {cloud.error === null ? null : <p role="status">{cloud.error}</p>}
+            {pageFailure === null ? null : <FailureNotice failure={pageFailure} role="status" data-testid="wiki-card-failure" />}
           </div>}
           {view === "outline" ? <div className="wiki-card-outline">
             <h3>{document.title}</h3>
@@ -250,9 +264,8 @@ export const BrowserCardBody = ({ card }: { readonly card: Extract<Card, { kind:
   const target = foreignHttpUrl(shownUrl)
   if (error !== undefined) {
     return (
-      <p className="sui-approval-error" role="alert">
-        {error}
-      </p>
+      <FailureNotice className="sui-approval-error" data-testid="browser-card-failure"
+        failure={describedFailure("BrowserReadFailed", BROWSER_READ_FAILURE, error)} />
     )
   }
   return (

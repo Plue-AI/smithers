@@ -34,7 +34,9 @@ describe("a conversation renders inside the issue card (smithers-ui-DESIGN.md §
   test("a failed send keeps its text and offers Retry; the composer and Send are present while the thread is open", () => {
     const html = renderToStaticMarkup(<IssueCardBody card={issue()} onRunCommand={noop} />)
     expect(html).toContain('data-pending="failed"')
-    expect(html).toContain("Not delivered")
+    expect(html).toContain("<p>Smithers could not send this message. Not your fault.</p>")
+    expect(html).toContain('<pre tabindex="0">Posting the message failed (503)</pre>')
+    expect(html).not.toContain("<p>Posting the message failed")
     expect(html).toContain("And add the test to the wiki suite.")
     expect(html).toContain('data-flow="issues.comment.retry"')
     expect(html).toContain('data-testid="thread-composer"')

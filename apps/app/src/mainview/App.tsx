@@ -60,6 +60,13 @@ type TranscriptEntry =
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
 
+/*
+ * The chat line a failed access request adds. The stored refusal (a server
+ * body) never reaches the transcript text, which has no Details to hide it in;
+ * the Request access button beside the line is the retry.
+ */
+export const ACCESS_REQUEST_FAILED = "Your access request didn't go through. Not your fault."
+
 const entryOrdinal = (entry: TranscriptEntry): number =>
   entry.kind === "card" ? entry.card.ordinal : entry.message.ordinal
 
@@ -287,7 +294,7 @@ function AppContent() {
           : `You're signed in as ${
             identity.login ?? "a GitHub user"
           }, but Smithers is open to design partners only right now.`
-      }${identity.accessError !== null ? `\n\n${identity.accessError}` : ""}`,
+      }${identity.accessError !== null ? `\n\n${ACCESS_REQUEST_FAILED}` : ""}`,
       status: "complete",
       ...(identity.accessRequested
         ? {}

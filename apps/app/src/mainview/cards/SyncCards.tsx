@@ -7,6 +7,8 @@ import { useCallback, useSyncExternalStore } from "react"
 import { ageLabel, timeLabel, untilLabel } from "../Timestamps"
 import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
+import type { UserFailure, UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 
 export interface SyncCardActions {
   readonly onRunCommand: RunCommand
@@ -81,6 +83,32 @@ export const RateLimitLine = ({ rateLimit }: { readonly rateLimit: RateLimit }) 
   )
 }
 
+/*
+ * Why a GitHub card failed, by card and by whether GitHub named a rate limit;
+ * the seam's own words stay behind Details. Re-check, Reconcile and each ref's
+ * Retry already sit on the card, so the notice adds no buttons.
+ */
+export const SYNC_CARD_FAILURES: Readonly<Record<"setup" | "mirror", Readonly<Record<"rate-limited" | "failed", UserFailureCopy>>>> = {
+  setup: {
+    "rate-limited": { fault: "dependency", sentence: "GitHub is limiting requests for this repository. Not your fault.", actions: [] },
+    failed: { fault: "dependency", sentence: "Smithers could not check the GitHub App for this repository. Not your fault.", actions: [] }
+  },
+  mirror: {
+    "rate-limited": { fault: "dependency", sentence: "GitHub is limiting requests for this repository. Not your fault.", actions: [] },
+    failed: { fault: "dependency", sentence: "Smithers could not sync this repository with GitHub. Not your fault.", actions: [] }
+  }
+}
+
+export const SYNC_OP_FAILURE: UserFailureCopy = {
+  fault: "dependency", sentence: "Smithers could not push this ref to GitHub. Not your fault.", actions: []
+}
+
+/** A card-level GitHub failure; call only when `error` is set. */
+export const syncCardFailure = (card: "setup" | "mirror", payload: { readonly error?: string | undefined; readonly rateLimit?: RateLimit | undefined }): UserFailure => {
+  const key = payload.rateLimit !== undefined && payload.rateLimit.remaining === 0 ? "rate-limited" : "failed"
+  return describedFailure(`GitHubSync.${card}.${key}`, SYNC_CARD_FAILURES[card][key], payload.error ?? "")
+}
+
 /** The GitHub App half: install state, the install/reconcile acts, the rate-limit line. */
 const GitHubSetupBody = ({ card, onRunCommand }: { readonly card: ConnectorSetupCard } & SyncCardActions) => {
   const { repo, phase, installationId, configured, installUrl } = card.payload
@@ -116,7 +144,9 @@ const GitHubSetupBody = ({ card, onRunCommand }: { readonly card: ConnectorSetup
         </Button>
       </div>
       {card.payload.rateLimit !== undefined ? <RateLimitLine rateLimit={card.payload.rateLimit} /> : null}
-      {card.payload.error !== undefined ? <p className="world-card-path">{card.payload.error}</p> : null}
+      {card.payload.error !== undefined ?
+        <FailureNotice className="world-card-path" data-testid="connector-setup-failure" failure={syncCardFailure("setup", card.payload)} /> :
+        null}
     </div>
   )
 }
@@ -198,7 +228,7 @@ export const SyncOpsCardBody = ({ card, onRunCommand }: { readonly card: SyncOps
           </span>
           <StatusPill status={op.status} />
           {op.at !== null ? <span className="world-card-path">{ageLabel(op.at)}</span> : null}
-          {/* A failed op keeps its error verbatim on its own line, with Retry — never hidden, never summarized. */}
+          {/* A failed op says so in one sentence on its own line, with Retry; its raw error stays behind Details. */}
           {op.retryable ?
             (
               <Button
@@ -211,7 +241,10 @@ export const SyncOpsCardBody = ({ card, onRunCommand }: { readonly card: SyncOps
               </Button>
             ) :
             null}
-          {op.error !== undefined ? <span className="world-card-path">{op.error}</span> : null}
+          {op.error !== undefined ?
+            <FailureNotice role="status" className="world-card-path" data-testid={`sync-op-failure-${op.id}`}
+              failure={describedFailure("SyncOpFailed", SYNC_OP_FAILURE, op.error)} /> :
+            null}
         </div>
       ))}
       {ops.length > OP_LIMIT && expanded !== true ?
@@ -225,7 +258,9 @@ export const SyncOpsCardBody = ({ card, onRunCommand }: { readonly card: SyncOps
         null}
       {opsNote !== undefined ? <p className="world-card-path">{opsNote}</p> : null}
       {card.payload.rateLimit !== undefined ? <RateLimitLine rateLimit={card.payload.rateLimit} /> : null}
-      {card.payload.error !== undefined ? <p className="world-card-path">{card.payload.error}</p> : null}
+      {card.payload.error !== undefined ?
+        <FailureNotice className="world-card-path" data-testid="sync-ops-failure" failure={syncCardFailure("mirror", card.payload)} /> :
+        null}
     </div>
   )
 }

@@ -20,6 +20,13 @@ import type { Card } from "../state/AppState"
 import { ApprovalAnswerForm } from "./ApprovalAnswer"
 import { timeLabel as clockLabel } from "../Timestamps"
 import type { CardFamily, RunCommand } from "./CardFamily"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+
+/* A decision the gateway did not record; its own words stay behind Details. Shared with the approvals inbox. */
+export const APPROVAL_DECISION_FAILED: UserFailureCopy = {
+  fault: "infra", sentence: "Smithers could not record this decision. Not your fault.", actions: []
+}
 
 const ApprovalCardBody = ({
   card,
@@ -79,11 +86,8 @@ const ApprovalCardBody = ({
           </ConfirmationActions>
         )}
       {card.status === "error" && payload.error !== undefined ?
-        (
-          <p className="sui-approval-error" role="alert">
-            {payload.error}
-          </p>
-        ) :
+        <FailureNotice className="sui-approval-error" data-testid="approval-decision-failure"
+          failure={describedFailure("approval.decide", APPROVAL_DECISION_FAILED, payload.error)} /> :
         null}
       <ConfirmationAccepted>{stamp}</ConfirmationAccepted>
       <ConfirmationRejected>{stamp}</ConfirmationRejected>

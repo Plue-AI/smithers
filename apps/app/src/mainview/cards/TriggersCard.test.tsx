@@ -283,7 +283,10 @@ test("a failed Pause remains visible and retries the same repository and schedul
   const host = render(triggerCard({ pauseRequests: [{
     id: "pause-1", slug: "missing", owner: "will", phase: "failed", error: "Could not confirm Pause."
   }] }), (name, args) => { raised.push([name, args]) })
-  expect(host.querySelector('[role="status"]')?.textContent).toBe("Could not confirm Pause.")
+  const notice = host.querySelector<HTMLElement>('[role="status"][data-fault]')!
+  expect(notice.querySelector(":scope > p")?.textContent).toBe("Smithers could not pause this schedule. Not your fault.")
+  expect(notice.querySelector("details")?.open).toBe(false)
+  expect(notice.querySelector("details pre")?.textContent).toBe("Could not confirm Pause.")
   const retry = [...host.querySelectorAll("button")].find(button => button.textContent === "Retry")!
   expect(retry.tagName).toBe("BUTTON")
   retry.click()

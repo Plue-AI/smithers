@@ -3,7 +3,8 @@ import { flowAction } from "../flows/FlowAction"
 import { flowArgs } from "../flows/FlowArgs"
 import { refusalFromStored } from "@smthrs/rpc/Refusal"
 import { refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
-import { FailureNotice } from "../FailureNotice"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { useCallback, useSyncExternalStore } from "react"
 import { creditDollars } from "../state/seams/BillingSeam"
 import { UpgradeDoor, upgradePlanKey } from "./WorkspaceCard"
@@ -113,6 +114,9 @@ const BalanceCardBody = ({ card }: { readonly card: Extract<Card, { kind: "balan
 )
 
 
+/* A grant the billing service did not record; its own words stay behind Details. */
+const GRANT_FAILED: UserFailureCopy = { fault: "infra", sentence: "The billing service did not record the grant. Not your fault.", actions: ["retry"] }
+
 const GrantConfirmCardBody = ({
   card,
   onGrantConfirm,
@@ -132,11 +136,11 @@ const GrantConfirmCardBody = ({
         The grant is recorded with your login as the requester and a fresh timestamp; the billing service answers before
         anything is treated as done.
       </p>
-      {phase === "confirm" || phase === "failed" ?
+      {phase === "confirm" ?
         (
           <div className="reco-actions">
             <Button size="sm" onClick={() => onGrantConfirm(card.id)}>
-              {phase === "failed" ? "Try again" : "Post the grant"}
+              Post the grant
             </Button>
             <Button variant="ghost" size="sm" onClick={() => onGrantCancel(card.id)}>
               Cancel
@@ -152,11 +156,15 @@ const GrantConfirmCardBody = ({
           </p>
         ) :
         null}
-      {phase === "failed" && error !== undefined ?
+      {phase === "failed" ?
         (
-          <p className="sui-approval-error" role="alert">
-            {error}
-          </p>
+          <FailureNotice className="sui-approval-error" data-testid="grant-failure"
+            failure={describedFailure("GrantFailed", GRANT_FAILED, error ?? "")}
+            actions={{ retry: { onClick: () => onGrantConfirm(card.id), label: "Try again" } }}>
+            <Button variant="ghost" size="sm" onClick={() => onGrantCancel(card.id)}>
+              Cancel
+            </Button>
+          </FailureNotice>
         ) :
         null}
     </div>

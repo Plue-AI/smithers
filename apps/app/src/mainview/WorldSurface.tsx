@@ -16,6 +16,8 @@ import { SurfaceHeader } from "./SurfaceChrome"
 import { indexDocumentId, indexLinksOf, indexPageAt, isAttachment, openIndexPath, useWikiScope, WikiSpaceSwitch, WikiTree } from "./wiki/WikiNavigation"
 import { WikiAttachment } from "./wiki/WikiAttachment"
 import { pageLinksOf, WikiPageView } from "./wiki/WikiPageView"
+import { cloudWikiPageFailure } from "./wiki/CloudWikiFailure"
+import { FailureNotice } from "./FailureNotice"
 import { useStackSnapshot } from "./cards/StackCard"
 import { wikiTone } from "@smthrs/rpc/StackView"
 import { linkGraphOf, linksOf, neighbourhoodOf } from "./wiki/VaultAdapter"
@@ -210,7 +212,7 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                     </Button>}
                   </div>
                 </div>
-                {selected.cloud?.error == null ? null : <p className="world-document-notice" role="status">{selected.cloud.error}</p>}
+                {selected.cloud === undefined || cloudWikiPageFailure(selected.cloud) === null ? null : <FailureNotice failure={cloudWikiPageFailure(selected.cloud)!} role="status" className="world-document-notice" data-testid="world-document-notice" />}
                 {reading && repo !== null ? <div className="world-reading-region">
                   <WikiPageView body={selected.body} links={pageLinksOf(index, selected.cloud?.pageId)} index={index} repo={repo} space={space}
                     onRunCommand={controller.runCommand}

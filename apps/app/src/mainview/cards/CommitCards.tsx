@@ -28,6 +28,18 @@ import type { KeyboardEvent } from "react"
 import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+
+/*
+ * What a commit card's failure says, by the part that failed; the seam's own
+ * words stay behind Details. Only the diff read has a re-read to offer.
+ */
+export const COMMIT_FAILURES: Readonly<Record<"list" | "commit" | "diff", UserFailureCopy>> = {
+  list: { fault: "infra", sentence: "Smithers could not load every commit. Not your fault.", actions: [] },
+  commit: { fault: "infra", sentence: "Smithers could not load this commit. Not your fault.", actions: [] },
+  diff: { fault: "infra", sentence: "Smithers could not load this commit's diff. Not your fault.", actions: ["retry"] }
+}
 import { Avatar, RelativeTime } from "./GithubParts"
 
 /*
@@ -123,7 +135,9 @@ export const CommitListBody = ({ card, onRunCommand }: { readonly card: CommitLi
         {branch === null ? null : <> on <code>{branch}</code></>}
         {truncated === true ? " · the newest shown" : null}
       </p>
-      {error !== undefined ? <p className="sui-approval-error" role="alert">{error}</p> : null}
+      {error !== undefined ?
+        <FailureNotice className="sui-approval-error" data-testid="commit-list-failure" failure={describedFailure("CommitList.read", COMMIT_FAILURES.list, error)} /> :
+        null}
       {commits.length === 0 ?
         <p className="world-card-empty">No commits in {repo} yet.</p> :
         groupByDay(commits).map((group) => (
@@ -170,7 +184,9 @@ export const CommitDetailBody = ({ card, onRunCommand }: { readonly card: Commit
   const author = personOf(commit.author)
   return (
     <div className="commit-detail">
-      {error !== undefined ? <p className="sui-approval-error" role="alert">{error}</p> : null}
+      {error !== undefined ?
+        <FailureNotice className="sui-approval-error" data-testid="commit-failure" failure={describedFailure("Commit.read", COMMIT_FAILURES.commit, error)} /> :
+        null}
       <Commit>
         <CommitHeader>
           <Avatar person={author} size={20} />
@@ -227,7 +243,11 @@ export const CommitDetailBody = ({ card, onRunCommand }: { readonly card: Commit
           ) :
           null}
       </Commit>
-      {diffError !== undefined ? <p className="world-card-empty">{diffError}</p> : null}
+      {diffError !== undefined ?
+        <FailureNotice role="status" className="world-card-empty" data-testid="commit-diff-failure"
+          failure={describedFailure("Commit.diff", COMMIT_FAILURES.diff, diffError)}
+          actions={{ retry: flowAction(onRunCommand, "commits.read", flowArgs("commits.read", { ref: refOf(commit), repo })) }} /> :
+        null}
       {diffError === undefined && files.length === 0 ? <p className="world-card-empty">This commit changes no files.</p> : null}
       {files.map((file) => (
         <section key={`diff-${file.path}`} className="commit-diff" aria-label={`Diff of ${file.path}`}>

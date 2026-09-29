@@ -159,12 +159,51 @@ describe("the Models card, embedded", () => {
     expect(acts(row(host, "cerebras"))).toEqual([["Test", "model.test", "cerebras"], ["Compose", "model.compose", "cerebras"]])
   })
 
-  test("the host's refusal stays on the card", () => {
-    const { onRunCommand } = recorder()
+  test("an untyped refresh error says our sentence with Retry; its words stay behind Details", () => {
+    const { calls, onRunCommand } = recorder()
     const host = mount(<ModelsCardBody card={modelsCard({ host: "unavailable", error: "The server answered 500" })} onRunCommand={onRunCommand} presentation="embedded" />)
-    const alert = host.querySelector('[data-testid="models-error"]')
-    expect(alert?.getAttribute("role")).toBe("alert")
-    expect(alert?.textContent).toBe("The server answered 500")
+    const alert = host.querySelector<HTMLElement>('[data-testid="models-error"]')!
+    expect(alert.getAttribute("role")).toBe("alert")
+    expect(alert.dataset.failure).toBe("ModelsFailed")
+    expect(alert.dataset.fault).toBe("infra")
+    expect(alert.querySelector("p")?.textContent).toBe("Smithers could not list models. Not your fault.")
+    expect(alert.querySelector("details")?.open).toBe(false)
+    expect(alert.querySelector("details pre")?.textContent).toBe("The server answered 500")
+    alert.querySelector<HTMLButtonElement>('button[data-flow="model.list"]')!.click()
+    expect(calls).toEqual([["model.list", undefined]])
+  })
+
+  /* Every code a failed catalog read can carry: its fault, its sentence, and whether Retry is offered. The code line is only the detail. */
+  test("a typed refresh failure picks its sentence by code, never showing the code line", () => {
+    const cases: ReadonlyArray<[ModelTestFailure, string, string, boolean]> = [
+      [{ code: "unreachable" }, "dependency", "The model host did not answer. Not your fault.", true],
+      [{ code: "empty_output" }, "dependency", "The model host answered with nothing. Not your fault.", true],
+      [{ code: "refused", status: 429 }, "wait", "The model host is busy. Not your fault.", true],
+      [{ code: "refused", status: 503 }, "dependency", "The model host failed to list models. Not your fault.", true],
+      [{ code: "refused", status: 403 }, "user", "The model host refused to list models. Check its credential.", true],
+      [{ code: "timeout", deadlineMs: 5000 }, "dependency", "The model host took too long to answer. Not your fault.", true],
+      [{ code: "invalid", field: "baseUrl" }, "user", "A model setting is invalid. Edit it and try again.", false],
+      [{ code: "credential_missing", credential: "OPENROUTER_API_KEY" }, "infra", "A credential this host needs is not set. Not your fault.", true],
+      [{ code: "credential_unknown", credential: "OPENROUTER_API_KEY" }, "user", "A model names a credential this host does not know.", false],
+      [{ code: "endpoint_forbidden" }, "user", "A credential is not allowed for this model's address.", false],
+      [{ code: "model_not_allowed" }, "user", "This model is not allowed for decisions.", false],
+      [{ code: "host_refused", refusal: "upstream_refused", status: 502, fault: "infra" }, "infra", "Smithers could not list models. Not your fault.", true],
+      [{ code: "host_refused", refusal: "request_invalid", status: 400, fault: "user" }, "user", "Smithers refused to list models.", true]
+    ]
+    for (const [failure, fault, sentence, retry] of cases) {
+      const { onRunCommand } = recorder()
+      const line = `${failure.code} · raw`
+      const host = mount(<ModelsCardBody card={modelsCard({ host: "unavailable", refresh: { state: "failed", failure }, error: line })}
+        onRunCommand={onRunCommand} presentation="embedded" />)
+      const alert = host.querySelector<HTMLElement>('[data-testid="models-error"]')!
+      expect(alert.dataset.failure).toBe(`models.${failure.code}`)
+      expect(alert.dataset.fault).toBe(fault)
+      expect(alert.querySelector("p")?.textContent).toBe(sentence)
+      expect(alert.querySelector("p")?.textContent).not.toMatch(/·|_|raw/)
+      expect(alert.querySelector("details pre")?.textContent).toBe(line)
+      expect(alert.querySelector('button[data-flow="model.list"]') !== null).toBe(retry)
+      host.remove()
+    }
   })
 
   /* A catalog nobody read says nothing about what the host holds. */

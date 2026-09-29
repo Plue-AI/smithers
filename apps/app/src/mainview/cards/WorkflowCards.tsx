@@ -1,6 +1,6 @@
 import { ViewSkeleton } from "../ViewSkeleton"
 import { flowAction, flowProps } from "../flows/FlowAction"
-import { workflowLaunchOf } from "../state/WorkflowLaunch"
+import { workflowLaunchOf, type WorkflowLaunch } from "../state/WorkflowLaunch"
 /*
  * The workflow cards: the embedded run card (run-trace) with its trace body
  * and steer row, the which-repository chooser (workflow-repo), and the
@@ -21,6 +21,56 @@ import { RunTraceBody, TERMINAL_RUN_PHASES } from "./RunTraceCard"
 import { ChildRuns } from "../SubagentGrid"
 import { flowArgs } from "../flows/FlowArgs"
 import { runFailureOf } from "../state/RunFailure"
+import type { UserFailure, UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import { isFlowNotFound } from "../state/controller/gateway"
+
+type LaunchStage = NonNullable<WorkflowLaunch["error"]>["stage"]
+type RunPhase = Extract<Card, { kind: "run-trace" }>["payload"]["phase"]
+type RunFacet = NonNullable<Extract<Card, { kind: "run-trace" }>["payload"]["facetRequest"]>["facet"]
+
+/* A request that never became a run: its stage picks the sentence; the gateway's words stay behind Details. */
+export const LAUNCH_FAILURES: Readonly<Record<LaunchStage, UserFailureCopy>> = {
+  preparation: { fault: "infra", sentence: "Smithers could not get the box ready for this run. Not your fault.", actions: ["retry"] },
+  launch: { fault: "infra", sentence: "Smithers could not start this run. Not your fault.", actions: ["retry"] },
+  persistence: { fault: "bug", sentence: "This browser could not save this run request. Not your fault.", actions: ["retry"] }
+}
+
+/* The one launch refusal the person can fix: the repository has no flow by that name. */
+export const LAUNCH_FLOW_MISSING: UserFailureCopy = {
+  fault: "user", sentence: "This repository has no flow by that name.", actions: []
+}
+
+/** A launch that failed before a run existed: its stage (or a missing flow) picks the copy; code and words are the detail. */
+const launchFailure = (launch: NonNullable<WorkflowLaunch["error"]>): UserFailure => {
+  const detail = `${launch.code} — ${launch.message}`
+  return isFlowNotFound(launch.code)
+    ? describedFailure("run.launch.flow-missing", LAUNCH_FLOW_MISSING, detail)
+    : describedFailure(`run.launch.${launch.stage}`, LAUNCH_FAILURES[launch.stage], detail)
+}
+
+/* A facet read that failed: which view could not load. */
+export const FACET_FAILURES: Readonly<Record<RunFacet, UserFailureCopy>> = {
+  transcript: { fault: "infra", sentence: "Smithers could not load this run's transcript. Not your fault.", actions: [] },
+  events: { fault: "infra", sentence: "Smithers could not load this run's events. Not your fault.", actions: [] }
+}
+
+const LIVE_UNWATCHED: UserFailureCopy = { fault: "infra", sentence: "Smithers lost track of this run. Not your fault.", actions: [] }
+const SETTLED_UNREAD: UserFailureCopy = { fault: "infra", sentence: "This run finished, but Smithers could not read all of its record. Not your fault.", actions: [] }
+
+/* Why the card cannot vouch for the run, by the phase it was left in. */
+export const OBSERVATION_FAILURES: Readonly<Record<RunPhase, UserFailureCopy>> = {
+  launching: LIVE_UNWATCHED,
+  running: LIVE_UNWATCHED,
+  "waiting-approval": LIVE_UNWATCHED,
+  reconnecting: LIVE_UNWATCHED,
+  quiet: LIVE_UNWATCHED,
+  stopped: { fault: "infra", sentence: "Smithers stopped watching this run. Not your fault.", actions: [] },
+  completed: SETTLED_UNREAD,
+  failed: SETTLED_UNREAD,
+  cancelled: SETTLED_UNREAD,
+  "no-capacity": SETTLED_UNREAD
+}
 
 /*
  * Wave 11 — the embedded run card. RunTraceBody carries the run's outcome,
@@ -59,13 +109,14 @@ export const WorkflowRunCardBody = ({
   const onRunCommand = runSourceCommand(card.id, sendRunCommand)
   const request = workflowLaunchOf(card)
   if (request && request.runId === undefined) return <div className="flow-run-card">
-    <p className={request.error ? "sui-approval-error" : "smithers-card-note"} role={request.error ? "alert" : "status"}>
-      {request.error?.message ?? "Requested"}
-    </p>
-    {request.error ? <Button size="sm" {...flowProps("flow.run.retry")} onClick={() => onRetryRun(card.id)}>Retry</Button> : null}
+    {request.error === undefined ? <p className="smithers-card-note" role="status">Requested</p> : (
+      <FailureNotice className="sui-approval-error" data-testid="flow-run-launch-failure" data-stage={request.error.stage}
+        failure={launchFailure(request.error)}
+        actions={{ retry: { ...flowProps("flow.run.retry"), onClick: () => onRetryRun(card.id) } }} />
+    )}
   </div>
   const { phase, error, observationError, runId, kind } = card.payload
-  const failure = runFailureOf(card.payload)
+  const { fault, message: sentence, detail } = runFailureOf(card.payload)
   const facet = card.payload.facet ?? "steps"
   const facetRequest = card.payload.facetRequest
   const facetUnready = facetRequest !== undefined && facetRequest.state !== "complete" && facetRequest.facet === facet
@@ -97,7 +148,10 @@ export const WorkflowRunCardBody = ({
         childCards={childCards}
       />
       <ChildRuns card={card} collection={childCards} onRunCommand={onRunCommand} />
-      {facetRequest?.state === "failed" ? <p className="sui-approval-error" role="alert">{facetRequest.error}</p> : null}
+      {facetRequest?.state === "failed" ?
+        <FailureNotice className="sui-approval-error" data-testid={`flow-run-facet-failure-${runId}`}
+          failure={describedFailure(`run.facet.${facetRequest.facet}`, FACET_FAILURES[facetRequest.facet], facetRequest.error ?? "")} /> :
+        null}
       {facet === "transcript" && !facetUnready ?
         card.payload.transcriptRows === undefined || card.payload.transcriptRows.length === 0 ?
           <p className="smithers-card-note">The transcript is empty so far.</p> :
@@ -127,13 +181,14 @@ export const WorkflowRunCardBody = ({
         null}
       {(phase === "completed" || phase === "failed" || phase === "cancelled" || phase === "no-capacity") && error !== undefined && !planOnly ?
         (
-          <div>
-            <p className="sui-approval-error" role="alert" data-refusal-fault={failure.fault}>{failure.message}</p>
-            <details><summary>Technical details</summary><pre tabIndex={0}>{failure.detail}</pre></details>
-          </div>
+          <FailureNotice className="sui-approval-error run-failure" data-testid={`flow-run-failure-${runId}`}
+            failure={{ tag: null, fault, sentence, actions: [], detail }} />
         ) :
         null}
-      {observationError !== undefined ? <p className="sui-approval-error" role="alert">{observationError}</p> : null}
+      {observationError !== undefined ?
+        <FailureNotice className="sui-approval-error" data-testid={`flow-run-observation-failure-${runId}`}
+          failure={describedFailure(`run.observe.${phase}`, OBSERVATION_FAILURES[phase], observationError)} /> :
+        null}
       {/* §3: the two acts a quiet run offers — both registered commands. */}
       {phase === "quiet" ?
         (

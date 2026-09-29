@@ -12,6 +12,8 @@
 import { Button } from "@smthrs/ui"
 import { MODEL_SEAT_DEFAULT, modelKindOf, modelSeat, modelTestFixOf, modelTestStateOf, seatAccepts } from "@smthrs/rpc/ConfiguredModel"
 import type { ModelTestFailure, ModelTestRecord } from "@smthrs/rpc/ConfiguredModel"
+import type { UserFailure, UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 import { useLiveQuery } from "@tanstack/react-db"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import { flowArgs } from "../flows/FlowArgs"
@@ -60,6 +62,38 @@ const failureText = (failure: ModelTestFailure): string => {
  */
 const signInRefused = (failure: ModelTestFailure): boolean =>
   failure.code === "host_refused" && failure.refusal === "sign_in_required"
+
+/*
+ * What a failed catalog read says, by the failure's code; the code line stays
+ * behind Details. `host_refused` carries the refusal's own fault.
+ */
+const MODEL_REFRESH_FAILURES: { readonly [C in ModelTestFailure["code"]]: (failure: Extract<ModelTestFailure, { readonly code: C }>) => UserFailureCopy } = {
+  unreachable: () => ({ fault: "dependency", sentence: "The model host did not answer. Not your fault.", actions: ["retry"] }),
+  empty_output: () => ({ fault: "dependency", sentence: "The model host answered with nothing. Not your fault.", actions: ["retry"] }),
+  refused: (failure) => failure.status === 429
+    ? { fault: "wait", sentence: "The model host is busy. Not your fault.", actions: ["retry"] }
+    : failure.status >= 500
+    ? { fault: "dependency", sentence: "The model host failed to list models. Not your fault.", actions: ["retry"] }
+    : { fault: "user", sentence: "The model host refused to list models. Check its credential.", actions: ["retry"] },
+  timeout: () => ({ fault: "dependency", sentence: "The model host took too long to answer. Not your fault.", actions: ["retry"] }),
+  invalid: () => ({ fault: "user", sentence: "A model setting is invalid. Edit it and try again.", actions: [] }),
+  credential_missing: () => ({ fault: "infra", sentence: "A credential this host needs is not set. Not your fault.", actions: ["retry"] }),
+  credential_unknown: () => ({ fault: "user", sentence: "A model names a credential this host does not know.", actions: [] }),
+  endpoint_forbidden: () => ({ fault: "user", sentence: "A credential is not allowed for this model's address.", actions: [] }),
+  model_not_allowed: () => ({ fault: "user", sentence: "This model is not allowed for decisions.", actions: [] }),
+  host_refused: (failure) => failure.fault === "user"
+    ? { fault: "user", sentence: "Smithers refused to list models.", actions: ["retry"] }
+    : { fault: failure.fault, sentence: "Smithers could not list models. Not your fault.", actions: ["retry"] }
+}
+
+/* A refresh error whose typed failure did not survive. */
+const MODELS_FAILED: UserFailureCopy = { fault: "infra", sentence: "Smithers could not list models. Not your fault.", actions: ["retry"] }
+
+const refreshFailure = (failure: ModelTestFailure | undefined, line: string): UserFailure => {
+  if (failure === undefined) return describedFailure("ModelsFailed", MODELS_FAILED, line)
+  const copy = (MODEL_REFRESH_FAILURES[failure.code] as (failure: ModelTestFailure) => UserFailureCopy)(failure)
+  return describedFailure(`models.${failure.code}`, copy, line === "" ? failureText(failure) : line)
+}
 
 /** A dot, then the latency or the typed failure. No sentence. */
 const TestMark = ({ test, running }: { readonly test: ModelTestRecord | undefined; readonly running: boolean }) => (
@@ -258,7 +292,11 @@ export const ModelsCardBody = ({
   const alert = <>
     {wantsSession ?
       <div className="flow-run-actions"><Button size="sm" data-testid="models-sign-in" {...flowAction(onRunCommand, "auth.prompt")}>Sign in</Button></div> :
-      error === undefined ? null : <p className="sui-approval-error" role="alert" data-testid="models-error">{error}</p>}
+      error === undefined ? null : (
+        <FailureNotice className="sui-approval-error" data-testid="models-error"
+          failure={refreshFailure(refresh?.state === "failed" ? refresh.failure : undefined, error)}
+          actions={{ retry: flowAction(onRunCommand, "model.list") }} />
+      )}
   </>
   // "No models." is a fact about a catalog that was read. A catalog this host never answered says nothing about what it holds.
   const empty = host === "observed" ? <p className="world-card-empty" data-testid="models-empty">No models.</p> : null

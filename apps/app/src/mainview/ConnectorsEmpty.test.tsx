@@ -3,7 +3,7 @@ import type { StorageApi } from "@tanstack/db"
 import { afterAll,afterEach,describe,expect,test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
-import { ConnectorsSurface } from "./ConnectorsSurface"
+import { CONNECTOR_FAILURE, ConnectorsSurface } from "./ConnectorsSurface"
 import { ControllerTestProvider } from "./ControllerContext"
 
 import type { AgentPort } from "./runtime/AgentPort"
@@ -143,5 +143,22 @@ describe("the connectors surface with repositories", () => {
     const listed = Array.from(section?.querySelectorAll("[role=\"listitem\"]") ?? []).map((row) => row.textContent)
     // A public catalog row is readable by anyone; it is not a connected repository.
     expect(listed).toEqual(["acme/force", "will/smithers"])
+  })
+})
+
+describe("a failed local connect", () => {
+  test("is one sentence with the reducer's message only behind Details", async () => {
+    const { host, store } = await openConnectors(true)
+    const raw = "NotAllowedError: showDirectoryPicker aborted (EACCES /Users/x/repo)"
+    flushSync(() => store.dispatch({ type: "connector.local.failed", actor: "system", message: raw }))
+    const notice = host.querySelector<HTMLElement>('[data-testid="connector-failure"]')!
+    expect(notice.getAttribute("role")).toBe("alert")
+    expect(notice.dataset.failure).toBe("ConnectorFailed")
+    expect(notice.dataset.fault).toBe(CONNECTOR_FAILURE.fault)
+    const sentence = notice.querySelector(":scope > p")?.textContent ?? ""
+    expect(sentence).toBe(CONNECTOR_FAILURE.sentence)
+    expect(sentence).not.toContain("EACCES")
+    expect(notice.querySelector("details")?.open).toBe(false)
+    expect(notice.querySelector("details pre")?.textContent).toBe(raw)
   })
 })

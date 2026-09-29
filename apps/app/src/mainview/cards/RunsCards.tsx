@@ -1,5 +1,7 @@
 import { canDecide } from "../state/ApprovalDeciders"
 import { flowAction } from "../flows/FlowAction"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 /*
  * Lane runs — the run inbox and the approvals inbox cards.
  *
@@ -18,12 +20,19 @@ import { StatusDetails } from "../StatusDetails"
 import type { Card } from "../state/AppState"
 import { approvalActionId, approvalRowKey } from "../state/ApprovalReference"
 import { ApprovalAnswerForm } from "./ApprovalAnswer"
+import { APPROVAL_DECISION_FAILED } from "./ApprovalCard"
 import { timeLabel as clockLabel } from "../Timestamps"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
 import { runSourceCommand } from "@smthrs/ui/run-command"
 import { GROUP_HEADING, INBOX_GROUPS, needsYouAct, onProviderLimit, runGroup, runTone, TONE_GLYPH, type InboxGroup, type InboxRun } from "./RunsInbox"
+
+/* A run listing the gateway answered only in part, or not at all: the read's state picks the sentence. */
+export const RUN_LIST_FAILURES: Readonly<Record<"partial" | "failed", UserFailureCopy>> = {
+  partial: { fault: "infra", sentence: "Smithers could not read every run. Not your fault.", actions: [] },
+  failed: { fault: "infra", sentence: "Smithers could not load this repository's runs. Not your fault.", actions: [] }
+}
 
 /** Why a run is not moving, in words: the control plane's reason, translated. */
 const waitingWords = (waiting: string): string =>
@@ -122,7 +131,10 @@ export const RunListCardBody = ({
         {attention ? <Button size="sm" variant="outline" 
           {...flowAction(onRunCommand, "runs.list", listArgs())}>All runs</Button> : null}
       </div>
-      {observationError === undefined ? null : <p className="sui-approval-error" role="alert">Some state could not be read: {observationError}</p>}
+      {observationError === undefined ? null : ((read: "partial" | "failed") => (
+        <FailureNotice className="sui-approval-error" data-testid="run-list-failure"
+          failure={describedFailure(`runs.list.${read}`, RUN_LIST_FAILURES[read], observationError)} />
+      ))(card.payload.listRequest?.state === "failed" ? "failed" : "partial")}
       {attention && card.payload.observedAt !== undefined ? <p className="smithers-card-note">{repo} · checked {clockLabel(card.payload.observedAt)}</p> : null}
       {pending || (runs.length === 0 && observationError !== undefined) ? null : <p className="smithers-card-note" data-testid="run-list-counts">
         {runs.length === 0 ? attention
@@ -279,11 +291,8 @@ export const ApprovalsInboxCardBody = ({
                 </ConfirmationActions>
               )}
             {approval.decisionError !== undefined ?
-              (
-                <p className="sui-approval-error" role="alert">
-                  {approval.decisionError}
-                </p>
-              ) :
+              <FailureNotice className="sui-approval-error" data-testid="approval-decision-failure"
+                failure={describedFailure("approval.decide", APPROVAL_DECISION_FAILED, approval.decisionError)} /> :
               null}
             <ConfirmationAccepted>{stamp}</ConfirmationAccepted>
             <ConfirmationRejected>{stamp}</ConfirmationRejected>

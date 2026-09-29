@@ -3,7 +3,7 @@ import { afterAll, afterEach, expect, test } from "bun:test"
 import { act } from "react"
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
-import { LocalAuthPanel } from "./LocalAuthPanel"
+import { LOCAL_AUTH_FAILURES, LocalAuthPanel } from "./LocalAuthPanel"
 import type { LocalAuthController, LocalAuthSnapshot } from "./state/LocalAuth"
 
 GlobalRegistrator.register()
@@ -143,4 +143,61 @@ test("sign-in traps Tab in both directions, including while all inputs are disab
       expect(document.activeElement).toBe(to)
     }
   }
+})
+
+const mountPanel = (snapshot: LocalAuthSnapshot, open: () => void = () => {}): HTMLElement => {
+  const auth: LocalAuthController = { requiresBootstrapTokenInput: false, subscribe: () => () => {}, snapshot: () => snapshot, open, close: () => {}, submit: async () => {}, dispose: () => {} }
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host); roots.add(root)
+  flushSync(() => root.render(<LocalAuthPanel auth={auth} />))
+  return host
+}
+const noticeParts = (host: HTMLElement) => {
+  const notice = host.querySelector<HTMLElement>('[data-testid="local-auth-failure"]')!
+  return { notice, sentence: notice.querySelector(":scope > p")?.textContent ?? "", detail: notice.querySelector("details pre")?.textContent }
+}
+
+test("a status read that fails says sign-in is unreachable, keeps the message in Details, and Retry reads again", () => {
+  let opened = 0
+  const raw = "ApplicationClientError: transport: Failed to fetch http://127.0.0.1:4920/api/local-auth/status"
+  const host = mountPanel({ open: true, pending: false, status: null, error: raw }, () => { opened += 1 })
+  const { notice, sentence, detail } = noticeParts(host)
+  expect(notice.dataset.failure).toBe("LocalAuth.status")
+  expect(notice.dataset.fault).toBe("infra")
+  expect(sentence).toBe(LOCAL_AUTH_FAILURES.status.sentence)
+  expect(sentence).not.toContain("Failed to fetch")
+  expect(detail).toBe(raw)
+  expect(host.textContent).not.toContain("Loading…")
+  const retry = notice.querySelector<HTMLButtonElement>("button")!
+  expect(retry.textContent).toBe("Retry")
+  retry.click()
+  expect(opened).toBe(1)
+})
+
+test("a refused sign-in asks the person to check what they entered and never shows the server's words outside Details", () => {
+  const raw = "401 invalid_credentials: bcrypt mismatch for owner"
+  const host = mountPanel({ open: true, pending: false, status: { enabled: true, initialized: true }, error: raw })
+  const { notice, sentence, detail } = noticeParts(host)
+  expect(notice.dataset.failure).toBe("LocalAuth.submit")
+  expect(notice.dataset.fault).toBe("user")
+  expect(sentence).toBe(LOCAL_AUTH_FAILURES.submit.sentence)
+  expect(sentence).not.toContain("Not your fault")
+  expect(sentence).not.toContain("401")
+  expect(detail).toBe(raw)
+  // The Details disclosure joins the dialog's Tab cycle.
+  expect([...host.querySelectorAll('[role="dialog"] summary')].length).toBe(1)
+})
+
+test("sign-in turned off on the host is its own sentence, not a sign-in mistake", () => {
+  const host = mountPanel({ open: true, pending: false, status: { enabled: false, initialized: false }, error: "Local sign-in is unavailable." })
+  const { notice, sentence } = noticeParts(host)
+  expect(notice.dataset.failure).toBe("LocalAuth.unavailable")
+  expect(sentence).toBe(LOCAL_AUTH_FAILURES.unavailable.sentence)
+  expect(sentence).not.toBe(LOCAL_AUTH_FAILURES.submit.sentence)
+})
+
+test("while the status loads with no error there is no failure notice", () => {
+  const host = mountPanel({ open: true, pending: true, status: null, error: null })
+  expect(host.querySelector('[data-testid="local-auth-failure"]')).toBeNull()
+  expect(host.textContent).toContain("Loading…")
 })
