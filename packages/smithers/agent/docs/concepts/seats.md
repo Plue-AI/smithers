@@ -59,3 +59,27 @@ instead of failing an accepted run.
 
 For the implementation walkthrough, see
 [Resolve seats into live models](../guides/seat-resolvers.md).
+
+## Pin a subscription login
+
+The native CLI resolver accepts `<seat>@<account>`, including aliases:
+
+```ts
+seat: "claude-code:opus@claude-9"
+seat: "opus@claude-2"
+seat: "sol@codex-3"
+seat: "openai:gpt-6.1-sol@codex-default"
+```
+
+Accounts live under `SMITHERS_ACCOUNTS_DIR`, defaulting to
+`~/.smithers/accounts`. Claude accounts select `CLAUDE_CONFIG_DIR`; Codex
+accounts select `CODEX_HOME` and ChatGPT authentication. `codex-default`
+selects `~/.codex`. Account names begin with `claude-` or `codex-` and contain
+letters, digits, underscores, or hyphens.
+
+A pinned login takes precedence over ambient API keys, pools, and proxies.
+Claude accounts serve Claude Code seats and Claude aliases; Codex accounts
+serve OpenAI and `codex:` seats and their aliases. The vendor CLI owns login
+validation and execution. An unknown account, missing subscription
+login, or incompatible seat fails with `SeatUnresolved` naming the account.
+The resolved seat retains the complete declared ID for journaling.

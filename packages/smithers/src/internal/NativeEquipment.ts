@@ -27,8 +27,9 @@ import type { Path, Result } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import type * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import { statSync } from "node:fs"
 import { homedir } from "node:os"
-import { isAbsolute, relative } from "node:path"
+import { isAbsolute, join, relative } from "node:path"
 import * as CliError from "../CliError.ts"
 import * as Environment_ from "../Environment.ts"
 import * as Providers from "../Providers.ts"
@@ -109,7 +110,78 @@ const accountPoolOf = (environment: Readonly<Record<string, string | undefined>>
 export const seatResolver = (
   environment: Readonly<Record<string, string | undefined>>,
   executor: RequestExecutor.RequestExecutor
-): SeatResolver.Service => withAliases(providerSeats(environment, executor), hostOf(environment))
+): SeatResolver.Service => {
+  const ambient = withAliases(providerSeats(environment, executor), hostOf(environment))
+  const accounts = new Map<string, SeatResolver.Service>()
+  return SeatResolver.make({
+    resolve: (declared) =>
+      Effect.gen(function*() {
+        const separator = declared.indexOf("@")
+        if (separator < 0) return yield* ambient.resolve(declared)
+        const seat = declared.slice(0, separator)
+        const account = declared.slice(separator + 1)
+        const refuse = (message: string) =>
+          new Seat.SeatUnresolved({
+            seat: declared,
+            message: `Account ${account || "(empty)"}: ${message}`
+          })
+        if (seat === "" || !/^(claude|codex)-[A-Za-z0-9][A-Za-z0-9_-]*$/.test(account)) {
+          return yield* refuse("Invalid account-pinned seat; use <seat>@<claude-account|codex-account>.")
+        }
+        const claude = account.startsWith("claude-")
+        const expanded = Providers.expandSeat(seat)
+        if (
+          claude ?
+            !(expanded !== seat && expanded.startsWith("anthropic:")) && !seat.startsWith("claude-code:")
+            : !expanded.startsWith("openai:") && !expanded.startsWith("codex:")
+        ) {
+          return yield* refuse("This login cannot serve the declared seat.")
+        }
+        const directory = account === "codex-default"
+          ? join(homedir(), ".codex")
+          : join(
+            Environment_.read(environment, "SMITHERS_ACCOUNTS_DIR") ?? join(homedir(), ".smithers", "accounts"),
+            account
+          )
+        let exists = false
+        try {
+          exists = statSync(directory).isDirectory()
+        } catch { /* Unknown accounts refuse before consulting any ambient login. */ }
+        if (!exists) return yield* refuse(`Unknown account at ${directory}.`)
+        let resolver = accounts.get(directory)
+        if (resolver === undefined) {
+          const selected: Record<string, string | undefined> = { ...environment }
+          // A pin names a local login, so neither an ambient credential nor a
+          // remote pool/proxy may choose a different account for this seat.
+          delete selected[accountPoolVariable]
+          delete selected[Endpoint.modelProxyVariable]
+          if (claude) {
+            selected.CLAUDE_CONFIG_DIR = directory
+            delete selected.ANTHROPIC_API_KEY
+            delete selected.ANTHROPIC_AUTH_TOKEN
+            delete selected.CLAUDE_CODE_OAUTH_TOKEN
+            delete selected.ANTHROPIC_BASE_URL
+            delete selected.CLAUDE_CODE_USE_BEDROCK
+            delete selected.CLAUDE_CODE_USE_VERTEX
+            delete selected.CLAUDE_CODE_USE_FOUNDRY
+            delete selected.ANTHROPIC_FOUNDRY_BASE_URL
+          } else {
+            delete selected.OPENAI_API_KEY
+            delete selected.CODEX_API_KEY
+            delete selected.OPENAI_BASE_URL
+            selected.CODEX_HOME = directory
+            selected[openaiAuthVariable] = "chatgpt"
+          }
+          resolver = withAliases(providerSeats(selected, executor), hostOf(selected))
+          accounts.set(directory, resolver)
+        }
+        return yield* resolver.resolve(seat).pipe(
+          Effect.map((resolved) => Seat.make({ ...resolved, id: declared })),
+          Effect.mapError((error) => refuse(error.message))
+        )
+      })
+  })
+}
 
 /**
  * The seat an alias runs as on `host`: the `provider:modelId` it names, except
