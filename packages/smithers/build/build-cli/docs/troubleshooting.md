@@ -206,6 +206,9 @@ Its ignored contents then remain in place as host state outside rollback;
 tracked files and other ignored data remain guarded. Never declare a directory
 containing unique local data.
 
+For evaluation journals and grading receipts, follow
+[Preserve evaluation evidence](./guides/preserve-evaluation-evidence.md).
+
 ## A commit refused
 
 **`unrelated_changes`**
