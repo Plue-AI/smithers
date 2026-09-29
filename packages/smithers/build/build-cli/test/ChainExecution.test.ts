@@ -598,12 +598,21 @@ describe("Docker build, bake, and push plans", () => {
 
   it("plans one Docker push command per tag and refuses a tag that never resolves", async () => {
     await withDockerStub({}, async (docker) => {
+      const single = await DockerExec.plan({
+        rule: "Docker.Push",
+        packagePath: "apps/img",
+        attrs: { registry: "registry.example.invalid", name: "fixture", tags: ["latest"] } as never
+      })
+      expect(single.argv).toEqual([docker, "push", "registry.example.invalid/fixture:latest"])
+      expect(single.commands).toEqual([[docker, "push", "registry.example.invalid/fixture:latest"]])
+
       const planned = await DockerExec.plan({
         rule: "Docker.Push",
         packagePath: "apps/img",
         attrs: { registry: "registry.example.invalid", name: "fixture", tags: ["latest", 7] } as never
       })
       expect(planned.outDirs).toEqual([])
+      expect(planned.argv).toEqual([docker, "push", "registry.example.invalid/fixture:latest"])
       expect(planned.commands).toEqual([
         [docker, "push", "registry.example.invalid/fixture:latest"],
         [docker, "push", "registry.example.invalid/fixture:7"]
@@ -621,6 +630,7 @@ describe("Docker build, bake, and push plans", () => {
         packagePath: "apps/img",
         attrs: { registry: "registry.example.invalid", name: "fixture", tags: [] } as never
       })
+      expect(empty.argv).toBeUndefined()
       expect(empty.commands).toBeUndefined()
       expect(empty.refusal).toBe("Docker.Push requires at least one tag")
     })
