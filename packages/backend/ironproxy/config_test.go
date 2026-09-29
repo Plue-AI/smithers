@@ -77,24 +77,30 @@ func TestRenderEmitsRealIronProxySchema(t *testing.T) {
 
 func TestRenderFailsClosedOnUnenforceableBindings(t *testing.T) {
 	t.Parallel()
-	base := Spec{ListenAddr: "127.0.0.1:1", CACertPath: "/c", CAKeyPath: "/k"}
-	cases := map[string]Spec{
-		"missing listener":      {CACertPath: "/c", CAKeyPath: "/k"},
-		"listener without port": {ListenAddr: "127.0.0.1", CACertPath: "/c", CAKeyPath: "/k"},
-		"missing CA":            {ListenAddr: "127.0.0.1:1"},
-		"blank env var":         withSecrets(base, SecretBinding{Hosts: []string{"a.example"}, MatchHeaders: []string{"authorization"}}),
-		"no host":               withSecrets(base, SecretBinding{EnvVar: "K", MatchHeaders: []string{"authorization"}}),
-		"no location":           withSecrets(base, SecretBinding{EnvVar: "K", Hosts: []string{"a.example"}}),
-		"placeholder collision": withSecrets(base,
+	base := Spec{ListenAddr: "127.0.0.1:1", HTTPListen: "127.0.0.1:2", HTTPSListen: "127.0.0.1:3", MetricsListen: "127.0.0.1:4", CACertPath: "/c", CAKeyPath: "/k"}
+	missingCA := base
+	missingCA.CACertPath, missingCA.CAKeyPath = "", ""
+	cases := map[string]struct {
+		spec  Spec
+		cause string
+	}{
+		"missing listener":      {Spec{CACertPath: "/c", CAKeyPath: "/k"}, "listen address is required"},
+		"listener without port": {Spec{ListenAddr: "127.0.0.1", CACertPath: "/c", CAKeyPath: "/k"}, `listen address "127.0.0.1"`},
+		"missing CA":            {missingCA, "CA certificate and key paths are required"},
+		"blank env var":         {withSecrets(base, SecretBinding{Hosts: []string{"a.example"}, MatchHeaders: []string{"authorization"}}), "secret binding env var is required"},
+		"no host":               {withSecrets(base, SecretBinding{EnvVar: "K", MatchHeaders: []string{"authorization"}}), "secret K has no host binding"},
+		"no location":           {withSecrets(base, SecretBinding{EnvVar: "K", Hosts: []string{"a.example"}}), "secret K has no match location"},
+		"placeholder collision": {withSecrets(base,
 			SecretBinding{EnvVar: "A", ProxyValue: "same", Hosts: []string{"a.example"}, MatchHeaders: []string{"h"}},
 			SecretBinding{EnvVar: "B", ProxyValue: "same", Hosts: []string{"b.example"}, MatchHeaders: []string{"h"}},
-		),
-		"bad deny cidr": {ListenAddr: "127.0.0.1:1", HTTPListen: "127.0.0.1:2", HTTPSListen: "127.0.0.1:3", MetricsListen: "127.0.0.1:4", CACertPath: "/c", CAKeyPath: "/k", UpstreamDenyCIDRs: []string{"10.0.0.1"}},
+		), `placeholder "same" bound to both A and B`},
+		"bad deny cidr": {Spec{ListenAddr: "127.0.0.1:1", HTTPListen: "127.0.0.1:2", HTTPSListen: "127.0.0.1:3", MetricsListen: "127.0.0.1:4", CACertPath: "/c", CAKeyPath: "/k", UpstreamDenyCIDRs: []string{"10.0.0.1"}}, `upstream deny cidr "10.0.0.1"`},
 	}
-	for name, spec := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := Render(spec)
+			_, err := Render(tc.spec)
 			require.ErrorIs(t, err, ErrInvalidSpec)
+			assert.ErrorContains(t, err, tc.cause)
 		})
 	}
 }
