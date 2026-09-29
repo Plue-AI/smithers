@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"regexp"
 	"sort"
@@ -134,11 +135,11 @@ func ParseJSON(text string) (any, error) {
 	if err := decoder.Decode(&value); err != nil {
 		return nil, errors.New("body must be valid JSON")
 	}
-	if decoder.More() {
-		return nil, errors.New("body must be valid JSON")
-	}
-	// A trailing non-whitespace token that is not a second value.
-	if _, err := decoder.Token(); err == nil {
+	// Decode a second complete value: only EOF means the first value was
+	// followed solely by whitespace. Syntax errors (including unmatched
+	// closing delimiters) and additional values are both invalid.
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
 		return nil, errors.New("body must be valid JSON")
 	}
 	return value, nil

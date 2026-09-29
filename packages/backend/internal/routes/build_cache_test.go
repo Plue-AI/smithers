@@ -48,6 +48,11 @@ func (m *mockBuildCacheService) GetEntry(_ context.Context, repo int64, k string
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	entry, ok := m.entries[m.key(repo, k)]
+	if ok {
+		if err := buildcache.ValidateStoredBody(k, entry.Body); err != nil {
+			return "", false, err
+		}
+	}
 	return entry.Body, ok, nil
 }
 
@@ -261,6 +266,47 @@ func TestBuildCacheHandler_ActionCacheStatusCodes(t *testing.T) {
 	rec = do(withKey(cacheRequest(http.MethodGet, "/ac/k1", nil, ""), "k1"))
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "a tier failure is never a miss")
 	assert.Contains(t, rec.Body.String(), `"code":"service_unavailable"`)
+}
+
+func TestBuildCacheHandler_RejectsTrailingClosersAndCorruptStoredBody(t *testing.T) {
+	t.Parallel()
+	svc := newMockBuildCacheService()
+	h := &BuildCacheHandler{Service: svc}
+	do := func(method, key, body string) *httptest.ResponseRecorder {
+		var data []byte
+		if method == http.MethodPut {
+			data = []byte(body)
+		}
+		rec := httptest.NewRecorder()
+		h.ActionCache(rec, withKey(cacheRequest(method, "/ac/"+key, data, "application/json"), key))
+		return rec
+	}
+
+	for _, suffix := range []string{"]", "}"} {
+		key := "bad-" + suffix
+		valid := `{"keyDigest":"` + key + `","result":{"exitOk":true}}`
+		rec := do(http.MethodPut, key, valid+suffix)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		rec = do(http.MethodGet, key, "")
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+		rec = do(http.MethodPut, key, valid)
+		assert.Equal(t, http.StatusCreated, rec.Code)
+		rec = do(http.MethodPut, key, valid)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		rec = do(http.MethodGet, key, "")
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, valid, rec.Body.String())
+
+		// A legacy malformed row must not be served as a cache hit.
+		entry, err := buildcache.ParsePublication(key, valid)
+		require.NoError(t, err)
+		entry.Body = valid + suffix
+		svc.mu.Lock()
+		svc.entries[svc.key(7, key)] = entry
+		svc.mu.Unlock()
+		rec = do(http.MethodGet, key, "")
+		assert.NotEqual(t, http.StatusOK, rec.Code)
+	}
 }
 
 func TestBuildCacheHandler_ArtifactStatusCodes(t *testing.T) {

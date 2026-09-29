@@ -71,11 +71,24 @@ func TestParsePublication_Refusals(t *testing.T) {
 		"bad digest":           `{"keyDigest":"k1","result":1,"meta":{"boundary":{"declaredOutputs":{"outputs":[{"digest":"nope"}]}}}}`,
 		"invalid json":         `{`,
 		"trailing garbage":     `{} x`,
+		"trailing array close": `{"keyDigest":"k1","result":{"exitOk":true}}]`,
+		"trailing map close":   `{"keyDigest":"k1","result":{"exitOk":true}}}`,
+		"second value":         `{"keyDigest":"k1","result":1} {}`,
 		"provenance not a str": `{"keyDigest":"k1","result":1,"recordedRunId":1,"recordedEventSeq":1}`,
 	}
 	for name, body := range cases {
 		_, err := ParsePublication("k1", body)
 		assert.Error(t, err, name)
+	}
+}
+
+func TestValidateStoredBody_RefusesTrailingClosers(t *testing.T) {
+	t.Parallel()
+	valid := `{"keyDigest":"k1","result":{"exitOk":true}}`
+	require.NoError(t, ValidateStoredBody("k1", valid))
+	require.NoError(t, ValidateStoredBody("k1", valid+" \n\t"))
+	for _, suffix := range []string{"]", "}", " x", " {}"} {
+		assert.Error(t, ValidateStoredBody("k1", valid+suffix), suffix)
 	}
 }
 
