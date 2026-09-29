@@ -2454,6 +2454,9 @@ importers:
       '@smthrs/run-store':
         specifier: 1.0.0-rc.1
         version: link:flows/run-store
+      '@smthrs/sandbox':
+        specifier: 1.0.0-rc.1
+        version: link:flows/sandbox
       '@smthrs/std':
         specifier: 1.0.0-rc.1
         version: link:agent/std
@@ -2512,9 +2515,6 @@ importers:
       '@smthrs/artifacts':
         specifier: 1.0.0-rc.1
         version: link:flows/artifacts
-      '@smthrs/sandbox':
-        specifier: 1.0.0-rc.1
-        version: link:flows/sandbox
       '@smthrs/testing':
         specifier: 1.0.0-rc.1
         version: link:../testing

@@ -1321,6 +1321,17 @@
         "require": "./dist/cjs/postgres/PostgresDatabase.js"
       },
       "reason": "Injectable PostgreSQL storage layer over @effect/sql-pg, an optional peer (866fccee5); its integration cases wait on a CI database (#2154)."
+    },
+    {
+      "name": "@smthrs/cli",
+      "subpath": "./CloudSandbox",
+      "development": "./src/CloudSandbox.ts",
+      "published": {
+        "types": "./dist/esm/CloudSandbox.d.ts",
+        "import": "./dist/esm/CloudSandbox.js",
+        "require": "./dist/cjs/CloudSandbox.js"
+      },
+      "reason": "Scoped Smithers Cloud workspace Sandbox.Provider with stable per-session names, fresh pinned SSH grants, and deletion on scope release; shared by any sandbox-backed flow (#2924)."
     }
   ],
   "removed": [

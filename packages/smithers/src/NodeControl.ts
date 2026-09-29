@@ -49,10 +49,7 @@ import * as CommandStatus from "./internal/CommandStatus.ts"
 import { errorCode } from "./internal/ErrorCode.ts"
 import * as Failure from "./internal/Failure.ts"
 
-import { Client } from "./internal/backend/Client.ts"
 import { Session } from "./internal/backend/Session.ts"
-import { sshArgs } from "./internal/backend/SSH.ts"
-import { workspaceSSH } from "./internal/backend/Workspaces.ts"
 import * as NodeWebSocket from "./internal/NodeWebSocket.ts"
 import * as SupervisorMemory from "./internal/SupervisorMemory.ts"
 import * as Output from "./Output.ts"
@@ -277,23 +274,13 @@ export const supervisorStance = SupervisorMemory.stance
  * public `GET /api/repos/{owner}/{repo}/workspaces/{id}/ssh` endpoint, with the
  * advertised host keys pinned. `reference` is `OWNER/REPO/WORKSPACE_ID`; the
  * API URL and token come from `environment` and the CLI's configuration. The
- * embedded grant expires, so ask again for a later command.
+ * embedded grant expires, so ask again for a later command. Pass `signal` to
+ * cancel SSH-readiness polling when the acquiring operation ends.
  *
  * @category constructors
  * @since 1.0.0
  */
-export const workspaceSshPrefix = (
-  environment: Readonly<Record<string, string | undefined>>,
-  reference: string
-): Promise<Array<string>> => {
-  const match = /^([\w.-]+\/[\w.-]+)\/([\w-]+)$/.exec(reference)
-  if (match === null) return Promise.reject(new CliError.UsageError({ message: "Expected OWNER/REPO/WORKSPACE_ID" }))
-  const client = new Client({ environment })
-  return workspaceSSH(client, match[2]!, { repo: match[1] }).then(async (endpoint) => [
-    "ssh",
-    ...await sshArgs(client, endpoint)
-  ])
-}
+export { workspaceSshPrefix } from "./internal/backend/WorkspaceSsh.ts"
 
 /**
  * The flow sources a local CLI discovers: the project `flows/` directory, whose

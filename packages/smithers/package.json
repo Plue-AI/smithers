@@ -108,7 +108,8 @@
     "./operator/Triggers": "./src/operator/Triggers.ts",
     "./suggest/Brief": "./src/suggest/Brief.ts",
     "./suggest/Checklist": "./src/suggest/Checklist.ts",
-    "./suggest/SuggestFlow": "./src/suggest/SuggestFlow.ts"
+    "./suggest/SuggestFlow": "./src/suggest/SuggestFlow.ts",
+    "./CloudSandbox": "./src/CloudSandbox.ts"
   },
   "files": [
     "bin/**/*.mjs",
@@ -702,6 +703,16 @@
           "types": "./dist/cjs/suggest/SuggestFlow.d.ts",
           "default": "./dist/cjs/suggest/SuggestFlow.js"
         }
+      },
+      "./CloudSandbox": {
+        "import": {
+          "types": "./dist/esm/CloudSandbox.d.ts",
+          "default": "./dist/esm/CloudSandbox.js"
+        },
+        "require": {
+          "types": "./dist/cjs/CloudSandbox.d.ts",
+          "default": "./dist/cjs/CloudSandbox.js"
+        }
       }
     }
   },
@@ -763,7 +774,8 @@
     "react": "19.2.8",
     "tar": "7.5.22",
     "typescript": "5.9.3",
-    "yaml": "2.9.0"
+    "yaml": "2.9.0",
+    "@smthrs/sandbox": "1.0.0-rc.1"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -771,7 +783,6 @@
     "@effect/vitest": "4.0.0-rc.115",
     "@eslint/js": "9.39.5",
     "@smthrs/artifacts": "1.0.0-rc.1",
-    "@smthrs/sandbox": "1.0.0-rc.1",
     "@smthrs/testing": "1.0.0-rc.1",
     "@types/node": "26.4.1",
     "@vitest/coverage-v8": "5.0.0",

@@ -44,6 +44,11 @@ export * as ClaudeMirror from "./ClaudeMirror.ts"
  */
 export * as CloudSession from "./CloudSession.ts"
 /**
+ * @category node
+ * @since 1.0.0
+ */
+export * as CloudSandbox from "./CloudSandbox.ts"
+/**
  * @category errors
  * @since 1.0.0
  */

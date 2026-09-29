@@ -118,6 +118,24 @@ executes these callbacks. The stall threshold is
 a lifecycle mutation. See [Configure observational health](https://control.smithers.sh/guides/observe-health/)
 for checker configuration, defaults, and validation.
 
+## CloudSandbox
+
+Import `CloudSandbox` from `@smthrs/cli` or `@smthrs/cli/CloudSandbox`. The
+subpath loads independently of the flow engine and shares the canonical
+transport re-exported by `NodeControl.workspaceSshPrefix`.
+
+| Export         | Signature                                | Meaning                                                                                                                                                              |
+| -------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make`         | `(options: Options) => Sandbox.Provider` | Creates or resumes a Cloud workspace per session name, waits for running, refreshes its pinned SSH grants per command, and deletes it on scope release.              |
+| `Options`      | interface                                | Local `spawner`, Cloud `repository`, optional `environment`, `sourceBookmark`, absolute `workdir`, `namePrefix`, `pollInterval`, `readyTimeout`, and injected `api`. |
+| `WorkspaceApi` | interface                                | Abortable control `request(method, path, body, signal)` and `sshPrefix(reference, signal)` operations for alternate hosts and deterministic lifecycle tests.         |
+
+Use `Sandbox.layerHost(provider, { session })` to place both commands and files
+on the workspace. Concurrent workers need distinct session keys; reusing a key
+is an exclusive resume claim. Provisioning, SSH setup, and cancellation errors
+still release the workspace. Deletion failures fail release. See the
+[Cloud sandbox guide](/guides/cloud-sandbox/).
+
 ## NodeControl
 
 The Node composition for the command tree.
@@ -129,6 +147,7 @@ The Node composition for the command tree.
 | `makeConfig` | `(args, environment, cwd) => Application.Config` | The pure configuration boundary. Throws `CliError.UsageError` for a bad `--remote` URL or an unreadable, malformed, or wrongly shaped `--mcp-config` file. |
 | `configFromArguments` | `(args) => Effect<Application.Config, CliError.UsageError>` | Resolves and validates raw arguments or a shared parse using the ambient environment and working directory. |
 | `config` | `Effect<Application.Config, CliError.UsageError>` | `makeConfig` applied to the ambient process, with the throw converted into a typed failure. |
+| `workspaceSshPrefix` | `(environment, reference, signal?) => Promise<Array<string>>` | Resolves fresh Cloud workspace SSH argv with pinned host keys; the optional signal cancels readiness polling. |
 | `projectSources` | `(root: string) => ReadonlyArray<Descriptor.Source>` | The one flow source a local CLI discovers: `<root>/flows`, named by path. |
 | `layerHostPlatform` | `Layer` | Node's services plus the descriptor-relative, no-follow filesystem the kernel needs. Unguarded; only host equipment that carries its own confinement argument runs on it. |
 | `layerGrantStore` | `(root: string) => Layer<GrantStore>` | The local CLI's real permission store: an allow policy, with the fiber's capability ceiling still enforced. |
