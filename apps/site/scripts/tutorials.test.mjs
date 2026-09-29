@@ -184,11 +184,15 @@ test("first-target plans, caches, invalidates, and fails through its workspace-l
   for (const name of readdirSync(modules).filter((name) => ![".bin", "@smthrs"].includes(name))) {
     symlinkSync(join(modules, name), join(cwd, "node_modules", name), "dir")
   }
-  for (const name of readdirSync(join(modules, "@smthrs"))) {
+  // The CLI and targets are always this checkout's copies, whether or not the
+  // examples workspace also depends on them.
+  const pinned = { cli: "packages/smithers", targets: "packages/smithers/build/targets" }
+  for (const name of readdirSync(join(modules, "@smthrs")).filter((name) => !(name in pinned))) {
     symlinkSync(join(modules, "@smthrs", name), join(cwd, "node_modules/@smthrs", name), "dir")
   }
-  symlinkSync(join(root, "packages/smithers"), join(cwd, "node_modules/@smthrs/cli"), "dir")
-  symlinkSync(join(root, "packages/smithers/build/targets"), join(cwd, "node_modules/@smthrs/targets"), "dir")
+  for (const [name, path] of Object.entries(pinned)) {
+    symlinkSync(join(root, path), join(cwd, "node_modules/@smthrs", name), "dir")
+  }
   mkdirSync(join(cwd, "node_modules/.bin"))
   const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`
   writeFileSync(join(cwd, "node_modules/.bin/smthrs"),
