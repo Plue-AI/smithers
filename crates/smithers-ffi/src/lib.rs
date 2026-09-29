@@ -29,7 +29,7 @@ use jj_lib::conflicts::{
 };
 use jj_lib::git::GitImportOptions;
 use jj_lib::gitignore::GitIgnoreFile;
-use jj_lib::matchers::{EverythingMatcher, FilesMatcher};
+use jj_lib::matchers::{EverythingMatcher, FilesMatcher, NothingMatcher};
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId;
@@ -3231,7 +3231,7 @@ fn get_working_tree_status(repo_path: &Path) -> Result<WorkingTreeStatus, JjErro
             base_ignores: GitIgnoreFile::empty(),
             progress: None,
             start_tracking_matcher: &EverythingMatcher,
-            force_tracking_matcher: &EverythingMatcher,
+            force_tracking_matcher: &NothingMatcher,
             max_new_file_size: u64::MAX,
         };
         let (new_tree, _stats) = locked_ws
@@ -6559,6 +6559,74 @@ mod tests {
         // NULL store_path is a structured error, not a crash.
         let null_err = unsafe { take_json(smithers_get_working_tree_status(std::ptr::null())) };
         assert_eq!(null_err["code"], "invalid_argument");
+    }
+    #[test]
+    fn ffi_working_tree_status_honors_gitignore() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_path = repo_path(&tmp);
+        let repo_path_c = c_path(&repo_path);
+        let init = unsafe {
+            take_json(smithers_auto_init_repo(
+                repo_path_c.as_ptr(),
+                c_string("main").as_ptr(),
+                c_string("demo").as_ptr(),
+            ))
+        };
+        assert_eq!(init["status"], "ok", "{init}");
+
+        // tracked.txt predates the ignore rule, so it must remain tracked.
+        seed_committed_baseline_with_empty_wc(&repo_path, &[("tracked.txt", "before\n")]);
+        // Synchronize the on-disk working-copy state with the committed tree.
+        // The test seeding helper writes repo commits directly, not via checkout.
+        let settings = create_settings(&UserConfig::default());
+        let (mut workspace, repo) =
+            load_repo_at_head(&repo_path, &settings).expect("load workspace");
+        let wc_id = repo
+            .view()
+            .get_wc_commit_id(workspace.workspace_name())
+            .expect("working-copy commit");
+        let wc = repo
+            .store()
+            .get_commit(wc_id)
+            .expect("load working-copy commit");
+        let mut locked = workspace
+            .start_working_copy_mutation()
+            .block_on()
+            .expect("lock working copy");
+        locked
+            .locked_wc()
+            .reset(&wc)
+            .block_on()
+            .expect("reset working-copy state");
+        locked
+            .finish(repo.operation().id().clone())
+            .block_on()
+            .expect("save working-copy state");
+        std::fs::write(repo_path.join(".gitignore"), b"secret.env\ntracked.txt\n")
+            .expect("write ignore rules");
+        std::fs::write(repo_path.join("secret.env"), b"secret\n")
+            .expect("write ignored untracked file");
+        std::fs::write(repo_path.join("ordinary.txt"), b"visible\n")
+            .expect("write ordinary untracked file");
+        std::fs::write(repo_path.join("tracked.txt"), b"after\n")
+            .expect("modify tracked file matching later ignore rule");
+
+        let status = unsafe { take_json(smithers_get_working_tree_status(repo_path_c.as_ptr())) };
+        let changes = status["changes"].as_array().expect("changes array");
+        assert!(
+            !changes.iter().any(|change| change["path"] == "secret.env"),
+            "ignored untracked file must be absent: {status}"
+        );
+        let ordinary = changes
+            .iter()
+            .find(|change| change["path"] == "ordinary.txt")
+            .expect("ordinary untracked file present");
+        assert_eq!(ordinary["status"], "added");
+        let tracked = changes
+            .iter()
+            .find(|change| change["path"] == "tracked.txt")
+            .expect("tracked file still present despite later ignore rule");
+        assert_eq!(tracked["status"], "modified");
     }
     #[test]
     fn atomic_stack_rejects_invalid_member_without_moving_bookmark() {
