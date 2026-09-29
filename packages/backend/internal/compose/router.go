@@ -27,6 +27,7 @@ import (
 )
 
 type routerExtras struct {
+	CanaryRuns          ports.CanaryRunSource
 	Admission           services.BillingPolicy
 	BillingCapabilities services.BillingCapabilities
 	Recommender         *routes.RecommendationHandler
@@ -282,6 +283,7 @@ func buildRouter(
 	r.Get("/health", routes.Health)
 	r.Get("/healthz", healthzHandler.Healthz)
 	r.Get("/readyz", readyzHandler.Readyz)
+	r.Get("/api/status", (&routes.StatusHandler{CanaryRuns: extras.CanaryRuns}).Status)
 	// Prometheus metrics endpoint (for Kubernetes monitoring / Cloud Monitoring scraping).
 	// The ingress exposes "/" publicly, so network policy alone is not sufficient: the
 	// metrics expose sensitive operational data. Require a shared bearer token. The token

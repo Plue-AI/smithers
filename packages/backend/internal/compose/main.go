@@ -102,6 +102,7 @@ func StartWithOptions(ctx context.Context, args []string, stdout, stderr io.Writ
 
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
+	CanaryRuns      ports.CanaryRunSource
 	RuntimeStores   ports.RuntimeStores
 	ReadyBindings   func(operations.Bindings)
 	BeforeShutdown  func() error
@@ -1453,7 +1454,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		linearHandler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
+		routerExtras{CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},

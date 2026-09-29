@@ -28,6 +28,9 @@ import (
 // routes, services, jobs, and database are assembled by the common
 // implementation. A deployment can pass its configuration file using Args.
 type Config struct {
+	// CanaryRuns supplies deployment run evidence for the public status page.
+	// Nil reports unknown; self-hosting does not require a canary service.
+	CanaryRuns    ports.CanaryRunSource
 	RuntimeStores ports.RuntimeStores
 	// BeforeShutdown drains host-owned listeners and workers before shared resources close.
 	// Start invokes it once after readiness, including cancellation and worker failure.
@@ -195,6 +198,7 @@ func Run(ctx context.Context, cfg Config) error {
 // a new field cannot reach one entry point and miss the other.
 func (cfg Config) options() compose.Options {
 	return compose.Options{
+		CanaryRuns:      cfg.CanaryRuns,
 		RuntimeStores:   cfg.RuntimeStores,
 		BeforeShutdown:  cfg.BeforeShutdown,
 		ComputeProvider: cfg.ComputeProvider,
