@@ -107,6 +107,8 @@ export const controlPlane = (
     readonly isAlive?: Ownership.LivenessCheck | undefined
     readonly approvalAuthority?: ApprovalAuthority.Service | undefined
     readonly loadFlows?: SqlControlRuntime.Options["loadFlows"]
+    readonly currentFlows?: SqlControlRuntime.Options["currentFlows"]
+    readonly adoptFlow?: SqlControlRuntime.Options["adoptFlow"]
     readonly engineVersion?: string | undefined
   } = {}
 ): Layer.Layer<Exclude<DurableStack, DurableStackDependencies>, never, DurableStackDependencies> =>
@@ -118,6 +120,8 @@ export const controlPlane = (
         isAlive: options.isAlive,
         approvalAuthority: options.approvalAuthority,
         loadFlows: options.loadFlows,
+        currentFlows: options.currentFlows,
+        adoptFlow: options.adoptFlow,
         engineVersion: options.engineVersion
       }).pipe(Layer.orDie),
       NotificationQueue.layer,
@@ -138,6 +142,8 @@ export const durable = (
     readonly isAlive?: Ownership.LivenessCheck | undefined
     readonly approvalAuthority?: ApprovalAuthority.Service | undefined
     readonly loadFlows?: SqlControlRuntime.Options["loadFlows"]
+    readonly currentFlows?: SqlControlRuntime.Options["currentFlows"]
+    readonly adoptFlow?: SqlControlRuntime.Options["adoptFlow"]
     readonly engineVersion?: string | undefined
     readonly database?: Layer.Layer<DurableWriter | SqlClient.SqlClient | RunStore.RunStore, unknown> | undefined
   } = {}

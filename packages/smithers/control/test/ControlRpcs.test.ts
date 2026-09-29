@@ -184,6 +184,45 @@ describe("ControlRpcs", () => {
     expect((result?.payload as { readonly principal: { readonly id: string } }).principal.id).toBe("server")
   })
 
+  it("refuses an approval decision from the anonymous loopback principal and leaves the plan undecided", async () => {
+    // A loopback listener with no operator token authenticates every caller as
+    // `loopback`/`anonymous`; any local process could otherwise approve (#1783).
+    const loopback: Principal = { id: "loopback", kind: "anonymous", stampedAt: 1 }
+    const anonymous = Layer.merge(ControlServer.layer, layerNoopAuth(loopback)).pipe(
+      Layer.provideMerge(
+        TestControl.layer({
+          principal: { id: loopback.id, kind: loopback.kind },
+          now: () => 1,
+          approvalAuthority: delegateApproval(loopback)
+        })
+      )
+    )
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const rpc = yield* makeClient
+        const control = yield* Control
+        const card = yield* plan(rpc)
+        const approve = yield* Effect.flip(rpc.Approve({ ...card.approval, idempotencyKey: "approve" }))
+        const deny = yield* Effect.flip(rpc.Deny({ ...card.approval, idempotencyKey: "deny" }))
+        // The plan is still pending: a run against it parks for a decision.
+        const run = yield* control.run({
+          _tag: "Plan",
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: "run"
+        })
+        return { approve, deny, run }
+      }).pipe(Effect.provide(anonymous), Effect.scoped)
+    )
+
+    for (const refused of [observed.approve, observed.deny]) {
+      expect(refused).toBeInstanceOf(Unauthorized)
+      expect((refused as Unauthorized).message).toBe("An operator credential is required")
+    }
+    expect(observed.run).toMatchObject({ _tag: "Parked", status: "waiting-approval" })
+  })
+
   it("rejects malformed payloads before handlers and ignores caller principal fields", async () => {
     const result = await Effect.runPromise(client((rpc) =>
       Effect.gen(function*() {

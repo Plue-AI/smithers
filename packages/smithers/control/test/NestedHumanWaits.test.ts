@@ -26,7 +26,7 @@ import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as EngineMigrations from "@smthrs/engine-store/Migrations"
 import * as OwnerIdentity from "@smthrs/engine-store/OwnerIdentity"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { Action, DurableDeferred, Flow, FlowRuntime, HumanTask, Interpreter, WaitFor } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, FlowRuntime, HumanTask, Interpreter, RetryPolicy, WaitFor } from "@smthrs/flow"
 import * as Jj from "@smthrs/jj"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
 import { NotificationQueue } from "@smthrs/notifications"
@@ -76,6 +76,16 @@ const Gate = Flow.make("nested/Gate", {
   error: WaitFor.WaitForRequestInvalid,
   body: () => WaitFor.action.call({ name: "shipped" })
 })
+
+/**
+ * No elapsed-poll resume within a case. A caller following a parked run
+ * re-drives it on that timer as the fallback for a lost wake, and a re-drive
+ * clears the waiting row until replay parks again. Each shared parent's replay
+ * also re-drives the shared child, so every poll briefly leaves both parents
+ * without an open question below them. Nothing here is ever answered, so no
+ * re-drive may land between the barrier and the reads.
+ */
+const quietFollower = RetryPolicy.make({ initialMs: 3_600_000, factor: 1, maxMs: 3_600_000 })
 
 const SharedParent = Flow.make("nested/SharedParent", {
   payload: {},
@@ -239,7 +249,12 @@ describe("a human wait parked on a nested execution", () => {
         }))
 
       for (const parentId of ["parent-A", "parent-B"]) {
-        yield* flowRuntime.execute(SharedParent, { executionId: parentId, payload: {}, discard: true })
+        yield* flowRuntime.execute(SharedParent, {
+          executionId: parentId,
+          payload: {},
+          discard: true,
+          suspendedRetryPolicy: quietFollower
+        })
         yield* TestDatabase.until(
           state.waitingTree(parentId).pipe(
             Effect.map((rows) => rows.some((row) => row.runId === "shared-approval"))

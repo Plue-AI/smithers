@@ -1353,14 +1353,15 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           return { executionDigest, engineVersion }
         }),
         resume: Effect.fn("ControlRuntime.resume")((runId) => resumeRun(runId)),
+        // `plan` refuses a flow this catalog does not hold, and the catalog is
+        // fixed at construction, so a run's flow is never gone here and there
+        // is always code to adopt. `SqlControlRuntime` reads a catalog that can
+        // lose a flow, and refuses that case before the claim.
         resumeAdopting: Effect.fn("ControlRuntime.resumeAdopting")((runId) =>
-          resumeRun(runId, (run) => {
-            const flow = flows.get(run.summary.flowId)
-            const gone = flow === undefined ? codeDriftOf(run.summary, undefined, options.engineVersion) : undefined
-            return gone === undefined
-              ? Effect.succeed(adoptedCode(run.summary, flow, options.engineVersion))
-              : Effect.fail(gone)
-          })
+          resumeRun(
+            runId,
+            (run) => Effect.succeed(adoptedCode(run.summary, flows.get(run.summary.flowId), options.engineVersion))
+          )
         ),
         claimFence: Effect.fn("ControlRuntime.claimFence")(function*(runId) {
           const run = yield* requireRun(runId)

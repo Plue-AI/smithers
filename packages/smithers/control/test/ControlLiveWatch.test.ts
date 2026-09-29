@@ -497,6 +497,15 @@ describe("ControlLive.watch durable gap checks", () => {
         later: { notices: [3], durable: [0, 1, 3] },
         error: "PersistenceError"
       },
+      // After the pin, a repeated notice is at the partition's cursor and is
+      // delivered once; the next sequence still follows it.
+      {
+        name: "a duplicate tail notice after the pin",
+        notices: [0],
+        durable: [0],
+        later: { notices: [1, 1, 2], durable: [0, 1, 2] },
+        expected: [0, 1, 2]
+      },
       { name: "a failed durable gap read", notices: [2], durable: [], error: "PersistenceError", fail: true }
     ]
   ) {

@@ -159,6 +159,39 @@ describe("ControlRuntime.layerMemory", () => {
     expect(new Set(observed.plans).size).toBe(observed.plans.length)
   })
 
+  it("refuses an inventory page size outside 1 through 500", async () => {
+    const observed = await withRuntime((runtime) =>
+      Effect.forEach(
+        [0, 501, 1.5, Number.NaN],
+        (limit) =>
+          Effect.all([
+            Effect.flip(runtime.pageRunIds({ limit })),
+            Effect.flip(runtime.pagePlanIds({ limit }))
+          ])
+      )
+    )
+
+    expect(observed.flat()).toHaveLength(8)
+    for (const refused of observed.flat()) {
+      expect(refused).toBeInstanceOf(InvalidInput)
+      expect((refused as InvalidInput).issue).toBe("limit: must be an integer between 1 and 500")
+    }
+  })
+
+  it("pages a bound past the newest run as the runs that exist", async () => {
+    // A `through` carried from a cursor names an inventory bound, not a run;
+    // positions past the newest run hold nothing and end the walk.
+    const observed = await withRuntime((runtime) =>
+      Effect.gen(function*() {
+        yield* start(runtime)
+        yield* start(runtime)
+        return yield* runtime.pageRunIds({ through: 5, limit: 10 })
+      })
+    )
+
+    expect(observed).toEqual({ ids: ["run-1", "run-2"], through: 5 })
+  })
+
   it("replays a plan for a repeated idempotency key and refuses a reused one", async () => {
     const observed = await withRuntime((runtime) =>
       Effect.gen(function*() {
