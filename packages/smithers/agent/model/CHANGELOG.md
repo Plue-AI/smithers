@@ -16,6 +16,10 @@
   cited its URLs, and a later request that replayed the answer without the
   `web_search_call` items was accepted.
 
+- Optional `ModelError.quotaScope: "model" | "account"` records a classifier's
+  quota boundary. It survives schema round trips, HTTP error normalization,
+  and streamed-error redaction. Existing serialized errors still decode.
+
 ### Fixed
 
 - `CanonicalJson` rejects arrays `JSON.stringify` would reshape: a sparse

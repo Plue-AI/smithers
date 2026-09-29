@@ -39,6 +39,29 @@ run parked for a day is indistinguishable from a run that hung. A deadline
 already past is a park of zero: the provider said the window has reopened.
 `QuotaPolicy.layerUnclassified()` explicitly keeps every refusal as a failure.
 
+## Keep sibling models available
+
+`Agent.run` tries `fallbackSeats` after a capacity refusal. A rate limit cools
+only the refused model on its route, including aliases of that same model.
+Another model on the route, or the same model on another route, stays eligible.
+A provider-wide HTTP 529 or `quota_exceeded` refusal defaults to the whole
+route. A protocol classifier can state `ModelError.quotaScope` as `"model"` or
+`"account"`; this field survives HTTP normalization, redaction, and journal
+replay.
+
+This changes the earlier behavior that treated every rate limit as shared.
+An unknown scope is not evidence that a sibling model is exhausted: it may be
+attempted once and report its own limit. Hosts with a known shared rate limit
+should return `quotaScope: "account"`. No model name or scope is inferred from
+provider prose. Models sharing a provider quota bucket can each report that
+bucket's limit; the engine does not guess model-family membership.
+
+When all seats are cooling, the run waits for the earliest eligible deadline.
+Resuming that wait keeps its original deadline and retains other models'
+longer cooldowns. A new provider refusal can start a new cooldown. Legacy 0.x
+account-disable metadata is not read by this runtime; migrating 0.x still
+requires finishing or archiving its runs and starting new 1.0 executions.
+
 ## What a park does
 
 `AgentAction` is what parks on a classified refusal. The park is a real durable

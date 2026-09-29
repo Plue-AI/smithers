@@ -66,6 +66,24 @@ describe("isQuotaExhausted", () => {
 })
 
 describe("ModelError schema", () => {
+  it.each(["model", "account"] as const)("round-trips explicit %s quota scope", (quotaScope) => {
+    const encoded = Schema.encodeSync(ModelError)(
+      new ModelError({
+        code: "rate_limited",
+        message: "limit reached",
+        quotaScope
+      })
+    )
+    expect(Schema.decodeUnknownSync(ModelError)(encoded).quotaScope).toBe(quotaScope)
+    expect(
+      Schema.decodeUnknownSync(ModelError)({
+        _tag: "flows/model/ModelError",
+        code: "rate_limited",
+        message: "legacy error"
+      }).quotaScope
+    ).toBeUndefined()
+  })
+
   it("round-trips a key-only request path and omits it when it was not supplied", () => {
     const decoded = Schema.decodeUnknownSync(ModelError)({
       _tag: "flows/model/ModelError",

@@ -198,6 +198,12 @@
 
 ### Fixed
 
+- A model rate limit no longer cools every model on the same account route.
+  Cooldowns use route and model identity, preserve longer waits across resume,
+  and honor explicit `ModelError.quotaScope`. Generic rate limits default to
+  model scope; shared quota and overload retain account scope. Hosts that
+  know a rate limit is shared must mark it `quotaScope: "account"` instead of relying on the previous broad default.
+
 - A parked run is re-driven only when a resume has actually been delegated.
   Every engine round for a run parked on its own ask used to claim the park,
   replay every settled frame, and suspend on the same ask again, once per

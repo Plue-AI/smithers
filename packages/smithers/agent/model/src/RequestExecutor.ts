@@ -577,6 +577,7 @@ const sanitizeModelError = (error: ModelError, redact: (value: string) => string
     retryAfterMillis: error.retryAfterMillis,
     resetAtEpochMillis: error.resetAtEpochMillis,
     resetSource,
+    quotaScope: error.quotaScope,
     providerCode,
     requestId,
     httpStatus: error.httpStatus
@@ -652,6 +653,7 @@ const statusError = (
         (code === "rate_limited" && reset !== undefined ? Math.max(0, reset.at - now) : undefined),
       resetAtEpochMillis: classified?.resetAtEpochMillis ?? reset?.at,
       resetSource: sanitizedField(classified?.resetSource ?? reset?.source, request, redactedNames),
+      quotaScope: classified?.quotaScope,
       providerCode: sanitizedField(classified?.providerCode ?? fields.code, request, redactedNames),
       requestId: sanitizedField(classified?.requestId ?? requestId(headers), request, redactedNames),
       httpStatus: response.status

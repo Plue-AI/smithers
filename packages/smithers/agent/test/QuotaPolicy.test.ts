@@ -488,6 +488,23 @@ describe("the default classifier", () => {
     expect(Option.getOrUndefined(park)).toEqual({ wakeAt: 2_500, source: "default" })
   })
 
+  it.each(["model", "account"] as const)("preserves %s quota scope through wrapped journal errors", (quotaScope) => {
+    const decoded = JSON.parse(JSON.stringify(
+      new ModelError({
+        code: "quota_exceeded",
+        message: "limit reached",
+        quotaScope
+      })
+    ))
+    const restored = QuotaPolicy.modelErrorOf({ cause: decoded })
+    expect(Option.getOrUndefined(restored)?.quotaScope).toBe(quotaScope)
+    // An explicitly model-scoped quota can reopen; an undated account balance cannot.
+    const park = classify({ cause: decoded }, 1_000)
+    expect(Option.getOrUndefined(park)).toEqual(
+      quotaScope === "model" ? { wakeAt: 61_000, source: "default" } : undefined
+    )
+  })
+
   it("classifies a bare 429 whose code the adapter could not read", () => {
     const park = classify(
       new ModelError({ code: "unknown", message: "429", httpStatus: 429, retryAfterMillis: 500 }),
@@ -699,7 +716,10 @@ describe("a quota refusal at a model-backed step", () => {
     expect(replayed.unconsumed).toEqual([])
   })
 
-  it("resumes a parked run on a second engine without re-issuing the refusal", async () => {
+  it.each([
+    { source: "retry-after", refusal: rateLimited },
+    { source: "default", refusal: new ModelError({ code: "rate_limited", message: "wait", httpStatus: 429 }) }
+  ])("resumes a $source park on a second engine without re-issuing the refusal", async ({ source, refusal }) => {
     const calls: Array<string> = []
     // One database, one execution id, two engines. The first parks on the
     // provider's refusal and is then CLOSED while the run is still waiting;
@@ -713,8 +733,8 @@ describe("a quota refusal at a model-backed step", () => {
           Effect.gen(function*() {
             const wiring = yield* incarnation(
               "park-before",
-              refusingOnce(rateLimited, calls),
-              QuotaPolicy.layerDefault()
+              refusingOnce(refusal, calls),
+              QuotaPolicy.layerDefault({ defaultWaitMillis: 3_000 })
             )
             const running = yield* ReviewFlow.execute({ diff: "-  old\n+  new" }, {
               executionId: "quota-boundary"
@@ -732,8 +752,8 @@ describe("a quota refusal at a model-backed step", () => {
           Effect.gen(function*() {
             const wiring = yield* incarnation(
               "park-after",
-              refusingOnce(rateLimited, calls),
-              QuotaPolicy.layerDefault()
+              refusingOnce(refusal, calls),
+              QuotaPolicy.layerDefault({ defaultWaitMillis: 3_000 })
             )
             // Forked, because the resumed run waits out the deadline the first
             // engine recorded and only the test can advance the clock past it.
@@ -770,6 +790,7 @@ describe("a quota refusal at a model-backed step", () => {
     // so the second engine replayed the deadline the first one chose instead
     // of classifying afresh and pushing the wake further out.
     expect(observed.records).toHaveLength(1)
+    expect(observed.records[0]).toMatchObject({ source })
     expect(observed.quotaParks.count - observed.quotaParksBefore.count).toBe(1)
     expect(observed.waiting[0]?.wakeAt).toBe(
       (observed.records[0] as { readonly wakeAt: number }).wakeAt

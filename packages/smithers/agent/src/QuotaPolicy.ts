@@ -286,6 +286,8 @@ const terminalStatuses: ReadonlySet<number> = new Set([400, 401, 402, 403, 404, 
  * eight times at the default minute on `credit_balance_exhausted` — "You have no
  * credits remaining" — spent eight minutes to reach the failure it had in hand
  * at the first attempt.
+ * An explicit model scope rules out account balance exhaustion and permits
+ * the bounded default cooldown even when that model's reset is unknown.
  *
  * @param error the normalized provider failure
  * @since 0.1.0
@@ -294,7 +296,7 @@ const terminalStatuses: ReadonlySet<number> = new Set([400, 401, 402, 403, 404, 
 export const isTerminalRefusal = (error: ModelError): boolean => {
   if (error.httpStatus !== undefined && terminalStatuses.has(error.httpStatus)) return true
   if (terminalCodes.has(error.code)) return true
-  if (error.code !== "quota_exceeded") return false
+  if (error.code !== "quota_exceeded" || error.quotaScope === "model") return false
   return error.resetAtEpochMillis === undefined && error.retryAfterMillis === undefined
 }
 
@@ -322,6 +324,7 @@ export const modelErrorOf = (error: unknown): Option.Option<ModelError> => {
       readonly retryAfterMillis?: unknown
       readonly resetAtEpochMillis?: unknown
       readonly httpStatus?: unknown
+      readonly quotaScope?: unknown
       readonly cause?: unknown
     }
     if (candidate._tag === "flows/model/ModelError" && typeof candidate.code === "string") {
@@ -335,7 +338,10 @@ export const modelErrorOf = (error: unknown): Option.Option<ModelError> => {
           ...(typeof candidate.resetAtEpochMillis === "number"
             ? { resetAtEpochMillis: candidate.resetAtEpochMillis }
             : {}),
-          ...(typeof candidate.httpStatus === "number" ? { httpStatus: candidate.httpStatus } : {})
+          ...(typeof candidate.httpStatus === "number" ? { httpStatus: candidate.httpStatus } : {}),
+          ...(candidate.quotaScope === "model" || candidate.quotaScope === "account"
+            ? { quotaScope: candidate.quotaScope }
+            : {})
         })
       )
     }

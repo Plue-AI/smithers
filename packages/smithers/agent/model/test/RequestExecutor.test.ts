@@ -1517,6 +1517,44 @@ describe("RequestExecutor", () => {
     })
   })
 
+  it.each(["model", "account"] as const)("preserves a protocol's explicit %s quota scope", async (quotaScope) => {
+    const error = await run(
+      Effect.gen(function*() {
+        const executor = yield* RequestExecutor.RequestExecutor
+        return yield* execute(executor, request(), {
+          classifyError: () =>
+            new ModelError({
+              code: "rate_limited",
+              message: "limit reached",
+              quotaScope,
+              retryAfterMillis: 3_600_000
+            })
+        }).pipe(Effect.flip)
+      }),
+      executorLayer([{ status: 429, body: "{}" }], [])
+    )
+    expect(error).toMatchObject({ code: "rate_limited", quotaScope, httpStatus: 429 })
+  })
+
+  it("preserves quota scope while redacting a streamed protocol error", async () => {
+    const secret = "quota-scope-test-secret"
+    const error = await Effect.runPromise(
+      RequestExecutor.errorSanitizer(request("https://provider.test", "{}", {
+        authorization: `Bearer ${secret}`
+      })).pipe(Effect.map((sanitize) =>
+        sanitize(
+          new ModelError({
+            code: "rate_limited",
+            message: `limit reached: ${secret}`,
+            quotaScope: "account"
+          })
+        )
+      ))
+    )
+    expect(error.quotaScope).toBe("account")
+    expect(error.message).not.toContain(secret)
+  })
+
   it("classifies each status that is not a rate limit", async () => {
     expect((await errorFor({ status: 403, body: "{}" })).code).toBe("authentication")
     expect((await errorFor({ status: 400, body: "blocked by content_filter" })).code).toBe("content_policy")

@@ -125,6 +125,9 @@ export class ModelError extends Schema.TaggedError<ModelError>()("flows/model/Mo
   retryAfterMillis: Schema.optional(Schema.Number),
   resetAtEpochMillis: Schema.optional(Schema.Number),
   resetSource: Schema.optional(Schema.String),
+  // An explicit shared limit cools every model on the account's route.
+  // Without scope, a rate limit only establishes that the requested model failed.
+  quotaScope: Schema.optional(Schema.Literals(["model", "account"])),
   providerCode: Schema.optional(Schema.String),
   requestId: Schema.optional(Schema.String),
   httpStatus: Schema.optional(Schema.Number)
