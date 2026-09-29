@@ -78,7 +78,23 @@ const dockerImageAvailable = dockerAvailable &&
   spawnSync("docker", ["image", "inspect", dockerImage], { timeout: 5000, stdio: "ignore" }).status === 0
 
 describe("Docker cleanup", () => {
-  it.skipIf(!dockerImageAvailable)("removes a real daemon container on cancellation", async () => {
+  it.skipIf(!dockerImageAvailable).each([
+    "removes a real daemon container on cancellation",
+    "removes a real daemon container on cancellation after a removal timeout"
+  ])("%s", async (name) => {
+    if (name.endsWith("after a removal timeout")) {
+      const spawn = ScopedProcess.spawn
+      let firstRemoval = true
+      // Inject only a stuck removal CLI; run/start, retries and absence checks
+      // still use the real daemon, without altering shared daemon behavior.
+      vi.spyOn(ScopedProcess, "spawn").mockImplementation((options) => {
+        if (options.args?.[0] === "rm" && firstRemoval) {
+          firstRemoval = false
+          return spawn({ ...options, command: process.execPath, args: ["-e", "setInterval(()=>{},1000)"] })
+        }
+        return spawn(options)
+      })
+    }
     let containerName: string | undefined
     const wrap = ExecSandbox.wrap
     vi.spyOn(ExecSandbox, "wrap").mockImplementation((...args) => {
@@ -151,7 +167,15 @@ describe("Docker cleanup", () => {
     "startup interruption",
     "success",
     "removal hangs",
-    "removal fails"
+    "removal fails",
+    "removal exits nonzero",
+    "removal timeout recovers",
+    "removal spawn recovers",
+    "removal exit recovers",
+    "removal already absent",
+    "removal misleading absence",
+    "removal slow success",
+    "removal cancellation recovers"
   ])(
     "removes the container after client cleanup and before scratch cleanup: %s",
     async (mode) => {
@@ -159,6 +183,7 @@ describe("Docker cleanup", () => {
       vi.spyOn(ExecSandbox, "host").mockReturnValue({ ...host, executable: () => "/fake/docker" })
       const events: Array<string> = []
       const calls: Array<ScopedProcess.Options> = []
+      let removals = 0
       let scratch = ""
       const plan = ExecSandbox.plan
       vi.spyOn(ExecSandbox, "plan").mockImplementation((...args) => {
@@ -174,6 +199,8 @@ describe("Docker cleanup", () => {
         Effect.gen(function*() {
           const removing = options.args?.[0] === "rm"
           calls.push(options)
+          if (removing) removals++
+          const firstRemoval = removals === 1
           events.push(removing ? "remove" : "run")
           expect(NodeFs.existsSync(scratch)).toBe(true)
           yield* Effect.addFinalizer(() =>
@@ -181,7 +208,7 @@ describe("Docker cleanup", () => {
               events.push(removing ? "remove closed" : "client closed")
             })
           )
-          if (removing && mode === "removal fails") {
+          if (removing && (mode === "removal fails" || (mode === "removal spawn recovers" && firstRemoval))) {
             return yield* Effect.fail(PlatformError.systemError({
               _tag: "Unknown",
               module: "ChildProcess",
@@ -208,16 +235,37 @@ describe("Docker cleanup", () => {
               kill: () => Effect.void,
               stdin: Sink.drain,
               stdout: Stream.empty,
-              stderr: Stream.empty,
+              stderr: removing &&
+                  (mode === "removal already absent" && !firstRemoval || mode === "removal misleading absence")
+                ? Stream.make(
+                  new TextEncoder().encode(
+                    `Error response from daemon: No such container: ${
+                      mode === "removal misleading absence" ? "another-container" : options.args![2]
+                    }\n`
+                  )
+                )
+                : Stream.empty,
               all: Stream.empty,
               getInputFd: () => Sink.drain,
               getOutputFd: () => Stream.empty,
               unref: Effect.succeed(Effect.void),
-              exitCode: (removing
-                  ? mode !== "removal hangs"
-                  : mode === "success" || mode === "removal hangs" || mode === "removal fails")
-                ? Effect.succeed(ExitCode(0)) :
-                Effect.never
+              exitCode: removing
+                ? mode === "removal hangs" ||
+                    ((mode === "removal timeout recovers" || mode === "removal already absent" ||
+                      mode === "removal cancellation recovers") && firstRemoval)
+                  ? Effect.never
+                  : mode === "removal slow success"
+                  ? Effect.sleep(6000).pipe(Effect.as(ExitCode(0)))
+                  : Effect.succeed(ExitCode(
+                    mode === "removal misleading absence" || mode === "removal exits nonzero" ||
+                      mode === "removal already absent" ||
+                      (mode === "removal exit recovers" && firstRemoval) ?
+                      1 :
+                      0
+                  ))
+                : mode.startsWith("removal") && mode !== "removal cancellation recovers" || mode === "success"
+                ? Effect.succeed(ExitCode(0))
+                : Effect.never
             }),
             { targetPid: 1 }
           )
@@ -237,23 +285,42 @@ describe("Docker cleanup", () => {
         Effect.gen(function*() {
           const fiber = yield* effect.pipe(Effect.forkChild)
           yield* Effect.promise(() => started)
-          if (mode === "interruption" || mode === "startup interruption") yield* Fiber.interrupt(fiber)
+          const interrupted = mode === "interruption" || mode === "startup interruption" ||
+            mode === "removal cancellation recovers"
+          const interrupt = interrupted ? yield* Fiber.interrupt(fiber).pipe(Effect.forkChild) : undefined
+          yield* TestClock.adjust(30000)
+          if (interrupt !== undefined) yield* Fiber.join(interrupt)
           return yield* Fiber.await(fiber)
-        }).pipe(Effect.provide(capture))
+        }).pipe(Effect.provide(capture), Effect.provide(TestClock.layer()))
       )
-      expect(Exit.isSuccess(exit)).toBe(mode === "success" || mode === "removal hangs" || mode === "removal fails")
-      expect(events).toEqual(["run", "client closed", "remove", "remove closed"])
+      expect(Exit.isSuccess(exit)).toBe(
+        mode === "success" || mode.startsWith("removal") && mode !== "removal cancellation recovers"
+      )
+      const exhausted = mode === "removal misleading absence" || mode === "removal hangs" || mode === "removal fails" ||
+        mode === "removal exits nonzero"
+      const attempts = exhausted ? 3 : mode.endsWith("recovers") || mode === "removal already absent" ? 2 : 1
+      expect(events).toEqual([
+        "run",
+        "client closed",
+        ...Array.from({ length: attempts }, () => ["remove", "remove closed"]).flat()
+      ])
       const args = calls[0]!.args!
       expect(args).toContain("--name")
       expect(calls[1]!.command).toBe(calls[0]!.command)
       const containerName = args[args.indexOf("--name") + 1]
       expect(calls[1]!.args).toEqual(["rm", "--force", containerName])
-      if (mode === "removal fails" || mode === "removal hangs") {
-        expect(warnings).toEqual([expect.stringContaining(`could not remove docker container ${containerName}`)])
+      if (exhausted) {
+        expect(warnings).toEqual([
+          expect.stringContaining(`could not remove docker container ${containerName} after 3 attempts:`)
+        ])
       } else {
         expect(warnings).toEqual([])
       }
-      expect(calls[1]!.env).toEqual(calls[0]!.env)
+      for (const removal of calls.slice(1)) {
+        expect(removal.command).toBe(calls[0]!.command)
+        expect(removal.args).toEqual(["rm", "--force", containerName])
+        expect(removal.env).toEqual(calls[0]!.env)
+      }
       expect(NodeFs.existsSync(scratch)).toBe(false)
     }
   )

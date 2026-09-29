@@ -99,9 +99,11 @@ including failures while creating declared write directories or wrapping argv.
 Docker wrappers return a unique `containerName` and pass it as `--name`.
 `Exec.run` registers `docker rm --force <name>` before starting the client,
 including failed or interrupted startup. Removal runs after client shutdown and
-before scratch deletion on success, timeout, or interruption. The removal attempt
-has a five-second timeout and preserves the original exec result if Docker is
-unavailable or the container was already removed by `--rm`.
+before scratch deletion on success, timeout, or interruption. Removal makes up
+to three attempts, with a ten-second timeout per attempt, retrying timeout,
+spawn, and exit failures. A missing container counts as removed, including deletion by `--rm`
+or an earlier timed-out request. Exhaustion logs the last failure and preserves
+the original exec result.
 
 `Exec.cacheDirectoryToken` in argv resolves to the absolute host cache directory
 immediately before spawn, after workspace confinement checks. Its path is

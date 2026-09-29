@@ -1,0 +1,250 @@
+Issue: https://github.com/evmts/smithers/issues/2851
+Verified: 2026-09-29, Darwin arm64, OrbStack Docker context
+Before source: 891e91922bc3fc41cbfc61d033fcf674c1db9381
+Runtime: Node 26.5.0; pnpm 11.25.0; Vitest 5.0.0
+Docker client/server: 29.4.0; containerd 2.2.2; runc 1.5.1
+Image: node:22-bookworm (linux/arm64)
+Digest: sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+
+Run from packages/smithers/build/targets with Node >=26.4.0 on PATH.
+The image was initially absent (test skipped), then pulled explicitly.
+A plain docker run of the image emitted ready and exited 0 in 3.747s.
+Default Node 22.4.1 is below the declared support floor: its original daemon
+run timed out at 45s with empty stdout before reaching cancellation.
+
+Diagnosis: original cleanup already forced removal, but abandoned it after
+one 5s client timeout. The normal daemon cancellation test passed under the
+supported runtime on this host. To reproduce the removal leak deterministically,
+the added daemon test replaces only the first rm client with a real supervised
+Node child that never exits; launch, retry and absence verification use real
+Docker. This avoids changing the shared daemon. Original assertions are retained.
+
+BEFORE (supported runtime, original Exec.ts with the new regressions)
+Command: pnpm exec vitest run test/Exec.test.ts -t "Docker cleanup" --coverage.enabled=false
+Exit: 1
+
+ RUN  v5.0.0 /Users/williamcory/.issue-pool/smithers/slot-43/packages/smithers/build/targets
+
+stdout | test/Exec.test.ts > Docker cleanup > removes a real daemon container on cancellation after a removal timeout
+[13:41:41.254] WARN (#61): sandbox: could not remove docker container smithers-f7aa2862-1c5d-402d-b748-bbe93e2c177d: timed_out
+
+ ❯ test/Exec.test.ts (58 tests | 11 failed | 41 skipped) 10825ms
+   ❯ Docker cleanup (17)
+     × removes a real daemon container on cancellation after a removal timeout 5426ms
+     × removes the container after client cleanup and before scratch cleanup: removal hangs 15ms
+     × removes the container after client cleanup and before scratch cleanup: removal fails 12ms
+     × removes the container after client cleanup and before scratch cleanup: removal exits nonzero 12ms
+     × removes the container after client cleanup and before scratch cleanup: removal timeout recovers 14ms
+     × removes the container after client cleanup and before scratch cleanup: removal spawn recovers 12ms
+     × removes the container after client cleanup and before scratch cleanup: removal exit recovers 12ms
+     × removes the container after client cleanup and before scratch cleanup: removal already absent 12ms
+     × removes the container after client cleanup and before scratch cleanup: removal misleading absence 12ms
+     × removes the container after client cleanup and before scratch cleanup: removal slow success 13ms
+     × removes the container after client cleanup and before scratch cleanup: removal cancellation recovers 13ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/Exec.test.ts > Docker cleanup > removes a real daemon container on cancellation after a removal timeout
+AssertionError: expected 'smithers-f7aa2862-1c5d-402d-b748-bbe9…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ smithers-f7aa2862-1c5d-402d-b748-bbe93e2c177d
+
+ ❯ test/Exec.test.ts:151:40
+    149|           })
+    150|           expect(listed.status).toBe(0)
+    151|           expect(listed.stdout.trim()).toBe("")
+       |                                        ^
+    152|         } finally {
+    153|           yield* Fiber.interrupt(fiber)
+ ❯ IteratorImpl.~effect/Effect/successCont ../../../../node_modules/.pnpm/effect@4.0.0-rc.115/node_modules/effect/src/internal/effect.ts:1428:28
+ ❯ ExitPrimitive.~effect/Effect/evaluate ../../../../node_modules/.pnpm/effect@4.0.0-rc.115/node_modules/effect/src/internal/core.ts:523:30
+ ❯ FiberImpl.runLoop ../../../../node_modules/.pnpm/effect@4.0.0-rc.115/node_modules/effect/src/internal/effect.ts:685:39
+ ❯ FiberImpl.evaluate ../../../../node_modules/.pnpm/effect@4.0.0-rc.115/node_modules/effect/src/internal/effect.ts:628:23
+ ❯ ../../../../node_modules/.pnpm/effect@4.0.0-rc.115/node_modules/effect/src/internal/effect.ts:1167:17
+ ❯ Array.<anonymous> ../../../../node_modules/.pnpm/effect@4.0.0-rc.115/node_modules/effect/src/internal/effect.ts:820:44
+ ❯ FiberImpl.evaluate ../../../../node_modules/.pnpm/effect@4.0.0-rc.115/node_modules/effect/src/internal/effect.ts:650:21
+ ❯ ../../../../node_modules/.pnpm/effect@4.0.0-rc.115/node_modules/effect/src/internal/effect.ts:1167:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal hangs
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal fails
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal exits nonzero
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal misleading absence
+AssertionError: expected [ 'run', 'client closed', …(2) ] to deeply equal [ 'run', 'client closed', …(6) ]
+
+- Expected
++ Received
+
+  [
+    "run",
+    "client closed",
+    "remove",
+    "remove closed",
+-   "remove",
+-   "remove closed",
+-   "remove",
+-   "remove closed",
+  ]
+
+ ❯ test/Exec.test.ts:302:22
+    300|         mode === "removal exits nonzero"
+    301|       const attempts = exhausted ? 3 : mode.endsWith("recovers") || mo…
+    302|       expect(events).toEqual([
+       |                      ^
+    303|         "run",
+    304|         "client closed",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal timeout recovers
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal spawn recovers
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal exit recovers
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal already absent
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal cancellation recovers
+AssertionError: expected [ 'run', 'client closed', …(2) ] to deeply equal [ 'run', 'client closed', …(4) ]
+
+- Expected
++ Received
+
+  [
+    "run",
+    "client closed",
+    "remove",
+    "remove closed",
+-   "remove",
+-   "remove closed",
+  ]
+
+ ❯ test/Exec.test.ts:302:22
+    300|         mode === "removal exits nonzero"
+    301|       const attempts = exhausted ? 3 : mode.endsWith("recovers") || mo…
+    302|       expect(events).toEqual([
+       |                      ^
+    303|         "run",
+    304|         "client closed",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  test/Exec.test.ts > Docker cleanup > removes the container after client cleanup and before scratch cleanup: removal slow success
+AssertionError: expected [ Array(1) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "sandbox: could not remove docker container smithers-62d3f1bd-4927-451e-b27f-819426571022: timed_out",
++ ]
+
+ ❯ test/Exec.test.ts:317:26
+    315|         ])
+    316|       } else {
+    317|         expect(warnings).toEqual([])
+       |                          ^
+    318|       }
+    319|       for (const removal of calls.slice(1)) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  11 failed | 6 passed | 41 skipped (58)
+   Start at  13:41:29
+   Duration  11.67s (tests 93%, transform 4%, import 3%)
+
+
+AFTER (five owning Exec suites, including both daemon cases)
+Command: pnpm exec vitest run test/Exec.test.ts test/ExecBounds.test.ts test/ExecContainment.test.ts test/ExecSandbox.test.ts test/ExecStreams.test.ts --coverage.enabled=false
+Exit: 0
+
+ RUN  v5.0.0 /Users/williamcory/.issue-pool/smithers/slot-43/packages/smithers/build/targets
+
+
+ Test Files  5 passed (5)
+      Tests  181 passed (181)
+   Start at  13:42:13
+   Duration  35.90s (tests 89%, transform 6%, import 4%)
+
+
+TYPECHECK
+Command: pnpm run check
+Exit: 0
+$ tsc -b tsconfig.json && tsc -p tsconfig.test.json --noEmit
+
+LINT
+Command: pnpm run lint
+Exit: 0
+$ eslint src --max-warnings=0 && dprint check
+
+FOCUSED COVERAGE (existing thresholds unchanged)
+Command: pnpm exec vitest run test/Exec.test.ts test/ExecBounds.test.ts test/ExecContainment.test.ts test/ExecSandbox.test.ts test/ExecStreams.test.ts --coverage.include=src/Exec.ts --coverage.reporter=text --coverage.reporter=json
+Exit: 1 (selected tests do not meet whole-package configured thresholds)
+Cleanup block, Exec.ts:1523-1555: 12/12 statements, 2/2 functions,
+6/6 branches executed; no uncovered cleanup lines.
+These are focused results, not a whole-package coverage receipt. Outstanding
+campaign-wide coverage evidence remains tracked in #2290.
+
+ RUN  v5.0.0 /Users/williamcory/.issue-pool/smithers/slot-43/packages/smithers/build/targets
+      Coverage enabled with v8
+
+
+ Test Files  5 passed (5)
+      Tests  181 passed (181)
+   Start at  13:43:21
+   Duration  35.68s (tests 91%, transform 5%, import 4%)
+
+ % Coverage report from v8
+----------|---------|----------|---------|---------|----------------------------
+File      | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s          
+----------|---------|----------|---------|---------|----------------------------
+All files |   95.43 |    87.98 |   90.52 |   96.42 |                            
+ Exec.ts  |   95.43 |    87.98 |   90.52 |   96.42 | ...171,1235,1373,1385,1607 
+----------|---------|----------|---------|---------|----------------------------
+
+=============================== Coverage summary ===============================
+Statements   : 95.43% ( 481/504 )
+Branches     : 87.98% ( 249/283 )
+Functions    : 90.52% ( 86/95 )
+Lines        : 96.42% ( 431/447 )
+================================================================================
+ERROR: Coverage for lines (96.42%) does not meet global threshold (99%)
+ERROR: Coverage for functions (90.52%) does not meet global threshold (99%)
+ERROR: Coverage for statements (95.43%) does not meet global threshold (99%)
+ERROR: Coverage for branches (87.98%) does not meet global threshold (97%)
+
+DOCUMENTATION
+Updated the owning docs/api.md cleanup contract. The API source is not mirrored
+by ingest-reference (targets' docs/reference/ owns its generated API page).
+Read-only checks found pre-existing drift in reference/api/flow.mdx and
+public/llms-full.txt; no generated files were changed by this fix.
+
+REVIEW
+Required command: claude -p --model fable
+Exit: 1 (account weekly quota exhausted; resets Oct 1 at 11pm America/Los_Angeles)
+You've hit your weekly limit · resets Oct 1 at 11pm (America/Los_Angeles)
+
+BOUND
+Removal makes at most three forced attempts with a 10s client timeout each,
+after client closure and before scratch deletion. It accepts absence of the
+same unique container name. Recovery covers timeout, spawn and nonzero exits;
+persistent failure logs the final diagnostic and preserves the original result.
+A permanently unavailable daemon cannot supply a deletion receipt.
+
+ISSUE-POOL REVIEW
+Command: ~/.issue-pool/bin/review <slot> "#2851 Docker cancellation cleanup ..."
+Initial review was interrupted after shared origin/main advanced, then
+the change was rebased cleanly and the helper rerun on the four intended files.
+You've hit your weekly limit · resets Oct 1 at 11pm (America/Los_Angeles)
+The helper exhausted both CLI model quotas; it supplied no usable findings.
+
+INDEPENDENT GPT-6.1 SOL REVIEW
+LGTM. No correctness defects or material test gaps found in the specified commit diff.
+The tests meaningfully cover retry bounds, recovery, matching-container absence,
+process cleanup ordering, scratch lifetime, and preserved cancellation.
+The real-daemon regression demonstrates the old leak and verifies removal after retry.
+Read-only review inspected spawnTool scope/timeout behavior and validation receipts;
+tests were not rerun by the reviewer. Required Fable review remains unavailable due to quota.

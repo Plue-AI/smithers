@@ -1520,30 +1520,39 @@ const confined = (
       // Register before spawning, including interrupted/failed startup. The
       // nested client scope closes first; removal finishes before scratch cleanup.
       yield* Effect.addFinalizer(() =>
-        spawnTool(
-          cwd,
-          {
-            ...payload,
-            argv: [executable, "rm", "--force", containerName],
-            timeoutMs: 5000
-          },
-          sensitiveEnv,
-          secretEnv,
-          undefined,
-          undefined,
-          options.environment
-        ).pipe(
-          Effect.matchEffect({
-            onFailure: (error) =>
-              Effect.logWarning(`sandbox: could not remove docker container ${containerName}: ${error.code}`),
-            onSuccess: (output) =>
-              output.exitCode === 0
-                ? Effect.void
-                : Effect.logWarning(
-                  `sandbox: could not remove docker container ${containerName}: exit ${output.exitCode}`
-                )
-          })
-        )
+        Effect.gen(function*() {
+          let reason = ""
+          // A timed-out CLI can leave removal running in the daemon. Retry the
+          // same unique name after closing each client; absence is also success.
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const result = yield* spawnTool(
+              cwd,
+              {
+                ...payload,
+                argv: [executable, "rm", "--force", containerName],
+                timeoutMs: 10000
+              },
+              sensitiveEnv,
+              secretEnv,
+              undefined,
+              undefined,
+              options.environment
+            ).pipe(Effect.result)
+            if (result._tag === "Failure") {
+              reason = `${result.failure.code}: ${result.failure.stderr}`
+            } else {
+              const output = result.success
+              if (
+                output.exitCode === 0 ||
+                output.stderr.trim() === `Error response from daemon: No such container: ${containerName}`
+              ) return
+              reason = `exit ${output.exitCode}: ${output.stderr}`
+            }
+          }
+          yield* Effect.logWarning(
+            `sandbox: could not remove docker container ${containerName} after 3 attempts: ${reason}`
+          )
+        })
       )
     }
     return yield* spawnTool(
