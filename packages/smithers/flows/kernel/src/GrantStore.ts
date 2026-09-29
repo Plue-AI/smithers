@@ -1215,11 +1215,14 @@ export const make = (
                 // The identical envelope is mid-flight elsewhere; adopt its
                 // outcome. A failed write fails here too: re-planning would
                 // turn one journal outage into an unbounded loop of writes.
-                // Only an interrupted first admission is retried here, since
-                // it decided nothing.
+                // An interrupted first admission decided nothing and can be
+                // retried. Check this caller's cancellation before re-planning
+                // so an interrupted duplicate cannot loop under the mask.
                 return yield* restore(Deferred.await(planned.completion)).pipe(
                   Effect.catchCause((cause) =>
-                    Cause.hasInterruptsOnly(cause) ? admit(prepared) : Effect.failCause(cause)
+                    Cause.hasInterruptsOnly(cause)
+                      ? restore(Effect.void).pipe(Effect.andThen(admit(prepared)))
+                      : Effect.failCause(cause)
                   )
                 )
               }

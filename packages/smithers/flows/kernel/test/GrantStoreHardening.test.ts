@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Capability, CapabilityPattern, format } from "@smthrs/capability/Capability"
 import { GrantStoreError, PermissionRequired, Rule } from "@smthrs/capability/Permission"
-import { Deferred, Effect, Exit, Fiber, Scope } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { createHash } from "node:crypto"
 import * as GrantStore from "../src/GrantStore.ts"
@@ -259,6 +259,57 @@ describe("GrantStore journal write boundaries", () => {
         // turning a journal outage into a loop of fresh writes.
         expect(writes).toBe(1)
         expect((yield* Effect.flip(store.check(other))).code).toBe("permission_required")
+      })
+    ))
+
+  it.effect("cancels an identical envelope waiter while the first admission is still persisting", () =>
+    Effect.scoped(
+      Effect.gen(function*() {
+        const started = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+        let writes = 0
+        const store = yield* make({
+          planDigest: "plan-1",
+          attended: false,
+          persist: () =>
+            Effect.sync(() => {
+              writes += 1
+            }).pipe(
+              Effect.andThen(Deferred.succeed(started, undefined)),
+              Effect.andThen(Deferred.await(release))
+            )
+        })
+        const envelope = { planDigest: "plan-1", patterns: [workspacePattern()] }
+        const first = yield* store.grantEnvelope(envelope).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Deferred.await(started)
+        const duplicate = yield* store.grantEnvelope(envelope).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Effect.yieldNow
+        expect(duplicate.pollUnsafe()).toBeUndefined()
+
+        const cancellation = yield* Fiber.interrupt(duplicate).pipe(Effect.forkChild({ startImmediately: true }))
+        for (let i = 0; i < 20 && cancellation.pollUnsafe() === undefined; i++) {
+          yield* Effect.yieldNow
+        }
+        const cancelledBeforeRelease = cancellation.pollUnsafe()
+        const duplicateBeforeRelease = duplicate.pollUnsafe()
+        const originalStillPersisting = first.pollUnsafe()
+        const writesBeforeRelease = writes
+        const permissionBeforeRelease = yield* Effect.flip(store.check(other))
+
+        // Releasing the gate also lets a broken waiter finish during cleanup.
+        yield* Deferred.succeed(release, undefined)
+        yield* Fiber.join(first)
+        yield* Fiber.join(cancellation)
+        expect(cancelledBeforeRelease).toSatisfy(Exit.isSuccess)
+        expect(duplicateBeforeRelease).toSatisfy(Exit.isFailure)
+        if (duplicateBeforeRelease !== undefined && Exit.isFailure(duplicateBeforeRelease)) {
+          expect(Cause.hasInterruptsOnly(duplicateBeforeRelease.cause)).toBe(true)
+        }
+        expect(originalStillPersisting).toBeUndefined()
+        expect(writesBeforeRelease).toBe(1)
+        expect(writes).toBe(1)
+        expect(permissionBeforeRelease.code).toBe("permission_required")
+        yield* store.check(other)
       })
     ))
 
