@@ -17,10 +17,16 @@ const git = (...args: string[]): void => {
   })
 }
 
+// A deterministic model fixture exercises real git, filesystem, and process IO without live model credentials.
 const model = async (findings: ReadonlyArray<unknown>): Promise<string> => {
   const path = Path.join(root, `model-${Math.random().toString(36).slice(2)}.mjs`)
   const envelope = JSON.stringify({ type: "result", result: JSON.stringify(findings) })
-  await Fs.writeFile(path, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(envelope)})\n`)
+  await Fs.writeFile(
+    path,
+    `#!/usr/bin/env node\nfor await (const chunk of process.stdin) {}\nprocess.stdout.write(${
+      JSON.stringify(envelope)
+    })\n`
+  )
   await Fs.chmod(path, 0o755)
   return path
 }
@@ -117,7 +123,7 @@ describe("structured security findings", () => {
       const result = await failure([finding({ security: security({ impact, releaseRecommendation: "allow" }) })], {
         failOn: "error"
       })
-      expect(result._tag).toBe("smithers-build/FindingsError")
+      expect(result._tag, JSON.stringify(result)).toBe("smithers-build/FindingsError")
       expect(findingsOf(result)[0]).toMatchObject({
         severity: "error",
         security: { impact, releaseRecommendation: "block", verification: "suspected" }
@@ -129,7 +135,7 @@ describe("structured security findings", () => {
     const result = await failure([finding({ security: security({ releaseRecommendation: "block" }) })], {
       failOn: "error"
     })
-    expect(result._tag).toBe("smithers-build/FindingsError")
+    expect(result._tag, JSON.stringify(result)).toBe("smithers-build/FindingsError")
     expect(findingsOf(result)[0]).toMatchObject({ severity: "error" })
   })
 
@@ -154,7 +160,7 @@ describe("structured security findings", () => {
     ["invalid recommendation", { security: security({ releaseRecommendation: "ship" }) }]
   ])("rejects %s in security mode", async (_name, overrides) => {
     const result = await failure([finding(overrides)])
-    expect(result._tag).toBe("smithers-build/LlmReviewError")
+    expect(result._tag, JSON.stringify(result)).toBe("smithers-build/LlmReviewError")
     expect(result).toMatchObject({ phase: "parse" })
   })
 
@@ -163,7 +169,7 @@ describe("structured security findings", () => {
     const report = await review([generic], { securityChecks: undefined, failOn: "error" })
     expect(report.findings).toEqual([generic])
     const result = await failure([generic], { securityChecks: undefined, failOn: "warning" })
-    expect(result._tag).toBe("smithers-build/FindingsError")
+    expect(result._tag, JSON.stringify(result)).toBe("smithers-build/FindingsError")
     expect(findingsOf(result)).toEqual([generic])
   })
 })
