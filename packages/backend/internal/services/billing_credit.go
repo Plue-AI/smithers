@@ -158,6 +158,8 @@ func (s *BillingService) handleInvoicePaid(ctx context.Context, invoice stripeIn
 	if err != nil {
 		return err
 	}
+	var providerStatus string
+	var snapshotObservedAt time.Time
 	if s.stripe != nil {
 		// invoice.paid can arrive before the subscription events; project the
 		// authoritative subscription first so its plan and status are known.
@@ -165,6 +167,7 @@ func (s *BillingService) handleInvoicePaid(ctx context.Context, invoice stripeIn
 		if err != nil {
 			return pkgerrors.Internal("failed to load stripe subscription for paid invoice").WithCause(err)
 		}
+		providerStatus, snapshotObservedAt = snapshot.Status, snapshot.observedAt
 		if account == nil {
 			owner, ok := ownerFromMetadata(snapshot.Metadata)
 			if !ok {
@@ -208,7 +211,8 @@ func (s *BillingService) handleInvoicePaid(ctx context.Context, invoice stripeIn
 		settledAt = occurred
 	}
 	settled, err := s.queries.SettleBillingSubscriptionPayment(ctx, db.SettleBillingSubscriptionPaymentParams{
-		SettledAt:        pgtype.Timestamptz{Time: settledAt, Valid: !settledAt.IsZero()},
+		SettledAt:      pgtype.Timestamptz{Time: settledAt, Valid: !settledAt.IsZero()},
+		ProviderStatus: providerStatus, SnapshotObservedAt: nullableTimestamptz(snapshotObservedAt),
 		BillingAccountID: account.ID, StripeSubscriptionID: subscriptionID,
 	})
 	if err != nil {

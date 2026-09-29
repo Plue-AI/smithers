@@ -719,7 +719,9 @@ func (q *Queries) ListCreditLedgerByAccount(ctx context.Context, arg ListCreditL
 
 const markBillingSubscriptionsPaymentReversed = `-- name: MarkBillingSubscriptionsPaymentReversed :execrows
 UPDATE billing_subscriptions
-SET payment_reversed_at = GREATEST(payment_reversed_at, $1)
+SET payment_reversed_at = GREATEST(payment_reversed_at, $1),
+    status = 'past_due',
+    past_due_since = COALESCE(past_due_since, $1)
 WHERE billing_account_id = $2
   AND status IN ('trialing', 'active', 'past_due')
   AND (payment_settled_at IS NULL OR payment_settled_at <= $1)
@@ -759,25 +761,51 @@ func (q *Queries) RecordBillingAccountPaymentReversal(ctx context.Context, arg R
 const settleBillingSubscriptionPayment = `-- name: SettleBillingSubscriptionPayment :one
 UPDATE billing_subscriptions
 SET payment_settled_at = GREATEST(payment_settled_at, $1),
+    status = CASE
+        WHEN payment_reversed_at < $1
+            AND status = 'past_due' AND snapshot_observed_at = $2
+            THEN $3::varchar
+        ELSE status
+    END,
+    past_due_since = CASE
+        WHEN payment_reversed_at < $1
+            AND status = 'past_due' AND snapshot_observed_at = $2
+            AND $3::varchar <> 'past_due' THEN NULL
+        ELSE past_due_since
+    END,
     payment_reversed_at = CASE
         WHEN payment_reversed_at < $1 THEN NULL
         ELSE payment_reversed_at
     END
-WHERE billing_account_id = $2
-  AND stripe_subscription_id = $3
+WHERE billing_account_id = $4
+  AND stripe_subscription_id = $5
+  AND CASE
+      WHEN payment_reversed_at < $1 AND status = 'past_due'
+          THEN snapshot_observed_at = $2
+      ELSE TRUE
+  END
 RETURNING id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at, snapshot_observed_at
 `
 
 type SettleBillingSubscriptionPaymentParams struct {
 	SettledAt            pgtype.Timestamptz `json:"settled_at"`
+	SnapshotObservedAt   pgtype.Timestamptz `json:"snapshot_observed_at"`
+	ProviderStatus       string             `json:"provider_status"`
 	BillingAccountID     int64              `json:"billing_account_id"`
 	StripeSubscriptionID string             `json:"stripe_subscription_id"`
 }
 
 // A payment restores a suspended subscription only when it settled after the
-// reversal.
+// reversal. If a newer provider snapshot won, return no row so the invoice
+// transaction rolls back and Stripe retries rather than losing its grant.
 func (q *Queries) SettleBillingSubscriptionPayment(ctx context.Context, arg SettleBillingSubscriptionPaymentParams) (BillingSubscription, error) {
-	row := q.db.QueryRow(ctx, settleBillingSubscriptionPayment, arg.SettledAt, arg.BillingAccountID, arg.StripeSubscriptionID)
+	row := q.db.QueryRow(ctx, settleBillingSubscriptionPayment,
+		arg.SettledAt,
+		arg.SnapshotObservedAt,
+		arg.ProviderStatus,
+		arg.BillingAccountID,
+		arg.StripeSubscriptionID,
+	)
 	var i BillingSubscription
 	err := row.Scan(
 		&i.ID,
@@ -1101,12 +1129,19 @@ SET billing_account_id = EXCLUDED.billing_account_id,
     stripe_price_id = EXCLUDED.stripe_price_id,
     plan_key = EXCLUDED.plan_key,
     billing_interval = EXCLUDED.billing_interval,
-    status = EXCLUDED.status,
+    status = CASE
+        WHEN billing_subscriptions.payment_reversed_at IS NOT NULL
+            AND EXCLUDED.status IN ('active', 'trialing') THEN 'past_due'
+        ELSE EXCLUDED.status
+    END,
     quantity = EXCLUDED.quantity,
     trial_end = EXCLUDED.trial_end,
     current_period_start = EXCLUDED.current_period_start,
     current_period_end = EXCLUDED.current_period_end,
     past_due_since = CASE
+        WHEN billing_subscriptions.payment_reversed_at IS NOT NULL
+            AND EXCLUDED.status IN ('active', 'trialing')
+            THEN COALESCE(billing_subscriptions.past_due_since, billing_subscriptions.payment_reversed_at)
         WHEN EXCLUDED.status <> 'past_due' THEN NULL
         WHEN billing_subscriptions.status = 'past_due'
             THEN COALESCE(billing_subscriptions.past_due_since, billing_subscriptions.updated_at)

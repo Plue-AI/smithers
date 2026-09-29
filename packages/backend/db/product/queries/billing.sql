@@ -76,12 +76,19 @@ SET billing_account_id = EXCLUDED.billing_account_id,
     stripe_price_id = EXCLUDED.stripe_price_id,
     plan_key = EXCLUDED.plan_key,
     billing_interval = EXCLUDED.billing_interval,
-    status = EXCLUDED.status,
+    status = CASE
+        WHEN billing_subscriptions.payment_reversed_at IS NOT NULL
+            AND EXCLUDED.status IN ('active', 'trialing') THEN 'past_due'
+        ELSE EXCLUDED.status
+    END,
     quantity = EXCLUDED.quantity,
     trial_end = EXCLUDED.trial_end,
     current_period_start = EXCLUDED.current_period_start,
     current_period_end = EXCLUDED.current_period_end,
     past_due_since = CASE
+        WHEN billing_subscriptions.payment_reversed_at IS NOT NULL
+            AND EXCLUDED.status IN ('active', 'trialing')
+            THEN COALESCE(billing_subscriptions.past_due_since, billing_subscriptions.payment_reversed_at)
         WHEN EXCLUDED.status <> 'past_due' THEN NULL
         WHEN billing_subscriptions.status = 'past_due'
             THEN COALESCE(billing_subscriptions.past_due_since, billing_subscriptions.updated_at)
@@ -485,7 +492,9 @@ SELECT (
 -- A reversal suspends only live subscriptions whose latest settled payment
 -- does not postdate it; the latest reversal wins.
 UPDATE billing_subscriptions
-SET payment_reversed_at = GREATEST(payment_reversed_at, sqlc.arg(reversed_at))
+SET payment_reversed_at = GREATEST(payment_reversed_at, sqlc.arg(reversed_at)),
+    status = 'past_due',
+    past_due_since = COALESCE(past_due_since, sqlc.arg(reversed_at))
 WHERE billing_account_id = sqlc.arg(billing_account_id)
   AND status IN ('trialing', 'active', 'past_due')
   AND (payment_settled_at IS NULL OR payment_settled_at <= sqlc.arg(reversed_at));
@@ -497,13 +506,31 @@ WHERE id = sqlc.arg(billing_account_id);
 
 -- name: SettleBillingSubscriptionPayment :one
 -- A payment restores a suspended subscription only when it settled after the
--- reversal.
+-- reversal. If a newer provider snapshot won, return no row so the invoice
+-- transaction rolls back and Stripe retries rather than losing its grant.
 UPDATE billing_subscriptions
 SET payment_settled_at = GREATEST(payment_settled_at, sqlc.arg(settled_at)),
+    status = CASE
+        WHEN payment_reversed_at < sqlc.arg(settled_at)
+            AND status = 'past_due' AND snapshot_observed_at = sqlc.arg(snapshot_observed_at)
+            THEN sqlc.arg(provider_status)::varchar
+        ELSE status
+    END,
+    past_due_since = CASE
+        WHEN payment_reversed_at < sqlc.arg(settled_at)
+            AND status = 'past_due' AND snapshot_observed_at = sqlc.arg(snapshot_observed_at)
+            AND sqlc.arg(provider_status)::varchar <> 'past_due' THEN NULL
+        ELSE past_due_since
+    END,
     payment_reversed_at = CASE
         WHEN payment_reversed_at < sqlc.arg(settled_at) THEN NULL
         ELSE payment_reversed_at
     END
 WHERE billing_account_id = sqlc.arg(billing_account_id)
   AND stripe_subscription_id = sqlc.arg(stripe_subscription_id)
+  AND CASE
+      WHEN payment_reversed_at < sqlc.arg(settled_at) AND status = 'past_due'
+          THEN snapshot_observed_at = sqlc.arg(snapshot_observed_at)
+      ELSE TRUE
+  END
 RETURNING *;
