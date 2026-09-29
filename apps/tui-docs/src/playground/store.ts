@@ -54,7 +54,9 @@ export class Journal {
   }
   private commit(next: State) {
     const bytes = JSON.stringify(next)
-    if (bytes.length > 4_000_000) throw new Error("Sandbox history is full. Clear site data to start again.")
+    if (new TextEncoder().encode(bytes).byteLength > 4_000_000) {
+      throw new Error("Sandbox history is full. Clear site data to start again.")
+    }
     this.storage.setItem(storageKey, bytes) // Failure leaves in-memory state unchanged.
     this.state = next
   }

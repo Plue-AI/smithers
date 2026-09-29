@@ -63,7 +63,7 @@ writer across tabs. Persistence failure stops progression.
 
 Every checkpoint contains a consistent transcript and files. Branching starts a
 new run from those files while retaining the original branch. Storage is capped
-at 4 MB; files are capped at 16 × 8 KB. Browser storage eviction or clearing site
+at 4 MB; files are capped at 16 × 8 KiB. Browser storage eviction or clearing site
 data deletes the sandbox. A model request that had no committed response may
 be billed again on explicit resume. This is a bounded sandbox guarantee, not a
 claim that native shell effects, network changes, or billing can be undone.

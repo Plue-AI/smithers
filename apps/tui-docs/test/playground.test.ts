@@ -43,6 +43,73 @@ test("refuses corrupt persisted data and paths outside the volume", () => {
   for (const value of ["../secret", "/secret", "a/b.js", "__proto__", ""]) assert.throws(() => path(value))
   assert.equal(canonical({ b: 2, a: 1 }), canonical({ a: 1, b: 2 }))
 })
+test("serialized journal enforces UTF-8 bytes at each boundary and recovers after refusal", () => {
+  for (const symbol of ["a", "界", "😀"]) {
+    for (const offset of [-1, 0, 1]) {
+      const storage = memory(), journal = new Journal(storage)
+      const before = structuredClone(journal.state)
+      const next = structuredClone(before)
+      const frame = structuredClone(journal.head)
+      frame.events.push({ kind: "answer", text: "" })
+      next.branches[0]!.frames.push(frame)
+      const overhead = Buffer.byteLength(JSON.stringify(next))
+      const target = 4_000_000 + offset - overhead
+      const width = Buffer.byteLength(symbol)
+      const content = symbol.repeat(Math.floor(target / width)) + "a".repeat(target % width)
+      frame.events[0]!.text = content
+      const serialized = JSON.stringify(next)
+      assert.equal(Buffer.byteLength(serialized), 4_000_000 + offset)
+      if (symbol !== "a") assert.ok(serialized.length < 4_000_000)
+
+      if (offset === 1) {
+        assert.throws(() => journal.update((current) => {
+          current.events.push({ kind: "answer", text: content })
+        }), /Sandbox history is full/)
+        assert.deepEqual(journal.state, before)
+        assert.equal(storage.getItem(storageKey), null)
+        journal.update((current) => current.events.push({ kind: "answer", text: "recovered" }))
+        assert.equal(new Journal(storage).head.events.at(-1)?.text, "recovered")
+      } else {
+        journal.update((current) => current.events.push({ kind: "answer", text: content }))
+        assert.equal(storage.getItem(storageKey), serialized)
+        assert.equal(new Journal(storage).head.events.at(-1)?.text, content)
+      }
+    }
+  }
+})
+test("production file flow enforces UTF-8 bytes for creation and overwrite", async () => {
+  const previous = globalThis.fetch
+  try {
+    for (const symbol of ["a", "界", "😀"]) {
+      for (const offset of [-1, 0, 1]) {
+        const target = 8192 + offset
+        const width = Buffer.byteLength(symbol)
+        const content = symbol.repeat(Math.floor(target / width)) + "a".repeat(target % width)
+        assert.equal(Buffer.byteLength(content), target)
+        const storage = memory(), journal = new Journal(storage)
+        let requests = 0
+        const first = `\`\`\`cell\nfor (const name of ["limit.txt", "math.js"]) { try { console.log(await ctx.call("write", { path: name, content: ${JSON.stringify(content)} })); } catch (error) { console.log(String(error)); } }\n\`\`\``
+        globalThis.fetch = async () => Response.json({
+          choices: [{ finish_reason: "stop", message: { content: ++requests === 1 ? first : "```cell\nctx.done(\"Finished.\");\n```" } }]
+        })
+        journal.start("Check file limit", `byte-${width}-${offset}`)
+        await run(journal, { baseUrl: "", apiKey: "", model: "" }, () => {}, new AbortController().signal)
+        assert.equal(journal.head.run?.status, "done", `${symbol} ${offset}: ${journal.head.run?.error}`)
+        assert.equal(requests, 2)
+        const expected = offset === 1 ? undefined : content
+        assert.equal(journal.head.files["limit.txt"], expected)
+        assert.equal(journal.head.files["math.js"], offset === 1 ? seed["math.js"] : content)
+        const restored = new Journal(storage)
+        assert.deepEqual(restored.head.files, journal.head.files)
+        const flows = restored.head.events.filter((event) => event.kind === "flow")
+        assert.equal(flows.length, 2)
+        for (const event of flows) assert.match(event.text, offset === 1 ? /"outcome":"failure"/ : /"outcome":"success"/)
+      }
+    }
+  } finally {
+    globalThis.fetch = previous
+  }
+})
 test("production agent recovers committed calls and model replies after interruption", async () => {
   const storage = memory(), journal = new Journal(storage), previous = globalThis.fetch
   let requests = 0

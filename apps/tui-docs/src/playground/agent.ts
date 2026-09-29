@@ -97,12 +97,12 @@ function flows(journal: Journal, changed: () => void) {
     }),
     bind(
       "write",
-      "Write a sandbox file. Maximum 16 files of 8 KB each.",
+      "Write a sandbox file. Maximum 16 files of 8 KiB each.",
       Schema.Struct({ path: Schema.String, content: Schema.String }),
       ({ path: value, content }) => {
         const key = path(value)
         if (key === "check.js") throw new Error("Checks are read-only. Edit math.js.")
-        if (content.length > 8192 || (!(key in files) && Object.keys(files).length >= 16)) {
+        if (new TextEncoder().encode(content).byteLength > 8192 || (!(key in files) && Object.keys(files).length >= 16)) {
           throw new Error("Sandbox file limit reached")
         }
         files[key] = content
