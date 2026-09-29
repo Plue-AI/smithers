@@ -12,12 +12,12 @@ A delegated plan generates work its author never named, so the memory settings t
 
 `WithMemory.Policy` has four fields:
 
-| Field       | Values                     | Meaning                                       |
-| ----------- | -------------------------- | --------------------------------------------- |
-| `banks`     | nonempty `BankName[]`      | where memory this tree reads and writes lives |
-| `recall`    | `"none"`, or absent        | `"none"` refuses recall                       |
-| `maxTokens` | integer                    | the byte budget recall answers within         |
-| `retain`    | `"on-complete"`, `"never"` | whether writes are kept                       |
+| Field       | Values                | Meaning                                       |
+| ----------- | --------------------- | --------------------------------------------- |
+| `banks`     | nonempty `BankName[]` | where memory this tree reads and writes lives |
+| `recall`    | `"none"`, or absent   | `"none"` refuses recall                       |
+| `maxTokens` | integer               | the byte budget recall answers within         |
+| `retain`    | `"never"`, or absent  | `"never"` drops every write                   |
 
 ## Attachment and inheritance
 

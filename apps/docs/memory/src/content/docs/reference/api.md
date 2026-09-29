@@ -20,12 +20,12 @@ A delegated plan generates work its author never named, so the memory settings t
 
 `WithMemory.Policy` has four fields:
 
-| Field       | Values                     | Meaning                                       |
-| ----------- | -------------------------- | --------------------------------------------- |
-| `banks`     | nonempty `BankName[]`      | where memory this tree reads and writes lives |
-| `recall`    | `"none"`, or absent        | `"none"` refuses recall                       |
-| `maxTokens` | integer                    | the budget recall answers within              |
-| `retain`    | `"on-complete"`, `"never"` | whether writes are kept                       |
+| Field       | Values                | Meaning                                       |
+| ----------- | --------------------- | --------------------------------------------- |
+| `banks`     | nonempty `BankName[]` | where memory this tree reads and writes lives |
+| `recall`    | `"none"`, or absent   | `"none"` refuses recall                       |
+| `maxTokens` | integer               | the budget recall answers within              |
+| `retain`    | `"never"`, or absent  | `"never"` drops every write                   |
 
 `WithMemory.withMemory(flow, policy)` returns a copy of `flow` carrying the policy, and gives the same policy to every flow that flow declares. The original is untouched. A nested flow that already carries a policy is replaced by this one, so the tree runs under exactly one policy and the inherited answer is predictable. The policy is decoded and frozen at that call, so an invalid policy fails there rather than at a SQL constraint, and mutating the object afterwards changes nothing.
 
@@ -55,8 +55,7 @@ import { Effect } from "effect"
 
 const scoped = WithMemory.withMemory(Flows.recall, {
   banks: ["flow-release-notes"],
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 })
 
 const recalled = Effect.gen(function*() {
@@ -96,8 +95,7 @@ const trellis = MemoryTrellis.make({
   envelope: { fuel: 6, depth: 3, fanout: 3 },
   memory: {
     banks: ["flow-release-notes"],
-    maxTokens: 2048,
-    retain: "on-complete"
+    maxTokens: 2048
   }
 })
 ```
@@ -467,7 +465,7 @@ When memory shares a database with the engine or control plane, compose all requ
 
 | Export         | Signature                                                                                                                                                    | Behavior                                                                                                                                 |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `Policy`       | schema and type                                                                                                                                              | `{ namespace, recall?: "none", maxTokens, retain: "on-complete" \| "never" }`, with `maxTokens` capped at `Recall.MAX_RECALL_TOKENS`.    |
+| `Policy`       | schema and type                                                                                                                                              | `{ banks, recall?: "none", maxTokens, retain?: "never" }`, with `maxTokens` capped at `Recall.MAX_RECALL_TOKENS`.                        |
 | `MemoryPolicy` | annotation key `flows/memory/Annotations/MemoryPolicy`                                                                                                       | The annotation key carrying the policy on a flow.                                                                                        |
 | `Declared`     | `Flow.Any \| DurableDeclaration`                                                                                                                             | A declaration a policy attaches to: a `@smthrs/core` signature, or the `@smthrs/flow` flow a pattern composes.                           |
 | `references`   | `(flow: Declared) => ReadonlyArray<Flow.Reference>`                                                                                                          | The collaborators a flow declares, callable flows and unresolved registry names alike. A `@smthrs/flow` flow declares none.              |

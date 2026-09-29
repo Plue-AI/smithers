@@ -1632,14 +1632,16 @@ interface MemoryScope {
   readonly provenance?: MemoryStore.Provenance | undefined
 }
 
+const hostWide: "host-wide"
+
 const memory: (
   services: Context.Context<MemoryStore.MemoryStore | Recall.Recall>,
-  scope?: MemoryScope
+  scope: MemoryScope | typeof hostWide
 ) => FlowBinding.Source
 const memory: (
   services: Context.Context<MemoryStore.MemoryStore | Recall.Recall>,
   judge: Context.Context<Evaluator.Evaluator>,
-  scope?: MemoryScope
+  scope: MemoryScope | typeof hostWide
 ) => FlowBinding.Source
 
 const JudgedRecallOutput: Schema.Struct<{
@@ -1660,9 +1662,11 @@ why. The reading is journaled into the calling run through
 row with source `recall`, or its `decision-unjudged` row. Nothing recalled
 asks nothing. Without a judge, `recall` answers the recalled rows.
 
-Without a `scope`, a call reaches any bank it names. With one, both flows are
-bound through `WithMemory.withMemory` and `Flows.handlersFor`: a bank outside
-`policy.namespace` fails with `invalid_namespace` before any I/O, a recall
+Every composition names its scope. With `StandardFlows.hostWide`, a call
+reaches any bank it names; a composition that names no scope binds nothing and
+fails with `assembly_failed`. With a `MemoryScope`, both flows are bound
+through `WithMemory.withMemory` and `Flows.handlersFor`: a bank outside
+`policy.banks` fails with `invalid_namespace` before any I/O, a recall
 naming no bank reads the policy namespace, and `recall: "none"` and
 `retain: "never"` behave as the memory package defines them. `remember` still
 requires a bank, so tell the model its bank (`<kind>-<id>`). `provenance` is

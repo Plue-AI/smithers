@@ -19,8 +19,7 @@ import * as WithMemory from "../src/WithMemory.ts"
 
 const policy: WithMemory.Policy = {
   banks: ["flow-trellis"],
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 }
 
 const passthrough = (name: string) =>
@@ -95,6 +94,22 @@ describe("WithMemory", () => {
     }
   })
 
+  // `retain` names only the behavior that exists: absent stores each write
+  // when it is made, `"never"` drops it. A retired lifecycle spelling that
+  // promised to hold writes until completion is refused, not silently honored.
+  it("refuses the retired on-complete retain spelling with a typed invalid_argument", () => {
+    const retired = { ...policy, retain: "on-complete" } as unknown as WithMemory.Policy
+    let thrown: unknown
+    try {
+      WithMemory.withMemory(Flows.remember, retired)
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(MemoryError)
+    expect((thrown as MemoryError).code).toBe("invalid_argument")
+    expect(WithMemory.policyOf(WithMemory.withMemory(Flows.remember, policy))).not.toHaveProperty("retain")
+  })
+
   it("detaches and deep-freezes policy refusals before handlers run", async () => {
     const original = {
       banks: ["flow-frozen"],
@@ -108,13 +123,13 @@ describe("WithMemory", () => {
 
     original.banks[0] = "mutated"
     delete (original as { recall?: "none" }).recall
-    original.retain = "on-complete" as never
+    delete (original as { retain?: "never" }).retain
     expect(Reflect.deleteProperty(attached as object, "recall")).toBe(false)
     expect(Reflect.set(attached.banks as object, "0", "mutated-again")).toBe(false)
 
     const result = await Effect.runPromise(
       Effect.sync(() => {
-        Reflect.set(attached as object, "retain", "on-complete")
+        Reflect.deleteProperty(attached as object, "retain")
       }).pipe(
         Effect.andThen(Effect.all({
           recalled: Flows.runRecallFor(scopedRecall, { banks: ["bank"], query: "q" }),

@@ -420,7 +420,8 @@ describe("standard capabilities are flows", () => {
                   })
               })
             ).pipe(Context.add(Recall.Recall, Recall.makeNoop())),
-            judgeServices
+            judgeServices,
+            StandardFlows.hostWide
           )
         ],
         cells: [
@@ -614,7 +615,8 @@ ctx.done(JSON.stringify([a.content, b.content]))`
                 Effect.context<Evaluator.Evaluator>(),
                 Evaluator.layerScripted(() => ({ unnecessary_0: { probability: 0.1 } }))
               )
-            )
+            ),
+            StandardFlows.hostWide
           )
         ],
         cells: [
@@ -976,7 +978,8 @@ ctx.done(caught)`
                 putFact: (input) => Effect.sync(() => void remembered.push(input.key))
               })
             ).pipe(Context.add(Recall.Recall, Recall.makeNoop())),
-            judgeServices
+            judgeServices,
+            StandardFlows.hostWide
           )
         ],
         authorize: (call) =>

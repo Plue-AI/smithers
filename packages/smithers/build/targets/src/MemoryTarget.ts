@@ -2,9 +2,11 @@
  * PACKAGE.ts memory surfaces: the `S.Memory.Retain` target and the
  * `S.Memory.SmithersCloud` workspace declaration.
  *
- * Phase W1 is construct-only; the target constructor validates attrs by
- * schema and installs a {@link Target.notImplemented} implementation, and
- * the workspace declaration is inert data.
+ * The target constructor validates attrs by schema. Its execution is owned by
+ * the `@smthrs/build-cli` package runner, which dispatches `Memory.Retain` to
+ * the workspace memory backend (`MemoryBackend.retain`); the target's own
+ * implementation is {@link Target.notImplemented} so no other executor runs
+ * it without that backend. The workspace declaration is inert data.
  *
  * @since 0.1.0
  */
@@ -33,7 +35,9 @@ const retainDefinition = Target.make("Memory.Retain", {
 })
 
 /**
- * Retains the referenced commit in the configured memory bank.
+ * Retains the referenced commit in the configured memory bank. The
+ * `@smthrs/build-cli` package runner executes it through the workspace
+ * `S.Memory.SmithersCloud` backend.
  *
  * @category targets
  * @since 0.1.0

@@ -12,7 +12,9 @@
  * does not name fails `invalid_namespace` before the store runs, an empty
  * bank means the policy's own, and every remembered fact records the chain,
  * link, and call ordinal that wrote it. A script is model-authored, so the
- * bank in its payload is never the authority.
+ * bank in its payload is never the authority. The policy is part of each
+ * entry's digest, so a journal written under one policy never replays under
+ * another.
  *
  * Composition note: hosts that also mount the memory flows through the
  * registry must bind them there OR here, not both — a catalog holding two
@@ -65,8 +67,21 @@ export const contractDigest = (contract: Contract): string =>
     output: Schema.toJsonSchemaDocument(contract.output, { onExcessProperty: "error" })
   }))
 
+/**
+ * The binding identity of a memory entry: its {@link contractDigest} and the
+ * decoded policy it runs under. A journaled `recall` is replayed by digest, so
+ * two policies must never share one: a result recorded under a broader policy
+ * would otherwise answer a call under a narrower one.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const bindingDigest = (contract: Contract, policy: WithMemory.Policy): string =>
+  Digest.digest(Digest.canonical({ contract: contractDigest(contract), policy }))
+
 const entryOf = <A>(
   contract: Contract,
+  policy: WithMemory.Policy,
   run: (
     input: A,
     slot: Catalog.CallSlot | undefined
@@ -74,7 +89,7 @@ const entryOf = <A>(
   decode: (payload: unknown) => Effect.Effect<A, unknown>
 ): Catalog.Entry => ({
   description: contract.description,
-  digest: contractDigest(contract),
+  digest: bindingDigest(contract, policy),
   handler: (payload, slot) =>
     Effect.gen(function*() {
       const input = yield* decode(payload).pipe(
@@ -138,6 +153,8 @@ export const make = (policy: WithMemory.Policy): Effect.Effect<
       catch: (error) => error as MemoryError.MemoryError,
       try: () => [WithMemory.withMemory(Flows.remember, policy), WithMemory.withMemory(Flows.recall, policy)] as const
     })
+    // The decoded, frozen policy both entries enforce and are keyed by.
+    const bound = WithMemory.policyOf(remember)!
     const store = yield* MemoryStore.MemoryStore
     const recall = yield* Recall.Recall
     const decodeRemember = Schema.decodeUnknownEffect(Flows.RememberInput)
@@ -151,6 +168,7 @@ export const make = (policy: WithMemory.Policy): Effect.Effect<
           name: Flows.rememberName,
           output: Flows.RememberOutput
         },
+        bound,
         (input: Flows.RememberInputType, slot) =>
           Flows.runRememberFor(remember, input, provenanceOf(slot)).pipe(
             Effect.provideService(MemoryStore.MemoryStore, store)
@@ -165,6 +183,7 @@ export const make = (policy: WithMemory.Policy): Effect.Effect<
           name: Flows.recallName,
           output: Flows.RecallOutput
         },
+        bound,
         (input: Recall.Input) =>
           Flows.runRecallFor(recallFlow, input).pipe(Effect.provideService(Recall.Recall, recall)),
         decodeRecall

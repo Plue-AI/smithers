@@ -48,8 +48,7 @@ export const bank: string = Recall.bankForNamespace(namespace)
 /** The policy every run below carries, before a refusal overrides a field. */
 export const basePolicy: WithMemory.Policy = {
   banks: [bank],
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 }
 
 /**

@@ -30,7 +30,7 @@ const run = agent.run({
     StandardFlows.filesystem(filesystemServices), // FileSystem | Path
     StandardFlows.shell(shellServices), // ChildProcessSpawner | Path
     StandardFlows.tests(testServices), // ChildProcessSpawner | Evaluator | TestRunner
-    StandardFlows.memory(memoryServices, judgeServices), // MemoryStore | Recall, Evaluator
+    StandardFlows.memory(memoryServices, judgeServices, StandardFlows.hostWide), // MemoryStore | Recall, Evaluator
     StandardFlows.jev(judgeServices), // Evaluator
     ChildFlows.source(children)
   ]
@@ -55,12 +55,13 @@ transport, defaulting to the docker or podman CLI, which is what makes `bash`'s
 durable engine; nothing in `Agent` imports it, and `AgentSession` composes it
 for you.
 
-`memory` reaches any bank a call names. Pass a scope, after the judge when
-there is one, to confine a run to one namespace:
+`memory` takes a scope, after the judge when there is one.
+`StandardFlows.hostWide` reaches any bank a call names. A `MemoryScope`
+confines a run to its policy banks:
 
 ```ts
 StandardFlows.memory(memoryServices, judgeServices, {
-  policy: { namespace: { kind: "agent", id: "builder" }, maxTokens: 2048, retain: "on-complete" },
+  policy: { banks: ["agent-builder"], maxTokens: 2048 },
   provenance: { runId }
 })
 ```

@@ -34,8 +34,7 @@ import { Flows, WithMemory } from "@smthrs/memory"
 
 const scopedRecall = WithMemory.withMemory(Flows.recall, {
   namespace: { kind: "flow", id: "release-notes" },
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 })
 ```
 

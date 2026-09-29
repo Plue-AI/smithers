@@ -18,8 +18,7 @@ import * as WithMemory from "@smthrs/memory/WithMemory"
 
 const scoped = WithMemory.withMemory(Flows.recall, {
   banks: ["flow-release-notes"],
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 })
 ```
 
@@ -89,8 +88,7 @@ const trellis = MemoryTrellis.make({
   envelope: { fuel: 6, depth: 3, fanout: 3 },
   memory: {
     banks: ["flow-release-notes"],
-    maxTokens: 2048,
-    retain: "on-complete"
+    maxTokens: 2048
   }
 })
 ```

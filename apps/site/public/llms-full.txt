@@ -4809,8 +4809,7 @@ const bank = Recall.bankForNamespace(namespace)
 // The policy every run carries.
 const policy: WithMemory.Policy = {
   banks: [bank],
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 }
 
 // The two memory flows, bound under one policy, as a source a cell can call.
@@ -8723,8 +8722,7 @@ import { Flows, WithMemory } from "@smthrs/memory"
 
 const scopedRecall = WithMemory.withMemory(Flows.recall, {
   namespace: { kind: "flow", id: "release-notes" },
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 })
 ```
 
@@ -15316,14 +15314,16 @@ interface MemoryScope {
   readonly provenance?: MemoryStore.Provenance | undefined
 }
 
+const hostWide: "host-wide"
+
 const memory: (
   services: Context.Context<MemoryStore.MemoryStore | Recall.Recall>,
-  scope?: MemoryScope
+  scope: MemoryScope | typeof hostWide
 ) => FlowBinding.Source
 const memory: (
   services: Context.Context<MemoryStore.MemoryStore | Recall.Recall>,
   judge: Context.Context<Evaluator.Evaluator>,
-  scope?: MemoryScope
+  scope: MemoryScope | typeof hostWide
 ) => FlowBinding.Source
 
 const JudgedRecallOutput: Schema.Struct<{
@@ -15344,9 +15344,11 @@ why. The reading is journaled into the calling run through
 row with source `recall`, or its `decision-unjudged` row. Nothing recalled
 asks nothing. Without a judge, `recall` answers the recalled rows.
 
-Without a `scope`, a call reaches any bank it names. With one, both flows are
-bound through `WithMemory.withMemory` and `Flows.handlersFor`: a bank outside
-`policy.namespace` fails with `invalid_namespace` before any I/O, a recall
+Every composition names its scope. With `StandardFlows.hostWide`, a call
+reaches any bank it names; a composition that names no scope binds nothing and
+fails with `assembly_failed`. With a `MemoryScope`, both flows are bound
+through `WithMemory.withMemory` and `Flows.handlersFor`: a bank outside
+`policy.banks` fails with `invalid_namespace` before any I/O, a recall
 naming no bank reads the policy namespace, and `recall: "none"` and
 `retain: "never"` behave as the memory package defines them. `remember` still
 requires a bank, so tell the model its bank (`<kind>-<id>`). `provenance` is
@@ -33101,12 +33103,12 @@ A delegated plan generates work its author never named, so the memory settings t
 
 `WithMemory.Policy` has four fields:
 
-| Field       | Values                     | Meaning                                       |
-| ----------- | -------------------------- | --------------------------------------------- |
-| `banks`     | nonempty `BankName[]`      | where memory this tree reads and writes lives |
-| `recall`    | `"none"`, or absent        | `"none"` refuses recall                       |
-| `maxTokens` | integer                    | the budget recall answers within              |
-| `retain`    | `"on-complete"`, `"never"` | whether writes are kept                       |
+| Field       | Values                | Meaning                                       |
+| ----------- | --------------------- | --------------------------------------------- |
+| `banks`     | nonempty `BankName[]` | where memory this tree reads and writes lives |
+| `recall`    | `"none"`, or absent   | `"none"` refuses recall                       |
+| `maxTokens` | integer               | the budget recall answers within              |
+| `retain`    | `"never"`, or absent  | `"never"` drops every write                   |
 
 `WithMemory.withMemory(flow, policy)` returns a copy of `flow` carrying the policy, and gives the same policy to every flow that flow declares. The original is untouched. A nested flow that already carries a policy is replaced by this one, so the tree runs under exactly one policy and the inherited answer is predictable. The policy is decoded and frozen at that call, so an invalid policy fails there rather than at a SQL constraint, and mutating the object afterwards changes nothing.
 
@@ -33136,8 +33138,7 @@ import { Effect } from "effect"
 
 const scoped = WithMemory.withMemory(Flows.recall, {
   banks: ["flow-release-notes"],
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 })
 
 const recalled = Effect.gen(function*() {
@@ -33177,8 +33178,7 @@ const trellis = MemoryTrellis.make({
   envelope: { fuel: 6, depth: 3, fanout: 3 },
   memory: {
     banks: ["flow-release-notes"],
-    maxTokens: 2048,
-    retain: "on-complete"
+    maxTokens: 2048
   }
 })
 ```
@@ -33548,7 +33548,7 @@ When memory shares a database with the engine or control plane, compose all requ
 
 | Export         | Signature                                                                                                                                                    | Behavior                                                                                                                                 |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `Policy`       | schema and type                                                                                                                                              | `{ namespace, recall?: "none", maxTokens, retain: "on-complete" \| "never" }`, with `maxTokens` capped at `Recall.MAX_RECALL_TOKENS`.    |
+| `Policy`       | schema and type                                                                                                                                              | `{ banks, recall?: "none", maxTokens, retain?: "never" }`, with `maxTokens` capped at `Recall.MAX_RECALL_TOKENS`.                        |
 | `MemoryPolicy` | annotation key `flows/memory/Annotations/MemoryPolicy`                                                                                                       | The annotation key carrying the policy on a flow.                                                                                        |
 | `Declared`     | `Flow.Any \| DurableDeclaration`                                                                                                                             | A declaration a policy attaches to: a `@smthrs/core` signature, or the `@smthrs/flow` flow a pattern composes.                           |
 | `references`   | `(flow: Declared) => ReadonlyArray<Flow.Reference>`                                                                                                          | The collaborators a flow declares, callable flows and unresolved registry names alike. A `@smthrs/flow` flow declares none.              |
@@ -66634,8 +66634,7 @@ export const bank: string = Recall.bankForNamespace(namespace)
 /** The policy every run below carries, before a refusal overrides a field. */
 export const basePolicy: WithMemory.Policy = {
   banks: [bank],
-  maxTokens: 2048,
-  retain: "on-complete"
+  maxTokens: 2048
 }
 
 /**

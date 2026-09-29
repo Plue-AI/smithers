@@ -146,7 +146,7 @@ describe("Flows", () => {
       Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const handlers = Flows.handlersFor(
-          WithMemory.withMemory(Flows.remember, { banks: ["bank"], maxTokens: 1024, retain: "on-complete" }),
+          WithMemory.withMemory(Flows.remember, { banks: ["bank"], maxTokens: 1024 }),
           { runId: "run-9", nodeId: "node-9", iteration: 1 }
         )
         yield* handlers.remember({ bank: "bank", key: "bound", text: "text" })

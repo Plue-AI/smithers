@@ -349,6 +349,24 @@ export interface MemoryScope {
   readonly provenance?: MemoryStore.Provenance | undefined
 }
 
+/**
+ * The explicit unscoped memory composition: `remember` and `recall` reach any
+ * bank a call names. A host passes it to {@link memory} only when no flow in
+ * the run declares a memory policy and the operator owns the whole store.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const hostWide = "host-wide" as const
+
+/**
+ * The type of {@link hostWide}.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type HostWide = typeof hostWide
+
 type RecallRows = typeof MemoryFlows.RecallOutput.Type
 
 /**
@@ -570,8 +588,9 @@ const scopedMemory = (
  * or its `decision-unjudged` row. Without one, `recall` answers the rows
  * `@smthrs/memory` recalls.
  *
- * Without a `scope` the two flows reach any bank a call names. With one, they
- * are bound the way `@smthrs/memory` binds model-facing memory,
+ * Every composition states its scope. {@link hostWide} is the deliberate
+ * unscoped case: the two flows reach any bank a call names, for a host whose
+ * operator owns the whole memory database. A {@link MemoryScope} binds them the way `@smthrs/memory` binds model-facing memory,
  * `WithMemory.withMemory` then `Flows.handlersFor`, so the policy namespace
  * is enforced before any I/O: a call naming a bank outside it fails with
  * `invalid_namespace`, a recall naming no bank reads the policy namespace, and
@@ -587,20 +606,29 @@ const scopedMemory = (
  */
 export function memory(
   services: Context.Context<MemoryStore.MemoryStore | Recall.Recall>,
-  scope?: MemoryScope | undefined
+  scope: MemoryScope | HostWide
 ): FlowBinding.Source
 export function memory(
   services: Context.Context<MemoryStore.MemoryStore | Recall.Recall>,
   judge: Context.Context<Evaluator.Evaluator>,
-  scope?: MemoryScope | undefined
+  scope: MemoryScope | HostWide
 ): FlowBinding.Source
 export function memory(
   services: Context.Context<MemoryStore.MemoryStore | Recall.Recall>,
-  judgeOrScope?: Context.Context<Evaluator.Evaluator> | MemoryScope | undefined,
-  scoped?: MemoryScope | undefined
+  judgeOrScope: Context.Context<Evaluator.Evaluator> | MemoryScope | HostWide,
+  scoped?: MemoryScope | HostWide
 ): FlowBinding.Source {
   const [judge, scope] = Context.isContext(judgeOrScope) ? [judgeOrScope, scoped] : [undefined, judgeOrScope]
-  return scope === undefined ? unscopedMemory(services, judge) : scopedMemory(services, judge, scope)
+  if (scope === hostWide) return unscopedMemory(services, judge)
+  if (scope === undefined) {
+    // A missing scope never widens to every bank.
+    const refused = new HarnessError({
+      code: "assembly_failed",
+      message: "The memory flows name no scope, so none were bound."
+    })
+    return { name: memorySource, bindings: () => Effect.fail(refused) }
+  }
+  return scopedMemory(services, judge, scope)
 }
 
 /**

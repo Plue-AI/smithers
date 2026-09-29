@@ -105,7 +105,11 @@ const promised: ReadonlyArray<{
   { source: StandardFlows.shell(shellServices), flows: ["bash"] },
   { source: StandardFlows.tests(testServices), flows: ["test"] },
   {
-    source: StandardFlows.memory(memoryServices, evaluatorServices(Evaluator.layerUnavailable())),
+    source: StandardFlows.memory(
+      memoryServices,
+      evaluatorServices(Evaluator.layerUnavailable()),
+      StandardFlows.hostWide
+    ),
     flows: ["remember", "recall"]
   },
   { source: StandardFlows.jev(evaluatorServices(Evaluator.layerUnavailable())), flows: ["jev"] },
@@ -492,7 +496,10 @@ describe("the jev flow", () => {
     expect(catalog.descriptors.map((entry) => entry.name)).not.toContain("jev")
     const judge = evaluatorServices(Evaluator.layerUnavailable())
     const withJudge = await Effect.runPromise(
-      FlowBinding.catalog([StandardFlows.memory(memoryServices, judge), StandardFlows.jev(judge)])
+      FlowBinding.catalog([
+        StandardFlows.memory(memoryServices, judge, StandardFlows.hostWide),
+        StandardFlows.jev(judge)
+      ])
     )
     expect(withJudge.descriptors.map((entry) => entry.name)).toEqual(["remember", "recall", "jev"])
     const jev = withJudge.descriptors.find((entry) => entry.name === "jev")!
@@ -517,7 +524,9 @@ describe("the recall flow", () => {
     services: Context.Context<MemoryStore.MemoryStore | Recall.Recall> = recalling
   ) => {
     const journaled: Array<AgentEvent.AgentEvent> = []
-    const bindings = await Effect.runPromise(StandardFlows.memory(services, evaluatorServices(judge)).bindings())
+    const bindings = await Effect.runPromise(
+      StandardFlows.memory(services, evaluatorServices(judge), StandardFlows.hostWide).bindings()
+    )
     const result = await Effect.runPromise(
       bindings.find((binding) => binding.descriptor.name === "recall")!
         .run(callOf("recall", { banks: ["notes"], query: "why does login fail?" }))
@@ -620,7 +629,7 @@ describe("the recall flow", () => {
     )
     const bindings = await Effect.runPromise(
       StandardFlows.memory(scoped, judge, {
-        policy: { banks: ["agent-builder"], maxTokens: 2048, retain: "on-complete" }
+        policy: { banks: ["agent-builder"], maxTokens: 2048 }
       }).bindings()
     )
     const binding = bindings.find((entry) => entry.descriptor.name === "recall")!
@@ -647,7 +656,8 @@ describe("the recall flow", () => {
 
   it("declares recall's input and effects with the judged output", async () => {
     const bindings = await Effect.runPromise(
-      StandardFlows.memory(recalling, evaluatorServices(Evaluator.layerUnavailable())).bindings()
+      StandardFlows.memory(recalling, evaluatorServices(Evaluator.layerUnavailable()), StandardFlows.hostWide)
+        .bindings()
     )
     const recall = bindings.find((binding) => binding.descriptor.name === "recall")!.descriptor
     expect(recall.description).toContain("withheld and listed")

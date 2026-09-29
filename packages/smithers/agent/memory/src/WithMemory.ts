@@ -27,7 +27,7 @@ import { BankName, MaxTokens } from "./Recall.ts"
  * The memory policy a flow tree inherits: which namespace its memory lives in,
  * whether recall is refused (`recall: "none"`; absent, recall answers when
  * asked), the byte budget recall answers within, and whether writes are
- * retained.
+ * dropped (`retain: "never"`; absent, every write is stored when it is made).
  *
  * @category schemas
  * @since 0.1.0
@@ -36,7 +36,7 @@ export const Policy = Schema.Struct({
   banks: Schema.Array(BankName).check(Schema.isMinLength(1)),
   recall: Schema.optionalKey(Schema.Literal("none")),
   maxTokens: MaxTokens,
-  retain: Schema.Literals(["on-complete", "never"])
+  retain: Schema.optionalKey(Schema.Literal("never"))
 })
 
 /**

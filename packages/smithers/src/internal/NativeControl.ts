@@ -1102,7 +1102,11 @@ export const make = (
         const sources = [
           ...(sealedTo === undefined ? [StandardFlows.filesystem(filesystemServices, nativeSearch)] : []),
           StandardFlows.shell(shellServices, container, { sealedTo }),
-          StandardFlows.memory(memoryServices, judge),
+          // Host-wide on purpose: these sources are built once per executor,
+          // before any run, and the operator owns this memory database. A
+          // host that runs a flow declaring `WithMemory.Policy` composes a
+          // `MemoryScope` for that run instead.
+          StandardFlows.memory(memoryServices, judge, StandardFlows.hostWide),
           // The same judge the completion brake and `test` use, offered to the
           // cell directly. Subscription availability is checked at dispatch;
           // an unavailable judge is the call's own typed failure.

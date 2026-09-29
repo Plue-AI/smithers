@@ -66,7 +66,7 @@ returns just the entries, for composing with your own:
 import { MemoryEntries } from "@smthrs/chain"
 import { Layer } from "effect"
 
-const policy = { banks: ["worldview"], maxTokens: 2000, retain: "on-complete" } as const
+const policy = { banks: ["worldview"], maxTokens: 2000 } as const
 const catalog = MemoryEntries.layer(policy).pipe(Layer.provide(memoryServices))
 ```
 

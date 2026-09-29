@@ -1,5 +1,6 @@
 import * as Flows from "@smthrs/memory/Flows"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
+import * as Recall from "@smthrs/memory/Recall"
 import * as RecallKeyword from "@smthrs/memory/RecallKeyword"
 import * as TestMemory from "@smthrs/memory/test/TestMemory"
 import { Effect, Layer } from "effect"
@@ -11,7 +12,7 @@ import { flow, runChain, runOn } from "./harness.ts"
 
 const services = Layer.provideMerge(RecallKeyword.layer, TestMemory.layerWithDatabase)
 
-const policy = { banks: ["worldview", "b"], maxTokens: 1000, retain: "on-complete" } as const
+const policy = { banks: ["worldview", "b"], maxTokens: 1000 } as const
 
 const entriesOf = (): Promise<ReadonlyArray<Catalog.Entry>> => runOn(services, MemoryEntries.make(policy))
 
@@ -100,21 +101,21 @@ describe("MemoryEntries", () => {
     const entries = await entriesOf()
     const remember = entries[0] as Catalog.Entry
     expect(remember.digest).toBe(
-      MemoryEntries.contractDigest({
+      MemoryEntries.bindingDigest({
         description: Flows.rememberDescription,
         effects: { ...Flows.rememberEffects },
         input: Flows.RememberInput,
         name: Flows.rememberName,
         output: Flows.RememberOutput
-      })
+      }, policy)
     )
-    const changed = MemoryEntries.contractDigest({
+    const changed = MemoryEntries.bindingDigest({
       description: Flows.rememberDescription,
       effects: { ...Flows.rememberEffects },
       input: Flows.RecallInput,
       name: Flows.rememberName,
       output: Flows.RememberOutput
-    })
+    }, policy)
     expect(remember.digest).not.toBe(changed)
   })
 
@@ -284,6 +285,64 @@ describe("MemoryEntries", () => {
       }).pipe(Effect.provide(services))
     )
     expect(fact?.provenance).toEqual({ iteration: 3, nodeId: "link-2", runId: "chain-1" })
+  })
+
+  // A recall journaled under one policy is replayed by digest, so every
+  // policy field re-keys both entries and an equal policy keeps them.
+  it("keys each entry by the policy it enforces", async () => {
+    const digestsOf = async (bound: Parameters<typeof MemoryEntries.make>[0]) =>
+      (await runOn(services, MemoryEntries.make(bound))).map((entry) => entry.digest)
+    const base = await digestsOf(policy)
+    expect(await digestsOf({ ...policy, banks: [...policy.banks] })).toEqual(base)
+    for (
+      const changed of [
+        { ...policy, banks: ["worldview"] },
+        { ...policy, recall: "none" as const },
+        { ...policy, maxTokens: 999 },
+        { ...policy, retain: "never" as const }
+      ]
+    ) {
+      const digests = await digestsOf(changed)
+      expect(digests[0]).not.toBe(base[0])
+      expect(digests[1]).not.toBe(base[1])
+    }
+  })
+
+  // The same three cases the scoped StandardFlows binding is held to, each
+  // observed at the store and recall service so "refused before I/O" is shown.
+  it("serves allowed banks and refuses foreign banks and recall none before I/O", async () => {
+    const reached: Array<string> = []
+    const observed = Layer.merge(
+      Layer.succeed(MemoryStore.MemoryStore)(
+        MemoryStore.makeNoop({
+          putFact: (input) => Effect.sync(() => void reached.push(`put:${JSON.stringify(input.namespace)}`))
+        })
+      ),
+      Layer.succeed(Recall.Recall)(
+        Recall.Recall.of({
+          recall: (input) => Effect.sync(() => (reached.push(`recall:${input.banks.join(",")}`), []))
+        })
+      )
+    )
+    const [remember, recall] = await runOn(observed, MemoryEntries.make(policy)) as [Catalog.Entry, Catalog.Entry]
+    expect(await call(remember, { bank: "worldview", key: "k", text: "t" })).toEqual({ key: "k" })
+    expect(await call(recall, { banks: ["b"], query: "q" })).toEqual([])
+    expect(reached).toEqual([`put:${JSON.stringify(Recall.namespaceForBank("worldview"))}`, "recall:b"])
+
+    reached.length = 0
+    expect((await callError(remember, { bank: "agent-checker", key: "k", text: "t" })).cause).toBe(
+      "invalid_namespace"
+    )
+    expect((await callError(recall, { banks: ["agent-checker"], query: "q" })).cause).toBe("invalid_namespace")
+    expect(reached).toEqual([])
+
+    const [, silent] = await runOn(observed, MemoryEntries.make({ ...policy, recall: "none" })) as [
+      Catalog.Entry,
+      Catalog.Entry
+    ]
+    expect(await call(silent, { banks: ["worldview"], query: "q" })).toEqual([])
+    expect(await call(silent, { banks: ["agent-checker"], query: "q" })).toEqual([])
+    expect(reached).toEqual([])
   })
 
   it("fails typed on an invalid policy", async () => {

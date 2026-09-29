@@ -30,6 +30,7 @@ import * as Recall from "@smthrs/memory/Recall"
 import * as RecallKeyword from "@smthrs/memory/RecallKeyword"
 import * as TestMemory from "@smthrs/memory/test/TestMemory"
 import type * as WithMemory from "@smthrs/memory/WithMemory"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import type * as Route from "@smthrs/model/Route"
@@ -51,7 +52,6 @@ type MemoryServices = MemoryStore.MemoryStore | Recall.Recall
 const policyFor = (id: string, overrides: Partial<WithMemory.Policy> = {}): WithMemory.Policy => ({
   banks: [`agent-${id}`],
   maxTokens: 2048,
-  retain: "on-complete",
   ...overrides
 })
 
@@ -406,7 +406,7 @@ ctx.done(JSON.stringify({ kept: kept.key, own, named, foreign }))`
         "exec-unscoped",
         run(
           "read another bank",
-          [StandardFlows.memory(observed(services, reached))],
+          [StandardFlows.memory(observed(services, reached), StandardFlows.hostWide)],
           `const read = await ctx.call("recall", { banks: ["agent-checker"], query: "plan" })
 const kept = await ctx.call("remember", { bank: "agent-checker", key: "plan", text: "overwritten" })
 ctx.done(JSON.stringify({ read: read.map((row) => row.text), kept: kept.key }))`
@@ -498,7 +498,7 @@ describe("StandardFlows.memory scope identity", () => {
 
   it("binds the same two flows, with one declaration identity per policy and run", async () => {
     const run1 = { runId: "run-1", nodeId: "role-task", iteration: 0 }
-    const unscoped = await digests(StandardFlows.memory(services))
+    const unscoped = await digests(StandardFlows.memory(services, StandardFlows.hostWide))
     const builder = await digests(StandardFlows.memory(services, { policy: policyFor("builder"), provenance: run1 }))
     // The same coordinates in another key order are the same scope.
     const resumed = await digests(
@@ -539,7 +539,8 @@ describe("StandardFlows.memory scope identity", () => {
       const policy of [
         policyFor("builder", { maxTokens: -1 }),
         { ...policyFor("builder"), banks: [""] },
-        { ...policyFor("builder"), recall: "sometimes" as unknown as "none" }
+        { ...policyFor("builder"), recall: "sometimes" as unknown as "none" },
+        { ...policyFor("builder"), retain: "on-complete" as unknown as "never" }
       ]
     ) {
       const error = await Effect.runPromise(
@@ -550,6 +551,28 @@ describe("StandardFlows.memory scope identity", () => {
       expect(error.message).toBe("The memory scope's policy is invalid, so no memory flows were bound.")
     }
   })
+
+  // An untyped caller that names no scope gets no memory flows, never the
+  // host-wide pair: only `StandardFlows.hostWide` binds every bank.
+  it("binds nothing when a composition names no scope", async () => {
+    const judge = Effect.runSync(
+      Effect.provide(Effect.context<Evaluator.Evaluator>(), Evaluator.layerUnavailable())
+    )
+    for (
+      const source of [
+        (StandardFlows.memory as (...args: ReadonlyArray<unknown>) => FlowBinding.Source)(services),
+        (StandardFlows.memory as (...args: ReadonlyArray<unknown>) => FlowBinding.Source)(
+          services,
+          judge
+        )
+      ]
+    ) {
+      const error = await Effect.runPromise(Effect.flip(FlowBinding.catalog([source])))
+      expect(error).toBeInstanceOf(HarnessError)
+      expect(error.code).toBe("assembly_failed")
+      expect(error.message).toBe("The memory flows name no scope, so none were bound.")
+    }
+  })
 })
 
 describe("StandardFlows.memory capabilities", () => {
@@ -558,7 +581,9 @@ describe("StandardFlows.memory capabilities", () => {
     const services = Context.make(MemoryStore.MemoryStore, MemoryStore.makeNoop()).pipe(
       Context.add(Recall.Recall, Recall.makeNoop())
     )
-    const catalog = await Effect.runPromise(FlowBinding.catalog([StandardFlows.memory(observed(services, reached))]))
+    const catalog = await Effect.runPromise(
+      FlowBinding.catalog([StandardFlows.memory(observed(services, reached), StandardFlows.hostWide)])
+    )
     const read = catalog.bindings.get("recall")!
     const write = catalog.bindings.get("remember")!
     const ceiling = [new Capability.CapabilityPattern({ action: "memory:read", resource: "global-team" })]
