@@ -134,8 +134,8 @@ Omitting `cardId` creates a card through `CardSink.emit`. Supplying it calls
 `CardSink.update` with a full replacement: props are replaced, an omitted title
 clears the previous heading, and the registered pane supplies `fullscreen`.
 The pane name is validated for both operations. Updates preserve the card's
-position; an absent id inserts a card. Custom sinks must implement these
-replacement semantics and stream `card.update` for updates.
+position; the default chat page appends an update for an absent ID. Custom sinks
+must implement these replacement semantics and stream `card.update` for updates.
 
 New pane and HTML card ids have the form `card-${session}-${frame}-${ordinal}`.
 Here `session` is `call.identity.session`, the execution lineage, so separate
