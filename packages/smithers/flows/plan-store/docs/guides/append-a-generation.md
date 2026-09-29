@@ -73,39 +73,37 @@ fully described; it is described from the side that is still writable.
 
 ## The compare-and-swap
 
-`PlanStore.append` advances the plan row with an UPDATE that matches on the
-previous generation, the flow, and the approved base digest. If that UPDATE
-matches nothing, the append fails with `constraint`:
+`PlanStore.append` verifies the supplied plan, derives the digest of its
+verified prefix with `Plan.prefixDigest(plan)`, then advances the plan row
+with an UPDATE matching the previous generation, the flow, the approved
+`baseDigest`, and that running prefix digest. The digest match proves that
+the stored plan envelope is the one the caller grew from.
+
+A successful append does not read, decode, or verify stored node rows. It
+inserts only the current generation's nodes, with ordinals starting at the
+length of the verified caller prefix. This keeps successive appends from
+re-reading an ever-growing history.
+
+If the UPDATE matches nothing, append checks the stored envelope. For an
+existing plan it calls `get` to distinguish corruption (reported as
+`decode_failed`) from a legitimate mismatch. A missing plan, skipped or
+moved generation, flow mismatch, or base digest mismatch fails with
+`constraint`:
 
 ```text
 plan review-4821 was never recorded, or generation 3 was skipped or moved under the append
 ```
 
-The refusal matters because of the append-only triggers. Without it the node
-rows would land while the plan row update matched nothing or skipped a
-generation, leaving rows whose dependencies are missing and that nothing is
-allowed to delete. The whole append is one transaction, so the refusal takes the
-rows back with it.
-
-An append with no new nodes is refused for the same reason, as `invalid_plan`.
-
-## The persisted-prefix check
-
-Before inserting, `append` reads the nodes already stored and compares them, as
-encoded JSON, against the prefix of the plan you handed it. A mismatch fails
-with `constraint`:
+A divergent running prefix digest also fails with `constraint`:
 
 ```text
 plan review-4821 recorded plan's nodes diverge from the plan this append was grown from
 ```
 
-That is what catches an append grown from a divergent branch: two callers
-elaborated the same recorded plan independently, and one of them is about to
-graft its nodes onto a history it never saw. Recompile from the stored plan and
-append again.
-
-Ordinals are derived from the rows already stored, not from the caller's array,
-so the recorded order stays contiguous even under a retry.
+Recompile from the stored plan and append again after a divergent branch.
+The whole append is one transaction: a failed swap cannot leave new node
+rows behind under the append-only triggers. An append with no new nodes is
+refused as `invalid_plan`.
 
 ## Migration ordering
 
@@ -114,9 +112,13 @@ migration id block `4000`, the next free block after the journal (`0`), the run
 store (`1000`), the step cache (`2000`), and the engine store (`3000`).
 
 [`@smthrs/engine-store`](/api/engine-store)'s `Migrations.sets` composes this set
-last, because [`@smthrs/database`](/api/database)'s migrator decides what to run
-from a single high-water mark: a set whose ids sit below an already applied one
-would be assumed done and silently skipped.
+last. [`@smthrs/database`](/api/database)'s migrator uses a global applied
+high-water mark, but composition does not silently skip every lower id:
+forward additions to an installed lower block are applied transactionally
+with their migration ledger rows. Earlier holes and newly introduced lower
+blocks are refused instead of silently skipped. Declare the matching recorded
+migrations when extending an installed block; put a new package's block above
+the high-water mark.
 
 ## Next
 
