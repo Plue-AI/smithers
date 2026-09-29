@@ -84,7 +84,7 @@ func (f *fakeMainPullStore) GetUserByID(context.Context, int64) (db.User, error)
 }
 
 func (f *fakeMainPullStore) GetOrgByID(context.Context, int64) (db.Organization, error) {
-	return db.Organization{}, pgx.ErrNoRows
+	return db.Organization{Name: "smithers-canary"}, nil
 }
 
 func (f *fakeMainPullStore) ListRepositoryIDsForGitHubSource(_ context.Context, owner, repo string) ([]int64, error) {
@@ -1047,4 +1047,28 @@ func TestGitHubMainPullReadTokenIsReadOnly(t *testing.T) {
 	service := NewGitHubMainPullService(nil, nil, tokens, nil)
 	assert.Equal(t, "ghs_installation_secret", service.readToken(context.Background(), db.Repository{UserID: pgtype.Int8{Int64: 1, Valid: true}}, "acme", "app"))
 	assert.Equal(t, []map[string]string{{"contents": "read"}}, tokens.permissions)
+}
+
+func TestReadGitHubAccount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer ghs_token", r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/users/roninjin10":
+			_, _ = w.Write([]byte(`{"login":"roninjin10","id":35039927}`))
+		case "/users/ghost":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusBadGateway)
+		}
+	}))
+	defer server.Close()
+	ctx := context.Background()
+	account, err := readGitHubAccount(ctx, server.Client(), server.URL, "ghs_token", "roninjin10")
+	require.NoError(t, err)
+	assert.Equal(t, "35039927", account)
+	account, err = readGitHubAccount(ctx, server.Client(), server.URL, "ghs_token", "ghost")
+	require.NoError(t, err)
+	assert.Empty(t, account, "no account holds the login")
+	_, err = readGitHubAccount(ctx, server.Client(), server.URL, "ghs_token", "down")
+	require.ErrorContains(t, err, "HTTP 502", "an outage is an error, never an unheld login")
 }

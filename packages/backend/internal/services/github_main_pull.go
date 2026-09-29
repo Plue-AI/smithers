@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -101,11 +102,14 @@ type GitHubMainPullStatus struct {
 type GitHubMainPullService struct {
 	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
 	readFactory      func(context.Context, string, string, string, string) ([]byte, error)
-	store            GitHubMainPullStore
-	host             gitHubMainPullRepoHost
-	tokens           GitHubMainPullTokens
-	connections      RepoSyncConnectionChecker
-	logger           *slog.Logger
+	// readGitHubAccount returns the ID of the GitHub account holding a
+	// login, or "" when none does.
+	readGitHubAccount func(ctx context.Context, token, login string) (string, error)
+	store             GitHubMainPullStore
+	host              gitHubMainPullRepoHost
+	tokens            GitHubMainPullTokens
+	connections       RepoSyncConnectionChecker
+	logger            *slog.Logger
 
 	gitHubGitBaseURL func() string
 	lsRemote         func(ctx context.Context, remote, ref string) (string, error)
@@ -122,8 +126,9 @@ type GitHubMainPullService struct {
 	syncing sync.Map
 }
 
-// SetFactoryReconciler registers owner-main declaration reconciliation. Failures
-// are pull failures and retry through the existing durable pull queue.
+// SetFactoryReconciler registers main's declaration reconciliation. A failure
+// never fails the synced pull: it is the receipt's last_error, and the poll
+// that re-checks synced repositories retries it.
 func (s *GitHubMainPullService) SetFactoryReconciler(reconcile func(context.Context, int64, string, FactoryProjection) error) {
 	s.reconcileFactory = reconcile
 }
@@ -159,6 +164,9 @@ func NewGitHubMainPullService(store GitHubMainPullStore, host gitHubMainPullRepo
 		},
 		readFactory: func(ctx context.Context, token, owner, repo, commit string) ([]byte, error) {
 			return readGitHubFactory(ctx, client, githubAPIBaseURL(), defaultGitHubRawBaseURL, token, owner, repo, commit)
+		},
+		readGitHubAccount: func(ctx context.Context, token, login string) (string, error) {
+			return readGitHubAccount(ctx, client, githubAPIBaseURL(), token, login)
 		},
 		lsRemote: defaultLsRemoteRef,
 		readPolicy: func(ctx context.Context, token, owner, repo, commit string) (string, error) {
@@ -385,6 +393,8 @@ func (s *GitHubMainPullService) runClaimed(parent context.Context, row db.Github
 		"policy", outcome.policy, "github_head", outcome.githubHead, "smithers_head", outcome.smithersHead}
 	if outcome.state == gitHubMainPullStateFailed {
 		s.logger.Warn("github.main_pull.failed", append(attrs, "attempts", row.Attempts, "retry_in", backoff.String(), "error", outcome.err)...)
+	} else if outcome.err != "" {
+		s.logger.Warn("github.main_pull."+outcome.state, append(attrs, "error", outcome.err)...)
 	} else {
 		s.logger.Info("github.main_pull."+outcome.state, attrs...)
 	}
@@ -514,14 +524,24 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 				return errors.New("invalid factory projection")
 			}
 		}
+		// An organization's maintainers approve by the GitHub account that
+		// holds each login now, never by a login a Cloud user once had.
+		projection.gitHubAccount = func(login string) (string, error) {
+			return s.readGitHubAccount(ctx, token, login)
+		}
 		return s.reconcileFactory(ctx, repository.ID, revision, projection)
 	}
-	if githubHead == smithersHead {
-		if err := reconcile(githubHead); err != nil {
-			return fail("reconcile factory: " + err.Error())
-		}
+	// Main is synced once Smithers equals GitHub. Factory rules are a separate
+	// outcome: their error rides the synced receipt and the poll retries it.
+	synced := func(revision string) gitHubMainPullOutcome {
 		out.state = gitHubMainPullStateSynced
+		if err := reconcile(revision); err != nil {
+			out.err = "reconcile factory: " + err.Error()
+		}
 		return out
+	}
+	if githubHead == smithersHead {
+		return synced(githubHead)
 	}
 
 	dir, err := os.MkdirTemp("", "smithers-main-pull-")
@@ -588,11 +608,7 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	if after != tip {
 		return fail("Smithers " + branch + " did not reach GitHub's tip")
 	}
-	if err := reconcile(after); err != nil {
-		return fail("reconcile factory: " + err.Error())
-	}
-	out.state = gitHubMainPullStateSynced
-	return out
+	return synced(after)
 }
 
 // repositoryOwnerName is the owner segment of a repository's Smithers path.
@@ -753,10 +769,39 @@ func (g cliGitHubMainPullGit) Push(ctx context.Context, dir, smithersURL, commit
 	return err
 }
 
-// readGitHubMirrorPolicy reads github.mirror from the factory projection at
-// the exact commit being pulled: with the installation token through the API,
-// else anonymously from raw content (a private repository answers 404 and is
-// never read without a token). An absent file or field is "undeclared".
+// readGitHubAccount reads the numeric ID of the account holding login now.
+func readGitHubAccount(ctx context.Context, client *http.Client, apiBase, token, login string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiBase, "/")+"/users/"+url.PathEscape(login), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "smithers-server")
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", errors.New("GitHub did not answer")
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub answered HTTP %d", resp.StatusCode)
+	}
+	var account struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&account); err != nil || account.ID <= 0 {
+		return "", errors.New("GitHub answered an invalid account")
+	}
+	return strconv.FormatInt(account.ID, 10), nil
+}
+
+// readGitHubFactory reads the factory projection at commit, or nil when it is absent.
 func readGitHubFactory(ctx context.Context, client *http.Client, apiBase, rawBase, token, owner, repo, commit string) ([]byte, error) {
 	var endpoint string
 	if token != "" {
@@ -797,6 +842,10 @@ func readGitHubFactory(ctx context.Context, client *http.Client, apiBase, rawBas
 	return raw, nil
 }
 
+// readGitHubMirrorPolicy reads github.mirror from the factory projection at
+// the exact commit being pulled: with the installation token through the API,
+// else anonymously from raw content (a private repository answers 404 and is
+// never read without a token). An absent file or field is "undeclared".
 func readGitHubMirrorPolicy(ctx context.Context, client *http.Client, apiBase, rawBase, token, owner, repo, commit string) (string, error) {
 	raw, err := readGitHubFactory(ctx, client, apiBase, rawBase, token, owner, repo, commit)
 	if err != nil {

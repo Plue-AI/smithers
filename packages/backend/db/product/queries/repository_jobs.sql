@@ -38,7 +38,8 @@ SELECT * FROM repository_job_registrations WHERE id=$1;
 SELECT * FROM repository_job_registrations WHERE repository_id=$1 ORDER BY job,mode;
 
 -- name: PauseRepositoryJob :many
-UPDATE repository_job_registrations SET enabled=false, updated_at=now()
+-- A person's pause drops the factory refusal mark, so approval never undoes it.
+UPDATE repository_job_registrations SET enabled=false, configuration=configuration - 'factory_unapproved', updated_at=now()
 WHERE repository_id=$1 AND job=$2 RETURNING *;
 
 -- name: ListRepositoryJobDispatchesForCancellation :many
