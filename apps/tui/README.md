@@ -280,7 +280,13 @@ of its `agent.wait`, which returns early; that agent answers with
 when it is parked or settled, the ask moves one level up. A top-level worker's
 ask, one past the root, and `to: "person"` go to the person: the worker shows
 ◆ under Needs you, and **a** in the Summary overview or the worker's tab opens
-its form, a choice among `options` or free text. A worker can delegate children through depth 3;
+its form, a choice among `options` or free text. A child worker that fails
+on something a person can answer (a sign-in, a refusal, a plan that did not
+converge) asks the same way, with the failure's headline and line and the
+options `retry` or `stop`; `retry` relaunches it, at most twice. A limit, an
+outage or a defect asks nothing, and the ask is withdrawn when the worker
+runs again or its parent stops or finishes. Asks are not restored after a
+restart. A worker can delegate children through depth 3;
 depth 4 returns `AgentDepthExceeded`. Waiting releases the worker's pool slot.
 Delegation takes `{id, title, prompt}`, persists before launch, and returns a
 `requested` receipt immediately. Reusing the id deduplicates the request.

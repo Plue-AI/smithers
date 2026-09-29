@@ -1,4 +1,5 @@
 import * as SmithersPlugin from "@smthrs/agent/SmithersPlugin"
+import * as Fault from "@smthrs/flow/Fault"
 import { randomUUID } from "node:crypto"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import * as Log from "./log.ts"
@@ -156,6 +157,8 @@ export class Workspace {
   private steering = new Map<string, { readonly queue: Steering.Queue; readonly writer: Session.Writer }>()
   private closed = false
   private unsubscribeAsks: () => void = () => {}
+  /** How many times each worker has asked for help with a failure. */
+  private helpAsked = new Map<string, number>()
   /** Wrapped workers the person took over: resolved once the vendor stopped, released by `release`. */
   private handovers = new Map<
     string,
@@ -400,14 +403,24 @@ export class Workspace {
             ask: { id: ask.id, question: ask.question, ...(ask.options === undefined ? {} : { options: ask.options }) }
           }
         }
-        resolve([
-          ...tabs.map(({ id, status, answer, message }) => ({ id, status, answer, message, ...question(id) })),
-          ...asks.filter((ask) => !children.includes(ask.from)).map((ask) => ({
-            id: ask.from,
-            status: this.tabs.get(ask.from)?.status ?? "running",
-            ...question(ask.from)
-          }))
-        ])
+        // Rows are read once the notification that ended the wait has settled, so a child
+        // that asked as it failed reads failed, not the running it was an instant before.
+        queueMicrotask(() =>
+          resolve([
+            ...tabs.map((tab) => this.tabs.get(tab.id) ?? tab).map(({ id, status, answer, message }) => ({
+              id,
+              status,
+              answer,
+              message,
+              ...question(id)
+            })),
+            ...asks.filter((ask) => !children.includes(ask.from)).map((ask) => ({
+              id: ask.from,
+              status: this.tabs.get(ask.from)?.status ?? "running",
+              ...question(ask.from)
+            }))
+          ])
+        )
       }
       const unsubscribe = this.subscribe(check)
       signal?.addEventListener("abort", aborted, { once: true })
@@ -726,7 +739,16 @@ export class Workspace {
           wait: (ids, signal) => this.wait(tab.id, ids, signal),
           ask: (input, signal) => this.ask(tab.id, input, signal),
           answer: (id, answer) => {
-            if (!this.asks.answer(id, answer, tab.id)) throw new Error(`No open ask ${id} for this agent`)
+            // An ask that offers options takes one of them, so an answer is never read as another.
+            const options = this.asks.list().find((ask) => ask.id === id)?.options
+            const fold = (text: string) => text.trim().toLowerCase()
+            const chosen = options === undefined
+              ? answer
+              : options.find((option) => option === answer) ?? options.find((option) => fold(option) === fold(answer))
+            if (chosen === undefined) throw new Error(`Answer one of: ${options!.join(", ")}`)
+            if (!this.asks.answer(id, chosen, tab.id)) {
+              throw new Error(`No open ask ${id} for this agent`)
+            }
             return { id, status: "answered" }
           }
         },
@@ -835,6 +857,8 @@ export class Workspace {
           transcript = Transcript.failure(transcript, outcome._tag === "failed" ? failure!.headline : "Stopped", at)
           this.transcripts.set(tab.id, transcript)
         }
+        // Opened before the worker settles, so a parent already in agent.wait gets it with the failure.
+        if (outcome._tag === "failed") this.askForHelp(tab.id, outcome.error, failure!)
         this.tabs.move({
           ...ended(this.tabs.get(tab.id) ?? tab, at),
           endedAt: at,
@@ -1027,6 +1051,52 @@ export class Workspace {
     } finally {
       if (blocked) await this.seated(id, signal)
     }
+  }
+  /**
+   * A child worker whose failure the one ladder answers with help (the
+   * person's or the plan's, not a limit, the platform or a defect) asks its
+   * parent, then the person, to retry or stop; a top-level worker's failure
+   * card already asks the person. Called as the worker settles, so a parent
+   * waiting on it gets the ask with the failure. An answered retry relaunches
+   * it; the ask is withdrawn once the worker runs again another way or its
+   * parent stops or finishes.
+   */
+  private askForHelp(id: string, error: unknown, failure: FailureCopy.Description): void {
+    const tab = this.tabs.get(id)
+    if (tab?.parent === undefined) return
+    const parent = tab.parent
+    const noLadder = { attempt: 3, seatsLeft: 0, parksLeft: 0, replans: 2, veryHard: true }
+    if (Fault.respond(Fault.of(error), noLadder) !== "help") return
+    // A parent that already settled cannot answer; the child's own failure card stands.
+    const settledParent = this.tabs.get(tab.parent)?.status
+    if (settledParent === "done" || settledParent === "failed" || settledParent === "cancelled") return
+    // At most twice in a worker's life: a third help-worthy failure stands as failed.
+    const asked = this.helpAsked.get(id) ?? 0
+    if (asked >= 2) return
+    this.helpAsked.set(id, asked + 1)
+    const withdrawn = new AbortController()
+    let settled = false
+    const unsubscribe = this.subscribe(() => {
+      const status = this.tabs.get(id)?.status
+      if (status === "failed") settled = true
+      const holder = this.tabs.get(parent)?.status
+      if ((settled && status !== "failed") || holder === "cancelled" || holder === "failed" || holder === "done") {
+        withdrawn.abort()
+      }
+    })
+    this.asks.ask(
+      tab,
+      { question: `${failure.headline}. ${failure.line}`, options: ["retry", "stop"] },
+      withdrawn.signal
+    )
+      .then((answer) => {
+        unsubscribe()
+        if (answer.trim().toLowerCase() === "retry" && this.tabs.get(id)?.status === "failed") this.retry(id)
+      })
+      .catch((reason: unknown) => {
+        unsubscribe()
+        if (!withdrawn.signal.aborted) Log.write("worker.retry", reason)
+      })
   }
   /** Resolves once a blocked worker has a seat again and is running. */
   private seated(id: string, signal?: AbortSignal): Promise<void> {

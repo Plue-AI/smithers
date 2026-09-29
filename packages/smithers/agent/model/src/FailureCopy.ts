@@ -134,6 +134,25 @@ const harness: Record<string, readonly [string, string]> = {
   suspended: ["Worker paused", "Resume when ready."]
 }
 
+/** Causes that name what happened better than the model or harness wrapper around them. */
+const causes: Readonly<Record<string, readonly [string, string, ReadonlyArray<Action>]>> = {
+  FramesExhausted: ["Worker ran out of frames", "It stopped without an answer.", ["resume", "switch-model", "details"]],
+  "/harness/CellTurn/RepeatedFailure": ["Worker repeated one failure", "It stopped after five identical frames.", [
+    "resume",
+    "switch-model",
+    "details"
+  ]],
+  // Another model cannot change a person's answer, or their silence.
+  "@smthrs/flow/HumanTaskFailed/rejected": ["Answer rejected", "The person did not accept the answer.", [
+    "resume",
+    "details"
+  ]],
+  "@smthrs/flow/HumanTaskFailed/timeout": ["No answer in time", "Nobody answered before the deadline.", [
+    "resume",
+    "details"
+  ]]
+}
+
 /**
  * Walks wrapped causes and turns typed failure codes into safe UI copy.
  * @category utilities
@@ -144,6 +163,8 @@ export const describe = (error: unknown, seat?: string): Description => {
   let current: unknown = error
   let found: ErrorRecord | undefined
   let budget: ErrorRecord | undefined
+  let unresolved: ErrorRecord | undefined
+  let named: readonly [string, string, ReadonlyArray<Action>] | undefined
   const seen = new Set<unknown>()
   while (current !== undefined && !seen.has(current)) {
     seen.add(current)
@@ -153,7 +174,21 @@ export const describe = (error: unknown, seat?: string): Description => {
     // A spent run budget, reported at the refused call or at a later skipped one.
     if (value._tag === "flows/agent/BudgetExceeded") budget = value
     if (value._tag === "flows/agent/Skipped") budget = record(value.budget)
+    // A seat the host could not resolve: its message is the host's own sign-in instruction.
+    if (value._tag === "@smthrs/agent/Seat/SeatUnresolved") unresolved = value
+    const key = typeof value.code === "string" ? `${String(value._tag)}/${value.code}` : String(value._tag)
+    named = causes[key] ?? causes[String(value._tag)] ?? named
     current = value.cause
+  }
+  if (named !== undefined) return { headline: named[0], fault, line: named[1], actions: named[2] }
+  if (unresolved !== undefined) {
+    const message = (unresolved as { readonly message?: unknown }).message
+    return {
+      headline: "Model sign-in required",
+      fault,
+      line: typeof message === "string" && message !== "" ? message.slice(0, 240) : "Sign in and resume.",
+      actions: ["resume", "switch-model", "details"]
+    }
   }
   if (budget !== undefined) {
     const daily = budget.scope === "daily"

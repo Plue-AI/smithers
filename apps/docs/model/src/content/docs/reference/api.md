@@ -186,7 +186,12 @@ itself, so nothing about the request's settlement is known.
 `switch-model`, `wait`, and `details`. A model seat supplies the provider name
 for a limit. Unknown errors have a generic headline. Raw messages and stacks
 belong in technical details, never in the headline. A bare string is never
-read for a fault: the fault arrives typed.
+read for a fault: the fault arrives typed. A `SeatUnresolved` anywhere on the
+cause chain reads "Model sign-in required" with the host's own sign-in
+instruction as the line, bounded to 240 characters. A cause that names what
+happened better than its wrapper wins: frames spent without an answer, the
+repeated-failure guard, and a person's rejection or silence on a human task
+each read as themselves, not as a model call that failed.
 
 `ModelError` registers its codes with `Fault`: `rate_limited` and
 `quota_exceeded` are `wait`; `invalid_request` and

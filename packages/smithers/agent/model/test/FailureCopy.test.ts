@@ -46,6 +46,50 @@ describe("FailureCopy.describe", () => {
     expect(FailureCopy.describe({ _tag: "flows/agent/BudgetExceeded" }).line).toBe("The run spent its budget.")
   })
 
+  it("says a seat needs a sign-in in the host's own words, bounded", () => {
+    const unresolved = {
+      _tag: "@smthrs/agent/Seat/SeatUnresolved",
+      seat: "claude-code:opus",
+      message: "Run `claude auth login`."
+    }
+    expect(FailureCopy.describe(new Error("launch", { cause: unresolved }))).toMatchObject({
+      headline: "Model sign-in required",
+      line: "Run `claude auth login`.",
+      actions: ["resume", "switch-model", "details"]
+    })
+    expect(FailureCopy.describe({ ...unresolved, message: "x".repeat(500) }).line).toHaveLength(240)
+    expect(FailureCopy.describe({ ...unresolved, message: "" }).line).toBe("Sign in and resume.")
+  })
+
+  it("names a plan that did not converge, and a person's refusal, instead of the model wrapper", () => {
+    const frames = {
+      _tag: "/harness/HarnessError",
+      code: "model_failed",
+      message: "m",
+      cause: { _tag: "FramesExhausted", frames: 6 }
+    }
+    expect(FailureCopy.describe(frames)).toMatchObject({
+      headline: "Worker ran out of frames",
+      line: "It stopped without an answer."
+    })
+    const loop = {
+      _tag: "/harness/HarnessError",
+      code: "model_failed",
+      message: "m",
+      cause: { _tag: "/harness/CellTurn/RepeatedFailure" }
+    }
+    expect(FailureCopy.describe(loop).headline).toBe("Worker repeated one failure")
+    expect(FailureCopy.describe({ _tag: "@smthrs/flow/HumanTaskFailed", code: "rejected" })).toMatchObject({
+      headline: "Answer rejected",
+      actions: ["resume", "details"]
+    })
+    expect(FailureCopy.describe({ _tag: "@smthrs/flow/HumanTaskFailed", code: "timeout" }).headline).toBe(
+      "No answer in time"
+    )
+    expect(FailureCopy.describe({ _tag: "@smthrs/flow/HumanTaskFailed", code: "request_invalid" }).headline)
+      .toBe("Worker stopped unexpectedly")
+  })
+
   it("uses a generic bug headline for an unknown error", () => {
     expect(FailureCopy.describe(new Error("private stack detail"))).toMatchObject({
       headline: "Worker stopped unexpectedly",
