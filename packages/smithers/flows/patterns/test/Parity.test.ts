@@ -10,6 +10,7 @@
  * have no declared counterpart; their rows use the shared option set only and
  * `OptionsParity.test.ts` names the asymmetry.
  */
+import { Graph } from "@smthrs/flow"
 import { describe, expect, it } from "vitest"
 import * as CheckSuite from "../src/CheckSuite.ts"
 import * as Debate from "../src/Debate.ts"
@@ -32,7 +33,7 @@ import * as Sidecar from "../src/Sidecar.ts"
 import * as Supervisor from "../src/Supervisor.ts"
 import * as Trellis from "../src/Trellis.ts"
 import * as TryCatchFinally from "../src/TryCatchFinally.ts"
-import { approval, check, fail, flow, type Pattern } from "./Parity.ts"
+import { approval, check, fail, flow, roles, scripted, settleRun, type Pattern } from "./Parity.ts"
 
 const drift: Pattern<{ readonly alerts: boolean }> = {
   make: (members, { alerts }) =>
@@ -786,6 +787,29 @@ const supervisor: Pattern<{ readonly maxRounds: number; readonly maxTasks: numbe
     }
   ])
 }
+
+it("durable Supervisor requires input tasks even when the boss plans them", async () => {
+  const forms = scripted({
+    ...supervisorScript([{ allDone: true }], undefined),
+    plan: () => ({ tasks: supervisorTasks })
+  })
+  const options = { maxRounds: 2, maxTasks: 16, concurrency: 1 }
+  const input = { goal: "ship" }
+  expect(() => Graph.build(Supervisor.make({
+    plan: forms.members.plan!,
+    workers: { coder: forms.members.coder!, tester: forms.members.tester! },
+    review: forms.members.review!,
+    finalize: forms.members.finalize!,
+    ...options
+  }), { input })).toThrow(
+    expect.objectContaining({ code: "invalid_input", message: "Supervisor input must contain a tasks array" })
+  )
+  expect(roles(forms.declaredTape)).toEqual([])
+
+  const ran = await settleRun(supervisor.run(forms.effects, input, options))
+  expect(ran).toMatchObject({ exhausted: false, rounds: 1 })
+  expect(roles(forms.ranTape)).toEqual(["plan", "coder", "coder", "tester", "review", "finalize"])
+})
 
 const trellisScript = {
   author: () => ({ agent: { goal: "write" } }),
