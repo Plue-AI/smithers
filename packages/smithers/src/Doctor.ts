@@ -19,6 +19,7 @@ import * as Migrations from "@smthrs/database/Migrations"
 import { existsSync, readdirSync } from "node:fs"
 import { DatabaseSync } from "node:sqlite"
 import * as Environment from "./Environment.ts"
+import * as Failure from "./internal/Failure.ts"
 import { hasTable } from "./internal/SqliteTable.ts"
 import * as Legacy from "./Legacy.ts"
 import * as NodeControl from "./NodeControl.ts"
@@ -127,8 +128,7 @@ const ladder = (file: string): Check => {
     return {
       name: `database ${file}`,
       level: "fail",
-      /* v8 ignore else -- node:sqlite throws Error objects */
-      detail: error instanceof Error ? error.message : String(error)
+      detail: Failure.operatorSentence(error)
     }
   } finally {
     database?.close()

@@ -372,7 +372,9 @@ export const localRoot = (
   environment: Environment.Source
 ): string => {
   if (options.remote !== undefined || Environment.read(environment, "SMITHERS_REMOTE") !== undefined) {
-    throw new Error("This command requires the host that owns the local project; --remote is not supported")
+    throw new CliError.UnsupportedError({
+      message: "This command requires the host that owns the local project; --remote is not supported"
+    })
   }
   const projectRoot = root(options.root, process.cwd())
   assertRoot(projectRoot)

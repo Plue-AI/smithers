@@ -372,7 +372,9 @@ export const events = (
 export const host = async (bind: Serve.Bind, options: ConnectionOptions, runtime: Runtime = {}): Promise<void> => {
   const config = configuration(options, runtime)
   if (config.remote !== undefined) {
-    throw new Error("serve must run on the host owning the project; --remote is not supported")
+    throw new CliError.UnsupportedError({
+      message: "serve must run on the host owning the project; --remote is not supported"
+    })
   }
   const refusal = Serve.refuse(bind)
   if (refusal !== undefined) throw refusal

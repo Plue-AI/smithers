@@ -20,6 +20,7 @@ import { Cause, Context, Effect, Exit, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
+import * as CliError from "../CliError.ts"
 import * as ControlDatabaseMigrations from "../internal/ControlDatabaseMigrations.ts"
 import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
 import * as NodeControl from "../NodeControl.ts"
@@ -49,9 +50,13 @@ export interface Options {
  */
 export { localRoot } from "../Project.ts"
 
+/** A history request this CLI refuses: whose problem it is, a stable code, and the sentence. */
+const refused = (fault: CliError.Fault, code: string, message: string): CliError.Refused =>
+  new CliError.Refused({ fault, code, message })
+
 const requireDatabase = (root: string): string => {
   const file = NodeControl.executionDatabasePath(root)
-  if (!DatabaseLocation.exists(file)) throw new Error(`No execution history at ${file}`)
+  if (!DatabaseLocation.exists(file)) throw refused("user", "history_missing", `No execution history at ${file}`)
   return file
 }
 
@@ -124,7 +129,9 @@ const resolvePosition = (runId: string, options: Options) =>
       for (const entry of page.entries) {
         first ??= entry
         if (options.sequence !== undefined && entry.seq > options.sequence) break
-        if (++count > limit) throw new Error(`History exceeds --limit ${limit}; increase it explicitly`)
+        if (++count > limit) {
+          throw new CliError.UsageError({ message: `History exceeds --limit ${limit}; increase it explicitly` })
+        }
         if (options.lineage === undefined || lineageOf(entry) === options.lineage) target = entry
       }
       const tail = page.entries.at(-1)?.seq
@@ -136,10 +143,14 @@ const resolvePosition = (runId: string, options: Options) =>
     const lineage = options.lineage ?? (target === undefined ? undefined : lineageOf(target)) ??
       (first === undefined ? undefined : lineageOf(first))
     if (sequence === undefined || lineage === undefined) {
-      throw new Error(`Run ${runId} has no addressable execution history`)
+      throw refused("user", "history_frame_missing", `Run ${runId} has no addressable execution history`)
     }
     if (sequence !== 0 && target?.seq !== sequence) {
-      throw new Error(`Run ${runId} has no frame at sequence ${sequence} in this lineage`)
+      throw refused(
+        "user",
+        "history_frame_missing",
+        `Run ${runId} has no frame at sequence ${sequence} in this lineage`
+      )
     }
     return { row, position: { runId, frame: { lineageId: lineage, seq: sequence } } satisfies Position }
   })
@@ -187,7 +198,9 @@ export const preview = async (root: string, runId: string, options: Options, sig
       while (true) {
         const page = yield* journal.entries({ runId: runId as RunId, after, limit: 250 })
         entries.push(...page.entries)
-        if (entries.length > (options.limit ?? 10_000)) throw new Error("Rewind suffix exceeds --limit")
+        if (entries.length > (options.limit ?? 10_000)) {
+          throw new CliError.UsageError({ message: "Rewind suffix exceeds --limit" })
+        }
         const tail = page.entries.at(-1)?.seq
         if (!page.hasMore || tail === undefined) break
         if (tail <= after) throw new Error("History pagination did not advance")
@@ -212,7 +225,11 @@ const clients = (root: string) =>
   Effect.gen(function*() {
     const file = NodeControl.databasePath(root)
     if (!DatabaseLocation.exists(file)) {
-      throw new Error("This operation requires a public CLI run with an approved control plan")
+      throw refused(
+        "user",
+        "history_unsupported_run",
+        "This operation requires a public CLI run with an approved control plan"
+      )
     }
     const control = Context.get(
       yield* Layer.build(
@@ -232,17 +249,23 @@ const controlSummary = (sql: SqlClient, runId: string, allowActive = false) =>
       { state_json: string; status: string; owner_nonce: string | null; claim_nonce: string | null }
     >`SELECT state_json,status,owner_nonce,claim_nonce FROM flows_runs WHERE run_id=${runId}`
     if (row === undefined) {
-      throw new Error(`No control-plane run ${runId}; use the TimeTravel API for standalone engine executions`)
+      throw refused(
+        "user",
+        "history_unsupported_run",
+        `No control-plane run ${runId}; use the TimeTravel API for standalone engine executions`
+      )
     }
     if (!allowActive && (row.status === "running" || row.owner_nonce !== null || row.claim_nonce !== null)) {
-      throw new Error(`Run ${runId} is active or claimed; park it before changing history`)
+      throw refused("wait", "run_active", `Run ${runId} is active or claimed; park it before changing history`)
     }
     const summary = JSON.parse(row.state_json) as Record<string, unknown>
     if (typeof summary.planId !== "string" || typeof summary.flowId !== "string") {
-      throw new Error(`Run ${runId} has no approved public CLI plan`)
+      throw refused("policy", "plan_not_approved", `Run ${runId} has no approved public CLI plan`)
     }
     const [plan] = yield* sql<{ decision: string }>`SELECT decision FROM control_plans WHERE plan_id=${summary.planId}`
-    if (plan?.decision !== "approved") throw new Error(`Run ${runId}'s plan is not approved`)
+    if (plan?.decision !== "approved") {
+      throw refused("policy", "plan_not_approved", `Run ${runId}'s plan is not approved`)
+    }
     return summary
   })
 
@@ -262,7 +285,9 @@ const parkControl = (sql: SqlClient, runId: string, summary: Record<string, unkn
     const changed = yield* sql`UPDATE flows_runs SET status='suspended', state_json=${
       JSON.stringify(parkedSummary(summary, runId))
     }, finished_at_ms=NULL, cancel_requested_at_ms=NULL, waiting_reason='history', waiting_wake_at_ms=NULL, waiting_token=NULL WHERE run_id=${runId} AND status <> 'running' AND owner_nonce IS NULL AND claim_nonce IS NULL RETURNING run_id`
-    if (changed.length !== 1) throw new Error(`Run ${runId} acquired an owner during history reconciliation`)
+    if (changed.length !== 1) {
+      throw refused("wait", "run_active", `Run ${runId} acquired an owner during history reconciliation`)
+    }
     if (yield* hasTable(sql, "control_run_resumes")) yield* sql`DELETE FROM control_run_resumes WHERE run_id=${runId}`
   })
 
@@ -271,17 +296,23 @@ const linkFork = (engine: SqlClient, control: SqlClient, root: string, childId: 
     const summary = yield* controlSummary(control, parentId, true)
     const workspace = join(Project.stateDirectory(root), "forks", forkWorkspaceName(childId))
     if (!existsSync(join(workspace, ".jj"))) {
-      throw new Error(`Fork ${childId} has no retained workspace at ${workspace}`)
+      throw refused("user", "fork_unavailable", `Fork ${childId} has no retained workspace at ${workspace}`)
     }
     const existing = yield* control`SELECT 1 FROM flows_runs WHERE run_id=${childId}`
     if (existing.length === 0) {
       const [row] = yield* engine<
         { state_json: string; status: string }
       >`SELECT state_json,status FROM flows_runs WHERE run_id=${childId}`
-      if (row === undefined || row.status === "running") throw new Error(`Fork ${childId} is absent or already active`)
+      if (row === undefined || row.status === "running") {
+        throw refused("user", "fork_unavailable", `Fork ${childId} is absent or already active`)
+      }
       const state = JSON.parse(row.state_json) as { flowName?: unknown } | null
       if (state?.flowName !== "agent/run") {
-        throw new Error(`Fork ${childId} is not a public agent flow and cannot be resumed by this CLI`)
+        throw refused(
+          "user",
+          "history_unsupported_run",
+          `Fork ${childId} is not a public agent flow and cannot be resumed by this CLI`
+        )
       }
       yield* control`INSERT INTO flows_runs(run_id,status,created_at_ms,parent_run_id,state_json) VALUES(${childId},'suspended',${Date.now()},${parentId},${
         JSON.stringify(parkedSummary(summary, childId, parentId))
@@ -391,10 +422,16 @@ export const mutate = async (
 ) => {
   const observed = await read(root, runId, options, false, signal)
   if (operation === "fork" && observed.executionFlow !== "agent/run") {
-    throw new Error(`Run ${runId} is not a public agent flow; use the TimeTravel API for standalone engine forks`)
+    throw refused(
+      "user",
+      "history_unsupported_run",
+      `Run ${runId} is not a public agent flow; use the TimeTravel API for standalone engine forks`
+    )
   }
   const workspace = await Workspace.workspaceFor(root, runId)
-  if (workspace === undefined) throw new Error(`Fork ${runId} needs history reconciliation before it can be used`)
+  if (workspace === undefined) {
+    throw refused("user", "fork_unavailable", `Fork ${runId} needs history reconciliation before it can be used`)
+  }
   return runEffect(
     Effect.scoped(Effect.gen(function*() {
       const { engine, control } = yield* clients(root)
@@ -445,7 +482,9 @@ export const mutate = async (
 export const prepare = async (root: string, runId: string): Promise<{ readonly executionRoot: string }> => {
   await reconcile(root)
   const workspace = await Workspace.workspaceFor(root, runId)
-  if (workspace === undefined) throw new Error(`Fork ${runId} has not been linked to its workspace`)
-  if (!existsSync(workspace)) throw new Error(`Run workspace no longer exists: ${workspace}`)
+  if (workspace === undefined) {
+    throw refused("user", "fork_unavailable", `Fork ${runId} has not been linked to its workspace`)
+  }
+  if (!existsSync(workspace)) throw refused("user", "fork_unavailable", `Run workspace no longer exists: ${workspace}`)
   return { executionRoot: workspace }
 }

@@ -249,7 +249,11 @@ describe("the report", () => {
 
     const report = Doctor.inspect({ root, environment: {}, nodeVersion: "26.4.0" })
     expect(check(report, `database ${engine}`)?.detail).toContain("0 migrations applied, latest none")
-    expect(check(report, `database ${join(root, ".flows", "control.db")}`)).toMatchObject({ level: "fail" })
+    const failed = check(report, `database ${join(root, ".flows", "control.db")}`)
+    expect(failed).toMatchObject({ level: "fail" })
+    // One sentence, never a stack or an `Error:` prefix.
+    expect(failed?.detail).not.toMatch(/^Error|\n/)
+    expect(failed?.detail).not.toBe("")
   })
 
   it("warns about a database that Smithers 1.0 did not create", () => {

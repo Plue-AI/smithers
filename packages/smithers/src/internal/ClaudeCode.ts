@@ -44,6 +44,7 @@ import type { ModelEvent, Usage } from "@smthrs/model/ModelEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { Effect, Schema, Stream } from "effect"
 import { tmpdir } from "node:os"
+import * as Failure from "./Failure.ts"
 
 /**
  * The part of an SDK query this seat drives.
@@ -398,7 +399,10 @@ export const make = (options: Options): Model.Model => {
             catch: (error) =>
               error instanceof ModelError
                 ? error
-                : new ModelError({ code: "transport", message: `Claude Code failed: ${String(error)}` })
+                : new ModelError({
+                  code: "transport",
+                  message: `Claude Code failed: ${Failure.operatorSentence(error)}`
+                })
           }),
           Stream.fromIterable
         )

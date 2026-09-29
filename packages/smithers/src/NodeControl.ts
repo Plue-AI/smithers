@@ -46,6 +46,8 @@ import { layerEgressHttpClient, native } from "./internal/NodeControlHost.ts"
 import type { EngineDurable, ModuleRegistration } from "./internal/NativeControl.ts"
 
 import * as CommandStatus from "./internal/CommandStatus.ts"
+import { errorCode } from "./internal/ErrorCode.ts"
+import * as Failure from "./internal/Failure.ts"
 
 import { Client } from "./internal/backend/Client.ts"
 import { Session } from "./internal/backend/Session.ts"
@@ -110,15 +112,16 @@ const mcpServersFromArguments = (
   try {
     source = readFileSync(path, "utf8")
   } catch (cause) {
-    const reason = cause instanceof Error ? cause.message : String(cause)
-    throw new CliError.UsageError({ message: `--mcp-config ${path} could not be read: ${reason}` })
+    const code = errorCode(cause)
+    throw new CliError.UsageError({
+      message: `--mcp-config ${path} could not be read${code === undefined ? "" : ` (${code})`}`
+    })
   }
   let parsed: unknown
   try {
     parsed = JSON.parse(source)
-  } catch (cause) {
-    const reason = cause instanceof Error ? cause.message : String(cause)
-    throw new CliError.UsageError({ message: `--mcp-config ${path} is not valid JSON: ${reason}` })
+  } catch {
+    throw new CliError.UsageError({ message: `--mcp-config ${path} is not valid JSON` })
   }
   // Projection options are consumed by McpFlows.connected, not the connection schema.
   const decoded = Schema.decodeUnknownResult(Schema.Array(Schema.Struct({
@@ -209,7 +212,7 @@ export const configFromArguments = (
       cause instanceof CliError.UsageError
         ? cause
         : new CliError.UsageError({
-          message: cause instanceof Error ? cause.message : "Smithers configuration could not be read"
+          message: Failure.isDesigned(cause) ? Failure.sentence(cause) : "Smithers configuration could not be read"
         })
   })
 
@@ -284,7 +287,7 @@ export const workspaceSshPrefix = (
   reference: string
 ): Promise<Array<string>> => {
   const match = /^([\w.-]+\/[\w.-]+)\/([\w-]+)$/.exec(reference)
-  if (match === null) return Promise.reject(new Error("Expected OWNER/REPO/WORKSPACE_ID"))
+  if (match === null) return Promise.reject(new CliError.UsageError({ message: "Expected OWNER/REPO/WORKSPACE_ID" }))
   const client = new Client({ environment })
   return workspaceSSH(client, match[2]!, { repo: match[1] }).then(async (endpoint) => [
     "ssh",
@@ -697,7 +700,9 @@ const listenOptions = (options: ServerOptions): ListenOptions => {
   const { listen, ...nodeOptions } = options
   const host = nodeOptions.host ?? "127.0.0.1"
   if (!Serve.isLoopback(host) && listen !== true) {
-    throw new Error(`Refusing non-loopback control bind ${host} without an explicit --listen opt-in`)
+    throw new CliError.UsageError({
+      message: `Refusing non-loopback control bind ${host} without an explicit --listen opt-in`
+    })
   }
   return { ...nodeOptions, host }
 }
@@ -785,7 +790,11 @@ export const layerServerBearerAuth = (
 export const layerServerNoopAuth = (options: ServerOptions = defaultServerOptions) => {
   const host = options.host ?? "127.0.0.1"
   if (!Serve.isLoopback(host)) {
-    throw new Error(`Refusing non-loopback control bind ${host} with permissive authentication`)
+    throw new CliError.Refused({
+      fault: "policy",
+      code: "permissive_bind_refused",
+      message: `Refusing non-loopback control bind ${host} with permissive authentication`
+    })
   }
   // The loopback refusal three lines up is the whole guard: this
   // composition cannot be built for a bind anything off this machine can

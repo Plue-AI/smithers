@@ -26,6 +26,7 @@ import { Context, Effect, Layer, Option } from "effect"
 import type { Readable, Writable } from "node:stream"
 import { Writable as WritableStream } from "node:stream"
 import type * as Environment from "./Environment.ts"
+import * as Failure from "./internal/Failure.ts"
 import { packageVersion } from "./Version.ts"
 
 /**
@@ -339,7 +340,7 @@ export const make = (options: Options): Service => {
         else live.stop(message)
         return { items: collected, stopped: false }
       },
-      catch: (cause) => cause instanceof Error ? cause : new Error(String(cause))
+      catch: (cause) => cause instanceof Error ? cause : new Error(Failure.unknownSentence, { cause })
     })
 
   const pickSuggestion = <A>(items: ReadonlyArray<A>, pickOptions: PickOptions<A>) =>

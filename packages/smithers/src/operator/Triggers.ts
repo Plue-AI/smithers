@@ -12,9 +12,14 @@ import { Cli, z } from "incur"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import * as Presentation from "../cli/Presentation.ts"
+import * as CliError from "../CliError.ts"
 import * as NodeControl from "../NodeControl.ts"
 import { databaseLayer, localFields, type LocalOptions, localRoot } from "./Store.ts"
 import * as TriggerPlans from "./TriggerPlans.ts"
+
+/** An operator request this command refuses; the operator fixes the input or the host setup. */
+const refused = (message: string, fault: CliError.Fault = "user"): CliError.Refused =>
+  new CliError.Refused({ fault, code: "operator_failed", message })
 
 // Every operator command reports failures as operator_failed.
 const execute = <A>(context: Presentation.Failing, body: () => Promise<A>) =>
@@ -40,7 +45,7 @@ export const withTriggers = <A, E>(options: LocalOptions, effect: Effect.Effect<
 const required = (store: TriggerStore.Service, id: string) =>
   store.get(id).pipe(
     Effect.flatMap((value) =>
-      Option.isSome(value) ? Effect.succeed(value.value) : Effect.fail(new Error(`Unknown trigger ${id}`))
+      Option.isSome(value) ? Effect.succeed(value.value) : Effect.fail(refused(`Unknown trigger ${id}`))
     )
   )
 
@@ -143,7 +148,7 @@ export const createTriggersCli = (runtime: { readonly signal?: AbortSignal | und
             Effect.gen(function*() {
               const declaration = yield* Trigger.make(input)
               if (context.args.id !== undefined && declaration.id !== context.args.id) {
-                return yield* Effect.fail(new Error("Trigger file ID does not match the requested ID"))
+                return yield* Effect.fail(refused("Trigger file ID does not match the requested ID"))
               }
               return yield* (yield* TriggerStore.TriggerStore).register(declaration)
             })
@@ -167,7 +172,7 @@ export const createTriggersCli = (runtime: { readonly signal?: AbortSignal | und
               const store = yield* TriggerStore.TriggerStore
               const trigger = yield* required(store, context.args.id)
               if (!trigger.enabled) {
-                return yield* Effect.fail(new Error("Enable this trigger before queueing a manual occurrence"))
+                return yield* Effect.fail(refused("Enable this trigger before queueing a manual occurrence"))
               }
               const occurrence = context.options.occurrence ?? Date.now()
               const idempotencyKey = Scheduler.idempotencyKey(trigger.id, occurrence)

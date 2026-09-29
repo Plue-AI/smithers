@@ -33,6 +33,7 @@ import {
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { errorCode } from "./internal/ErrorCode.ts"
+import * as Failure from "./internal/Failure.ts"
 
 /**
  * The MCP server name Smithers registers under.
@@ -128,13 +129,22 @@ const isUnusable = (value: Configuration | Unusable): value is Unusable => "reas
  * turned the whole file into a document holding nothing but the Smithers
  * server entry, with no copy of what was there before.
  */
+/**
+ * Why a configuration file could not be read: its path and the stable system
+ * code (`ELOOP`, `EACCES`), never the raw system message.
+ */
+const unreadable = (path: string, error: unknown): string => {
+  const code = errorCode(error)
+  return `${path} could not be read${code === undefined ? "" : ` (${code})`}. Fix the file, then run this again.`
+}
+
 const readJson = (path: string): Configuration | Unusable => {
   let descriptor: number
   try {
     descriptor = openSync(path, "r")
   } catch (error) {
     if (errorCode(error) === "ENOENT") return { document: {}, source: undefined, mode: undefined }
-    return { reason: `${path} could not be read: ${error instanceof Error ? error.message : String(error)}` }
+    return { reason: unreadable(path, error) }
   }
   let source: Buffer
   let mode: number
@@ -142,19 +152,15 @@ const readJson = (path: string): Configuration | Unusable => {
     source = readFileSync(descriptor)
     mode = fstatSync(descriptor).mode & 0o777
   } catch (error) {
-    return { reason: `${path} could not be read: ${error instanceof Error ? error.message : String(error)}` }
+    return { reason: unreadable(path, error) }
   } finally {
     closeSync(descriptor)
   }
   let parsed: unknown
   try {
     parsed = JSON.parse(source.toString("utf8"))
-  } catch (error) {
-    return {
-      reason: `${path} is not valid JSON (${
-        error instanceof Error ? error.message : String(error)
-      }). Fix the file, then run this again.`
-    }
+  } catch {
+    return { reason: `${path} is not valid JSON. Fix the file, then run this again.` }
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return { reason: `${path} has a root that is not a JSON object. Fix the file, then run this again.` }
@@ -322,9 +328,15 @@ const registerCodex = (
       timeout: 15_000,
       maxBuffer: 1024 * 1024
     })
-    if (result.error !== undefined) throw result.error
+    if (result.error !== undefined) {
+      const code = errorCode(result.error)
+      throw new Error(`codex could not be started${code === undefined ? "" : ` (${code})`}`, { cause: result.error })
+    }
     if (result.status !== 0) {
-      throw new Error(`codex mcp ${args[0]} failed: ${result.stderr.trim() || result.signal || result.status}`)
+      // Codex's stderr is its own text; it stays the cause, not the reason.
+      throw new Error(`codex mcp ${args[0]} failed (${result.signal ?? `exit ${result.status}`})`, {
+        cause: result.stderr
+      })
     }
     return result.stdout
   }
@@ -430,7 +442,7 @@ export const addMcp = (
       agent: agent.id,
       path,
       status: "failed",
-      reason: error instanceof Error ? error.message : String(error)
+      reason: Failure.operatorSentence(error)
     }
   } finally {
     if (held) releaseLock(lockPath, token)

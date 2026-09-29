@@ -156,6 +156,8 @@ describe("the report", () => {
     })
     expect(() => Bug.report({ summary: "failed", version: "1", platform: "test", node: "test", runs: live }))
       .toThrow(/^Bug report refused: .*proxy/)
+    expect(() => Bug.report({ summary: "failed", version: "1", platform: "test", node: "test", runs: live }))
+      .toThrow(expect.objectContaining({ _tag: "/cli/Refused", code: "bug_report_refused" }))
     expect(traps).toBe(0)
 
     const revoked = Proxy.revocable({}, {})

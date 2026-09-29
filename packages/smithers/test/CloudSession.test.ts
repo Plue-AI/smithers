@@ -52,7 +52,34 @@ describe("CloudSession.signedIn", () => {
       SMITHERS_API_ORIGIN: at,
       SMITHERS_TOKEN: "t"
     })
-    await expect(cloud!.get("/api/x")).rejects.toThrow("/api/x: HTTP 403")
+    await expect(cloud!.get("/api/x")).rejects.toMatchObject({
+      _tag: "/cli/Refused",
+      fault: "user",
+      code: "cloud_request_failed",
+      message: "/api/x: HTTP 403"
+    })
+  })
+
+  it("refuses a body that is not JSON by path, never the parser's text", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html" })
+      response.end("<html>")
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    servers.push(() => server.close())
+    const at = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const cloud = await CloudSession.signedIn({
+      HOME: home(),
+      XDG_CONFIG_HOME: home(),
+      SMITHERS_API_ORIGIN: at,
+      SMITHERS_TOKEN: "t"
+    })
+    await expect(cloud!.get("/api/x")).rejects.toMatchObject({
+      _tag: "/cli/Refused",
+      fault: "infra",
+      code: "cloud_response_invalid",
+      message: "/api/x: the response is not JSON"
+    })
   })
 
   it("never sends the token to another host, and refuses redirects", async () => {

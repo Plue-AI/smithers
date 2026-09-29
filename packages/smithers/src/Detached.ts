@@ -26,6 +26,7 @@ import { spawn } from "node:child_process"
 import type { ChildProcess } from "node:child_process"
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readSync, renameSync, unlinkSync } from "node:fs"
 import { join } from "node:path"
+import * as Failure from "./internal/Failure.ts"
 import * as Project from "./Project.ts"
 
 /**
@@ -407,7 +408,9 @@ export const launch = async (options: Options): Promise<Launched | Rejected> => 
       }.`
     const errorText = lastVerifyError === undefined
       ? ""
-      : ` The control store could not confirm admission: ${String(lastVerifyError)}.`
+      : ` The control store could not confirm admission: ${
+        Failure.operatorSentence(lastVerifyError).replace(/\.$/, "")
+      }.`
     return `${refusedText}${errorText}`
   }
   const nominate = (final: boolean) => {
@@ -506,7 +509,7 @@ export const launch = async (options: Options): Promise<Launched | Rejected> => 
     }
   } catch (error) {
     return {
-      reason: `Detached launch failed before admission: ${String(error)}`,
+      reason: `Detached launch failed before admission: ${Failure.operatorSentence(error)}`,
       tail: logTail(pending),
       logFile: pending
     }

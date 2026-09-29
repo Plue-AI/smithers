@@ -64,6 +64,29 @@ test("refuses missing grants and skill traversal before composing", async () => 
     )
   ).rejects.toThrow("skill name")
 })
+test("a profile the flow author must fix is a user refusal with a stable code", async () => {
+  const { root } = fixture()
+  const refusal = await run(Effect.flip(Profile.forRun(
+    root,
+    { name: "assistant", frontmatter: { metadata: { skills: "voice" } } },
+    "Charter",
+    ["fs:read:Org/Common Operating Instructions.md"]
+  )))
+  expect(refusal).toMatchObject({
+    _tag: "/cli/Refused",
+    fault: "user",
+    code: "role_profile_refused",
+    message: "profile file is not granted: Org/Skills/voice/SKILL.md"
+  })
+  expect(() =>
+    Profile.compose({
+      org: join(root, "Org"),
+      role: "assistant",
+      body: "Charter",
+      meta: { metadata: { skills: "gone" } }
+    })
+  ).toThrow(expect.objectContaining({ code: "role_profile_refused", fault: "user" }))
+})
 test("refuses a granted file whose symlink escapes the checkout", async () => {
   const { root } = fixture()
   const other = fixture()

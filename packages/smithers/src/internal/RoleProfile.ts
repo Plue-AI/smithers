@@ -32,6 +32,8 @@ import { Effect, FileSystem, Option } from "effect"
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
+import * as CliError from "../CliError.ts"
+import * as Failure from "./Failure.ts"
 
 /**
  * The runtime's description of a turn: the first system segment of every
@@ -92,8 +94,15 @@ const commonCandidates = ["Common Operating Instructions.md", "Common.md"]
 
 const bytes = (text: string): number => Buffer.byteLength(text, "utf8")
 
+/**
+ * A role profile the flow author has to fix: a missing grant, a bad skill
+ * name, a part over its cap, or a file outside the checkout.
+ */
+const refused = (message: string): CliError.Refused =>
+  new CliError.Refused({ fault: "user", code: "role_profile_refused", message })
+
 const capped = (part: string, text: string, cap: number): string => {
-  if (bytes(text) > cap) throw new Error(`${part} is ${bytes(text)} bytes; the cap is ${cap}`)
+  if (bytes(text) > cap) throw refused(`${part} is ${bytes(text)} bytes; the cap is ${cap}`)
   return text
 }
 
@@ -137,9 +146,9 @@ export const compose = (source: Source): Composed => {
     ? metadata.skills.split(",").map((skill) => skill.trim()).filter((skill) => skill !== "")
     : []
   const skillTexts = skills.map((skill) => {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skill)) throw new Error(`invalid skill name: ${skill}`)
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skill)) throw refused(`invalid skill name: ${skill}`)
     const path = join(source.org, "Skills", skill, "SKILL.md")
-    if (!existsSync(path)) throw new Error(`skill ${skill} is listed but ${path} does not exist`)
+    if (!existsSync(path)) throw refused(`skill ${skill} is listed but ${path} does not exist`)
     return capped(
       `skill ${skill}`,
       `# Skill: ${skill}\n\n${splitFrontmatter(read(path)).body.trim()}`,
@@ -165,7 +174,10 @@ export const compose = (source: Source): Composed => {
 }
 
 const attempt = <A>(run: () => A) =>
-  Effect.try({ try: run, catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)) })
+  Effect.try({
+    try: run,
+    catch: (cause) => cause instanceof Error ? cause : new Error(Failure.unknownSentence, { cause })
+  })
 
 /**
  * Composes a declared shared page and optional skills through the guarded
@@ -188,7 +200,7 @@ export const forRun = (
       .find((path) => !/[?*]/.test(path) && commonCandidates.some((name) => path === name || path.endsWith(`/${name}`)))
     if (common === undefined) {
       if (typeof metadata?.skills !== "string") return []
-      return yield* Effect.fail(new Error("role profile requires a granted shared instructions page"))
+      return yield* Effect.fail(refused("role profile requires a granted shared instructions page"))
     }
     const base = yield* attempt(() => realpathSync(root))
     const org = dirname(resolve(base, common))
@@ -197,7 +209,7 @@ export const forRun = (
       : []
     for (const skill of skills) {
       if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skill)) {
-        return yield* Effect.fail(new Error(`invalid skill name: ${skill}`))
+        return yield* Effect.fail(refused(`invalid skill name: ${skill}`))
       }
     }
     const patterns = capabilities.flatMap((value) => Option.toArray(Capability.parsePattern(value)))
@@ -208,17 +220,17 @@ export const forRun = (
       yield* attempt(() => {
         const local = relative(base, path)
         if (isAbsolute(local) || local === ".." || local.startsWith("../")) {
-          throw new Error("profile file is outside the checkout")
+          throw refused("profile file is outside the checkout")
         }
         if (!CapabilitySet.allows(granted, Capability.make("fs:read", local))) {
-          throw new Error(`profile file is not granted: ${local}`)
+          throw refused(`profile file is not granted: ${local}`)
         }
         const actual = relative(base, realpathSync(path))
         if (isAbsolute(actual) || actual === ".." || actual.startsWith("../")) {
-          throw new Error("profile file is outside the checkout")
+          throw refused("profile file is outside the checkout")
         }
         if (!CapabilitySet.allows(granted, Capability.make("fs:read", actual))) {
-          throw new Error(`profile file is not granted: ${actual}`)
+          throw refused(`profile file is not granted: ${actual}`)
         }
       })
       // The native host supplies descriptor-relative no-follow reads here. The

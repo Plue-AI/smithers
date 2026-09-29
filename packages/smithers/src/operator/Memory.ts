@@ -13,7 +13,12 @@ import { Effect, Layer, Schema } from "effect"
 import { Cli, z } from "incur"
 import { randomUUID } from "node:crypto"
 import * as Presentation from "../cli/Presentation.ts"
+import * as CliError from "../CliError.ts"
 import { databaseLayer, localFields, type LocalOptions, localRoot } from "./Store.ts"
+
+/** An operator request this command refuses; the operator fixes the input or the host setup. */
+const refused = (message: string, fault: CliError.Fault = "user"): CliError.Refused =>
+  new CliError.Refused({ fault, code: "operator_failed", message })
 
 // Every operator command reports failures as operator_failed.
 const execute = <A>(context: Presentation.Failing, body: () => Promise<A>) =>
@@ -35,15 +40,27 @@ const limited = options.extend({ limit: z.number().int().positive().max(10000).d
 const namespace = (input: { namespace: string; id?: string | undefined }): Namespace.Namespace => {
   const separator = input.namespace.indexOf(":")
   if (separator >= 0 && input.id !== undefined) {
-    throw new Error("Use either --namespace kind:id or --namespace kind --id id")
+    throw refused("Use either --namespace kind:id or --namespace kind --id id")
   }
   const kind = separator < 0 ? input.namespace : input.namespace.slice(0, separator)
   const id = separator < 0 ? input.id ?? "cli" : input.namespace.slice(separator + 1)
-  if (/[\p{Cc}]/u.test(id)) throw new Error("Memory namespace IDs cannot contain control characters")
-  return Schema.decodeUnknownSync(Namespace.Namespace, { reportInput: false })({ kind, id })
+  if (/[\p{Cc}]/u.test(id)) throw refused("Memory namespace IDs cannot contain control characters")
+  try {
+    return Schema.decodeUnknownSync(Namespace.Namespace, { reportInput: false })({ kind, id })
+  } catch {
+    throw refused("Use --namespace user:<id>, flow:<id>, agent:<id>, or global:<id>")
+  }
 }
 /** Validates user-supplied memory tags at the CLI boundary. */
-const tags = (input: ReadonlyArray<string>) => Schema.decodeUnknownSync(Namespace.Tags)(input)
+const tags = (input: ReadonlyArray<string>) => {
+  try {
+    return Schema.decodeUnknownSync(Namespace.Tags)(input)
+  } catch {
+    throw refused(
+      `Memory tags must be unique, at most ${Namespace.MAX_TAGS}, and start with branch:, stream:, source:, or scope:`
+    )
+  }
+}
 const noteStatus = z.enum(["pending", "accepted", "rejected"])
 
 /**
@@ -101,7 +118,7 @@ export const createMemoryCli = () => {
             Effect.gen(function*() {
               const store = yield* MemoryStore.MemoryStore
               const note = yield* store.getNote({ id: context.args.note })
-              if (note === undefined) return yield* Effect.fail(new Error(`Unknown note ${context.args.note}`))
+              if (note === undefined) return yield* Effect.fail(refused(`Unknown note ${context.args.note}`))
               return note
             })
           ))
@@ -212,7 +229,7 @@ export const createMemoryCli = () => {
             Effect.gen(function*() {
               const store = yield* MemoryStore.MemoryStore
               const thread = yield* store.getThread({ threadId: context.args.thread })
-              if (thread === undefined) return yield* Effect.fail(new Error(`Unknown thread ${context.args.thread}`))
+              if (thread === undefined) return yield* Effect.fail(refused(`Unknown thread ${context.args.thread}`))
               return {
                 thread,
                 messages: yield* store.listMessages({ threadId: context.args.thread, limit: context.options.limit })
@@ -253,7 +270,7 @@ export const createMemoryCli = () => {
       run: (context) =>
         execute(context, () => {
           if ((context.options.afterId === undefined) !== (context.options.afterAt === undefined)) {
-            throw new Error("--after-id and --after-at must be supplied together")
+            throw refused("--after-id and --after-at must be supplied together")
           }
           return withMemory(
             context.options,
@@ -330,7 +347,7 @@ export const createMemoryCli = () => {
             Effect.gen(function*() {
               const store = yield* MemoryStore.MemoryStore
               const fact = yield* store.getFact({ namespace: namespace(context.options), key: context.args.key })
-              if (fact === undefined) return yield* Effect.fail(new Error(`Unknown fact ${context.args.key}`))
+              if (fact === undefined) return yield* Effect.fail(refused(`Unknown fact ${context.args.key}`))
               return fact
             })
           ))
@@ -355,7 +372,7 @@ export const createMemoryCli = () => {
                 value = JSON.parse(context.args.value)
               } catch {
                 if (context.options.valueJson) {
-                  return yield* Effect.fail(new Error("The fact value is not valid JSON"))
+                  return yield* Effect.fail(refused("The fact value is not valid JSON"))
                 }
               }
               yield* store.putFact({
@@ -435,7 +452,7 @@ export const createMemoryCli = () => {
             Effect.gen(function*() {
               const store = yield* MemoryStore.MemoryStore
               if ((yield* store.getThread({ threadId: context.args.thread })) === undefined) {
-                return yield* Effect.fail(new Error(`Unknown thread ${context.args.thread}`))
+                return yield* Effect.fail(refused(`Unknown thread ${context.args.thread}`))
               }
               const messages = yield* store.listMessages({ threadId: context.args.thread })
               const candidates = messages.slice(0, Math.max(0, messages.length - context.options.keep)).filter((

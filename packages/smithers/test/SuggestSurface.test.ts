@@ -285,6 +285,38 @@ describe("the implementing step the verb builds when nobody supplies one", () =>
 })
 
 describe("a reader that fails part-way through the scan", () => {
+  it("never prints a system error's raw text", async () => {
+    const home = directory("smthrs-suggest-home-")
+    const system = Object.assign(new Error("EACCES: permission denied, open '/secret/token'"), {
+      errno: -13,
+      syscall: "open",
+      code: "EACCES"
+    })
+    const error = await Effect.runPromise(
+      Effect.flip(
+        Suggest.run({
+          root: "/repo",
+          list: false,
+          json: true,
+          environment: keyed,
+          homeDirectory: home,
+          repository: {
+            ...unreadable("/repo"),
+            read: () => {
+              throw system
+            }
+          },
+          emit: () => {}
+        })
+      )
+    )
+
+    expect(CliError.exitCode(error)).toBe(1)
+    expect(error).toMatchObject({ _tag: "/cli/Refused", code: "suggest_scan_failed" })
+    expect(error.message).toBe("the scan of /repo failed: Something went wrong on our side. Not your fault.")
+    expect(error.message).not.toContain("/secret/token")
+  })
+
   it("is one sentence naming the repository root under --json", async () => {
     const home = directory("smthrs-suggest-home-")
     const documents: Array<string> = []
@@ -304,8 +336,9 @@ describe("a reader that fails part-way through the scan", () => {
     )
 
     expect(CliError.exitCode(error)).toBe(1)
+    expect(error).toMatchObject({ _tag: "/cli/Refused", fault: "infra", code: "suggest_scan_failed" })
     expect(error.message).toBe(
-      "the scan of /repo failed: Error: EACCES: permission denied, open 'package.json'"
+      "the scan of /repo failed: EACCES: permission denied, open 'package.json'"
     )
     // The stream stops where the scan did: no seat document, no outcome
     // document, so a consumer never reads a truncated list as a complete one.

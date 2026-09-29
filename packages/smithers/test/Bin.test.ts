@@ -266,7 +266,7 @@ describe("observing verbs", processBudget, () => {
   it.each(
     [
       [["runs", "list"], 0, { items: [] }],
-      [["runs", "show", "absent-run"], 1, { code: "command_failed" }],
+      [["runs", "show", "absent-run"], 1, { code: "run_not_found" }],
       [["runs", "logs", "absent-run"], 0, []],
       [["approvals", "list"], 0, []]
     ] as const
@@ -497,7 +497,10 @@ describe("smithers executable", processBudget, () => {
       expect(missingResult.status).toBe(2)
       expect(JSON.parse(missingResult.stdout).message).toContain(`--mcp-config ${missing}: file not found`)
       expect(malformedResult.status).toBe(2)
-      expect(JSON.parse(malformedResult.stdout).message).toContain(`--mcp-config ${malformed} is not valid JSON:`)
+      // The path, never the parser's own text.
+      const malformedMessage = JSON.parse(malformedResult.stdout).message as string
+      expect(malformedMessage).toContain(`--mcp-config ${malformed} is not valid JSON`)
+      expect(malformedMessage).not.toMatch(/JSON input|Expected property|position/)
       for (
         const output of [
           remoteResult.stdout,
@@ -1075,7 +1078,7 @@ describe("flow start outside a repository", processBudget, () => {
       expect(result.status).not.toBe(0)
       expect(result.status).not.toBe(130)
       // The refusal is the CLI's ordinary error envelope, on stdout like every other one.
-      expect(result.stdout).toContain("code: command_failed")
+      expect(result.stdout).toContain("code: no_flows")
       expect(result.stdout).toContain(`No flows found in ${cwd}`)
       expect(result.stderr).toBe("")
     }))

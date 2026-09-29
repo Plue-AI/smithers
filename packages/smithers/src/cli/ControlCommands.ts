@@ -18,8 +18,8 @@ import * as Globals from "../commands/Globals.ts"
 import * as Forensics from "../Forensics.ts"
 import { defaultApprovalScope } from "../internal/ApprovalScope.ts"
 import * as BoundedEvents from "../internal/BoundedEvents.ts"
+import * as Failure from "../internal/Failure.ts"
 import * as FeaturedFlows from "../internal/FeaturedFlows.ts"
-import * as RunListing from "../internal/RunListing.ts"
 import * as Project from "../Project.ts"
 import * as Bridge from "./ControlBridge.ts"
 import { prepareHistoryRun, reconcileHistory } from "./HistoryCommands.ts"
@@ -76,22 +76,6 @@ const runArgs = z.object({ run: z.string().min(1).describe("Durable run ID") })
 const flowArgs = z.object({ flow: z.string().min(1).describe("Discovered flow name") })
 const statuses = ["accepted", "running", "parked", "waiting-approval", "cancelled", "completed", "failed"] as const
 
-/** The filters `runs list` and `runs count` share. */
-const runFilters = options.extend({
-  flow: z.string().optional(),
-  status: z.enum(statuses).optional(),
-  since: z.string().optional().describe("Only runs created at or after this time (epoch ms or ISO 8601)"),
-  until: z.string().optional().describe("Only runs created before this time (epoch ms or ISO 8601)"),
-  sort: z.enum(RunListing.sorts).optional().describe("Order by creation time"),
-  parent: z.string().optional().describe("Only runs branched from this run"),
-  trigger: z.string().optional().describe("Only runs this trigger started")
-})
-
-const filterArgs = (filters: RunListing.Filters) =>
-  (["flow", "status", "since", "until", "sort", "parent", "trigger"] as const).flatMap((key) =>
-    filters[key] === undefined ? [] : [`--${key}`, filters[key]]
-  )
-
 const guard = Presentation.guard
 const runsList = { command: "runs list", description: "List the current durable run records" }
 const afterDecision = Presentation.runs({
@@ -119,7 +103,8 @@ const observe = async <A>(
     ? read()
     : Bridge.project(Effect.as(checks(connection, runtime), empty), connection, runtime)
 
-const unknownRun = (runId: string) => new Error(`Unknown run ${runId}`)
+const unknownRun = (runId: string) =>
+  new CliError.Refused({ fault: "user", code: "run_not_found", message: `Unknown run ${runId}` })
 
 /**
  * The flow catalog and explicit plan/start lifecycle.
@@ -186,7 +171,13 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
             ? await Bridge.query(Effect.flatMap(Control.Control, FlowCatalog.read), c.options, runtime)
             : await Bridge.local(discovered(c.options, runtime), c.options, runtime)
           const flow = items.find((entry) => entry.flowId === c.args.flow)
-          if (flow === undefined) throw new Error(`Unknown flow ${c.args.flow}`)
+          if (flow === undefined) {
+            throw new CliError.Refused({
+              fault: "user",
+              code: "flow_not_found",
+              message: `Unknown flow ${c.args.flow}`
+            })
+          }
           return flow
         })
     })
@@ -223,12 +214,12 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       run: (c) =>
         guard(c, async () => {
           if (c.options.wait && c.options.detached) {
-            throw new Error("--wait and --detached cannot be combined")
+            throw new CliError.UsageError({ message: "--wait and --detached cannot be combined" })
           }
           if (!Bridge.isRemote(c.options, runtime)) {
             const root = Project.root(c.options.root, process.cwd())
             if (!existsSync(join(root, "flows")) && !existsSync(join(root, ".flows"))) {
-              throw new Error(`No flows found in ${root}`)
+              throw new CliError.Refused({ fault: "user", code: "no_flows", message: `No flows found in ${root}` })
             }
           }
           return Bridge.invoke(
@@ -287,9 +278,11 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       }
     })
     .command("list", {
-      description: "List durable runs",
+      description: "List durable runs filtered by flow or status",
       mcp: { annotations: { readOnlyHint: true } },
-      options: runFilters.extend({
+      options: options.extend({
+        flow: z.string().optional(),
+        status: z.enum(statuses).optional(),
         limit: z.number().int().min(1).max(500).optional().describe("Runs per page (default 100)"),
         cursor: z.string().optional().describe("Continue from the nextCursor a previous page printed")
       }),
@@ -300,7 +293,8 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
             return Bridge.invoke(
               [
                 "ps",
-                ...filterArgs(c.options),
+                ...(c.options.flow ? ["--flow", c.options.flow] : []),
+                ...(c.options.status ? ["--status", c.options.status] : []),
                 ...(c.options.limit === undefined ? [] : ["--limit", String(c.options.limit)]),
                 ...(c.options.cursor ? ["--cursor", c.options.cursor] : [])
               ],
@@ -308,21 +302,6 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
               runtime
             )
           }), { next: Presentation.runs({ otherwise: [runsList] }) })
-    })
-    .command("count", {
-      description: "Count durable runs",
-      mcp: { annotations: { readOnlyHint: true } },
-      options: runFilters,
-      run: (c) =>
-        guard(c, () =>
-          observe(c.options, runtime, { count: 0 }, async () => {
-            await reconcileHistory(c.options, runtime)
-            return Bridge.query(
-              Effect.map(Effect.flatMap(RunListing.request(c.options), RunListing.count), (count) => ({ count })),
-              c.options,
-              runtime
-            )
-          }), { next: [runsList] })
     })
     .command("show", {
       description: "Show a run's current status and diagnosis",
@@ -402,7 +381,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
           renderer?.close("failed")
           return c.error({
             code: "logs_failed",
-            message: String(Redaction.redactDiagnostic(cause instanceof Error ? cause.message : String(cause)))
+            message: String(Redaction.redactDiagnostic(Failure.operatorSentence(cause)))
           })
         } finally {
           renderer?.close("ended")

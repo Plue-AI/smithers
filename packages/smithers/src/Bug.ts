@@ -12,6 +12,7 @@
 
 import * as Redaction from "@smthrs/journal/Redaction"
 import { isProxy } from "node:util/types"
+import * as CliError from "./CliError.ts"
 
 /**
  * Where reports are posted when the environment names no other endpoint.
@@ -24,7 +25,8 @@ export const defaultEndpoint = "https://bug.smithers.sh/api/bugs"
 /** The two 0.x structural names not historically covered by journal text rules. */
 const reportOnlySecretKey = /(?:dsn|connection)/i
 
-const refusal = (reason: string): Error => new Error(`Bug report refused: ${reason}`)
+const refusal = (reason: string): CliError.Refused =>
+  new CliError.Refused({ fault: "bug", code: "bug_report_refused", message: `Bug report refused: ${reason}` })
 
 const binarySize = (value: object): number | undefined => {
   if (value instanceof ArrayBuffer) return value.byteLength

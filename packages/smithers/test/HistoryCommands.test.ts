@@ -127,6 +127,10 @@ describe("history boundaries and refusal postconditions", () => {
     expect(result.eventTypes).toEqual({ "flows.engine.run-decision": 1, "example.output": 502 })
     expect(result.state).toEqual({ version: 1, flowName: "agent/run", payload: { runId: "run-1", planId: "plan-1" } })
     await expect(History.read(root, "run-1", { limit: 502 }, false)).rejects.toThrow("exceeds --limit 502")
+    // Retyping with a larger --limit fixes it, so it is a usage error (exit 2).
+    await expect(History.read(root, "run-1", { limit: 502 }, false)).rejects.toMatchObject({
+      _tag: "/cli/UsageError"
+    })
   })
 
   it("pages the entire rewind suffix and rejects one event beyond its limit", async () => {
@@ -158,9 +162,17 @@ describe("history boundaries and refusal postconditions", () => {
   it("refuses a missing engine database and remote environment without creating local state", async () => {
     const root = await fixture()
     await rm(join(root, ".flows"), { recursive: true })
-    await expect(History.read(root, "run-1", {}, false)).rejects.toThrow("No execution history")
+    await expect(History.read(root, "run-1", {}, false)).rejects.toMatchObject({
+      _tag: "/cli/Refused",
+      fault: "user",
+      code: "history_missing",
+      message: expect.stringContaining("No execution history")
+    })
     expect(() => History.localRoot({ root }, { SMITHERS_REMOTE: "https://example.invalid" })).toThrow(
-      "--remote is not supported"
+      expect.objectContaining({
+        _tag: "/cli/UnsupportedError",
+        message: expect.stringContaining("--remote is not supported")
+      })
     )
     await expect(History.reconcile(root)).resolves.toBeUndefined()
     await expect(readFile(join(root, ".flows", "engine.db"))).rejects.toMatchObject({ code: "ENOENT" })
@@ -227,7 +239,15 @@ describe("history boundaries and refusal postconditions", () => {
     const root = await fixture()
     editDatabase(root, "control", (db) => db.exec(sql))
     const before = await readFile(join(root, ".flows", "engine.db"))
-    await expect(History.mutate(root, "run-1", { sequence: 1 }, "rewind")).rejects.toThrow(message)
+    await expect(History.mutate(root, "run-1", { sequence: 1 }, "rewind")).rejects.toMatchObject({
+      _tag: "/cli/Refused",
+      ...(message === "No control-plane run"
+        ? { fault: "user", code: "history_unsupported_run" }
+        : message === "active or claimed"
+        ? { fault: "wait", code: "run_active" }
+        : { fault: "policy", code: "plan_not_approved" }),
+      message: expect.stringContaining(message)
+    })
     expect(await readFile(join(root, ".flows", "engine.db"))).toEqual(before)
     editDatabase(root, "control", (db) => {
       // A second writer can acquire the lock after refusal; no audit was committed.

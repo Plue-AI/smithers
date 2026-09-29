@@ -79,6 +79,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { homedir, hostname } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import type * as Application from "../Application.ts"
+import * as CliError from "../CliError.ts"
 import * as Serve from "../Serve.ts"
 import { packageVersion } from "../Version.ts"
 import * as AuthoredRebuild from "./AuthoredRebuild.ts"
@@ -86,6 +87,7 @@ import * as AuthoredRebuild from "./AuthoredRebuild.ts"
 import * as ControlDatabasePath from "./ControlDatabasePath.ts"
 import * as EngineJournalSupervisor from "./EngineJournalSupervisor.ts"
 import * as ExecutionDatabasePath from "./ExecutionDatabasePath.ts"
+import * as Failure from "./Failure.ts"
 import * as HealthHost from "./HealthHost.ts"
 import * as LocalControl from "./LocalControl.ts"
 import * as ModuleAdmission from "./ModuleAdmission.ts"
@@ -667,7 +669,7 @@ export const make = (
             Effect.catch(() =>
               PersistedPlan.compile({ planId, flow: executable.descriptor.name, nodes: [] }).pipe(
                 Effect.map((plan) => ({ plan })),
-                Effect.mapError((cause) => new ControlError.InvalidInput({ issue: String(cause) }))
+                Effect.mapError((cause) => new ControlError.InvalidInput({ issue: Failure.operatorSentence(cause) }))
               )
             ),
             Effect.provide(native.crypto)
@@ -1179,11 +1181,17 @@ export const make = (
             : revisionBefore
         if (options.expectedSourceRevision !== undefined && capturedRevision !== options.expectedSourceRevision) {
           return yield* Effect.die(
-            new Error(
-              capturedRevision === undefined
-                ? "Flow host source revision is unavailable; require a stable JJ snapshot or clean Git checkout"
-                : "Flow host source revision does not match its authorized workspace binding"
-            )
+            capturedRevision === undefined
+              ? new CliError.Refused({
+                fault: "user",
+                code: "source_revision_unavailable",
+                message: "Flow host source revision is unavailable; require a stable JJ snapshot or clean Git checkout"
+              })
+              : new CliError.Refused({
+                fault: "policy",
+                code: "source_revision_mismatch",
+                message: "Flow host source revision does not match its authorized workspace binding"
+              })
           )
         }
         if (catalog !== undefined) yield* Deferred.succeed(catalogReady, catalog)
@@ -1522,7 +1530,11 @@ export const make = (
             Effect.suspend(() => {
               if (options.runtimeBridge !== undefined && hostRevision !== options.runtimeBridge.sourceRevision) {
                 return Effect.die(
-                  new Error("Flow host source revision is unavailable or does not match the registered catalog")
+                  new CliError.Refused({
+                    fault: "policy",
+                    code: "source_revision_mismatch",
+                    message: "Flow host source revision is unavailable or does not match the registered catalog"
+                  })
                 )
               }
               // Some admitted Flow bodies cannot be statically graphed. Their

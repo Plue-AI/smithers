@@ -273,6 +273,7 @@ describe("unified control dispatch", () => {
     const result = await invoke(["flow", "show", "missing", ...remote, "--json"])
     expect(result.codes).toEqual([1])
     expect(result.stdout).toContain(message)
+    if (page._tag === "flows") expect(JSON.parse(result.stdout)).toMatchObject({ code: "flow_not_found" })
   })
 
   it("reads a local flow catalog from the discovery snapshot, never the control host", async () => {
@@ -299,6 +300,7 @@ describe("unified control dispatch", () => {
     const shown = await invoke(["runs", "show", "absent", ...at])
     expect(shown.codes).toEqual([1])
     expect(shown.stdout).toContain("Unknown run absent")
+    expect(JSON.parse(shown.stdout)).toMatchObject({ code: "run_not_found" })
     expect(JSON.parse((await invoke(["runs", "logs", "absent", ...at])).stdout)).toEqual([])
     for (const port of [ports.invoke, ports.query, ports.events, ports.reconcile]) {
       expect(port).not.toHaveBeenCalled()
@@ -791,9 +793,12 @@ describe("unified durable log streams", () => {
     expect(result.codes).toEqual([])
   })
 
-  it.each([new Error("Authorization: Bearer private-fixture"), "Authorization: Bearer private-fixture"])(
+  it.each([
+    [new Error("Authorization: Bearer private-fixture"), "Authorization: Bearer [REDACTED_TOKEN]"],
+    ["Authorization: Bearer private-fixture", "Something went wrong on our side. Not your fault."]
+  ])(
     "preserves emitted events and redacts a subsequent stream failure",
-    async (cause) => {
+    async (cause, message) => {
       ports.events.mockImplementation(async function*() {
         yield event(1)
         throw cause
@@ -803,9 +808,8 @@ describe("unified durable log streams", () => {
       expect(lines).toEqual([chunk(event(1)), {
         type: "error",
         ok: false,
-        error: { code: "logs_failed", message: "Authorization: Bearer [REDACTED_TOKEN]" }
+        error: { code: "logs_failed", message }
       }])
-      expect(result.stdout).toContain("[REDACTED_TOKEN]")
       expect(result.stdout).not.toContain("private-fixture")
       expect(result.codes).toEqual([1])
     }

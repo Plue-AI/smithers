@@ -9,6 +9,7 @@ import { installEffectResolution } from "@smthrs/build-cli/effect-resolution"
 import * as Redaction from "@smthrs/journal/Redaction"
 import * as Argv from "./cli/Argv.ts"
 import { agentArguments, formattedLogArguments, legacyArguments } from "./cli/Compatibility.ts"
+import * as Failure from "./internal/Failure.ts"
 
 const start = async (): Promise<void> => {
   const original = process.argv.slice(2)
@@ -63,8 +64,6 @@ const start = async (): Promise<void> => {
 }
 
 void start().catch((cause: unknown) => {
-  process.stderr.write(
-    `${String(Redaction.redactDiagnostic(cause instanceof Error ? cause.message : String(cause)))}\n`
-  )
+  process.stderr.write(`${String(Redaction.redactDiagnostic(Failure.operatorSentence(cause)))}\n`)
   process.exitCode = 1
 })

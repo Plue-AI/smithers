@@ -53,7 +53,11 @@ export const submit = (
   globals: Globals.Options
 ): Effect.Effect<
   Outcome,
-  CliError.UsageError | CliError.UnsupportedError | CliError.ResourceLimitError | ControlError.ControlError,
+  | CliError.UsageError
+  | CliError.UnsupportedError
+  | CliError.Refused
+  | CliError.ResourceLimitError
+  | ControlError.ControlError,
   ControlService.Control
 > =>
   Effect.gen(function*() {
@@ -119,13 +123,21 @@ export const submit = (
         })
         return { status: response.status, ok: response.ok }
       },
-      catch: (error) =>
-        new CliError.UnsupportedError({
-          message: `Could not reach ${endpoint}: ${error instanceof Error ? error.message : String(error)}`
+      catch: () =>
+        new CliError.Refused({
+          fault: "dependency",
+          code: "bug_report_unreachable",
+          message: `Could not reach ${endpoint}. The report was not sent.`
         })
     })
     if (!posted.ok) {
-      return yield* Effect.fail(new CliError.UnsupportedError({ message: `${endpoint} answered ${posted.status}` }))
+      return yield* Effect.fail(
+        new CliError.Refused({
+          fault: "dependency",
+          code: "bug_report_rejected",
+          message: `${endpoint} answered ${posted.status}`
+        })
+      )
     }
     return { reported: true as const, endpoint }
   })

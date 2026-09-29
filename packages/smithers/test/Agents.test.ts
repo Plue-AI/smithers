@@ -125,7 +125,7 @@ describe("registering the MCP server", () => {
     // made one syntax error destroy the operator's entire agent configuration.
     expect(wired.status).toBe("failed")
     expect(wired.reason).toContain(path)
-    expect(wired.reason).toMatch(/parse|valid JSON/i)
+    expect(wired.reason).toBe(`${path} is not valid JSON. Fix the file, then run this again.`)
     expect(readFileSync(path)).toEqual(original)
   })
 
@@ -260,7 +260,10 @@ describe("registering the MCP server", () => {
     const wired = Agents.addMcp(Agents.find("claude")!, directory)
 
     expect(wired.status).toBe("failed")
-    expect(wired.reason).toBeDefined()
+    // The system code, never `EISDIR: illegal operation on a directory, ...`.
+    expect(wired.reason).toBe(
+      `${join(directory, ".claude.json")} could not be read (EISDIR). Fix the file, then run this again.`
+    )
   })
 
   it("reports a configuration it cannot even open, and names why", () => {
@@ -277,7 +280,9 @@ describe("registering the MCP server", () => {
     const wired = Agents.addMcp(Agents.find("claude")!, directory)
 
     expect(wired).toMatchObject({ agent: "claude", path, status: "failed" })
-    expect(wired.reason).toContain(`${path} could not be read`)
+    expect(wired.reason).toBe(`${path} could not be read (ELOOP). Fix the file, then run this again.`)
+    // The code, never the raw system message.
+    expect(wired.reason).not.toContain("too many symbolic links")
     expect(readdirSync(directory)).toEqual([".claude.json"])
   })
 

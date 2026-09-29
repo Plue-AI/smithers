@@ -13,6 +13,7 @@ import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import * as CliError from "../CliError.ts"
 import * as Init from "../Init.ts"
 import * as Project from "../Project.ts"
 import * as Presentation from "./Presentation.ts"
@@ -44,7 +45,7 @@ export const initialize = async (
   environment: Readonly<Record<string, string | undefined>>
 ) => {
   const problem = Init.nameProblem(name)
-  if (problem !== undefined) throw new Error(problem)
+  if (problem !== undefined) throw new CliError.UsageError({ message: problem })
   await mkdir(root, { recursive: true })
   const created: Array<string> = []
   const retained: Array<string> = []
@@ -68,22 +69,35 @@ export const initialize = async (
     if (declared) repository = declared
     if (manifest.packageManager !== undefined) manager = manifest.packageManager
   } catch (cause) {
+    if (cause instanceof SyntaxError) {
+      throw new CliError.Refused({
+        fault: "user",
+        code: "package_json_invalid",
+        message: "package.json is not valid JSON"
+      })
+    }
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause
   }
   const workspace = existsSync(join(root, ".smithers", "WORKSPACE.ts")) ? ".smithers/WORKSPACE.ts" : "WORKSPACE.ts"
   if (existsSync(join(root, workspace))) retained.push(workspace)
   else {
     if (!/^(?:pnpm|yarn|bun)@[^\s]+$/.test(manager)) {
-      throw new Error(
-        `Cannot infer a supported workspace toolchain from ${manager}; declare WORKSPACE.ts explicitly or use smthrs generate flow`
-      )
+      throw new CliError.Refused({
+        fault: "user",
+        code: "unsupported_toolchain",
+        message:
+          `Cannot infer a supported workspace toolchain from ${manager}; declare WORKSPACE.ts explicitly or use smthrs generate flow`
+      })
     }
     // A generated workspace declares nodeModules, which only an install can
     // produce, and no install runs under Bun. Refuse before writing anything.
     if (manager.startsWith("bun@")) {
-      throw new Error(
-        `unsupported: ${TargetInstall.bunInstallUnsupportedMessage}; declare WORKSPACE.ts explicitly to run tools under Bun, or use smthrs generate flow`
-      )
+      throw new CliError.Refused({
+        fault: "user",
+        code: "unsupported_toolchain",
+        message:
+          `unsupported: ${TargetInstall.bunInstallUnsupportedMessage}; declare WORKSPACE.ts explicitly to run tools under Bun, or use smthrs generate flow`
+      })
     }
     await create(
       "package.json",
@@ -132,14 +146,19 @@ const generateTarget = async (
     return kind === "package" ? rule === "NewPackage" : rule === "Github.Workflow" || rule === "GithubCiGen"
   })
   const selected = options.target === undefined ? candidates : candidates.filter((row) => row.label === options.target)
-  if (selected.length !== 1) {
-    throw new Error(
-      selected.length === 0
-        ? `No declared ${kind} generator matches; add a ${
-          kind === "package" ? "S.NewPackage" : "S.Github.Workflow"
-        } target to PACKAGE.ts${options.target ? ` (${options.target})` : ""}`
-        : `Choose a generator with --target: ${selected.map((row) => row.label).join(", ")}`
-    )
+  if (selected.length === 0) {
+    throw new CliError.Refused({
+      fault: "user",
+      code: "generator_missing",
+      message: `No declared ${kind} generator matches; add a ${
+        kind === "package" ? "S.NewPackage" : "S.Github.Workflow"
+      } target to PACKAGE.ts${options.target ? ` (${options.target})` : ""}`
+    })
+  }
+  if (selected.length > 1) {
+    throw new CliError.UsageError({
+      message: `Choose a generator with --target: ${selected.map((row) => row.label).join(", ")}`
+    })
   }
   const outcome = await runPackageVerb(
     "auto",
@@ -160,7 +179,11 @@ const generateTarget = async (
   )
   if ("ok" in outcome && !outcome.ok) {
     config.exit?.(1)
-    throw new Error(`${kind} generator failed; inspect the target diagnostics`)
+    throw new CliError.Refused({
+      fault: "user",
+      code: "generator_failed",
+      message: `${kind} generator failed; inspect the target diagnostics`
+    })
   }
   return outcome
 }
@@ -191,7 +214,7 @@ export const createGenerateCli = (config: RuntimeConfig = {}) =>
       run: (c) =>
         safe(c, async () => {
           const problem = Init.nameProblem(c.args.name)
-          if (problem !== undefined) throw new Error(problem)
+          if (problem !== undefined) throw new CliError.UsageError({ message: problem })
           return Init.scaffold(
             Project.root(c.options.root, process.cwd()),
             c.args.name,

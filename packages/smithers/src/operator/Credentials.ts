@@ -13,7 +13,12 @@ import { Cli, z } from "incur"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import * as Presentation from "../cli/Presentation.ts"
+import * as CliError from "../CliError.ts"
 import { databaseLayer, localFields, type LocalOptions, localRoot } from "./Store.ts"
+
+/** An operator request this command refuses; the operator fixes the input or the host setup. */
+const refused = (message: string, fault: CliError.Fault = "user"): CliError.Refused =>
+  new CliError.Refused({ fault, code: "operator_failed", message })
 
 // Every operator command reports failures as operator_failed.
 const execute = <A>(context: Presentation.Failing, body: () => Promise<A>) =>
@@ -41,7 +46,7 @@ export interface SecretOptions {
  */
 export const readSecret = (options: SecretOptions, root: string): Redacted.Redacted<string> => {
   if ((options.secretEnv === undefined) === (options.secretFile === undefined)) {
-    throw new Error("Supply exactly one of --secret-env or --secret-file")
+    throw refused("Supply exactly one of --secret-env or --secret-file")
   }
   let secret: string | undefined
   if (options.secretEnv !== undefined) secret = process.env[options.secretEnv]
@@ -49,10 +54,10 @@ export const readSecret = (options: SecretOptions, root: string): Redacted.Redac
     try {
       secret = readFileSync(resolve(root, options.secretFile!), "utf8").replace(/\r?\n$/, "")
     } catch {
-      throw new Error("Could not read --secret-file")
+      throw refused("Could not read --secret-file")
     }
   }
-  if (secret === undefined || secret.length === 0) throw new Error("The selected secret source is empty or missing")
+  if (secret === undefined || secret.length === 0) throw refused("The selected secret source is empty or missing")
   return Redacted.make(secret)
 }
 
@@ -71,7 +76,7 @@ export const withCredentials = <A, E>(
   if (
     needsKey && (key === undefined || !/^[A-Za-z0-9+/]{43}=$/.test(key) || Buffer.from(key, "base64").byteLength !== 32)
   ) {
-    throw new Error("Set SMITHERS_CREDENTIAL_KEY to a base64-encoded 32-byte encryption key")
+    throw refused("Set SMITHERS_CREDENTIAL_KEY to a base64-encoded 32-byte encryption key")
   }
   return Effect.runPromise(
     Effect.gen(function*() {

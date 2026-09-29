@@ -18,7 +18,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { Control as ControlService, type ControlSchema } from "@smthrs/control"
 import * as TestControl from "@smthrs/control/test/TestControl"
-import { Effect, Layer, Stream } from "effect"
+import { Cause, Effect, Layer, Stream } from "effect"
 import { TestConsole } from "effect/testing"
 import { Command } from "effect/unstable/cli"
 import { mkdtempSync, rmSync } from "node:fs"
@@ -292,6 +292,24 @@ describe("smthrs bug", () => {
 
     expect(exit._tag).toBe("Failure")
     expect(String(exit._tag === "Failure" ? exit.cause : "")).toContain("503")
+    const error = exit._tag === "Failure" ? Cause.squash(exit.cause) : undefined
+    expect(error).toMatchObject({ _tag: "/cli/Refused", fault: "dependency", code: "bug_report_rejected" })
+  })
+
+  it("names the endpoint it could not reach, never the transport's raw text", async () => {
+    const exit = await withEndpoint(
+      "http://127.0.0.1:1/",
+      () => run(Effect.exit(text(["bug", "--yes", "everything", "is", "broken"])), testControl)
+    )
+
+    const error = exit._tag === "Failure" ? Cause.squash(exit.cause) : undefined
+    expect(error).toMatchObject({
+      _tag: "/cli/Refused",
+      fault: "dependency",
+      code: "bug_report_unreachable",
+      message: "Could not reach http://127.0.0.1:1/. The report was not sent."
+    })
+    expect(CliError.exitCode(error as CliError.CliError)).toBe(1)
   })
 
   it("requires consent before sending any request", async () => {

@@ -24,6 +24,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
+import * as CliError from "./CliError.ts"
 import * as Environment from "./Environment.ts"
 import * as Project from "./Project.ts"
 import { starterSeats } from "./Providers.ts"
@@ -253,7 +254,7 @@ export const scaffold = (
   environment: Environment.Source
 ): Scaffolded => {
   const problem = nameProblem(name)
-  if (problem !== undefined) throw new Error(problem)
+  if (problem !== undefined) throw new CliError.UsageError({ message: problem })
   const directory = join(root, "flows", name)
   const flowFile = join(directory, "flow.mdx")
   const seat = defaultSeat(environment)

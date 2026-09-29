@@ -96,6 +96,33 @@ describe("integration CLI", () => {
     expect(() => readIntegrations(directory)).toThrow("Use tokenEnv or credentialId, not both")
   })
 
+  it("refuses malformed configuration by path, never quoting the value or the parser's text", async () => {
+    const directory = await root()
+    const config = Path.join(directory, ".smithers/integrations.json")
+    await Fs.writeFile(
+      config,
+      JSON.stringify({ version: 1, integrations: [{ id: "gh", provider: "ghp_private-fixture-token" }] })
+    )
+    let refusal: unknown
+    try {
+      readIntegrations(directory)
+    } catch (error) {
+      refusal = error
+    }
+    expect(refusal).toMatchObject({
+      _tag: "/cli/Refused",
+      fault: "user",
+      code: "operator_failed",
+      message: "Invalid integrations configuration: integrations.0.provider is invalid"
+    })
+    await Fs.writeFile(config, "{ \"version\": 1, ghp_private-fixture-token")
+    expect(() => readIntegrations(directory)).toThrow(".smithers/integrations.json is not valid JSON")
+    const listed = await serve(directory, ["list"])
+    expect(listed.code).toBe(1)
+    expect(listed.output).toContain("operator_failed")
+    expect(listed.output).not.toContain("private-fixture-token")
+  })
+
   it("checks every provider's default credential offline without sending requests", async () => {
     const directory = await root()
     const integrations = ["github", "linear", "telegram"].map((provider) => ({ id: provider, provider }))
@@ -183,7 +210,7 @@ describe("integration CLI", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("redacts non-Error failures at the operator boundary", async () => {
+  it("prints the generic sentence for a non-Error failure at the operator boundary", async () => {
     let rendered: unknown
     const result = await Presentation.guard({
       error: (error) => {
@@ -197,7 +224,7 @@ describe("integration CLI", () => {
     expect(rendered).toEqual({
       code: "operator_failed",
       exitCode: 1,
-      message: "Authorization: Bearer [REDACTED_TOKEN]"
+      message: "Something went wrong on our side. Not your fault."
     })
   })
 

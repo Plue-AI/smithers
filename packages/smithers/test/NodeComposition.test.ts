@@ -192,7 +192,7 @@ describe("NodeControl.makeConfig", () => {
       // A directory exists, so the missing-file refusal does not apply and the
       // read is what fails.
       expect(() => NodeControl.makeConfig(["--mcp-config", directory], {}, "/work"))
-        .toThrow(`--mcp-config ${directory} could not be read`)
+        .toThrow(`--mcp-config ${directory} could not be read (EISDIR)`)
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
@@ -862,7 +862,9 @@ describe("NodeControl server binds", () => {
   })
 
   it("refuses a non-loopback bind under permissive authentication whatever --listen says", () => {
-    expect(() => NodeControl.layerServerNoopAuth({ host: "0.0.0.0", port: 0 })).toThrow(/permissive authentication/)
+    expect(() => NodeControl.layerServerNoopAuth({ host: "0.0.0.0", port: 0 })).toThrow(
+      expect.objectContaining({ fault: "policy", code: "permissive_bind_refused" })
+    )
     expect(() => NodeControl.layerServerNoopAuth({ host: "0.0.0.0", port: 0, listen: true })).toThrow(
       /permissive authentication/
     )
@@ -887,7 +889,7 @@ describe("NodeControl server binds", () => {
           listen
         }
       )
-    ).toThrow(/--listen/)
+    ).toThrow(expect.objectContaining({ _tag: "/cli/UsageError", message: expect.stringMatching(/--listen/) }))
   })
 
   it("accepts both loopback spellings without an opt-in", () => {

@@ -49,9 +49,10 @@ describe("NodeControl.workspaceSshPrefix", () => {
 
   it("refuses a reference that names no workspace, and a gateway with no host keys", async () => {
     const { environment } = await api({ command: "ssh vm@ssh.example.test", host_keys: [] })
-    await expect(NodeControl.workspaceSshPrefix(environment, "owner/repo")).rejects.toThrow(
-      "Expected OWNER/REPO/WORKSPACE_ID"
-    )
+    await expect(NodeControl.workspaceSshPrefix(environment, "owner/repo")).rejects.toMatchObject({
+      _tag: "/cli/UsageError",
+      message: "Expected OWNER/REPO/WORKSPACE_ID"
+    })
     await expect(NodeControl.workspaceSshPrefix(environment, "owner/repo/ws-1")).rejects.toThrow(
       "Workspace SSH host keys unavailable"
     )

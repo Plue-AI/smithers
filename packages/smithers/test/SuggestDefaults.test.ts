@@ -181,9 +181,9 @@ describe("a repository that cannot be read", () => {
       )
     )
 
-    expect(error).toBeInstanceOf(CliError.UnsupportedError)
+    expect(error).toBeInstanceOf(CliError.Refused)
     expect(CliError.exitCode(error)).toBe(1)
-    expect(error.message).toBe("the scan of /gone failed: Error: EACCES: permission denied")
+    expect(error.message).toBe("the scan of /gone failed: EACCES: permission denied")
   })
 
   it("fails the streamed scan the same way, after the seat has been named", async () => {
@@ -333,7 +333,7 @@ describe("the implementing step, defaulted to the bundled flow on this host", ()
       )
     )
 
-    expect(error).toBeInstanceOf(CliError.UnsupportedError)
+    expect(error).toMatchObject({ _tag: "/cli/Refused", fault: "dependency", code: "suggest_implementation_failed" })
     expect(CliError.exitCode(error)).toBe(1)
     // The step is named first, so an operator watching several of them knows
     // which one stopped, and the resolver's own sentence says what to set.

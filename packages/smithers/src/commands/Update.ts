@@ -17,7 +17,7 @@ import * as Globals from "./Globals.ts"
  */
 export const check = (
   globals: Globals.Options
-): Effect.Effect<Update.Status, CliError.UnsupportedError> =>
+): Effect.Effect<Update.Status, CliError.UnsupportedError | CliError.Refused> =>
   Effect.gen(function*() {
     yield* Globals.guard(globals)
     const tags = yield* Effect.tryPromise({
@@ -25,9 +25,11 @@ export const check = (
         const response = await fetch(Update.registryUrl, { signal: AbortSignal.timeout(10_000) })
         return await response.json() as Record<string, string>
       },
-      catch: (error) =>
-        new CliError.UnsupportedError({
-          message: `Could not reach the npm registry: ${error instanceof Error ? error.message : String(error)}`
+      catch: () =>
+        new CliError.Refused({
+          fault: "dependency",
+          code: "registry_unreachable",
+          message: "Could not reach the npm registry. Check your network and run `smthrs update` again."
         })
     })
     return Update.compare(packageVersion, tags)

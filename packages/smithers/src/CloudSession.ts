@@ -8,6 +8,7 @@
  * @since 1.0.0
  */
 
+import * as CliError from "./CliError.ts"
 import { processHost, resolveRepo } from "./commands/Open.ts"
 import { Session } from "./internal/backend/Session.ts"
 
@@ -48,17 +49,43 @@ export const signedIn = async (env: Readonly<Record<string, string | undefined>>
     origin,
     get: async (path, signal) => {
       // Only a path on this origin: the token never goes to another host.
-      if (!path.startsWith("/") || path.startsWith("//")) throw new Error(`Not a Cloud API path: ${path}`)
+      if (!path.startsWith("/") || path.startsWith("//")) {
+        throw new CliError.Refused({
+          fault: "bug",
+          code: "cloud_path_refused",
+          message: `Not a Cloud API path: ${path}`
+        })
+      }
       const timeout = AbortSignal.timeout(timeoutMs)
       const response = await fetch(origin + path, {
         headers: { authorization: `token ${token}`, accept: "application/json" },
         redirect: "error",
         signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout])
       })
-      if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`)
+      if (!response.ok) {
+        throw new CliError.Refused({
+          fault: response.status === 401 || response.status === 403 ? "user" : "infra",
+          code: "cloud_request_failed",
+          message: `${path}: HTTP ${response.status}`
+        })
+      }
       const body = await response.text()
-      if (body.length > maxBytes) throw new Error(`${path}: the response is larger than ${maxBytes} bytes`)
-      return JSON.parse(body) as unknown
+      if (body.length > maxBytes) {
+        throw new CliError.Refused({
+          fault: "infra",
+          code: "cloud_response_too_large",
+          message: `${path}: the response is larger than ${maxBytes} bytes`
+        })
+      }
+      try {
+        return JSON.parse(body) as unknown
+      } catch {
+        throw new CliError.Refused({
+          fault: "infra",
+          code: "cloud_response_invalid",
+          message: `${path}: the response is not JSON`
+        })
+      }
     }
   }
 }

@@ -141,7 +141,10 @@ describe("the scaffold", () => {
     const reason = `a flow name is one path segment of letters, digits, '-' and '_'; got ${JSON.stringify(name)}`
 
     expect(Init.nameProblem(name)).toBe(reason)
-    expect(() => Init.scaffold(root, name, {})).toThrow(reason)
+    // Retyping the name fixes it: a usage error, which exits 2.
+    expect(() => Init.scaffold(root, name, {})).toThrow(
+      expect.objectContaining({ _tag: "/cli/UsageError", message: reason })
+    )
     expect(Init.isValidName(name)).toBe(false)
     expect(existsSync(join(root, "flows"))).toBe(false)
     expect(existsSync(join(root, "outside"))).toBe(false)

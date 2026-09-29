@@ -733,7 +733,10 @@ describe("control bridge transport scope", () => {
 
   it("refuses remote or unapproved public hosting before any resource is acquired", async () => {
     await expect(Bridge.host(bind, { ...local, remote: "https://control.invalid" }, runtime))
-      .rejects.toThrow("--remote is not supported")
+      .rejects.toMatchObject({
+        _tag: "/cli/UnsupportedError",
+        message: expect.stringContaining("--remote is not supported")
+      })
     await expect(Bridge.host({ ...bind, host: "0.0.0.0" }, local, runtime)).rejects.toThrow("pass --listen")
     expect(ports.control).not.toHaveBeenCalled()
     expect(ports.scheduler).not.toHaveBeenCalled()

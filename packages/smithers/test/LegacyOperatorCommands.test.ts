@@ -229,7 +229,15 @@ describe("legacy operator command contracts", () => {
       const fetch = vi.fn().mockRejectedValue(cause)
       vi.stubGlobal("fetch", fetch)
       const result = await invoke(["update", "--json"])
-      expect(result.failure).toContain("Could not reach the npm registry: offline")
+      expect(result.failure).toContain(
+        "Could not reach the npm registry. Check your network and run `smthrs update` again."
+      )
+      expect(result.failure).not.toContain("offline")
+      expect(Exit.isFailure(result.exit) && Cause.squash(result.exit.cause)).toMatchObject({
+        _tag: "/cli/Refused",
+        fault: "dependency",
+        code: "registry_unreachable"
+      })
       expect(fetch).toHaveBeenCalledTimes(1)
       expect(result.stdout).toBe("")
     }

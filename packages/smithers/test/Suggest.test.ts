@@ -477,12 +477,32 @@ describe("the interactive session", () => {
     )
 
     expect(CliError.exitCode(error)).toBe(1)
+    expect(error).toMatchObject({ _tag: "/cli/Refused", fault: "dependency", code: "suggest_implementation_failed" })
     expect(error.message).toBe("A lint target over the files that changed: the seat refused the request")
     expect(ui.lines).toContain("spinner error: A lint target over the files that changed: failed")
     expect(ui.lines.filter((line) => line.startsWith("spinner "))).toEqual([
       "spinner start: A lint target over the files that changed",
       "spinner error: A lint target over the files that changed: failed"
     ])
+  })
+})
+
+describe("an implementation that fails with no designed sentence", () => {
+  it("names the step and prints the generic sentence, never the raw text", async () => {
+    const ui = scripted({ pick: "lint-target" })
+    const implement: Suggest.Implement = () =>
+      Effect.fail(new TypeError("Cannot read properties of undefined (reading 'token')"))
+
+    const error = await Effect.runPromise(
+      Effect.flip(Suggest.run({ ...base, implement }).pipe(Effect.provideService(Ui.Ui, ui.service)))
+    )
+
+    expect(CliError.exitCode(error)).toBe(1)
+    expect(error).toMatchObject({ _tag: "/cli/Refused", code: "suggest_implementation_failed" })
+    expect(error.message).toBe(
+      "A lint target over the files that changed: Something went wrong on our side. Not your fault."
+    )
+    expect(error.message).not.toContain("reading 'token'")
   })
 })
 

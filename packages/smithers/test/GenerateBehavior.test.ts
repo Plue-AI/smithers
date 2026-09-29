@@ -162,13 +162,27 @@ describe("workspace initialization behavior", () => {
     }
   )
 
+  it("refuses a package.json that is not JSON by name, never the parser's text", async () => {
+    const root = await directory()
+    await writeFile(join(root, "package.json"), "{ \"name\": ghp_fixture-token")
+    await expect(initialize(root, "example", {})).rejects.toMatchObject({
+      _tag: "/cli/Refused",
+      fault: "user",
+      code: "package_json_invalid",
+      message: "package.json is not valid JSON"
+    })
+  })
+
   it("refuses to generate a Bun workspace, whose install is unsupported", async () => {
     const root = await directory()
     const original = JSON.stringify({ name: "authored", packageManager: "bun@1.4.2" })
     await writeFile(join(root, "package.json"), original)
-    await expect(initialize(root, "example", {})).rejects.toThrow(
-      /unsupported: Install cannot use the Bun package manager/
-    )
+    await expect(initialize(root, "example", {})).rejects.toMatchObject({
+      _tag: "/cli/Refused",
+      fault: "user",
+      code: "unsupported_toolchain",
+      message: expect.stringMatching(/unsupported: Install cannot use the Bun package manager/)
+    })
     expect(existsSync(join(root, "WORKSPACE.ts"))).toBe(false)
     expect(existsSync(join(root, "PACKAGE.ts"))).toBe(false)
     expect(await readFile(join(root, "package.json"), "utf8")).toBe(original)
@@ -298,7 +312,8 @@ describe("generator command behavior", () => {
   it("rejects a traversal flow name without filesystem or build activity", async () => {
     const root = await directory()
     const result = await invoke(["flow", "../outside", "--root", root])
-    expect(result.codes).toContain(1)
+    // A bad name is fixed by retyping it: a usage error, exit 2.
+    expect(result.codes).toContain(2)
     expect(result.stdout).toContain("one path segment")
     expect(await readdir(root)).toEqual([])
     expect(ports.openPackageIndex).not.toHaveBeenCalled()
@@ -367,6 +382,7 @@ describe("generator command behavior", () => {
       const result = await invoke(args)
       expect(result.codes).toContain(1)
       expect(result.stdout).toContain(`No declared ${args[0]} generator matches`)
+      expect(result.stdout).toContain("generator_missing")
       expect(result.stdout).toContain(args[0] === "package" ? "S.NewPackage" : "S.Github.Workflow")
       expect(ports.runPackageVerb).not.toHaveBeenCalled()
     }
@@ -381,7 +397,8 @@ describe("generator command behavior", () => {
       ]
     })
     const ambiguous = await invoke(["ci"])
-    expect(ambiguous.codes).toContain(1)
+    // Retyping with --target fixes it: a usage error, exit 2.
+    expect(ambiguous.codes).toContain(2)
     expect(ambiguous.stdout).toContain("Choose a generator with --target: //:one, //:two")
     const mismatched = await invoke(["ci", "--target", "//:files"])
     expect(mismatched.codes).toContain(1)

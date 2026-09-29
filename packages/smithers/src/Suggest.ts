@@ -32,6 +32,7 @@ import { statSync } from "node:fs"
 import { homedir } from "node:os"
 import * as CliError from "./CliError.ts"
 import type * as Environment from "./Environment.ts"
+import * as Failure from "./internal/Failure.ts"
 import { readText } from "./internal/HostFiles.ts"
 import * as Providers from "./Providers.ts"
 import * as Brief from "./suggest/Brief.ts"
@@ -249,21 +250,31 @@ const nodeImplement = (options: Options, seat: string): Implement => (brief) =>
         environment: options.environment,
         evaluator: options.evaluator
       }),
-    catch: (error) => new Error(SuggestFlow.failureMessage(error))
+    catch: asError
   }).pipe(
-    Effect.flatMap((host) =>
-      SuggestFlow.run(brief).pipe(
-        Effect.provide(host),
-        Effect.mapError((error) => new Error(SuggestFlow.failureMessage(error)))
-      )
-    )
+    Effect.flatMap((host) => SuggestFlow.run(brief).pipe(Effect.provide(host), Effect.mapError(asError)))
   )
+
+/**
+ * A failure as an `Error` that keeps its own tag and sentence; a thrown
+ * non-Error keeps its raw value only as `cause`.
+ */
+const asError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(Failure.unknownSentence, { cause: error })
+
+/** A scan that stopped part-way: the root it read, and the reason when one was designed. */
+const scanFailed = (root: string, cause: unknown): CliError.Refused =>
+  new CliError.Refused({
+    fault: "infra",
+    code: "suggest_scan_failed",
+    message: `the scan of ${root} failed: ${Failure.operatorSentence(cause)}`
+  })
 
 /** Collects the scan without a renderer, for the `--json` and listing paths. */
 const collect = (
   repository: Checklist.Repository,
   onFound: (suggestion: Checklist.Suggestion, position: number) => void
-): Effect.Effect<ReadonlyArray<Checklist.Suggestion>, CliError.UnsupportedError> =>
+): Effect.Effect<ReadonlyArray<Checklist.Suggestion>, CliError.Refused> =>
   Effect.tryPromise({
     try: async () => {
       const found: Array<Checklist.Suggestion> = []
@@ -273,7 +284,7 @@ const collect = (
       }
       return found
     },
-    catch: (cause) => failed(`the scan of ${repository.root} failed: ${String(cause)}`)
+    catch: (cause) => scanFailed(repository.root, cause)
   })
 
 const settledLine = (count: number): string => count === 1 ? "1 suggestion" : `${count} suggestions`
@@ -286,7 +297,7 @@ const carryOut = (
   implement: Implement,
   title: string,
   brief: string
-): Effect.Effect<SuggestFlow.Implemented, CliError.UnsupportedError> =>
+): Effect.Effect<SuggestFlow.Implemented, CliError.Refused> =>
   Effect.gen(function*() {
     const implemented = yield* Effect.acquireUseRelease(
       Effect.sync(() => {
@@ -305,7 +316,13 @@ const carryOut = (
             spinner.error(`${title}: failed`)
           }
         })
-    ).pipe(Effect.mapError((error) => failed(`${title}: ${error.message}`)))
+    ).pipe(Effect.mapError((error) =>
+      new CliError.Refused({
+        fault: "dependency",
+        code: "suggest_implementation_failed",
+        message: `${title}: ${SuggestFlow.failureMessage(error)}`
+      })
+    ))
     yield* ui.note(wroteNote(implemented), title)
     return implemented
   })
@@ -316,7 +333,7 @@ const jsonRendering = (
   options: Options,
   chosen: Providers.Chosen,
   repository: Checklist.Repository
-): Effect.Effect<Outcome, CliError.UnsupportedError> =>
+): Effect.Effect<Outcome, CliError.Refused> =>
   Effect.gen(function*() {
     const emit = options.emit ?? writeLine
     const found = yield* collect(
@@ -339,7 +356,7 @@ const humanRendering = (
   options: Options,
   chosen: Providers.Chosen,
   repository: Checklist.Repository
-): Effect.Effect<Outcome, CliError.UnsupportedError> =>
+): Effect.Effect<Outcome, CliError.Refused> =>
   Effect.gen(function*() {
     const ui = yield* Ui.current
     yield* ui.intro(introLine(chosen))
@@ -347,7 +364,7 @@ const humanRendering = (
       label: streamLabel,
       scanning: `Reading ${options.root}`,
       settled: settledLine
-    }).pipe(Effect.mapError((error) => failed(`the scan of ${options.root} failed: ${error.message}`)))
+    }).pipe(Effect.mapError((error) => scanFailed(options.root, error)))
     const found = streamed.items
     const outcome = (status: Outcome["status"], implemented: ReadonlyArray<Implementation>): Outcome => ({
       status,

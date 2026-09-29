@@ -132,7 +132,13 @@ describe("the suggest flow with a scripted model", { timeout: 120_000 }, () => {
       "AgentFailed: no answer"
     )
     expect(SuggestFlow.failureMessage(new Error("plain"))).toBe("plain")
-    expect(SuggestFlow.failureMessage("text")).toBe("text")
+  })
+
+  it("renders a failure nobody designed a sentence for as the generic sentence, never its raw text", () => {
+    const generic = "Something went wrong on our side. Not your fault."
+    expect(SuggestFlow.failureMessage("token=abc123 leaked")).toBe(generic)
+    expect(SuggestFlow.failureMessage(new TypeError("x is not a function"))).toBe(generic)
+    expect(SuggestFlow.failureMessage({ _tag: "flows/agent/AgentFailed", message: "" })).toBe(generic)
   })
 })
 

@@ -50,6 +50,7 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { randomUUID } from "node:crypto"
 import { isAbsolute } from "node:path"
+import * as Failure from "../internal/Failure.ts"
 import * as NodeControl from "../NodeControl.ts"
 import * as Project from "../Project.ts"
 import * as Brief from "./Brief.ts"
@@ -430,17 +431,20 @@ export const run = (brief: string) => flow.execute({ brief }, { executionId: `su
 /**
  * One sentence for a failed implementation.
  *
+ * A tagged failure reads as its class and its own sentence. Anything nobody
+ * designed a sentence for (a runtime bug, a Node system error, a thrown
+ * string) reads as the generic sentence; its raw text is detail, not a
+ * sentence.
+ *
  * @category conversions
  * @since 1.0.0-rc.0
  */
 export const failureMessage = (error: unknown): string => {
-  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
-    const tag = "_tag" in error && typeof error._tag === "string"
-      ? error._tag.slice(error._tag.lastIndexOf("/") + 1)
-      : ""
-    return tag === "" ? error.message : `${tag}: ${error.message}`
-  }
-  return String(error)
+  const sentence = Failure.operatorSentence(error)
+  const tag = typeof error === "object" && error !== null && "_tag" in error && typeof error._tag === "string"
+    ? error._tag.slice(error._tag.lastIndexOf("/") + 1)
+    : ""
+  return tag === "" || sentence === Failure.unknownSentence ? sentence : `${tag}: ${sentence}`
 }
 
 type Complete<L> = [L] extends [Layer.Layer<infer _A, infer _E, infer R>] ? [R] extends [never] ? true : false

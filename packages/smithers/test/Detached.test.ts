@@ -186,6 +186,29 @@ describe("launching", () => {
     expect(() => Detached.discard(rejected)).not.toThrow()
   }, 30_000)
 
+  it("names an admission check that threw by its sentence, never its raw text", async () => {
+    const root = project()
+    const entry = child(
+      `process.stderr.write("SMITHERS_DETACHED_ADMISSION=run:" + process.env.SMITHERS_INTERNAL_DETACHED_ADMISSION + " runId=run-9\\n")
+       process.exit(0)`
+    )
+
+    const result = await Detached.launch({
+      root,
+      payload: "{}",
+      entry,
+      intervalMs: 10,
+      admission: () => Promise.reject(new TypeError("Cannot read properties of undefined (reading 'token')"))
+    })
+
+    expect(Detached.isLaunched(result)).toBe(false)
+    const reason = (result as Detached.Rejected).reason
+    expect(reason).toContain(
+      "The control store could not confirm admission: Something went wrong on our side. Not your fault."
+    )
+    expect(reason).not.toContain("reading 'token'")
+  }, 30_000)
+
   it("does not rename the log onto a forged run id that escapes the log directory", async () => {
     const root = project()
     // Anything the child writes lands in this log — including untrusted agent

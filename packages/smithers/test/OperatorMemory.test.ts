@@ -67,6 +67,11 @@ describe("operator memory", () => {
       ])
       expect(result.code).toBe(1)
       expect(result.data.code).toBe("operator_failed")
+      expect(result.data.message).toBe(
+        namespace.includes("\0")
+          ? "Memory namespace IDs cannot contain control characters"
+          : "Use --namespace user:<id>, flow:<id>, agent:<id>, or global:<id>"
+      )
       expect(existsSync(join(root, ".flows", "control.db"))).toBe(false)
     }
   })

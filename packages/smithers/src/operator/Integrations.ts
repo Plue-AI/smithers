@@ -12,8 +12,13 @@ import { Cli, z } from "incur"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import * as Presentation from "../cli/Presentation.ts"
+import * as CliError from "../CliError.ts"
 import { withCredentials } from "./Credentials.ts"
 import { localFields, type LocalOptions, localRoot } from "./Store.ts"
+
+/** An integration request this command refuses; the operator fixes the configuration or the host setup. */
+const refused = (fault: CliError.Fault, message: string): CliError.Refused =>
+  new CliError.Refused({ fault, code: "operator_failed", message })
 
 // Every operator command reports failures as operator_failed.
 const execute = <A>(context: Presentation.Failing, body: () => Promise<A>) =>
@@ -111,13 +116,15 @@ const authorizedOrigins = (kind: Integration["provider"], env: Readonly<Record<s
  */
 const authorize = (item: Integration, env: Readonly<Record<string, string | undefined>>): Integration => {
   if (item.tokenEnv !== undefined && !authorizedTokenEnv(item.provider, env).has(item.tokenEnv)) {
-    throw new Error(
+    throw refused(
+      "policy",
       `Integration ${item.id} names unauthorized credential variable ${item.tokenEnv}; list it in SMITHERS_INTEGRATION_TOKEN_ENV to authorize it`
     )
   }
   const target = originOf(item.apiBaseUrl)
   if (target !== undefined && !authorizedOrigins(item.provider, env).has(target)) {
-    throw new Error(
+    throw refused(
+      "policy",
       `Integration ${item.id} names unauthorized ${item.provider} endpoint ${target}; set ${
         authority[item.provider].apiBaseUrlEnv
       } to authorize it`
@@ -142,7 +149,9 @@ export const readIntegrations = (
 ): ReadonlyArray<Integration> => {
   const path = resolve(root, file)
   if (!existsSync(path)) {
-    if (file !== ".smithers/integrations.json") throw new Error(`Integration configuration does not exist: ${file}`)
+    if (file !== ".smithers/integrations.json") {
+      throw refused("user", `Integration configuration does not exist: ${file}`)
+    }
     return (["github", "linear", "telegram"] as const).flatMap((provider) => {
       const tokenEnv = provider === "github" && !env["SMITHERS_GITHUB_TOKEN"] && env["GITHUB_TOKEN"]
         ? "GITHUB_TOKEN"
@@ -150,23 +159,38 @@ export const readIntegrations = (
       return env[tokenEnv] ? [{ id: provider, provider, tokenEnv }] : []
     })
   }
-  const parsed = configuration.safeParse(JSON.parse(readFileSync(path, "utf8")))
+  let document: unknown
+  try {
+    document = JSON.parse(readFileSync(path, "utf8"))
+  } catch {
+    throw refused("user", `${file} is not valid JSON`)
+  }
+  const parsed = configuration.safeParse(document)
   if (!parsed.success) {
-    throw new Error(
+    // Our own refinement sentences, and only the path for the validator's
+    // built-in ones: those can quote the offending value, and that value may
+    // be a token pasted into the wrong field.
+    throw refused(
+      "user",
       `Invalid integrations configuration: ${
-        parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")
+        [
+          ...new Set(parsed.error.issues.map((issue) => {
+            const path = issue.path.join(".") || "(root)"
+            return issue.code === "custom" ? `${path}: ${issue.message}` : `${path} is invalid`
+          }))
+        ].join("; ")
       }`
     )
   }
   const ids = parsed.data.integrations.map((item) => item.id)
-  if (new Set(ids).size !== ids.length) throw new Error("Integration IDs must be unique")
+  if (new Set(ids).size !== ids.length) throw refused("user", "Integration IDs must be unique")
   return parsed.data.integrations.map((item) => authorize(item, env))
 }
 
 const select = (entries: ReadonlyArray<Integration>, id?: string) => {
   if (id === undefined) return entries
   const selected = entries.filter((entry) => entry.id === id)
-  if (selected.length === 0) throw new Error(`Unknown integration ${id}`)
+  if (selected.length === 0) throw refused("user", `Unknown integration ${id}`)
   return selected
 }
 
@@ -180,7 +204,9 @@ const secret = async (options: LocalOptions, entry: Integration): Promise<string
   }
   const envName = entry.tokenEnv ?? defaultTokenEnv(entry.provider)
   const value = process.env[envName]
-  if (value === undefined || value.length === 0) throw new Error(`Missing credential environment variable ${envName}`)
+  if (value === undefined || value.length === 0) {
+    throw refused("user", `Missing credential environment variable ${envName}`)
+  }
   return value
 }
 
