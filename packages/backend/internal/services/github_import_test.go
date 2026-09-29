@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -252,11 +253,25 @@ func TestGitHubImportService_RefreshFailureSurfacesCredentialGone(t *testing.T) 
 
 func TestGitHubImportService_ClassifiesForbiddenRateLimitsAsRetryable(t *testing.T) {
 	tests := []struct {
+		status         int
 		name           string
 		header         http.Header
 		wantRateLimit  bool
 		wantRetryAfter int
 	}{
+		{
+			name:           "429 retry after",
+			status:         http.StatusTooManyRequests,
+			header:         http.Header{"Retry-After": []string{"3600"}},
+			wantRateLimit:  true,
+			wantRetryAfter: 3600,
+		},
+		{
+			name:           "primary reset",
+			header:         http.Header{"X-RateLimit-Remaining": []string{"0"}, "X-RateLimit-Reset": []string{strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)}},
+			wantRateLimit:  true,
+			wantRetryAfter: 3590,
+		},
 		{
 			name:           "retry after",
 			header:         http.Header{"Retry-After": []string{"17"}},
@@ -282,7 +297,11 @@ func TestGitHubImportService_ClassifiesForbiddenRateLimitsAsRetryable(t *testing
 						w.Header().Add(name, value)
 					}
 				}
-				w.WriteHeader(http.StatusForbidden)
+				if tt.status != 0 {
+					w.WriteHeader(tt.status)
+				} else {
+					w.WriteHeader(http.StatusForbidden)
+				}
 			}))
 			defer api.Close()
 			t.Setenv(envGitHubAppAPIBaseURL, api.URL)
@@ -308,7 +327,8 @@ func TestGitHubImportService_ClassifiesForbiddenRateLimitsAsRetryable(t *testing
 			if tt.wantRateLimit {
 				assert.Equal(t, http.StatusTooManyRequests, apiErr.Status)
 				assert.Equal(t, pkgerrors.CodeRateLimitExceeded, apiErr.Code)
-				assert.Equal(t, tt.wantRetryAfter, apiErr.RetryAfter)
+				assert.GreaterOrEqual(t, apiErr.RetryAfter, tt.wantRetryAfter)
+				assert.GreaterOrEqual(t, githubImportRetryDelaySeconds(err), int32(tt.wantRetryAfter))
 				assert.False(t, isTerminalGitHubImportFailure(err))
 				return
 			}
