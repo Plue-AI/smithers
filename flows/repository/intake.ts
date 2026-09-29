@@ -45,7 +45,7 @@ export const ignoreConfidence = 0.9
  * prompt's "treat as untrusted", which stays in force underneath.
  */
 export const injectionProbability = 0.9
-/** The classifier holds each state to 32 KiB, so an event body is clipped to fit. */
+/** The maximum UTF-8 size of a complete JSON-encoded classifier state. */
 export const maximumStateBytes = 32 * 1024
 /** At most this many texts of one event are screened in one batch. */
 export const maximumStates = 64
@@ -55,7 +55,7 @@ export const IntakeState = Schema.Struct({
   repo: Schema.String.annotate({ description: "The repository the event arrived for" }),
   source: Schema.Literals(["issue", "pr", "comment"]).annotate({ description: "Which part of the event this text is" }),
   title: Schema.String.annotate({ description: "The title, empty for a comment" }),
-  body: Schema.String.annotate({ description: "The raw text, clipped so the whole state stays under 32 KiB" }),
+  body: Schema.String.annotate({ description: "The complete raw text" }),
   author: Schema.String.annotate({ description: "The login that wrote it, empty when the event names none" })
 })
 
@@ -99,16 +99,6 @@ const login = (value: unknown): string => {
   return string(user.login) || string(user.name)
 }
 const bytes = (value: string): number => new TextEncoder().encode(value).length
-/** Clips to a byte budget without splitting a surrogate pair. */
-const clipToBytes = (value: string, limit: number): string => {
-  if (limit <= 0) return ""
-  if (bytes(value) <= limit) return value
-  let end = Math.min(value.length, limit)
-  while (end > 0 && bytes(value.slice(0, end)) > limit) end -= 1
-  if (end > 0 && value.codePointAt(end - 1)! >= 0xd800 && value.codePointAt(end - 1)! <= 0xdbff) end -= 1
-  return value.slice(0, end)
-}
-
 /** One text per state, so an injected comment is withheld on its own and the
  * title and body it arrived beside are not. */
 export const intakeTexts = (payload: unknown): ReadonlyArray<typeof IntakeState.Type & { readonly id: string }> => {
@@ -123,23 +113,17 @@ export const intakeTexts = (payload: unknown): ReadonlyArray<typeof IntakeState.
   add("comment", "comment", object(fields.comment))
   const replies = Array.isArray(fields.authorReplies) ? fields.authorReplies : []
   replies.forEach((reply, index) => add(`authorReplies.${index}`, "comment", object(reply)))
-  return texts.filter((text) => text.title.trim() !== "" || text.body.trim() !== "").slice(0, maximumStates)
+  return texts.filter((text) => text.title.trim() !== "" || text.body.trim() !== "")
 }
 
-/** The state one text is judged as, clipped so the encoded state fits. */
-export const intakeState = (repo: string, text: typeof IntakeState.Type): typeof IntakeState.Type => {
-  const framed = {
-    repo,
-    source: text.source,
-    title: clipToBytes(text.title, 1000),
-    body: text.body,
-    author: clipToBytes(text.author, 200)
-  }
-  const overflow = bytes(JSON.stringify(framed)) - maximumStateBytes
-  return overflow <= 0
-    ? framed
-    : { ...framed, body: clipToBytes(framed.body, Math.max(0, bytes(framed.body) - overflow)) }
-}
+/** The complete state one text is judged as; bounds are checked before evaluation. */
+export const intakeState = (repo: string, text: typeof IntakeState.Type): typeof IntakeState.Type => ({
+  repo,
+  source: text.source,
+  title: text.title,
+  body: text.body,
+  author: text.author
+})
 
 /** Replaces the named texts with {@link withheldPlaceholder}, leaving every
  * other field of the payload, and every text the screen cleared, as it was. */
@@ -216,21 +200,29 @@ export const screenEvent = (
     if (texts.length === 0) {
       return { payload: input.payload as Schema.Json, screening: { action: "proceed", answers: [] } }
     }
+    const states = texts.map((text) => intakeState(input.repo, text))
+    const stateBytes = states.map((state) => bytes(JSON.stringify(state)))
+    const oversized = stateBytes.filter((size) => size > maximumStateBytes).length
+    const incomplete = texts.length > maximumStates || oversized > 0
+      ? `incomplete screening; ${texts.length} texts (limit ${maximumStates}); ${oversized} states exceed ${maximumStateBytes} bytes`
+      : undefined
     const evaluator = yield* Effect.serviceOption(Evaluator.Evaluator)
     const unconfigured = new Classifier.ClassifierError({
       code: "unreachable",
       message: "No evaluator is installed on this host"
     })
-    const results: Judgments = Option.isNone(evaluator)
+    const results: Judgments = incomplete !== undefined
+      ? []
+      : Option.isNone(evaluator)
       ? texts.map(() => Result.fail(unconfigured))
-      : yield* intakeClassifier.evaluateAll(texts.map((text) => intakeState(input.repo, text)))
+      : yield* intakeClassifier.evaluateAll(states)
         .pipe(Effect.provideService(Evaluator.Evaluator, evaluator.value))
     const answers: Array<typeof IntakeScreening.Type["answers"][number]> = []
     const failures: Array<string> = []
     const withheld = new Set<string>()
     let primary: typeof answers[number] | undefined
-    for (const [index, text] of texts.entries()) {
-      const result = results[index]!
+    for (const [index, result] of results.entries()) {
+      const text = texts[index]!
       if (Result.isFailure(result)) {
         failures.push(`${text.id}: ${result.failure.code} — ${result.failure.message}`)
         continue
@@ -252,12 +244,12 @@ export const screenEvent = (
     // bug cannot drop the bug, and an unanswered subject never drops anything.
     const ignored = primary !== undefined && (primary.kind === "spam" || primary.kind === "irrelevant") &&
       primary.kindConfidence >= ignoreConfidence
-    const reason = failures.length === 0 ?
+    const reason = incomplete ?? (failures.length === 0 ?
       undefined
       : `${results.length === failures.length ? "unanswered" : "partly unanswered"}; ${failures.join(", ")}`.slice(
         0,
         400
-      )
+      ))
     const action = reason !== undefined
       ? "failed"
       : ignored
@@ -284,13 +276,25 @@ export const screenEvent = (
         deliveryKey: input.event.deliveryKey
       },
       thresholds: { ignoreConfidence, injectionProbability },
+      coverage: {
+        totalTexts: texts.length,
+        screenedTexts: answers.length,
+        texts: texts.map((text, index) => ({
+          id: text.id,
+          stateBytes: stateBytes[index]!,
+          screened: results[index] !== undefined && Result.isSuccess(results[index])
+        }))
+      },
       action,
       answers,
       ...(reason === undefined ? {} : { reason })
     })
     if (reason !== undefined) {
       return yield* Effect.fail(
-        new CodingError({ code: "unavailable", message: `Jev could not screen this event: ${reason}` })
+        new CodingError({
+          code: incomplete !== undefined ? "invalid_request" : "unavailable",
+          message: `Jev could not screen this event: ${reason}`
+        })
       )
     }
     return { payload: ignored ? input.payload as Schema.Json : redactPayload(input.payload, withheld), screening }
