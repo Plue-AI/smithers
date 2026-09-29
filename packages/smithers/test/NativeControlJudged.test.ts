@@ -234,6 +234,23 @@ const runAll = async (root: string, flowIds: ReadonlyArray<string>) => {
 const first = (events: ReadonlyArray<Journaled>, kind: string) => events.find((event) => event.kind === kind)
 
 describe("the shipped Node executor under ScriptedJudge.layerAll", () => {
+  it("forwards workspace AGENTS.md into the relevance gate", async () => {
+    const root = await project()
+    await writeFile(join(root, "AGENTS.md"), "- Keep failing tests visible.\n\n- Publish benchmark claims with artifacts.\n")
+    const { watched } = await runAll(root, ["survey"])
+    const events = watched[0]!
+    expect(events.at(-1)?.kind).toBe("control.run.completed")
+    const settled = first(events, "control.agent.relevance-settled")!.payload as {
+      readonly kept: ReadonlyArray<{ readonly id: string; readonly kind: string }>
+      readonly withheld: ReadonlyArray<{ readonly id: string; readonly kind: string }>
+    }
+    expect([...settled.kept, ...settled.withheld].filter((item) => item.kind === "instruction").length).toBeGreaterThan(0)
+    expect(settled.withheld.some((item) => item.id.includes("AGENTS.md"))).toBe(true)
+    const prompts = events.filter((event) => event.kind === "control.agent.model-requested")
+    expect(prompts.length).toBeGreaterThan(0)
+    expect(JSON.stringify(prompts)).toContain("Keep failing tests visible")
+    expect(JSON.stringify(prompts)).not.toContain("Publish benchmark claims with artifacts")
+  }, 60_000)
   it("arms a judged run, and a subagent step reads relevance on its own prompt under its own session", async () => {
     const { steps, watched } = await runAll(await project(), ["survey", "probe"])
     const [survey, probed] = watched

@@ -128,6 +128,10 @@ import * as StandardFlows from "./StandardFlows.ts"
  * @since 0.1.0
  */
 export interface Options {
+  /** Workspace AGENTS.md files sent to the relevance gate. */
+  readonly workspaceInstructions?: AgentOptions["instructions"]
+  /** Host flow sources a judged run must always offer. */
+  readonly pinnedSources?: AgentOptions["pinnedSources"]
   /** Host-selected profile instructions, sealed before the first model call. */
   readonly instructions?:
     | ((launch: {
@@ -3135,6 +3139,8 @@ export const make = (
         const system = [...(options.system ?? []), ...instructions, ...(routing?.variant ?? [])]
         const outcome = yield* agent.run({
           memory,
+          instructions: options.workspaceInstructions,
+          pinnedSources: options.pinnedSources,
           contextWindowTokensFor: contextWindowResolver(seats),
           session: payload.runId,
           seat,

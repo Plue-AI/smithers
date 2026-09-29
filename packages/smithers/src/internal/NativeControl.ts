@@ -74,12 +74,14 @@ import type { Crypto, Path, Scope } from "effect"
 import * as Deferred from "effect/Deferred"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { randomUUID } from "node:crypto"
-import { hostname } from "node:os"
-import { join, resolve } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { homedir, hostname } from "node:os"
+import { dirname, join, resolve } from "node:path"
 import type * as Application from "../Application.ts"
 import * as Serve from "../Serve.ts"
 import { packageVersion } from "../Version.ts"
 import * as AuthoredRebuild from "./AuthoredRebuild.ts"
+
 import * as ControlDatabasePath from "./ControlDatabasePath.ts"
 import * as EngineJournalSupervisor from "./EngineJournalSupervisor.ts"
 import * as ExecutionDatabasePath from "./ExecutionDatabasePath.ts"
@@ -103,6 +105,28 @@ import * as RoleProfile from "./RoleProfile.ts"
 import * as SourceRevision from "./SourceRevision.ts"
 import * as SupervisorMemory from "./SupervisorMemory.ts"
 import * as WorkspaceRouting from "./WorkspaceRouting.ts"
+
+/** Match the TUI's repository-bounded instruction file precedence. */
+const workspaceInstructions = (cwd: string): ReadonlyArray<{ readonly path: string; readonly text: string }> => {
+  const files: Array<string> = []
+  const global = join(homedir(), ".smithers", "agent", "AGENTS.md")
+  if (existsSync(global)) files.push(global)
+  const directories: Array<string> = []
+  for (let directory = resolve(cwd);; directory = dirname(directory)) {
+    directories.unshift(directory)
+    if (existsSync(join(directory, ".jj")) || existsSync(join(directory, ".git"))) break
+    if (dirname(directory) === directory) {
+      directories.splice(0, directories.length - 1)
+      break
+    }
+  }
+  for (const directory of directories) {
+    const first = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]
+      .map((name) => join(directory, name)).find((path) => existsSync(path))
+    if (first !== undefined && !files.includes(first)) files.push(first)
+  }
+  return files.map((path) => ({ path, text: readFileSync(path, "utf8") }))
+}
 
 /** Captured durable control services shared by native consumers.
  * @since 1.0.0
@@ -1066,6 +1090,7 @@ export const make = (
         // in the run and in every subagent step; memory writes wait for a
         // memory database of the operator's own.
         const supervisorOptions = SupervisorMemory.options(environment, workspaceRoot)
+        const instructions = workspaceInstructions(workspaceRoot)
         const actionHost = AgentAction.makeHost({
           registry: yield* Registry.Registry,
           limits: native.agentLimits === undefined
@@ -1073,6 +1098,8 @@ export const make = (
             : { ...cellLimits, callMs: native.agentLimits.toolMs, totalMs: native.agentLimits.taskMs },
           modelCallMs: native.agentLimits?.modelCallMs,
           flows: sources,
+          instructions,
+          pinnedSources: ["wait", "ask"],
           // Subscription judgments fail closed on missing seats or invalid answers.
           judged: true,
           supervisor: supervisorOptions,
@@ -1258,6 +1285,8 @@ export const make = (
           requestNativeCancel,
           canExecute,
           flows: sources,
+          workspaceInstructions: instructions,
+          pinnedSources: ["wait", "ask"],
           limits: native.agentLimits === undefined
             ? cellLimits
             : { ...cellLimits, callMs: native.agentLimits.toolMs, totalMs: native.agentLimits.taskMs },

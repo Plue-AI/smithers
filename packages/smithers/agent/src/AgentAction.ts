@@ -100,6 +100,10 @@ import * as SeatRouter from "./SeatRouter.ts"
  * @since 0.1.0
  */
 export interface Host {
+  /** Workspace instruction files judged for each action's own task. */
+  readonly instructions?: AgentOptions["instructions"]
+  /** Flow sources always visible to a judged action. */
+  readonly pinnedSources?: AgentOptions["pinnedSources"]
   /** The catalog a cell is shown and the registry its calls resolve against. */
   readonly registry: Registry.Registry
   /** The explicit sandbox budget every cell runs under. Never unlimited. */
@@ -779,6 +783,8 @@ export const make = <
             const atSource = Option.isSome(sink) && sink.value.atSource === true
             const resolved = askSeat === seatId ? seat : yield* seats.resolve(askSeat)
             const outcome = yield* agent.run({
+              instructions: host.instructions,
+              pinnedSources: host.pinnedSources,
               contextWindowTokensFor: contextWindowResolver(seats),
               session,
               seat: resolved,
