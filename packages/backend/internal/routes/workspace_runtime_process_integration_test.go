@@ -76,6 +76,17 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 		services.WithWorkspaceRuntime(runtime),
 		services.WithWorkspaceGitBaseURL(gitServer.URL+"/api"),
 	)
+	t.Cleanup(func() {
+		drainDeadline := time.Now().Add(15 * time.Second)
+		if testDeadline, ok := t.Deadline(); ok && testDeadline.Add(-10*time.Second).Before(drainDeadline) {
+			drainDeadline = testDeadline.Add(-10 * time.Second)
+		}
+		drainCtx, cancelDrain := context.WithDeadline(context.Background(), drainDeadline)
+		defer cancelDrain()
+		if err := service.WaitForProvisioning(drainCtx); err != nil {
+			t.Errorf("workspace provisioning did not finish before runtime cleanup: %v", err)
+		}
+	})
 	workspaceHandler := &WorkspaceHandler{Service: service}
 	terminalHandler := &WorkspaceTerminalHandler{Service: service, AllowedOrigins: []string{"https://smithers.test"}}
 	t.Cleanup(func() {
@@ -128,7 +139,19 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 	require.NotEmpty(t, created.ID)
 	require.Empty(t, created.VMID, "trusted process execution must not be presented as a VM")
 	require.Equal(t, "trusted_process", string(created.Isolation))
-	waitForRuntimeWorkspaceStatus(t, queries, created.ID, "running")
+	provisionDeadline := time.Now().Add(2 * time.Minute)
+	if testDeadline, ok := t.Deadline(); ok && testDeadline.Add(-30*time.Second).Before(provisionDeadline) {
+		provisionDeadline = testDeadline.Add(-30 * time.Second)
+	}
+	provisionCtx, cancelProvision := context.WithDeadline(context.Background(), provisionDeadline)
+	provisionErr := service.WaitForProvisioning(provisionCtx)
+	cancelProvision()
+	require.NoError(t, provisionErr)
+	rowCtx, cancelRow := context.WithTimeout(context.Background(), 5*time.Second)
+	provisioned, err := queries.GetWorkspace(rowCtx, created.ID)
+	cancelRow()
+	require.NoError(t, err)
+	require.Equal(t, "running", provisioned.Status, "provisioning stage=%q failure code=%v", provisioned.ProvisioningStage, provisioned.FailureCode)
 	seedResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodGet, basePath+"/workspaces/"+created.ID+"/files/content?path=README.md", nil)
 	require.Equal(t, http.StatusOK, seedResponse.StatusCode)
 	var seedFile services.WorkspaceFileContent
@@ -265,22 +288,6 @@ func processWorkspaceRunGit(t *testing.T, gitDirectory string, stdin io.Reader, 
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, "%s", output)
 	return string(output)
-}
-
-func waitForRuntimeWorkspaceStatus(t *testing.T, queries *db.Queries, workspaceID, want string) db.Workspace {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		row, err := queries.GetWorkspace(context.Background(), workspaceID)
-		require.NoError(t, err)
-		if row.Status == want {
-			return row
-		}
-		if row.Status == "failed" || time.Now().After(deadline) {
-			t.Fatalf("workspace status = %q; want %q", row.Status, want)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
 }
 
 func reserveLoopbackAddress(t *testing.T) string {
