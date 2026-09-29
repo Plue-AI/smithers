@@ -3,7 +3,7 @@ import { Smithers } from "@smthrs/targets"
 
 const cwd = "packages/smithers/agent/harness"
 
-const standard = BuildAndCheckTypeScriptPackage({ cwd })
+const standard = BuildAndCheckTypeScriptPackage({ cwd, testData: ["docs/api.md"] })
 
 const { check, circular, docs, docsFiles, fmt, lib, lint, test } = standard
 

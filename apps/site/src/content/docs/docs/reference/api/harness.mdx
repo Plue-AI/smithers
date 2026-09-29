@@ -34,12 +34,23 @@ that outlives the frame; the only authority the program holds is
 ```ts
 import * as Cell from "@smthrs/harness/Cell"
 import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
+import { Effect } from "effect"
 
 const frame = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
   const realm = yield* (yield* QuickJSSandbox.make).openRealm!({ flows: {} })
   const call = () => Effect.succeed(new Cell.CallResult({ outcome: "success", value: null }))
   return yield* realm.evaluate({ cell: Cell.source(`ctx.done("hi")`), frame: 0, call })
 })))
+console.log(
+  frame.outcome._tag,
+  frame.outcome._tag === "settled" && frame.outcome.transition._tag === "complete"
+    ? frame.outcome.transition.output
+    : ""
+)
+```
+
+```text
+settled hi
 ```
 
 ## Entry points

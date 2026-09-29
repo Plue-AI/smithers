@@ -5,6 +5,7 @@ import { Smithers } from "@smthrs/targets"
 const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
   deps: [],
   cwd: "packages/smithers/agent",
+  testData: ["docs/quickstart.md"],
   tests: Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**"] })
 })
 

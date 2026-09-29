@@ -33034,6 +33034,11 @@
         "exclude": []
       },
       {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/harness/docs/api.md",
+        "exclude": []
+      },
+      {
         "kind": "file",
         "path": "packages/smithers/agent/harness/vitest.config.ts"
       }
@@ -36387,6 +36392,11 @@
       {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/docs/quickstart.md",
         "exclude": []
       },
       {

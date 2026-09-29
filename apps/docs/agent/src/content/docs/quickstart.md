@@ -130,6 +130,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as Agent from "@smthrs/agent/Agent"
 import * as Budget from "@smthrs/agent/Budget"
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
+import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Interpreter } from "@smthrs/flow"
 import * as Registry from "@smthrs/registry/Registry"
@@ -159,6 +160,8 @@ const layer = Layer.mergeAll(
   Layer.provideMerge(Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layerUnbounded())),
   // The QuickJS sandbox a cell runs in and the steering source it drains.
   Layer.provideMerge(Agent.layerDefaults),
+  // This offline run judges completion with the scripted fixture.
+  Layer.provideMerge(ScriptedJudge.layer),
   // Ordinary flow composition: action implementations, a durable engine, crypto.
   Layer.provideMerge(Action.layerImplementations),
   Layer.provideMerge(FlowEngine.layerMemory),

@@ -100,7 +100,9 @@ The composition stacks, from the inside out:
    `QuotaPolicy.layerUnclassified()` and `Budget.layerUnbounded()`; omitting
    either is a type error.
 4. `Agent.layerDefaults`, the QuickJS sandbox and an empty steering source.
-5. Ordinary flow composition: `Action.layerImplementations`, a durable engine
+5. An `Evaluator` chosen by the host. The offline quickstart uses
+   `ScriptedJudge.layer` to judge completion.
+6. Ordinary flow composition: `Action.layerImplementations`, a durable engine
    such as `FlowEngine.layerMemory`, and a crypto service.
 
 The complete listing is in the [Quickstart](/quickstart/#compose-the-layers),
