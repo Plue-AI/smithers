@@ -18,4 +18,6 @@ catch-up polling, including events committed between positioning and LISTEN.
 Local `Deliver` calls remain usable before startup. A bus without a durable lister
 starts without a history read and keeps `Positioned()` false. After successful
 startup, cancel the original startup context and await `Done()` before closing the
-database pool. A bus is single-use; construct a new bus after shutdown.
+database pool. A bus is single-use: `Start` returns `ErrBusStopped` after a
+successful listener stops. If startup fails, later calls retain the original
+startup error. Construct a new bus after shutdown.

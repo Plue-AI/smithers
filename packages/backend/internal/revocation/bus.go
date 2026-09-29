@@ -21,6 +21,9 @@ const (
 	reconnectBackoff    = time.Second
 )
 
+// ErrBusStopped means a single-use bus cannot start again after its listener exits.
+var ErrBusStopped = errors.New("revocation bus stopped")
+
 // Lister reads the durable event log (matched by *db.Queries).
 type Lister interface {
 	ListRevocationEventsAfter(ctx context.Context, arg db.ListRevocationEventsAfterParams) ([]db.RevocationEvent, error)
@@ -124,6 +127,8 @@ func newBus(lister Lister) *Bus {
 // Start waits for the initial cursor read and begins listening. Callers must
 // wait for success before admitting live consumers. Concurrent calls wait for
 // the same initialization; the first call's context owns the listener lifetime.
+// Once the listener stops, later calls return ErrBusStopped. A failed initial
+// read retains its original startup error instead.
 // Events older than the cursor are never replayed: a pod that restarts has no
 // live connections from before its restart to terminate, and the auth path
 // re-reads the database on every request anyway.
@@ -138,10 +143,27 @@ func (b *Bus) Start(ctx context.Context) error {
 	}
 	b.mu.Unlock()
 	select {
+	case <-b.done:
+		return b.startResult()
+	default:
+	}
+	select {
 	case <-b.ready:
-		return b.startErr
+		return b.startResult()
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+func (b *Bus) startResult() error {
+	if b.startErr != nil {
+		return b.startErr
+	}
+	select {
+	case <-b.done:
+		return ErrBusStopped
+	default:
+		return nil
 	}
 }
 
