@@ -46,6 +46,32 @@ describe("worker failure card", () => {
     expect(frame).not.toContain("secret stack")
   })
 
+  it("names whose problem it is in product words, never the internal class", async () => {
+    for (
+      const [fault, label] of [
+        ["policy", "cap reached"],
+        ["factory", "not your fault"],
+        ["user", "needs you"],
+        ["wait", "not your fault · waiting"]
+      ] as const
+    ) {
+      setup = await testRender(
+        <FailureCard
+          tab={{ ...tab, failure: { ...tab.failure, fault } }}
+          transcript={Transcript.empty}
+          details={false}
+        />,
+        { width: 100, height: 8 }
+      )
+      await setup.renderOnce()
+      const frame = setup.captureCharFrame()
+      expect(frame).toContain(label)
+      expect(frame).not.toMatch(new RegExp(`· ${fault}\\b(?!ing)`))
+      setup.renderer.destroy()
+      setup = undefined
+    }
+  })
+
   it("shows raw diagnostics only when details are open", async () => {
     setup = await testRender(<FailureCard tab={tab} transcript={Transcript.empty} details />, { width: 100, height: 8 })
     await setup.renderOnce()

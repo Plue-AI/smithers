@@ -482,6 +482,30 @@ describe("worker durability", () => {
     expect(restored.workspace.snapshot().tabs[0]?.status).toBe("running")
   })
 
+  it("restores the typed failure its worker recorded, wait action and all", async () => {
+    const first = fixture(() => ({ done: new Promise(() => {}), cancel: () => {} }))
+    first.workspace.request(request)
+    await tick()
+    const tab = first.workspace.snapshot().tabs[0]!
+    const failure = {
+      headline: "ChatGPT usage limit reached",
+      fault: "wait",
+      line: "Resets Sep 30 14:00.",
+      actions: ["resume", "switch-model", "wait", "details"]
+    } as const
+    Session.reopen(tab.file).append({
+      type: "outcome",
+      at: Date.now(),
+      prompt: tab.prompt,
+      outcome: { _tag: "failed", message: "The usage limit has been reached", headline: failure.headline, failure }
+    })
+    const restored = fixture(
+      () => ({ done: new Promise(() => {}), cancel: () => {} }),
+      Session.restore(first.records).workspace
+    )
+    expect(restored.workspace.snapshot().tabs[0]?.failure).toEqual(failure)
+  })
+
   it("never reads a fault out of a restored outcome's prose", async () => {
     const first = fixture(() => ({ done: new Promise(() => {}), cancel: () => {} }))
     first.workspace.request(request)

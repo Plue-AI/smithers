@@ -220,7 +220,7 @@ export class Workspace {
                 ...record,
                 outcome: {
                   ...record.outcome,
-                  headline: FailureCopy.describe(record.outcome.message, tab.activeSeat ?? tab.seat).headline
+                  headline: record.outcome.failure?.headline ?? FailureCopy.describe(undefined).headline
                 }
               }
               : record
@@ -254,7 +254,7 @@ export class Workspace {
             ...tab,
             status: "failed",
             message: outcome.message ?? "Failed",
-            failure: tab.failure ?? FailureCopy.describe(outcome.message, tab.activeSeat ?? tab.seat),
+            failure: tab.failure ?? outcome.failure ?? FailureCopy.describe(undefined),
             endedAt: receipt.at
           }
       }
@@ -816,7 +816,7 @@ export class Workspace {
           outcome: outcome._tag === "done"
             ? { _tag: "done", answer: outcome.answer }
             : outcome._tag === "failed"
-            ? { _tag: "failed", message: outcome.message, headline: failure!.headline }
+            ? { _tag: "failed", message: outcome.message, headline: failure!.headline, failure: failure! }
             : { _tag: "cancelled" }
         })
         if (outcome._tag !== "done") {
@@ -983,7 +983,7 @@ export class Workspace {
         type: "outcome",
         at,
         prompt: tab.prompt,
-        outcome: { _tag: "failed", message, headline: failure.headline }
+        outcome: { _tag: "failed", message, headline: failure.headline, failure }
       })
     } catch (error) {
       Log.write("worker.persist", error)

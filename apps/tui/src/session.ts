@@ -8,6 +8,7 @@
  * Credential shapes in that text are redacted before a line reaches the disk.
  */
 import * as Redaction from "@smthrs/journal/Redaction"
+import type * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import { createHash, randomUUID } from "node:crypto"
 import {
@@ -90,6 +91,8 @@ export type Record =
       readonly answer?: string
       readonly message?: string
       readonly headline?: string
+      /** The typed failure copy, so a restored session never re-reads the message. */
+      readonly failure?: FailureCopy.Description
     }
   }
   | { readonly type: "shell"; readonly at: number; readonly result: Shell.Result; readonly excluded: boolean }
