@@ -294,6 +294,7 @@ describe("unified control dispatch", () => {
     ports.hasRecords.mockReturnValue(false)
     const at = ["--root", root, "--json"]
     expect(JSON.parse((await invoke(["runs", "list", ...at])).stdout)).toMatchObject({ _tag: "runs", items: [] })
+    expect(JSON.parse((await invoke(["runs", "count", ...at])).stdout)).toMatchObject({ count: 0 })
     expect(JSON.parse((await invoke(["approvals", "list", ...at])).stdout)).toEqual([])
     const shown = await invoke(["runs", "show", "absent", ...at])
     expect(shown.codes).toEqual([1])
@@ -319,7 +320,26 @@ describe("unified control dispatch", () => {
       "--root",
       "/fixture",
       ...(filtered
-        ? ["--flow", "demo/ship", "--status", "waiting-approval", "--limit", "2", "--cursor", "page-2"]
+        ? [
+          "--flow",
+          "demo/ship",
+          "--status",
+          "waiting-approval",
+          "--since",
+          "2026-09-01",
+          "--until",
+          "1790000000000",
+          "--sort",
+          "oldest",
+          "--parent",
+          "run-root",
+          "--trigger",
+          "nightly",
+          "--limit",
+          "2",
+          "--cursor",
+          "page-2"
+        ]
         : []),
       "--json"
     ])
@@ -328,9 +348,75 @@ describe("unified control dispatch", () => {
     expect(ports.invoke.mock.calls[0]![0]).toEqual([
       "ps",
       ...(filtered
-        ? ["--flow", "demo/ship", "--status", "waiting-approval", "--limit", "2", "--cursor", "page-2"]
+        ? [
+          "--flow",
+          "demo/ship",
+          "--status",
+          "waiting-approval",
+          "--since",
+          "2026-09-01",
+          "--until",
+          "1790000000000",
+          "--sort",
+          "oldest",
+          "--parent",
+          "run-root",
+          "--trigger",
+          "nightly",
+          "--limit",
+          "2",
+          "--cursor",
+          "page-2"
+        ]
         : [])
     ])
+  })
+
+  it("counts runs with the list's filters after reconciling local history", async () => {
+    const order: Array<string> = []
+    ports.reconcile.mockImplementation(() => {
+      order.push("reconcile")
+    })
+    ports.list.mockImplementation((request: ControlSchema.ListRequest) => {
+      order.push("query")
+      return Effect.succeed(
+        request.cursor === undefined
+          ? { _tag: "runs", items: [row("run-1"), row("run-2")], nextCursor: "page-2" }
+          : { _tag: "runs", items: [row("run-3")] }
+      )
+    })
+    const result = await invoke([
+      "runs",
+      "count",
+      "--root",
+      "/fixture",
+      "--flow",
+      "demo/ship",
+      "--since",
+      "1000",
+      "--until",
+      "2000",
+      "--parent",
+      "run-root",
+      "--trigger",
+      "nightly",
+      "--json"
+    ])
+    expect(JSON.parse(result.stdout)).toMatchObject({ count: 3 })
+    expect(order).toEqual(["reconcile", "query", "query"])
+    const filters = { flowId: "demo/ship", parentRunId: "run-root", since: 1000, until: 2000, triggerId: "nightly" }
+    expect(ports.list.mock.calls).toEqual([
+      [{ _tag: "runs", filters, limit: ControlSchema.maxPageSize }],
+      [{ _tag: "runs", filters, limit: ControlSchema.maxPageSize, cursor: "page-2" }]
+    ])
+  })
+
+  it("refuses an unreadable count window without reading runs", async () => {
+    const result = await invoke(["runs", "count", "--root", "/fixture", "--since", "soon", "--json"])
+    // A usage error exits 2.
+    expect(result.codes).toEqual([2])
+    expect(result.stdout).toContain("--since must be epoch milliseconds or an ISO 8601 date")
+    expect(ports.list).not.toHaveBeenCalled()
   })
 
   it("diagnoses the requested run using its entire finite transcript", async () => {

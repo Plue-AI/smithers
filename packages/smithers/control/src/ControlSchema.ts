@@ -1122,10 +1122,16 @@ export const ListRequest = Schema.Union([
       terminal: Schema.optional(Schema.Boolean),
       principalId: Schema.optional(Schema.String),
       parentRunId: Schema.optional(RunId),
-      lineageId: Schema.optional(Schema.String)
+      lineageId: Schema.optional(Schema.String),
+      /** Runs created at or after this epoch millisecond. */
+      since: Schema.optional(Schema.Number),
+      /** Runs created before this epoch millisecond. */
+      until: Schema.optional(Schema.Number),
+      /** Runs a fire of this trigger started. */
+      triggerId: Schema.optional(Schema.String)
     })),
-    /** Omitted preserves the historical listing order. */
-    order: Schema.optional(Schema.Literal("newest")),
+    /** Creation time, newest or oldest first; omitted preserves the historical listing order. */
+    order: Schema.optional(Schema.Literals(["newest", "oldest"])),
     cursor: Schema.optional(Schema.String),
     limit: Schema.optional(PageLimit)
   }),

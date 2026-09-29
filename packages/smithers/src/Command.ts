@@ -44,6 +44,7 @@ import { defaultApprovalScope } from "./internal/ApprovalScope.ts"
 import * as BoundedEvents from "./internal/BoundedEvents.ts"
 import * as CommandStatus from "./internal/CommandStatus.ts"
 import * as FeaturedFlows from "./internal/FeaturedFlows.ts"
+import * as RunListing from "./internal/RunListing.ts"
 import * as NodeOutput from "./NodeOutput.ts"
 import { Output, renderValue } from "./Output.ts"
 import * as Project from "./Project.ts"
@@ -724,26 +725,36 @@ const ps = Command.make("ps", {
   cursor: Flag.String("cursor").pipe(
     Flag.optional,
     Flag.withDescription("Continue from the nextCursor a previous page printed")
-  )
+  ),
+  since: Flag.String("since").pipe(
+    Flag.optional,
+    Flag.withDescription("Only runs created at or after this time (epoch ms or ISO 8601)")
+  ),
+  until: Flag.String("until").pipe(
+    Flag.optional,
+    Flag.withDescription("Only runs created before this time (epoch ms or ISO 8601)")
+  ),
+  sort: Flag.Literals("sort", RunListing.sorts).pipe(
+    Flag.optional,
+    Flag.withDescription("Order by creation time")
+  ),
+  parent: Flag.String("parent").pipe(Flag.optional, Flag.withDescription("Only runs branched from this run")),
+  trigger: Flag.String("trigger").pipe(Flag.optional, Flag.withDescription("Only runs this trigger started"))
 }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
+    const listing = yield* RunListing.request({
+      flow: Option.getOrUndefined(config.flow),
+      status: Option.getOrUndefined(config.status),
+      since: Option.getOrUndefined(config.since),
+      until: Option.getOrUndefined(config.until),
+      sort: Option.getOrUndefined(config.sort),
+      parent: Option.getOrUndefined(config.parent),
+      trigger: Option.getOrUndefined(config.trigger)
+    }, { limit: Option.getOrUndefined(config.limit), cursor: Option.getOrUndefined(config.cursor) })
     const control = yield* ControlService.Control
     const now = yield* Clock.currentTimeMillis
-    yield* render(
-      yield* labelled(
-        yield* control.list({
-          _tag: "runs",
-          filters: {
-            ...(Option.isNone(config.flow) ? {} : { flowId: config.flow.value }),
-            ...(Option.isNone(config.status) ? {} : { status: config.status.value })
-          },
-          ...(Option.isNone(config.limit) ? {} : { limit: config.limit.value }),
-          ...(Option.isNone(config.cursor) ? {} : { cursor: config.cursor.value })
-        }),
-        now
-      )
-    )
+    yield* render(yield* labelled(yield* control.list(listing), now))
   })).pipe(Command.withDescription(Verb.find("ps")!.help))
 
 /**

@@ -316,6 +316,103 @@ describe("ControlLive listings", () => {
     )
   })
 
+  it("selects runs by creation window and trigger, pages oldest-first, and binds cursors to those filters", async () => {
+    let now = 10
+    const fires: Array<FireSummary> = []
+    await run(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const early = yield* start("system/test", "window-a")
+        now = 20
+        const middle = yield* start("system/test", "window-b")
+        const twin = yield* start("system/test", "window-c")
+        now = 30
+        const late = yield* start("system/test", "window-d")
+        fires.push(
+          { triggerId: "nightly", occurrenceAtMs: 1, outcome: "launched", runId: middle.runId },
+          { triggerId: "nightly", occurrenceAtMs: 2, outcome: "launched", runId: late.runId },
+          { triggerId: "nightly", occurrenceAtMs: 3, outcome: null },
+          { triggerId: "hourly", occurrenceAtMs: 4, outcome: "launched", runId: early.runId }
+        )
+        const walk = (request: Extract<Parameters<typeof control.list>[0], { _tag: "runs" }>) =>
+          Effect.gen(function*() {
+            const seen: Array<string> = []
+            let cursor: string | undefined
+            do {
+              const page = yield* control.list({ ...request, limit: 1, cursor })
+              seen.push(...items(page))
+              cursor = page.nextCursor
+            } while (cursor !== undefined && seen.length < 10)
+            return seen
+          })
+        expect(yield* walk({ _tag: "runs", order: "oldest" })).toEqual([
+          early.runId,
+          middle.runId,
+          twin.runId,
+          late.runId
+        ])
+        expect(yield* walk({ _tag: "runs", order: "newest", filters: { since: 20 } })).toEqual([
+          late.runId,
+          twin.runId,
+          middle.runId
+        ])
+        expect(yield* walk({ _tag: "runs", order: "oldest", filters: { since: 20, until: 30 } })).toEqual([
+          middle.runId,
+          twin.runId
+        ])
+        expect(yield* walk({ _tag: "runs", filters: { until: 10 } })).toEqual([])
+        expect(yield* walk({ _tag: "runs", filters: { since: 31 } })).toEqual([])
+        expect(yield* walk({ _tag: "runs", order: "oldest", filters: { triggerId: "nightly" } })).toEqual([
+          middle.runId,
+          late.runId
+        ])
+        expect(yield* walk({ _tag: "runs", filters: { triggerId: "nightly", until: 30 } })).toEqual([middle.runId])
+        expect(yield* walk({ _tag: "runs", filters: { triggerId: "never" } })).toEqual([])
+        // The exact-lookup path applies the same filters.
+        for (
+          const [filters, expected] of [
+            [{ runId: middle.runId, since: 20, until: 21 }, [middle.runId]],
+            [{ runId: middle.runId, since: 21 }, []],
+            [{ runId: middle.runId, until: 20 }, []],
+            [{ runId: middle.runId, triggerId: "nightly" }, [middle.runId]],
+            [{ runId: early.runId, triggerId: "nightly" }, []]
+          ] as const
+        ) {
+          expect(items(yield* control.list({ _tag: "runs", filters }))).toEqual(expected)
+        }
+        const first = yield* control.list({ _tag: "runs", filters: { since: 20 }, limit: 1 })
+        for (
+          const filters of [{ since: 21 }, { since: 20, until: 30 }, { since: 20, triggerId: "nightly" }]
+        ) {
+          expect(yield* Effect.flip(control.list({ _tag: "runs", filters, cursor: first.nextCursor }))).toBeInstanceOf(
+            InvalidInput
+          )
+        }
+        expect(
+          yield* Effect.flip(
+            control.list({ _tag: "runs", filters: { since: 20 }, order: "oldest", cursor: first.nextCursor })
+          )
+        ).toBeInstanceOf(InvalidInput)
+      }),
+      live({
+        runtime: memoryRuntime({ flows, now: () => now }),
+        dispatch: DispatchReader.make({ list: () => Effect.succeed([]), fires: () => Effect.succeed(fires) })
+      })
+    )
+  })
+
+  it("refuses a trigger filter when no trigger store is composed", async () => {
+    const refused = await run(
+      Effect.gen(function*() {
+        const control = yield* Control
+        yield* start("system/test", "no-dispatch")
+        return yield* Effect.flip(control.list({ _tag: "runs", filters: { triggerId: "nightly" } }))
+      }),
+      live({ runtime: memoryRuntime({ flows }), dispatch: "none" })
+    )
+    expect(refused).toBeInstanceOf(InvalidInput)
+  })
+
   it("rejects invalid run cursors and cursors reused with different filters", async () => {
     await run(Effect.gen(function*() {
       const control = yield* Control

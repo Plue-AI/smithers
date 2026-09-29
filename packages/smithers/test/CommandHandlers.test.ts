@@ -22,6 +22,7 @@ import * as RunProgress from "../src/cli/RunProgress.ts"
 import * as CliError from "../src/CliError.ts"
 import { cli, latestSequence } from "../src/Command.ts"
 import * as ExecutorOwnership from "../src/ExecutorOwnership.ts"
+import * as RunListing from "../src/internal/RunListing.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 import * as Output from "../src/Output.ts"
 import * as Project from "../src/Project.ts"
@@ -446,6 +447,104 @@ describe("listing verbs", () => {
 
     expect(result.pages.map((page) => page.items.length)).toEqual([2, 1])
     expect(result.pages.flatMap((page) => page.items.map((item) => item.runId))).toEqual(result.launched)
+  })
+})
+
+describe("run listing filters", () => {
+  type Page = { readonly items: ReadonlyArray<{ readonly runId: string }>; readonly nextCursor?: string }
+  const ids = (page: unknown) => (page as Page).items.map((item) => item.runId)
+
+  it("applies creation-window, parent, and sort flags, and walks sorted pages without repeats", async () => {
+    const result = await run(
+      Effect.gen(function*() {
+        const launched = [(yield* launch()).runId, (yield* launch()).runId, (yield* launch()).runId]
+        const walk = Effect.fnUntraced(function*(flags: ReadonlyArray<string>) {
+          const seen: Array<string> = []
+          let cursor: string | undefined
+          do {
+            const page =
+              (yield* json(["--json", "ps", ...flags, "--limit", "1", ...(cursor ? ["--cursor", cursor] : [])])) as Page
+            seen.push(...page.items.map((item) => item.runId))
+            cursor = page.nextCursor
+          } while (cursor !== undefined && seen.length < 10)
+          return seen
+        })
+        return {
+          launched,
+          newest: yield* walk(["--sort", "newest"]),
+          oldest: yield* walk(["--sort", "oldest"]),
+          // The fixture clock stamps every run at 0: `since` includes it, `until` excludes it.
+          since: ids(yield* json(["--json", "ps", "--since", "0"])),
+          sinceIso: ids(yield* json(["--json", "ps", "--since", "1970-01-01T00:00:00.000Z"])),
+          sinceAfter: ids(yield* json(["--json", "ps", "--since", "1"])),
+          untilAt: ids(yield* json(["--json", "ps", "--until", "0"])),
+          untilAfter: ids(yield* json(["--json", "ps", "--until", "1970-01-01T00:00:00.001Z"])),
+          window: ids(yield* json(["--json", "ps", "--since", "0", "--until", "0"])),
+          parent: ids(yield* json(["--json", "ps", "--parent", launched[0]!])),
+          filteredCount: yield* RunListing.count(yield* RunListing.request({ flow: "demo/ship", since: "0" })),
+          emptyCount: yield* RunListing.count(yield* RunListing.request({ since: "1" }))
+        }
+      }),
+      testControl
+    )
+
+    expect(result.newest).toEqual([...result.launched].reverse())
+    expect(result.oldest).toEqual(result.launched)
+    expect(result.since).toEqual(result.launched)
+    expect(result.sinceIso).toEqual(result.launched)
+    expect(result.sinceAfter).toEqual([])
+    expect(result.untilAt).toEqual([])
+    expect(result.untilAfter).toEqual(result.launched)
+    expect(result.window).toEqual([])
+    expect(result.parent).toEqual([])
+    expect(result.filteredCount).toBe(3)
+    expect(result.emptyCount).toBe(0)
+  })
+
+  it.each([
+    [["--since", "yesterday"], "--since must be epoch milliseconds or an ISO 8601 date, received \"yesterday\""],
+    [["--until", "1.5"], "--until must be epoch milliseconds or an ISO 8601 date, received \"1.5\""],
+    [["--until", "2026-13-45"], "--until must be epoch milliseconds or an ISO 8601 date, received \"2026-13-45\""],
+    [["--since", "2", "--until", "1"], "--since must not be after --until"]
+  ])("refuses %j before reading runs", async (flags, message) => {
+    const error = await run(Effect.flip(runCommand(["ps", ...flags])), testControl)
+
+    expect(error).toBeInstanceOf(CliError.UsageError)
+    expect((error as CliError.UsageError).message).toBe(message)
+  })
+
+  it("counts across pages larger than one listing page", async () => {
+    const pages: Array<ControlSchema.ListRequest> = []
+    const control = Layer.effect(ControlService.Control)(
+      Effect.map(ControlService.Control, (base) => ({
+        ...base,
+        list: (request: ControlSchema.ListRequest) => {
+          pages.push(request)
+          return Effect.succeed(
+            request.cursor === undefined
+              ? { _tag: "runs" as const, items: Array.from({ length: 500 }, () => ({})), nextCursor: "p2" }
+              : { _tag: "runs" as const, items: Array.from({ length: 7 }, () => ({})) }
+          ) as never
+        }
+      }))
+    ).pipe(Layer.provide(testControl))
+    const counted = await run(
+      Effect.flatMap(
+        RunListing.request({ status: "failed", parent: "root", trigger: "nightly", sort: "newest" }, {
+          limit: 3,
+          cursor: "ignored"
+        }),
+        RunListing.count
+      ),
+      control
+    )
+
+    expect(counted).toBe(507)
+    const filters = { status: "failed", parentRunId: "root", triggerId: "nightly" }
+    expect(pages).toEqual([
+      { _tag: "runs", filters, order: "newest", limit: 500 },
+      { _tag: "runs", filters, order: "newest", limit: 500, cursor: "p2" }
+    ])
   })
 })
 

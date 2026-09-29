@@ -1336,10 +1336,18 @@ const makeRuntime = (
       }
       if (filters?.parentRunId !== undefined) conditions.push(sql`${parent} = ${filters.parentRunId}`)
       if (filters?.lineageId !== undefined) conditions.push(sql`${lineage} = ${filters.lineageId}`)
+      if (filters?.since !== undefined) conditions.push(sql`runs.created_at_ms >= ${filters.since}`)
+      if (filters?.until !== undefined) conditions.push(sql`runs.created_at_ms < ${filters.until}`)
+      if (filters?.runIds !== undefined) {
+        conditions.push(filters.runIds.length === 0 ? sql`1 = 0` : sql`${sql.in("runs.run_id", [...filters.runIds])}`)
+      }
       if (after !== undefined) {
         conditions.push(
           request.order === "newest"
             ? sql`(runs.created_at_ms, ${source}, ${sequence}, runs.run_id) <
+              (${after.createdAt}, ${after.source}, ${after.sequence}, ${after.runId})`
+            : request.order === "oldest"
+            ? sql`(runs.created_at_ms, ${source}, ${sequence}, runs.run_id) >
               (${after.createdAt}, ${after.source}, ${after.sequence}, ${after.runId})`
             : sql`(${source}, ${sequence}, runs.created_at_ms, runs.run_id) >
               (${after.source}, ${after.sequence}, ${after.createdAt}, ${after.runId})`
@@ -1375,6 +1383,8 @@ const makeRuntime = (
         ORDER BY ${
         request.order === "newest"
           ? sql`runs.created_at_ms DESC, ${source} DESC, ${sequence} DESC, runs.run_id DESC`
+          : request.order === "oldest"
+          ? sql`runs.created_at_ms, ${source}, ${sequence}, runs.run_id`
           : sql`${source}, ${sequence}, runs.created_at_ms, runs.run_id`
       }
         LIMIT ${request.limit + 1}

@@ -346,9 +346,12 @@ terminal transition, and translates conflicts into typed failures.
 | Ownership         | `registerFiber(runId, fiber)`, `interrupt(runId, settle?)`, `resume(runId, options?)`, `claimFence(runId)`, `releasePending(runId, fence)`, `writeStatus(runId, fence, status)`                     |
 | Identity          | `stampPrincipal(submitted?)`, `lookupMutation(key, fingerprint)`, `recordMutation(key, fingerprint, receipt)`                                                                                       |
 
-`queryRuns` accepts `RunQuery`: optional `flowId`, `status`, `parentRunId`, and
-`lineageId` filters, an optional `RunCursor`, and a required integer `limit`
-from 1 through 500. It returns `RunPage` with `items` and optional `nextCursor`.
+`queryRuns` accepts `RunQuery`: optional `flowId`, `status`, `terminal`,
+`parentRunId`, `lineageId`, `since` (inclusive creation epoch ms), `until`
+(exclusive), and `runIds` filters, an optional `order` (`newest` or `oldest`
+creation time), an optional `RunCursor`, and a required integer `limit` from 1
+through 500. `Control.list` resolves a `runs` request's `triggerId` filter to
+`runIds` from the trigger's recorded fires. It returns `RunPage` with `items` and optional `nextCursor`.
 `RunCursor` contains `source` (0 for control launches, 1 for engine runs),
 `sequence`, `createdAt`, and `runId`. Adapters must select the page before
 summary decoding and ancestry projection. SQL reads one extra ordering key to

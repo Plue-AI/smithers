@@ -273,6 +273,41 @@ it("keeps SQL query filters consistent with durable summary projections", async 
   )
 })
 
+it("selects SQL runs by creation window and run ids, and pages them oldest or newest first", async () => {
+  await Effect.runPromise(
+    Effect.gen(function*() {
+      const runtime = yield* ControlRuntime
+      const sql = yield* SqlClient.SqlClient
+      // Run ids deliberately disagree with creation time; equal times tie-break on the id.
+      for (const [runId, createdAt] of [["z", 10], ["c", 30], ["a", 20], ["d", 30], ["b", 40]] as const) {
+        yield* sql`INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
+        VALUES (${runId}, 'pending', ${createdAt}, ${JSON.stringify({ flowName: "window/test" })})`
+      }
+      const walk = (request: Omit<RunQuery, "cursor" | "limit">) =>
+        Effect.gen(function*() {
+          const seen: Array<string> = []
+          let cursor: RunQuery["cursor"]
+          do {
+            const page = yield* runtime.queryRuns({ ...request, limit: 1, cursor })
+            seen.push(...page.items.map((run) => run.runId))
+            cursor = page.nextCursor
+          } while (cursor !== undefined && seen.length < 10)
+          return seen
+        })
+      expect(yield* walk({ order: "oldest" })).toEqual(["z", "a", "c", "d", "b"])
+      expect(yield* walk({ order: "newest" })).toEqual(["b", "d", "c", "a", "z"])
+      // `since` is inclusive and `until` exclusive at the exact millisecond.
+      expect(yield* walk({ order: "oldest", filters: { since: 20, until: 40 } })).toEqual(["a", "c", "d"])
+      expect(yield* walk({ order: "newest", filters: { since: 30 } })).toEqual(["b", "d", "c"])
+      expect(yield* walk({ order: "oldest", filters: { since: 41 } })).toEqual([])
+      expect(yield* walk({ order: "oldest", filters: { until: 10 } })).toEqual([])
+      expect(yield* walk({ order: "oldest", filters: { since: 30, until: 30 } })).toEqual([])
+      expect(yield* walk({ order: "newest", filters: { runIds: ["a", "b", "missing"] } })).toEqual(["b", "a"])
+      expect(yield* walk({ filters: { runIds: [] } })).toEqual([])
+    }).pipe(Effect.provide(durable()), Effect.scoped, Effect.orDie)
+  )
+})
+
 contract("durable", (executor) => durable(executor === undefined ? {} : { executor }))
 
 /**

@@ -88,9 +88,15 @@ export interface RunQuery {
     readonly terminal?: boolean | undefined
     readonly parentRunId?: RunId | undefined
     readonly lineageId?: string | undefined
+    /** Created at or after this epoch millisecond. */
+    readonly since?: number | undefined
+    /** Created before this epoch millisecond. */
+    readonly until?: number | undefined
+    /** Only these runs; an empty list selects none. */
+    readonly runIds?: ReadonlyArray<RunId> | undefined
   } | undefined
-  /** Newest creation time first; ties use the durable sequence. */
-  readonly order?: "newest" | undefined
+  /** Creation time first, newest or oldest; ties use the durable sequence. */
+  readonly order?: "newest" | "oldest" | undefined
   readonly cursor?: RunCursor | undefined
   readonly limit: number
 }
@@ -1163,9 +1169,14 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           const selected: Array<MutableRun> = []
           const filters = request.filters
           const newest = request.order === "newest"
+          const oldest = request.order === "oldest"
           const candidates = newest
             ? Array.from(runs.values()).sort((a, b) =>
               b.summary.createdAt - a.summary.createdAt || b.sequence - a.sequence
+            )
+            : oldest
+            ? Array.from(runs.values()).sort((a, b) =>
+              a.summary.createdAt - b.summary.createdAt || a.sequence - b.sequence
             )
             : runs.values()
           for (const run of candidates) {
@@ -1174,9 +1185,15 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
               after !== undefined && (after.source !== 0 || (newest
                 ? run.summary.createdAt > after.createdAt ||
                   (run.summary.createdAt === after.createdAt && run.sequence >= after.sequence)
+                : oldest
+                ? run.summary.createdAt < after.createdAt ||
+                  (run.summary.createdAt === after.createdAt && run.sequence <= after.sequence)
                 : run.sequence <= after.sequence))
             ) continue
             const summary = run.summary
+            if (filters?.since !== undefined && summary.createdAt < filters.since) continue
+            if (filters?.until !== undefined && summary.createdAt >= filters.until) continue
+            if (filters?.runIds !== undefined && !filters.runIds.includes(summary.runId)) continue
             if (filters?.flowId !== undefined && summary.flowId !== filters.flowId) continue
             if (filters?.status !== undefined && summary.status !== filters.status) continue
             if (

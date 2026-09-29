@@ -182,7 +182,11 @@ statuses the release pins: `accepted`, `running`, `parked`,
 `waiting-approval`, `cancelled`, `completed`, and `failed`. An eighth value is
 a usage error, not an empty list. A listing is one page of 100 runs; when more
 remain it prints `nextCursor`, and `--cursor <nextCursor>` reads the next page.
-`--limit` sets the page size, from 1 to 500.
+`--limit` sets the page size, from 1 to 500. `--since` and `--until` bound the
+creation time (epoch milliseconds or ISO 8601; `--until` is exclusive),
+`--sort newest|oldest` orders by it, and `--parent <run-id>` and
+`--trigger <trigger-id>` select a run's branches or a trigger's runs.
+`smthrs runs count` takes the same filters and prints how many runs match.
 
 Take the run id from that listing and read what happened:
 

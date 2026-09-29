@@ -985,6 +985,13 @@ export const layer: Layer.Layer<
           )
         ))
 
+    /** The runs a trigger's recorded fires started. */
+    const triggerRuns = (triggerId: string) =>
+      Effect.map(
+        dispatch.fires({ _tag: "fires", filters: { triggerId } }),
+        (fires) => fires.flatMap((fire) => fire.triggerId === triggerId && fire.runId !== undefined ? [fire.runId] : [])
+      )
+
     const list = (request: ListRequest): Effect.Effect<ListResponse, ControlError> =>
       Effect.gen(function*() {
         const bounds = yield* pageBounds(request._tag === "runs" ? undefined : request.cursor, request.limit)
@@ -1057,7 +1064,10 @@ export const layer: Layer.Layer<
           // Keep legacy cursor fingerprints byte-identical unless opting in.
           ...(filters?.terminal === undefined && request.order === undefined
             ? []
-            : [filters?.terminal ?? null, request.order ?? null])
+            : [filters?.terminal ?? null, request.order ?? null]),
+          ...(filters?.since === undefined && filters?.until === undefined && filters?.triggerId === undefined
+            ? []
+            : [filters.since ?? null, filters.until ?? null, filters.triggerId ?? null])
         ])
         const cursor = request.cursor === undefined ? undefined : yield* Schema.decodeUnknownEffect(runCursor)(
           request.cursor
@@ -1077,6 +1087,12 @@ export const layer: Layer.Layer<
           if (filters.terminal !== undefined) runs = runs.filter((run) => terminal(run.status) === filters.terminal)
           if (filters.parentRunId !== undefined) runs = runs.filter((run) => run.parentRunId === filters.parentRunId)
           if (filters.lineageId !== undefined) runs = runs.filter((run) => run.lineageId === filters.lineageId)
+          if (filters.since !== undefined) runs = runs.filter((run) => run.createdAt >= filters.since!)
+          if (filters.until !== undefined) runs = runs.filter((run) => run.createdAt < filters.until!)
+          if (filters.triggerId !== undefined) {
+            const started = yield* triggerRuns(filters.triggerId)
+            runs = runs.filter((run) => started.includes(run.runId))
+          }
           return { _tag: "runs", items: yield* withSteering(yield* Effect.forEach(runs, withCodeDrift)) }
         }
         // A status filter has to select on the status a caller will READ.
@@ -1095,9 +1111,11 @@ export const layer: Layer.Layer<
         // filter the source cannot evaluate costs a walk, which is why the
         // walk stops at a full page or at the end of the runs.
         const postFiltered = observing && (filters?.status !== undefined || filters?.terminal !== undefined)
+        const { triggerId, ...selected } = filters ?? {}
+        const narrowed = triggerId === undefined ? selected : { ...selected, runIds: yield* triggerRuns(triggerId) }
         const sourceFilters = postFiltered
-          ? Object.fromEntries(Object.entries(filters).filter(([key]) => key !== "status" && key !== "terminal"))
-          : filters
+          ? Object.fromEntries(Object.entries(narrowed).filter(([key]) => key !== "status" && key !== "terminal"))
+          : narrowed
         const collected: Array<RunSummary> = []
         let sourceCursor = cursor
         let sourceNext: RunPage["nextCursor"]

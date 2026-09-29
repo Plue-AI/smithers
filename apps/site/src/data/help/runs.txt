@@ -5,9 +5,10 @@ Usage: smthrs runs <command>
 Commands:
   cancel      Cancel one durable run
   cancel-all  Cancel every nonterminal run in this project
+  count       Count durable runs
   fork        Branch a parked run at a historical frame into a durable, isolated workspace
   inspect     Inspect the state and event counts recorded at one historical frame
-  list        List durable runs filtered by flow or status
+  list        List durable runs
   logs        Read run events or follow new events as they commit
   output      Read recorded outputs for one node or all nodes
   replay      Replay committed history and sealed results without re-executing any actions

@@ -8125,6 +8125,77 @@
       }
     },
     {
+      "name": "runs count",
+      "description": "Count durable runs",
+      "schema": {
+        "options": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "description": "Project directory; defaults to the nearest Smithers project",
+              "type": "string"
+            },
+            "remote": {
+              "description": "Remote control plane URL; defaults to SMITHERS_REMOTE",
+              "type": "string"
+            },
+            "mcpConfig": {
+              "description": "Path to the configured MCP servers",
+              "type": "string"
+            },
+            "quiet": {
+              "default": false,
+              "description": "Suppress progress messages",
+              "type": "boolean"
+            },
+            "flow": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "accepted",
+                "running",
+                "parked",
+                "waiting-approval",
+                "cancelled",
+                "completed",
+                "failed"
+              ]
+            },
+            "since": {
+              "description": "Only runs created at or after this time (epoch ms or ISO 8601)",
+              "type": "string"
+            },
+            "until": {
+              "description": "Only runs created before this time (epoch ms or ISO 8601)",
+              "type": "string"
+            },
+            "sort": {
+              "description": "Order by creation time",
+              "type": "string",
+              "enum": [
+                "newest",
+                "oldest"
+              ]
+            },
+            "parent": {
+              "description": "Only runs branched from this run",
+              "type": "string"
+            },
+            "trigger": {
+              "description": "Only runs this trigger started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "quiet"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "runs fork",
       "description": "Branch a parked run at a historical frame into a durable, isolated workspace",
       "schema": {
@@ -8255,7 +8326,7 @@
     },
     {
       "name": "runs list",
-      "description": "List durable runs filtered by flow or status",
+      "description": "List durable runs",
       "schema": {
         "args": {
           "type": "object",
@@ -8300,6 +8371,30 @@
                 "completed",
                 "failed"
               ]
+            },
+            "since": {
+              "description": "Only runs created at or after this time (epoch ms or ISO 8601)",
+              "type": "string"
+            },
+            "until": {
+              "description": "Only runs created before this time (epoch ms or ISO 8601)",
+              "type": "string"
+            },
+            "sort": {
+              "description": "Order by creation time",
+              "type": "string",
+              "enum": [
+                "newest",
+                "oldest"
+              ]
+            },
+            "parent": {
+              "description": "Only runs branched from this run",
+              "type": "string"
+            },
+            "trigger": {
+              "description": "Only runs this trigger started",
+              "type": "string"
             },
             "limit": {
               "description": "Runs per page (default 100)",
