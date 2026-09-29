@@ -67,6 +67,7 @@ type SetAutoLandInput struct {
 }
 
 type CreateLandingReviewInput struct {
+	IdempotencyKey   string `json:"idempotency_key,omitempty"`
 	Type             string `json:"type"`
 	Body             string `json:"body"`
 	Verdict          string `json:"verdict"`
@@ -81,11 +82,165 @@ type CreateLandingReviewRequestInput struct {
 }
 
 type CreateLandingCommentInput struct {
-	Path     string `json:"path"`
-	Line     int64  `json:"line"`
-	Side     string `json:"side"`
-	Body     string `json:"body"`
-	CommitID string `json:"commit_id"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	Path           string `json:"path"`
+	Line           int64  `json:"line"`
+	Side           string `json:"side"`
+	Body           string `json:"body"`
+	CommitID       string `json:"commit_id"`
+}
+
+func landingCreateKey(raw string) (string, error) {
+	key := strings.TrimSpace(raw)
+	if key == "" {
+		if raw != "" {
+			return "", pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "LandingCreate", Field: "idempotency_key", Code: "invalid"})
+		}
+		return "", nil
+	}
+	if len(key) > 255 || key != raw || validateSafeText("LandingCreate", "idempotency_key", key) != nil {
+		return "", pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "LandingCreate", Field: "idempotency_key", Code: "invalid"})
+	}
+	return key, nil
+}
+
+func landingInputDigest(input any) string {
+	encoded, _ := json.Marshal(input)
+	sum := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func digestForKey(key, digest string) string {
+	if key == "" {
+		return ""
+	}
+	return digest
+}
+
+// A short database lease serializes a stage without holding a pool connection
+// while its effect uses the same pool. A retry resumes an unfinished stage.
+func (s *LandingService) completeLandingCreateStage(ctx context.Context, table string, id int64, stage int, effect func() error) error {
+	if s.createEffectPool == nil {
+		return pkgerrors.Internal("landing create key store unavailable")
+	}
+	if table != "landing_request_reviews" && table != "landing_request_comments" {
+		return pkgerrors.Internal("invalid landing create key table")
+	}
+	token := uuid.NewString()
+	for {
+		var claimedID int64
+		err := s.createEffectPool.QueryRow(ctx,
+			"UPDATE "+table+" SET create_effects_token=$1, create_effects_until=NOW()+interval '30 seconds' WHERE id=$2 AND create_effects_phase=$3 AND (create_effects_token IS NULL OR create_effects_until<NOW()) RETURNING id",
+			token, id, stage-1,
+		).Scan(&claimedID)
+		if err == nil {
+			break
+		}
+		if !stdErrors.Is(err, pgx.ErrNoRows) {
+			return pkgerrors.Internal("failed to claim landing create effect").WithCause(err)
+		}
+		var phase int
+		if err := s.createEffectPool.QueryRow(ctx, "SELECT create_effects_phase FROM "+table+" WHERE id=$1", id).Scan(&phase); err != nil {
+			return pkgerrors.Internal("failed to read landing create effect").WithCause(err)
+		}
+		if phase >= stage {
+			return nil
+		}
+		if phase != stage-1 {
+			return pkgerrors.Internal("landing create effects out of order")
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	stopHeartbeat := make(chan struct{})
+	defer close(stopHeartbeat)
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				return
+			case <-ticker.C:
+				bounded, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_, _ = s.createEffectPool.Exec(bounded, "UPDATE "+table+" SET create_effects_until=NOW()+interval '30 seconds' WHERE id=$1 AND create_effects_token=$2", id, token)
+				cancel()
+			}
+		}
+	}()
+	if err := effect(); err != nil {
+		bounded, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, _ = s.createEffectPool.Exec(bounded, "UPDATE "+table+" SET create_effects_token=NULL, create_effects_until=NULL WHERE id=$1 AND create_effects_token=$2", id, token)
+		cancel()
+		return err
+	}
+	settleCtx, settleCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer settleCancel()
+	result, err := s.createEffectPool.Exec(settleCtx,
+		"UPDATE "+table+" SET create_effects_phase=$1, create_effects_token=NULL, create_effects_until=NULL WHERE id=$2 AND create_effects_token=$3 AND create_effects_phase=$4",
+		stage, id, token, stage-1,
+	)
+	if err != nil {
+		return pkgerrors.Internal("failed to record landing create effect").WithCause(err)
+	}
+	if result.RowsAffected() != 1 {
+		return pkgerrors.Internal("landing create effect lease lost")
+	}
+	return nil
+}
+
+type landingReviewCreateKeyQuerier interface {
+	GetLandingRequestReviewByCreateKey(context.Context, db.GetLandingRequestReviewByCreateKeyParams) (db.LandingRequestReview, error)
+}
+
+func (s *LandingService) reviewByCreateKey(ctx context.Context, landingID, actorID int64, key, digest string) (db.LandingRequestReview, bool, error) {
+	q, ok := s.queries.(landingReviewCreateKeyQuerier)
+	if !ok {
+		return db.LandingRequestReview{}, false, pkgerrors.Internal("landing review create key store unavailable")
+	}
+	review, err := q.GetLandingRequestReviewByCreateKey(ctx, db.GetLandingRequestReviewByCreateKeyParams{
+		LandingRequestID: landingID, ReviewerID: pgtype.Int8{Int64: actorID, Valid: true}, CreateKey: pgtype.Text{String: key, Valid: true},
+	})
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return db.LandingRequestReview{}, false, nil
+	}
+	if err != nil {
+		return db.LandingRequestReview{}, false, pkgerrors.Internal("failed to load landing review create key").WithCause(err)
+	}
+	if review.CreateInputHash.String != digest {
+		return db.LandingRequestReview{}, false, pkgerrors.Conflict("idempotency_key was already used with different input")
+	}
+	return review, true, nil
+}
+
+type landingCommentCreateKeyQuerier interface {
+	GetLandingRequestCommentByCreateKey(context.Context, db.GetLandingRequestCommentByCreateKeyParams) (db.LandingRequestComment, error)
+}
+
+func (s *LandingService) commentByCreateKey(ctx context.Context, repository db.Repository, owner, repo string, landingID int64, actor *db.User, key, digest string) (LandingCommentResponse, bool, error) {
+	q, ok := s.queries.(landingCommentCreateKeyQuerier)
+	if !ok {
+		return LandingCommentResponse{}, false, pkgerrors.Internal("landing comment create key store unavailable")
+	}
+	comment, err := q.GetLandingRequestCommentByCreateKey(ctx, db.GetLandingRequestCommentByCreateKeyParams{
+		LandingRequestID: landingID, UserID: pgtype.Int8{Int64: actor.ID, Valid: true}, CreateKey: pgtype.Text{String: key, Valid: true},
+	})
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return LandingCommentResponse{}, false, nil
+	}
+	if err != nil {
+		return LandingCommentResponse{}, false, pkgerrors.Internal("failed to load landing comment create key").WithCause(err)
+	}
+	if comment.CreateInputHash.String != digest {
+		return LandingCommentResponse{}, false, pkgerrors.Conflict("idempotency_key was already used with different input")
+	}
+	response, err := s.landingCommentResponse(ctx, repository, owner, repo, landingID, comment, actor.Username)
+	return response, true, err
 }
 
 type LandLandingRequestInput struct {
@@ -458,16 +613,17 @@ func (t *pgxLandingLandTx) Rollback(ctx context.Context) error {
 }
 
 type LandingService struct {
-	metrics         LandingMetricsObserver
-	queries         LandingQuerier
-	repoHost        LandingRepoHostClient
-	createTxManager landingCreateTxManager
-	landTxManager   landingLandTxManager
-	dispatcher      webhooks.Dispatcher
-	mentionSvc      *MentionService
-	notifSvc        *NotificationService
-	workflowRunSvc  WorkflowRunService
-	agentTurn       LandingAgentTurnDispatcher
+	metrics          LandingMetricsObserver
+	queries          LandingQuerier
+	repoHost         LandingRepoHostClient
+	createEffectPool *pgxpool.Pool
+	createTxManager  landingCreateTxManager
+	landTxManager    landingLandTxManager
+	dispatcher       webhooks.Dispatcher
+	mentionSvc       *MentionService
+	notifSvc         *NotificationService
+	workflowRunSvc   WorkflowRunService
+	agentTurn        LandingAgentTurnDispatcher
 }
 
 type LandingMetricsObserver interface{ ObserveLandingOperation(operation string) }
@@ -547,10 +703,11 @@ func NewLandingServiceWithPool(q LandingQuerier, rh LandingRepoHostClient, pool 
 	}
 	txManager := &pgxLandingCreateTxManager{pool: pool}
 	s := &LandingService{
-		queries:         q,
-		repoHost:        rh,
-		createTxManager: txManager,
-		landTxManager:   txManager,
+		queries:          q,
+		repoHost:         rh,
+		createEffectPool: pool,
+		createTxManager:  txManager,
+		landTxManager:    txManager,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -2428,6 +2585,26 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 	if err != nil {
 		return db.LandingRequestReview{}, err
 	}
+	key, err := landingCreateKey(req.IdempotencyKey)
+	if err != nil {
+		return db.LandingRequestReview{}, err
+	}
+	digest := landingInputDigest(struct {
+		ReviewerKind, Type, Body, Verdict, Confidence, Summary, CommitID string
+	}{reviewerKind, reviewType, body, verdict, confidence, summary, strings.TrimSpace(req.CommitID)})
+	if key != "" {
+		if s.createEffectPool == nil {
+			return db.LandingRequestReview{}, pkgerrors.Internal("landing create key store unavailable")
+		}
+		if existing, found, err := s.reviewByCreateKey(ctx, landingRow.ID, actor.ID, key, digest); err != nil {
+			return db.LandingRequestReview{}, err
+		} else if found {
+			if err := s.completeLandingReviewCreate(ctx, repository, owner, landingRow, actor, existing, req.Body, key); err != nil {
+				return db.LandingRequestReview{}, err
+			}
+			return existing, nil
+		}
+	}
 
 	// Neither a human approval nor an agent LGTM can be self-authored. An
 	// agent wrote an agent-authored landing, so its person may approve it.
@@ -2485,47 +2662,84 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 		CommitID:         revision.CommitID,
 		Body:             body,
 		ChangeRevisions:  revisions,
+		CreateKey:        key,
+		CreateInputHash:  digestForKey(key, digest),
 	})
+	if stdErrors.Is(err, pgx.ErrNoRows) && key != "" {
+		if existing, found, lookupErr := s.reviewByCreateKey(ctx, landingRow.ID, actor.ID, key, digest); lookupErr != nil {
+			return db.LandingRequestReview{}, lookupErr
+		} else if found {
+			if err := s.completeLandingReviewCreate(ctx, repository, owner, landingRow, actor, existing, req.Body, key); err != nil {
+				return db.LandingRequestReview{}, err
+			}
+			return existing, nil
+		}
+	}
 	if err != nil {
 		return db.LandingRequestReview{}, pkgerrors.Internal("failed to create landing review").WithCause(err)
 	}
-	// An agent acting as a person answers none of that person's review
-	// requests (nor requests to an agent of that name).
-	if reviewType != "pending" && !actsThroughRunCredential(ctx, actor.ID) {
-		if q, ok := s.queries.(landingReviewRequestQuerier); ok {
-			err = q.FulfillLandingReviewRequestsForUser(ctx, db.FulfillLandingReviewRequestsForUserParams{
-				LandingRequestID: landingRow.ID,
-				ReviewerID:       pgtype.Int8{Int64: actor.ID, Valid: true},
-			})
-			if err != nil {
-				return db.LandingRequestReview{}, pkgerrors.Internal("failed to fulfill landing review request").WithCause(err)
-			}
-			// Agents are authenticated users too. Fulfill user-targeted requests
-			// above as well as requests addressed to their agent name.
-			if reviewerKind == "agent" {
-				if err := q.FulfillLandingReviewRequestsForAgent(ctx, db.FulfillLandingReviewRequestsForAgentParams{
-					LandingRequestID: landingRow.ID,
-					AgentName:        actor.Username,
-				}); err != nil {
-					return db.LandingRequestReview{}, pkgerrors.Internal("failed to fulfill landing review request").WithCause(err)
-				}
-			}
-		}
-	}
-	switch {
-	case reviewType == "pending":
-		if err := s.updateLandingTurn(ctx, repository, owner, landingRow, actor, "reviewer", "request", req.Body); err != nil {
-			return db.LandingRequestReview{}, err
-		}
-	case (reviewType == "comment" || reviewType == "request_changes") && !landingActionIsFromAuthor(ctx, landingRow, actor):
-		if err := s.updateLandingTurn(ctx, repository, owner, landingRow, actor, "author", "comment", req.Body); err != nil {
-			return db.LandingRequestReview{}, err
-		}
-	}
-	if err := s.dispatchLandingReviewEvent(ctx, repository, owner, landingRow, actor, review); err != nil {
+	if err := s.completeLandingReviewCreate(ctx, repository, owner, landingRow, actor, review, req.Body, key); err != nil {
 		return db.LandingRequestReview{}, err
 	}
 	return review, nil
+}
+
+func (s *LandingService) completeLandingReviewCreate(ctx context.Context, repository db.Repository, owner string, landingRow db.GetLandingRequestWithChangeIDsByNumberRow, actor *db.User, review db.LandingRequestReview, requestBody, key string) error {
+	doStage := func(stage int, effect func() error) error {
+		if key == "" {
+			return effect()
+		}
+		return s.completeLandingCreateStage(ctx, "landing_request_reviews", review.ID, stage, effect)
+	}
+	if err := doStage(1, func() error {
+		// An agent acting as a person answers none of that person's review
+		// requests (nor requests to an agent of that name).
+		if review.Type != "pending" && !actsThroughRunCredential(ctx, actor.ID) {
+			if q, ok := s.queries.(landingReviewRequestQuerier); ok {
+				err := q.FulfillLandingReviewRequestsForUser(ctx, db.FulfillLandingReviewRequestsForUserParams{
+					LandingRequestID: landingRow.ID,
+					ReviewerID:       pgtype.Int8{Int64: actor.ID, Valid: true},
+				})
+				if err != nil {
+					return pkgerrors.Internal("failed to fulfill landing review request").WithCause(err)
+				}
+				// Agents are authenticated users too. Fulfill user-targeted requests
+				// above as well as requests addressed to their agent name.
+				if review.ReviewerKind == "agent" {
+					if err := q.FulfillLandingReviewRequestsForAgent(ctx, db.FulfillLandingReviewRequestsForAgentParams{
+						LandingRequestID: landingRow.ID,
+						AgentName:        actor.Username,
+					}); err != nil {
+						return pkgerrors.Internal("failed to fulfill landing review request").WithCause(err)
+					}
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := doStage(2, func() error {
+		switch {
+		case review.Type == "pending":
+			if err := s.updateLandingTurn(ctx, repository, owner, landingRow, actor, "reviewer", "request", requestBody); err != nil {
+				return err
+			}
+		case (review.Type == "comment" || review.Type == "request_changes") && !landingActionIsFromAuthor(ctx, landingRow, actor):
+			if err := s.updateLandingTurn(ctx, repository, owner, landingRow, actor, "author", "comment", requestBody); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return doStage(3, func() error {
+		if err := s.dispatchLandingReviewEvent(ctx, repository, owner, landingRow, actor, review); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func (s *LandingService) ListLandingComments(ctx context.Context, viewer *db.User, owner, repo string, number int64, page, perPage int) ([]LandingCommentResponse, int64, error) {
@@ -2598,6 +2812,28 @@ func (s *LandingService) CreateLandingComment(ctx context.Context, actor *db.Use
 	if err != nil {
 		return LandingCommentResponse{}, err
 	}
+	key, err := landingCreateKey(req.IdempotencyKey)
+	if err != nil {
+		return LandingCommentResponse{}, err
+	}
+	digest := landingInputDigest(struct {
+		Path                 string
+		Line                 int64
+		Side, Body, CommitID string
+	}{path, req.Line, side, req.Body, strings.TrimSpace(req.CommitID)})
+	if key != "" {
+		if s.createEffectPool == nil {
+			return LandingCommentResponse{}, pkgerrors.Internal("landing create key store unavailable")
+		}
+		if existing, found, err := s.commentByCreateKey(ctx, repository, owner, repo, landingRow.ID, actor, key, digest); err != nil {
+			return LandingCommentResponse{}, err
+		} else if found {
+			if err := s.completeLandingCommentCreate(ctx, repository, owner, landingRow, actor, existing.LandingRequestComment, number, key); err != nil {
+				return LandingCommentResponse{}, err
+			}
+			return existing, nil
+		}
+	}
 	revision, err := s.resolveLandingRevision(ctx, repository.ID, owner, repo, landingRow.ID, req.CommitID, "LandingComment")
 	if err != nil {
 		return LandingCommentResponse{}, err
@@ -2619,33 +2855,70 @@ func (s *LandingService) CreateLandingComment(ctx context.Context, actor *db.Use
 		Body:             req.Body,
 		CommitID:         revision.CommitID,
 		AnchorHash:       anchorHash,
+		CreateKey:        key,
+		CreateInputHash:  digestForKey(key, digest),
 	})
+	if stdErrors.Is(err, pgx.ErrNoRows) && key != "" {
+		if existing, found, lookupErr := s.commentByCreateKey(ctx, repository, owner, repo, landingRow.ID, actor, key, digest); lookupErr != nil {
+			return LandingCommentResponse{}, lookupErr
+		} else if found {
+			if err := s.completeLandingCommentCreate(ctx, repository, owner, landingRow, actor, existing.LandingRequestComment, number, key); err != nil {
+				return LandingCommentResponse{}, err
+			}
+			return existing, nil
+		}
+	}
 	if err != nil {
 		return LandingCommentResponse{}, pkgerrors.Internal("failed to create landing comment").WithCause(err)
 	}
-	if !landingActionIsFromAuthor(ctx, landingRow, actor) {
-		if err := s.updateLandingTurn(ctx, repository, owner, landingRow, actor, "author", "comment", req.Body); err != nil {
-			return LandingCommentResponse{}, err
-		}
-	}
-	if err := s.dispatchLandingCommentEvent(ctx, repository, owner, landingRow, actor, comment); err != nil {
+	if err := s.completeLandingCommentCreate(ctx, repository, owner, landingRow, actor, comment, number, key); err != nil {
 		return LandingCommentResponse{}, err
 	}
-	// Process @mentions in the comment body. Errors are non-fatal.
-	if s.mentionSvc != nil && req.Body != "" {
-		authorID := pgtype.Int8{Int64: actor.ID, Valid: true}
-		lrID := pgtype.Int8{Int64: landingRow.ID, Valid: true}
-		commentID := pgtype.Int8{Int64: comment.ID, Valid: true}
-		subject := fmt.Sprintf("mentioned you in a comment on landing request #%d", number)
-		_ = s.mentionSvc.ProcessMentions(ctx, req.Body, MentionContext{
-			RepositoryID:     repository.ID,
-			LandingRequestID: lrID,
-			CommentType:      "landing_comment",
-			CommentID:        commentID,
-			AuthorUserID:     authorID,
-		}, subject)
-	}
 	return s.landingCommentResponse(ctx, repository, owner, repo, landingRow.ID, comment, actor.Username)
+}
+
+func (s *LandingService) completeLandingCommentCreate(ctx context.Context, repository db.Repository, owner string, landingRow db.GetLandingRequestWithChangeIDsByNumberRow, actor *db.User, comment db.LandingRequestComment, number int64, key string) error {
+	doStage := func(stage int, effect func() error) error {
+		if key == "" {
+			return effect()
+		}
+		return s.completeLandingCreateStage(ctx, "landing_request_comments", comment.ID, stage, effect)
+	}
+	if err := doStage(1, func() error {
+		if !landingActionIsFromAuthor(ctx, landingRow, actor) {
+			if err := s.updateLandingTurn(ctx, repository, owner, landingRow, actor, "author", "comment", comment.Body); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := doStage(2, func() error {
+		if err := s.dispatchLandingCommentEvent(ctx, repository, owner, landingRow, actor, comment); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return doStage(3, func() error {
+		// Process @mentions in the comment body. Errors are non-fatal.
+		if s.mentionSvc != nil && comment.Body != "" {
+			authorID := pgtype.Int8{Int64: actor.ID, Valid: true}
+			lrID := pgtype.Int8{Int64: landingRow.ID, Valid: true}
+			commentID := pgtype.Int8{Int64: comment.ID, Valid: true}
+			subject := fmt.Sprintf("mentioned you in a comment on landing request #%d", number)
+			_ = s.mentionSvc.ProcessMentions(ctx, comment.Body, MentionContext{
+				RepositoryID:     repository.ID,
+				LandingRequestID: lrID,
+				CommentType:      "landing_comment",
+				CommentID:        commentID,
+				AuthorUserID:     authorID,
+			}, subject)
+		}
+		return nil
+	})
 }
 
 func (s *LandingService) resolveLandingCommentUserLogins(ctx context.Context, comments []db.LandingRequestComment) map[int64]string {

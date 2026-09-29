@@ -22,7 +22,7 @@ SET state = 'resolved',
 WHERE id = $2
   AND landing_request_id = $3
   AND state = 'done'
-RETURNING id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at
+RETURNING id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 `
 
 type AckLandingRequestThreadParams struct {
@@ -52,6 +52,11 @@ func (q *Queries) AckLandingRequestThread(ctx context.Context, arg AckLandingReq
 		&i.ResolvedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
 	)
 	return i, err
 }
@@ -466,9 +471,10 @@ func (q *Queries) CreateLandingRequest(ctx context.Context, arg CreateLandingReq
 }
 
 const createLandingRequestComment = `-- name: CreateLandingRequestComment :one
-INSERT INTO landing_request_comments (landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at
+INSERT INTO landing_request_comments (landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, create_key, create_input_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9::text, ''), NULLIF($10::text, ''))
+ON CONFLICT (landing_request_id, user_id, create_key) WHERE create_key IS NOT NULL DO NOTHING
+RETURNING id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 `
 
 type CreateLandingRequestCommentParams struct {
@@ -480,6 +486,8 @@ type CreateLandingRequestCommentParams struct {
 	Body             string      `json:"body"`
 	CommitID         string      `json:"commit_id"`
 	AnchorHash       string      `json:"anchor_hash"`
+	CreateKey        string      `json:"create_key"`
+	CreateInputHash  string      `json:"create_input_hash"`
 }
 
 func (q *Queries) CreateLandingRequestComment(ctx context.Context, arg CreateLandingRequestCommentParams) (LandingRequestComment, error) {
@@ -492,6 +500,8 @@ func (q *Queries) CreateLandingRequestComment(ctx context.Context, arg CreateLan
 		arg.Body,
 		arg.CommitID,
 		arg.AnchorHash,
+		arg.CreateKey,
+		arg.CreateInputHash,
 	)
 	var i LandingRequestComment
 	err := row.Scan(
@@ -512,6 +522,11 @@ func (q *Queries) CreateLandingRequestComment(ctx context.Context, arg CreateLan
 		&i.ResolvedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
 	)
 	return i, err
 }
@@ -609,7 +624,9 @@ INSERT INTO landing_request_reviews (
     summary,
     commit_id,
     body,
-    change_revisions
+    change_revisions,
+    create_key,
+    create_input_hash
 )
 VALUES (
     $1,
@@ -622,9 +639,12 @@ VALUES (
     $8,
     $9,
     $10,
-    COALESCE($11::jsonb, '{}'::jsonb)
+    COALESCE($11::jsonb, '{}'::jsonb),
+    NULLIF($12::text, ''),
+    NULLIF($13::text, '')
 )
-RETURNING id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at
+ON CONFLICT (landing_request_id, reviewer_id, create_key) WHERE create_key IS NOT NULL DO NOTHING
+RETURNING id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 `
 
 type CreateLandingRequestReviewParams struct {
@@ -639,6 +659,8 @@ type CreateLandingRequestReviewParams struct {
 	CommitID         string          `json:"commit_id"`
 	Body             string          `json:"body"`
 	ChangeRevisions  json.RawMessage `json:"change_revisions"`
+	CreateKey        string          `json:"create_key"`
+	CreateInputHash  string          `json:"create_input_hash"`
 }
 
 func (q *Queries) CreateLandingRequestReview(ctx context.Context, arg CreateLandingRequestReviewParams) (LandingRequestReview, error) {
@@ -654,6 +676,8 @@ func (q *Queries) CreateLandingRequestReview(ctx context.Context, arg CreateLand
 		arg.CommitID,
 		arg.Body,
 		arg.ChangeRevisions,
+		arg.CreateKey,
+		arg.CreateInputHash,
 	)
 	var i LandingRequestReview
 	err := row.Scan(
@@ -672,6 +696,11 @@ func (q *Queries) CreateLandingRequestReview(ctx context.Context, arg CreateLand
 		&i.ChangeRevisions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
 	)
 	return i, err
 }
@@ -1275,8 +1304,49 @@ func (q *Queries) GetLandingRequestChangeRevisionByCommitID(ctx context.Context,
 	return i, err
 }
 
+const getLandingRequestCommentByCreateKey = `-- name: GetLandingRequestCommentByCreateKey :one
+SELECT id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until FROM landing_request_comments
+WHERE landing_request_id = $1 AND user_id = $2 AND create_key = $3
+`
+
+type GetLandingRequestCommentByCreateKeyParams struct {
+	LandingRequestID int64       `json:"landing_request_id"`
+	UserID           pgtype.Int8 `json:"user_id"`
+	CreateKey        pgtype.Text `json:"-"`
+}
+
+func (q *Queries) GetLandingRequestCommentByCreateKey(ctx context.Context, arg GetLandingRequestCommentByCreateKeyParams) (LandingRequestComment, error) {
+	row := q.db.QueryRow(ctx, getLandingRequestCommentByCreateKey, arg.LandingRequestID, arg.UserID, arg.CreateKey)
+	var i LandingRequestComment
+	err := row.Scan(
+		&i.ID,
+		&i.LandingRequestID,
+		&i.UserID,
+		&i.Path,
+		&i.Line,
+		&i.Side,
+		&i.Body,
+		&i.CommitID,
+		&i.AnchorHash,
+		&i.State,
+		&i.DoneAt,
+		&i.DoneBy,
+		&i.ResolvedInRevision,
+		&i.ResolvedAt,
+		&i.ResolvedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
+	)
+	return i, err
+}
+
 const getLandingRequestCommentByID = `-- name: GetLandingRequestCommentByID :one
-SELECT id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at
+SELECT id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 FROM landing_request_comments
 WHERE id = $1
   AND landing_request_id = $2
@@ -1308,12 +1378,56 @@ func (q *Queries) GetLandingRequestCommentByID(ctx context.Context, arg GetLandi
 		&i.ResolvedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
+	)
+	return i, err
+}
+
+const getLandingRequestReviewByCreateKey = `-- name: GetLandingRequestReviewByCreateKey :one
+SELECT id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until FROM landing_request_reviews
+WHERE landing_request_id = $1 AND reviewer_id = $2 AND create_key = $3
+`
+
+type GetLandingRequestReviewByCreateKeyParams struct {
+	LandingRequestID int64       `json:"landing_request_id"`
+	ReviewerID       pgtype.Int8 `json:"reviewer_id"`
+	CreateKey        pgtype.Text `json:"-"`
+}
+
+func (q *Queries) GetLandingRequestReviewByCreateKey(ctx context.Context, arg GetLandingRequestReviewByCreateKeyParams) (LandingRequestReview, error) {
+	row := q.db.QueryRow(ctx, getLandingRequestReviewByCreateKey, arg.LandingRequestID, arg.ReviewerID, arg.CreateKey)
+	var i LandingRequestReview
+	err := row.Scan(
+		&i.ID,
+		&i.LandingRequestID,
+		&i.ReviewerID,
+		&i.ReviewerKind,
+		&i.AgentSessionID,
+		&i.Type,
+		&i.Verdict,
+		&i.ConfidenceBucket,
+		&i.Summary,
+		&i.Body,
+		&i.State,
+		&i.CommitID,
+		&i.ChangeRevisions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
 	)
 	return i, err
 }
 
 const getLandingRequestReviewByID = `-- name: GetLandingRequestReviewByID :one
-SELECT id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at
+SELECT id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 FROM landing_request_reviews
 WHERE id = $1
 `
@@ -1337,6 +1451,11 @@ func (q *Queries) GetLandingRequestReviewByID(ctx context.Context, id int64) (La
 		&i.ChangeRevisions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
 	)
 	return i, err
 }
@@ -1714,7 +1833,7 @@ func (q *Queries) ListLandingRequestChanges(ctx context.Context, arg ListLanding
 }
 
 const listLandingRequestComments = `-- name: ListLandingRequestComments :many
-SELECT id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at
+SELECT id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 FROM landing_request_comments
 WHERE landing_request_id = $1
 ORDER BY created_at ASC, id ASC
@@ -1755,6 +1874,11 @@ func (q *Queries) ListLandingRequestComments(ctx context.Context, arg ListLandin
 			&i.ResolvedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CreateKey,
+			&i.CreateInputHash,
+			&i.CreateEffectsPhase,
+			&i.CreateEffectsToken,
+			&i.CreateEffectsUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -1767,7 +1891,7 @@ func (q *Queries) ListLandingRequestComments(ctx context.Context, arg ListLandin
 }
 
 const listLandingRequestReviews = `-- name: ListLandingRequestReviews :many
-SELECT id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at
+SELECT id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 FROM landing_request_reviews
 WHERE landing_request_id = $1
 ORDER BY created_at ASC, id ASC
@@ -1806,6 +1930,11 @@ func (q *Queries) ListLandingRequestReviews(ctx context.Context, arg ListLanding
 			&i.ChangeRevisions,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CreateKey,
+			&i.CreateInputHash,
+			&i.CreateEffectsPhase,
+			&i.CreateEffectsToken,
+			&i.CreateEffectsUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -2093,7 +2222,7 @@ func (q *Queries) ListLandingReviewRequests(ctx context.Context, landingRequestI
 }
 
 const listSubmittedLandingApprovals = `-- name: ListSubmittedLandingApprovals :many
-SELECT id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at
+SELECT id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 FROM landing_request_reviews
 WHERE landing_request_id = $1
   AND type = 'approve'
@@ -2127,6 +2256,11 @@ func (q *Queries) ListSubmittedLandingApprovals(ctx context.Context, landingRequ
 			&i.ChangeRevisions,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CreateKey,
+			&i.CreateInputHash,
+			&i.CreateEffectsPhase,
+			&i.CreateEffectsToken,
+			&i.CreateEffectsUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -2233,7 +2367,7 @@ SET state = 'done',
 WHERE id = $3
   AND landing_request_id = $4
   AND state = 'open'
-RETURNING id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at
+RETURNING id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 `
 
 type MarkLandingRequestThreadDoneParams struct {
@@ -2269,6 +2403,11 @@ func (q *Queries) MarkLandingRequestThreadDone(ctx context.Context, arg MarkLand
 		&i.ResolvedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
 	)
 	return i, err
 }
@@ -2433,7 +2572,7 @@ SET state = 'open',
 WHERE id = $1
   AND landing_request_id = $2
   AND state IN ('done', 'resolved')
-RETURNING id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at
+RETURNING id, landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, state, done_at, done_by, resolved_in_revision, resolved_at, resolved_by, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 `
 
 type ReopenLandingRequestThreadParams struct {
@@ -2462,6 +2601,11 @@ func (q *Queries) ReopenLandingRequestThread(ctx context.Context, arg ReopenLand
 		&i.ResolvedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
 	)
 	return i, err
 }
@@ -2723,7 +2867,7 @@ UPDATE landing_request_reviews
 SET state = $1,
     updated_at = NOW()
 WHERE id = $2
-RETURNING id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at
+RETURNING id, landing_request_id, reviewer_id, reviewer_kind, agent_session_id, type, verdict, confidence_bucket, summary, body, state, commit_id, change_revisions, created_at, updated_at, create_key, create_input_hash, create_effects_phase, create_effects_token, create_effects_until
 `
 
 type UpdateLandingRequestReviewStateParams struct {
@@ -2750,6 +2894,11 @@ func (q *Queries) UpdateLandingRequestReviewState(ctx context.Context, arg Updat
 		&i.ChangeRevisions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreateKey,
+		&i.CreateInputHash,
+		&i.CreateEffectsPhase,
+		&i.CreateEffectsToken,
+		&i.CreateEffectsUntil,
 	)
 	return i, err
 }

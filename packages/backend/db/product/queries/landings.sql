@@ -77,7 +77,9 @@ INSERT INTO landing_request_reviews (
     summary,
     commit_id,
     body,
-    change_revisions
+    change_revisions,
+    create_key,
+    create_input_hash
 )
 VALUES (
     sqlc.arg(landing_request_id),
@@ -90,9 +92,16 @@ VALUES (
     sqlc.arg(summary),
     sqlc.arg(commit_id),
     sqlc.arg(body),
-    COALESCE(sqlc.arg(change_revisions)::jsonb, '{}'::jsonb)
+    COALESCE(sqlc.arg(change_revisions)::jsonb, '{}'::jsonb),
+    NULLIF(sqlc.arg(create_key)::text, ''),
+    NULLIF(sqlc.arg(create_input_hash)::text, '')
 )
+ON CONFLICT (landing_request_id, reviewer_id, create_key) WHERE create_key IS NOT NULL DO NOTHING
 RETURNING *;
+
+-- name: GetLandingRequestReviewByCreateKey :one
+SELECT * FROM landing_request_reviews
+WHERE landing_request_id = $1 AND reviewer_id = $2 AND create_key = $3;
 
 -- name: GetLandingRequestChangeRevisionByCommitID :one
 SELECT cr.*
@@ -161,9 +170,14 @@ WHERE r.id = sqlc.arg(repository_id)
 ORDER BY t.lower_name;
 
 -- name: CreateLandingRequestComment :one
-INSERT INTO landing_request_comments (landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash)
-VALUES ($1, $2, $3, $4, $5, $6, sqlc.arg(commit_id), sqlc.arg(anchor_hash))
+INSERT INTO landing_request_comments (landing_request_id, user_id, path, line, side, body, commit_id, anchor_hash, create_key, create_input_hash)
+VALUES ($1, $2, $3, $4, $5, $6, sqlc.arg(commit_id), sqlc.arg(anchor_hash), NULLIF(sqlc.arg(create_key)::text, ''), NULLIF(sqlc.arg(create_input_hash)::text, ''))
+ON CONFLICT (landing_request_id, user_id, create_key) WHERE create_key IS NOT NULL DO NOTHING
 RETURNING *;
+
+-- name: GetLandingRequestCommentByCreateKey :one
+SELECT * FROM landing_request_comments
+WHERE landing_request_id = $1 AND user_id = $2 AND create_key = $3;
 
 -- name: UpdateLandingRequestTurn :one
 UPDATE landing_requests

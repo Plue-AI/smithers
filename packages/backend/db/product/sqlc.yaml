@@ -25,6 +25,26 @@ sql:
           pr_head: "PRHead"
           pr_merge_commit: "PRMergeCommit"
         overrides:
+          - column: "landing_request_reviews.create_key"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_reviews.create_input_hash"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_reviews.create_effects_phase"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_reviews.create_effects_token"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_reviews.create_effects_until"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_comments.create_key"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_comments.create_input_hash"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_comments.create_effects_phase"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_comments.create_effects_token"
+            go_struct_tag: 'json:"-"'
+          - column: "landing_request_comments.create_effects_until"
+            go_struct_tag: 'json:"-"'
           - db_type: "uuid"
             go_type: "string"
           - db_type: "timestamptz"

@@ -1204,24 +1204,34 @@ type LandingRequestComment struct {
 	ResolvedBy         pgtype.Int8        `json:"resolved_by"`
 	CreatedAt          time.Time          `json:"created_at"`
 	UpdatedAt          time.Time          `json:"updated_at"`
+	CreateKey          pgtype.Text        `json:"-"`
+	CreateInputHash    pgtype.Text        `json:"-"`
+	CreateEffectsPhase int32              `json:"-"`
+	CreateEffectsToken pgtype.Text        `json:"-"`
+	CreateEffectsUntil pgtype.Timestamptz `json:"-"`
 }
 
 type LandingRequestReview struct {
-	ID               int64           `json:"id"`
-	LandingRequestID int64           `json:"landing_request_id"`
-	ReviewerID       pgtype.Int8     `json:"reviewer_id"`
-	ReviewerKind     string          `json:"reviewer_kind"`
-	AgentSessionID   pgtype.UUID     `json:"agent_session_id"`
-	Type             string          `json:"type"`
-	Verdict          pgtype.Text     `json:"verdict"`
-	ConfidenceBucket pgtype.Text     `json:"confidence_bucket"`
-	Summary          string          `json:"summary"`
-	Body             string          `json:"body"`
-	State            string          `json:"state"`
-	CommitID         string          `json:"commit_id"`
-	ChangeRevisions  json.RawMessage `json:"change_revisions"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
+	ID                 int64              `json:"id"`
+	LandingRequestID   int64              `json:"landing_request_id"`
+	ReviewerID         pgtype.Int8        `json:"reviewer_id"`
+	ReviewerKind       string             `json:"reviewer_kind"`
+	AgentSessionID     pgtype.UUID        `json:"agent_session_id"`
+	Type               string             `json:"type"`
+	Verdict            pgtype.Text        `json:"verdict"`
+	ConfidenceBucket   pgtype.Text        `json:"confidence_bucket"`
+	Summary            string             `json:"summary"`
+	Body               string             `json:"body"`
+	State              string             `json:"state"`
+	CommitID           string             `json:"commit_id"`
+	ChangeRevisions    json.RawMessage    `json:"change_revisions"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
+	CreateKey          pgtype.Text        `json:"-"`
+	CreateInputHash    pgtype.Text        `json:"-"`
+	CreateEffectsPhase int32              `json:"-"`
+	CreateEffectsToken pgtype.Text        `json:"-"`
+	CreateEffectsUntil pgtype.Timestamptz `json:"-"`
 }
 
 type LandingReviewRequest struct {

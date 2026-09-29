@@ -108,6 +108,7 @@ type updateLandingRequest struct {
 }
 
 type createLandingReviewRequest struct {
+	IdempotencyKey   string `json:"idempotency_key"`
 	Type             string `json:"type"`
 	Body             string `json:"body"`
 	Verdict          string `json:"verdict"`
@@ -130,11 +131,12 @@ type dismissLandingReviewRequest struct {
 }
 
 type createLandingCommentRequest struct {
-	Path     string `json:"path"`
-	Line     int64  `json:"line"`
-	Side     string `json:"side"`
-	Body     string `json:"body"`
-	CommitID string `json:"commit_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Path           string `json:"path"`
+	Line           int64  `json:"line"`
+	Side           string `json:"side"`
+	Body           string `json:"body"`
+	CommitID       string `json:"commit_id"`
 }
 
 func (h *LandingHandler) ListLandingRequests(w http.ResponseWriter, r *http.Request) {
@@ -471,6 +473,7 @@ func (h *LandingHandler) PostLandingReview(w http.ResponseWriter, r *http.Reques
 	}
 
 	review, svcErr := h.Service.CreateLandingReview(r.Context(), user, owner, repo, number, services.CreateLandingReviewInput{
+		IdempotencyKey:   req.IdempotencyKey,
 		Type:             req.Type,
 		Body:             req.Body,
 		Verdict:          req.Verdict,
@@ -584,11 +587,12 @@ func (h *LandingHandler) PostLandingComment(w http.ResponseWriter, r *http.Reque
 	}
 
 	comment, svcErr := h.Service.CreateLandingComment(r.Context(), user, owner, repo, number, services.CreateLandingCommentInput{
-		Path:     req.Path,
-		Line:     req.Line,
-		Side:     req.Side,
-		Body:     req.Body,
-		CommitID: req.CommitID,
+		IdempotencyKey: req.IdempotencyKey,
+		Path:           req.Path,
+		Line:           req.Line,
+		Side:           req.Side,
+		Body:           req.Body,
+		CommitID:       req.CommitID,
 	})
 	if svcErr != nil {
 		writeRouteError(w, r, svcErr)
