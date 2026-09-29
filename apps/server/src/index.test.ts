@@ -3562,6 +3562,53 @@ describe("the /api/cloud bridge", () => {
     }
   })
 
+  test("agent-environment PUT forwards a 1 MiB setup script and its JSON envelope through both routes", async () => {
+    for (const setupScript of ["x".repeat(1024 * 1024), "\u0001".repeat(1024 * 1024)]) {
+      const body = JSON.stringify({ setup_script: setupScript, env: [] })
+      expect(new TextEncoder().encode(body).byteLength).toBeGreaterThan(1024 * 1024)
+      for (const prefix of ["", "/api/cloud"]) {
+        await withUpstreams(() => jsonAnswer({ setup_script: "", env: [], secrets: [] }), async (calls) => {
+          const response = await worker.fetch(new Request(`https://mvp.test${prefix}/api/repos/will/flows/agent-environment`, {
+            method: "PUT", headers: { cookie: "smithers_session=sealed", "content-type": "application/json" }, body
+          }), signedInEnv)
+          expect(response.status).toBe(200)
+          const forwarded = cloudCalls(calls)
+          expect(forwarded).toHaveLength(1)
+          expect(forwarded[0]?.url).toBe("https://cloud.test/api/repos/will/flows/agent-environment")
+          expect(await new Response(forwarded[0]?.body).text()).toBe(body)
+        })
+      }
+    }
+  })
+
+  test("agent-environment's larger cap still bounds the whole JSON document", async () => {
+    await withUpstreams(() => jsonAnswer({}), async (calls) => {
+      const response = await worker.fetch(new Request("https://mvp.test/api/repos/will/flows/agent-environment", {
+        method: "PUT", headers: { cookie: "smithers_session=sealed", "content-length": String(8 * 1024 * 1024 + 1) }, body: "{}"
+      }), signedInEnv)
+      expect(response.status).toBe(413)
+      expect(cloudCalls(calls)).toHaveLength(0)
+    })
+  })
+
+  test("agent-environment's larger body allowance is limited to the exact PUT route", async () => {
+    for (const [method, path] of [
+      ["POST", "/api/repos/will/flows/agent-environment"],
+      ["PUT", "/api/repos/will/flows/agent-environment/secrets/TOKEN"],
+      ["PUT", "/api/repos/will/flows/agent-environment/extra"],
+      ["PUT", "/api/repos/will/flows/agent-environment%2fextra"],
+      ["PUT", "/api/repos/will/flows/contents/file"]
+    ]) {
+      await withUpstreams(() => jsonAnswer({}), async (calls) => {
+        const response = await worker.fetch(new Request(`https://mvp.test/api/cloud${path}`, {
+          method, headers: { cookie: "smithers_session=sealed" }, body: "x".repeat(256 * 1024 + 1)
+        }), signedInEnv)
+        expect(response.status).toBe(413)
+        expect(cloudCalls(calls)).toHaveLength(0)
+      })
+    }
+  })
+
   test("the larger wiki allowance does not extend to other mutations or lookalike routes", async () => {
     for (const [method, path] of [
       ["POST", "/api/repos/will/flows/issues"],

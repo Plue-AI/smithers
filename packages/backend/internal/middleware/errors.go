@@ -340,9 +340,15 @@ func (tw *timeoutWriterFlusherHijacker) Hijack() (net.Conn, *bufio.ReadWriter, e
 // limit. Handlers that decode the body will receive an error when the limit is
 // exceeded. Use IsMaxBytesError to detect this condition and return 413.
 func MaxBodySize(n int64) func(http.Handler) http.Handler {
+	return MaxBodySizeForRequest(func(*http.Request) int64 { return n })
+}
+
+// MaxBodySizeForRequest keeps the same read bound while allowing a route to
+// choose its own cap before the handler decodes the body.
+func MaxBodySizeForRequest(limit func(*http.Request) int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, n)
+			r.Body = http.MaxBytesReader(w, r.Body, limit(r))
 			next.ServeHTTP(w, r)
 		})
 	}

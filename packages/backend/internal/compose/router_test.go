@@ -498,6 +498,41 @@ func defaultRouter(gitHandler *routes.GitSmartHandler, lfsHandlers ...*routes.LF
 	)
 }
 
+type routerAgentEnvironmentService struct {
+	setupScript string
+}
+
+func (s *routerAgentEnvironmentService) GetAgentEnvironment(context.Context, *db.User, string, string) (services.AgentEnvironmentResponse, error) {
+	return services.AgentEnvironmentResponse{}, nil
+}
+
+func (s *routerAgentEnvironmentService) PutAgentEnvironment(_ context.Context, _ *db.User, _, _ string, input services.PutAgentEnvironmentInput) (services.AgentEnvironmentResponse, error) {
+	s.setupScript = input.SetupScript
+	return services.AgentEnvironmentResponse{}, nil
+}
+
+func (s *routerAgentEnvironmentService) PutAgentEnvironmentSecret(context.Context, *db.User, string, string, services.AgentEnvironmentSecretWrite) (services.AgentEnvironmentSecretMetadata, error) {
+	return services.AgentEnvironmentSecretMetadata{}, nil
+}
+
+func (s *routerAgentEnvironmentService) DeleteAgentEnvironmentSecret(context.Context, *db.User, string, string, string) error {
+	return nil
+}
+
+func routerWithAgentEnvironment(service routes.AgentEnvironmentRouteService) http.Handler {
+	return buildRouterCompat(
+		testConfigAllFlagsOn(), nil, nil,
+		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{},
+		&routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{},
+		&routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}},
+		&routes.IssueHandler{}, nil,
+		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
+		nil, nil, nil, nil, nil, nil, nil,
+		&routes.SecretHandler{AgentEnvironment: service},
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+}
+
 func longTimeoutJSONCSRFCoverageRouter() http.Handler {
 	return buildRouter(
 		testConfigAllFlagsOn(),
@@ -2504,6 +2539,69 @@ func TestServerRouter_RepoWriteRoutesRejectOversizedBodies(t *testing.T) {
 			var payload map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 			assert.Equal(t, "request body too large", payload["message"])
+		})
+	}
+}
+
+func TestServerRouter_AgentEnvironmentAllowsMiBSetupScriptOnlyOnExactPut(t *testing.T) {
+	t.Parallel()
+
+	service := &routerAgentEnvironmentService{}
+	router := routerWithAgentEnvironment(service)
+	for _, script := range []string{strings.Repeat("x", 1<<20), strings.Repeat("\x01", 1<<20)} {
+		body, err := json.Marshal(services.PutAgentEnvironmentInput{SetupScript: script})
+		require.NoError(t, err)
+		require.Greater(t, len(body), 1<<20)
+
+		request := func(method, path string) *http.Request {
+			req := httptest.NewRequest(method, path, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			return withRouterTokenAuth(req, middleware.ScopeWriteRepository)
+		}
+
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, request(http.MethodPut, "/api/repos/will/flows/agent-environment"))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Equal(t, script, service.setupScript)
+
+		service.setupScript = ""
+		rec = httptest.NewRecorder()
+		router.ServeHTTP(rec, request(http.MethodPost, "/api/user/repos"))
+		require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, rec.Body.String())
+		require.Empty(t, service.setupScript)
+	}
+
+	oversized := `{"setup_script":"` + strings.Repeat("x", 8<<20) + `"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/repos/will/flows/agent-environment", strings.NewReader(oversized))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, withRouterTokenAuth(req, middleware.ScopeWriteRepository))
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, rec.Body.String())
+	require.Empty(t, service.setupScript)
+}
+
+func TestAPIBodyLimitOnlyWidensAgentEnvironmentPut(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   int64
+	}{
+		{"setup PUT", http.MethodPut, "/api/repos/will/flows/agent-environment", 8 << 20},
+		{"setup POST", http.MethodPost, "/api/repos/will/flows/agent-environment", middleware.MaxRequestBodySize},
+		{"secret PUT", http.MethodPut, "/api/repos/will/flows/agent-environment/secrets/TOKEN", middleware.MaxRequestBodySize},
+		{"lookalike PUT", http.MethodPut, "/api/repos/will/flows/agent-environment-extra", middleware.MaxRequestBodySize},
+		{"trailing slash PUT", http.MethodPut, "/api/repos/will/flows/agent-environment/", middleware.MaxRequestBodySize},
+		{"encoded suffix PUT", http.MethodPut, "/api/repos/will/flows/agent-environment%2Fextra", middleware.MaxRequestBodySize},
+		{"encoded owner slash PUT", http.MethodPut, "/api/repos/will%2Fflows/agent-environment", middleware.MaxRequestBodySize},
+		{"other write", http.MethodPut, "/api/repos/will/flows", middleware.MaxRequestBodySize},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			assert.Equal(t, tc.want, apiBodyLimit(req))
 		})
 	}
 }

@@ -72,13 +72,18 @@ export const PLATFORM_PROXY_RULES: ReadonlyArray<{
 ]
 
 const PLATFORM_PROXY_MAX_BODY = 256 * 1024
-// Plue accepts a 1 MiB binary Yjs update in a base64 JSON envelope (2 MiB cap).
-// Keep the larger allowance on this exact mutation, including /api/cloud's
-// normalized inner route. Other repository writes retain their existing cap.
-const platformBodyLimit = (pathname: string, method: string): number =>
-  method === "POST" && /^\/api\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/wiki\/[a-z0-9-]+\/updates$/.test(pathname)
-    ? 2 * 1024 * 1024
-    : PLATFORM_PROXY_MAX_BODY
+const platformBodyLimit = (pathname: string, method: string): number => {
+  // Wiki updates carry a 1 MiB binary Yjs update in a base64 JSON envelope.
+  if (method === "POST" && /^\/api\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/wiki\/[a-z0-9-]+\/updates$/.test(pathname)) {
+    return 2 * 1024 * 1024
+  }
+  // Cap the whole setup document at 8 MiB. JSON escapes can expand a valid
+  // 1 MiB script to 6 MiB, leaving room for its envelope and small env values.
+  if (method === "PUT" && /^\/api\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/agent-environment$/.test(pathname)) {
+    return 8 * 1024 * 1024
+  }
+  return PLATFORM_PROXY_MAX_BODY
+}
 
 /**
  * What to tell a reader when Smithers Cloud refuses. The upstream's own body is

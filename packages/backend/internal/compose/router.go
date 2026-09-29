@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -25,6 +26,17 @@ import (
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
+
+var agentEnvironmentSetupPath = regexp.MustCompile(`^/api/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/agent-environment$`)
+
+func apiBodyLimit(r *http.Request) int64 {
+	if r.Method == http.MethodPut && agentEnvironmentSetupPath.MatchString(r.URL.EscapedPath()) {
+		// Bound the whole document. JSON escapes can expand a valid 1 MiB
+		// script to 6 MiB, leaving room for its envelope and small env values.
+		return 8 << 20
+	}
+	return middleware.MaxRequestBodySize
+}
 
 type routerExtras struct {
 	CanaryRuns          ports.CanaryRunSource
@@ -923,7 +935,7 @@ func buildRouter(
 		r.Use(middleware.JSONTimeout(apiJSONTimeout))
 		r.Use(cors.Handler(apiCORS))
 		r.Use(middleware.JSONAllowContentType("application/json", routes.LFSJSONMediaType))
-		r.Use(middleware.MaxBodySize(middleware.MaxRequestBodySize))
+		r.Use(middleware.MaxBodySizeForRequest(apiBodyLimit))
 		// Global API rate limit: 5000/hr auth, 600/hr anon. AuthLoader runs first
 		// so user context is available for limit selection. Search routes excluded
 		// (they have their own SearchRateLimit). The worker token-exchange is

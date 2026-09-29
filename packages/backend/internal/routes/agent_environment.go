@@ -48,7 +48,7 @@ func (h *SecretHandler) PutAgentEnvironment(w http.ResponseWriter, r *http.Reque
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
-		errors.WriteError(w, errors.BadRequest("invalid request body"))
+		writeJSONDecodeError(w, "invalid request body", err)
 		return
 	}
 	config, err := h.AgentEnvironment.PutAgentEnvironment(r.Context(), actor, owner, repo, input)
