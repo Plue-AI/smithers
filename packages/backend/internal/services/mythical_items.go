@@ -49,6 +49,16 @@ const (
 	mythicalPromptBytes    = 24 << 10
 )
 
+// An issue is a proposal; a TODO is an issue the stack implements: one
+// carrying todoLabel that a maintainer person applied. automergeLabel, from a
+// maintainer person too, lets the stack merge a TODO's pull request once its
+// review approves it; without it the pull request waits for a person. The
+// stack takes either label off again when anyone else applies it.
+const (
+	todoLabel      = "todo"
+	automergeLabel = "automerge"
+)
+
 var (
 	mythicalSkipLabels    = map[string]bool{"question": true, "duplicate": true, "invalid": true, "wontfix": true, "epic": true, "umbrella": true, "tracking": true}
 	mythicalSettledStates = map[string]bool{"skipped": true, "declined": true, "cancelled": true, "landed": true, "rejected": true, "blocked": true}
@@ -103,10 +113,10 @@ func mythicalAdmission(issue mythicalIssue, approved bool) (string, string) {
 		}
 	}
 	if !approved {
-		if issueCarriesLabel(issue.Labels, issueApprovalLabel) {
-			return "skipped", "a maintainer re-applies the smithers label to approve this text"
+		if issueCarriesLabel(issue.Labels, todoLabel) {
+			return "skipped", "a maintainer re-applies the todo label to approve this text"
 		}
-		return "skipped", "waiting for a maintainer to add the smithers label"
+		return "skipped", "waiting for a maintainer to add the todo label"
 	}
 	return "queued", ""
 }
@@ -117,8 +127,9 @@ func mythicalIssueDigest(issue mythicalIssue) string {
 }
 
 // ObserveIssue admits or updates one issue's item. The admitted text is
-// pinned: a lane reads the snapshot, never the live issue. Approval is
-// approvesIssueText with the smithers label; a label's approval of outsider
+// pinned: a lane reads the snapshot, never the live issue. Only a TODO is
+// approved: an issue carrying the todo label a maintainer person applied,
+// then approvesIssueText with that label. A label's approval of outsider
 // text holds only for exactly the labeled text and only while the label
 // stays, so an edit after approval needs a new label. Only an item that has
 // not started takes new text; closing cancels an item that has not started.
@@ -145,18 +156,25 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		// A label a maintainer person applied counts while it stays on the
+		// issue: a TODO needs no new label for its maintainer's own edit.
+		checks := mythicalChecksOf(existing)
+		checks.Todo = issueCarriesLabel(issue.Labels, todoLabel) && (appliedByMaintainer(applied, todoLabel) || checks.Todo)
+		checks.Automerge = issueCarriesLabel(issue.Labels, automergeLabel) && (appliedByMaintainer(applied, automergeLabel) || checks.Automerge)
 		approved := ""
 		switch {
-		case approvesIssueText(issueText{ByMaintainer: issue.TextByMaintainer}, nil, issue.Labels, applied, issueApprovalLabel):
+		case !checks.Todo:
+		case approvesIssueText(issueText{ByMaintainer: issue.TextByMaintainer}, nil, issue.Labels, applied, todoLabel):
 			approved = digest
-		case issueCarriesLabel(issue.Labels, issueApprovalLabel) && err == nil && existing.ApprovedDigest == digest:
+		case existing.ApprovedDigest == digest:
 			approved = digest
 		}
 		state, reason := mythicalAdmission(issue, approved == digest)
 		if errors.Is(err, pgx.ErrNoRows) {
 			item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repositoryID,
 				IssueNumber: pgtype.Int8{Int64: issue.Number, Valid: true}, IssueTitle: issue.Title, IssueURL: issue.URL,
-				IssueDigest: digest, IssueBody: body, ApprovedDigest: approved, State: state, Reason: reason, Outsider: outsider})
+				IssueDigest: digest, IssueBody: body, ApprovedDigest: approved, State: state, Reason: reason, Outsider: outsider,
+				Checks: checks.encode()})
 			if err != nil {
 				return err
 			}
@@ -167,6 +185,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 			continue
 		}
 		next := existing
+		next.Checks = checks.encode()
 		notStarted := existing.State == "queued" || existing.State == "skipped" || existing.State == "cancelled" ||
 			(existing.State == "declined" && existing.IssueDigest != digest && approved == digest)
 		switch {
@@ -179,7 +198,8 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 			next.Outsider = outsider
 		}
 		if next.State == existing.State && next.Reason == existing.Reason && next.IssueDigest == existing.IssueDigest &&
-			next.IssueTitle == existing.IssueTitle && next.ApprovedDigest == existing.ApprovedDigest && next.Outsider == existing.Outsider {
+			next.IssueTitle == existing.IssueTitle && next.ApprovedDigest == existing.ApprovedDigest && next.Outsider == existing.Outsider &&
+			sameMythicalChecks(next, existing) {
 			return nil
 		}
 		saved, err := q.SaveMythicalItem(ctx, next)
@@ -272,12 +292,21 @@ func (s *MythicalService) backfill(ctx context.Context, repositoryID int64) (Myt
 		} else {
 			issue.TextByMaintainer, err = s.github.IssueTextByMaintainer(ctx, gh, issue)
 		}
+		var applied []gitHubLabelApplication
+		if err == nil {
+			applied, err = s.labelsAppliedByMaintainers(ctx, gh, issue, known[issue.Number])
+		}
 		if err != nil {
 			s.logger.Warn("mythical.issue_writer_failed", "repository_id", repositoryID, "issue", issue.Number, "error", err)
 			continue
 		}
-		if err := s.ObserveIssue(ctx, repositoryID, issue, gitHubLabelApplication{}); err != nil {
-			return counts, err
+		if len(applied) == 0 {
+			applied = []gitHubLabelApplication{{}}
+		}
+		for _, application := range applied {
+			if err := s.ObserveIssue(ctx, repositoryID, issue, application); err != nil {
+				return counts, err
+			}
 		}
 	}
 	if items, err = q.ListMythicalItems(ctx, repositoryID, 1000); err != nil {
@@ -470,7 +499,7 @@ type mythicalProjection struct {
 	Kind       string `json:"kind"`
 	ItemID     string `json:"itemId"`
 	Generation int64  `json:"generation"`
-	Phase      string `json:"phase"` // request | vibe | verify
+	Phase      string `json:"phase"` // request | vibe | verify | review
 }
 
 // ProjectFlowRuntime records a lane run's id and terminal outcome on its item
@@ -534,11 +563,25 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if outcome != "" && item.VerifyOutcome == "" {
 				next.VerifyOutcome = outcome
 			}
+		case "review":
+			checks := mythicalChecksOf(item)
+			if !checks.reviewing(item) {
+				return nil
+			}
+			if runID != "" {
+				checks.Review.RunID = runID
+			}
+			if outcome != "" {
+				// The verdict is due now: an approved automerge TODO merges.
+				checks.Review.Verdict, next.NextAttemptAt = outcome, pgtype.Timestamptz{}
+			}
+			next.Checks = checks.encode()
 		default:
 			return nil
 		}
 		if next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
-			next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome {
+			next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome &&
+			sameMythicalChecks(next, item) {
 			return nil
 		}
 		saved, err := q.SaveMythicalItem(ctx, next)
@@ -609,8 +652,28 @@ func mythicalRunOutcome(phase string, update flowdispatch.ProjectionUpdate) stri
 			return "passed"
 		}
 		return "failed: " + strings.Join(result.Failed, ", ")
+	case "review":
+		return mythicalReviewVerdict(output)
 	}
 	return ""
+}
+
+// mythicalReviewVerdict reads the review flow's answer (flows/review): its
+// last line that is exactly approve or request-changes. Anything else is a
+// failed review, so nothing merges on an unreadable answer.
+func mythicalReviewVerdict(output string) string {
+	var text string
+	if json.Unmarshal([]byte(output), &text) != nil {
+		text = output
+	}
+	verdict := "failed: the review finished without a verdict"
+	for _, line := range strings.Split(text, "\n") {
+		switch word := strings.ToLower(strings.Trim(line, " \t\r`*_")); word {
+		case "approve", "request-changes":
+			verdict = word
+		}
+	}
+	return verdict
 }
 
 var mythicalDeclinedPattern = regexp.MustCompile(`"code"\s*:\s*"declined"\s*,\s*"message"\s*:\s*"((?:[^"\\]|\\.)*)"`)
@@ -793,8 +856,8 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		}
 		if mythicalSettledStates[item.State] || item.State == "proposed" && item.PRState != "" {
 			// A finished item's lane is retired even if an earlier release failed.
-			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed") {
-				s.releaseLane(ctx, r, item)
+			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed" && !mythicalChecksOf(item).reviewing(item)) {
+				item = s.releaseLane(ctx, r, item)
 			}
 			if mythicalSettledStates[item.State] {
 				continue
@@ -825,7 +888,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			}
 		}
 		s.notify(ctx, q, r.row.RepositoryID, r.row.Generation, "item", uuidString(result.ID))
-		if result.WorkspaceID != "" && (mythicalSettledStates[result.State] || result.State == "proposed") {
+		if result.WorkspaceID != "" && (mythicalSettledStates[result.State] || result.State == "proposed" && !mythicalChecksOf(result).reviewing(result)) {
 			s.releaseLane(ctx, r, result)
 		}
 	}
@@ -848,28 +911,34 @@ func (s *MythicalService) markBackfill(repositoryID int64) {
 
 // releaseLane retires a finished item's lane workspace; the candidate is
 // pinned, so nothing depends on it. A failed release is retried next claim.
-func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) {
+// It answers the item as saved, so a step that follows works on it.
+func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
 	if s.lanes == nil || item.WorkspaceID == "" || !r.row.ActorUserID.Valid {
-		return
+		return item
 	}
 	if item.Source != "issue" {
 		// A chat item's workspace is its author's own; the stack never retires it.
 		next := item
 		next.WorkspaceID = ""
-		_, _ = s.queries().SaveMythicalItem(ctx, next)
-		return
+		if saved, err := s.queries().SaveMythicalItem(ctx, next); err == nil {
+			return saved
+		}
+		return item
 	}
 	if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
 		if ctx.Err() == nil {
 			s.logger.Warn("mythical.lane_release_failed", "workspace_id", item.WorkspaceID, "error", err)
 		}
-		return
+		return item
 	}
 	next := item
 	next.WorkspaceID, next.Lane, next.LaneStartedAt = "", pgtype.Int4{}, pgtype.Timestamptz{}
-	if _, err := s.queries().SaveMythicalItem(ctx, next); err != nil {
+	saved, err := s.queries().SaveMythicalItem(ctx, next)
+	if err != nil {
 		s.logger.Warn("mythical.lane_release_save_failed", "item", uuidString(item.ID), "error", err)
+		return item
 	}
+	return saved
 }
 
 // retry sends an item back to a lane, or blocks it after the last attempt.
@@ -932,10 +1001,16 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		}
 	case "proposing", "waiting":
 		next, err := st.propose(ctx, item)
-		return next, false, err
+		if err != nil || next == nil || next.State != "proposed" {
+			return next, false, err
+		}
+		return st.gate(ctx, *next)
 	case "proposed":
 		next, err := st.follow(ctx, item)
-		return next, false, err
+		if err != nil || next == nil || next.State != "proposed" {
+			return next, false, err
+		}
+		return st.gate(ctx, *next)
 	}
 	return nil, false, nil
 }
@@ -1576,6 +1651,95 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	return &next, nil
 }
 
+// gate decides what happens to an open pull request the stack follows: a
+// head it has not reviewed is reviewed (change.opened, change.updated), and
+// the approved head of an automerge TODO is merged. Anything else waits for
+// a person.
+func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	checks := mythicalChecksOf(item)
+	switch review := checks.Review; {
+	case review == nil || review.Head != item.PRHead:
+		// Seam: Jev's needs-review tag decides here which changes are
+		// reviewed. Until it lands, every change is.
+		return st.review(ctx, item)
+	case review.Verdict == "approve" && checks.Automerge && st.gh != nil:
+		return st.merge(ctx, item), false, nil
+	}
+	return &item, false, nil
+}
+
+// mythicalReviewBytes bounds the diff a review reads; a larger change is not
+// reviewed automatically and waits for a person.
+const mythicalReviewBytes = 96 << 10
+
+// review launches the review flow (flows/review) on the pull request's
+// head, with its diff. It runs on the item's lane, which stays bound until
+// the verdict; an item whose lane was retired gets a fresh one.
+func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	s, r := st.s, st.r
+	if s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
+		return &item, false, nil
+	}
+	diff, err := st.proposalDiff(ctx, item)
+	if err != nil {
+		return mythicalLater(item, err.Error(), st.now), false, nil
+	}
+	next := item
+	checks := mythicalChecksOf(item)
+	checks.Review = &mythicalReview{Head: item.PRHead}
+	if len(diff) > mythicalReviewBytes {
+		checks.Review.Verdict = "failed: the change is too large to review"
+		next.Checks = checks.encode()
+		return &next, false, nil
+	}
+	if next.WorkspaceID == "" {
+		workspaceID, err := st.lane(ctx, item, fmt.Sprintf("mythical #%d review %d", item.IssueNumber.Int64, item.Generation+1))
+		if err != nil {
+			return mythicalLater(item, "no lane workspace to review on: "+err.Error(), st.now), false, nil
+		}
+		next.WorkspaceID = workspaceID
+		next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
+		next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
+	}
+	next.Generation++
+	next.Checks = checks.encode()
+	args := fmt.Sprintf("Review pull request #%d: %s\n\n<diff>\n%s\n</diff>\n", item.PRNumber.Int64, item.IssueTitle, diff)
+	payload, _ := json.Marshal(map[string]string{"args": args})
+	saved, err := st.commit(ctx, next, "review", "review", payload)
+	if err != nil {
+		return mythicalLater(item, "the review could not be launched: "+err.Error(), st.now), false, nil
+	}
+	if saved.Lane.Valid {
+		st.held[saved.Lane.Int32] = saved.ID
+	}
+	return &saved, true, nil
+}
+
+// proposalDiff is the pull request's change: its one commit against main.
+func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalItem) (string, error) {
+	r := st.r
+	if !r.g.has(ctx, item.PRHead) {
+		keep := repohost.MythicalReservedRefNS + "keep/" + item.PRHead
+		if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, keep); err != nil {
+			return "", fmt.Errorf("fetch the proposal: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		}
+	}
+	return r.g.git(ctx, "diff", "--no-color", "--no-ext-diff", item.PRHead+"^", item.PRHead)
+}
+
+// merge merges an automerge TODO's pull request at exactly the approved
+// head. A refusal (required checks pending, the branch moved) is retried
+// later; the pull request stays open for a person meanwhile.
+func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
+	commit, err := st.s.github.Merge(ctx, *st.gh, item.PRNumber.Int64, item.PRHead)
+	if err != nil {
+		return mythicalLater(item, "the approved pull request could not be merged: "+err.Error(), st.now)
+	}
+	next := item
+	next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", commit, "landed", ""
+	return &next
+}
+
 // pin keeps a commit reachable from the control plane's own namespace.
 func (s *MythicalService) pin(ctx context.Context, r *mythicalRun, commit string) error {
 	ref := repohost.MythicalReservedRefNS + "keep/" + commit
@@ -1818,8 +1982,108 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 		if err := s.ObserveIssue(ctx, id, event.Issue.issue(), applied); err != nil {
 			return err
 		}
+		if !applied.ByMaintainer && (strings.EqualFold(applied.Label, todoLabel) || strings.EqualFold(applied.Label, automergeLabel)) {
+			s.revertLabel(ctx, id, event.Issue.Number, applied.Label)
+		}
 	}
 	return nil
+}
+
+// labelsAppliedByMaintainers reads, for a listed issue whose label events
+// the stack may have missed, the todo and automerge labels a maintainer
+// person applied. A todo label approves only a maintainer's text here: an
+// outsider's text is approved by the label event itself, never a listing.
+func (s *MythicalService) labelsAppliedByMaintainers(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue, item db.MythicalItem) ([]gitHubLabelApplication, error) {
+	var applied []gitHubLabelApplication
+	for _, label := range []string{todoLabel, automergeLabel} {
+		checks := mythicalChecksOf(item)
+		known := label == todoLabel && (checks.Todo || !issue.TextByMaintainer) || label == automergeLabel && checks.Automerge
+		if known || !issueCarriesLabel(issue.Labels, label) {
+			continue
+		}
+		actor, err := s.github.LabelApplier(ctx, gh, issue.Number, label)
+		if err != nil {
+			return nil, err
+		}
+		if actor == nil {
+			continue
+		}
+		maintainer, err := s.github.Maintainer(ctx, gh, *actor)
+		if err != nil {
+			return nil, err
+		}
+		if maintainer {
+			applied = append(applied, gitHubLabelApplication{Label: label, ByMaintainer: true})
+		}
+	}
+	return applied, nil
+}
+
+// revertLabel takes a todo or automerge label someone other than a
+// maintainer person applied off the issue again. ObserveIssue already ignored
+// it, so a failure only leaves the label showing: it is logged, and never
+// fails the webhook delivery.
+func (s *MythicalService) revertLabel(ctx context.Context, repositoryID, number int64, label string) {
+	stack, err := s.queries().GetMythicalStack(ctx, repositoryID)
+	if err != nil || s.github == nil || !stack.ActorUserID.Valid {
+		return
+	}
+	repository, owner, err := s.repository(ctx, repositoryID)
+	if err == nil {
+		var gh mythicalGitHubRepo
+		if gh, err = s.github.Resolve(ctx, repository, owner, stack.ActorUserID.Int64); err == nil {
+			err = s.github.RemoveLabel(ctx, gh, number, label)
+		}
+	}
+	if err != nil {
+		s.logger.Warn("mythical.label_revert_failed", "repository_id", repositoryID, "issue", number, "label", label, "error", err)
+	}
+}
+
+// appliedByMaintainer reports whether this event is a maintainer person
+// applying label.
+func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
+	return applied.ByMaintainer && strings.EqualFold(strings.TrimSpace(applied.Label), label)
+}
+
+// mythicalChecks is an item's checks column: whether a maintainer person
+// made its issue a TODO and asked for automerge, and the review of its pull
+// request's head.
+type mythicalChecks struct {
+	Todo      bool            `json:"todo,omitempty"`
+	Automerge bool            `json:"automerge,omitempty"`
+	Review    *mythicalReview `json:"review,omitempty"`
+}
+
+// mythicalReview is the review of one pull request head. Verdict is empty
+// while the review runs, then approve, request-changes or failed: <reason>.
+type mythicalReview struct {
+	Head    string `json:"head"`
+	RunID   string `json:"runId,omitempty"`
+	Verdict string `json:"verdict,omitempty"`
+}
+
+func mythicalChecksOf(item db.MythicalItem) mythicalChecks {
+	var checks mythicalChecks
+	_ = json.Unmarshal(item.Checks, &checks)
+	return checks
+}
+
+func (c mythicalChecks) encode() json.RawMessage {
+	if !c.Todo && !c.Automerge && c.Review == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(c)
+	return raw
+}
+
+func sameMythicalChecks(a, b db.MythicalItem) bool {
+	return bytes.Equal(mythicalChecksOf(a).encode(), mythicalChecksOf(b).encode())
+}
+
+// reviewing reports whether the review of the item's pull request head runs.
+func (c mythicalChecks) reviewing(item db.MythicalItem) bool {
+	return c.Review != nil && c.Review.Head == item.PRHead && c.Review.Verdict == ""
 }
 
 // One lane stays available to direct work when the stack has multiple lanes.

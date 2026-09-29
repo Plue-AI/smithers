@@ -18,7 +18,7 @@ func TestMythicalPolicy_AdmissionPrecedence(t *testing.T) {
 	// A maintainer approval admits only an open issue without a skip label;
 	// it never overrides a pull request, closure, or explicit skip category.
 	for _, approved := range []bool{false, true} {
-		for _, labels := range [][]string{nil, {"smithers"}, {"bug", "question"}} {
+		for _, labels := range [][]string{nil, {"todo"}, {"bug", "question"}} {
 			for _, tc := range []struct {
 				name, state, wantState, reason string
 				pull                           bool
@@ -42,7 +42,7 @@ func TestMythicalPolicy_OpenIssueAdmission(t *testing.T) {
 	t.Parallel()
 	for _, label := range []string{"question", "duplicate", "invalid", "wontfix", "epic", "umbrella", "tracking"} {
 		for _, approved := range []bool{false, true} {
-			labels := []string{"bug", " \t" + strings.ToUpper(label) + "\n", "smithers"}
+			labels := []string{"bug", " \t" + strings.ToUpper(label) + "\n", "todo"}
 			original := slices.Clone(labels)
 			state, reason := mythicalAdmission(mythicalIssue{State: "OPEN", Labels: labels}, approved)
 			require.Equal(t, "skipped", state, "label=%s approved=%t", label, approved)
@@ -55,11 +55,11 @@ func TestMythicalPolicy_OpenIssueAdmission(t *testing.T) {
 		labels              []string
 		approved            bool
 	}{
-		{"unapproved", "skipped", "waiting for a maintainer to add the smithers label", nil, false},
-		{"approval belongs to older text", "skipped", "a maintainer re-applies the smithers label to approve this text", []string{" SmItHeRs "}, false},
-		{"unrelated label", "skipped", "waiting for a maintainer to add the smithers label", []string{"smithers-extra"}, false},
+		{"unapproved", "skipped", "waiting for a maintainer to add the todo label", nil, false},
+		{"approval belongs to older text", "skipped", "a maintainer re-applies the todo label to approve this text", []string{" ToDo "}, false},
+		{"unrelated label", "skipped", "waiting for a maintainer to add the todo label", []string{"todo-extra"}, false},
 		{"approved maintainer text", "queued", "", nil, true},
-		{"approved labeled text", "queued", "", []string{"smithers", "bug"}, true},
+		{"approved labeled text", "queued", "", []string{"todo", "bug"}, true},
 		{"similarly named labels do not skip", "queued", "", []string{"questions", "tracking-extra"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

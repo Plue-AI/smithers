@@ -33,7 +33,7 @@ import { Smithers as S } from "@smthrs/targets"
 export const factory = S.Factory({
   summary: "How this repository develops itself.",
   on: {
-    "issue.labeled:smithers": { flow: "implement", description: "Implement an issue labeled smithers" },
+    "issue.labeled:todo": { flow: "coding/request", description: "Implement every TODO" },
     "change.opened": { flow: "review", description: "Review every change" },
     "schedule:0 9 * * 1-5": { flow: "review", description: "Weekday morning review of main" }
   }
@@ -42,7 +42,7 @@ export const factory = S.Factory({
 
 The app's **Dispatcher** lists each rule as declared.
 
-**Partly available.** When main moves, rules for `flow.mdx` flows go live: schedules, and issue, comment, pull request, and push events. Rules for `flow.ts` flows stay declared only. Smithers also runs its built-in rules: fixing issues labeled `smithers`, and refreshing history and the wiki when code lands.
+**Partly available.** When main moves, rules for `flow.mdx` flows go live: schedules, and issue, comment, pull request, and push events. Rules for `flow.ts` flows stay declared only. Smithers also runs its built-in rules: implementing every issue a maintainer labels `todo`, reviewing each pull request that work opens, merging it when the review approves and a maintainer also labeled the issue `automerge`, and refreshing history and the wiki when code lands. Smithers removes a `todo` or `automerge` label anyone else adds.
 
 **Available now.** Schedules register directly: in the app with **Dispatcher**, **Register a rule**, or for a local project with `smthrs triggers register`. See [Configure an agent and a trigger](/docs/learn/agent-and-trigger/).
 

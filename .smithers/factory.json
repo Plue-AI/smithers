@@ -1122,9 +1122,9 @@
       "description": "Triage every new issue"
     },
     {
-      "event": "issue.labeled:smithers",
-      "flow": "implement",
-      "description": "Implement an issue labeled smithers"
+      "event": "issue.labeled:todo",
+      "flow": "coding/request",
+      "description": "Implement every TODO"
     },
     {
       "event": "change.opened",

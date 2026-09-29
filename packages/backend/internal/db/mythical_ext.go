@@ -348,12 +348,12 @@ func (q *Queries) GetMythicalItemByIssue(ctx context.Context, repositoryID, issu
 // issue is returned unchanged (inserted false).
 func (q *Queries) InsertMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, bool, error) {
 	created, err := scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items
-		(repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, source, state, reason, outsider)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'issue', $8, $9, $10)
+		(repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, source, state, reason, outsider, checks)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'issue', $8, $9, $10, $11)
 		ON CONFLICT (repository_id, issue_number) WHERE issue_number IS NOT NULL DO NOTHING
 		RETURNING `+mythicalItemColumns,
 		item.RepositoryID, item.IssueNumber, item.IssueTitle, item.IssueURL, item.IssueDigest, item.IssueBody, item.ApprovedDigest,
-		item.State, item.Reason, item.Outsider))
+		item.State, item.Reason, item.Outsider, jsonArg(item.Checks)))
 	if err == nil {
 		return created, true, nil
 	}

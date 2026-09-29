@@ -53,7 +53,12 @@ export const factory = S.Factory({
   // declaration, never a live registration.
   on: {
     "issue.opened": { flow: "issue", description: "Triage every new issue" },
-    "issue.labeled:smithers": { flow: "implement", description: "Implement an issue labeled smithers" },
+    // The stack service itself runs these three rows: it implements every
+    // TODO (an issue a maintainer labeled todo) as a Change on the mythical
+    // history, reviews the pull request each Change opens or updates, and
+    // merges it once the review approves a TODO a maintainer also labeled
+    // automerge. Anyone else's todo or automerge label is taken off.
+    "issue.labeled:todo": { flow: "coding/request", description: "Implement every TODO" },
     "change.opened": { flow: "review", description: "Review every Change" },
     "change.updated": { flow: "review", description: "Review every Change" },
     // The stack service itself folds main into the mythical history after

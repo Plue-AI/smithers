@@ -66,10 +66,9 @@ func TestMythicalOutsiderLaneIsMarkedBeforeItIsProvisioned(t *testing.T) {
 		require.True(t, ok, "the lane was provisioned")
 		return provisioned
 	}
-	assert.True(t, markedAtProvision(mythicalIssue{Number: 51, Title: "Outsider", Body: "fix", State: "open", Labels: []string{"smithers"}},
-		gitHubLabelApplication{Label: "smithers", ByMaintainer: true}))
-	assert.False(t, markedAtProvision(mythicalIssue{Number: 52, Title: "Maintainer", Body: "fix", State: "open", TextByMaintainer: true},
-		gitHubLabelApplication{}))
+	assert.True(t, markedAtProvision(mythicalIssue{Number: 51, Title: "Outsider", Body: "fix", State: "open", Labels: []string{"todo"}}, maintainerTodo))
+	assert.False(t, markedAtProvision(mythicalIssue{Number: 52, Title: "Maintainer", Body: "fix", State: "open", TextByMaintainer: true, Labels: []string{"todo"}},
+		maintainerTodo))
 }
 
 type recordingOutsiderEgress struct {

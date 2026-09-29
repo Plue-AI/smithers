@@ -21,6 +21,9 @@ type mythicalGitHubRepo struct {
 	Owner, Name string
 	Token       string
 	GitURL      string
+	// userID and orgID own the repository; the stack's two API writes mint
+	// their own narrow installation tokens for it (Merge, RemoveLabel).
+	userID, orgID int64
 }
 
 // mythicalIssue is what admission reads of one GitHub issue.
@@ -66,6 +69,13 @@ type mythicalGitHub interface {
 	Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error)
 	FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error)
 	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string) (mythicalPull, error)
+	// Merge squash-merges a pull request only while its head is head, and
+	// answers the merge commit.
+	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error)
+	// LabelApplier answers who last applied label to an issue, or nil.
+	LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*gitHubActor, error)
+	// RemoveLabel takes label off an issue; an absent label is removed.
+	RemoveLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error
 }
 
 // MythicalGitHubStore is what resolving a destination reads.
@@ -140,7 +150,8 @@ func (g *mythicalGitHubAPI) Resolve(ctx context.Context, repository db.Repositor
 	if err != nil {
 		return mythicalGitHubRepo{}, pkgerrors.Internal("build GitHub destination URL").WithCause(err)
 	}
-	return mythicalGitHubRepo{Owner: ghOwner, Name: ghRepo, Token: token, GitURL: gitURL}, nil
+	return mythicalGitHubRepo{Owner: ghOwner, Name: ghRepo, Token: token, GitURL: gitURL,
+		userID: repository.UserID.Int64, orgID: repository.OrgID.Int64}, nil
 }
 
 type mythicalGitHubIssue struct {
@@ -259,4 +270,86 @@ func (g *mythicalGitHubAPI) CreatePull(ctx context.Context, gh mythicalGitHubRep
 		return mythicalPull{}, err
 	}
 	return mythicalGitHubPull{landingGitHubPullRequest: *created}.pull(), nil
+}
+
+// writeToken mints an installation token holding only permissions.
+func (g *mythicalGitHubAPI) writeToken(ctx context.Context, gh mythicalGitHubRepo, permissions map[string]string) (string, error) {
+	installation, err := g.tokens.CreateGitHubInstallationTokenForRepositoryOwner(ctx, gh.userID, gh.orgID, gh.Owner, gh.Name, permissions)
+	if err != nil {
+		return "", err
+	}
+	if token := strings.TrimSpace(installation.Token); token != "" {
+		return token, nil
+	}
+	return "", pkgerrors.BadRequest("github app is not installed for this repository")
+}
+
+// Merge is the stack's one write to GitHub main. The sha pins the merge to
+// the reviewed head: GitHub refuses it (409) once the branch moved.
+func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error) {
+	token, err := g.writeToken(ctx, gh, map[string]string{"contents": "write", "pull_requests": "write"})
+	if err != nil {
+		return "", err
+	}
+	var merged struct {
+		SHA    string `json:"sha"`
+		Merged bool   `json:"merged"`
+	}
+	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/pulls/" + strconv.FormatInt(number, 10) + "/merge"
+	status, err := g.api.request(ctx, token, http.MethodPut, path, map[string]string{"sha": head, "merge_method": "squash"}, &merged)
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK || !merged.Merged {
+		return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "merge pull requests")
+	}
+	return merged.SHA, nil
+}
+
+func (g *mythicalGitHubAPI) RemoveLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error {
+	token, err := g.writeToken(ctx, gh, map[string]string{"issues": "write"})
+	if err != nil {
+		return err
+	}
+	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/labels/" + url.PathEscape(label)
+	status, err := g.api.request(ctx, token, http.MethodDelete, path, nil, nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK && status != http.StatusNotFound {
+		return landingGitHubStatusError(status, gh.Owner, gh.Name, "edit issue labels")
+	}
+	return nil
+}
+
+// LabelApplier reads the issue's events, bounded to 10 pages of 100.
+func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*gitHubActor, error) {
+	var applier *gitHubActor
+	for page := 1; page <= 10; page++ {
+		var events []struct {
+			Event string      `json:"event"`
+			Actor gitHubActor `json:"actor"`
+			Label struct {
+				Name string `json:"name"`
+			} `json:"label"`
+		}
+		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/events?per_page=100&page=" + strconv.Itoa(page)
+		status, err := g.api.request(ctx, gh.Token, http.MethodGet, path, nil, &events)
+		if err != nil {
+			return nil, err
+		}
+		if status != http.StatusOK {
+			return nil, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue events")
+		}
+		for _, event := range events {
+			if event.Event == "labeled" && strings.EqualFold(event.Label.Name, label) {
+				actor := event.Actor
+				applier = &actor
+			}
+		}
+		if len(events) < 100 {
+			break
+		}
+	}
+	return applier, nil
 }

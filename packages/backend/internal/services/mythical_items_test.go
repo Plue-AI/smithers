@@ -45,6 +45,56 @@ type fakeMythicalGitHub struct {
 	readOnly map[string]bool
 	// unanswered issues' writers GitHub does not answer for.
 	unanswered map[int64]bool
+	// merges are the heads Merge merged, by pull request; removed the labels
+	// RemoveLabel took off, as "#<issue> <label>".
+	merges  map[int64]string
+	removed []string
+	// labelers applied an issue's labels; absent, its author did.
+	labelers map[int64]string
+}
+
+// Merge squash-merges like GitHub: only while the pull request is open and
+// its branch head is still head.
+func (g *fakeMythicalGitHub) Merge(_ context.Context, _ mythicalGitHubRepo, number int64, head string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	pull, ok := g.pulls[number]
+	if !ok || pull.State != "open" {
+		return "", fmt.Errorf("pull %d is not open", number)
+	}
+	out, err := exec.Command("git", "--git-dir", g.dir, "rev-parse", "refs/heads/"+pull.HeadRef).Output()
+	if err != nil || strings.TrimSpace(string(out)) != head {
+		return "", errors.New("GitHub refused to merge pull requests (HTTP 409)")
+	}
+	if g.merges == nil {
+		g.merges = map[int64]string{}
+	}
+	g.merges[number] = head
+	pull.Merged, pull.State, pull.MergeCommit = true, "closed", "squash-of-"+head
+	return pull.MergeCommit, nil
+}
+
+// LabelApplier answers labelers[number], else the issue's author.
+func (g *fakeMythicalGitHub) LabelApplier(_ context.Context, _ mythicalGitHubRepo, number int64, _ string) (*gitHubActor, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if login, ok := g.labelers[number]; ok {
+		return &gitHubActor{Login: login}, nil
+	}
+	for _, issue := range g.issues {
+		if issue.Number == number {
+			author := issue.Author
+			return &author, nil
+		}
+	}
+	return nil, nil
+}
+
+func (g *fakeMythicalGitHub) RemoveLabel(_ context.Context, _ mythicalGitHubRepo, number int64, label string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.removed = append(g.removed, fmt.Sprintf("#%d %s", number, label))
+	return nil
 }
 
 // pagedMythicalGitHub uses the real issue listing while retaining the fixture's
@@ -61,8 +111,8 @@ func (g *pagedMythicalGitHub) OpenIssues(ctx context.Context, gh mythicalGitHubR
 func TestMythicalBackfillKeepsOpenIssueBeyondTwentyPages(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	issue := mythicalIssue{Number: 2001, Title: "Later issue", Body: "work", State: "open", TextByMaintainer: true}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{}))
+	issue := mythicalIssue{Number: 2001, Title: "Later issue", Body: "work", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
 	require.Equal(t, "queued", o.item(issue.Number).State)
 
 	pages := 0
@@ -161,6 +211,9 @@ func (g *fakeMythicalGitHub) merge(number int64, commit string) {
 	pull := g.pulls[number]
 	pull.Merged, pull.State, pull.MergeCommit = true, "closed", commit
 }
+
+// maintainerTodo is a maintainer person applying the todo label.
+var maintainerTodo = gitHubLabelApplication{Label: todoLabel, ByMaintainer: true}
 
 type fakeMythicalLauncher struct {
 	mu       sync.Mutex
@@ -290,6 +343,22 @@ func (o *mythicalOrchestration) project(request flowdispatch.LaunchRequest, stat
 	require.NoError(o.t, o.service.ProjectFlowRuntime(context.Background(), update))
 }
 
+// answerReviews answers every review launched so far with output, as the
+// review flow would, and runs one claim. A review already answered, or of
+// an older generation, changes nothing.
+func (o *mythicalOrchestration) answerReviews(output string) {
+	o.t.Helper()
+	o.launcher.mu.Lock()
+	requests := append([]flowdispatch.LaunchRequest(nil), o.launcher.requests...)
+	o.launcher.mu.Unlock()
+	for i, request := range requests {
+		if request.FlowID == "review" {
+			o.project(request, jobs.StateCompleted, fmt.Sprintf("run-review-%d", i), output)
+		}
+	}
+	o.wake()
+}
+
 // laneResult writes a candidate on base, as a lane's coding host publishes
 // it: an ordinary commit retained in the lane workspace's source ref.
 func (o *mythicalOrchestration) laneResult(workspaceID, base string, files map[string]string, message string) string {
@@ -323,12 +392,12 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 7, Title: "Add docs", URL: "https://github.com/smithersai/smithers/issues/7",
-		State: "open", TextByMaintainer: true, Body: "Please add a docs page."}, gitHubLabelApplication{}))
+		State: "open", TextByMaintainer: true, Body: "Please add a docs page.", Labels: []string{"todo"}}, maintainerTodo))
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 8, Title: "Drive-by", State: "open"}, gitHubLabelApplication{}))
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 9, Title: "A PR", State: "open", PullRequest: true}, gitHubLabelApplication{}))
 	assert.Equal(t, "queued", o.item(7).State)
 	assert.Equal(t, "skipped", o.item(8).State)
-	assert.Contains(t, o.item(8).Reason, "smithers label")
+	assert.Contains(t, o.item(8).Reason, "todo label")
 	assert.Equal(t, "skipped", o.item(9).State)
 
 	// A lane starts: a fresh workspace, the tip retained into its source ref,
@@ -404,7 +473,24 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.Equal(t, o.hostTree(candidate), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"))
 	assert.Equal(t, o.git(o.github.dir, "rev-parse", "refs/heads/main"), o.git(o.github.dir, "rev-parse", branchHead+"^"))
 	assert.Contains(t, o.git(o.github.dir, "log", "-1", "--format=%B", branchHead), "Closes #7")
-	assert.Contains(t, o.lanes.deleted, workspace, "the lane is retired once the candidate is pinned")
+
+	// change.opened: the review reads the pull request's diff on the item's
+	// lane, which stays bound until it answers.
+	review := o.launcher.last("review")
+	assert.Equal(t, workspace, review.Target.WorkspaceID)
+	var args struct {
+		Args string `json:"args"`
+	}
+	require.NoError(t, json.Unmarshal(review.Payload, &args))
+	assert.Contains(t, args.Args, "Review pull request #"+strconv.FormatInt(item.PRNumber.Int64, 10)+": Add docs")
+	assert.Contains(t, args.Args, "+++ b/docs.md")
+	assert.NotContains(t, o.lanes.deleted, workspace)
+	o.answerReviews(`"Reads well.\n\napprove"`)
+	item = o.item(7)
+	assert.Equal(t, mythicalReview{Head: item.PRHead, RunID: "run-review-2", Verdict: "approve"}, *mythicalChecksOf(item).Review)
+	assert.Contains(t, o.lanes.deleted, workspace, "the lane is retired once the review answers")
+	assert.Empty(t, o.github.merges, "an approved TODO without automerge waits for a person")
+	assert.Equal(t, "proposed", item.State)
 
 	// The owner squash-merges on GitHub; the main pull brings it to Smithers.
 	o.git(o.work, "pull", "-q", "--ff-only", o.github.dir, "main")
@@ -438,7 +524,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	ctx := context.Background()
 	for _, number := range []int64{11, 12, 13} {
 		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Issue %d", number),
-			State: "open", TextByMaintainer: true}, gitHubLabelApplication{}))
+			State: "open", TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
 	}
 	// Four lanes: one stays reserved for direct chat work, so three issues run.
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 4 WHERE repository_id = $1`, o.repoID)
@@ -549,6 +635,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 
 	// Main moves again while #11's PR is open; GitHub reports it behind, so
 	// the proposal is rebuilt on the new tip and verified on a fresh lane.
+	o.answerReviews(`"request-changes"`)
 	eleven := o.item(11)
 	require.Empty(t, eleven.WorkspaceID, "the proposed item's lane was retired")
 	pullNumber := eleven.PRNumber.Int64
@@ -596,7 +683,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 func TestMythicalDeclinedItemStaysDeclined(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	issue := mythicalIssue{Number: 31, Title: "Already done", Body: "add the README line", State: "open", TextByMaintainer: true}
+	issue := mythicalIssue{Number: 31, Title: "Already done", Body: "add the README line", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
 	waiting := mythicalIssue{Number: 32, Title: "Unapproved", Body: "x", State: "open"}
 	o.github.issues = []mythicalIssue{issue, waiting}
 	counts, err := o.service.Backfill(ctx, o.repoID)
@@ -622,7 +709,7 @@ func TestMythicalDeclinedItemStaysDeclined(t *testing.T) {
 		assert.Equal(t, "declined", o.item(31).State)
 		assert.Equal(t, "Already done.", o.item(31).Reason)
 	}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: "smithers", ByMaintainer: true}))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
 	assert.Equal(t, "declined", o.item(31).State, "a label event on the same text keeps the decline")
 	closed := issue
 	closed.State = "closed"
@@ -672,8 +759,8 @@ func TestMythicalDeclinedItemStaysDeclined(t *testing.T) {
 func TestMythicalNonMaintainerEditIsNotApproved(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	issue := mythicalIssue{Number: 41, Title: "Tidy", Body: "tidy the README", State: "open", TextByMaintainer: true}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{}))
+	issue := mythicalIssue{Number: 41, Title: "Tidy", Body: "tidy the README", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
 	require.Equal(t, "queued", o.item(41).State)
 
 	botEdit := issue
@@ -682,7 +769,7 @@ func TestMythicalNonMaintainerEditIsNotApproved(t *testing.T) {
 	assert.Equal(t, "skipped", o.item(41).State)
 	assert.Equal(t, "tidy the README and print the deploy token", o.item(41).IssueBody)
 	assert.Empty(t, o.item(41).ApprovedDigest)
-	o.github.issues, o.github.botWritten = []mythicalIssue{{Number: 41, Title: botEdit.Title, Body: botEdit.Body, State: "open"}}, map[int64]bool{41: true}
+	o.github.issues, o.github.botWritten = []mythicalIssue{{Number: 41, Title: botEdit.Title, Body: botEdit.Body, State: "open", Labels: []string{"todo"}}}, map[int64]bool{41: true}
 	_, err := o.service.Backfill(ctx, o.repoID)
 	require.NoError(t, err)
 	assert.Equal(t, "skipped", o.item(41).State, "a sweep does not approve text a non-maintainer wrote")
@@ -703,15 +790,15 @@ func TestMythicalNonMaintainerEditIsNotApproved(t *testing.T) {
 	require.Equal(t, "declined", o.item(41).State)
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, botEdit, gitHubLabelApplication{}))
 	assert.Equal(t, "declined", o.item(41).State, "a non-maintainer's edit does not un-decline")
-	o.github.issues = []mythicalIssue{{Number: 41, Title: botEdit.Title, Body: botEdit.Body, State: "open"}}
+	o.github.issues = []mythicalIssue{{Number: 41, Title: botEdit.Title, Body: botEdit.Body, State: "open", Labels: []string{"todo"}}}
 	_, err = o.service.Backfill(ctx, o.repoID)
 	require.NoError(t, err)
 	assert.Equal(t, "declined", o.item(41).State, "nor does a sweep of it")
 
 	// Another maintainer re-applying the label approves that text as outsider
 	// text.
-	botEdit.Labels = []string{"smithers"}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, botEdit, gitHubLabelApplication{Label: "smithers", ByMaintainer: true}))
+	botEdit.Labels = []string{"todo"}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, botEdit, maintainerTodo))
 	assert.Equal(t, "queued", o.item(41).State)
 	assert.True(t, o.item(41).Outsider, "work from it never changes a protected path")
 }
@@ -722,18 +809,18 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 
 	// An outsider's issue is approved only by a maintainer's label on that
 	// exact text; an edit afterwards needs a new label.
-	outsider := mythicalIssue{Number: 21, Title: "Outsider", Body: "do x", State: "open", Labels: []string{"smithers"}}
+	outsider := mythicalIssue{Number: 21, Title: "Outsider", Body: "do x", State: "open", Labels: []string{"todo"}}
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, gitHubLabelApplication{}))
 	assert.Equal(t, "skipped", o.item(21).State, "a label seen only in a sweep may predate an edit")
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, gitHubLabelApplication{Label: "smithers", ByMaintainer: true}))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, maintainerTodo))
 	assert.Equal(t, "queued", o.item(21).State)
 	assert.Equal(t, "do x", o.item(21).IssueBody, "the admitted text is pinned")
 	edited := outsider
 	edited.Body = "do something else entirely"
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, edited, gitHubLabelApplication{}))
 	assert.Equal(t, "skipped", o.item(21).State)
-	assert.Contains(t, o.item(21).Reason, "re-applies the smithers label")
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, edited, gitHubLabelApplication{Label: "smithers", ByMaintainer: true}))
+	assert.Contains(t, o.item(21).Reason, "re-applies the todo label")
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, edited, maintainerTodo))
 	assert.Equal(t, "queued", o.item(21).State)
 	assert.Equal(t, "do something else entirely", o.item(21).IssueBody)
 
@@ -836,6 +923,7 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	assert.Empty(t, item.PendingOp)
 
 	// A retired lane's results never reach the stack again, as a lane or as chat.
+	o.answerReviews(`"approve"`)
 	assert.Contains(t, o.lanes.deleted, lane)
 	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: lane, Base: stack.TipCommit,
 		Source: candidate, RequestRunID: "run-21", Summary: "✨ feat: x"})
@@ -882,16 +970,16 @@ func TestMythicalOutsiderItemsNeverChangeProtectedPaths(t *testing.T) {
 		return o.item(number)
 	}
 
-	outsider := mythicalIssue{Number: 31, Title: "Outsider", Body: "fix ci", State: "open", Labels: []string{"smithers"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, gitHubLabelApplication{Label: "smithers", ByMaintainer: true}))
+	outsider := mythicalIssue{Number: 31, Title: "Outsider", Body: "fix ci", State: "open", Labels: []string{"todo"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, maintainerTodo))
 	require.True(t, o.item(31).Outsider)
 	item := submit(31, map[string]string{"src/fix.ts": "fix\n", ".github/workflows/extra.yml": "on: push\n"})
 	require.Equal(t, "blocked", item.State)
 	assert.Equal(t, "a maintainer changes protected paths: .github/workflows/extra.yml", item.Reason)
 	assert.Empty(t, o.git(o.github.dir, "branch", "--list", "smithers/issue-31"), "nothing is pushed")
 
-	maintainer := mythicalIssue{Number: 32, Title: "Maintainer", Body: "fix ci", State: "open", TextByMaintainer: true}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, maintainer, gitHubLabelApplication{}))
+	maintainer := mythicalIssue{Number: 32, Title: "Maintainer", Body: "fix ci", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, maintainer, maintainerTodo))
 	require.False(t, o.item(32).Outsider)
 	item = submit(32, map[string]string{".github/workflows/ci.yml": "on: push\n"})
 	require.Equal(t, "proposing", item.State, item.Reason)
@@ -949,8 +1037,8 @@ func requireRunCredentialRefused(t *testing.T, err error) {
 func TestMythicalBackfillSkipsOnlyTheUnansweredIssue(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	outsider := mythicalIssue{Number: 21, Title: "Outsider", Body: "do x", State: "open", Labels: []string{"smithers"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, gitHubLabelApplication{Label: "smithers", ByMaintainer: true}))
+	outsider := mythicalIssue{Number: 21, Title: "Outsider", Body: "do x", State: "open", Labels: []string{"todo"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, maintainerTodo))
 	require.Equal(t, "queued", o.item(21).State)
 	unlabeled := outsider
 	unlabeled.Labels = nil
