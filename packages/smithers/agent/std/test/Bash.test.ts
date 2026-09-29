@@ -703,6 +703,31 @@ describe("Bash", () => {
       .toThrow("timeoutMs must be a number of milliseconds")
   })
 
+  it.each([
+    ["bash", ["-c", "printf replaced", ""], ["-s", "--", "-c", "printf replaced", ""]],
+    ["sh", ["-x", ""], ["-s", "--", "-x", ""]],
+    ["node", ["ordinary-argument", "-x", ""], ["-", "ordinary-argument", "-x", ""]],
+    ["ruby", ["ordinary-argument", "-x", ""], ["-", "ordinary-argument", "-x", ""]],
+    ["perl", ["ordinary-argument", "-x", ""], ["-", "ordinary-argument", "-x", ""]]
+  ])("selects stdin before %s script arguments", async (interpreter, args, expected) => {
+    const spawns: Array<Spawned> = []
+    await execute(Effect.provide(
+      Bash.run({ mode: "unhermetic", interpreter, script: "print stdin", args }),
+      recorder(spawns)
+    ))
+    expect(spawns[0]).toMatchObject({ file: interpreter, args: expected, stdin: "print stdin" })
+  })
+
+  it("refuses unknown script interpreters before spawning", async () => {
+    const spawns: Array<Spawned> = []
+    const exit = await execute(Effect.exit(Effect.provide(
+      Bash.run({ mode: "unhermetic", interpreter: "unknown", script: "print stdin", args: ["file"] }),
+      recorder(spawns)
+    )))
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(spawns).toEqual([])
+  })
+
   it("hands a script to its interpreter as data, never as a quoted line", async () => {
     const spawns: Array<Spawned> = []
     const script = "import sys\nprint('single ' + \"double\" + `back` + '''triple''')\n"
@@ -735,7 +760,7 @@ describe("Bash", () => {
       Bash.run({ mode: "unhermetic", command: "cat", stdin: "payload" }),
       recorder(spawns)
     ))
-    expect(spawns[0]).toMatchObject({ file: "bash", args: ["-s"], stdin: "echo hello", shell: false })
+    expect(spawns[0]).toMatchObject({ file: "bash", args: ["-s", "--"], stdin: "echo hello", shell: false })
     expect(spawns[1]).toMatchObject({ file: "cat", args: [], stdin: "payload", shell: true })
   })
 
@@ -754,7 +779,7 @@ describe("Bash", () => {
       Bash.run({ mode: "hermetic", command: "echo hello", reads: [], writes: [] }),
       recorder(spawns)
     ))
-    expect(spawns[0]).toMatchObject({ file: "bash", args: ["-s"], stdin: "echo hello" })
+    expect(spawns[0]).toMatchObject({ file: "bash", args: ["-s", "--"], stdin: "echo hello" })
     expect(spawns[1]).toMatchObject({ file: "echo hello", shell: true })
     for (const spawn of spawns) {
       expect(spawn.args ?? []).not.toContain("-l")
@@ -880,7 +905,7 @@ describe("Bash", () => {
     ))
     expect(commands(spawns)[0]).toMatchObject({
       file: "docker",
-      args: ["exec", "-i", "--", "swebench-1", "bash", "-lc", `exec "$@"`, "bash", "bash", "-s"],
+      args: ["exec", "-i", "--", "swebench-1", "bash", "-lc", `exec "$@"`, "bash", "bash", "-s", "--"],
       stdin: "echo hello"
     })
   })

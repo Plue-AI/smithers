@@ -289,27 +289,25 @@ export const presentation = {
 } as const
 
 /**
- * How each known interpreter is told to read its program from standard input.
- *
- * No login flag appears here. Inside a container every invocation is wrapped in
- * a login shell by {@link request}, and a local spawn already inherits the
- * host's environment, so the interpreter is asked for nothing but "read the
- * program from stdin".
+ * Select standard input explicitly. Shells need `--` before script arguments
+ * so even an argument such as `-c` cannot replace the stdin program.
+ * Other supported interpreters treat arguments after `-` as program data.
  */
-const stdinArguments = (interpreter: string): ReadonlyArray<string> => {
+const stdinArguments = (interpreter: string): ReadonlyArray<string> | undefined => {
   switch (interpreter) {
     case "bash":
     case "zsh":
     case "sh":
     case "dash":
-      return ["-s"]
+      return ["-s", "--"]
     case "python":
     case "python3":
+    case "node":
+    case "ruby":
+    case "perl":
       return ["-"]
     default:
-      // node, ruby, perl and their kin read a program from standard input when
-      // they are given no file to run.
-      return []
+      return undefined
   }
 }
 
@@ -358,7 +356,11 @@ const plan = (input: Input): Plan | StdError.StdError => {
   if (input.command !== undefined) {
     return { file: input.command, args: undefined, stdin: input.stdin, env: input.env, quoted: input.command }
   }
-  const args = [...stdinArguments(interpreter), ...(input.args ?? [])]
+  const selector = stdinArguments(interpreter)
+  if (selector === undefined) {
+    return invalid(`Unsupported script interpreter: ${interpreter}`)
+  }
+  const args = [...selector, ...(input.args ?? [])]
   return {
     file: interpreter,
     args,

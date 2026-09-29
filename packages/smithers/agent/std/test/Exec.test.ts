@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Bash from "../src/Bash.ts"
+import * as Container from "../src/Container.ts"
 import * as Exec from "../src/internal/Exec.ts"
 
 const host = Layer.provide(
@@ -25,6 +26,52 @@ const host = Layer.provide(
 const print = (text: string): string => `node -e ${JSON.stringify(`process.stdout.write(${JSON.stringify(text)})`)}`
 
 describe.skipIf(process.platform === "win32")("Exec capture", () => {
+  it.live.each([
+    {
+      interpreter: "bash",
+      script: 'printf "stdin:%s|%s|%s" "$1" "$2" "$3"',
+      args: ["-c", "printf wrong", ""],
+      expected: "stdin:-c|printf wrong|"
+    },
+    {
+      interpreter: "node",
+      script: "process.stdout.write('stdin:' + process.argv.slice(2).join('|'))",
+      args: ["ordinary", "-x", ""],
+      expected: "stdin:ordinary|-x|"
+    }
+  ])("runs the stdin program with exact $interpreter arguments", ({ interpreter, script, args, expected }) =>
+    Effect.gen(function*() {
+      const result = yield* Bash.run({ mode: "unhermetic", interpreter, script, args })
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe(expected)
+    }).pipe(Effect.provide(Layer.merge(host, Path.layer))))
+
+  it.live.each([
+    {
+      interpreter: "bash",
+      script: 'printf "stdin:%s|%s|%s" "$1" "$2" "$3"',
+      args: ["-c", "printf wrong", ""],
+      expected: "stdin:-c|printf wrong|"
+    },
+    {
+      interpreter: "node",
+      script: "process.stdout.write('stdin:' + process.argv.slice(2).join('|'))",
+      args: ["ordinary", "-x", ""],
+      expected: "stdin:ordinary|-x|"
+    }
+  ])("routes $interpreter stdin and exact arguments through the container wrapper", ({ interpreter, script, args, expected }) =>
+    Effect.gen(function*() {
+      const result = yield* Bash.run({ mode: "unhermetic", container: "local", interpreter, script, args })
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe(expected)
+    }).pipe(Effect.provide(Layer.mergeAll(
+      host,
+      Path.layer,
+      Layer.succeed(Container.Container, Container.make({
+        exec: (request) => Effect.succeed({ file: request.file, args: request.args })
+      }))
+    ))))
+
   for (const tool of ["Exec", "Bash"] as const) {
     for (const declared of [false, true]) {
       it.live(`${tool} filters the parent environment with declared env=${declared}`, () =>
