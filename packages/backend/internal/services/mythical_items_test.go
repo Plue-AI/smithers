@@ -626,7 +626,9 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 		twelve = o.item(12)
 		require.Equal(t, "running", twelve.State, twelve.Reason)
 		require.EqualValues(t, attempt, twelve.Attempt)
-		o.project(o.launcher.last("coding/request"), jobs.StateFailed, fmt.Sprintf("run-12-%d", attempt), `{}`)
+		// A plan failure spends an attempt; an outage would not.
+		o.project(o.launcher.last("coding/request"), jobs.StateFailed, fmt.Sprintf("run-12-%d", attempt),
+			`{"_tag":"coding/Error","code":"fast_gate","message":"the fast check failed"}`)
 		o.wake()
 	}
 	twelve = o.item(12)

@@ -92,7 +92,7 @@ func TestMythicalPolicy_RetryAndTransientDelayPreserveItem(t *testing.T) {
 			want.State = "retrying"
 			want.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(30 * time.Second), Valid: true}
 		} else {
-			want.State = "blocked"
+			want.State, want.Reason = "blocked", "very hard: new failure"
 		}
 		got := mythicalRetry(item, "new failure", now)
 		require.Equal(t, &want, got, "attempt %d", attempt)

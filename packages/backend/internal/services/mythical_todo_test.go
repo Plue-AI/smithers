@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -253,7 +255,59 @@ func TestMythicalTodoStopsAtItsSpendCap(t *testing.T) {
 
 func TestMythicalTodoTokenCapReadsOnlyAPositiveNumber(t *testing.T) {
 	t.Parallel()
-	for configured, want := range map[string]int64{"": 200_000_000, "abc": 200_000_000, "0": 200_000_000, "-5": 200_000_000, " 300000000 ": 300_000_000} {
+	for configured, want := range map[string]int64{"": 800_000_000, "abc": 800_000_000, "0": 800_000_000, "-5": 800_000_000, " 300000000 ": 300_000_000} {
 		assert.Equal(t, want, mythicalTodoTokenCap(configured), configured)
+	}
+}
+
+// An outage is not the plan's failure: three provider quota failures cost
+// the TODO no attempt, and the prompt never says the work failed.
+func TestMythicalOutagesSpendNoAttempt(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 95, Title: "Outage", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	quota := `{"_tag":"flows/model/ModelError","code":"quota_exceeded","message":"no credits remaining"}`
+	for i := range 3 {
+		o.wake()
+		require.Equal(t, "running", o.item(95).State)
+		o.project(o.launcher.last("coding/request"), jobs.StateFailed, fmt.Sprintf("run-quota-%d", i), quota)
+		o.wake()
+		item := o.item(95)
+		require.Equal(t, "retrying", item.State)
+		assert.EqualValues(t, 0, item.Attempt, "the attempt is run again, not spent")
+		assert.Equal(t, "outage: failed; this is not the TODO's fault, Smithers retries it", item.Reason)
+	}
+	o.propose(95, "ninety-five.md")
+	item := o.item(95)
+	assert.EqualValues(t, 1, item.Attempt, "it lands on its first attempt")
+	assert.Equal(t, "proposed", item.State)
+	var payload struct {
+		Prompt string `json:"prompt"`
+	}
+	require.NoError(t, json.Unmarshal(o.launcher.last("coding/request").Payload, &payload))
+	assert.NotContains(t, payload.Prompt, "did not finish")
+}
+
+// A typed plan failure still spends an attempt, and an unparseable or
+// bridge-refused failure is an outage.
+func TestMythicalRunOutcomeSeparatesPlanFailuresFromOutages(t *testing.T) {
+	t.Parallel()
+	failed := func(output, code string) flowdispatch.ProjectionUpdate {
+		return flowdispatch.ProjectionUpdate{State: jobs.StateFailed, Checkpoint: flowdispatch.RuntimeCheckpoint{FailureCode: code,
+			Run: &flowruntime.FlowRuntimeRun{FinalOutput: &output}}}
+	}
+	for _, tc := range []struct {
+		update flowdispatch.ProjectionUpdate
+		want   string
+	}{
+		{failed(`{"_tag":"coding/Error","code":"fast_gate","message":"a.ts failed"}`, ""), "failed: fast_gate"},
+		{failed(`{"_tag":"coding/Error","code":"stalled","message":"x"}`, ""), "failed: stalled"},
+		{failed(`{"_tag":"coding/Error","code":"unavailable","message":"Jev down"}`, ""), "outage: failed"},
+		{failed(`{"_tag":"coding/Error","code":"fast_gate","message":"x"}`, "runtime_binding_unavailable"), "outage: runtime_binding_unavailable"},
+		{failed("not json", ""), "outage: failed"},
+		{flowdispatch.ProjectionUpdate{State: jobs.StateCancelled}, "outage: cancelled"},
+	} {
+		assert.Equal(t, tc.want, mythicalRunOutcome("request", tc.update))
 	}
 }

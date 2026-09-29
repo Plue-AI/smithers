@@ -65,7 +65,7 @@ const (
 // SMITHERS_TODO_TOKEN_CAP overrides it. The stop is the factory's fault, never
 // the author's: its reason starts with mythicalBudgetExceeded.
 const (
-	mythicalTodoTokenCapDefault = int64(200_000_000)
+	mythicalTodoTokenCapDefault = int64(800_000_000)
 	mythicalBudgetExceeded      = "budget_exceeded"
 )
 
@@ -632,7 +632,10 @@ func mythicalRunOutcome(phase string, update flowdispatch.ProjectionUpdate) stri
 		if code == "" {
 			code = string(update.State)
 		}
-		return "failed: " + code
+		if planCode, ok := mythicalPlanFailure(update); ok {
+			return "failed: " + planCode
+		}
+		return mythicalOutage + code
 	default:
 		return ""
 	}
@@ -695,6 +698,30 @@ func mythicalReviewVerdict(output string) string {
 		}
 	}
 	return verdict
+}
+
+// mythicalPlanFailures are the typed coding failures (flows/coding/schema.ts
+// CodingError) a plan causes: an invalid plan, a Change its checks refused,
+// a correction that stalled. Every other failure is an outage.
+var mythicalPlanFailures = map[string]bool{"invalid_plan": true, "fast_gate": true, "stalled": true}
+
+// mythicalPlanFailure reads the typed error a failed run ended with, and
+// reports its code when the plan caused it. A run the bridge refused or that
+// was cancelled, and an untyped failure, did not fail because of its plan.
+func mythicalPlanFailure(update flowdispatch.ProjectionUpdate) (string, bool) {
+	if update.State != jobs.StateFailed || strings.TrimSpace(update.Checkpoint.FailureCode) != "" ||
+		update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
+		return "", false
+	}
+	var failure struct {
+		Tag  string `json:"_tag"`
+		Code string `json:"code"`
+	}
+	if json.Unmarshal([]byte(*update.Checkpoint.Run.FinalOutput), &failure) != nil || failure.Tag != "coding/Error" ||
+		!mythicalPlanFailures[failure.Code] {
+		return "", false
+	}
+	return failure.Code, true
 }
 
 var mythicalDeclinedPattern = regexp.MustCompile(`"code"\s*:\s*"declined"\s*,\s*"message"\s*:\s*"((?:[^"\\]|\\.)*)"`)
@@ -972,11 +999,33 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 func mythicalRetry(item db.MythicalItem, reason string, now time.Time) *db.MythicalItem {
 	next := item
 	if item.Attempt >= mythicalAttempts {
-		next.State, next.Reason = "blocked", reason
+		// Every attempt's plan failed: the replan limit. A person retries it.
+		next.State, next.Reason = "blocked", mythicalVeryHard+reason
 		return &next
 	}
 	next.State, next.Reason = "retrying", reason
 	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(30 * time.Second), Valid: true}
+	return &next
+}
+
+// mythicalVeryHard prefixes the reason of an item whose every attempt's plan
+// failed (mythicalRetry).
+const mythicalVeryHard = "very hard: "
+
+// mythicalOutage prefixes a run outcome no plan caused: the runtime, a model
+// provider or Jev failed, or the run was cancelled (mythicalRunOutcome).
+const mythicalOutage = "outage: "
+
+// mythicalOutageRetry runs the item's attempt again without spending one:
+// an outage is never the plan's failure, so the next prompt does not say the
+// work failed, and outages alone never block an item (the spend cap bounds
+// them).
+func mythicalOutageRetry(item db.MythicalItem, outcome string, now time.Time) *db.MythicalItem {
+	next := item
+	next.State = "retrying"
+	next.Attempt = item.Attempt - 1 // start runs this same attempt again
+	next.Reason = outcome + "; this is not the TODO's fault, Smithers retries it"
+	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(2 * time.Minute), Valid: true}
 	return &next
 }
 
@@ -1005,12 +1054,17 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			next := item
 			next.State, next.Reason = "declined", strings.TrimPrefix(outcome, "declined: ")
 			return &next, false, nil
+		case strings.HasPrefix(outcome, mythicalOutage):
+			return mythicalOutageRetry(item, outcome, st.now), false, nil
 		default:
 			return mythicalRetry(item, "the lane's request ended "+outcome, st.now), false, nil
 		}
 	case "delivering":
 		if item.VibeOutcome == "" || item.VibeOutcome == "submitted" {
 			return nil, false, nil
+		}
+		if strings.HasPrefix(item.VibeOutcome, mythicalOutage) {
+			return mythicalOutageRetry(item, item.VibeOutcome, st.now), false, nil
 		}
 		return mythicalRetry(item, "delivering the result "+item.VibeOutcome, st.now), false, nil
 	case "integrating":
@@ -1023,6 +1077,8 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			next := item
 			next.CandidateVerified, next.State, next.Reason = true, "proposing", ""
 			return &next, false, nil
+		case strings.HasPrefix(outcome, mythicalOutage):
+			return mythicalOutageRetry(item, outcome, st.now), false, nil
 		default:
 			return mythicalRetry(item, "checks on the rebased result "+outcome, st.now), false, nil
 		}
@@ -1272,7 +1328,7 @@ func (st *mythicalItemStep) prompt(item db.MythicalItem, attempt int32) string {
 			}
 		}
 	}
-	if attempt > 1 && item.Reason != "" {
+	if attempt > 1 && item.Reason != "" && !strings.HasPrefix(item.Reason, mythicalOutage) {
 		fmt.Fprintf(&b, "\nAn earlier attempt did not finish: %s\n", item.Reason)
 	}
 	if attempt >= mythicalAttempts {
@@ -1685,7 +1741,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	checks := mythicalChecksOf(item)
 	switch review := checks.Review; {
-	case review == nil || review.Head != item.PRHead:
+	case review == nil || review.Head != item.PRHead || strings.HasPrefix(review.Verdict, mythicalOutage):
 		// Seam: Jev's needs-review tag decides here which changes are
 		// reviewed. Until it lands, every change is.
 		return st.review(ctx, item)
