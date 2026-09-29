@@ -8,7 +8,101 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
+
+func productImportOrgFixture(t *testing.T, pool *pgxpool.Pool) (int64, int64) {
+	t.Helper()
+	ctx := context.Background()
+	var userID, orgID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO users(username, lower_username)
+		VALUES ('org-importer', 'org-importer') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO organizations(name, lower_name, description)
+		VALUES ('review-org', 'review-org', '') RETURNING id`).Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO org_members(organization_id, user_id, role)
+		VALUES ($1, $2, 'owner')`, orgID, userID); err != nil {
+		t.Fatal(err)
+	}
+	return userID, orgID
+}
+
+func TestProductImportReservesAndPublishesOrganizationMirror(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	userID, orgID := productImportOrgFixture(t, pool)
+	const claim = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const token = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	var jobID string
+	if err := pool.QueryRow(ctx, `INSERT INTO import_jobs
+		(user_id, github_owner, github_repo, repo_owner, repo_name, branch, claim_token, claimed_at)
+		VALUES ($1, 'review-org', 'project', 'review-org', 'project', 'main', $2, NOW()) RETURNING id`,
+		userID, claim).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	store := &productImportProvisioningStore{pool: pool}
+	wanted := repositoryProvisioningOperation{
+		OperationType: repositoryProvisionImport, Token: token, ActorID: userID,
+		StorageSetID: DefaultStorageSetID, OwnerName: "review-org",
+		OrgID: pgtype.Int8{Int64: orgID, Valid: true}, Name: "project", LowerName: "project",
+		Description:     "Imported from github.com/review-org/project",
+		DefaultBookmark: "main", ImportJobID: jobID, ImportJobClaimToken: claim,
+	}
+	reserved, err := store.Reserve(ctx, wanted)
+	if err != nil || reserved.RepositoryID == 0 {
+		t.Fatalf("reserve organization import: %+v %v", reserved, err)
+	}
+	recovered, err := store.GetByToken(ctx, token)
+	if err != nil || recovered.OrgID != wanted.OrgID || recovered.UserID.Valid {
+		t.Fatalf("recover organization owner: %+v %v", recovered, err)
+	}
+	if err := store.MarkPublishReady(ctx, reserved.RepositoryID, token, claim); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err = store.GetByToken(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := store.Publish(ctx, recovered, claim)
+	if err != nil || repo.OrgID != wanted.OrgID || repo.UserID.Valid {
+		t.Fatalf("publish organization mirror: %+v %v", repo, err)
+	}
+	again, err := store.Publish(ctx, recovered, claim)
+	if err != nil || again.ID != repo.ID {
+		t.Fatalf("idempotent organization publication: %+v %v", again, err)
+	}
+}
+
+func TestProductImportLoadsPublishedOrganizationMirrorForMember(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	userID, orgID := productImportOrgFixture(t, pool)
+	var repoID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO repositories
+		(org_id, name, lower_name, description, is_public, default_bookmark)
+		VALUES ($1, 'project', 'project', 'Imported from github.com/review-org/project', false, 'main')
+		RETURNING id`, orgID).Scan(&repoID); err != nil {
+		t.Fatal(err)
+	}
+	svc := &GitHubImportService{pool: pool, orgs: db.New(pool)}
+	job := claimedGitHubImportJob{UserID: userID, RepoOwner: "review-org", RepoName: "project",
+		RepositoryID: pgtype.Int8{Int64: repoID, Valid: true}}
+	repo, found, err := svc.loadDurableImportRepository(ctx, job)
+	if err != nil || !found || repo.ID != repoID {
+		t.Fatalf("load published organization mirror: %+v %v %v", repo, found, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM org_members WHERE organization_id=$1 AND user_id=$2`, orgID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := svc.loadDurableImportRepository(ctx, job); err == nil || found {
+		t.Fatalf("nonmember recognized published organization mirror: found=%v err=%v", found, err)
+	}
+}
 
 func TestProductImportReservationSurvivesRestartAndPublishesOnce(t *testing.T) {
 	pool := newProductTestPool(t)

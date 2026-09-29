@@ -35,7 +35,7 @@ func WithGitHubImportProductProvisioning(pool *pgxpool.Pool) GitHubImportOption 
 
 func (store *productImportProvisioningStore) Reserve(ctx context.Context, wanted repositoryProvisioningOperation) (_ repositoryProvisioningOperation, retErr error) {
 	if wanted.OperationType != repositoryProvisionImport || wanted.ImportJobID == "" || wanted.ImportJobClaimToken == "" ||
-		!wanted.UserID.Valid || wanted.OrgID.Valid || wanted.UserID.Int64 != wanted.ActorID {
+		wanted.UserID.Valid == wanted.OrgID.Valid || (wanted.UserID.Valid && wanted.UserID.Int64 != wanted.ActorID) {
 		return repositoryProvisioningOperation{}, errRepositoryProvisionMismatch
 	}
 	tx, err := store.pool.Begin(ctx)
@@ -58,6 +58,16 @@ func (store *productImportProvisioningStore) Reserve(ctx context.Context, wanted
 		(!strings.EqualFold(jobName, githubRepo) && !strings.EqualFold(jobName, wanted.Name)) {
 		return repositoryProvisioningOperation{}, errRepositoryProvisionMismatch
 	}
+	if wanted.OrgID.Valid {
+		var member bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM org_members
+			WHERE organization_id=$1 AND user_id=$2)`, wanted.OrgID.Int64, wanted.ActorID).Scan(&member); err != nil {
+			return repositoryProvisioningOperation{}, err
+		}
+		if !member {
+			return repositoryProvisioningOperation{}, errRepositoryProvisionMismatch
+		}
+	}
 	if boundToken.Valid {
 		if !boundID.Valid || boundToken.String != wanted.Token || !strings.EqualFold(jobName, wanted.Name) {
 			return repositoryProvisioningOperation{}, errRepositoryProvisionMismatch
@@ -75,11 +85,12 @@ func (store *productImportProvisioningStore) Reserve(ctx context.Context, wanted
 		return repositoryProvisioningOperation{}, err
 	}
 	var occupied bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM repositories WHERE user_id=$1 AND lower_name=$2)
-		OR EXISTS (SELECT 1 FROM import_jobs WHERE id<>$3 AND user_id=$1
-		AND lower(repo_owner)=lower($4) AND lower(repo_name)=lower($5)
+	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM repositories WHERE user_id IS NOT DISTINCT FROM $1
+		AND org_id IS NOT DISTINCT FROM $2 AND lower_name=$3)
+		OR EXISTS (SELECT 1 FROM import_jobs WHERE id<>$4
+		AND lower(repo_owner)=lower($5) AND lower(repo_name)=lower($6)
 		AND status='cloning' AND provisioning_token IS NOT NULL)`,
-		wanted.UserID.Int64, wanted.LowerName, wanted.ImportJobID, wanted.OwnerName, wanted.Name).Scan(&occupied)
+		wanted.UserID, wanted.OrgID, wanted.LowerName, wanted.ImportJobID, wanted.OwnerName, wanted.Name).Scan(&occupied)
 	if err != nil {
 		return repositoryProvisioningOperation{}, fmt.Errorf("inspect product import namespace: %w", err)
 	}
@@ -109,7 +120,8 @@ func (store *productImportProvisioningStore) Reserve(ctx context.Context, wanted
 func (store *productImportProvisioningStore) GetByToken(ctx context.Context, token string) (repositoryProvisioningOperation, error) {
 	return scanProductImportProvision(store.pool.QueryRow(ctx, `SELECT provisioning_repository_id, provisioning_token,
 		user_id, repo_owner, repo_name, github_owner, github_repo, default_bookmark,
-		publish_ready, claim_token, id
+		publish_ready, claim_token, id,
+		(SELECT id FROM organizations WHERE lower_name=lower(import_jobs.repo_owner))
 		FROM import_jobs WHERE provisioning_token=$1 AND status='cloning'`, token))
 }
 
@@ -119,12 +131,14 @@ func scanProductImportProvision(row pgx.Row) (repositoryProvisioningOperation, e
 	var claimToken pgtype.Text
 	if err := row.Scan(&operation.RepositoryID, &operation.Token, &operation.ActorID,
 		&operation.OwnerName, &operation.Name, &githubOwner, &githubRepo,
-		&operation.DefaultBookmark, &operation.PublishReady, &claimToken, &jobID); err != nil {
+		&operation.DefaultBookmark, &operation.PublishReady, &claimToken, &jobID, &operation.OrgID); err != nil {
 		return repositoryProvisioningOperation{}, err
 	}
 	operation.OperationType = repositoryProvisionImport
 	operation.StorageSetID = DefaultStorageSetID
-	operation.UserID = pgtype.Int8{Int64: operation.ActorID, Valid: true}
+	if !operation.OrgID.Valid {
+		operation.UserID = pgtype.Int8{Int64: operation.ActorID, Valid: true}
+	}
 	operation.LowerName = strings.ToLower(operation.Name)
 	operation.Description = "Imported from github.com/" + githubOwner + "/" + githubRepo
 	operation.ClaimToken = claimToken
@@ -167,8 +181,7 @@ func (store *productImportProvisioningStore) MarkPublishReady(ctx context.Contex
 }
 
 func productImportRepositoryMatches(repository db.Repository, operation repositoryProvisioningOperation) bool {
-	return repository.ID == operation.RepositoryID && repository.UserID == operation.UserID &&
-		!repository.OrgID.Valid && repository.Name == operation.Name &&
+	return repository.ID == operation.RepositoryID && repository.UserID == operation.UserID && repository.OrgID == operation.OrgID && repository.Name == operation.Name &&
 		repository.LowerName == operation.LowerName && repository.Description == operation.Description &&
 		!repository.IsPublic && repository.DefaultBookmark == operation.DefaultBookmark
 }
@@ -195,7 +208,8 @@ func (store *productImportProvisioningStore) Publish(ctx context.Context, operat
 	defer tx.Rollback(context.Background())
 	current, err := scanProductImportProvision(tx.QueryRow(ctx, `SELECT provisioning_repository_id, provisioning_token,
 		user_id, repo_owner, repo_name, github_owner, github_repo, default_bookmark,
-		publish_ready, claim_token, id FROM import_jobs
+		publish_ready, claim_token, id,
+		(SELECT id FROM organizations WHERE lower_name=lower(import_jobs.repo_owner)) FROM import_jobs
 		WHERE provisioning_repository_id=$1 AND provisioning_token=$2 AND status='cloning' FOR UPDATE`,
 		operation.RepositoryID, operation.Token))
 	if err != nil {
@@ -209,9 +223,9 @@ func (store *productImportProvisioningStore) Publish(ctx context.Context, operat
 	repository, err := queries.GetRepoByID(ctx, operation.RepositoryID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_, err = tx.Exec(ctx, `INSERT INTO repositories
-			(id, user_id, name, lower_name, description, is_public, default_bookmark)
-			VALUES ($1, $2, $3, $4, $5, false, $6)`,
-			current.RepositoryID, current.UserID.Int64, current.Name,
+			(id, user_id, org_id, name, lower_name, description, is_public, default_bookmark)
+			VALUES ($1, $2, $3, $4, $5, $6, false, $7)`,
+			current.RepositoryID, current.UserID, current.OrgID, current.Name,
 			current.LowerName, current.Description, current.DefaultBookmark)
 		if err != nil {
 			return db.Repository{}, fmt.Errorf("publish product imported repository: %w", err)

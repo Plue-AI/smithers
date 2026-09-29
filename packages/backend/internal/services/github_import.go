@@ -1232,8 +1232,27 @@ func (s *GitHubImportService) loadDurableImportRepository(
 	if err != nil {
 		return db.Repository{}, false, fmt.Errorf("load durable imported repository: %w", err)
 	}
-	if !repository.UserID.Valid || repository.UserID.Int64 != job.UserID ||
-		(job.RepoName != "" && !strings.EqualFold(repository.Name, job.RepoName)) {
+	owner, err := s.importOwnerForSlug(ctx, job.RepoOwner)
+	if err != nil {
+		return db.Repository{}, false, err
+	}
+	owned := !repository.UserID.Valid && owner.OrgID.Valid && repository.OrgID == owner.OrgID
+	if owned {
+		if s.orgs == nil {
+			owned = false
+		} else if _, err := s.orgs.GetOrgMember(ctx, db.GetOrgMemberParams{
+			OrganizationID: owner.OrgID.Int64, UserID: job.UserID,
+		}); err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return db.Repository{}, false, fmt.Errorf("authorize durable imported repository: %w", err)
+			}
+			owned = false
+		}
+	} else {
+		owned = !owner.OrgID.Valid && !repository.OrgID.Valid &&
+			repository.UserID.Valid && repository.UserID.Int64 == job.UserID
+	}
+	if !owned || (job.RepoName != "" && !strings.EqualFold(repository.Name, job.RepoName)) {
 		return db.Repository{}, false, fmt.Errorf("durable import repository binding does not match job")
 	}
 	return repository, true, nil
