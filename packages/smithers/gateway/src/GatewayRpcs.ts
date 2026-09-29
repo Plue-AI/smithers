@@ -129,6 +129,7 @@ const submitErrors = Schema.Union([
  */
 export const GatewayRpcs = RpcGroup.make(
   Rpc.make("Projection.Snapshot", {
+    defect: ControlRpcs.ControlDefect,
     payload: Schema.Struct({
       selector: GatewaySchema.ProjectionSelector,
       after: Schema.optional(GatewaySchema.ProjectionCursor)
@@ -137,6 +138,7 @@ export const GatewayRpcs = RpcGroup.make(
     error: GatewayError
   }),
   Rpc.make("Projection.Subscribe", {
+    defect: ControlRpcs.ControlDefect,
     payload: Schema.Struct({
       selector: GatewaySchema.ProjectionSelector,
       after: Schema.optional(GatewaySchema.ProjectionCursor)
@@ -146,6 +148,7 @@ export const GatewayRpcs = RpcGroup.make(
     stream: true
   }),
   Rpc.make("Approval.Submit", {
+    defect: ControlRpcs.ControlDefect,
     payload: SubmitApprovalInput,
     success: SubmitApprovalOutput,
     error: submitErrors

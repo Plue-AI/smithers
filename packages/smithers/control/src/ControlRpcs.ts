@@ -5,7 +5,7 @@
  */
 
 import { NotificationError } from "@smthrs/notifications/NotificationQueue"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema, SchemaTransformation } from "effect"
 import { Rpc, RpcGroup, RpcMiddleware } from "effect/unstable/rpc"
 import {
   AlreadyResolved,
@@ -63,6 +63,40 @@ export class ControlAuth extends RpcMiddleware.Service<ControlAuth, {
   provides: ControlPrincipal
 }>()("/control/ControlAuth", { error: Unauthorized }) {}
 
+/**
+ * The sentence a client reads when a control handler dies.
+ *
+ * @category defects
+ * @since 1.0.0
+ */
+export const defectMessage = "Something went wrong on our side. Not your fault."
+
+/**
+ * Wire schema for a control RPC defect: an untyped failure that no procedure
+ * declares.
+ *
+ * Encoding replaces a defect value (an `Error`, a failure an `orDie` turned
+ * into a defect, any non-string value) with `{ name: "Error", message }`
+ * carrying {@link defectMessage}, so a driver message, path, or stack never
+ * reaches a client. The server logs the raw defect. A string passes unchanged:
+ * the RPC server's own request-decoding sentence, which describes the caller's
+ * payload, is one, and so is an author-written `Effect.die` sentence.
+ *
+ * Decoding is Effect's default `Schema.Defect()` decoding, so a client reads
+ * this shape and an older server's shape alike, and an older client reads this
+ * shape as an `Error`.
+ *
+ * @category defects
+ * @since 1.0.0
+ */
+export const ControlDefect = Schema.Json.pipe(Schema.decodeTo(
+  Schema.Unknown,
+  SchemaTransformation.transform({
+    decode: Schema.decodeSync(Schema.Defect()),
+    encode: (defect): Schema.Json => typeof defect === "string" ? defect : { name: "Error", message: defectMessage }
+  })
+))
+
 const mutationErrors = Schema.Union([
   RunNotFound,
   ClaimLost,
@@ -92,11 +126,13 @@ const resumeErrors = Schema.Union([
  */
 export const ControlRpcs = RpcGroup.make(
   Rpc.make("Plan", {
+    defect: ControlDefect,
     payload: PlanInputSchema,
     success: PlanCard,
     error: Schema.Union([FlowNotFound, InvalidInput, PersistenceError, Unavailable, TransportError, Unauthorized])
   }),
   Rpc.make("Run", {
+    defect: ControlDefect,
     payload: RunInputSchema,
     success: Receipt,
     error: Schema.Union([
@@ -116,6 +152,7 @@ export const ControlRpcs = RpcGroup.make(
     ])
   }),
   Rpc.make("Approve", {
+    defect: ControlDefect,
     payload: ApprovalInputSchema,
     success: Receipt,
     error: Schema.Union([
@@ -133,6 +170,7 @@ export const ControlRpcs = RpcGroup.make(
     ])
   }),
   Rpc.make("Deny", {
+    defect: ControlDefect,
     payload: ApprovalInputSchema,
     success: Receipt,
     error: Schema.Union([
@@ -150,6 +188,7 @@ export const ControlRpcs = RpcGroup.make(
     ])
   }),
   Rpc.make("Steer", {
+    defect: ControlDefect,
     payload: SteerInputSchema,
     success: Receipt,
     error: Schema.Union([
@@ -163,6 +202,7 @@ export const ControlRpcs = RpcGroup.make(
     ])
   }),
   Rpc.make("Signal", {
+    defect: ControlDefect,
     payload: SignalInputSchema,
     success: Receipt,
     error: Schema.Union([
@@ -175,8 +215,9 @@ export const ControlRpcs = RpcGroup.make(
       Unauthorized
     ])
   }),
-  Rpc.make("Cancel", { payload: CancelInputSchema, success: Receipt, error: mutationErrors }),
+  Rpc.make("Cancel", { defect: ControlDefect, payload: CancelInputSchema, success: Receipt, error: mutationErrors }),
   Rpc.make("Resume", {
+    defect: ControlDefect,
     payload: ResumeInputSchema,
     success: Receipt,
     error: resumeErrors
@@ -186,11 +227,13 @@ export const ControlRpcs = RpcGroup.make(
   // lists is how `CredentialConflict` came to be a control error the union did
   // not admit.
   Rpc.make("List", {
+    defect: ControlDefect,
     payload: ListRequest,
     success: ListResponse,
     error: ControlErrorSchema
   }),
   Rpc.make("Watch", {
+    defect: ControlDefect,
     payload: WatchFilter,
     success: ControlEvent,
     error: ControlErrorSchema,

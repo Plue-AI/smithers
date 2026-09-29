@@ -4,12 +4,26 @@
  * @since 0.1.0
  */
 
-import { Effect, Layer } from "effect"
+import { Cause, Effect, Layer, Stream } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RpcServer } from "effect/unstable/rpc"
 import { Control } from "./Control.ts"
 import { Unauthorized } from "./ControlError.ts"
 import { ControlPrincipal, ControlRpcs } from "./ControlRpcs.ts"
+
+/**
+ * Logs the raw defect of a failed RPC handler on the server, and nothing for
+ * a typed failure or an interruption. `ControlRpcs.ControlDefect` sends
+ * clients only the designed sentence, so this log is where the detail lives.
+ * Pass it to `Effect.tapCause` or `Stream.tapCause` around a handler.
+ *
+ * @category logging
+ * @since 1.0.0
+ */
+export const logDefect = (cause: Cause.Cause<unknown>): Effect.Effect<void> =>
+  Cause.hasDies(cause) ? Effect.logError("A control RPC handler died", cause) : Effect.void
+
+const logged = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.tapCause(effect, logDefect)
 
 /**
  * Control RPC handlers delegating to the transport-independent service.
@@ -27,13 +41,12 @@ export const layer = ControlRpcs.toLayer(
   Effect.gen(function*() {
     const control = yield* Control
     return ControlRpcs.of({
-      Plan: Effect.fn("Control.plan")((input) => control.plan(input)),
+      Plan: Effect.fn("Control.plan")((input) => control.plan(input), logged),
       Run: Effect.fn("Control.run")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
           return yield* control.run({ ...input, principal })
-        })
-      ),
+        }), logged),
       Approve: Effect.fn("Control.approve")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
@@ -41,8 +54,7 @@ export const layer = ControlRpcs.toLayer(
             return yield* new Unauthorized({ message: "An operator credential is required" })
           }
           return yield* control.approve({ ...input, principal })
-        })
-      ),
+        }), logged),
       Deny: Effect.fn("Control.deny")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
@@ -50,8 +62,7 @@ export const layer = ControlRpcs.toLayer(
             return yield* new Unauthorized({ message: "An operator credential is required" })
           }
           return yield* control.deny({ ...input, principal })
-        })
-      ),
+        }), logged),
       Steer: Effect.fn("Control.steer")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
@@ -62,28 +73,24 @@ export const layer = ControlRpcs.toLayer(
           // the notification's `sourceActor` and the run transcript, which is
           // exactly where a spoofed name would be read as truth.
           return yield* control.steer({ ...input, message: { ...input.message, principal } })
-        })
-      ),
+        }), logged),
       Signal: Effect.fn("Control.signal")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
           return yield* control.signal({ ...input, principal })
-        })
-      ),
+        }), logged),
       Cancel: Effect.fn("Control.cancel")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
           return yield* control.cancel({ ...input, principal })
-        })
-      ),
+        }), logged),
       Resume: Effect.fn("Control.resume")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
           return yield* control.resume({ ...input, principal })
-        })
-      ),
-      List: Effect.fn("Control.list")((input) => control.list(input)),
-      Watch: (input) => control.watch(input)
+        }), logged),
+      List: Effect.fn("Control.list")((input) => control.list(input), logged),
+      Watch: (input) => Stream.tapCause(control.watch(input), logDefect)
     })
   })
 )

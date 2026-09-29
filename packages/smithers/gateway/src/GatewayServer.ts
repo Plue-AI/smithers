@@ -86,10 +86,12 @@ export const layerHandlers = GatewayRpcs.toLayer(
     const projections = yield* Projections
     const control = yield* Control
     return GatewayRpcs.of({
-      "Projection.Snapshot": Effect.fn("Gateway.snapshot")(({ selector, after }) =>
-        projections.snapshot(selector, after)
+      "Projection.Snapshot": Effect.fn("Gateway.snapshot")(
+        ({ selector, after }) => projections.snapshot(selector, after),
+        Effect.tapCause(ControlServer.logDefect)
       ),
-      "Projection.Subscribe": ({ after, selector }) => projections.subscribe(selector, after),
+      "Projection.Subscribe": ({ after, selector }) =>
+        Stream.tapCause(projections.subscribe(selector, after), ControlServer.logDefect),
       /* One operator command. Control owns the atomic decision plus durable
        * resume delegation; the gateway is only a transport adapter. */
       "Approval.Submit": Effect.fn("Gateway.submitApproval")((input) =>
@@ -152,8 +154,7 @@ export const layerHandlers = GatewayRpcs.toLayer(
             ? yield* control.approve(payload)
             : yield* control.deny(payload)
           return { decision }
-        })
-      )
+        }), Effect.tapCause(ControlServer.logDefect))
     })
   })
 )

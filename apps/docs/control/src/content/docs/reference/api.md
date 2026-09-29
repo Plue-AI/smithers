@@ -569,16 +569,27 @@ The schema-backed RPC projection of the service.
 | `layerAuth`           | layer     | `(authenticator: Authenticator) => Layer<ControlAuth>`                                                                                                            |
 | `layerBearerAuth`     | layer     | `(options: BearerAuthOptions) => Layer<ControlAuth>`                                                                                                              |
 | `layerNoopAuth`       | layer     | `(principal?: Principal) => Layer<ControlAuth>`. Authenticates nothing.                                                                                           |
+| `ControlDefect`       | schema    | The defect schema of every procedure. Encodes any non-string defect as `{ name: "Error", message: defectMessage }`; decodes like `Schema.Defect()`.               |
+| `defectMessage`       | constant  | `"Something went wrong on our side. Not your fault."`                                                                                                             |
 
 `List` and `Watch` declare the whole `ControlError` union rather than restating
 its members.
 
+A handler defect, an untyped failure no procedure declares, reaches a client as
+a `Die` whose defect is `{ "name": "Error", "message": "Something went wrong on
+our side. Not your fault." }`. Its raw message and stack never cross the wire;
+the server logs them through `ControlServer.logDefect`. A string defect passes
+unchanged, so a payload that fails to decode still answers with the request
+decoder's own sentence. The encoded shape is the one `Schema.Defect()` decodes,
+so older clients and servers read each other's defects.
+
 ## ControlServer
 
-| Export      | Meaning                                                                                                                                                          |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `layer`     | The handlers, delegating to `Control`. Every mutation that records who asked reads `ControlPrincipal` and stamps it rather than forwarding what the client sent. |
-| `layerHttp` | Mounts both protocols on the ambient `HttpRouter`: unary procedures over `POST /rpc`, and `watch` over `WebSocket /rpc/ws`.                                      |
+| Export      | Meaning                                                                                                                                                                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layer`     | The handlers, delegating to `Control`. Every mutation that records who asked reads `ControlPrincipal` and stamps it rather than forwarding what the client sent.                       |
+| `layerHttp` | Mounts both protocols on the ambient `HttpRouter`: unary procedures over `POST /rpc`, and `watch` over `WebSocket /rpc/ws`.                                                            |
+| `logDefect` | `(cause: Cause<unknown>) => Effect<void>`. Logs a handler's raw defect at error level and ignores typed failures. Tap it around a handler with `Effect.tapCause` or `Stream.tapCause`. |
 
 ## ControlClient
 
