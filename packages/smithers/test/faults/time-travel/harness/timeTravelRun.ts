@@ -9,7 +9,10 @@
  *
  * The flow below produces all three. `Ledger` writes a line to a tracked file
  * through a compensable action, so the engine takes a jj pre-image of the tree
- * before it runs, and then parks on a durable deferred nobody completes.
+ * before it runs, and then parks on a durable deferred nobody completes. A
+ * composition that passes `compensation` also runs {@link notifyKind}, an
+ * irreversible action, between the write and the park, and contributes the
+ * given handlers for it.
  *
  * @since 1.0.0
  */
@@ -18,7 +21,7 @@ import { Action, DurableDeferred, Flow, Interpreter } from "@smthrs/flow"
 import { Engine } from "@smthrs/flows"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import { RunStore } from "@smthrs/run-store"
-import { SqlTimeTravelStore, TimeTravel } from "@smthrs/time-travel"
+import { CompensationHandlers, SqlTimeTravelStore, TimeTravel } from "@smthrs/time-travel"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
@@ -31,6 +34,9 @@ import { join } from "node:path"
 
 /** The file the run writes, tracked by jj. */
 export const ledgerFile = "ledger.txt"
+
+/** The irreversible action a `compensation` composition runs after the write. */
+export const notifyKind = "e2e/time-travel/Notify"
 
 /**
  * The run's own lineage, built by the constructor that mints it.
@@ -126,10 +132,19 @@ export const makeWorkspace = (label: string): {
  * The composition: the durable Node host over the workspace, plus the
  * time-travel service and its SQLite store.
  *
+ * With `compensation`, the step also crosses an irreversible boundary after
+ * the write, and `compensation.handlers` are contributed below `TimeTravel`,
+ * which reads them once when it is built.
+ *
  * @since 1.0.0
  * @category layers
  */
-export const layer = (root: string, filename: string, hostId: string) => {
+export const layer = (
+  root: string,
+  filename: string,
+  hostId: string,
+  compensation?: { readonly handlers: ReadonlyArray<CompensationHandlers.Handler> }
+) => {
   const post = ({ entry }: { readonly entry: string }) => {
     // Declared inside the implementation so it can close over the workspace
     // root; the tier is what makes the engine take a jj pre-image of the tree
@@ -143,8 +158,16 @@ export const layer = (root: string, filename: string, hostId: string) => {
         return entry
       })
     })
+    const Notify = Action.make({
+      name: notifyKind,
+      success: Schema.String,
+      tier: "irreversible",
+      idempotencyKey: "e2e/time-travel/notify/v1",
+      execute: Effect.succeed("notified")
+    })
     return Effect.gen(function*() {
       const written = yield* Write
+      if (compensation !== undefined) yield* Notify
       const settlement = yield* DurableDeferred.await(Settlement)
       return `${written}:${settlement}`
     })
@@ -152,6 +175,7 @@ export const layer = (root: string, filename: string, hostId: string) => {
   return Layer.mergeAll(Post.toLayer(post), Interpreter.layer(Ledger)).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(TimeTravel.layer),
+    Layer.provideMerge(CompensationHandlers.layer(compensation?.handlers ?? [])),
     Layer.provideMerge(SqlTimeTravelStore.layer),
     Layer.provideMerge(
       NodeRuntime.layerHost(
