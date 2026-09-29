@@ -340,7 +340,7 @@ const announceAdmission = (receipt: ControlSchema.Receipt) =>
     process.stderr.write(`${Detached.admissionLine(nonce, receipt.runId)}\n`)
   })
 
-const runLaunch = (payload: ControlService.ApprovalInput) =>
+const runLaunch = (payload: ControlService.ApprovalInput, wait = false) =>
   Effect.gen(function*() {
     const target = payload.target
     if (target._tag !== "Plan") {
@@ -355,7 +355,10 @@ const runLaunch = (payload: ControlService.ApprovalInput) =>
       idempotencyKey: payload.idempotencyKey
     })
     yield* announceAdmission(receipt)
-    const settlement = yield* awaitOwnedRun(control, receipt, undefined)
+    const owned = yield* awaitOwnedRun(control, receipt, undefined)
+    const settlement = wait && owned === undefined && receipt._tag === "Accepted" && receipt.runId !== undefined
+      ? yield* Settlement.awaitRun(control, receipt.runId, undefined, yield* quiet)
+      : owned
     if (Settlement.wasDeclined(settlement) && receipt._tag === "Accepted" && receipt.runId !== undefined) {
       return yield* Effect.fail(yield* declinedLaunch(control, receipt.runId))
     }
@@ -389,6 +392,7 @@ const resume = Command.make("resume", {
 const upFlags = {
   flow: requiredArgument("flow", true),
   data,
+  wait: Flag.Boolean("wait").pipe(Flag.withDefault(false), Flag.withDescription("Wait for run settlement")),
   detached: Flag.Boolean("detached").pipe(
     Flag.withDefault(false),
     Flag.withAlias("d"),
@@ -470,6 +474,9 @@ const up = Command.make("up", upFlags, (config) =>
         })
       )
     }
+    if (config.detached && config.wait) {
+      return yield* Effect.fail(new CliError.UsageError({ message: "--wait and --detached cannot be combined" }))
+    }
     const flowId = yield* selectedFlow(config.flow)
     if (Unsupported.isReservedFlow(flowId)) {
       return yield* Effect.fail(Unsupported.reservedFlowError("flow start", flowId))
@@ -493,7 +500,7 @@ const up = Command.make("up", upFlags, (config) =>
     // Scope `run`: the approval authorizes this launch and its whole run, not
     // every future launch of the flow.
     yield* control.approve({ ...card.approval, scope: "run" })
-    if (!config.detached) return yield* runLaunch({ ...card.approval, scope: "run" })
+    if (!config.detached) return yield* runLaunch({ ...card.approval, scope: "run" }, config.wait)
 
     const projectRoot = yield* Project.ProjectRoot
     const timeoutMs = Environment.readInteger(process.env, "SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS")
