@@ -982,8 +982,8 @@ export const Package = S.Package({ targets: { fmt } })
 })
 
 describe("artifact store", () => {
-  const buildFixture = async (): Promise<string> => {
-    const root = await temporaryWorkspace()
+  const buildFixture = async (providedRoot?: string): Promise<string> => {
+    const root = providedRoot ?? await temporaryWorkspace()
     await write(root, "WORKSPACE.ts", workspaceModule())
     await write(
       root,
@@ -1026,13 +1026,16 @@ export const Package = S.Package({ targets: { dist } })
   })
 
   it("refuses a poisoned cache manifest whose outDir escapes the workspace", async () => {
-    const root = await buildFixture()
+    const parent = await temporaryWorkspace()
+    const root = NodePath.join(parent, "root")
+    const victim = NodePath.join(parent, "victim")
+    await Fs.mkdir(root)
+    await Fs.mkdir(victim)
+    await Fs.writeFile(NodePath.join(victim, "precious.txt"), "precious")
+    await buildFixture(root)
     const first = await serve(root, ["//:dist"])
     expect(first.exitCode).toBe(0)
-    // A sibling directory outside the workspace root, holding precious content.
-    const victim = NodePath.join(NodePath.dirname(root), "victim")
-    await Fs.mkdir(victim, { recursive: true })
-    await Fs.writeFile(NodePath.join(victim, "precious.txt"), "precious")
+    // The sibling is outside the workspace but inside this test's owned parent.
     // Poison the on-disk cache entry: rewrite the manifest's outDir to point at
     // the external sibling. A hit that trusted it would rename-swap `../victim`.
     const cacheRoot = NodePath.join(root, ".flows", "cache")
