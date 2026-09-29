@@ -83,7 +83,6 @@ describe("the home blocks", () => {
     expect(() => Home.Home({ blocks: [7] as never })).toThrow(/block 0 must be a declared block.*not number/)
   })
 
-
   it("keeps HTTP(S) scheme casing through links and projected homes", () => {
     for (const scheme of ["HTTP", "HTTPS", "HtTp", "HtTpS"]) {
       const url = `${scheme}://example.com/guide`

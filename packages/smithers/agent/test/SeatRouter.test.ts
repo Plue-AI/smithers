@@ -616,14 +616,16 @@ describe("SeatRouter.durable", () => {
     const requests: Array<Evaluator.Request> = []
     const host = ManagedRuntime.make(
       Interpreter.layer(FullFlow).pipe(
-        Layer.provideMerge(Full.toLayer(() =>
-          SeatRouter.durable(input, { executionId: "full-route", purpose: "root" }).pipe(
-            Effect.map((route) => ({
-              route,
-              settled: SeatRouter.events(route, { scope: "s", modelId: "m" })[1] as AgentEvent.DecisionSettled
-            }))
+        Layer.provideMerge(
+          Full.toLayer(() =>
+            SeatRouter.durable(input, { executionId: "full-route", purpose: "root" }).pipe(
+              Effect.map((route) => ({
+                route,
+                settled: SeatRouter.events(route, { scope: "s", modelId: "m" })[1] as AgentEvent.DecisionSettled
+              }))
+            )
           )
-        )),
+        ),
         Layer.provideMerge(Layer.mergeAll(catalog(everySeat), answering(requests))),
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(FlowEngine.layerMemory),

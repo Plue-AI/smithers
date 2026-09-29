@@ -231,37 +231,42 @@ describe("flows/show-script", () => {
     const platform = Layer.merge(NodeFileSystem.layer, NodePath.layer)
     const testDirectory = fileURLToPath(new URL(".", import.meta.url))
 
-    await Effect.runPromise(Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const root = yield* fs.makeTempDirectoryScoped({ directory: testDirectory, prefix: ".promotion-" })
-      const flows = join(root, "flows")
-      const example = join(flows, "example")
-      yield* fs.makeDirectory(example, { recursive: true })
-      yield* fs.writeFileString(join(example, "flow.ts"), template
-        .replaceAll("<id>", "example")
-        .replace("<one line naming what this flow produces>", "Returns the provided value."))
-
-      const discovery = yield* Discovery.Discovery
-      const found = yield* discovery.scan({ source: "project", root: flows, naming: "path" })
-      expect(found.entries.map((entry) => entry.name)).toEqual(["example"])
-      const executable = yield* Executable.fromDescriptor(found.entries[0]!, { delegates: [] })
-      expect(executable.delegate).toBeUndefined()
-      const result = yield* executable.flow.execute(
-        { input: { value: "ready" } },
-        { executionId: "promotion-example" }
-      ).pipe(Effect.provide(
-        Layer.mergeAll(Interpreter.layer(executable.flow), executable.layer).pipe(
-          Layer.provideMerge(Action.layerImplementations),
-          Layer.provideMerge(FlowEngine.layerMemory),
-          Layer.provideMerge(NodeCrypto.layer)
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const root = yield* fs.makeTempDirectoryScoped({ directory: testDirectory, prefix: ".promotion-" })
+        const flows = join(root, "flows")
+        const example = join(flows, "example")
+        yield* fs.makeDirectory(example, { recursive: true })
+        yield* fs.writeFileString(
+          join(example, "flow.ts"),
+          template
+            .replaceAll("<id>", "example")
+            .replace("<one line naming what this flow produces>", "Returns the provided value.")
         )
-      ))
-      expect(result).toBe("ready")
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(Discovery.layer.pipe(Layer.provide(platform))),
-      Effect.provide(platform)
-    ) as Effect.Effect<void, unknown, never>)
+
+        const discovery = yield* Discovery.Discovery
+        const found = yield* discovery.scan({ source: "project", root: flows, naming: "path" })
+        expect(found.entries.map((entry) => entry.name)).toEqual(["example"])
+        const executable = yield* Executable.fromDescriptor(found.entries[0]!, { delegates: [] })
+        expect(executable.delegate).toBeUndefined()
+        const result = yield* executable.flow.execute(
+          { input: { value: "ready" } },
+          { executionId: "promotion-example" }
+        ).pipe(Effect.provide(
+          Layer.mergeAll(Interpreter.layer(executable.flow), executable.layer).pipe(
+            Layer.provideMerge(Action.layerImplementations),
+            Layer.provideMerge(FlowEngine.layerMemory),
+            Layer.provideMerge(NodeCrypto.layer)
+          )
+        ))
+        expect(result).toBe("ready")
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(Discovery.layer.pipe(Layer.provide(platform))),
+        Effect.provide(platform)
+      ) as Effect.Effect<void, unknown, never>
+    )
   })
 
   it("hands back the source of every cell this turn ran, in order", async () => {

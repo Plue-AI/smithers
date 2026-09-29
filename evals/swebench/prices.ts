@@ -62,8 +62,11 @@ import { modelPrices as table } from "../../packages/backend/modelprice/prices.g
 
 export const prices: Record<string, Price> = Object.fromEntries(
   Object.entries(table).map(([id, price]) => [id, {
-    input: price.input, cachedInput: price.cacheRead, cacheWrite: price.cacheWrite,
-    output: price.output, source: "modelprice Go rate card"
+    input: price.input,
+    cachedInput: price.cacheRead,
+    cacheWrite: price.cacheWrite,
+    output: price.output,
+    source: "modelprice Go rate card"
   }])
 )
 for (const [id, price] of Object.entries(table)) {
@@ -82,7 +85,12 @@ for (const [id, price] of Object.entries(table)) {
  */
 export const usd = (
   model: string | undefined,
-  tokens: { readonly inputTokens: number; readonly cachedInputTokens: number; readonly outputTokens: number; readonly cacheWriteTokens?: number }
+  tokens: {
+    readonly inputTokens: number
+    readonly cachedInputTokens: number
+    readonly outputTokens: number
+    readonly cacheWriteTokens?: number
+  }
 ): { readonly usd: number | undefined; readonly source: string } => {
   const id = model?.replace(/^openai:/, "")
   const initial = id === undefined ? undefined : table[id]
@@ -90,11 +98,14 @@ export const usd = (
     return { usd: undefined, source: `unpriced: no committed price for ${model ?? "an unrecorded model"}` }
   }
   const price = initial.next !== undefined && initial.nextFrom !== undefined
-    && new Date() >= new Date(initial.nextFrom) ? initial.next : initial
+      && new Date() >= new Date(initial.nextFrom) ?
+    initial.next :
+    initial
   const write = tokens.cacheWriteTokens ?? 0
   const prompt = tokens.inputTokens + write
   const rates = price.longContext !== undefined && prompt >= (price.longContextFrom ?? Infinity)
-    ? price.longContext : price
+    ? price.longContext :
+    price
   const uncached = Math.max(0, tokens.inputTokens - tokens.cachedInputTokens)
   const total = price.flatPerCall ?? 0
   const metered = (uncached * rates.input + tokens.cachedInputTokens * rates.cacheRead

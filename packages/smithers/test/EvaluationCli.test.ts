@@ -64,7 +64,9 @@ describe("evaluation CLI", () => {
     const listed = await serve(process.cwd(), ["list"])
     expect(listed.code, listed.output).toBe(0)
     expect(listed.json.suites.map((entry: { name: string }) => entry.name)).toEqual([
-      "agent/agent", "recommend/recommend", "review-seeded-bugs/review-seeded-bugs"
+      "agent/agent",
+      "recommend/recommend",
+      "review-seeded-bugs/review-seeded-bugs"
     ])
   })
 

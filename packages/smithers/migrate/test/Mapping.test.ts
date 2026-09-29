@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
 import ts from "@typescript/typescript6"
+import * as Effect from "effect/Effect"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import * as Effect from "effect/Effect"
 import * as Constructs from "../src/Constructs.ts"
 import * as Detect from "../src/Detect.ts"
 import * as Inventory from "../src/Inventory.ts"
@@ -141,9 +141,17 @@ describe("Mapping.rows", () => {
     )
     const unsafeExports = Mapping.rows.filter((row) => exports.has(row.construct) && row.class === "unsafe")
     expect(unsafeExports.map((row) => row.construct)).toEqual([])
-    for (const name of [
-      "Sidecar", "Supervisor", "Kanban", "Optimizer", "DriftDetector", "MemoryTrellis", "MergeQueue"
-    ]) {
+    for (
+      const name of [
+        "Sidecar",
+        "Supervisor",
+        "Kanban",
+        "Optimizer",
+        "DriftDetector",
+        "MemoryTrellis",
+        "MergeQueue"
+      ]
+    ) {
       expect(exports.has(name), name).toBe(true)
       expect(Mapping.byConstruct(name), name).toMatchObject({ class: "guided" })
       expect(Mapping.byConstruct(name)?.target, name).not.toBeNull()

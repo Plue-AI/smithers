@@ -150,7 +150,13 @@ const table: ReadonlyArray<MappingRow> = [
     "Hand off to the next round with `<flow>.to(payload)`; each round has a new execution id and journal in the same lineage. The lineage's `maxRounds` bounds the chain.",
     "guided"
   ),
-  row("continueAsNew", "<flow>.to(payload) settling as Handoff", "@smthrs/flow", "Hand off to a new round in the same lineage; the lineage's `maxRounds` bounds the chain.", "guided"),
+  row(
+    "continueAsNew",
+    "<flow>.to(payload) settling as Handoff",
+    "@smthrs/flow",
+    "Hand off to a new round in the same lineage; the lineage's `maxRounds` bounds the chain.",
+    "guided"
+  ),
   row(
     "Timer",
     "Sleep.action",
@@ -249,9 +255,27 @@ const table: ReadonlyArray<MappingRow> = [
     "An application pattern with no counterpart. The closest composition is a `ReviewLoop` on a trigger.",
     "unsafe"
   ),
-  row("Supervisor", "Supervisor.make", "@smthrs/patterns/Supervisor", "Map supervised members and their recovery policy.", "guided"),
-  row("Kanban", "Kanban.make", "@smthrs/patterns/Kanban", "Map board stages and workers to the Kanban pattern.", "guided"),
-  row("Optimizer", "Optimizer.make", "@smthrs/patterns/Optimizer", "Map candidates and evaluation to the optimizer pattern.", "guided"),
+  row(
+    "Supervisor",
+    "Supervisor.make",
+    "@smthrs/patterns/Supervisor",
+    "Map supervised members and their recovery policy.",
+    "guided"
+  ),
+  row(
+    "Kanban",
+    "Kanban.make",
+    "@smthrs/patterns/Kanban",
+    "Map board stages and workers to the Kanban pattern.",
+    "guided"
+  ),
+  row(
+    "Optimizer",
+    "Optimizer.make",
+    "@smthrs/patterns/Optimizer",
+    "Map candidates and evaluation to the optimizer pattern.",
+    "guided"
+  ),
   row("SuperSmithers", null, null, "An application pattern with no counterpart.", "unsafe"),
   row(
     "DriftDetector",
@@ -267,9 +291,27 @@ const table: ReadonlyArray<MappingRow> = [
     "No direct SQL; recall and write go through the memory flows.",
     "guided"
   ),
-  row("MemoryTrellis", "MemoryTrellis", "@smthrs/memory/MemoryTrellis", "Map delegation and recall to the memory trellis.", "guided"),
-  row("Trellis", "Trellis.make", "@smthrs/patterns/Trellis", "Map the delegation graph to the trellis pattern.", "guided"),
-  row("DelegationChain", "DelegationChain.make", "@smthrs/patterns/DelegationChain", "Map the delegation stages to the delegation chain pattern.", "guided"),
+  row(
+    "MemoryTrellis",
+    "MemoryTrellis",
+    "@smthrs/memory/MemoryTrellis",
+    "Map delegation and recall to the memory trellis.",
+    "guided"
+  ),
+  row(
+    "Trellis",
+    "Trellis.make",
+    "@smthrs/patterns/Trellis",
+    "Map the delegation graph to the trellis pattern.",
+    "guided"
+  ),
+  row(
+    "DelegationChain",
+    "DelegationChain.make",
+    "@smthrs/patterns/DelegationChain",
+    "Map the delegation stages to the delegation chain pattern.",
+    "guided"
+  ),
   row(
     "Aspects",
     "Sandbox.Limits and Envelope.budget",
@@ -284,7 +326,13 @@ const table: ReadonlyArray<MappingRow> = [
     "Worktree lanes are deferred. `Checkpoints` in `@smthrs/std` pins trees, not lanes.",
     "unsafe"
   ),
-  row("MergeQueue", "MergeQueue.make", "@smthrs/patterns/MergeQueue", "Map queued merges and validation to the merge queue pattern.", "guided"),
+  row(
+    "MergeQueue",
+    "MergeQueue.make",
+    "@smthrs/patterns/MergeQueue",
+    "Map queued merges and validation to the merge queue pattern.",
+    "guided"
+  ),
   row(
     "UI",
     null,
