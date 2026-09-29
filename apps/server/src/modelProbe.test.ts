@@ -28,7 +28,7 @@ import worker from "./index"
 import type { WorkerEnv } from "./index"
 import { memoryDurableObjects } from "./memoryDurableObjects"
 import { handleModelCatalog, handleModelTest } from "./modelProbe"
-import { TURN_WINDOW_MAX, TurnRateLimiter } from "./turnLimit"
+import { LOGIN_ALL_KEY, loginDailyKey, TURN_WINDOW_MAX, TurnRateLimiter } from "./turnLimit"
 
 /*
  * The Worker's half of the Models surface. These tests hold it to the
@@ -635,7 +635,8 @@ describe("the model routes, the public catalog and the gated Test", () => {
     const tested = await worker.fetch(testRequest(SIGNED_IN), gatedEnv(limits))
     expect(tested.status).toBe(200)
     expect(resultOf(await tested.text())).toMatchObject({ ok: true, sample: "ok" })
-    expect(limits.spent).toEqual(["will"])
+    // One turn of each signed-in ceiling: hourly, daily and all logins together.
+    expect(limits.spent).toEqual(["will", loginDailyKey("will"), LOGIN_ALL_KEY])
     expect(provider.length).toBe(1)
     // The login's Test is metered through the Cloud model proxy on its own token, never the platform key.
     expect(provider[0]!.url).toBe("https://cloud.test/api/model/cerebras/v1/chat/completions")

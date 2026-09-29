@@ -12,12 +12,14 @@ import { Transport, transportFrom } from "./Http"
 import { handleRequest } from "./index"
 import { memoryDurableObjects } from "./memoryDurableObjects"
 import { TURN_JOURNAL_RETENTION_MS } from "./TurnJournal"
-import { sha256Hex, TurnRateLimiter } from "./turnLimit"
+import { LOGIN_ALL_KEY, loginDailyKey, sha256Hex, TurnRateLimiter } from "./turnLimit"
 
 const journal = { version: 1 as const, legId: "leg-1", token: "private_replay_capability_12345678901234567890" }
 const turn = { runId: "durable-turn", messages: [{ role: "user", content: "hi" }], instructions: "Be brief.", journal }
 const delta = (text: string) => ({ type: "delta" as const, kind: "text" as const, text })
 const done = { type: "done" as const, reason: "stop" as const }
+/** One admitted signed-in turn spends the hourly, daily and all-logins ceilings once each. */
+const admission = (login: string) => [login, loginDailyKey(login), LOGIN_ALL_KEY]
 const wire = (...frames: unknown[]): Response => new Response(frames.map(frame => `${JSON.stringify(frame)}\n`).join(""), {
   headers: { "content-type": "application/x-ndjson" }
 })
@@ -31,7 +33,6 @@ const makeHost = (upstream: () => Response = () => wire(delta("answer"), done), 
   const spent: string[] = []
   const journalOperations: string[] = []
   let modelCalls = 0
-  let budgetCalls = 0
   let budgetRefused = false
   let validations = 0
   let revoked = false
@@ -54,7 +55,6 @@ const makeHost = (upstream: () => Response = () => wire(delta("answer"), done), 
     TURN_LIMITS: {
       idFromName: (name: string) => name,
       get: (id: unknown) => ({ fetch: (request: Request) => {
-        budgetCalls++
         const key = String(id)
         spent.push(key)
         if (budgetRefused) return Promise.resolve(Response.json({ allowed: false, remaining: 0, retryAt: Date.now() + 60_000 }))
@@ -75,7 +75,7 @@ const makeHost = (upstream: () => Response = () => wire(delta("answer"), done), 
     return runRequest(handleRequest(request).pipe(Effect.provideService(Transport, transport), Effect.provide(layers)), request.signal)
   }
   return {
-    post, objects, modelCalls: () => modelCalls, budgetCalls: () => budgetCalls, validations: () => validations,
+    post, objects, modelCalls: () => modelCalls, validations: () => validations,
     spent: () => [...spent], journalOperations: () => [...journalOperations],
     revoke: () => { revoked = true }, refuseBudget: (refused: boolean) => { budgetRefused = refused }
   }
@@ -101,7 +101,8 @@ describe("the public durable turn transport", () => {
     host.refuseBudget(true)
     // An accepted leg is only observed: no admission, no second inference.
     expect(await (await host.post(TURN_PATH, turn)).json()).toMatchObject({ status: "existing", terminal: true })
-    expect(host.budgetCalls()).toBe(2)
+    // The refusal stops at the first ceiling; the admitted leg spends each once.
+    expect(host.spent()).toEqual(["alice", ...admission("alice")])
     expect(host.modelCalls()).toBe(1)
   })
 
@@ -180,7 +181,7 @@ describe("the public durable turn transport", () => {
     const repeated = await host.post(TURN_PATH, turn)
     expect(await repeated.json()).toMatchObject({ status: "existing", terminal: true })
     expect(host.modelCalls()).toBe(1)
-    expect(host.budgetCalls()).toBe(1)
+    expect(host.spent()).toEqual(admission("alice"))
     host.objects.restart()
     const replayed: unknown[] = []
     let after = null
@@ -207,8 +208,8 @@ describe("the public durable turn transport", () => {
     }))
     expect((await refusing.post(TURN_PATH, turn)).status).toBe(503)
     expect(refusing.modelCalls()).toBe(0)
-    // Admission precedes the acceptance write, so a failed write follows one spend.
-    expect(refusing.budgetCalls()).toBe(1)
+    // Admission precedes the acceptance write, so a failed write follows one admission.
+    expect(refusing.spent()).toEqual(admission("alice"))
     const host = makeHost()
     await deliveries(await host.post(TURN_PATH, turn))
     expect((await host.post(TURN_PATH, { ...turn, instructions: "different request" })).status).toBe(409)
