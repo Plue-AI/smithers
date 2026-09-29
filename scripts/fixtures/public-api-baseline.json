@@ -8571,7 +8571,7 @@
         "RemoteChildProcessSpawner/TestScript.d.ts": "3718b4a742dca608e509cdfba7ca28ec5dbae128b54a9d5931245849e7c2fcd7",
         "RemoteChildProcessSpawner/index.d.ts": "3c4c922aa50736e208c9745ceeaabf9955e3d2970dbd524916de43b9691bf2d0",
         "RemoteChildProcessSpawner/layer.d.ts": "8f7d23650aa6a89594a9f0297d5dab016a4b75f32494d0c1722d75304f4e0f1a",
-        "Sandbox/NetworkPolicy.d.ts": "3ef549a528378f3916e60813fd840c482e4aa19bc49666b683fec520fb1975e2",
+        "Sandbox/NetworkPolicy.d.ts": "8e420161baa5f691281ae71e8e66cade1fb4bb01c26e2c061dfaaafcc907feeb",
         "Sandbox/Provider.d.ts": "059af588a74994b06acd96040520bab87b68c9e5f6635631650983eb03877c35",
         "Sandbox/ResourceLimits.d.ts": "4eb17bb035adde4f69e303350605e137e222be3a50ac552fbc6c3ff3eb0f4b37",
         "Sandbox/Session.d.ts": "5d0277964d64257039c2c9026057f4ccb82607d239e358af96a3c85425fafb01",

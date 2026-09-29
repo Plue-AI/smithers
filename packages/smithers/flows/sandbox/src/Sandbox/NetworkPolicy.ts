@@ -1,7 +1,7 @@
 /**
  * The provider-neutral guest network option.
  *
- * @since 0.1.0
+ * @since 1.0.0-rc.1
  */
 
 /**
@@ -21,7 +21,7 @@
  * cannot enforce.
  *
  * @category models
- * @since 0.1.0
+ * @since 1.0.0-rc.1
  */
 export type NetworkPolicy = "none" | { readonly allow: ReadonlyArray<string> }
 
@@ -33,7 +33,7 @@ const host = new RegExp(`^(?:\\*\\.)?(?:${label}\\.)*${label}$`, "i")
  * else, and returns it.
  *
  * @category validation
- * @since 0.1.0
+ * @since 1.0.0-rc.1
  */
 export const validateNetworkPolicy = (provider: string, policy: NetworkPolicy): NetworkPolicy => {
   if (policy === "none") return policy
@@ -52,7 +52,7 @@ export const validateNetworkPolicy = (provider: string, policy: NetworkPolicy): 
  * Refuses any network policy, for a provider that cannot enforce one.
  *
  * @category validation
- * @since 0.1.0
+ * @since 1.0.0-rc.1
  */
 export const refuseNetworkPolicy = (provider: string, policy: NetworkPolicy | undefined): void => {
   if (policy !== undefined) {
