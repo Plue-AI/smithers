@@ -83,3 +83,49 @@ describe("Failure.sentence", () => {
     expect(Failure.sentence(new Error(""))).toBe("")
   })
 })
+
+describe("Failure.operatorSentence", () => {
+  it("prints a tagged failure's own sentence", () => {
+    const stated = new ControlError.NoMatchingWait({ runId: "run-42", waitName: "go" })
+
+    expect(Failure.operatorSentence(stated)).toBe(stated.message)
+    expect(Failure.operatorSentence(new ControlError.ClaimLost({ runId: "run-42" }))).toBe("claim_lost runId=run-42")
+  })
+
+  it.each([
+    ["an untagged error", new Error("ENOENT: open /home/op/.config/secret")],
+    ["a system error with a code", Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })],
+    ["a string", "TypeError: undefined is not a function"],
+    ["an object", { stack: "at x (y.ts:1)" }],
+    ["undefined", undefined]
+  ])("never prints %s; it answers the generic sentence", (_label, error) => {
+    expect(Failure.operatorSentence(error)).toBe(Failure.unknownSentence)
+  })
+
+  it("matches the product's unknown-failure sentence", async () => {
+    const { UNKNOWN_FAILURE } = await import("../../rpc/src/UserFailure.ts")
+    expect(Failure.unknownSentence).toBe(UNKNOWN_FAILURE.sentence)
+  })
+})
+
+describe("Failure.operatorDetail", () => {
+  it("is the redacted, terminal-safe raw text, for --verbose only", () => {
+    const detail = Failure.operatorDetail(new Error("api_key=privatevalue123456 \u001b]0;title\u0007boom"))
+
+    expect(detail).toContain("boom")
+    expect(detail).not.toContain("privatevalue123456")
+    expect(detail).not.toContain("\u001b")
+  })
+
+  it("never throws for a value that cannot be printed", () => {
+    const hostile = {
+      get stack(): string {
+        throw new Error("getter")
+      },
+      toString: () => {
+        throw new Error("x")
+      }
+    }
+    expect(typeof Failure.operatorDetail(hostile)).toBe("string")
+  })
+})

@@ -29,7 +29,7 @@ const fixture = async (env: Record<string, string> = {}) => {
   return { home, environment, session: new Session(environment) }
 }
 const result = (stdout = "", code = 0, stderr = "") => Promise.resolve({ code, stdout, stderr })
-const missing = () => new NotFound("missing")
+const missing = () => new NotFound("pwsh")
 describe("native login stores", () => {
   it("falls back from pwsh to Windows PowerShell and replaces the previous credential", async () => {
     Object.defineProperty(process, "platform", { value: "win32" })

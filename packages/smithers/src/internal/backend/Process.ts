@@ -10,6 +10,7 @@
 
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -35,7 +36,14 @@ const environment = (env: Environment): Record<string, string> =>
  * @private
  * @since 1.0.0
  */
-export class NotFound extends Error {}
+export class NotFound extends Data.TaggedError("/backend/NotFound")<{
+  readonly command: string
+  readonly message: string
+}> {
+  constructor(command: string) {
+    super({ command, message: `${command} not found` })
+  }
+}
 
 // Our own timeout and overflow errors pass through; a platform error carries
 // a `reason`, and `NotFound` is the one callers branch on.
@@ -49,7 +57,7 @@ const settle = <A>(command: string, exit: Exit.Exit<A, unknown>, interrupted: st
     throw new Error(`${command} was ${interrupted}`)
   }
   const reason = (error as { reason?: { _tag?: string } } | undefined)?.reason
-  if (reason?._tag === "NotFound") throw new NotFound(`${command} not found`)
+  if (reason?._tag === "NotFound") throw new NotFound(command)
   throw new Error(`${command} failed: ${error instanceof Error ? error.message : String(error ?? cause)}`)
 }
 

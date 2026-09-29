@@ -115,6 +115,18 @@ describe("the suggest flow with a scripted model", { timeout: 120_000 }, () => {
     expect(String(exit)).toContain("must be an absolute path")
   })
 
+  it("fails a relative root with a tagged refusal naming the root", async () => {
+    const root = await Effect.runPromise(
+      SuggestFlow.run("brief").pipe(
+        Effect.provide(SuggestFlow.layerScripted({ root: "relative", script: () => "" })),
+        Effect.map(() => "ran"),
+        Effect.catchTag("/suggest/RelativeRoot", (error) => Effect.succeed(error.root))
+      )
+    )
+
+    expect(root).toBe("relative")
+  })
+
   it("renders a failure as one sentence naming the failure class", () => {
     expect(SuggestFlow.failureMessage({ _tag: "flows/agent/AgentFailed", message: "no answer" })).toBe(
       "AgentFailed: no answer"

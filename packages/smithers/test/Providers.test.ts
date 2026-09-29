@@ -3,6 +3,7 @@
  * reader: the documented order, every way a candidate is or is not available,
  * the choice, and the two refusals.
  */
+import * as Effect from "effect/Effect"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
@@ -181,6 +182,33 @@ describe("Providers.chooseSeat", () => {
 
     expect(chosen).toBeInstanceOf(Providers.SeatSyntaxError)
     expect((chosen as Error).message).toContain("never uses an Anthropic seat")
+  })
+
+  it.each(
+    [
+      ["gpt", "malformed"],
+      ["anthropic:claude-sonnet-4-5", "anthropic"]
+    ] as const
+  )("names why the override %j is refused, so a caller can branch on it", (override, reason) => {
+    const chosen = Providers.chooseSeat([], override) as Providers.SeatSyntaxError
+    const handled = Effect.runSync(
+      Effect.fail(chosen).pipe(
+        Effect.catchTag("/suggest/SeatSyntaxError", (error) => Effect.succeed(`${error.reason} ${error.seat}`))
+      )
+    )
+
+    expect(handled).toBe(`${reason} ${override}`)
+  })
+
+  it("fails as a tagged refusal a caller can catch when nothing is available", () => {
+    const chosen = Providers.chooseSeat(Providers.detect(host({}))) as Providers.NoSeatError
+    const handled = Effect.runSync(
+      Effect.fail(chosen).pipe(
+        Effect.catchTag("/suggest/NoSeatError", (error) => Effect.succeed(error.detections.length))
+      )
+    )
+
+    expect(handled).toBe(Providers.detect(host({})).length)
   })
 })
 

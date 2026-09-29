@@ -50,6 +50,12 @@ describe.skipIf(process.platform === "win32")("backend processes", () => {
     await expect(run("smithers-no-such-program", [], { env, timeoutMs: 10_000 })).rejects.toBeInstanceOf(NotFound)
   })
 
+  it("names the missing program in a tagged NotFound", async () => {
+    const error = await run("smithers-no-such-program", [], { env, timeoutMs: 10_000 }).catch((cause) => cause)
+    expect(error).toMatchObject({ _tag: "/backend/NotFound", command: "smithers-no-such-program" })
+    expect(error.message).toBe("smithers-no-such-program not found")
+  })
+
   it("stops a cancelled command's descendants", async () => {
     const { grandchild, script } = await orphaning()
     const abort = new AbortController()

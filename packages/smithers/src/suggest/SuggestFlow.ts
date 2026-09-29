@@ -42,6 +42,7 @@ import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
 import * as Registry from "@smthrs/registry/Registry"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
@@ -207,12 +208,12 @@ export const rules = (root: string): ReadonlyArray<Permission.Rule> => {
  * @category errors
  * @since 1.0.0-rc.0
  */
-export class RelativeRoot extends Error {
-  override readonly name = "RelativeRoot"
+export class RelativeRoot extends Data.TaggedError("/suggest/RelativeRoot")<{
   readonly root: string
+  readonly message: string
+}> {
   constructor(root: string) {
-    super(`The suggest root must be an absolute path, and "${root}" is not`)
-    this.root = root
+    super({ root, message: `The suggest root must be an absolute path, and "${root}" is not` })
   }
 }
 

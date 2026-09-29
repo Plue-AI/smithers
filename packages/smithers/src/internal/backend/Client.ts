@@ -4,6 +4,7 @@
  */
 
 import * as Redaction from "@smthrs/journal/Redaction"
+import * as Data from "effect/Data"
 import { homedir } from "node:os"
 import { createInterface } from "node:readline/promises"
 import { StringDecoder } from "node:string_decoder"
@@ -71,17 +72,19 @@ export const positive = (value: unknown, label = "id"): number => {
  * @private
  * @since 1.0.0
  */
-export class APIError extends Error {
+export class APIError extends Data.TaggedError("/backend/APIError")<{
   readonly status: number
   readonly detail: Values
+  readonly message: string
+}> {
   constructor(status: number, detail: Values, method: string, path: string, headers: Headers) {
-    super(
-      `${method} ${path} -> ${status}: ${str(detail.message) || "Request failed"}${
+    super({
+      status,
+      detail,
+      message: `${method} ${path} -> ${status}: ${str(detail.message) || "Request failed"}${
         headers.get("x-request-id") ? ` [request ${headers.get("x-request-id")}]` : ""
       }`
-    )
-    this.status = status
-    this.detail = detail
+    })
   }
 }
 /**

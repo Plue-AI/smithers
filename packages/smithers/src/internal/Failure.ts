@@ -100,3 +100,76 @@ export const fields = (error: Error): string => {
  * @since 1.0.0
  */
 export const sentence = (error: Error): string => error.message === "" ? fields(error) : error.message
+
+/**
+ * The sentence an operator reads for a failure nobody designed a sentence
+ * for. It is `UNKNOWN_FAILURE.sentence` from `@smthrs/rpc/UserFailure`, which
+ * this published package cannot depend on; `test/Failure.test.ts` keeps the
+ * two equal.
+ *
+ * @category constants
+ * @since 1.0.0-rc.1
+ */
+export const unknownSentence = "Something went wrong on our side. Not your fault."
+
+/**
+ * Whether a thrown value is a tagged error: an `Error` with a string `_tag`,
+ * which every `Schema.TaggedError` and `Data.TaggedError` is.
+ *
+ * @category refinements
+ * @since 1.0.0-rc.1
+ */
+export const isTagged = (error: unknown): error is Error & { readonly _tag: string } => {
+  try {
+    return error instanceof Error && typeof (error as { readonly _tag?: unknown })._tag === "string"
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The one line an operator reads for any thrown value: a tagged failure's own
+ * sentence, and `unknownSentence` for everything else. A raw message, a
+ * stack, or `String(error)` of an untagged value is never the line; it is
+ * detail, printed only for `--verbose` through `operatorDetail`.
+ *
+ * @category getters
+ * @since 1.0.0-rc.1
+ */
+export const operatorSentence = (error: unknown): string => isTagged(error) ? sentence(error) : unknownSentence
+
+const MAX_DETAIL_DEPTH = 8
+
+const rawDetail = (error: unknown, depth: number): string => {
+  try {
+    if (error instanceof Error) {
+      const head = `${error.name}: ${error.message}`
+      const stack = typeof error.stack === "string" && error.stack.length > 0 ? error.stack : head
+      const text = stack.includes(error.message) ? stack : `${head}\n${stack}`
+      const cause = (error as { readonly cause?: unknown }).cause
+      return cause === undefined || depth + 1 >= MAX_DETAIL_DEPTH
+        ? text
+        : `${text}\nCaused by: ${rawDetail(cause, depth + 1)}`
+    }
+    if (typeof error === "string") return error
+    const json = JSON.stringify(error)
+    return json === undefined ? String(error) : json
+  } catch {
+    return "Unprintable error"
+  }
+}
+
+/**
+ * The raw text behind a failure, for `--verbose` only: its stack and cause
+ * chain, redacted and made inert for a terminal. Never throws.
+ *
+ * @category getters
+ * @since 1.0.0-rc.1
+ */
+export const operatorDetail = (error: unknown): string => {
+  try {
+    return terminalSafeLines(String(Redaction.redact(rawDetail(error, 0))))
+  } catch {
+    return "Unprintable error"
+  }
+}

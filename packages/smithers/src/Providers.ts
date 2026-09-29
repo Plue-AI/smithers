@@ -24,6 +24,7 @@
 import * as Redaction from "@smthrs/journal/Redaction"
 import * as Endpoint from "@smthrs/model/Endpoint"
 import * as Evaluator from "@smthrs/model/Evaluator"
+import * as Data from "effect/Data"
 import { execFile } from "node:child_process"
 import { accessSync, constants } from "node:fs"
 import { delimiter, join } from "node:path"
@@ -543,28 +544,44 @@ export const claudeCode = async (host: Host): Promise<{
  * @category errors
  * @since 1.0.0-rc.0
  */
-export class NoSeatError extends Error {
-  override readonly name = "NoSeatError"
+export class NoSeatError extends Data.TaggedError("/suggest/NoSeatError")<{
   readonly detections: ReadonlyArray<Detection>
+  readonly message: string
+}> {
   constructor(detections: ReadonlyArray<Detection>) {
-    super(noSeatMessage(detections))
-    this.detections = detections
+    super({ detections, message: noSeatMessage(detections) })
   }
 }
 
 /**
+ * Why a `--seat` value is refused: `malformed` when it is not
+ * `provider:model`, `anthropic` when it names the provider this verb never
+ * uses.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export type SeatSyntaxReason = "malformed" | "anthropic"
+
+const seatSyntaxMessage = (seat: string, reason: SeatSyntaxReason): string =>
+  reason === "malformed"
+    ? `--seat must be spelled provider:model, got "${seat}"`
+    : "`smthrs suggest` never uses an Anthropic seat; pass another provider"
+
+/**
  * A `--seat` value that is not `provider:model`, or names a provider this
- * verb never uses.
+ * verb never uses. `reason` says which.
  *
  * @category errors
  * @since 1.0.0-rc.0
  */
-export class SeatSyntaxError extends Error {
-  override readonly name = "SeatSyntaxError"
+export class SeatSyntaxError extends Data.TaggedError("/suggest/SeatSyntaxError")<{
   readonly seat: string
-  constructor(seat: string, message: string) {
-    super(message)
-    this.seat = seat
+  readonly reason: SeatSyntaxReason
+  readonly message: string
+}> {
+  constructor(seat: string, reason: SeatSyntaxReason) {
+    super({ seat, reason, message: seatSyntaxMessage(seat, reason) })
   }
 }
 
@@ -598,10 +615,10 @@ export const chooseSeat = (
     const provider = separator < 0 ? "" : override.slice(0, separator)
     const model = separator < 0 ? "" : override.slice(separator + 1)
     if (provider === "" || model === "") {
-      return new SeatSyntaxError(override, `--seat must be spelled provider:model, got "${override}"`)
+      return new SeatSyntaxError(override, "malformed")
     }
     if (provider === "anthropic") {
-      return new SeatSyntaxError(override, "`smthrs suggest` never uses an Anthropic seat; pass another provider")
+      return new SeatSyntaxError(override, "anthropic")
     }
     return { seat: override, source: "override", label: `--seat ${override}`, environment: {} }
   }
