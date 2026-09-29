@@ -8,8 +8,8 @@
   `SMITHERS_HIJACKABLE=1` keeps its session so `claude --resume <sessionId>`
   opens it. `claude auth status` is read once per process while signed in.
 - The native completion judge is Jev on the Vercel AI Gateway, with GPT-6 Luna
-  as backup only when Jev is unreachable or times out; it no longer judges
-  through the first subscription seat.
+  as backup only when Jev is unreachable, times out, or answers 5xx or 429;
+  it no longer judges through the first subscription seat.
 - Diagnosis rendering accepts optional code-drift details; resume supports
   `--allow-code-drift`. Admin commands add user export and erase (#1807, #2476).
 - `run` accepts `--budget-tokens`, `--budget-ms` and `--on-exceeded` (#1843).
