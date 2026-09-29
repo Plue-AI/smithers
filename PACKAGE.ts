@@ -265,7 +265,7 @@ const backendSQLC = Smithers.Shell.Build({
 // `go test` streams megabytes of logs, so its failures rarely reach the
 // output tail a failed target reports; they are repeated on stderr.
 const backendGo = Smithers.Shell.Test({
-  shell: "export PATH=\"$PWD/.backend-sqlc:$PATH\"; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution docs/api) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... >\"$log\" 2>&1; status=$?; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; fi; rm -f \"$log\"; exit $status",
+  shell: "export PATH=\"$PWD/.backend-sqlc:$PATH\"; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; sh scripts/test-backend-consumer.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution docs/api) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... >\"$log\" 2>&1; status=$?; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; fi; rm -f \"$log\"; exit $status",
   env: {
     GOFLAGS: "-buildvcs=false -mod=readonly",
     GOMAXPROCS: "2",
@@ -279,6 +279,7 @@ const backendGo = Smithers.Shell.Test({
     backendSQLC,
     Smithers.file("//scripts/check-go-boundaries.py"),
     Smithers.file("//scripts/check-public-backend-boundary.sh"),
+    Smithers.file("//scripts/test-backend-consumer.sh"),
     Smithers.file("//scripts/test_check_go_boundaries.py"),
     nativeFfi,
     modelHostPackage.lib,

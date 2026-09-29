@@ -121,3 +121,27 @@ describe("test-file ownership", () => {
     assert.match(main, /smthrs test '\/\/:factoryHarness'/)
   })
 })
+
+describe("backend consumer gate", () => {
+  const declaration = readFileSync(join(root, "PACKAGE.ts"), "utf8")
+  const start = declaration.indexOf("const backendGo = Smithers.Shell.Test({")
+  const target = declaration.slice(start, declaration.indexOf("\n})", start))
+  const shell = JSON.parse(target.match(/^\s*shell: ("(?:[^"\\]|\\.)*"),$/m)?.[1] ?? "null")
+
+  it("compiles the public backend API from an outside module on every backend run", () => {
+    assert.ok(start >= 0, "PACKAGE.ts must declare backendGo")
+    assert.equal(typeof shell, "string", "backendGo must run a shell command")
+    const commands = shell.split(/;\s*/)
+    const gate = commands.indexOf("sh scripts/test-backend-consumer.sh || exit $?")
+    assert.ok(gate >= 0, "backendGo must run the consumer script and stop on its failure")
+    assert.ok(gate < commands.findIndex((command) => command.startsWith("go test ")), "the gate runs before the Go suites")
+    assert.ok(target.includes('Smithers.file("//scripts/test-backend-consumer.sh")'), "the script is a declared input")
+    assert.match(declaration, /pattern: "\/\/:backendGo"/, "a CI job selects backendGo")
+  })
+
+  it("keeps the consumer script failing on a compile error", () => {
+    const script = readFileSync(join(root, "scripts/test-backend-consumer.sh"), "utf8")
+    assert.match(script, /^set -eu$/m)
+    assert.match(script, /^GOWORK=off go build \.\/\.\.\.$/m)
+  })
+})

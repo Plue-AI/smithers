@@ -44,11 +44,14 @@ func main() {
 	var migrate func(context.Context, string) error = app.Migrate
 	var start func(context.Context, app.Config) (*app.Instance, error) = app.Start
 	var handler func(*app.Instance) http.Handler = (*app.Instance).Handler
-    var executor ports.Executor
+	var runtime ports.WorkspaceRuntime
 	var repo *repository.Client
-	_, _, _, _, _, _, _ = launch, migrate, start, handler, executor, repo, externalStore{}
+	_, _, _, _, _, _, _ = launch, migrate, start, handler, runtime, repo, externalStore{}
 }
 EOF
+# Seed the checksums the root module already verified, so an offline runner
+# never needs the checksum database.
+cp "$repo_dir/go.sum" "$consumer_dir/go.sum"
 cd "$consumer_dir"
 GOWORK=off go mod tidy
 GOWORK=off go build ./...
