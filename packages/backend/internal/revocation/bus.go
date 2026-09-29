@@ -85,6 +85,8 @@ type Bus struct {
 	started       bool
 	positioned    bool
 	connected     bool
+	ready         chan struct{}
+	startErr      error // Written before ready closes; immutable afterwards.
 	done          chan struct{}
 
 	metrics busMetrics
@@ -113,12 +115,15 @@ func newBus(lister Lister) *Bus {
 		disabledUsers: make(map[int64]time.Time),
 		userEvents:    make(map[int64]int64),
 		subs:          make(map[int]func(Event)),
+		ready:         make(chan struct{}),
 		done:          make(chan struct{}),
 		metrics:       newBusMetrics(),
 	}
 }
 
-// Start positions the cursor at the newest stored event and begins listening.
+// Start waits for the initial cursor read and begins listening. Callers must
+// wait for success before admitting live consumers. Concurrent calls wait for
+// the same initialization; the first call's context owns the listener lifetime.
 // Events older than the cursor are never replayed: a pod that restarts has no
 // live connections from before its restart to terminate, and the auth path
 // re-reads the database on every request anyway.
@@ -127,14 +132,17 @@ func (b *Bus) Start(ctx context.Context) error {
 		return nil
 	}
 	b.mu.Lock()
-	if b.started {
-		b.mu.Unlock()
-		return nil
+	if !b.started {
+		b.started = true
+		go b.run(ctx)
 	}
-	b.started = true
 	b.mu.Unlock()
-	go b.run(ctx)
-	return nil
+	select {
+	case <-b.ready:
+		return b.startErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // positionCursor reads the newest stored event ID so history is never
@@ -171,9 +179,8 @@ func (b *Bus) positionCursor(ctx context.Context) bool {
 func (b *Bus) Done() <-chan struct{} { return b.done }
 
 // Positioned reports whether the cursor has been read from the log, which is
-// when events start being applied. Until then nothing is replayed or fanned
-// out; a revocation that lands in that window has no live consumer in this
-// process to terminate, and the auth path re-reads the database anyway.
+// when durable events start being applied. Start waits for this boundary before
+// callers may admit live consumers. A bus without a lister stays unpositioned.
 func (b *Bus) Positioned() bool {
 	if b == nil {
 		return false
@@ -200,8 +207,11 @@ func (b *Bus) retention() time.Duration {
 func (b *Bus) run(ctx context.Context) {
 	defer close(b.done)
 	if !b.positionCursor(ctx) {
+		b.startErr = ctx.Err()
+		close(b.ready)
 		return
 	}
+	close(b.ready)
 	for {
 		if ctx.Err() != nil {
 			return
