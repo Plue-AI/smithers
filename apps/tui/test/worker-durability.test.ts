@@ -482,7 +482,7 @@ describe("worker durability", () => {
     expect(restored.workspace.snapshot().tabs[0]?.status).toBe("running")
   })
 
-  it("maps a restored legacy provider limit string to the failure headline", async () => {
+  it("never reads a fault out of a restored outcome's prose", async () => {
     const first = fixture(() => ({ done: new Promise(() => {}), cancel: () => {} }))
     first.workspace.request(request)
     await tick()
@@ -497,7 +497,10 @@ describe("worker durability", () => {
       () => ({ done: new Promise(() => {}), cancel: () => {} }),
       Session.restore(first.records).workspace
     )
-    expect(restored.workspace.snapshot().tabs[0]?.failure?.headline).toBe("ChatGPT usage limit reached")
+    expect(restored.workspace.snapshot().tabs[0]?.failure).toMatchObject({
+      headline: "Worker stopped unexpectedly",
+      fault: "bug"
+    })
   })
 
   it("retries a parked tab immediately and cancels its parked host turn", async () => {

@@ -29,6 +29,7 @@
  */
 
 import * as Flow from "@smthrs/core/Flow"
+import * as Fault from "@smthrs/flow/Fault"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import type { HarnessError } from "@smthrs/harness/HarnessError"
 import * as Context from "effect/Context"
@@ -165,6 +166,15 @@ export class ChildError extends Schema.TaggedError<ChildError>()(
     message: Schema.String
   }
 ) {}
+Fault.register(
+  "@smthrs/agent/ChildFlows/ChildError",
+  {
+    unsupported: "bug",
+    not_found: "factory",
+    failed: "factory",
+    still_running: "wait"
+  } satisfies Fault.Rows<ChildError["code"]>
+)
 
 /**
  * The narrow child-run port a host supplies.

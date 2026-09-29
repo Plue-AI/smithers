@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import { NotificationError } from "@smthrs/notifications/NotificationQueue"
 import { Effect, Schema } from "effect"
 import { FlowId, RunId } from "./ControlSchema.ts"
@@ -330,3 +331,27 @@ export const ControlErrorSchema = Schema.Union([
  * @category errors
  */
 export type ControlError = typeof ControlErrorSchema.Type
+
+// Whose problem each control refusal is when it ends a run.
+for (
+  const [tag, kind] of [
+    ["RunNotFound", "user"],
+    ["PlanNotFound", "user"],
+    ["PlanDenied", "user"],
+    ["FlowNotFound", "user"],
+    ["PlanDigestMismatch", "user"],
+    ["EnvelopeMismatch", "user"],
+    ["AlreadyResolved", "user"],
+    ["InvalidInput", "user"],
+    ["Unauthorized", "user"],
+    ["NoMatchingWait", "user"],
+    ["CredentialConflict", "user"],
+    // A flow without a model or an approved executable identity: the person's to fix.
+    ["LaunchFailed", "user"],
+    ["ClaimLost", "infra"],
+    ["CodeDrift", "infra"],
+    ["Unavailable", "infra"],
+    ["TransportError", "infra"],
+    ["PersistenceError", "infra"]
+  ] as const
+) Fault.register(`/control/${tag}`, kind)

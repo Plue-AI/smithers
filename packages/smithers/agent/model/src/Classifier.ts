@@ -16,6 +16,7 @@
  */
 
 import * as Digest from "@smthrs/core/Digest"
+import * as Fault from "@smthrs/flow/Fault"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
@@ -37,6 +38,7 @@ export class ClassifierError extends Schema.TaggedError<ClassifierError>()("flow
   status: Schema.optional(Schema.Number),
   message: Schema.String
 }) {}
+Fault.register("flows/model/ClassifierError", Evaluator.faults)
 
 /**
  * One question as it crosses the wire; the schema for a model-authored

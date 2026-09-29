@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest"
 import * as FailureCopy from "../src/FailureCopy.ts"
 import { ModelError } from "../src/ModelError.ts"
 
+// Harness and budget failures are classed by their owners, which this package
+// cannot import; `agent/test/Fault.sweep.test.ts` asserts their fault with the
+// owners loaded. Here only the copy this package owns is asserted.
+
 describe("FailureCopy.describe", () => {
   it("names a provider limit through a wrapping cause and keeps raw text out of the headline", () => {
     const error = new Error("cell frame failed", {
@@ -21,24 +25,21 @@ describe("FailureCopy.describe", () => {
   })
 
   it("names a spent run budget through a harness wrapper and a skipped call", () => {
-    // Shapes of `@smthrs/agent/Budget` failures, which this package cannot import.
     const exceeded = { _tag: "flows/agent/BudgetExceeded", scope: "tokens", used: 600, max: 1000 }
     const wrapped = { _tag: "/harness/HarnessError", code: "model_failed", cause: exceeded }
     const expected = {
       headline: "Token budget reached",
-      fault: "infra",
       line: "600 of 1000 tokens used.",
       actions: ["resume", "details"]
     }
-    expect(FailureCopy.describe(wrapped)).toEqual(expected)
-    expect(FailureCopy.describe({ _tag: "flows/agent/Skipped", budget: exceeded })).toEqual(expected)
+    expect(FailureCopy.describe(wrapped)).toMatchObject(expected)
+    expect(FailureCopy.describe({ _tag: "flows/agent/Skipped", budget: exceeded })).toMatchObject(expected)
     expect(FailureCopy.describe({ ...exceeded, scope: "latency", used: 12.4, max: 10 })).toMatchObject({
       headline: "Time budget reached",
       line: "12 of 10 ms used."
     })
-    expect(FailureCopy.describe({ ...exceeded, scope: "daily", used: 2100, max: 2000 })).toEqual({
+    expect(FailureCopy.describe({ ...exceeded, scope: "daily", used: 2100, max: 2000 })).toMatchObject({
       headline: "Daily token cap reached",
-      fault: "infra",
       line: "2100 of 2000 tokens used today.",
       actions: ["resume", "details"]
     })
@@ -52,22 +53,16 @@ describe("FailureCopy.describe", () => {
     })
   })
 
-  it("maps legacy string-only provider limits without exposing their text", () => {
+  it("never reads a fault out of prose: a bare string is an untyped failure", () => {
     expect(FailureCopy.describe("The usage limit has been reached", "openai:gpt-6-sol")).toMatchObject({
-      headline: "ChatGPT usage limit reached",
-      fault: "wait",
-      line: "Wait for the provider reset."
+      headline: "Worker stopped unexpectedly",
+      fault: "bug"
     })
-    expect(FailureCopy.describe("An unrelated failure", "openai:gpt-6-sol").headline)
-      .toBe("Worker stopped unexpectedly")
   })
 
   it("classifies a wrapped harness engine failure", () => {
     expect(FailureCopy.describe({ cause: { _tag: "/harness/HarnessError", code: "engine_failed", message: "raw" } }))
-      .toMatchObject({
-        headline: "Worker engine stopped",
-        fault: "infra"
-      })
+      .toMatchObject({ headline: "Worker engine stopped" })
   })
 
   it.each([
@@ -101,14 +96,14 @@ describe("FailureCopy.describe", () => {
   it("maps request, provider, and harness codes without using their messages", () => {
     for (
       const [code, fault] of [
-        ["invalid_request", "user"],
-        ["context_overflow", "user"],
+        ["invalid_request", "factory"],
+        ["context_overflow", "factory"],
         ["no_route", "dependency"],
         ["authentication", "user"],
         ["content_policy", "user"],
-        ["provider_internal", "infra"],
-        ["transport", "infra"],
-        ["call_timeout", "wait"],
+        ["provider_internal", "dependency"],
+        ["transport", "dependency"],
+        ["call_timeout", "dependency"],
         ["invalid_provider_output", "dependency"],
         ["unknown", "dependency"]
       ] as const
@@ -118,18 +113,20 @@ describe("FailureCopy.describe", () => {
       expect(copy.headline).not.toContain("raw")
     }
     for (
-      const [code, fault] of [
-        ["assembly_failed", "bug"],
-        ["incompatible_journal", "bug"],
-        ["render_failed", "bug"],
-        ["model_failed", "dependency"],
-        ["read_only_cap", "user"],
-        ["completion_unjudged", "dependency"],
-        ["claim_unproven", "user"],
-        ["suspended", "wait"]
-      ] as const
+      const code of [
+        "assembly_failed",
+        "incompatible_journal",
+        "render_failed",
+        "model_failed",
+        "read_only_cap",
+        "completion_unjudged",
+        "claim_unproven",
+        "suspended"
+      ]
     ) {
-      expect(FailureCopy.describe({ _tag: "/harness/HarnessError", code, message: "raw" }).fault).toBe(fault)
+      const copy = FailureCopy.describe({ _tag: "/harness/HarnessError", code, message: "raw" })
+      expect(copy.headline).not.toBe("Worker stopped unexpectedly")
+      expect(copy.headline).not.toContain("raw")
     }
   })
 

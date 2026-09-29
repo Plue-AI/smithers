@@ -11,6 +11,7 @@
  * @since 0.1.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import type * as PersistedPlan from "@smthrs/plan/Plan"
 import { Context, Crypto, Effect, Fiber, Layer, Option, Schema } from "effect"
 import * as ApprovalAuthority from "./ApprovalAuthority.ts"
@@ -1465,3 +1466,6 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
       return service
     })
   )
+
+Fault.register("/control/ApprovalPending", "wait")
+Fault.register("/control/ApprovalDenied", "user")

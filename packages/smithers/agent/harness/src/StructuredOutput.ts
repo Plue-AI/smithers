@@ -38,6 +38,7 @@
  */
 
 import * as Digest from "@smthrs/core/Digest"
+import * as Fault from "@smthrs/flow/Fault"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as SchemaIssue from "effect/SchemaIssue"
@@ -159,6 +160,8 @@ export class StructuredOutputFailure extends Schema.TaggedError<StructuredOutput
     message: Schema.String
   }
 ) {}
+// The model's answer did not fit the declared shape: another model may answer it.
+Fault.register("/harness/StructuredOutputFailure", "dependency")
 
 /**
  * The most validation issues a failure or a correction prompt carries.

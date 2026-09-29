@@ -1274,7 +1274,7 @@ for (const role of ["coordinator", "worker"] as const) {
       const failure = FailureCopy.describe(outcome.error)
       expect(failure).toEqual({
         headline: "Token budget reached",
-        fault: "infra",
+        fault: "policy",
         line: "600 of 1000 tokens used.",
         actions: ["resume", "details"]
       })
@@ -1394,7 +1394,7 @@ describe("default caps through the host", () => {
         expect(outcome.message).toBe("Daily token cap reached")
         expect(FailureCopy.describe(outcome.error)).toEqual({
           headline: "Daily token cap reached",
-          fault: "infra",
+          fault: "policy",
           line: "5000 of 5000 tokens used today.",
           actions: ["resume", "details"]
         })

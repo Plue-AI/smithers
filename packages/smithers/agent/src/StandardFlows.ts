@@ -39,6 +39,7 @@ import * as Digest from "@smthrs/core/Digest"
 import * as Flow from "@smthrs/core/Flow"
 import { DurableClock } from "@smthrs/flow"
 import type { FlowRuntime } from "@smthrs/flow"
+import * as Fault from "@smthrs/flow/Fault"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -692,6 +693,8 @@ class JevRefused extends Schema.TaggedError<JevRefused>()(
   "@smthrs/agent/StandardFlows/JevRefused",
   { message: Schema.String }
 ) {}
+// Call refusals the agent reads back: its own call was malformed or unroutable.
+Fault.register("@smthrs/agent/StandardFlows/JevRefused", "factory")
 
 /**
  * The public text of a `jev` failure: the refusal's own message, or the
@@ -816,6 +819,7 @@ class WaitRefused extends Schema.TaggedError<WaitRefused>()(
   "@smthrs/agent/StandardFlows/WaitRefused",
   { message: Schema.String }
 ) {}
+Fault.register("@smthrs/agent/StandardFlows/WaitRefused", "factory")
 
 /**
  * A durable wait, as one ordinary flow.
@@ -948,6 +952,7 @@ export class ApprovalUnavailable extends Schema.TaggedError<ApprovalUnavailable>
   "@smthrs/agent/StandardFlows/ApprovalUnavailable",
   { message: Schema.String }
 ) {}
+Fault.register("@smthrs/agent/StandardFlows/ApprovalUnavailable", "factory")
 
 /**
  * The narrow host port an approval flow needs.

@@ -3,6 +3,7 @@
  */
 
 import * as Sha256 from "@smthrs/crypto/Sha256"
+import * as Fault from "@smthrs/flow/Fault"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Cause, Effect, Metric, Schema } from "effect"
 import type { ControlEvent, RunSummary } from "./ControlSchema.ts"
@@ -278,6 +279,7 @@ export class HealthConfigurationError
     reason: Schema.Literals(["invalid-policy", "invalid-checker", "invalid-config"])
   })
 {}
+Fault.register("HealthConfigurationError", "bug")
 /** Safe cadence used by unconfigured hosts.
  * @category constants
  * @since 1.0.0

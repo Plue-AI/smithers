@@ -50,6 +50,7 @@
     "./DurableClock": "./src/DurableClock.ts",
     "./DurableDeferred": "./src/DurableDeferred.ts",
     "./DurableQueue": "./src/DurableQueue.ts",
+    "./Fault": "./src/Fault.ts",
     "./Graph": "./src/Graph.ts",
     "./HumanTask": "./src/HumanTask.ts",
     "./Interpreter": "./src/Interpreter.ts",
@@ -191,6 +192,16 @@
         "require": {
           "types": "./dist/cjs/DurableQueue.d.ts",
           "default": "./dist/cjs/DurableQueue.js"
+        }
+      },
+      "./Fault": {
+        "import": {
+          "types": "./dist/esm/Fault.d.ts",
+          "default": "./dist/esm/Fault.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Fault.d.ts",
+          "default": "./dist/cjs/Fault.js"
         }
       },
       "./Graph": {

@@ -67,6 +67,7 @@
 import type * as ControlSchema from "@smthrs/control/ControlSchema"
 import { digest } from "@smthrs/core/Digest"
 import { FlowRuntime } from "@smthrs/flow"
+import * as Fault from "@smthrs/flow/Fault"
 import type * as RetryPolicy from "@smthrs/flow/RetryPolicy"
 import type * as HarnessError from "@smthrs/harness/HarnessError"
 import { Journal, JournalEvent } from "@smthrs/journal"
@@ -314,6 +315,11 @@ export class Skipped extends Schema.TaggedError<Skipped>()(
   }
 ) {}
 
+// A cap stopping a run is policy, never the platform: something may be looping.
+Fault.register("flows/agent/BudgetExceeded", "policy")
+Fault.register(skippedTag, "policy")
+Fault.register("flows/agent/BudgetConfigurationError", "bug")
+
 /**
  * The budget could not account a run, so it will not say what the run may
  * spend.
@@ -352,6 +358,7 @@ export class AccountingUnavailable extends Schema.TaggedError<AccountingUnavaila
     cause: Schema.optional(Schema.Unknown)
   }
 ) {}
+Fault.register("flows/agent/BudgetAccountingUnavailable", "infra")
 
 /**
  * The error tags no retry can turn into a success.

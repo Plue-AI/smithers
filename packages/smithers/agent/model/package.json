@@ -333,6 +333,7 @@
   },
   "dependencies": {
     "@smthrs/capability": "1.0.0-rc.1",
+    "@smthrs/flow": "1.0.0-rc.1",
     "@smthrs/kernel": "1.0.0-rc.1",
     "@smthrs/canonical": "1.0.0-rc.1",
     "@smthrs/core": "1.0.0-rc.1"

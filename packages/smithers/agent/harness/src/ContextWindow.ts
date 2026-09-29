@@ -10,6 +10,7 @@
  */
 
 import * as Digest from "@smthrs/core/Digest"
+import * as Fault from "@smthrs/flow/Fault"
 import * as CanonicalJson from "@smthrs/model/CanonicalJson"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { dual } from "effect/Function"
@@ -152,6 +153,13 @@ export class ContextWindowError extends Schema.TaggedError<ContextWindowError>()
     message: Schema.String
   }
 ) {}
+Fault.register(
+  "flows/harness/ContextWindowError",
+  {
+    invalid_compaction_prefix: "bug",
+    invalid_compaction_marks: "bug"
+  } satisfies Fault.Rows<ContextWindowErrorCode>
+)
 
 /** A stable, typed slice of the model-visible context.
  * @category models

@@ -1085,6 +1085,17 @@
       "reason": "The stall breaker Loop, ReviewLoop and Supervisor share to end a round loop whose signals stopped moving (b58bf93b8, #1692)."
     },
     {
+      "name": "@smthrs/flow",
+      "subpath": "./Fault",
+      "development": "./src/Fault.ts",
+      "published": {
+        "types": "./dist/esm/Fault.d.ts",
+        "import": "./dist/esm/Fault.js",
+        "require": "./dist/cjs/Fault.js"
+      },
+      "reason": "One typed fault class per failure, registered by each error owner and stamped on failed runs (failure model S7 slice 1)."
+    },
+    {
       "name": "@smthrs/evals",
       "subpath": "./Trials",
       "development": "./src/Trials.ts",

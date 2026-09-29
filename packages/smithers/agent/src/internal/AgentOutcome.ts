@@ -3,6 +3,7 @@
  * @since 1.0.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
@@ -10,6 +11,9 @@ import * as Stream from "effect/Stream"
 type Outcome =
   | { readonly _tag: "Completed"; readonly output: string }
   | { readonly _tag: "FramesExhausted"; readonly frames: number }
+
+// Frames spent with no completed answer is the plan not converging: a replan's.
+Fault.register("FramesExhausted", "factory")
 
 /**
  * Keep completion separate from the stream's successful transport exit.

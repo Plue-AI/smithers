@@ -18,6 +18,7 @@
  */
 
 import * as Flow from "@smthrs/core/Flow"
+import * as Fault from "@smthrs/flow/Fault"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import type { FlowsHooks, FlowsPlugin } from "@smthrs/plugin"
@@ -201,6 +202,7 @@ const live = { reads: [], writes: [], mode: "expected", onConflict: "serialize",
 class PortError extends Schema.TaggedError<PortError>()("@smthrs/agent/SmithersPlugin/PortError", {
   message: Schema.String
 }) {}
+Fault.register("@smthrs/agent/SmithersPlugin/PortError", "bug")
 
 /** The host's value as plain JSON; `undefined` fields drop and a missing value is null. */
 const json = (value: unknown): Schema.Json => JSON.parse(JSON.stringify(value) ?? "null") as Schema.Json

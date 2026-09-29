@@ -3,6 +3,7 @@
  * @since 1.0.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Schema } from "effect"
 import type { HealthChecker, ProbeReport } from "./Health.ts"
@@ -15,6 +16,17 @@ export class JevProbeError extends Schema.TaggedError<JevProbeError>()("JevProbe
   reason: Schema.Literals(["unconfigured", "http", "timeout", "unreachable", "malformed"]),
   status: Schema.optional(Schema.Number)
 }) {}
+Fault.register(
+  "JevProbeError",
+  {
+    unconfigured: "policy",
+    http: "dependency",
+    timeout: "dependency",
+    unreachable: "dependency",
+    malformed: "dependency"
+  } satisfies Fault.Rows<JevProbeError["reason"]>,
+  "reason"
+)
 /** Maximum terminal evidence retained for one judgment.
  * @category constants
  * @since 1.0.0

@@ -2872,6 +2872,9 @@ importers:
       '@smthrs/core':
         specifier: 1.0.0-rc.1
         version: link:../../flows/core
+      '@smthrs/flow':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/flow
       '@smthrs/journal':
         specifier: 1.0.0-rc.1
         version: link:../../flows/journal
@@ -3170,6 +3173,9 @@ importers:
       '@smthrs/core':
         specifier: 1.0.0-rc.1
         version: link:../../flows/core
+      '@smthrs/flow':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/flow
       '@smthrs/kernel':
         specifier: 1.0.0-rc.1
         version: link:../../flows/kernel

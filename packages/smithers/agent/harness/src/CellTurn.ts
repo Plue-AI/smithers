@@ -16,6 +16,7 @@
  * @since 0.1.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import { Effects, type KeyMaterial, Placement } from "@smthrs/core"
 import * as Digest from "@smthrs/core/Digest"
 import { Capability, CapabilitySet, Permission } from "@smthrs/kernel"
@@ -56,6 +57,10 @@ import { journalVersion } from "./Transcript.ts"
 import * as TruncatedOutput from "./TruncatedOutput.ts"
 import * as UnresolvedFailure from "./UnresolvedFailure.ts"
 import * as VariablesPanel from "./VariablesPanel.ts"
+
+/** The cause the repeated-failure guard ends a turn with: the model looping, a replan's to fix. */
+const repeatedFailureTag = "/harness/CellTurn/RepeatedFailure"
+Fault.register(repeatedFailureTag, "factory")
 
 /**
  * Default number of frames one admitted task may spend. Zero disarms this limit.
@@ -4168,7 +4173,8 @@ export const run = (
         if (current.failureFrames >= 5) {
           return yield* new HarnessError({
             code: "model_failed",
-            message: `Runaway guard: ${current.failureFrames} consecutive frames repeated the same failure: ${current.failureKey}`
+            message: `Runaway guard: ${current.failureFrames} consecutive frames repeated the same failure: ${current.failureKey}`,
+            cause: { _tag: repeatedFailureTag, frames: current.failureFrames }
           })
         }
         if (current.maxFrames > 0 && current.frame >= current.maxFrames) {

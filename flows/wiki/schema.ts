@@ -1,4 +1,5 @@
 /** Repository recipe contracts. These are snapshot artifacts, not a storage API. */
+import * as Fault from "@smthrs/flow/Fault"
 import { Schema } from "effect"
 
 export const Source = Schema.Struct({ path: Schema.String, digest: Schema.String, text: Schema.String })
@@ -72,3 +73,14 @@ export class WikiError extends Schema.TaggedError<WikiError>()("WikiError", {
   ]),
   message: Schema.String
 }) {}
+Fault.register(
+  "WikiError",
+  {
+    "invalid-input": "user",
+    "stale-source": "factory",
+    "review-failed": "factory",
+    "output-conflict": "factory",
+    "citation-check-unavailable": "dependency",
+    io: "infra"
+  } satisfies Fault.Rows<WikiError["code"]>
+)

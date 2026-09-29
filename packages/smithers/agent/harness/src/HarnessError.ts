@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import { Schema } from "effect"
 
 /**
@@ -73,3 +74,18 @@ export class HarnessError extends Schema.TaggedError<HarnessError>()("/harness/H
   message: Schema.String,
   cause: Schema.optional(Schema.Defect())
 }) {}
+Fault.register(
+  "/harness/HarnessError",
+  {
+    assembly_failed: "bug",
+    incompatible_journal: "bug",
+    render_failed: "bug",
+    model_failed: "dependency",
+    completion_unjudged: "dependency",
+    engine_failed: "infra",
+    // A spent cap or an unproven claim is the plan not converging: a replan's to fix.
+    read_only_cap: "factory",
+    claim_unproven: "factory",
+    suspended: "wait"
+  } satisfies Fault.Rows<HarnessErrorCode>
+)

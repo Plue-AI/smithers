@@ -5,6 +5,7 @@
  */
 
 import * as Digest from "@smthrs/core/Digest"
+import * as Fault from "@smthrs/flow/Fault"
 import { ModelRequest } from "@smthrs/model"
 import * as CanonicalJson from "@smthrs/model/CanonicalJson"
 import { Effect, Schema } from "effect"
@@ -47,6 +48,7 @@ export class InvalidStep extends Schema.TaggedError<InvalidStep>("flows/harness/
     cause: Schema.optional(Schema.Defect())
   }
 ) {}
+Fault.register("InvalidStep", "bug")
 
 /**
  * A serializable identity for the summarizer used by a compaction step.

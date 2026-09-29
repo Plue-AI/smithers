@@ -17,6 +17,7 @@
  */
 
 import * as Digest from "@smthrs/core/Digest"
+import * as Fault from "@smthrs/flow/Fault"
 import * as Classifier from "@smthrs/model/Classifier"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
@@ -150,6 +151,7 @@ export class InvalidMonitor extends Schema.TaggedError<InvalidMonitor>()("@smthr
   id: Schema.String,
   message: Schema.String
 }) {}
+Fault.register("@smthrs/harness/Monitor/InvalidMonitor", "bug")
 
 type Suppression = typeof AgentEvent.Suppression.Type
 

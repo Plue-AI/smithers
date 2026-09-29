@@ -459,6 +459,7 @@
     "@jitl/quickjs-singlefile-browser-release-sync": "0.32.0",
     "@smthrs/capability": "1.0.0-rc.1",
     "@smthrs/core": "1.0.0-rc.1",
+    "@smthrs/flow": "1.0.0-rc.1",
     "@smthrs/journal": "1.0.0-rc.1",
     "@smthrs/kernel": "1.0.0-rc.1",
     "@smthrs/model": "1.0.0-rc.1",

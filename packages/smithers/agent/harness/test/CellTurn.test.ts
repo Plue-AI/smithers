@@ -5,6 +5,7 @@
  * a cell returned, every flow call is its own boundary with its own identity,
  * and an unusable cell is durable evidence rather than a crash.
  */
+import * as Fault from "@smthrs/flow/Fault"
 import { Capability, Permission } from "@smthrs/kernel"
 import { ModelEvent, ModelRequest } from "@smthrs/model"
 import * as Auth from "@smthrs/model/Auth"
@@ -552,6 +553,8 @@ console.log(kept)`
     expect(of(events, "resolved")).toHaveLength(0)
     expect(String(failure)).toContain("Runaway guard: 5 consecutive frames")
     expect(String(failure)).toContain("bash exited 1")
+    // A looping model is the plan's to fix, never another seat's or a retry's.
+    expect(Fault.of(failure)).toEqual({ class: "factory", tag: "/harness/CellTurn/RepeatedFailure" })
   })
 
   it("fails a run after five identical failing flow calls", async () => {

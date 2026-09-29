@@ -47,6 +47,7 @@
 import type * as Capability from "@smthrs/capability/Capability"
 import * as Digest from "@smthrs/core/Digest"
 import { Action, DurableClock, type Flow, FlowRuntime } from "@smthrs/flow"
+import * as Fault from "@smthrs/flow/Fault"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as CellCalls from "@smthrs/harness/CellCalls"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -372,6 +373,8 @@ export class InvalidCorrectionBudget extends Schema.TaggedError<InvalidCorrectio
     message: Schema.String
   }
 ) {}
+Fault.register("flows/agent/InvalidCorrectionBudget", "bug")
+Fault.register("flows/agent/InvalidSeatDeclaration", "bug")
 
 /**
  * Refuses a correction budget that is not a non-negative safe integer.
@@ -628,7 +631,8 @@ export const make = <
       if (!Schema.is(ModelSelection)(declaredSeat) || declaredIds.some((id) => id.trim() === "")) {
         return yield* new HarnessError({
           code: "model_failed",
-          message: "AgentAction seat must name a model or a non-empty model list"
+          message: "AgentAction seat must name a model or a non-empty model list",
+          cause: { _tag: "flows/agent/InvalidSeatDeclaration" }
         })
       }
       // `auto` asks Jev once per execution, as a sealed step, so each subagent

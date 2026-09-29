@@ -47,6 +47,13 @@ export * as Flow from "./Flow/index.ts"
 export * as FlowRuntime from "./FlowRuntime/index.ts"
 
 /**
+ * One typed fault for every failure, and the response table that reads it.
+ *
+ * @since 1.0.0
+ */
+export * as Fault from "./Fault.ts"
+
+/**
  * Plan-time graph building from flow declarations.
  *
  * @since 0.1.0

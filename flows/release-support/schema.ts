@@ -1,9 +1,12 @@
+import * as Fault from "@smthrs/flow/Fault"
 import { Effect, Schema } from "effect"
 
 export class ReleaseError extends Schema.TaggedError<ReleaseError>()("ReleaseError", {
   step: Schema.String,
   message: Schema.String
 }) {}
+// A release step that refused: the release is not in the state the step needs.
+Fault.register("ReleaseError", "user")
 
 /** Semver without a v prefix or build metadata; every operator message for a version lives here. */
 export const Version = Schema.NonEmptyString.check(

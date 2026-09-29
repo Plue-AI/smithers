@@ -11,6 +11,7 @@
  * @since 0.1.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import type { JournalEvent } from "@smthrs/journal"
 import { ModelRequest } from "@smthrs/model"
 import { Result, Schema } from "effect"
@@ -108,6 +109,7 @@ export class TranscriptError extends Schema.TaggedError<TranscriptError>()("flow
   message: Schema.String,
   cause: Schema.optional(Schema.Defect())
 }) {}
+Fault.register("flows/harness/TranscriptError", { projection_failed: "bug" } satisfies Fault.Rows<TranscriptErrorCode>)
 
 /**
  * The kind and message of one projected transcript item.

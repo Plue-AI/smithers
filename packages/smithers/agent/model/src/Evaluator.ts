@@ -12,6 +12,7 @@
  * @since 1.0.0-rc.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Clock from "effect/Clock"
 import type * as Config from "effect/Config"
@@ -73,6 +74,24 @@ export class EvaluatorError extends Schema.TaggedError<EvaluatorError>()("flows/
   status: Schema.optional(Schema.Number),
   message: Schema.String
 }) {}
+
+/**
+ * Whose problem each Jev failure is. A judge that did not answer is a
+ * dependency; one that answered badly stops typed, and a question the schema
+ * rejected is ours.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const faults = {
+  unreachable: "dependency",
+  timeout: "dependency",
+  refused: "dependency",
+  empty: "dependency",
+  invalid_answer: "dependency",
+  invalid_question: "bug"
+} as const satisfies Fault.Rows<EvaluatorErrorCode>
+Fault.register("flows/model/EvaluatorError", faults)
 
 /**
  * What an `unreachable` failure says wherever it is shown or journaled.

@@ -259,6 +259,21 @@ const statusLayer = Status.toLayer(({ attempt, id }) =>
 
 Three things make this the durable bound rather than a wall-clock one. The race records its winner under a name that carries the attempt, so a re-driven round reads the recorded outcome instead of racing again. The clock parks the execution rather than holding a fiber, so the bound outlives the process waiting on it. And the clock's branch answers `satisfied: false`, so a check that ran out of time costs the poll one attempt and nothing else: the round takes its declared interval and hands off to the next attempt exactly as an unsatisfied check does.
 
+## `Fault`
+
+One typed fault for every failure. The owner of an error union registers each code with a class, so a failure crosses every seam as `{ class, tag }` instead of prose.
+
+| Export | Behavior |
+| --- | --- |
+| `Class` | `user`, `wait`, `infra`, `dependency`, `bug` (the wire registry), plus `factory` (the factory's own work did not converge; a replan may fix it) and `policy` (a cap stopped it). |
+| `Fault` | `{ class, tag }`. `tag` is `<_tag>/<code>`, or `<_tag>` for an error without a code. |
+| `register(tag, table, field?)` | One class for the whole tag, or one per value of `field` (default `code`). Owners write `satisfies Fault.Rows<Code>`, so a new code without a class does not compile. A value the table does not name is `bug`. The registry is one per process (shared by the ESM and CommonJS builds); registering a tag again with the same rows is a no-op, and with different rows throws. |
+| `of(error)` | Walks `cause` up to 16 links and answers the innermost registered tag, because a wrapper names where a failure surfaced and its cause names why. Anything unregistered is `{ class: "bug", tag: "unregistered" }`. |
+| `respond(fault, state)` | The one response ladder, exhaustive over the classes: `wait` backs up, then parks while `parksLeft` allows, `dependency` backs up then retries (3 attempts), `infra` retries then parks, `factory` replans twice, continues once as `very_hard`, then asks for `help`, a declined request (`coding/Error/declined`) closes, any other `user` fault asks for `help`, and `policy` and `bug` stop. |
+| `registered()` | Every registered tag; the sweep tests read it. |
+
+A failed agent run, and a launch the executor refused, journal the fault on `control.run.failed` beside `cause`; the gateway carries it to the worker as `failureFault` and `failureTag`, and drops it once the run resumes.
+
 ## `Stall`
 
 `Stall` is the stall breaker round loops share. `Stall.policy({ rounds, on })` resolves `rounds` (at least two) and `on` (`stop`, the default, `park`, or `escalate`). `Stall.observe(policy, state, observation)` folds one round into the carried `State` and returns the next state with a `Stalled` verdict once one signal held for `rounds` rounds in a row. An observation reports any of `tree` (a tree fingerprint), `checks` (failing check ids, order ignored, empty not compared), and `output` (compared by the SHA-256 of its canonical JSON; a value with no canonical form is not compared). `Stall.initial` is the state before the first round. `State`, `Policy` and `Stalled` are schemas, so a trampoline carries the state in its payload and replay reads the same verdict. The loop decides what `on` means; `@smthrs/patterns` loops and the coding correction flow use it.

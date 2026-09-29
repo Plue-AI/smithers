@@ -1,5 +1,6 @@
 /** Coding policy is ordinary flow input; the engine remains its durable store. */
 import * as Digest from "@smthrs/core/Digest"
+import * as Fault from "@smthrs/flow/Fault"
 import * as Stall from "@smthrs/flow/Stall"
 import { Schema } from "effect"
 
@@ -162,6 +163,27 @@ export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error
   ]),
   message: Text
 }) {}
+Fault.register(
+  "coding/Error",
+  {
+    declined: "user",
+    invalid_request: "user",
+    source_missing: "user",
+    source_changed: "user",
+    source_refused: "user",
+    // The plan, its checks, or its correction rounds did not converge: a replan's.
+    invalid_plan: "factory",
+    fast_gate: "factory",
+    stale_revision: "factory",
+    stalled: "factory",
+    // Catch-alls: an exporter exit, a decode failure, a deadline, an execution
+    // that died under the plan. None is the plan's, so none spends a replan.
+    invalid_receipt: "infra",
+    execution: "infra",
+    unavailable: "dependency",
+    source_unavailable: "dependency"
+  } satisfies Fault.Rows<CodingError["code"]>
+)
 
 /** Validate invariants before any implementation or check is scheduled. */
 export const validatePlan = (plan: Plan): void => {

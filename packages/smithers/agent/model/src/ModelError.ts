@@ -8,6 +8,7 @@
  * @since 0.1.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import { Schema } from "effect"
 
 /**
@@ -153,3 +154,27 @@ export class ModelError extends Schema.TaggedError<ModelError>()("flows/model/Mo
       this.httpStatus === 429 || (this.httpStatus !== undefined && this.httpStatus >= 500 && this.httpStatus <= 599)
   }
 }
+
+/**
+ * Whose problem each model failure is. The request is our agent's own
+ * construction, so a rejected or overflowing one is the factory's, never the
+ * person's; a limit is a wait, and a call that ran past its own deadline is a
+ * dependency another seat or a retry may answer.
+ */
+Fault.register(
+  "flows/model/ModelError",
+  {
+    invalid_request: "factory",
+    context_overflow: "factory",
+    no_route: "dependency",
+    authentication: "user",
+    rate_limited: "wait",
+    quota_exceeded: "wait",
+    content_policy: "user",
+    provider_internal: "dependency",
+    transport: "dependency",
+    call_timeout: "dependency",
+    invalid_provider_output: "dependency",
+    unknown: "dependency"
+  } satisfies Fault.Rows<ModelErrorCode>
+)

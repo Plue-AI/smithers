@@ -1,4 +1,5 @@
 /** Private native receipt contracts shared by the Effect adapter and browser projections. */
+import * as Fault from "@smthrs/flow/Fault"
 import { Schema } from "effect"
 
 export const ChangeId = Schema.String.check(Schema.isPattern(/^[k-z]{32}$/))
@@ -220,3 +221,38 @@ export class NativeCodingError extends Schema.TaggedError<NativeCodingError>()("
   message: Schema.String,
   recovery: Schema.optionalKey(FileRecovery)
 }) {}
+// Codes with a Go twin (`coding_<code>` or `<code>` in docs/api/failure-codes.json)
+// carry the registry's verdict; flows/test/coding-fault.test.ts holds them equal.
+Fault.register(
+  "coding/NativeCodingError",
+  {
+    invalid_request: "user",
+    invalid_ref: "user",
+    source_changed: "user",
+    source_missing: "user",
+    source_refused: "user",
+    snapshot_refused: "user",
+    file_conflict: "user",
+    file_recovery_required: "user",
+    revision_conflict: "factory",
+    invalid_receipt: "infra",
+    outcome_unknown: "wait",
+    provenance_pending: "wait",
+    workspace_busy: "wait",
+    operation_conflict: "wait",
+    source_creation_unavailable: "dependency",
+    source_publication_invalid_ack: "dependency",
+    source_publication_unavailable: "dependency",
+    gateway_not_configured: "infra",
+    provider_refresh_required: "infra",
+    unsupported_jj: "infra",
+    host_unavailable: "infra",
+    host_upgrade_required: "infra",
+    reporter_upgrade_required: "infra",
+    snapshot_incomplete: "infra",
+    unsupported_version: "infra",
+    guest_failure: "bug",
+    response_too_large: "bug",
+    request_conflict: "bug"
+  } satisfies Fault.Rows<NativeCode>
+)

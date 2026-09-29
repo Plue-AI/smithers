@@ -14,6 +14,7 @@
  */
 
 import type { ControlFacts } from "@smthrs/control"
+import * as Fault from "@smthrs/flow/Fault"
 import * as HarnessError from "@smthrs/harness/HarnessError"
 import * as Schema from "effect/Schema"
 import type * as Budget from "./Budget.ts"
@@ -44,6 +45,8 @@ export class Timeout extends Schema.TaggedError<Timeout>()("flows/agent/Timeout"
   limitMillis: Schema.optional(Schema.Number),
   message: Schema.String
 }) {}
+// A time limit is a cap, like a latency budget: policy.
+Fault.register("flows/agent/Timeout", "policy")
 
 /**
  * The decoded form of {@link ControlFacts.GuardIncident}.
@@ -93,5 +96,16 @@ export const stopped = (facts: Incident): HarnessError.HarnessError =>
   new HarnessError.HarnessError({
     code: "model_failed",
     message: `Stopped by the operator: ${facts.message}`,
-    cause: facts
+    cause: { _tag: stoppedTag, ...facts }
   })
+
+/**
+ * The tag a Stop's cause carries, so the run's fault reads as a person's
+ * stop rather than as the model wrapper around it.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const stoppedTag = "flows/agent/RunawayGuard/Stopped"
+// A person stopped it: nothing retries, replans or backs up past that.
+Fault.register(stoppedTag, "policy")

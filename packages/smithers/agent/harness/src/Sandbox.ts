@@ -19,6 +19,7 @@
  * @since 0.1.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import { Context, Effect, Exit, Layer, Schema, type Scope } from "effect"
 import * as Cell from "./Cell.ts"
 import * as CellValidation from "./CellValidation.ts"
@@ -64,6 +65,14 @@ export class SandboxError extends Schema.TaggedError<SandboxError>()("flows/harn
   message: Schema.String,
   cause: Schema.optional(Schema.Defect())
 }) {}
+Fault.register(
+  "flows/harness/SandboxError",
+  {
+    unavailable: "infra",
+    runtime_failed: "infra",
+    unsupported: "bug"
+  } satisfies Fault.Rows<SandboxErrorCode>
+)
 
 /**
  * One flow invocation requested from inside a running cell.

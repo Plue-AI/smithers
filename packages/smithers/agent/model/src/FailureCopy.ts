@@ -4,14 +4,17 @@
  * @since 1.0.0-rc.1
  */
 
-import type { ModelErrorCode } from "./ModelError.ts"
+import * as Faults from "@smthrs/flow/Fault"
+import * as Schema from "effect/Schema"
+// A value import, so the model rows register wherever this copy is read.
+import { ModelErrorCode } from "./ModelError.ts"
 
 /**
- * Whose action can repair a stopped run.
+ * Whose action can repair a stopped run: the registered class of the failure.
  * @category models
  * @since 1.0.0-rc.1
  */
-export type Fault = "user" | "wait" | "infra" | "dependency" | "bug"
+export type Fault = Faults.Class
 /**
  * Keys a failure surface can offer.
  * @category models
@@ -61,68 +64,70 @@ const provider = (seat: string | undefined): string => {
     : "Model"
 }
 
-const model: Record<ModelErrorCode, readonly [string, Fault, string, ReadonlyArray<Action>]> = {
-  invalid_request: ["Model rejected the request", "user", "Change the request and resume.", [
+const isModelCode = Schema.is(ModelErrorCode)
+
+const model: Record<ModelErrorCode, readonly [string, string, ReadonlyArray<Action>]> = {
+  invalid_request: ["Model rejected the request", "Change the request and resume.", [
     "resume",
     "switch-model",
     "details"
   ]],
-  context_overflow: ["Model context is full", "user", "Shorten the context and resume.", [
+  context_overflow: ["Model context is full", "Shorten the context and resume.", [
     "resume",
     "switch-model",
     "details"
   ]],
-  no_route: ["Model route unavailable", "dependency", "Choose another model.", ["switch-model", "resume", "details"]],
-  authentication: ["Model sign-in required", "user", "Sign in and resume.", ["resume", "switch-model", "details"]],
-  rate_limited: ["usage limit reached", "wait", "Wait for the provider reset.", [
-    "resume",
-    "switch-model",
-    "wait",
-    "details"
-  ]],
-  quota_exceeded: ["quota exhausted", "wait", "Restore account quota and resume.", [
+  no_route: ["Model route unavailable", "Choose another model.", ["switch-model", "resume", "details"]],
+  authentication: ["Model sign-in required", "Sign in and resume.", ["resume", "switch-model", "details"]],
+  rate_limited: ["usage limit reached", "Wait for the provider reset.", [
     "resume",
     "switch-model",
     "wait",
     "details"
   ]],
-  content_policy: ["Model declined the request", "user", "Change the request and resume.", [
+  quota_exceeded: ["quota exhausted", "Restore account quota and resume.", [
+    "resume",
+    "switch-model",
+    "wait",
+    "details"
+  ]],
+  content_policy: ["Model declined the request", "Change the request and resume.", [
     "resume",
     "switch-model",
     "details"
   ]],
-  provider_internal: ["Model service failed", "infra", "The provider had a problem.", [
+  provider_internal: ["Model service failed", "The provider had a problem.", [
     "resume",
     "switch-model",
     "details"
   ]],
-  transport: ["Model connection failed", "infra", "The connection closed before a response.", [
+  transport: ["Model connection failed", "The connection closed before a response.", [
     "resume",
     "switch-model",
     "details"
   ]],
-  call_timeout: ["Model call timed out", "wait", "The response took too long.", ["resume", "switch-model", "details"]],
-  invalid_provider_output: ["Model response was invalid", "dependency", "Choose another model or resume.", [
+  call_timeout: ["Model call timed out", "The response took too long.", ["resume", "switch-model", "details"]],
+  invalid_provider_output: ["Model response was invalid", "Choose another model or resume.", [
     "resume",
     "switch-model",
     "details"
   ]],
-  unknown: ["Model call failed", "dependency", "The provider did not give a usable response.", [
+  unknown: ["Model call failed", "The provider did not give a usable response.", [
     "resume",
     "switch-model",
     "details"
   ]]
 }
-const harness: Record<string, readonly [string, Fault, string]> = {
-  assembly_failed: ["Worker setup failed", "bug", "The worker could not start."],
-  incompatible_journal: ["Worker history could not load", "bug", "The saved run could not be read."],
-  render_failed: ["Worker output failed", "bug", "The worker could not render its result."],
-  model_failed: ["Model call failed", "dependency", "The model did not complete."],
-  engine_failed: ["Worker engine stopped", "infra", "The worker engine failed."],
-  read_only_cap: ["Worker stopped at its read limit", "user", "Resume after narrowing the task."],
-  completion_unjudged: ["Worker result could not be checked", "dependency", "The result was not verified."],
-  claim_unproven: ["Worker claim was unproven", "user", "The worker could not verify its claim."],
-  suspended: ["Worker paused", "wait", "Resume when ready."]
+const harness: Record<string, readonly [string, string]> = {
+  assembly_failed: ["Worker setup failed", "The worker could not start."],
+  incompatible_journal: ["Worker history could not load", "The saved run could not be read."],
+  render_failed: ["Worker output failed", "The worker could not render its result."],
+  model_failed: ["Model call failed", "The model did not complete."],
+  engine_failed: ["Worker engine stopped", "The worker engine failed."],
+  read_only_cap: ["Worker stopped at its read limit", "Resume after narrowing the task."],
+  completion_unjudged: ["Worker result could not be checked", "The result was not verified."],
+  claim_unproven: ["Worker claim was unproven", "The worker could not verify its claim."],
+  suspended: ["Worker paused", "Resume when ready."]
 }
 
 /**
@@ -131,14 +136,7 @@ const harness: Record<string, readonly [string, Fault, string]> = {
  * @since 1.0.0-rc.1
  */
 export const describe = (error: unknown, seat?: string): Description => {
-  if (typeof error === "string" && /\b(?:usage limit|rate limit|quota (?:exceeded|exhausted))\b/i.test(error)) {
-    return {
-      headline: `${provider(seat)} usage limit reached`,
-      fault: "wait",
-      line: "Wait for the provider reset.",
-      actions: ["resume", "switch-model", "wait", "details"]
-    }
-  }
+  const fault = Faults.of(error).class
   let current: unknown = error
   let found: ErrorRecord | undefined
   let budget: ErrorRecord | undefined
@@ -157,10 +155,9 @@ export const describe = (error: unknown, seat?: string): Description => {
     const daily = budget.scope === "daily"
     const tokens = budget.scope !== "latency"
     const measured = typeof budget.used === "number" && typeof budget.max === "number"
-    // A cap is a tripwire on the factory, not a user error: something may be looping.
     return {
       headline: daily ? "Daily token cap reached" : tokens ? "Token budget reached" : "Time budget reached",
-      fault: "infra",
+      fault,
       line: measured
         ? `${Math.round(budget.used as number)} of ${budget.max} ${tokens ? "tokens" : "ms"} used${
           daily ? " today" : ""
@@ -170,8 +167,8 @@ export const describe = (error: unknown, seat?: string): Description => {
     }
   }
   const code = found?.code
-  if (found?._tag === "flows/model/ModelError" && typeof code === "string" && code in model) {
-    const [headline, fault, line, actions] = model[code as ModelErrorCode]
+  if (found?._tag === "flows/model/ModelError" && isModelCode(code)) {
+    const [headline, line, actions] = model[code]
     const route = typeof found.seat === "string" ? found.seat : typeof found.route === "string" ? found.route : seat
     const reset = typeof found.resetAtEpochMillis === "number" ?
       found.resetAtEpochMillis :
@@ -196,12 +193,12 @@ export const describe = (error: unknown, seat?: string): Description => {
     }
   }
   if (found?._tag === "/harness/HarnessError" && typeof code === "string" && code in harness) {
-    const [headline, fault, line] = harness[code]!
+    const [headline, line] = harness[code]!
     return { headline, fault, line, actions: ["resume", "switch-model", "details"] }
   }
   return {
     headline: "Worker stopped unexpectedly",
-    fault: "bug",
+    fault,
     line: "The worker stopped before finishing.",
     actions: ["resume", "switch-model", "details"]
   }

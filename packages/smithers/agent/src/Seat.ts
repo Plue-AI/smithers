@@ -25,6 +25,7 @@
  * @since 1.0.0-rc.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
 import * as Schema from "effect/Schema"
@@ -103,6 +104,18 @@ export class SeatUnrouted extends Schema.TaggedError<SeatUnrouted>()(
     message: Schema.String
   }
 ) {}
+
+Fault.register("@smthrs/agent/Seat/SeatUnresolved", "user")
+Fault.register(
+  "@smthrs/agent/Seat/SeatUnrouted",
+  {
+    unconfigured: "policy",
+    interrupted: "infra",
+    no_candidates: "factory",
+    ...Evaluator.faults
+  } satisfies Fault.Rows<SeatUnrouted["reason"]>,
+  "reason"
+)
 
 /**
  * The model id half of a seat string.

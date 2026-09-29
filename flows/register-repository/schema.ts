@@ -1,4 +1,5 @@
 /** Typed results of `register-repository`. The app's registration card decodes these same schemas. */
+import * as Fault from "@smthrs/flow/Fault"
 import { Schema } from "effect"
 
 /** Canonical GitHub `owner/repo`, lowercase. */
@@ -187,3 +188,11 @@ export class RegisterError extends Schema.TaggedError<RegisterError>()("register
   code: Schema.Literals(["invalid_link", "unavailable", "wrong_repository"]),
   message: Schema.String
 }) {}
+Fault.register(
+  "register-repository/Error",
+  {
+    invalid_link: "user",
+    wrong_repository: "user",
+    unavailable: "dependency"
+  } satisfies Fault.Rows<RegisterError["code"]>
+)

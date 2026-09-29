@@ -17,6 +17,7 @@
  * @since 0.1.0
  */
 
+import * as Fault from "@smthrs/flow/Fault"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -67,6 +68,15 @@ export class FlowStoreError extends Schema.TaggedError<FlowStoreError>()(
     cause: Schema.optional(Schema.Unknown)
   }
 ) {}
+Fault.register(
+  "@smthrs/agent/FlowStore/FlowStoreError",
+  {
+    invalid_id: "factory",
+    invalid_path: "factory",
+    write_failed: "infra",
+    unsupported: "bug"
+  } satisfies Fault.Rows<FlowStoreErrorCode>
+)
 
 const error = (code: FlowStoreErrorCode, message: string, cause?: unknown): FlowStoreError =>
   new FlowStoreError({ code, message, ...(cause === undefined ? {} : { cause }) })

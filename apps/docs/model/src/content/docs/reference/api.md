@@ -179,14 +179,20 @@ itself, so nothing about the request's settlement is known.
 ## `FailureCopy`
 
 `describe(error, seat?)` walks wrapped causes for a typed `ModelError` or
-`HarnessError` and returns `{ headline, fault, line, actions }`. The five fault
-values are `user`, `wait`, `infra`, `dependency`, and `bug`; actions are
-`resume`, `switch-model`, `wait`, and `details`. A model seat supplies the
-provider name for a limit. Unknown errors have a generic bug headline. Raw
-messages and stacks belong in technical details, never in the headline.
-For legacy persisted failures that contain only a provider limit message,
-`describe` maps recognized usage, rate, and quota limit text to the provider
-limit headline without displaying the raw message.
+`HarnessError` and returns `{ headline, fault, line, actions }`. `fault` is
+[`Fault.of(error).class`](https://flow.smithers.sh/reference/api/#fault), one of `user`, `wait`, `infra`,
+`dependency`, `bug`, `factory`, and `policy`; actions are `resume`,
+`switch-model`, `wait`, and `details`. A model seat supplies the provider name
+for a limit. Unknown errors have a generic headline. Raw messages and stacks
+belong in technical details, never in the headline. A bare string is never
+read for a fault: the fault arrives typed.
+
+`ModelError` registers its codes with `Fault`: `rate_limited` and
+`quota_exceeded` are `wait`; `invalid_request` and
+`context_overflow` are `factory`, because the agent built the request;
+`authentication` and `content_policy` are `user`; the rest are `dependency`.
+`Evaluator.faults` is the same table for Jev's codes, shared by
+`EvaluatorError` and `ClassifierError`.
 
 ## `Route`
 
