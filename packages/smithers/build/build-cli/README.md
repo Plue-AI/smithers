@@ -31,6 +31,14 @@ Bazel-style labels.
 
 Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
+Agent edit application and write-set rollback require trusted, coordinated
+workspace writers throughout capture, apply, commit, and rollback. Filesystem checks
+are path-based, not descriptor-anchored isolation against concurrent path
+replacement. Candidate publication replaces the file inode, preserves ordinary
+permission bits (`0777`), and clears setuid, setgid, and sticky bits. Rollback
+restores recorded permissions with the original bytes without modifying existing
+hard-link aliases. Clean tracked bytes are restored from the Git index.
+
 ## Documentation
 
 The API reference is at https://smithers.sh/docs/reference/api/build-cli/;

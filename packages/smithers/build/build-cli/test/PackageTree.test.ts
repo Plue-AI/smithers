@@ -379,6 +379,7 @@ describe("the write-set guard measures a workspace without a local .git from the
     const tree = await PackageTree.snapshotTree(root, ".flows")
     const snapshot = await PackageTree.snapshotIgnored(root, ".flows")
     try {
+      expect(tree.trackedModes.size).toBe(0)
       expect([...snapshot.entries.keys()].sort()).toEqual([".gitignore", "dist/a.js", "src/a.ts"])
       await file("src/a.ts", "rewritten")
       await Fs.chmod(NodePath.join(root, "src", "a.ts"), 0o644)
@@ -469,6 +470,327 @@ describe("snapshot rollback preserves file permissions", () => {
       }
     }
   }
+})
+
+describe.skipIf(process.platform === "win32")("revertPath restores clean tracked files", () => {
+  const tracked = "credentials.txt"
+  const trackedFile = (): string => NodePath.join(root, tracked)
+  const permissions = async (path: string): Promise<number> => (await Fs.lstat(path)).mode & 0o7777
+  const rollbackDirectories = async (): Promise<ReadonlyArray<string>> =>
+    (await Fs.readdir(root)).filter((name) => name.startsWith(".smthrs-rollback-"))
+  const git = (...args: ReadonlyArray<string>): string =>
+    ChildProcess.execFileSync("git", [...args], { cwd: root, encoding: "utf8" })
+
+  const cleanSnapshot = async (mode: number): Promise<PackageTree.TreeSnapshot> => {
+    git("init", "--quiet", ".")
+    await Fs.writeFile(trackedFile(), "original\n")
+    if ((mode & 0o111) !== 0) await Fs.chmod(trackedFile(), 0o755)
+    git("add", tracked)
+    git("-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "-qm", "initial")
+    await Fs.chmod(trackedFile(), mode)
+    expect(git("status", "--porcelain")).toBe("")
+    const snapshot = await PackageTree.snapshotTree(root, ".flows")
+    expect(snapshot.states.has(tracked)).toBe(false)
+    return snapshot
+  }
+
+  for (const mode of [0o600, 0o640, 0o750]) {
+    it(`restores content and ${mode.toString(8)} permissions after an overwrite`, async () => {
+      const snapshot = await cleanSnapshot(mode)
+      try {
+        await Fs.writeFile(trackedFile(), "overwritten\n")
+        await Fs.chmod(trackedFile(), 0o644)
+        expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([tracked])
+        await PackageTree.revertPath(snapshot, tracked)
+        expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+        expect(await permissions(trackedFile())).toBe(mode)
+        expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([])
+      } finally {
+        await PackageTree.releaseSnapshot(snapshot)
+      }
+    })
+
+    it(`restores ${mode.toString(8)} permissions after deletion`, async () => {
+      const snapshot = await cleanSnapshot(mode)
+      try {
+        await Fs.rm(trackedFile())
+        expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([tracked])
+        await PackageTree.revertPath(snapshot, tracked)
+        expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+        expect(await permissions(trackedFile())).toBe(mode)
+        expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([])
+      } finally {
+        await PackageTree.releaseSnapshot(snapshot)
+      }
+    })
+
+    it(`replaces a symlink with the original file and ${mode.toString(8)} permissions`, async () => {
+      const snapshot = await cleanSnapshot(mode)
+      const replacement = NodePath.join(outside, "replacement.txt")
+      try {
+        await Fs.writeFile(replacement, "outside\n")
+        await Fs.rm(trackedFile())
+        await Fs.symlink(replacement, trackedFile())
+        expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([tracked])
+        await PackageTree.revertPath(snapshot, tracked)
+        expect((await Fs.lstat(trackedFile())).isFile()).toBe(true)
+        expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+        expect(await permissions(trackedFile())).toBe(mode)
+        expect(await Fs.readFile(replacement, "utf8")).toBe("outside\n")
+        expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([])
+      } finally {
+        await PackageTree.releaseSnapshot(snapshot)
+      }
+    })
+  }
+
+  it("detects a clean tracked file's mode-only change and restores its snapshot mode", async () => {
+    const snapshot = await cleanSnapshot(0o600)
+    try {
+      await Fs.chmod(trackedFile(), 0o640)
+      expect(git("status", "--porcelain")).toBe("")
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+      expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([tracked])
+      await PackageTree.revertPath(snapshot, tracked)
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+      expect(await permissions(trackedFile())).toBe(0o600)
+      expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([])
+    } finally {
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+
+  it("restores a special permission bit after a same-bytes mode-only change", async (context) => {
+    const originalMode = 0o4600
+    const snapshot = await cleanSnapshot(originalMode)
+    try {
+      // Some filesystems do not preserve setuid on unprivileged files.
+      if (await permissions(trackedFile()) !== originalMode) context.skip("filesystem does not preserve setuid")
+      await Fs.chmod(trackedFile(), 0o600)
+      expect(git("status", "--porcelain")).toBe("")
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+      expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([tracked])
+      await PackageTree.revertPath(snapshot, tracked)
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+      expect(await permissions(trackedFile())).toBe(originalMode)
+      expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([])
+    } finally {
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+
+  it("does not rewrite a hardlinked alias while restoring the tracked file", async () => {
+    const snapshot = await cleanSnapshot(0o600)
+    const alias = NodePath.join(outside, "alias.txt")
+    try {
+      await Fs.link(trackedFile(), alias)
+      await Fs.writeFile(trackedFile(), "changed through the shared inode\n")
+      await Fs.chmod(trackedFile(), 0o644)
+      const aliasBefore = await Fs.lstat(alias)
+      expect(await Fs.readFile(alias, "utf8")).toBe("changed through the shared inode\n")
+      expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([tracked])
+      await PackageTree.revertPath(snapshot, tracked)
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+      expect(await permissions(trackedFile())).toBe(0o600)
+      expect(await Fs.readFile(alias, "utf8")).toBe("changed through the shared inode\n")
+      expect(await permissions(alias)).toBe(0o644)
+      expect((await Fs.lstat(alias)).ino).toBe(aliasBefore.ino)
+      expect((await Fs.lstat(trackedFile())).ino).not.toBe(aliasBefore.ino)
+      expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual([])
+    } finally {
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+
+  it("keeps the destination intact when Git cannot read the indexed blob", async () => {
+    const snapshot = await cleanSnapshot(0o600)
+    try {
+      await Fs.writeFile(trackedFile(), "current work\n")
+      await Fs.chmod(trackedFile(), 0o640)
+      const blob = git("rev-parse", `HEAD:${tracked}`).trim()
+      const object = NodePath.join(root, ".git", "objects", blob.slice(0, 2), blob.slice(2))
+      expect((await Fs.lstat(object)).isFile()).toBe(true)
+      await Fs.rm(object)
+      await expect(PackageTree.revertPath(snapshot, tracked)).rejects.toThrow()
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("current work\n")
+      expect(await permissions(trackedFile())).toBe(0o640)
+      expect(await rollbackDirectories()).toEqual([])
+    } finally {
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+
+  it("retries checkout when an older Git rejects the optional skip-worktree flag", async () => {
+    const snapshot = await cleanSnapshot(0o600)
+    const shimDirectory = NodePath.join(outside, "git-shim")
+    const log = NodePath.join(outside, "checkout-attempts.log")
+    const realGit = ChildProcess.execFileSync("which", ["git"], { encoding: "utf8" }).trim()
+    await Fs.mkdir(shimDirectory)
+    const shim = NodePath.join(shimDirectory, "git")
+    await Fs.writeFile(
+      shim,
+      `#!/bin/sh
+checkout=0
+for argument in "$@"; do
+  if [ "$argument" = "checkout-index" ]; then checkout=1; fi
+done
+if [ "$checkout" -eq 1 ]; then printf '%s\\n' "$*" >> "$SMTHRS_TEST_GIT_LOG"; fi
+for argument in "$@"; do
+  if [ "$argument" = "--ignore-skip-worktree-bits" ]; then
+    printf '%s\\n' "error: unknown option 'ignore-skip-worktree-bits'" >&2
+    exit 129
+  fi
+done
+exec "$SMTHRS_TEST_REAL_GIT" "$@"
+`
+    )
+    await Fs.chmod(shim, 0o755)
+    await Fs.writeFile(trackedFile(), "current work\n")
+    vi.stubEnv("PATH", `${shimDirectory}${NodePath.delimiter}${process.env.PATH ?? ""}`)
+    vi.stubEnv("SMTHRS_TEST_REAL_GIT", realGit)
+    vi.stubEnv("SMTHRS_TEST_GIT_LOG", log)
+    try {
+      await PackageTree.revertPath(snapshot, tracked)
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+      expect(await permissions(trackedFile())).toBe(0o600)
+      const attempts = (await Fs.readFile(log, "utf8")).trim().split("\n")
+      expect(attempts).toHaveLength(2)
+      expect(attempts[0]).toContain("--ignore-skip-worktree-bits")
+      expect(attempts[1]).not.toContain("--ignore-skip-worktree-bits")
+      expect(await rollbackDirectories()).toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+
+  it("sets staged permissions before publishing the restored file", async () => {
+    const snapshot = await cleanSnapshot(0o600)
+    const original = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    await Fs.writeFile(trackedFile(), "current work\n")
+    let sawPublish = false
+    const rename = vi.mocked(Fs.rename)
+    rename.mockImplementationOnce(async (from, to) => {
+      expect(String(to)).toBe(trackedFile())
+      expect((await Fs.lstat(NodePath.dirname(String(from)))).mode & 0o7777).toBe(0o700)
+      expect(await permissions(String(from))).toBe(0o600)
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("current work\n")
+      sawPublish = true
+      await original.rename(from, to)
+    })
+    try {
+      await PackageTree.revertPath(snapshot, tracked)
+      expect(sawPublish).toBe(true)
+      expect(await Fs.readFile(trackedFile(), "utf8")).toBe("original\n")
+      expect(await permissions(trackedFile())).toBe(0o600)
+      expect(await rollbackDirectories()).toEqual([])
+    } finally {
+      rename.mockReset().mockImplementation(original.rename)
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+
+  it("keeps a replacement directory intact and removes staging after chmod fails", async () => {
+    const snapshot = await cleanSnapshot(0o600)
+    const original = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    await Fs.rm(trackedFile())
+    await Fs.mkdir(trackedFile())
+    await Fs.writeFile(NodePath.join(trackedFile(), "current.txt"), "current work\n")
+    const failure = new Error("staged chmod failed")
+    vi.mocked(Fs.chmod).mockRejectedValueOnce(failure)
+    try {
+      await expect(PackageTree.revertPath(snapshot, tracked)).rejects.toBe(failure)
+      expect((await Fs.lstat(trackedFile())).isDirectory()).toBe(true)
+      expect(await Fs.readFile(NodePath.join(trackedFile(), "current.txt"), "utf8")).toBe("current work\n")
+      expect(await rollbackDirectories()).toEqual([])
+    } finally {
+      vi.mocked(Fs.chmod).mockReset().mockImplementation(original.chmod)
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+
+  it("preserves a populated submodule worktree during gitlink rollback", async () => {
+    const source = NodePath.join(outside, "source")
+    await Fs.mkdir(source)
+    ChildProcess.execFileSync("git", ["init", "--quiet", "."], { cwd: source, stdio: "ignore" })
+    await Fs.writeFile(NodePath.join(source, "child.txt"), "original child\n")
+    ChildProcess.execFileSync("git", ["add", "child.txt"], { cwd: source, stdio: "ignore" })
+    ChildProcess.execFileSync(
+      "git",
+      ["-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "-qm", "initial"],
+      { cwd: source, stdio: "ignore" }
+    )
+    git("init", "--quiet", ".")
+    git("-c", "protocol.file.allow=always", "submodule", "add", "--quiet", source, "dependency")
+    git("-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "-qm", "submodule")
+    expect(git("status", "--porcelain")).toBe("")
+
+    const child = NodePath.join(root, "dependency", "child.txt")
+    const snapshot = await PackageTree.snapshotTree(root, ".flows")
+    try {
+      expect(snapshot.states.has("dependency")).toBe(false)
+      await Fs.writeFile(child, "current child work\n")
+      expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual(["dependency"])
+      await PackageTree.revertPath(snapshot, "dependency")
+      expect((await Fs.lstat(NodePath.join(root, "dependency"))).isDirectory()).toBe(true)
+      expect(await Fs.readFile(child, "utf8")).toBe("current child work\n")
+      expect(await PackageTree.changedSinceSnapshot(snapshot, ".flows")).toEqual(["dependency"])
+      expect(await rollbackDirectories()).toEqual([])
+    } finally {
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+})
+
+describe.skipIf(process.platform === "win32")("snapshotTree tracks regular file modes", () => {
+  const git = (...args: ReadonlyArray<string>): void => {
+    ChildProcess.execFileSync("git", [...args], { cwd: root, stdio: "ignore" })
+  }
+
+  it("omits tracked symlinks and paths missing beneath a replaced directory", async () => {
+    git("init", "--quiet", ".")
+    await Fs.writeFile(NodePath.join(root, "regular.txt"), "regular")
+    await Fs.symlink("regular.txt", NodePath.join(root, "link.txt"))
+    await Fs.mkdir(NodePath.join(root, "parent"))
+    await Fs.writeFile(NodePath.join(root, "parent", "child.txt"), "child")
+    git("add", "-A")
+    git("-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "-qm", "initial")
+    await Fs.rm(NodePath.join(root, "parent"), { recursive: true })
+    await Fs.writeFile(NodePath.join(root, "parent"), "replacement")
+    const snapshot = await PackageTree.snapshotTree(root, ".flows")
+    try {
+      expect([...snapshot.trackedModes.keys()]).toEqual(["regular.txt"])
+      expect(snapshot.trackedModes.get("regular.txt")).toBe(
+        (await Fs.lstat(NodePath.join(root, "regular.txt"))).mode & 0o7777
+      )
+    } finally {
+      await PackageTree.releaseSnapshot(snapshot)
+    }
+  })
+
+  it("removes the partial stash when reading a tracked file mode fails", async () => {
+    git("init", "--quiet", ".")
+    await Fs.writeFile(NodePath.join(root, "regular.txt"), "regular")
+    git("add", "regular.txt")
+    git("-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "-qm", "initial")
+    const original = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const failure = new Error("mode read failed")
+    let stash: string | undefined
+    const mkdtemp = vi.spyOn(Fs, "mkdtemp").mockImplementationOnce(async (prefix) => {
+      stash = await original.mkdtemp(prefix)
+      return stash
+    })
+    const lstat = vi.spyOn(Fs, "lstat").mockRejectedValueOnce(failure)
+    try {
+      await expect(PackageTree.snapshotTree(root, ".flows")).rejects.toBe(failure)
+      expect(stash).toBeDefined()
+      await expect(Fs.lstat(stash!)).rejects.toMatchObject({ code: "ENOENT" })
+    } finally {
+      lstat.mockRestore()
+      mkdtemp.mockRestore()
+      if (stash !== undefined) await Fs.rm(stash, { recursive: true, force: true })
+    }
+  })
 })
 
 describe("failed snapshot acquisition removes its partial stash", () => {

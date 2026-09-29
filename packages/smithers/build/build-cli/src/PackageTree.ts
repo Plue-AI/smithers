@@ -392,6 +392,8 @@ const sameState = (left: PathState, right: PathState): boolean => {
  * modified, deleted, and untracked path with its content state, plus a stash
  * of the dirty files' bytes so an out-of-set change to an already-dirty file
  * can be reverted to exactly what it held before the tool ran.
+ * Clean tracked files retain their observed modes separately because Git
+ * records only the executable bit, not their full permissions.
  *
  * @category write sets
  * @since 0.1.0
@@ -399,6 +401,7 @@ const sameState = (left: PathState, right: PathState): boolean => {
 export interface TreeSnapshot {
   readonly root: string
   readonly states: ReadonlyMap<string, PathState>
+  readonly trackedModes: ReadonlyMap<string, number>
   readonly stashDirectory: string
 }
 
@@ -435,6 +438,8 @@ const skipStatusPath = (cacheDirectory: string, path: string, hostTrees: Readonl
 
 /**
  * Records the dirty state of a git workspace before a tool runs.
+ * Requires trusted, coordinated writers from capture through rollback;
+ * filesystem operations are path-based, not descriptor-anchored isolation.
  *
  * @category write sets
  * @since 0.1.0
@@ -446,8 +451,18 @@ export const snapshotTree = async (root: string, cacheDirectory: string): Promis
   // per-run cost out of all proportion to the dirty source set this measures.
   const raw = await statusZ(root)
   const states = new Map<string, PathState>()
+  const trackedModes = new Map<string, number>()
   const stashDirectory = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-writeset-"))
   try {
+    const trackedPaths = censusedByGit(root) ? await runGit(root, ["ls-files", "-z"]) : ""
+    for (const path of trackedPaths.split("\0")) {
+      if (path === "" || skipStatusPath(cacheDirectory, path)) continue
+      const stats = await Fs.lstat(NodePath.join(root, path)).catch((cause: unknown) => {
+        if (errno(cause) === "ENOENT" || errno(cause) === "ENOTDIR") return undefined
+        throw cause
+      })
+      if (stats?.isFile()) trackedModes.set(path, stats.mode & 0o7777)
+    }
     for (const entry of parseStatusZ(raw)) {
       if (skipStatusPath(cacheDirectory, entry.path)) continue
       const absolute = NodePath.join(root, entry.path)
@@ -460,7 +475,7 @@ export const snapshotTree = async (root: string, cacheDirectory: string): Promis
         // Link state is fully described by its target text; nothing to stash.
       }
     }
-    return { root, states, stashDirectory }
+    return { root, states, trackedModes, stashDirectory }
   } catch (cause) {
     // The caller never received a snapshot to release; retain the acquisition error.
     await Fs.rm(stashDirectory, { recursive: true, force: true }).catch(() => {})
@@ -495,6 +510,16 @@ export const changedSinceSnapshot = async (
     // The path settled back to its HEAD state: the tool overwrote or removed
     // a difference that existed before it ran, which is a change.
     changed.add(path)
+  }
+  // Git ignores most permission bits. Publishing identical bytes can still
+  // clear special bits, which rollback must restore after a later failure.
+  for (const [path, mode] of snapshot.trackedModes) {
+    if (changed.has(path)) continue
+    const stats = await Fs.lstat(NodePath.join(snapshot.root, path)).catch((cause: unknown) => {
+      if (errno(cause) === "ENOENT" || errno(cause) === "ENOTDIR") return undefined
+      throw cause
+    })
+    if (!stats?.isFile() || (stats.mode & 0o7777) !== mode) changed.add(path)
   }
   return [...changed].sort()
 }
@@ -597,6 +622,8 @@ const quarantinePath = async (quarantine: Quarantine | undefined, path: string):
 /**
  * Restores one path to its snapshot state, first copying whatever stands at
  * the path now into `quarantine`.
+ * Writers must remain trusted and coordinated throughout snapshot, execution,
+ * and rollback; these path-based operations do not anchor parent descriptors.
  *
  * @category write sets
  * @since 0.1.0
@@ -607,13 +634,57 @@ export const revertPath = async (snapshot: TreeSnapshot, path: string, quarantin
   const before = snapshot.states.get(path)
   if (before === undefined) {
     // The path was clean before the tool ran: a tracked file goes back to
-    // HEAD, a fresh untracked file is deleted.
-    const tracked = await runGit(snapshot.root, ["ls-files", "--error-unmatch", "--", path]).then(
-      () => true,
-      () => false
+    // the index, a fresh untracked file is deleted.
+    const tracked = await runGit(snapshot.root, ["ls-files", "--stage", "-z", "--error-unmatch", "--", path]).then(
+      (entries) => entries.split("\0").filter((entry) => entry.slice(entry.indexOf("\t") + 1) === path),
+      () => undefined
     )
-    if (tracked) {
-      await runGit(snapshot.root, ["checkout", "--force", "--", path])
+    if (tracked !== undefined) {
+      // Git's ordinary checkout leaves gitlinks alone. Never replace a
+      // populated submodule with checkout-index's directory placeholder.
+      if (tracked.length === 0 || tracked.some((entry) => entry.startsWith("160000 "))) return
+      // Stage on the same filesystem in mkdtemp's private 0700 directory:
+      // checkout must not expose bytes under Git's broader default mode or
+      // mutate a hard-link alias. Keep the destination until staging succeeds.
+      const parent = NodePath.dirname(absolute)
+      await Fs.mkdir(parent, { recursive: true })
+      const directory = await Fs.mkdtemp(NodePath.join(parent, ".smthrs-rollback-"))
+      try {
+        const checkoutArguments = [
+          "--force",
+          `--prefix=${directory}${NodePath.sep}`,
+          "--",
+          path
+        ]
+        try {
+          await runGit(snapshot.root, ["checkout-index", "--ignore-skip-worktree-bits", ...checkoutArguments])
+        } catch (cause) {
+          // Older Git checks out skip-worktree entries without this option.
+          // Retry only its unsupported-option diagnostic, never a checkout failure.
+          if (
+            !(cause instanceof Error) ||
+            !/unknown option ['"`](?:--)?ignore-skip-worktree-bits['"`]/.test(cause.message)
+          ) throw cause
+          await runGit(snapshot.root, ["checkout-index", ...checkoutArguments])
+        }
+        const staged = NodePath.join(directory, path)
+        const stagedState = await Fs.lstat(staged)
+        if (!stagedState.isFile() && !stagedState.isSymbolicLink()) {
+          throw new Error(`cannot restore non-file index entry ${JSON.stringify(path)}`)
+        }
+        const mode = snapshot.trackedModes.get(path)
+        if (mode !== undefined && stagedState.isFile()) await Fs.chmod(staged, mode)
+        const current = await Fs.lstat(absolute).catch((cause: unknown) => {
+          if (errno(cause) === "ENOENT") return undefined
+          throw cause
+        })
+        // Files and symlinks publish atomically. A replacement directory must
+        // first be removed, but only after checkout and permissions succeed.
+        if (current?.isDirectory()) await Fs.rm(absolute, { recursive: true, force: true })
+        await Fs.rename(staged, absolute)
+      } finally {
+        await Fs.rm(directory, { recursive: true, force: true })
+      }
     } else {
       await Fs.rm(absolute, { recursive: true, force: true })
     }

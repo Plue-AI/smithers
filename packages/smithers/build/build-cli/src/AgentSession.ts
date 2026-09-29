@@ -911,6 +911,9 @@ export interface CandidateOverlay {
  * write-set membership, no symlinked components — and returns a new overlay;
  * a violation rejects the whole candidate. `commit` writes an overlay to the
  * worktree (Lint `--fix` and explicit materialization).
+ * Callers must trust and coordinate all workspace writers throughout apply,
+ * commit, and any rollback: path checks are not descriptor-anchored and do
+ * not protect against concurrent replacement of path components.
  *
  * This lane ships {@link makeLocalWriteSetApplier}; integration swaps in the
  * W2 write-set enforcement module behind the same interface.
@@ -967,14 +970,15 @@ const overlayOf = (
       .join("\n")
 })
 
-/** Publishes a complete file without mutating an existing hard-linked inode. */
+/** Publishes new bytes on a fresh inode, retaining only ordinary permission bits. */
 const publishFile = async (path: string, contents: string, mode?: number): Promise<void> => {
+  const permissions = mode === undefined ? undefined : mode & 0o777
   const temporary = `${path}.tmp-${process.pid}-${randomBytes(12).toString("hex")}`
-  const handle = await Fs.open(temporary, "wx", mode)
+  const handle = await Fs.open(temporary, "wx", permissions)
   try {
     try {
       await handle.writeFile(contents, "utf8")
-      if (mode !== undefined) await handle.chmod(mode)
+      if (permissions !== undefined) await handle.chmod(permissions)
       await handle.sync()
     } finally {
       await handle.close()
@@ -1017,6 +1021,8 @@ const editPathState = async (
 /**
  * The thin in-lane write-set applier: mechanical path validation, minimatch
  * write-set confinement, and refusal of any symlinked path component.
+ * Requires trusted, coordinated workspace writers throughout apply, commit,
+ * and rollback; validation is path-based, not descriptor-anchored isolation.
  *
  * @category constructors
  * @since 0.1.0
