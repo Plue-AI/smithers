@@ -9663,6 +9663,16 @@
             "default": "./dist/cjs/CronTarget.js"
           }
         },
+        "./DependencyDocs": {
+          "import": {
+            "types": "./dist/esm/DependencyDocs.d.ts",
+            "default": "./dist/esm/DependencyDocs.js"
+          },
+          "require": {
+            "types": "./dist/cjs/DependencyDocs.d.ts",
+            "default": "./dist/cjs/DependencyDocs.js"
+          }
+        },
         "./DepsLint": {
           "import": {
             "types": "./dist/esm/DepsLint.d.ts",
@@ -10449,6 +10459,7 @@
         "Compose.d.ts": "14842bb624ed9100b9e8c8dccc5218f6f43c49846792b82633ece646618d3f50",
         "Config.d.ts": "894b165e825284ed4e1d8bd92ad0066cad3e8fe9cf6e00fb7da55998f907788d",
         "CronTarget.d.ts": "9d2e7896a8f6bd9e6fab57a8bce677bc2a2c48df14dec87b15583572b61dd9eb",
+        "DependencyDocs.d.ts": "a76824cf23fe456e434356988d7db5ee3fc6a10a2937ccc4136ec6e902b18adc",
         "DepsLint.d.ts": "c259c6f3bc0c04879dfd3c2be5c4527377b3a1ba8694b16584689691e7bd0e2e",
         "Dev.d.ts": "f7b59167430b769b64d00155f8a8ef4ba9ae987c536054da6a712e4b0587fce0",
         "Docker.d.ts": "30fe89388dbcb71f59b7d34902552c828fc947e9d7499abaae7fef63e1ba88a6",
@@ -10510,7 +10521,7 @@
         "SecretProxy.d.ts": "a57e93beee42afd65d4905046741ee83607745ff3c10ecdc7fee150888fc483e",
         "SecurityReview.d.ts": "3e1b397d01b173a54a48c1b11fa86a2f2c2154a01bcc419396cdd44c0f08abc3",
         "Shell.d.ts": "ed69bfadb9a708ec36e965aa2308541e4f4cefa37f70daf0017592bfdcb088d7",
-        "Smithers.d.ts": "36ea9649843dd55881152580b428e7ce74e9d1683a88a8d5c45186af32fd1cff",
+        "Smithers.d.ts": "849d0ef62c360d2689ffca6b505f70535ceb3fce8bb6cc816b82bba195f49bef",
         "SortPackageJson.d.ts": "6fc7b327b37844255ce9015bc182cd100410e703daa527cedf4351eafc4ca706",
         "Stamp.d.ts": "1f34466cd841a1af14678f6279cd02cd045073e03b6ee9ee6c6fe20c41b46316",
         "Target.d.ts": "b047df1ab5ef7798f87a19903a4fe53e655e1efa5b601f1ebf1541e731460570",
@@ -10526,7 +10537,7 @@
         "Vitest.d.ts": "ffcf741d0674ddcf54d1f0807c311907d449d6bab4c8332bf96b39cf0e8e0426",
         "VitestCoverage.d.ts": "f7f6464e8133df3633b39cd6ae77709636d934dbc7db4cd5870ad18abfa3f685",
         "VitestWatch.d.ts": "cdc1087d186ee5fa10f9cd925f19e8756fb70d5831cd64258e85607d54ceffdc",
-        "WorkspaceDeclaration.d.ts": "f4a607dc874cfdbe49be5d1a0414edc7dd0b9488e580a657d34ab8fcf92f8ae3",
+        "WorkspaceDeclaration.d.ts": "bde44eed5de256c5b5299494db9c9e69ee2bdc761f29adbd6555736d8a6ba6ae",
         "index.d.ts": "a08c7b18d4568771446e3f4e56702a9033fef1091877627ffab16c443436b1eb"
       }
     },
