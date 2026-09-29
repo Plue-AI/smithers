@@ -3,10 +3,10 @@ import { flowAction } from "../flows/FlowAction"
 /*
  * Lane runs — the run inbox and the approvals inbox cards.
  *
- * The run inbox (runs.list) rows one summary per run on the workspace; a
- * row's only act is Open, which materializes the run's own card — the acts
- * (resume, steer, stop) live on that card, so there is one run surface, not
- * two. The approvals inbox (approvals.list) carries each pending gate with
+ * The run inbox (runs.list) groups one summary per run on the workspace into
+ * Needs you, Working and Done. Every row opens the run's own card, where the
+ * acts (resume, steer, stop) live; a needs-you row adds its one act, Answer
+ * (approvals.open, the gate's answer form) or Resume for an operator's park. The approvals inbox (approvals.list) carries each pending gate with
  * the submit-ready envelope the gateway published; a decision dispatches the
  * same approval.approve / approval.deny flows a per-run approval card uses,
  * addressed by the inbox card, run and request together. A row that carries a
@@ -22,10 +22,12 @@ import { timeLabel as clockLabel } from "../Timestamps"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
+import { runSourceCommand } from "@smthrs/ui/run-command"
+import { GROUP_HEADING, INBOX_GROUPS, needsYouAct, onProviderLimit, runGroup, runTone, TONE_GLYPH, type InboxGroup, type InboxRun } from "./RunsInbox"
 
 /** Why a run is not moving, in words: the control plane's reason, translated. */
 const waitingWords = (waiting: string): string =>
-  waiting === "executor" ? "accepted · nothing is driving it" : `waiting · ${waiting}`
+  waiting === "executor" ? "accepted · nothing is driving it" : waiting === "budget" ? "spend cap" : `waiting · ${waiting}`
 
 /** The statuses a run can still be stopped in. */
 const LIVE_STATUSES: ReadonlySet<string> = new Set(["accepted", "running", "parked", "waiting-approval"])
@@ -60,6 +62,56 @@ export const RunListCardBody = ({
   const listArgs = (status?: string): string =>
     flowArgs("runs.list", { status, flow: card.payload.flow, lineage: card.payload.lineage, sourceCard: card.id, repo })
   const liveCount = runs.filter((run) => LIVE_STATUSES.has(run.status)).length
+  /*
+   * Needs you, Working, Done (cards/RunsInbox.ts). A pending approval whose
+   * run is not already a needs-you row is a needs-you row of its own.
+   */
+  const byGroup = (group: InboxGroup) => runs.filter((run) => runGroup(run) === group)
+  const needsYou = new Set(byGroup("needs-you").map((run) => run.runId))
+  const loneApprovals = approvals.filter((approval) => !needsYou.has(approval.runId))
+  const runCommand = runSourceCommand(card.id, onRunCommand)
+  const answer = (runId: string) =>
+    flowAction(onRunCommand, "approvals.open", flowArgs("approvals.open", { runId, sourceCard: card.id }))
+  const runRow = (run: InboxRun) => {
+    const tone = runTone(run)
+    /* The gate's own words, so the row says what is being asked before it is opened. */
+    const gate = approvals.find((approval) => approval.runId === run.runId)
+    /* A gate nobody here can decide is not offered (state/ApprovalDeciders.ts), exactly as on the run card. */
+    const act = tone !== "needs-you" ? undefined : needsYouAct(run) === "resume" ? "resume" : canDecide(run.flowId, admin) ? "answer" : undefined
+    return (
+      <li key={run.runId} className="world-card-row" data-status={run.status} data-tone={tone}>
+        <span className="runs-inbox-glyph" data-tone={tone} aria-hidden>{TONE_GLYPH[tone]}</span>
+        <span className="world-card-path">{run.runId}</span>
+        <span className="world-card-title">{run.flowId}</span>
+        {gate === undefined ? null : <span className="world-card-title" data-testid={`runs-gate-${run.runId}`}>{gate.title}</span>}
+        <span className="world-card-path">
+          {run.statusRollup === undefined ? run.waiting === undefined ? run.status : waitingWords(run.waiting) :
+            <StatusDetails status={run.statusRollup} fallback={run.status} />}
+        </span>
+        {onProviderLimit(run) ? <span className="world-card-path" data-testid={`runs-limit-${run.runId}`}>Not your fault · @fucory</span> : null}
+        <span className="world-card-path">
+          {run.turns} {run.turns === 1 ? "turn" : "turns"} · {run.calls} {run.calls === 1 ? "call" : "calls"}
+        </span>
+        <span className="world-card-path">{clockLabel(run.createdAt)}</span>
+        {act === "answer" ?
+          <Button size="sm" data-testid={`runs-answer-${run.runId}`} aria-label={`Answer ${run.runId}`} {...answer(run.runId)}>Answer</Button> :
+          act === "resume" ?
+          <Button size="sm" data-testid={`runs-resume-${run.runId}`} aria-label={`Resume ${run.runId}`} {...flowAction(runCommand, "runs.resume", run.runId)}>Resume</Button> : null}
+        <Button
+          size="sm"
+          variant="outline"
+          data-testid={`runs-open-${run.runId}`}
+          aria-label={`Open ${run.runId}`}
+          {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { sourceCard: card.id, runId: run.runId }))}
+        >
+          Open
+        </Button>
+      </li>
+    )
+  }
+  const groups = INBOX_GROUPS.map((group) => ({ group, rows: byGroup(group) }))
+    .map(({ group, rows }) => ({ group, rows, count: rows.length + (group === "needs-you" ? loneApprovals.length : 0) }))
+    .filter(({ count }) => count > 0)
   return (
     <div className="world-card-list">
       <div className="flow-run-actions">
@@ -72,14 +124,6 @@ export const RunListCardBody = ({
       </div>
       {observationError === undefined ? null : <p className="sui-approval-error" role="alert">Some state could not be read: {observationError}</p>}
       {attention && card.payload.observedAt !== undefined ? <p className="smithers-card-note">{repo} · checked {clockLabel(card.payload.observedAt)}</p> : null}
-      {attention && approvals.length > 0 ? <ul className="world-card-list" aria-label="Pending approvals">
-        {approvals.map(approval => <li key={`${approval.runId}:${approval.requestId}`} className="world-card-row">
-          <span className="world-card-title">{approval.title}</span>
-          <span className="world-card-path">run {approval.runId} · approval required</span>
-          <Button size="sm" variant="outline" 
-            {...flowAction(onRunCommand, "approvals.open", flowArgs("approvals.open", { runId: approval.runId, sourceCard: card.id }))}>Review request</Button>
-        </li>)}
-      </ul> : null}
       {pending || (runs.length === 0 && observationError !== undefined) ? null : <p className="smithers-card-note" data-testid="run-list-counts">
         {runs.length === 0 ? attention
           ? observationError !== undefined ? "Run state is incomplete." : approvals.length === 0 ? "No pending approvals or parked or failed runs were recorded." : "No other parked or failed runs were recorded."
@@ -109,34 +153,24 @@ export const RunListCardBody = ({
           </div>
         ) :
         null}
-      {runs.length === 0 ?
-        null :
-        (
+      {groups.map(({ group, rows, count }) => (
+        <section key={group} className="runs-inbox-group" aria-label={GROUP_HEADING[group].label} data-testid={`runs-inbox-${group}`}>
+          <h3 className="runs-inbox-heading" data-group={group}>
+            <span className="runs-inbox-glyph" aria-hidden>{GROUP_HEADING[group].glyph}</span> {GROUP_HEADING[group].label} <span className="runs-inbox-count">{count}</span>
+          </h3>
           <ul className="world-card-list">
-            {runs.map((run) => (
-              <li key={run.runId} className="world-card-row" data-status={run.status}>
-                <span className="world-card-path">{run.runId}</span>
-                <span className="world-card-title">{run.flowId}</span>
-                <span className="world-card-path">
-                  {run.statusRollup === undefined ? run.waiting === undefined ? run.status : waitingWords(run.waiting) :
-                    <StatusDetails status={run.statusRollup} fallback={run.status} />}
-                </span>
-                <span className="world-card-path">
-                  {run.turns} {run.turns === 1 ? "turn" : "turns"} · {run.calls} {run.calls === 1 ? "call" : "calls"}
-                </span>
-                <span className="world-card-path">{clockLabel(run.createdAt)}</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  data-testid={`runs-open-${run.runId}`}
-                  {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { sourceCard: card.id, runId: run.runId }))}
-                >
-                  Open
-                </Button>
+            {group !== "needs-you" ? null : loneApprovals.map((approval) => (
+              <li key={`${approval.runId}:${approval.requestId}`} className="world-card-row" data-tone="needs-you">
+                <span className="runs-inbox-glyph" data-tone="needs-you" aria-hidden>{TONE_GLYPH["needs-you"]}</span>
+                <span className="world-card-path">{approval.runId}</span>
+                <span className="world-card-title">{approval.title}</span>
+                <Button size="sm" data-testid={`runs-answer-${approval.runId}`} aria-label={`Answer ${approval.runId}`} {...answer(approval.runId)}>Answer</Button>
               </li>
             ))}
+            {rows.map(runRow)}
           </ul>
-        )}
+        </section>
+      ))}
       {liveCount > 0 ?
         (
           <div className="flow-run-actions">

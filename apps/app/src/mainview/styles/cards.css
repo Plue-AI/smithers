@@ -2779,3 +2779,29 @@ button.registration-status { cursor: pointer; }
 .run-meter [data-level="warning"] {
 	color: var(--warning);
 }
+
+/* The run inbox's groups and state glyphs (cards/RunsInbox.ts): purple = the person acts now. */
+.runs-inbox-group {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+.runs-inbox-heading {
+	margin: 0.25rem 0 0;
+	font-size: var(--fs-small);
+	font-weight: 600;
+}
+.runs-inbox-count {
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+}
+.runs-inbox-glyph { color: var(--text-faint); }
+.runs-inbox-heading[data-group="needs-you"] .runs-inbox-glyph,
+.runs-inbox-glyph[data-tone="needs-you"] { color: var(--brand); }
+.runs-inbox-heading[data-group="working"] .runs-inbox-glyph,
+.runs-inbox-glyph[data-tone="working"] { color: var(--info); }
+.runs-inbox-glyph[data-tone="parked"] { color: var(--warning); }
+.runs-inbox-heading[data-group="done"] .runs-inbox-glyph,
+.runs-inbox-glyph[data-tone="completed"] { color: var(--success); }
+.runs-inbox-glyph[data-tone="failed"] { color: var(--danger); }
+.runs-inbox-glyph[data-tone="cancelled"] { color: var(--text-faint); }

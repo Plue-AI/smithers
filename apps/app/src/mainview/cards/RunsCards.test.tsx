@@ -156,6 +156,89 @@ describe("the run inbox card", () => {
   })
 })
 
+describe("the run inbox's groups", () => {
+  const row = (runId: string, status: string, waiting?: string) =>
+    ({ runId, flowId: `flow/${runId}`, status, ...(waiting === undefined ? {} : { waiting }), createdAt: 1, turns: 0, calls: 0 })
+  const all = [
+    row("gate", "waiting-approval"), row("question", "parked", "approval"), row("cap", "parked", "budget"), row("held", "parked", "parked"),
+    row("new", "accepted", "executor"), row("busy", "running"), row("limit", "parked", "quota"), row("clock", "parked", "timer"),
+    row("signal", "parked", "event"), row("done", "completed"), row("broke", "failed"), row("gone", "cancelled")
+  ]
+  const ids = (host: HTMLElement, group: string) =>
+    [...host.querySelectorAll(`[data-testid='runs-inbox-${group}'] li`)].map((li) => li.querySelector(".world-card-path")?.textContent)
+  const heading = (host: HTMLElement, group: string) =>
+    host.querySelector(`[data-testid='runs-inbox-${group}'] h3`)?.textContent
+
+  test("a person's parks need you; clocks, provider limits and events work; settled runs are done", () => {
+    const host = render(<RunListCardBody card={runListCard(all)} onRunCommand={() => {}} />)
+    expect(ids(host, "needs-you")).toEqual(["gate", "question", "cap", "held"])
+    expect(ids(host, "working")).toEqual(["new", "busy", "limit", "clock", "signal"])
+    expect(ids(host, "done")).toEqual(["done", "broke", "gone"])
+    expect(heading(host, "needs-you")).toBe("◆ Needs you 4")
+    expect(heading(host, "working")).toBe("◐ Working 5")
+    expect(heading(host, "done")).toBe("● Done 3")
+    const tones = [...host.querySelectorAll("li[data-tone]")].map((li) => `${li.querySelector(".world-card-path")?.textContent}:${li.getAttribute("data-tone")}`)
+    expect(tones).toEqual([
+      "gate:needs-you", "question:needs-you", "cap:needs-you", "held:needs-you",
+      "new:working", "busy:working", "limit:parked", "clock:parked", "signal:working",
+      "done:completed", "broke:failed", "gone:cancelled"
+    ])
+  })
+
+  test("a gate only an admin decides offers no Answer to anyone else, as on the run card", () => {
+    const setup = { ...row("setup", "waiting-approval"), flowId: "register-repository" }
+    expect(render(<RunListCardBody card={runListCard([setup])} onRunCommand={() => {}} />)
+      .querySelector("[data-testid='runs-answer-setup']")).toBeNull()
+    expect(render(<RunListCardBody admin card={runListCard([setup])} onRunCommand={() => {}} />)
+      .querySelector("[data-testid='runs-answer-setup']")).not.toBeNull()
+  })
+
+  test("an empty group is absent", () => {
+    const host = render(<RunListCardBody card={runListCard([row("done", "completed")])} onRunCommand={() => {}} />)
+    expect(host.querySelector("[data-testid='runs-inbox-needs-you']")).toBeNull()
+    expect(host.querySelector("[data-testid='runs-inbox-working']")).toBeNull()
+    expect(heading(host, "done")).toBe("● Done 1")
+  })
+
+  test("a gate or cap is answered through approvals.open; an operator's park resumes; nothing else asks", () => {
+    const dispatched: Array<{ name: string; args?: string }> = []
+    const host = render(<RunListCardBody card={runListCard(all)} onRunCommand={(name, args) => dispatched.push({ name, args })} />)
+    const answers = [...host.querySelectorAll("[data-testid^='runs-answer-']")]
+    expect(answers.map((button) => button.getAttribute("data-testid"))).toEqual(["runs-answer-gate", "runs-answer-question", "runs-answer-cap"])
+    expect(answers.every((button) => button.textContent === "Answer" && button.tagName === "BUTTON")).toBe(true)
+    click(answers[2]!)
+    expect(dispatched.at(-1)).toEqual({ name: "approvals.open", args: `sourceCard=run-list-${REPO} cap` })
+    expect([...host.querySelectorAll("[data-testid^='runs-resume-']")].map((button) => button.getAttribute("data-testid"))).toEqual(["runs-resume-held"])
+    click(host.querySelector("[data-testid='runs-resume-held']")!)
+    expect(dispatched.at(-1)).toEqual({ name: "runs.resume", args: `sourceCard=run-list-${REPO} held` })
+    expect(host.querySelectorAll("[data-testid^='runs-open-']").length).toBe(all.length)
+  })
+
+  test("a provider limit says whose fault it is and asks nothing", () => {
+    const host = render(<RunListCardBody card={runListCard(all)} onRunCommand={() => {}} />)
+    expect([...host.querySelectorAll("[data-testid^='runs-limit-']")].map((node) => node.getAttribute("data-testid"))).toEqual(["runs-limit-limit"])
+    expect(host.querySelector("[data-testid='runs-limit-limit']")?.textContent).toBe("Not your fault · @fucory")
+    expect(host.textContent).toContain("spend cap")
+  })
+
+  test("a pending approval joins its run's row, or stands as its own needs-you row", () => {
+    const dispatched: Array<{ name: string; args?: string }> = []
+    const card = runListCard([row("gate", "waiting-approval"), row("done", "completed")], "attention")
+    card.payload.approvals = [
+      { runId: "gate", requestId: "r-1", title: "Deploy?" },
+      { runId: "elsewhere", requestId: "r-2", title: "Which auth?" }
+    ]
+    const host = render(<RunListCardBody card={card} onRunCommand={(name, args) => dispatched.push({ name, args })} />)
+    expect(ids(host, "needs-you")).toEqual(["elsewhere", "gate"])
+    expect(heading(host, "needs-you")).toBe("◆ Needs you 2")
+    /* The joined gate's own words are on its run's row before anyone opens it. */
+    expect(host.querySelector("[data-testid='runs-gate-gate']")?.textContent).toBe("Deploy?")
+    expect(host.textContent).toContain("Which auth?")
+    click(host.querySelector("[data-testid='runs-answer-elsewhere']")!)
+    expect(dispatched.at(-1)).toEqual({ name: "approvals.open", args: `sourceCard=run-list-${REPO} elsewhere` })
+  })
+})
+
 describe("the approvals inbox card", () => {
   const gate = {
     runId: "run-a",

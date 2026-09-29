@@ -19,7 +19,7 @@ test("worker controls follow the current state and keep source-card routing", ()
   expect(actions.find(a => a.flow === "runs.steer")?.args).toBe("sourceCard=card-run run-1")
   expect(workerToastActions(run("completed")).map(a => a.label)).toEqual(["Open tab"])
   expect(workerToastActions(run("failed")).map(a => a.label)).toEqual(["Open tab", "Run again"])
-  expect(workerToastActions(run("running", "approval")).map(a => a.label)).toEqual(["Open tab", "Stop", "Review approval"])
+  expect(workerToastActions(run("running", "approval")).map(a => a.label)).toEqual(["Open tab", "Stop", "Answer"])
   expect(workerToastActions(run("running", "signal")).map(a => a.label)).toEqual(["Open tab", "Stop", "Model", "Thinking", "Resume"])
   expect(workerToastActions(run("reconnecting")).at(-1)?.label).toBe("Reconnect")
 })
@@ -42,4 +42,9 @@ test("cloud sessions offer only their supported controls", () => {
       workspaceId: null, state: "active", transcript: [] } } satisfies Extract<Card, { kind: "agent" }>
   expect(workerToastActions(card).map(a => a.flow)).toEqual(["tab.card", "agent.session.stop"])
   expect(workerToastActions({ ...card, payload: { ...card.payload, state: "completed" } }).map(a => a.label)).toEqual(["Open tab"])
+})
+
+test("every gate is answered: the toast says the run inbox's verb whether or not its card is open", () => {
+  const label = (cards: ReadonlyArray<Card>) => workerToastActions(run("running", "approval"), cards).find(a => a.flow === "approvals.open")?.label
+  expect(label([])).toBe("Answer")
 })

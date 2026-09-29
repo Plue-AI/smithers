@@ -33,7 +33,7 @@ export default showcase({
     const summary = (runId: string, flowId: string, status: string) => ({
       runId, flowId, status, createdAt: now - 600_000, updatedAt: now - 30_000, turns: 4, calls: 9, callsFailed: status === "failed" ? 1 : 0,
       editsAttempted: 2, editsSucceeded: 2, inputTokens: 0, outputTokens: 0, verdict: status, diagnosis: status,
-      ...(status === "waiting-approval" ? { waitingReason: "approval" } : status === "parked" ? { waitingReason: "provider quota" } : {})
+      ...(status === "waiting-approval" ? { waitingReason: "approval" } : status === "parked" ? { waitingReason: "quota" } : {})
     })
     const PARKED = "run-triage-31"
     const RUNS = [["run-land-68", "land"], ["run-deps-4", "upgrade-deps"], [PARKED, "triage-issue"], ["run-lint-9", "lint"]] as const
@@ -74,7 +74,7 @@ export default showcase({
     await app.beat(500)
 
     // One run's gate, opened from the attention row, is decided on its own card.
-    await app.click(attention.getByRole("button", { name: "Review request" }).first())
+    await app.click(attention.getByRole("button", { name: "Answer" }).first())
     const approval = page.locator('[data-kind="approval"]').last()
     await expect(approval).toContainText("Land PR #68")
     await app.show(approval)
