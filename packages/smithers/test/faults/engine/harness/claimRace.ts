@@ -15,30 +15,37 @@ import { fileURLToPath } from "node:url"
 
 const runner = fileURLToPath(new URL("../fixtures/claimChild.ts", import.meta.url))
 
+/** The `KEY=value` lines a child printed before exiting cleanly. */
+type Report = ReadonlyMap<string, string>
+
 const spawnChild = (args: ReadonlyArray<string>): {
   readonly process: ChildProcess
-  readonly stdout: () => string
-  readonly stderr: () => string
   readonly ready: Promise<void>
-  readonly done: Promise<string>
+  readonly done: Promise<Report>
 } => {
   const child = spawn(process.execPath, [runner, ...args], { stdio: ["ignore", "pipe", "pipe"] })
   let out = ""
   let err = ""
   let announceReady: () => void = () => {}
-  let announceDone: (line: string) => void = () => {}
-  let refuse: (cause: unknown) => void = () => {}
+  let refuseReady: (cause: unknown) => void = () => {}
   const ready = new Promise<void>((resolve, reject) => {
     announceReady = resolve
-    refuse = reject
+    refuseReady = reject
   })
-  const done = new Promise<string>((resolve, reject) => {
-    announceDone = resolve
-    const previous = refuse
-    refuse = (cause) => {
-      previous(cause)
-      reject(cause)
-    }
+  // A child's report counts only once it has exited cleanly, so a racer that
+  // printed an outcome and then crashed is a failure rather than a result.
+  // `close` rather than `exit`: stdout has drained by then.
+  const done = new Promise<Report>((resolve, reject) => {
+    child.once("close", (code, signal) => {
+      if (code !== 0) {
+        const failure = new Error(`claim child exited with ${String(code ?? signal)}\n${out}\n${err}`)
+        refuseReady(failure)
+        return reject(failure)
+      }
+      const report = new Map<string, string>()
+      for (const match of out.matchAll(/^([A-Z]+)=(.*)$/gm)) report.set(match[1] as string, match[2] as string)
+      resolve(report)
+    })
   })
   ready.catch(() => {})
   done.catch(() => {})
@@ -47,16 +54,17 @@ const spawnChild = (args: ReadonlyArray<string>): {
   child.stdout?.on("data", (chunk: string) => {
     out += chunk
     if (out.includes("READY\n")) announceReady()
-    const line = /(RUN|CLAIM)=(.+)\n/.exec(out)
-    if (line !== null) announceDone(line[2] as string)
   })
   child.stderr?.on("data", (chunk: string) => {
     err += chunk
   })
-  child.once("exit", (code) => {
-    refuse(new Error(`claim child exited with ${String(code)}\n${out}\n${err}`))
-  })
-  return { process: child, stdout: () => out, stderr: () => err, ready, done }
+  return { process: child, ready, done }
+}
+
+const field = (report: Report, key: string): string => {
+  const value = report.get(key)
+  if (value === undefined) throw new Error(`claim child reported no ${key}`)
+  return value
 }
 
 /**
@@ -67,7 +75,21 @@ const spawnChild = (args: ReadonlyArray<string>): {
  * @category constructors
  */
 export const suspendedRun = async (filename: string): Promise<string> =>
-  spawnChild([filename, "setup", "0", "setup"]).done
+  field(await spawnChild([filename, "setup", "0", "setup"]).done, "RUN")
+
+/**
+ * The run's row as a fresh process reads it back from the shared database.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const persistedRun = async (
+  filename: string,
+  runId: string
+): Promise<{ readonly status: string; readonly owner: unknown }> => {
+  const report = await spawnChild([filename, "inspect", "0", "inspect", runId]).done
+  return { status: field(report, "STATUS"), owner: JSON.parse(field(report, "OWNER")) }
+}
 
 /**
  * What one racer got back.
@@ -79,10 +101,16 @@ export interface ClaimAttempt {
   readonly hostId: string
   /** `won:<receipt tag>` or `lost:<error tag>`. */
   readonly outcome: string
+  /** The owner identity the racer presented as its fence after the race. */
+  readonly fence: unknown
+  /** The fenced write made after the race: `ok:<status>` or `lost:<error tag>`. */
+  readonly writeOutcome: string
 }
 
 /**
- * Races `hostIds` for `runId` and returns what each one got.
+ * Races `hostIds` for `runId` and returns what each one got, including the
+ * fenced write each makes afterwards. Both racers are held until both have
+ * exited, so neither result is read from a process still running.
  *
  * @since 1.0.0
  * @category constructors
@@ -99,6 +127,14 @@ export const raceForClaim = async (
   }))
   await Promise.all(racers.map((racer) => racer.child.ready))
   writeFileSync(barrier, "go\n")
-  const outcomes = await Promise.all(racers.map((racer) => racer.child.done))
-  return racers.map((racer, index) => ({ hostId: racer.hostId, outcome: outcomes[index] as string }))
+  const reports = await Promise.all(racers.map((racer) => racer.child.done))
+  return racers.map((racer, index) => {
+    const report = reports[index] as Report
+    return {
+      hostId: racer.hostId,
+      fence: JSON.parse(field(report, "FENCE")),
+      outcome: field(report, "CLAIM"),
+      writeOutcome: field(report, "WRITE")
+    }
+  })
 }

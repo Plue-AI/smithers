@@ -15,13 +15,21 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
  *   suspended and unowned — the state a swept run is in — and prints
  *   `RUN=<runId>`.
  * - `resume <runId> <barrier>` waits for the barrier file to appear, then asks
- *   to resume, and prints `CLAIM=won` or `CLAIM=lost:<tag>`. The barrier is
- *   what makes it a race: both processes have paid their startup cost and are
- *   sitting on the same instant before either one touches the row.
+ *   to resume, and prints `CLAIM=won:<receipt tag>` or `CLAIM=lost:<tag>`. The
+ *   barrier is what makes it a race: both processes have paid their startup
+ *   cost and are sitting on the same instant before either one touches the row.
+ *   Admitted or not, the racer then makes the fenced write a driver makes —
+ *   with the claim's fence if it holds one, and otherwise with the fence its
+ *   own identity would carry — and prints `WRITE=ok:<status>` or
+ *   `WRITE=lost:<tag>`, after the `FENCE=<json>` it presented. A loser that never wrote would prove nothing about the
+ *   fence.
+ * - `inspect <runId>` prints the persisted `STATUS=<status>` and
+ *   `OWNER=<json>`.
  *
  * Usage:
  *   node claimChild.ts <controlDbFile> <hostId> <pid> setup
  *   node claimChild.ts <controlDbFile> <hostId> <pid> resume <runId> <barrier>
+ *   node claimChild.ts <controlDbFile> <hostId> <pid> inspect <runId>
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlExecutor, ControlLive, ControlRuntime, SqlControlRuntime } from "@smthrs/control"
@@ -116,6 +124,31 @@ const resume = (runId: string) =>
     return yield* control.resume({ runId, idempotencyKey: `resume:${runId}:${hostId}` })
   })
 
+const tagOf = (cause: Cause.Cause<unknown>): string => {
+  const failure = Cause.squash(cause) as { readonly _tag?: string }
+  return failure._tag ?? String(failure)
+}
+
+const race = (runId: string) =>
+  Effect.gen(function*() {
+    const claim = yield* Effect.exit(resume(runId))
+    const runtime = yield* ControlRuntime.ControlRuntime
+    const held = yield* Effect.exit(runtime.claimFence(runId))
+    const fence = Exit.isSuccess(held) ? held.value : JSON.stringify(owner)
+    const write = yield* Effect.exit(runtime.writeStatus(runId, fence, "running"))
+    return {
+      fence,
+      claim: Exit.isSuccess(claim) ? `won:${claim.value._tag}` : `lost:${tagOf(claim.cause)}`,
+      write: Exit.isSuccess(write) ? `ok:${write.value.status}` : `lost:${tagOf(write.cause)}`
+    }
+  })
+
+const inspect = (runId: string) =>
+  Effect.gen(function*() {
+    const row = yield* (yield* RunStore.RunStore).get(runId)
+    return { status: row.status, owner: row.owner }
+  })
+
 if (role === "setup") {
   const exit = await Effect.runPromise(
     setup.pipe(Effect.provide(stack), Effect.scoped, Effect.exit)
@@ -128,7 +161,19 @@ if (role === "setup") {
   process.exit(0)
 }
 
-if (runIdArg === undefined || barrier === undefined) {
+if (role === "inspect" && runIdArg !== undefined) {
+  const exit = await Effect.runPromise(
+    inspect(runIdArg).pipe(Effect.provide(stack), Effect.scoped, Effect.exit)
+  )
+  if (Exit.isFailure(exit)) {
+    process.stderr.write(`${String(exit.cause)}\n`)
+    process.exit(1)
+  }
+  process.stdout.write(`STATUS=${exit.value.status}\nOWNER=${JSON.stringify(exit.value.owner)}\n`)
+  process.exit(0)
+}
+
+if (role !== "resume" || runIdArg === undefined || barrier === undefined) {
   process.stderr.write("usage: claimChild.ts <file> <hostId> <pid> resume <runId> <barrier>\n")
   process.exit(2)
 }
@@ -152,12 +197,11 @@ for (let waited = 0; !existsSync(barrier); waited += 10) {
 }
 
 const outcome = await Effect.runPromise(
-  resume(runIdArg).pipe(Effect.provide(stack), Effect.scoped, Effect.exit)
+  race(runIdArg).pipe(Effect.provide(stack), Effect.scoped, Effect.exit)
 )
-if (Exit.isSuccess(outcome)) {
-  process.stdout.write(`CLAIM=won:${outcome.value._tag}\n`)
-  process.exit(0)
+if (Exit.isFailure(outcome)) {
+  process.stderr.write(`${String(outcome.cause)}\n`)
+  process.exit(1)
 }
-const failure = Cause.squash(outcome.cause) as { readonly _tag?: string }
-process.stdout.write(`CLAIM=lost:${failure._tag ?? String(failure)}\n`)
+process.stdout.write(`CLAIM=${outcome.value.claim}\nFENCE=${outcome.value.fence}\nWRITE=${outcome.value.write}\n`)
 process.exit(0)

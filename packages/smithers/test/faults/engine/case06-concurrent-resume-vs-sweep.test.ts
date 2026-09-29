@@ -21,7 +21,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { raceForClaim, suspendedRun } from "./harness/claimRace.ts"
+import { persistedRun, raceForClaim, suspendedRun } from "./harness/claimRace.ts"
 import { journalEventTypes, waitingRow } from "./harness/durableState.ts"
 import { reapWaitChildren, spawnWaitChild } from "./harness/waitChild.ts"
 import { preparedStep } from "./harness/waitFlows.ts"
@@ -83,7 +83,7 @@ describe("case06 concurrent resume against a sweep", () => {
     expect(events.filter((type) => type === "flows.engine.deferred-completed")).toHaveLength(1)
   }, 180_000)
 
-  it("admits one control plane to the claim and refuses the other with ClaimLost", async () => {
+  it("admits one control plane to the claim and refuses the other's claim and write with ClaimLost", async () => {
     const filename = join(directory, "fence.sqlite")
     const runId = await suspendedRun(filename)
 
@@ -100,5 +100,14 @@ describe("case06 concurrent resume against a sweep", () => {
     // generic defect: a loser that crashed would also produce one winner.
     expect(lost[0]?.outcome).toBe("lost:/control/ClaimLost")
     expect(won[0]?.outcome).toBe("won:Accepted")
+
+    // Each racer then makes the fenced write a driver makes. The winner's
+    // lands; the loser's, presented with the fence its own identity carries,
+    // is refused by the compare-and-swap and leaves the winner's claim intact.
+    expect(won[0]?.writeOutcome).toBe("ok:running")
+    expect(lost[0]?.writeOutcome).toBe("lost:/control/ClaimLost")
+    expect(won[0]?.fence).toMatchObject({ hostId: won[0]?.hostId })
+    expect(lost[0]?.fence).toMatchObject({ hostId: lost[0]?.hostId })
+    expect(await persistedRun(filename, runId)).toEqual({ status: "running", owner: won[0]?.fence })
   }, 180_000)
 })
