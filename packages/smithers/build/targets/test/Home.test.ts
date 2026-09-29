@@ -83,6 +83,23 @@ describe("the home blocks", () => {
     expect(() => Home.Home({ blocks: [7] as never })).toThrow(/block 0 must be a declared block.*not number/)
   })
 
+
+  it("keeps HTTP(S) scheme casing through links and projected homes", () => {
+    for (const scheme of ["HTTP", "HTTPS", "HtTp", "HtTpS"]) {
+      const url = `${scheme}://example.com/guide`
+      const link = { label: "Guide", url }
+      expect(Home.Links({ links: [link] }).links[0]?.url).toBe(url)
+      expect(Home.parse(JSON.stringify({ blocks: [{ type: "links", links: [link] }] }))).toEqual({
+        blocks: [{ type: "links", links: [link] }]
+      })
+    }
+    for (const url of ["ftp://example.com/guide", "file:///guide", "mailto:x@example.com", "javascript:alert(1)"]) {
+      expect(() => Home.Links({ links: [{ label: "Guide", url }] })).toThrow()
+      expect(typeof Home.parse(JSON.stringify({ blocks: [{ type: "links", links: [{ label: "Guide", url }] }] })))
+        .toBe("string")
+    }
+  })
+
   it("keeps markdown paths inside the repository", () => {
     for (
       const path of [

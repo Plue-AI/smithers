@@ -100,7 +100,7 @@ export const Prose = Schema.NonEmptyString.check(Schema.isMaxLength(maximumTextL
  */
 export const Url = Schema.NonEmptyString.check(
   Schema.isMaxLength(maximumUrlLength),
-  Schema.isPattern(/^https?:\/\/[^\s<>"']+$/)
+  Schema.isPattern(/^https?:\/\/[^\s<>"']+$/i)
 )
 
 /**
