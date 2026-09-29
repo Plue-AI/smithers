@@ -652,7 +652,7 @@ const program = Effect.gen(function*() {
     })
 
   const lines: Array<string> = []
-  let exitCode = 0
+  let exitCode = reportLive && outcomes.some((outcome) => !outcome.pass) ? 1 : 0
   if (flag("coverage")) {
     const byRule = new Map<string, Array<string>>()
     for (const suiteCase of suite.cases) {
