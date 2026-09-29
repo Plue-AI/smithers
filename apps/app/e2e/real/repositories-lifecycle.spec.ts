@@ -2,6 +2,8 @@ import { scenario } from "./coverage/types"
 import { authenticatedTest } from "./auth-permissions/profile"
 import { readAuthenticatedSession } from "./auth-permissions/profile"
 import { withOwnedImportedRepository } from "./issues/cloud"
+import { withRetainedGitHubImport } from "./repositories-github/reusable-import"
+import { isPlueImportMode } from "./repositories-github/reusable-source"
 import {
   attachProductionJson,
   repositoryApiPath
@@ -107,7 +109,7 @@ authenticatedTest(
   "a GitHub source imports through the product and reads back from the direct repository facade",
   scenario("repositories.github-import-direct-readback", {
     capabilities: ["identity", "github"],
-    description: "Create one owned GitHub source, import it through repos.import, wait for the exact accepted job, then read its metadata, main bookmark, and README through the canonical repository API.",
+    description: "Import the registered retained GitHub source in Plue modes (an owned disposable source elsewhere), wait for the exact accepted job, then read its metadata, main bookmark, and README through the canonical repository API.",
     coverage: [
       "action:repos.import", "host:production", "path:success", "path:persistence", "door:slash",
       "surface:repository-api", "dimension:github-import", "dimension:exact-job-id",
@@ -116,7 +118,7 @@ authenticatedTest(
     ]
   }),
   async ({ page, request, context }, testInfo) => {
-    await withOwnedImportedRepository({ page, request, context }, testInfo, async ({ repo }) => {
+    const readback = async (repo: string): Promise<void> => {
       const metadataResponse = await realApi(page, request, "GET", repositoryApiPath(repo))
       expect(metadataResponse.status()).toBe(200)
       const metadata = await metadataResponse.json() as Record<string, unknown>
@@ -139,6 +141,11 @@ authenticatedTest(
         bookmarkNames: bookmarks.items?.map(({ name }) => name),
         readmeStatus: readmeResponse.status()
       })
-    })
+    }
+    if (isPlueImportMode(process.env.SMITHERS_REAL_E2E_MODE)) {
+      await withRetainedGitHubImport({ page, request, context }, testInfo, readback)
+    } else {
+      await withOwnedImportedRepository({ page, request, context }, testInfo, async ({ repo }) => readback(repo))
+    }
   }
 )
