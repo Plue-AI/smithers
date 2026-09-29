@@ -102,6 +102,8 @@ const globalPath = (path: string): boolean =>
   !path.includes("/") || path.startsWith(".smithers/") || Path.posix.basename(path) === "PACKAGE.ts" ||
   /(^|\/)(?:[^/]*lock[^/]*|package\.json|tsconfig[^/]*\.json|\.npmrc|\.yarnrc[^/]*|\.gitignore)$/.test(path)
 
+const ambientInput = (input: Input.Declared): boolean => input._tag === "GitDiff" || input._tag === "PnpmWorkspace"
+
 const compileInput = (
   input: Input.Declared,
   packagePath: string,
@@ -117,10 +119,10 @@ const compileInput = (
       const excludes = input.exclude.map((exclude) => glob(Input.resolvePath(packagePath, exclude)))
       return (path) => pattern.match(path) && !excludes.some((exclude) => exclude.match(path))
     }
-    // These input forms include ambient repository state and workspace membership.
+    // Ambient inputs affect their target but do not own changed paths.
     case "GitDiff":
     case "PnpmWorkspace":
-      return () => true
+      return () => false
   }
 }
 
@@ -155,7 +157,8 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
   const entries = new Map<Target.AnyTarget, {
     readonly metadata: Target.Metadata
     readonly packagePath: string
-    readonly matchesBase: (path: string) => boolean
+    readonly ambient: boolean
+    readonly ownsPath: (path: string) => boolean
   }>()
   const entry = (target: Target.AnyTarget) => {
     let value = entries.get(target)
@@ -168,7 +171,8 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
     value = {
       metadata,
       packagePath,
-      matchesBase: (path) => {
+      ambient: metadata.inputs.some(ambientInput),
+      ownsPath: (path) => {
         let result = matches.get(path)
         if (result === undefined) {
           // Membership catches new files, implicit compiler inputs and config lookups.
@@ -191,7 +195,7 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
   )
   // An unowned file may be an ambient input; conservatively invalidate the graph.
   const ownership = normalized.length === 0 ? [] : rows.map((row) => entry(row.target))
-  const unknown = normalized.filter((path) => !ownership.some((value) => value.matchesBase(path)))
+  const unknown = normalized.filter((path) => !ownership.some((value) => value.ownsPath(path)))
   const conservative = global.length + unknown.length > 0
   if (conservative) {
     for (const row of selected) reasons.set(row.label, new Set([...global, ...unknown]))
@@ -207,10 +211,12 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
       const value = entry(target)
       const metadata = value.metadata
       const views = metadata.kinds.map((kind) => metadata.forKind(kind))
-      const inputs = views.flatMap((view) => view.inputs)
+      const viewInputs = views.flatMap((view) => view.inputs)
+      const ambient = value.ambient || viewInputs.some(ambientInput)
+      const inputs = viewInputs
         .map((input) => compileInput(input, inputPackage(metadata, value.packagePath), glob))
       direct.set(target, (path) =>
-        value.matchesBase(path) || inputs.some((input) => input(path)) ||
+        ambient || value.ownsPath(path) || inputs.some((input) => input(path)) ||
         metadata.inputs.length === 0 && metadata.dependencies.length === 0)
       const dependencies = new Set([
         ...metadata.dependencies,

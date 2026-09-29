@@ -3202,6 +3202,7 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
   // closure must stay clear of exclusive targets; a root a pattern named keeps
   // its exclusive dependencies.
   const wildcardRoots = new Set<string>()
+  const rootLabels = options.rootLabels === undefined ? undefined : new Set(options.rootLabels)
   const platform = options.platform ?? process.platform
   for (const pattern of options.patterns) {
     const parsedPattern = Label.parse(pattern, index.currentPackage ?? "")
@@ -3243,6 +3244,7 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
       throw new Error(`no targets selected by ${pattern} for the ${verb} verb`)
     }
     for (const row of selected) {
+      if (rootLabels !== undefined && !rootLabels.has(row.label)) continue
       if (!selectedByLabel.has(row.label)) selectedByLabel.set(row.label, row)
       if (omitExclusive) wildcardRoots.add(row.label)
     }

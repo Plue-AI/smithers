@@ -109,13 +109,93 @@ it("keeps verb-only inputs unowned and empty base declarations conservative", ()
 })
 
 it.each([Input.gitDiff(), Input.pnpmWorkspace("//pnpm-workspace.yaml")])(
-  "preserves ambient input selection for $_tag",
+  "preserves ambient $_tag selection for owned files without selecting unrelated targets",
   (input) => {
     const { add, index } = fixture()
-    add("app", "build", target([input]))
-    expect(Affected.select(index, ["//..."], ["unknown/file.ts"])).toMatchObject({
+    add("", "workspace", target([input]))
+    add("app", "build", target([Input.glob("src/**/*.ts", { exclude: ["src/generated/**"] })]))
+    add(
+      "tools",
+      "check",
+      target([
+        Input.file("//assets/schema.txt"),
+        Input.glob("//shared/**/*.ts", { exclude: ["//shared/generated/**"] })
+      ])
+    )
+    add("other", "build", target([Input.file("local.txt")]))
+    const paths = ["app/src/generated/code.ts", "assets/schema.txt", "shared/.hidden.ts"]
+    expect(Affected.select(index, ["//..."], paths)).toEqual({
+      pattern: "//...",
+      files: paths,
       conservative: false,
-      targets: [{ label: "//app:build", reasons: ["unknown/file.ts"] }]
+      globalInputs: [],
+      targets: [
+        { label: "//:workspace", reasons: paths },
+        { label: "//app:build", reasons: [paths[0]] },
+        { label: "//tools:check", reasons: paths.slice(1) }
+      ]
+    })
+    expect(Affected.select(index, ["//..."], []).targets).toEqual([])
+  }
+)
+
+it.each([Input.gitDiff(), Input.pnpmWorkspace("//pnpm-workspace.yaml")])(
+  "does not let ambient $_tag inputs claim unknown paths or excluded and adjacent inputs",
+  (input) => {
+    const { add, index } = fixture()
+    add("", "workspace", target([input]))
+    add("app", "build", target([Input.file("//assets/schema.txt")]))
+    add(
+      "tools",
+      "check",
+      target([
+        Input.glob("//shared/**/*.ts", { exclude: ["//shared/generated/**"] })
+      ])
+    )
+    for (
+      const path of [
+        ".github/ci-known-red.json",
+        "application/src/file.ts",
+        "assets/schema.txt.bak",
+        "shared/generated/code.ts"
+      ]
+    ) {
+      expect(Affected.select(index, ["//..."], ["app/source.ts", path])).toEqual({
+        pattern: "//...",
+        files: ["app/source.ts", path].sort(),
+        conservative: true,
+        globalInputs: [path],
+        targets: ["//:workspace", "//app:build", "//tools:check"].map((label) => ({ label, reasons: [path] }))
+      })
+      expect(Affected.select(index, ["//tools:check"], [path])).toMatchObject({
+        conservative: true,
+        targets: [{ label: "//tools:check", reasons: [path] }]
+      })
+    }
+  }
+)
+
+it.each([Input.gitDiff(), Input.pnpmWorkspace("//pnpm-workspace.yaml")])(
+  "selects verb-only ambient $_tag consumers for known paths without assigning ownership",
+  (input) => {
+    const { add, index } = fixture()
+    add("app", "build", target([Input.file("local.txt")], [], { inputs: [input] }))
+    add("lib", "src", target([Input.glob("src/**/*.ts")]))
+    add("other", "build", target([Input.file("local.txt")]))
+    expect(Affected.select(index, ["//..."], ["lib/new.txt"])).toMatchObject({
+      conservative: false,
+      targets: [
+        { label: "//app:build", reasons: ["lib/new.txt"] },
+        { label: "//lib:src", reasons: ["lib/new.txt"] }
+      ]
+    })
+    expect(Affected.select(index, ["//..."], [".github/ci-known-red.json"])).toMatchObject({
+      conservative: true,
+      globalInputs: [".github/ci-known-red.json"],
+      targets: ["//app:build", "//lib:src", "//other:build"].map((label) => ({
+        label,
+        reasons: [".github/ci-known-red.json"]
+      }))
     })
   }
 )

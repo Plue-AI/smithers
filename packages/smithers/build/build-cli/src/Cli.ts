@@ -938,26 +938,29 @@ const runSelected = async (
     return parsed._tag === "Subtree" && parsed.target === undefined
   }
   for (const kind of verb === "ci" ? ciKinds : [verb]) {
+    const selectedPatterns: Array<string> = []
     for (const { pattern, rows } of selections) {
-      // What the wildcard itself leaves out does not count against planning the wildcard whole.
       const eligible = rows.filter((entry) =>
         (kind === "auto" || entry.kinds.includes(kind)) &&
+        !(verb === "ci" && PackageExec.attended(entry.row.target)) &&
         !(kind !== "auto" && bare(pattern) && PackageExec.wildcardOmits(entry.row.target, {
           verb: kind,
           unattended: verb === "ci",
           includeExclusive: flags.includeExclusive
         }))
       )
-      const roots = eligible.length > 0 && eligible.every((entry) => selectedLabels.has(entry.row.label))
-        ? [pattern]
-        : eligible.filter((entry) => selectedLabels.has(entry.row.label)).map((entry) => entry.row.label)
-      for (const root of roots) {
-        try {
-          plans.push(await PackageExec.plan({ ...options, verb: kind, patterns: [root], unattended: verb === "ci" }))
-        } catch (cause) {
-          if (!(cause instanceof Planner.UnsupportedVerbError)) throw cause
-        }
-      }
+      if (eligible.some((entry) => selectedLabels.has(entry.row.label))) selectedPatterns.push(pattern)
+    }
+    if (selectedPatterns.length > 0) {
+      plans.push(
+        await PackageExec.plan({
+          ...options,
+          verb: kind,
+          patterns: selectedPatterns,
+          rootLabels: labels,
+          unattended: verb === "ci"
+        })
+      )
     }
   }
   const nodes = new Map(plans.flatMap((plan) => [...plan.nodes]))
@@ -1269,6 +1272,7 @@ const makeCommands = (config: RuntimeConfig) =>
             })
           }
           const labels = selection.targets.map((target) => target.label)
+          const notRun = new Set(omitted)
           try {
             return await executeCommand(context, config, "affected_failed", async (reporter) => {
               const outcome = await runSelected(
@@ -1281,14 +1285,17 @@ const makeCommands = (config: RuntimeConfig) =>
                 reporter
               )
               if (!isSummary(outcome)) return outcome
+              for (const result of outcome.results) {
+                if (result.status !== "skipped") notRun.delete(result.label)
+              }
               // Every selected gate the planner was left to plan must have run or been recorded.
               const unplanned = Affected.unrecorded(labels, outcome)
               if (unplanned.length > 0) throw new Error(`Affected gates were never planned: ${unplanned.join(", ")}`)
               return Affected.unskipped(labels, outcome)
             })
           } finally {
-            if (omitted.length > 0) {
-              terminalsOf(config).stderr.write(`Affected but not run here: ${omitted.join(", ")}\n`)
+            if (notRun.size > 0) {
+              terminalsOf(config).stderr.write(`Affected but not run here: ${[...notRun].join(", ")}\n`)
             }
           }
         } catch (cause) {

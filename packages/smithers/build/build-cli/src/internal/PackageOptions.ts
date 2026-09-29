@@ -109,6 +109,8 @@ export interface RunOptions {
   readonly verb: PackageVerb
   /** The target patterns whose union this invocation selects; at least one. */
   readonly patterns: ReadonlyArray<string>
+  /** Restricts roots while preserving the selection policy of their original patterns. */
+  readonly rootLabels?: ReadonlyArray<string> | undefined
   /** Opts wildcard test and CI selections into the exclusive tier. */
   readonly includeExclusive?: boolean | undefined
   /**

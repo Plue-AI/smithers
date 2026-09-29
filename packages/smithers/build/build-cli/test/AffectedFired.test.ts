@@ -3,6 +3,7 @@
  * gates is red, and a target the planner leaves out of a wildcard by policy is
  * named rather than passed off as run.
  */
+import * as ChildProcess from "node:child_process"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as Path from "node:path"
@@ -33,6 +34,217 @@ export const Workspace = S.Workspace("fixture", {
 }
 
 const elsewhere = process.platform === "win32" ? "linux" : "win32"
+
+/** A known-path diff selects part of a wildcard and reaches an exclusive test. */
+const partialExclusiveWorkspace = async () => {
+  const root = await workspace("export const Package = S.Package({ targets: {} })")
+  await write(root, ".gitignore", "node_modules/\n.flows/\n")
+  await write(root, "pnpm-workspace.yaml", "packages:\n  - packages/dependency\nverifyDepsBeforeRun: false\n")
+  await write(root, "packages/dependency/package.json", JSON.stringify({ name: "exclusive-fixture", private: true }))
+  await write(
+    root,
+    "packages/dependency/PACKAGE.ts",
+    `import { Smithers as S } from "@smthrs/targets"
+const exclusive = S.Vitest({
+  tests: [S.file("exclusive.test.ts")],
+  sources: [S.file("//packages/affected/src/a.txt"), S.file("//pnpm-workspace.yaml")],
+  deps: [], config: S.file("vitest.config.ts"), environment: "node", passWithNoTests: false,
+  coverage: false, exclusive: true, cwd: "packages/dependency"
+})
+export const Package = S.Package({ targets: { exclusive } })
+`
+  )
+  await write(root, "packages/dependency/vitest.config.ts", "export default { test: { maxWorkers: 1 } }\n")
+  await write(
+    root,
+    "packages/dependency/exclusive.test.ts",
+    "import { expect, it } from \"vitest\"\nit(\"runs the exclusive dependency\", () => expect(1).toBe(1))\n"
+  )
+  await write(
+    root,
+    "packages/affected/PACKAGE.ts",
+    `import { Smithers as S } from "@smthrs/targets"
+import { Package as dependency } from "../dependency/PACKAGE.ts"
+export const Package = S.Package({ targets: {
+  ordinary: S.Suite({ tests: [dependency.exclusive] }),
+  safe: S.Shell.Test({ shell: "true", sandbox: "none", data: [S.file("src/a.txt")] })
+} })
+`
+  )
+  await write(
+    root,
+    "packages/unaffected/PACKAGE.ts",
+    `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {
+  safe: S.Shell.Test({ shell: "true", sandbox: "none", data: [S.file("src/a.txt")] })
+} })
+`
+  )
+  await write(root, "packages/affected/src/a.txt", "before\n")
+  await write(root, "packages/unaffected/src/a.txt", "unchanged\n")
+  const git = (...args: ReadonlyArray<string>) => ChildProcess.execFileSync("git", ["-C", root, ...args])
+  git("init", "-q")
+  git("add", "-A")
+  git("-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "-qm", "init")
+  await write(root, "packages/affected/src/a.txt", "after\n")
+  return root
+}
+
+const linkTestModules = async (root: string) => {
+  // The runner lives in the package tree; its pnpm dependency links reach the root store.
+  await Fs.symlink(
+    Path.resolve(import.meta.dirname, "../../../../../node_modules"),
+    Path.join(root, "node_modules"),
+    "dir"
+  )
+  await Fs.symlink(
+    Path.resolve(import.meta.dirname, "../node_modules"),
+    Path.join(root, "packages/dependency/node_modules"),
+    "dir"
+  )
+}
+
+it.each(["test", "ci"])("affected %s preserves a partial wildcard's exclusive dependency refusal", async (verb) => {
+  const root = await partialExclusiveWorkspace()
+  try {
+    const listed = await serve(root, ["affected", verb, "//...", "--list", "--json"])
+    expect(listed.exitCode, listed.output + listed.logs).toBe(0)
+    expect(JSON.parse(listed.output)).toMatchObject({
+      files: ["packages/affected/src/a.txt"],
+      conservative: false,
+      targets: [{ label: "//packages/affected:ordinary" }, { label: "//packages/affected:safe" }],
+      omitted: ["//packages/dependency:exclusive"]
+    })
+    for (const flags of [["--plan"], ["--no-cache"]]) {
+      const result = await serve(root, ["affected", verb, "//...", ...flags, "--json"])
+      expect(result.exitCode, result.output + result.logs).toBe(1)
+      expect(result.output).toContain("wildcard selection reaches exclusive dependency //packages/dependency:exclusive")
+      expect(result.output).toContain("--include-exclusive")
+      expect(result.output).not.toContain("\"counts\"")
+      expect(result.logs).toContain("Affected but not run here: //packages/dependency:exclusive")
+    }
+  } finally {
+    await Fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each(["test", "ci"])(
+  "affected %s opts a partial wildcard into exclusive roots without unrelated work",
+  async (verb) => {
+    const root = await partialExclusiveWorkspace()
+    try {
+      const result = await serve(root, ["affected", verb, "//...", "--include-exclusive", "--plan", "--json"])
+      expect(result.exitCode, result.output + result.logs).toBe(0)
+      const plan = JSON.parse(result.output) as {
+        roots: ReadonlyArray<string>
+        targets: ReadonlyArray<{ label: string }>
+      }
+      expect([...plan.roots].sort()).toEqual([
+        "//packages/affected:ordinary",
+        "//packages/affected:safe",
+        "//packages/dependency:exclusive"
+      ])
+      expect(plan.targets.map((target) => target.label).sort()).toEqual([...plan.roots].sort())
+      expect(result.logs).not.toContain("Affected but not run here")
+    } finally {
+      await Fs.rm(root, { recursive: true, force: true })
+    }
+  }
+)
+
+it("affected keeps named-root authorization scoped to the patterns that selected each root", async () => {
+  const root = await partialExclusiveWorkspace()
+  try {
+    for (
+      const patterns of [
+        ["//packages/affected:ordinary", "//packages/unaffected/..."],
+        ["//packages/...:ordinary"],
+        ["//...", "//packages/dependency:exclusive"]
+      ]
+    ) {
+      const result = await serve(root, ["affected", "test", ...patterns, "--plan", "--json"])
+      expect(result.exitCode, result.output + result.logs).toBe(0)
+      expect(result.output).toContain("//packages/dependency:exclusive")
+      expect(result.output).not.toContain("//packages/unaffected:safe")
+    }
+    const overlapping = await serve(root, [
+      "affected",
+      "test",
+      "//...",
+      "//packages/affected:ordinary",
+      "--plan",
+      "--json"
+    ])
+    expect(overlapping.exitCode, overlapping.output + overlapping.logs).toBe(1)
+    expect(overlapping.output).toContain("wildcard selection reaches exclusive dependency")
+  } finally {
+    await Fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+it("affected does not report an exclusive dependency that ran through a named root as omitted", async () => {
+  const root = await partialExclusiveWorkspace()
+  try {
+    await linkTestModules(root)
+    const result = await serve(root, [
+      "affected",
+      "test",
+      "//packages/affected:ordinary",
+      "//packages/dependency/...",
+      "--no-cache",
+      "--json"
+    ])
+    expect(result.exitCode, result.output + result.logs).toBe(0)
+    const summary = JSON.parse(result.output) as { results: ReadonlyArray<{ label: string; status: string }> }
+    expect(summary.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "//packages/dependency:exclusive", status: "ran" }),
+      expect.objectContaining({ label: "//packages/affected:ordinary", status: "ran" })
+    ]))
+    expect(result.logs).not.toContain("Affected but not run here")
+  } finally {
+    await Fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each(["failed", "skipped"])("affected reports an exclusive dependency's %s execution accurately", async (status) => {
+  const root = await partialExclusiveWorkspace()
+  try {
+    await linkTestModules(root)
+    if (status === "failed") {
+      await write(
+        root,
+        "packages/dependency/exclusive.test.ts",
+        "import { expect, it } from \"vitest\"\nit(\"fails the exclusive dependency\", () => expect(1).toBe(2))\n"
+      )
+    } else {
+      const declaration = await Fs.readFile(Path.join(root, "packages/dependency/PACKAGE.ts"), "utf8")
+      await write(
+        root,
+        "packages/dependency/PACKAGE.ts",
+        declaration.replace("deps: []", "deps: [S.Shell.Test({ shell: \"false\", sandbox: \"none\" })]")
+      )
+    }
+    const result = await serve(root, [
+      "affected",
+      "test",
+      "//packages/affected:ordinary",
+      "//packages/dependency/...",
+      "--files",
+      "packages/affected/src/a.txt",
+      "--no-cache",
+      "--json"
+    ])
+    expect(result.exitCode, result.output + result.logs).toBe(1)
+    expect(result.logs).toContain(`//packages/dependency:exclusive  ${status}`)
+    if (status === "failed") expect(result.logs).toContain("expected 1 to be 2")
+    expect(result.logs.includes("Affected but not run here: //packages/dependency:exclusive")).toBe(
+      status === "skipped"
+    )
+    expect(result.output).toContain("targets_failed")
+  } finally {
+    await Fs.rm(root, { recursive: true, force: true })
+  }
+})
 
 it("runs what it can on a conservative diff and names the target the wildcard leaves out, green", async () => {
   const root = await workspace(`export const Package = S.Package({ targets: {
