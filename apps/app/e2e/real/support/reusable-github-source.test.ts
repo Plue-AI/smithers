@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { assertRetainedSource, isPlueImportMode, RETAINED_GITHUB_ID, RETAINED_GITHUB_SOURCE } from "./reusable-source"
+import { assertRetainedSource, isPlueImportMode, RETAINED_GITHUB_ID, RETAINED_GITHUB_SOURCE } from "../repositories-github/reusable-source"
 
 test("refuses a source that is not the registered retained fixture", () => {
   expect(() => assertRetainedSource("codeplanesmithers/other", RETAINED_GITHUB_ID)).toThrow()
