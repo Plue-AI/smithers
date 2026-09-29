@@ -140,6 +140,59 @@ describe("terminal stderr drainage", () => {
     expect(detail).not.toContain("PUBLISH")
   })
 
+  it.each(
+    [
+      ["an unterminated line", [`API_TOKEN=${secret}`, "x".repeat(70_000)]],
+      ["an unfinished private key block", ["-----BEGIN RSA PRIVATE KEY-----\n", `MII${secret}\n`, "x".repeat(70_000)]]
+    ] as const
+  )("withholds %s longer than the redaction buffer whole", async (_name, chunks) => {
+    const events: Array<Diagnostics.Event> = []
+    const error = await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const consumed = yield* Deferred.make<void>()
+        const transport = yield* connect({
+          stderr: Stream.fromIterable(chunks.map((chunk) => new TextEncoder().encode(chunk))).pipe(
+            Stream.ensuring(Deferred.succeed(consumed, undefined))
+          ),
+          exitCode: Deferred.await(consumed).pipe(Effect.as(ExitCode(1)))
+        })
+        return yield* Effect.flip(transport.request("call"))
+      })).pipe(
+        Effect.provide(TestClock.layer()),
+        Effect.provide(Diagnostics.layer((event) => events.push(event)))
+      )
+    )
+    assertPrivate(error, events)
+    const detail = events.map((event) => Redacted.value(event.detail)).join("")
+    expect(detail).toBe("[stderr line withheld]")
+    expect(detail).not.toContain("x")
+  })
+
+  it("cuts the capped tail on a whole character, never inside a multi-byte one", async () => {
+    const events: Array<Diagnostics.Event> = []
+    // 82 bytes: forty two-byte characters, "b", newline. The 39-byte cap
+    // starts at byte 43, the second byte of a character.
+    const line = `${"é".repeat(40)}b\n`
+    await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const consumed = yield* Deferred.make<void>()
+        const transport = yield* connect({
+          stderr: Stream.make(new TextEncoder().encode(line)).pipe(
+            Stream.ensuring(Deferred.succeed(consumed, undefined))
+          ),
+          exitCode: Deferred.await(consumed).pipe(Effect.as(ExitCode(1)))
+        })
+        return yield* Effect.flip(transport.request("call"))
+      })).pipe(
+        Effect.provide(TestClock.layer()),
+        Effect.provide(Diagnostics.layer((event) => events.push(event)))
+      )
+    )
+    const detail = events.map((event) => Redacted.value(event.detail)).join("")
+    expect(detail).toBe(`${"é".repeat(18)}b`)
+    expect(detail).not.toContain("�")
+  })
+
   it.each(["exit", "stdout"] as const)(
     "drains delayed stderr after %s before settling old and new traffic",
     async (signal) => {
