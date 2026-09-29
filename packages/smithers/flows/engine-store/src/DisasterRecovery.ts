@@ -13,16 +13,18 @@
  * A manifest written last records the digests a restore must verify, so a
  * partial backup is detectable by its missing manifest.
  *
- * Restore never lets a pre-backup owner resurrect. The fencing token here is
- * the `OwnerId` triple persisted on `flows_runs` — Temporal's shard `rangeID`
- * equality check reduced to one SQL predicate (`reference/temporal`
+ * Restore never lets a pre-backup owner resurrect. The fencing token is the
+ * `OwnerId` triple mirrored on `flows_runs` and arbitrated by the journal's
+ * `flows_consensus_leases` — Temporal's shard `rangeID` equality check reduced
+ * to one SQL predicate (`reference/temporal`
  * `service/history/shard/context_impl.go`, `renewRangeLocked`). Temporal
  * fences a restored shard by bumping the persisted epoch above anything a
  * surviving owner could hold; the equivalent bump for an identity fence is
- * {@link fence}: clear every persisted claim and owner in one serialized write
- * transaction, so every pre-backup `OwnerId` fails its equality
- * compare-and-swap (`FenceLost`, journal `fence_lost`) and the restored runs
- * are claimable immediately instead of after the heartbeat staleness cutoff.
+ * {@link fence}: clear every persisted claim, owner, and consensus lease in
+ * one serialized write transaction, so every pre-backup `OwnerId` fails its
+ * equality compare-and-swap (`FenceLost`, journal `fence_lost`) and the
+ * restored runs are claimable immediately instead of after the heartbeat
+ * staleness cutoff.
  *
  * Host access arrives through Effect's `FileSystem` and `SqlClient` tags and
  * hashing through the injected `Crypto` service, so the module carries no
@@ -788,13 +790,14 @@ export const restore = Effect.fn("DisasterRecovery.restore")(function*(options: 
  *
  * The store's fence is `OwnerId` equality, so the epoch bump is fence
  * invalidation: in one serialized write transaction every pending claim is
- * cleared and every run that was `running` at backup time is suspended with
- * its owner and heartbeat cleared. A surviving pre-backup owner then fails
- * every fenced operation against the restored store — `heartbeat` and
- * `transitionOwned` report `FenceLost`, fenced journal appends fail
- * `fence_lost` — exactly as a stale Temporal owner fails its `rangeID`
- * compare-and-swap. The suspended runs are claimable immediately, without
- * waiting out the heartbeat staleness cutoff and without liveness evidence.
+ * cleared, every run that was `running` at backup time is suspended with its
+ * owner and heartbeat cleared, and every consensus lease is deleted. A
+ * surviving pre-backup owner then fails every fenced operation against the
+ * restored store — `heartbeat` and `transitionOwned` report `FenceLost`,
+ * fenced journal appends fail `fence_lost` — exactly as a stale Temporal owner
+ * fails its `rangeID` compare-and-swap. The suspended runs are claimable
+ * immediately, without waiting out the heartbeat staleness cutoff and without
+ * liveness evidence.
  *
  * Every migration recorded in the manifest must remain applied with the same
  * ID and namespaced name. Forward additions within any installed block are
@@ -856,6 +859,7 @@ export const fence = Effect.fn("DisasterRecovery.fence")(function*(manifest: Bac
         WHERE status = 'running'
         RETURNING run_id
       `.withoutTransform
+      yield* sql`DELETE FROM flows_consensus_leases`.withoutTransform
       return { clearedClaims: claims.length, suspendedRuns: running.length } satisfies FenceSummary
     })
   ).pipe(Effect.mapError(sqlFailure("fence", "invalidating the persisted fences")))

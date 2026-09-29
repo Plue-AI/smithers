@@ -17,10 +17,20 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describe, expect, it } from "vitest"
 import * as SqlControlRuntime from "../src/SqlControlRuntime.ts"
 
-/** A durable run store with no journal table beside it. */
+/**
+ * A durable run store with no journal event table beside it. The run store's
+ * migrations install the journal's set, because the store arbitrates ownership
+ * through the journal's consensus lease table; the event history itself is
+ * dropped to model a composition whose journal lives somewhere else.
+ */
 const database = Layer.provideMerge(
   Layer.mergeAll(RunStore.layer, NodeCrypto.layer),
-  Layer.provideMerge(RunStoreMigrations.layer, TestDatabase.layer)
+  Layer.provideMerge(
+    Layer.effectDiscard(
+      Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) => sql`DROP TABLE flows_journal_events`)
+    ),
+    Layer.provideMerge(RunStoreMigrations.layer, TestDatabase.layer)
+  )
 )
 
 describe("control run lineage over a database that cannot answer", () => {

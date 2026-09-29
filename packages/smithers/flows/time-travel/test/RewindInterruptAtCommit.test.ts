@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as Jj from "@smthrs/jj"
 import { Journal, SqlJournal } from "@smthrs/journal"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import { RunStore } from "@smthrs/run-store"
 import { CacheStore } from "@smthrs/step-cache"
 import * as Cause from "effect/Cause"
@@ -38,7 +39,7 @@ describe("Rewind archive commit boundary", () => {
       Effect.gen(function*() {
         const sql = yield* SqlClient.SqlClient
         const base = yield* SqlTimeTravelStore.make
-        const runs = yield* RunStore.make
+        const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
         const journal = yield* Journal.Journal
         yield* sql`
           INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)

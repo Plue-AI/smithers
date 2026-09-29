@@ -4,13 +4,38 @@
  * @since 0.1.0
  */
 
+import * as Journal from "@smthrs/journal/Journal"
 import * as Ownership from "@smthrs/run-store/Ownership"
 import type { LivenessEvidence, OwnerId } from "@smthrs/run-store/Ownership"
 import type * as RunStore from "@smthrs/run-store/RunStore"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import { error, type TimeTravelError } from "../TimeTravelError.ts"
 import * as RunRow from "./RunRow.ts"
+
+/**
+ * Runs a `RunStore` ownership operation with the `Journal` masked out of the
+ * fiber context, so it fences through the consensus lease without appending
+ * an ownership-transition event.
+ *
+ * Time travel's fencing is administrative, not run history: a rewind's
+ * `claimed`/`activated` pair would land inside the very suffix window
+ * `archiveAndTruncate` cuts, its closing `released` would dangle past the
+ * restored frame, and recovery's archive-commit check reads "no live entries
+ * after the frame" as commit evidence. The durable record of who drove a
+ * rewind is the audit row. Ordinary drivers keep appending their transitions;
+ * only the surgery's own fencing on the run under the knife is silent —
+ * cancelling a detached child is a real transition in a journal that
+ * survives, so it stays recorded.
+ *
+ * @since 1.0.0
+ * @category combinators
+ */
+export const unjournaled = <A, E>(
+  effect: Effect.Effect<A, E>
+): Effect.Effect<A, E, Journal.Journal> =>
+  Effect.updateContext(effect, (context: Context.Context<Journal.Journal>) => Context.omit(Journal.Journal)(context))
 
 /**
  * A run lease held by {@link withHeldLease}.

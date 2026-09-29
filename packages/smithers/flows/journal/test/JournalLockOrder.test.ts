@@ -29,6 +29,7 @@ import { Journal, type Service as JournalService } from "../src/Journal.ts"
 import { Input, type RunId, type Seq, type SourceId, type SourceSeq } from "../src/JournalEvent.ts"
 import * as Migrations from "../src/Migrations.ts"
 import * as SqlJournal from "../src/SqlJournal.ts"
+import * as Leases from "./fixtures/leases.ts"
 
 const run = "lock-order" as RunId
 const first = "first-producer" as SourceId
@@ -238,11 +239,7 @@ const owner = { hostId: "compactor", pid: 1, nonce: "owner" }
 
 const seedCheckpoint = (journal: JournalService, sql: SqlClient.SqlClient) =>
   Effect.gen(function*() {
-    yield* sql`CREATE TABLE flows_runs (
-      run_id TEXT PRIMARY KEY, status TEXT NOT NULL,
-      owner_host_id TEXT, owner_pid INTEGER, owner_nonce TEXT
-    )`
-    yield* sql`INSERT INTO flows_runs VALUES (${run}, 'running', ${owner.hostId}, ${owner.pid}, ${owner.nonce})`
+    yield* Leases.hold(sql, run, owner)
     const receipt = yield* journal.emitDurableUnfenced(implicit(first, "initial"))
     yield* journal.checkpoint({ runId: run, seq: receipt.seq, state: null }, owner)
   })

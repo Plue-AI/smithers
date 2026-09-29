@@ -35,10 +35,12 @@ describe("journal startup ordering", () => {
         sql`SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json FROM flows_journal_events ORDER BY emitted_at_ms DESC, run_id DESC, seq DESC LIMIT 20`
       )
       expect(before.some((row) => /TEMP B-TREE|Sort/.test(row.detail))).toBe(true)
-      expect(yield* DatabaseMigrations.run([Migrations.set, other])).toEqual([[3, "journal_startup_index"], [
-        4,
-        "journal_dedup"
-      ], [5, "journal_run_event_type"]])
+      expect(yield* DatabaseMigrations.run([Migrations.set, other])).toEqual([
+        [3, "journal_startup_index"],
+        [4, "journal_dedup"],
+        [5, "journal_run_event_type"],
+        [6, "journal_consensus"]
+      ])
       const after = yield* TestDatabase.explain(
         sql,
         sql`SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json FROM flows_journal_events ORDER BY emitted_at_ms DESC, run_id DESC, seq DESC LIMIT 20`

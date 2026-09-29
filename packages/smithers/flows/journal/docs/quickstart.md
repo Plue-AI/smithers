@@ -89,8 +89,9 @@ Two choices in that block are worth naming:
 
 - `emitDurableUnfenced` is the durable write with no ownership fence. It is
   correct here because this program owns no run. The fenced `emitDurable` is
-  what an engine calls, and it needs a `flows_runs` row from
-  [`@smthrs/run-store`](/api/run-store); see
+  what an engine calls, and it needs the run claimed and activated through the
+  journal's `Consensus` strategy, which
+  [`@smthrs/run-store`](/api/run-store) drives; see
   [Write a fenced lifecycle event](./guides/write-lifecycle-events.md).
 - `flush` is the barrier for the lossy channel only. The durable write was
   already on disk when its receipt arrived; the lossy one is still in the queue

@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import { Deferred, Duration, Effect, Exit, Schema } from "effect"
 import { TestClock } from "effect/testing"
@@ -105,7 +106,7 @@ describe("driver cancellation acknowledgement", () => {
               yield* onFile(
                 file,
                 Effect.gen(function*() {
-                  const peer = yield* RunStore.make
+                  const peer = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
                   yield* peer.requestCancel("cancel", 2)
                 })
               )

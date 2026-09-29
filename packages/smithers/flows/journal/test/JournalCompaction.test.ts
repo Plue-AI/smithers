@@ -29,6 +29,7 @@ import { type Entry, Input, type RunId, type Seq, type SourceId, type SourceSeq 
 import * as Migrations from "../src/Migrations.ts"
 import type { OwnerId } from "../src/OwnerId.ts"
 import * as SqlJournal from "../src/SqlJournal.ts"
+import * as Leases from "./fixtures/leases.ts"
 
 const runId = (value: string): RunId => value as RunId
 const sourceId = (value: string): SourceId => value as SourceId
@@ -39,29 +40,9 @@ const source = sourceId("producer")
 
 const owner: OwnerId = { hostId: "host-a", pid: 42, nonce: "nonce-a" }
 
-/** The `flows_runs` columns the fence reads. */
-const fenceTable = Layer.effectDiscard(Effect.gen(function*() {
-  const sql = yield* SqlClient.SqlClient
-  yield* sql`CREATE TABLE flows_runs (
-    run_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    owner_host_id TEXT,
-    owner_pid INTEGER,
-    owner_nonce TEXT
-  )`
-}))
-
 /** Claims `run` for `holder` — or reclaims it, when the run is already claimed. */
 const claim = (holder: OwnerId) =>
-  Effect.gen(function*() {
-    const sql = yield* Effect.service(SqlClient.SqlClient)
-    yield* sql`INSERT INTO flows_runs (run_id, status, owner_host_id, owner_pid, owner_nonce)
-      VALUES (${run}, 'running', ${holder.hostId}, ${holder.pid}, ${holder.nonce})
-      ON CONFLICT (run_id) DO UPDATE SET
-        owner_host_id = excluded.owner_host_id,
-        owner_pid = excluded.owner_pid,
-        owner_nonce = excluded.owner_nonce`
-  })
+  Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) => Leases.hold(sql, run, holder))
 
 const input = (sequence: number): Input =>
   new Input({
@@ -78,7 +59,7 @@ const effect = <E>(
 ) =>
   it.effect(name, () =>
     body().pipe(
-      Effect.provide(Layer.provideMerge(fenceTable, Layer.provideMerge(Migrations.layer, TestDatabase.layer))),
+      Effect.provide(Layer.provideMerge(Migrations.layer, TestDatabase.layer)),
       Effect.provide(TestClock.layer())
     ))
 

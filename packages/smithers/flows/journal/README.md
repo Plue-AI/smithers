@@ -107,9 +107,9 @@ to write through.
   path, before encoding, because a row is permanent and gets replayed verbatim
   to every later reader.
 - **A stale process cannot append.** `emitDurable` takes an `OwnerId` and
-  commits only while the database still records that owner as the run's owner.
-  A process that was replaced fails `fence_lost` instead of writing into a
-  history it no longer owns.
+  commits only while the injected `Consensus` strategy still records that
+  owner as holding the run. A process that was replaced fails `fence_lost`
+  instead of writing into a history it no longer owns.
 - **State and its entry commit together.** `transact` runs your own writes and
   the entries describing them in one transaction and defers publication until
   it commits, so the two can never disagree. Committing locally is not remote
@@ -138,12 +138,14 @@ with its one-line summary.
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Journal`        | The service and its operations, the `Checkpoint` and `Compacted` models, typed errors, receipts, read options, constructors, and the no-op layer. |
 | `JournalEvent`   | Branded `RunId`, `Seq`, `SourceId`, and `SourceSeq`; the `Input` and committed `Entry` schemas; deterministic `makeEventId`.                      |
-| `SqlJournal`     | `SqlJournalOptions`, `CompactionPolicy`, and the database-backed `layer(options)`.                                                                |
+| `SqlJournal`     | `SqlJournalOptions`, `CompactionPolicy`, the database-backed `layer(options)` fenced by `SqlConsensus`, and `layerWith(options)` over an injected strategy.  |
 | `OwnerId`        | The fencing token `emitDurable` accepts, carrying `hostId`, `pid`, and `nonce`.                                                                   |
+| `Consensus`      | The injectable ownership strategy: `claim`, `activate`, `heartbeat`, `release`, `steal`, `recover`, and the commit-time `guard`; typed outcomes; `LivenessEvidence`; the lease constants; `layerLocal`, `layerNoop`, `make`, `makeLocal`, `makeNoop`. |
+| `SqlConsensus`   | The default database-backed strategy over `flows_consensus_leases`: `make` and `layer`.                                                            |
 | `Redaction`      | The payload redaction applied to entries before they are written, its rule set, and `makeNoop`.                                                   |
 | `Projection`     | The reproducible `Projection` model and its identity constructor.                                                                                 |
 | `JournalMetrics` | The `flows_journal_writes` counter and the per-channel views `SqlJournal` updates on every emission receipt.                                      |
-| `Migrations`     | `set`, `run`, and `layer` for this package's two tables: `flows_journal_events` with its event-type index, and `flows_journal_checkpoints`.       |
+| `Migrations`     | `set`, `run`, and `layer` for this package's tables: `flows_journal_events` with its indexes, `flows_journal_checkpoints`, `flows_journal_dedup`, and the `flows_consensus_leases` lease table. |
 
 Two test entry points sit outside the root:
 `@smthrs/journal/test/TestJournal` provides the production journal over an
@@ -153,13 +155,15 @@ at an exact transition.
 
 ## What a fenced write needs
 
-`emitDurable`, `checkpoint`, and `compact` gate their write on a `flows_runs`
-row that still names the supplied owner. That table belongs to
-[`@smthrs/run-store`](https://run-store.smithers.sh), so a composition that
-installs only this package's migrations fails all three with `sink_failed`
-carrying `no such table: flows_runs`. Install run-store's migration set
-alongside this one, or take the whole durable schema from
-[`@smthrs/engine-store`](https://engine-store.smithers.sh).
+`emitDurable`, `checkpoint`, and `compact` gate their write on the
+`Consensus` strategy the journal was built with: the write joins the
+strategy's `guard` inside its own transaction and commits only while the
+strategy still records the supplied owner as holding the run. `SqlJournal.layer`
+fences through `SqlConsensus`, whose lease lives in `flows_consensus_leases`, a
+table this package's own migrations create; `SqlJournal.layerWith` takes any
+strategy, such as `Consensus.layerLocal` for a single process or the browser.
+An owner takes the run through the strategy's `claim` and `activate`, which
+[`@smthrs/run-store`](https://run-store.smithers.sh) drives for a durable run.
 
 `emitDurableUnfenced` is the sanctioned path for a genuinely ownerless
 admission, such as an import or a repair tool. Reaching for it to dodge

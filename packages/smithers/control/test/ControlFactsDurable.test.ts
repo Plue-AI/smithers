@@ -69,7 +69,10 @@ describe("production control fact commit helpers over file SQLite", () => {
         expect(Facts.fold(baseline, before).provenance).toMatchObject({ control: "events", baseline: "created" })
         const published: Array<string> = []
         const changes = yield* journal.changes
+        // The run store publishes its ownership transitions on the same
+        // channel; only control's own facts are under test here.
         yield* Stream.fromSubscription(changes).pipe(
+          Stream.filter((entry) => entry.eventType.startsWith("control.")),
           Stream.runForEach((entry) =>
             Effect.sync(() => {
               published.push(entry.eventType)

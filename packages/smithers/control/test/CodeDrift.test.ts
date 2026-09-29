@@ -433,7 +433,10 @@ it("an allowed drift that takes over a run from a dead owner records the adopted
     // and whose heartbeat lease has lapsed.
     before: (runId) =>
       withSql((sql) =>
-        sql`UPDATE flows_runs SET owner_pid = 2, owner_nonce = 'dead', heartbeat_at_ms = 0 WHERE run_id = ${runId}`
+        Effect.andThen(
+          sql`UPDATE flows_runs SET owner_pid = 2, owner_nonce = 'dead', heartbeat_at_ms = 0 WHERE run_id = ${runId}`,
+          sql`UPDATE flows_consensus_leases SET owner_pid = 2, owner_nonce = 'dead', heartbeat_at_ms = 0 WHERE run_id = ${runId}`
+        )
       ),
     act: (runId) =>
       withControl((control) => control.resume({ runId, idempotencyKey: "resume:takeover", allowCodeDrift: true }))

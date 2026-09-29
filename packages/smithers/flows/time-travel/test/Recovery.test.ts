@@ -4,6 +4,7 @@ import * as Migrations from "@smthrs/engine-store/Migrations"
 import * as Jj from "@smthrs/jj"
 import { Journal } from "@smthrs/journal"
 import type * as JournalEvent from "@smthrs/journal/JournalEvent"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import { RunStore } from "@smthrs/run-store"
 import * as Ownership from "@smthrs/run-store/Ownership"
 import type { OwnerId } from "@smthrs/run-store/Ownership"
@@ -64,6 +65,10 @@ const makeRuns = (
 
 const journal = (hasSuffix: boolean): Journal.Service =>
   Journal.makeNoop({
+    // The store appends ownership transitions for the children recovery
+    // claims and cancels; the stub accepts them without retaining them.
+    emitDurableUnfenced: () =>
+      Effect.succeed({ _tag: "Accepted", seq: 0 as JournalEvent.Seq, sourceSeq: 0 as JournalEvent.SourceSeq }),
     entries: () =>
       Effect.succeed({
         entries: hasSuffix
@@ -155,7 +160,7 @@ describe("Recovery", () => {
         Effect.gen(function*() {
           yield* Migrations.run
           const sql = yield* SqlClient.SqlClient
-          const runs = yield* RunStore.make
+          const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
           const store = MemoryTimeTravelStore.make()
           const phase = committed ? "archive_committed" : "compensated"
           const value = audit(phase)
@@ -218,7 +223,7 @@ describe("Recovery", () => {
       Effect.gen(function*() {
         yield* Migrations.run
         const sql = yield* SqlClient.SqlClient
-        const runs = yield* RunStore.make
+        const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
         const store = MemoryTimeTravelStore.make()
         const value = audit("archive_committed")
         seed(store, { ...value, detail: { ...value.detail as AuditDetail, pendingChildren: ["child"] } })
@@ -285,7 +290,7 @@ describe("Recovery", () => {
     Effect.gen(function*() {
       yield* Migrations.run
       const sql = yield* SqlClient.SqlClient
-      const runs = yield* RunStore.make
+      const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
       const store = MemoryTimeTravelStore.make()
       const value = audit("compensated")
       seed(store, { ...value, detail: { ...value.detail as AuditDetail, pendingChildren: ["owned", "claimed"] } })

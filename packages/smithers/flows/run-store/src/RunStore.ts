@@ -20,20 +20,37 @@
  * clock, which is right for an in-process library over local SQLite and must
  * not cross a trust boundary.
  *
+ * Arbitration itself — who holds the claim, who holds the lease, whether the
+ * fence still stands — is delegated to `@smthrs/journal`'s injected
+ * `Consensus` strategy. The run row mirrors the strategy's answer in the same
+ * write transaction, and every ownership transition the strategy admits is
+ * appended to the journal in context as a `flows.consensus.*` event (rule
+ * R6); heartbeats renew the lease and never enter the journal.
+ *
  * @since 0.1.0
  */
 
 import * as Dialect from "@smthrs/database/Dialect"
 import { afterCommit, DatabaseError, DurableWriter, fromSqlError } from "@smthrs/database/DurableWriter"
+import {
+  type ClaimOutcome as LeaseClaimOutcome,
+  Consensus,
+  ConsensusError,
+  type LivenessEvidence,
+  matchesEvidence,
+  sameOwner
+} from "@smthrs/journal/Consensus"
+import { Journal, JournalError } from "@smthrs/journal/Journal"
+import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import { OwnerId } from "@smthrs/journal/OwnerId"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import * as ObservabilityMetric from "@smthrs/observability/Metric"
-import { Clock, Context, Duration, Effect, Layer, Metric, Schema } from "effect"
+import { Clock, Context, Duration, Effect, Layer, Metric, Option, Schema } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type * as SqlError from "effect/unstable/sql/SqlError"
 import { heartbeatSkewAllowance, heartbeatStaleAfter } from "./Heartbeat.ts"
 import * as Boundary from "./internal/Boundary.ts"
 import { observeExit, observeOutcome } from "./internal/SpanOutcome.ts"
-import type { LivenessEvidence } from "./Ownership.ts"
 import * as RunStoreMetrics from "./RunStoreMetrics.ts"
 
 /** JSON text carrying an arbitrary decoded value. */
@@ -597,16 +614,35 @@ const runStoreError = (
     cause
   })
 
-const persistenceError = (method: string, cause: RunStoreError | DatabaseError): RunStoreError => {
+/**
+ * The normalized database failure behind a strategy or journal failure, found
+ * by following `cause` chains the way the durable writer's retry
+ * classification does. A wrapper that carries no database failure at all —
+ * a closed journal, say — has no category to report.
+ */
+const databaseFailure = (cause: unknown): DatabaseError | undefined => {
+  let current: unknown = cause
+  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth++) {
+    if (current instanceof DatabaseError) return current
+    current = (current as { readonly cause?: unknown }).cause
+  }
+  return undefined
+}
+
+const persistenceError = (
+  method: string,
+  cause: RunStoreError | DatabaseError | ConsensusError | JournalError
+): RunStoreError => {
   if (Schema.is(RunStoreError)(cause)) return cause
-  const code = cause.code === "constraint"
+  const database = cause instanceof DatabaseError ? cause : databaseFailure(cause.cause)
+  const code = database?.code === "constraint"
     ? "constraint"
     : "persistence_failed"
   return runStoreError(method, code, "database operation failed", {
     category: code,
     // Keep the classification for outer transaction retries, never driver
     // causes that may contain executable state or bound SQL values.
-    cause: new DatabaseError({ code: cause.code })
+    cause: new DatabaseError({ code: database?.code ?? "unknown" })
   })
 }
 
@@ -880,21 +916,32 @@ const ownerFromColumns = (
   return undefined
 }
 
-const sameOwner = (left: OwnerId, right: OwnerId): boolean =>
-  left.hostId === right.hostId && left.pid === right.pid && left.nonce === right.nonce
-
 const rowMatchesClaim = (row: DatabaseRunRow, claimant: OwnerId, claimedAtMs: number): boolean =>
   row.claimHostId === claimant.hostId &&
   row.claimPid === claimant.pid &&
   row.claimNonce === claimant.nonce &&
   row.claimedAtMs === claimedAtMs
 
-const rowMatchesSnapshot = (row: DatabaseRunRow, expected: RunningSnapshot): boolean =>
+/**
+ * The exact predicate the ownership compare-and-swap used to compile into its
+ * UPDATE, evaluated in the serialized write transaction instead: the row must
+ * still match the caller's expected snapshot.
+ */
+const rowMatchesSnapshot = (row: DatabaseRunRow, expected: AdmittedSnapshot): boolean =>
   row.status === expected.status &&
-  row.ownerHostId === expected.owner.hostId &&
-  row.ownerPid === expected.owner.pid &&
-  row.ownerNonce === expected.owner.nonce &&
+  row.ownerHostId === (expected.owner?.hostId ?? null) &&
+  row.ownerPid === (expected.owner?.pid ?? null) &&
+  row.ownerNonce === (expected.owner?.nonce ?? null) &&
   row.heartbeatAtMs === expected.heartbeatAtMs
+
+const rowOwnedBy = (row: DatabaseRunRow, owner: OwnerId): boolean =>
+  row.status === "running" &&
+  row.ownerHostId === owner.hostId &&
+  row.ownerPid === owner.pid &&
+  row.ownerNonce === owner.nonce
+
+const claimColumnsFree = (row: DatabaseRunRow): boolean =>
+  row.claimHostId === null && row.claimPid === null && row.claimNonce === null && row.claimedAtMs === null
 
 const decodeRunRow = (method: string, runId: string, input: unknown): Effect.Effect<RunRow, RunStoreError> =>
   Schema.decodeUnknownEffect(DatabaseRunRow)(input).pipe(
@@ -1071,29 +1118,23 @@ const evidenceMatches = (
 ): boolean =>
   expected.status === "running" &&
   expected.owner !== null &&
-  evidenceMatchesOwner(expected.owner, claimant, checkedAtMs, evidence)
+  matchesEvidence(expected.owner, claimant, checkedAtMs, evidence)
 
-const evidenceMatchesOwner = (
-  expectedOwner: OwnerId,
-  observer: OwnerId,
-  checkedAtMs: number,
-  evidence: LivenessEvidence
-): boolean => {
-  if (!sameOwner(expectedOwner, evidence.expectedOwner) || evidence.checkedAtMs !== checkedAtMs) return false
-  switch (evidence.kind) {
-    // A pid means nothing outside the host that owns the process namespace.
-    case "same-host-pid-dead":
-      return expectedOwner.hostId === observer.hostId
-    // Unreachability is what a peer host observes; on the owner's own host it
-    // would be an unprobed guess dressed as evidence.
-    case "cross-host-unreachable-stale":
-      return expectedOwner.hostId !== observer.hostId
-    // The lease is host-neutral, and the write verifies the same caller-clock
-    // cutoff named by this evidence. The in-process caller owns that clock.
-    case "lease-expired":
-      return true
-  }
-}
+/**
+ * The one producer identity every ownership transition is appended under.
+ * A shared source is safe on the durable channel: the producer sequence is
+ * allocated inside the serialized write transaction, so two processes
+ * recording transitions on one run never mint the same identity.
+ */
+const consensusSourceId = "flows/run-store/consensus" as JournalEvent.SourceId
+
+/**
+ * Ownership transitions the store appends to the journal (rule R6).
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type OwnershipTransition = "claimed" | "activated" | "released" | "stolen" | "expired"
 
 /**
  * Constructs the production `RunStore` implementation.
@@ -1115,15 +1156,54 @@ const evidenceMatchesOwner = (
  * @since 0.1.0
  * @category constructors
  */
-export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlClient> = Effect.gen(function*() {
+export const make: Effect.Effect<Service, never, Consensus | DurableWriter | SqlClient.SqlClient> = Effect.gen(
+  function*() {
   const sql = yield* Effect.service(SqlClient.SqlClient)
   const writer = yield* DurableWriter
+  const consensus = yield* Consensus
 
   const write = <A, R>(
     method: string,
-    effect: Effect.Effect<A, SqlError.SqlError | RunStoreError, R>
+    effect: Effect.Effect<A, SqlError.SqlError | RunStoreError | ConsensusError | JournalError, R>
   ): Effect.Effect<A, RunStoreError, R> =>
     writer.write(effect).pipe(Effect.mapError((cause) => persistenceError(method, cause)))
+
+  /**
+   * Appends an ownership transition — claimed, activated, released, stolen,
+   * or expired — through the journal in the caller's fiber context (rule R6).
+   * The store resolves the journal at call time rather than at construction
+   * so the ordinary `Layer.mergeAll(SqlJournal.layer(...), RunStore.layer)`
+   * composition records transitions, a store built without a journal records
+   * none, and an administrative caller can mask the journal out of its
+   * context to fence silently. The append joins the ownership write's
+   * transaction as a savepoint, so a rolled-back transition leaves no event.
+   *
+   * The entry is admitted unfenced: the transition was arbitrated by the
+   * strategy in the same serialized transaction, and the claimant of a
+   * `claimed` or `stolen` transition does not hold the run yet. It carries no
+   * lineage meta, because journal lineage is minted by the engine driving the
+   * run and a transition addresses the run as a whole; every reader already
+   * keeps a lineage-less entry as evidence of its run. Heartbeats never enter
+   * the journal.
+   */
+  const recordTransition = (
+    runId: string,
+    transition: OwnershipTransition,
+    actor: OwnerId,
+    grantedAtMs: number | null
+  ): Effect.Effect<void, JournalError> =>
+    Effect.flatMap(
+      Effect.serviceOption(Journal),
+      (journal) =>
+        Option.isNone(journal) ? Effect.void : journal.value.emitDurableUnfenced(
+          new JournalEvent.Input({
+            runId: runId as JournalEvent.RunId,
+            sourceId: consensusSourceId,
+            eventType: `flows.consensus.${transition}`,
+            payload: { owner: actor, grantedAtMs }
+          })
+        ).pipe(Effect.asVoid)
+    )
 
   // A bare SELECT needs no write transaction and no replay; only the error
   // vocabulary stays shared with `write`.
@@ -1326,35 +1406,34 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         "claim",
         Effect.gen(function*() {
           // `claim` never admits a running run, so it needs no staleness
-          // disjunction. `status IN ('pending', 'suspended')` already excludes
-          // 'running', which made the preceding `status <> 'running'` redundant
-          // and the trailing `(status <> 'running' OR heartbeat IS NULL OR
-          // heartbeat < cutoff)` a tautology — its first branch was already
-          // known true. `claimAndOwn` is the method that genuinely needs the
-          // staleness test, because it does admit 'running'.
-          const rows = yield* sql<{ readonly runId: string }>`
+          // test: `pending` and `suspended` exclude it. `claimAndOwn` is the
+          // method that genuinely needs one, because it does admit `running`.
+          // The snapshot predicate is evaluated inside the serialized write
+          // transaction, so it is exactly the compare-and-swap it replaces.
+          const row = (yield* selectRun(sql, runId))[0]
+          const admissible = row !== undefined &&
+            (row.status === "pending" || row.status === "suspended") &&
+            rowMatchesSnapshot(row, expected) &&
+            claimColumnsFree(row)
+          if (!admissible) return classifyClaimLoss(row, nowMs)
+          const grant = yield* consensus.claim(runId, claimant, nowMs)
+          if (grant._tag === "Rejected") {
+            // The strategy is authoritative: the row admitted what the lease
+            // refused, and the loss is classified from the row exactly as a
+            // failed compare-and-swap always was.
+            return classifyClaimLoss(row, nowMs)
+          }
+          yield* sql`
           UPDATE flows_runs
           SET
             claim_host_id = ${claimant.hostId},
             claim_pid = ${claimant.pid},
             claim_nonce = ${claimant.nonce},
-            claimed_at_ms = ${nowMs}
+            claimed_at_ms = ${grant.grantedAtMs}
           WHERE run_id = ${runId}
-            AND status IN ('pending', 'suspended')
-            AND status = ${expected.status}
-            AND owner_host_id IS NOT DISTINCT FROM ${expected.owner?.hostId ?? null}
-            AND owner_pid IS NOT DISTINCT FROM ${expected.owner?.pid ?? null}
-            AND owner_nonce IS NOT DISTINCT FROM ${expected.owner?.nonce ?? null}
-            AND heartbeat_at_ms IS NOT DISTINCT FROM ${expected.heartbeatAtMs}
-            AND claim_host_id IS NULL
-            AND claim_pid IS NULL
-            AND claim_nonce IS NULL
-            AND claimed_at_ms IS NULL
-          RETURNING run_id AS "runId"
         `
-          if (rows.length > 0) return claimed(nowMs)
-          const current = yield* selectRun(sql, runId)
-          return classifyClaimLoss(current[0], nowMs)
+          yield* recordTransition(runId, "claimed", claimant, grant.grantedAtMs)
+          return claimed(grant.grantedAtMs)
         })
       )
     }).pipe(observeOutcome(
@@ -1407,7 +1486,39 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         return write(
           "claimAndOwn",
           Effect.gen(function*() {
-            const rows = yield* sql<{ readonly runId: string }>`
+            const row = (yield* selectRun(sql, runId))[0]
+            const admissible = row !== undefined &&
+              (row.status === "pending" || row.status === "suspended" || row.status === "running") &&
+              rowMatchesSnapshot(row, expected) &&
+              claimColumnsFree(row) &&
+              (row.status !== "running" ||
+                row.heartbeatAtMs === null ||
+                row.heartbeatAtMs < nowMs - heartbeatStaleAfterMs)
+            if (!admissible) return classifyClaimLoss(row, nowMs)
+            const expectedOwner = expected.owner
+            let grant: LeaseClaimOutcome
+            if (expectedOwner === null) {
+              grant = yield* consensus.claim(runId, owner, nowMs)
+            } else if (sameOwner(expectedOwner, owner)) {
+              // Re-owning one's own stale run: the stale lease is released
+              // and re-granted under a fresh generation (R4).
+              yield* consensus.release(runId, owner)
+              grant = yield* consensus.claim(runId, owner, nowMs)
+            } else {
+              // Admission above proved the evidence matches, so the steal is
+              // the strategy's evidence-gated claim.
+              grant = yield* consensus.steal(runId, owner, nowMs, evidence!)
+            }
+            if (grant._tag === "Rejected") return classifyClaimLoss(row, nowMs)
+            const activation = yield* consensus.activate(runId, owner, grant.grantedAtMs, nowMs)
+            if (activation._tag === "Lost") {
+              // The strategy revoked the grant it just made — its lease moved
+              // on under the transaction — so the fresh grant is released and
+              // the loss classified from the row.
+              yield* consensus.release(runId, owner)
+              return classifyClaimLoss(row, nowMs)
+            }
+            yield* sql`
           UPDATE flows_runs
           SET
             status = 'running',
@@ -1418,26 +1529,15 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
             owner_nonce = ${owner.nonce},
             heartbeat_at_ms = ${nowMs}
           WHERE run_id = ${runId}
-            AND status IN ('pending', 'suspended', 'running')
-            AND status = ${expected.status}
-            AND owner_host_id IS NOT DISTINCT FROM ${expected.owner?.hostId ?? null}
-            AND owner_pid IS NOT DISTINCT FROM ${expected.owner?.pid ?? null}
-            AND owner_nonce IS NOT DISTINCT FROM ${expected.owner?.nonce ?? null}
-            AND heartbeat_at_ms IS NOT DISTINCT FROM ${expected.heartbeatAtMs}
-            AND claim_host_id IS NULL
-            AND claim_pid IS NULL
-            AND claim_nonce IS NULL
-            AND claimed_at_ms IS NULL
-            AND (
-              status <> 'running'
-              OR heartbeat_at_ms IS NULL
-              OR heartbeat_at_ms < ${nowMs - heartbeatStaleAfterMs}
-            )
-          RETURNING run_id AS "runId"
         `
-            if (rows.length > 0) return activated
-            const current = yield* selectRun(sql, runId)
-            return classifyClaimLoss(current[0], nowMs)
+            yield* recordTransition(
+              runId,
+              expectedOwner !== null && !sameOwner(expectedOwner, owner) ? "stolen" : "claimed",
+              owner,
+              grant.grantedAtMs
+            )
+            yield* recordTransition(runId, "activated", owner, grant.grantedAtMs)
+            return activated
           })
         )
       })
@@ -1467,7 +1567,39 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
       return yield* write(
         "activate",
         Effect.gen(function*() {
-          const rows = yield* sql<{ readonly runId: string }>`
+          const row = (yield* selectRun(sql, runId))[0]
+          if (row === undefined || !rowMatchesClaim(row, claimant, claimedAtMs)) return claimLost
+
+          const clearClaim = sql`
+              UPDATE flows_runs
+              SET
+                claim_host_id = NULL,
+                claim_pid = NULL,
+                claim_nonce = NULL,
+                claimed_at_ms = NULL
+              WHERE run_id = ${runId}
+                AND claim_host_id = ${claimant.hostId}
+                AND claim_pid = ${claimant.pid}
+                AND claim_nonce = ${claimant.nonce}
+                AND claimed_at_ms = ${claimedAtMs}
+            `
+          if (!rowMatchesSnapshot(row, expected)) {
+            // The claim is intact but the guarded snapshot moved on: clear
+            // the claim, exactly as the compare-and-swap always did, and
+            // release the strategy's matching claim so the two stay aligned.
+            yield* consensus.release(runId, claimant)
+            yield* clearClaim
+            return snapshotChanged
+          }
+          const activation = yield* consensus.activate(runId, claimant, claimedAtMs, activatedAtMs)
+          if (activation._tag === "Lost") {
+            // The strategy no longer holds this claim though the row still
+            // shows it; the strategy is authoritative, so the stale claim
+            // columns are cleared and the claim reported lost.
+            yield* clearClaim
+            return claimLost
+          }
+          yield* sql`
               UPDATE flows_runs
               SET
                 status = 'running',
@@ -1482,36 +1614,9 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
                 claim_nonce = NULL,
                 claimed_at_ms = NULL
               WHERE run_id = ${runId}
-                AND status = ${expected.status}
-                AND owner_host_id IS NOT DISTINCT FROM ${expected.owner?.hostId ?? null}
-                AND owner_pid IS NOT DISTINCT FROM ${expected.owner?.pid ?? null}
-                AND owner_nonce IS NOT DISTINCT FROM ${expected.owner?.nonce ?? null}
-                AND heartbeat_at_ms IS NOT DISTINCT FROM ${expected.heartbeatAtMs}
-                AND claim_host_id = ${claimant.hostId}
-                AND claim_pid = ${claimant.pid}
-                AND claim_nonce = ${claimant.nonce}
-                AND claimed_at_ms = ${claimedAtMs}
-              RETURNING run_id AS "runId"
             `
-          if (rows.length > 0) return activated
-
-          const current = yield* selectRun(sql, runId)
-          if (current[0] === undefined || !rowMatchesClaim(current[0], claimant, claimedAtMs)) return claimLost
-
-          yield* sql`
-              UPDATE flows_runs
-              SET
-                claim_host_id = NULL,
-                claim_pid = NULL,
-                claim_nonce = NULL,
-                claimed_at_ms = NULL
-              WHERE run_id = ${runId}
-                AND claim_host_id = ${claimant.hostId}
-                AND claim_pid = ${claimant.pid}
-                AND claim_nonce = ${claimant.nonce}
-                AND claimed_at_ms = ${claimedAtMs}
-            `
-          return snapshotChanged
+          yield* recordTransition(runId, "activated", claimant, claimedAtMs)
+          return activated
         })
       )
     }).pipe(observeOutcome(
@@ -1532,8 +1637,8 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
       yield* Effect.annotateCurrentSpan({ runId, claimantHostId: claimant.hostId })
       return yield* write(
         "abandonClaim",
-        Effect.map(
-          sql<{ readonly runId: string }>`
+        Effect.gen(function*() {
+          const rows = yield* sql<{ readonly runId: string }>`
           UPDATE flows_runs
           SET
             claim_host_id = NULL,
@@ -1546,9 +1651,12 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
             AND claim_nonce = ${claimant.nonce}
             AND claimed_at_ms = ${claimedAtMs}
           RETURNING run_id AS "runId"
-        `,
-          (rows) => rows.length > 0 ? abandoned : claimLost
-        )
+        `
+          if (rows.length === 0) return claimLost
+          yield* consensus.release(runId, claimant)
+          yield* recordTransition(runId, "released", claimant, claimedAtMs)
+          return abandoned
+        })
       )
     }).pipe(observeOutcome(
       (outcome) => RunStoreMetrics.abandonClaim[outcome._tag],
@@ -1577,13 +1685,23 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
       const evidence = yield* snapshotEvidence("recoverClaim", evidenceInput)
       yield* Effect.annotateCurrentSpan({ runId, observerHostId: observer.hostId })
       return yield* Effect.suspend((): Effect.Effect<RecoverClaimOutcome, RunStoreError> => {
-        if (!evidenceMatchesOwner(staleClaimant, observer, nowMs, evidence)) {
+        if (!matchesEvidence(staleClaimant, observer, nowMs, evidence)) {
           return Effect.succeed(livenessUnconfirmed)
         }
         return write(
           "recoverClaim",
           Effect.gen(function*() {
-            const rows = yield* sql<{ readonly runId: string }>`
+            const row = (yield* selectRun(sql, runId))[0]
+            if (row === undefined) return notFound
+            if (!rowMatchesClaim(row, staleClaimant, claimedAtMs)) return claimChanged
+            if (claimedAtMs >= nowMs - heartbeatStaleAfterMs) return claimFresh
+            const outcome = yield* consensus.recover(runId, staleClaimant, claimedAtMs, observer, nowMs, evidence)
+            if (outcome._tag === "Rejected") {
+              // The strategy refused what the row admitted: as the strategy
+              // knows it, the claim has moved on.
+              return claimChanged
+            }
+            yield* sql`
           UPDATE flows_runs
           SET
             claim_host_id = NULL,
@@ -1591,20 +1709,9 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
             claim_nonce = NULL,
             claimed_at_ms = NULL
           WHERE run_id = ${runId}
-            AND claim_host_id = ${staleClaimant.hostId}
-            AND claim_pid = ${staleClaimant.pid}
-            AND claim_nonce = ${staleClaimant.nonce}
-            AND claimed_at_ms = ${claimedAtMs}
-            AND claimed_at_ms < ${nowMs - heartbeatStaleAfterMs}
-          RETURNING run_id AS "runId"
         `
-            if (rows.length > 0) return recovered
-            const current = yield* selectRun(sql, runId)
-            if (current[0] === undefined) return notFound
-            return rowMatchesClaim(current[0], staleClaimant, claimedAtMs) &&
-                claimedAtMs >= nowMs - heartbeatStaleAfterMs
-              ? claimFresh
-              : claimChanged
+            yield* recordTransition(runId, "expired", staleClaimant, claimedAtMs)
+            return recovered
           })
         )
       })
@@ -1632,18 +1739,29 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
       return yield* write(
         "heartbeat",
         Effect.gen(function*() {
-          // The lease timestamp is monotonic: MAX() keeps a heartbeat that
-          // arrives late — delayed past a newer one from the same owner —
-          // from moving `heartbeat_at_ms` backwards and making a live run
-          // look stale to `claimAndOwn`/`steal`'s cutoff. The outcome is
-          // still `Updated`: the fence held, and the write proves liveness
-          // regardless of which caller clock reading it carried. Prior art:
-          // Temporal's shard `rangeID` only ever advances
-          // (`reference/temporal/service/history/shard/context_impl.go`,
-          // `renewRangeLocked`).
+          // The pulse drives the strategy's lease renewal; the row mirrors
+          // the stamp the strategy recorded. The lease timestamp is
+          // monotonic: a heartbeat that arrives late — delayed past a newer
+          // one from the same owner — never moves it backwards and never
+          // makes a live run look stale to `claimAndOwn`/`steal`'s cutoff. A
+          // late clock reading still reports `Updated`: the fence held, and
+          // the write proves liveness regardless of which caller clock
+          // reading it carried. Prior art: Temporal's shard `rangeID` only
+          // ever advances (`reference/temporal/service/history/shard/context_impl.go`,
+          // `renewRangeLocked`). Heartbeats never enter the journal (R6).
+          const outcome = yield* consensus.heartbeat(runId, owner, nowMs)
+          if (outcome._tag === "Lost") {
+            const current = yield* selectRun(sql, runId)
+            return current.length === 0 ? notFound : fenceLost
+          }
+          // The mirror write is verified: a renewed lease over a row this
+          // owner no longer holds is a lease/row disagreement, and a success
+          // that wrote nothing would hide it. RETURNING keeps the old row
+          // answer — `FenceLost` when the row moved on, `NotFound` when it
+          // is gone.
           const rows = yield* sql<{ readonly runId: string }>`
           UPDATE flows_runs
-          SET heartbeat_at_ms = ${Dialect.greatest(sql)}(heartbeat_at_ms, ${nowMs})
+          SET heartbeat_at_ms = ${Dialect.greatest(sql)}(heartbeat_at_ms, ${outcome.heartbeatAtMs})
           WHERE run_id = ${runId}
             AND status = 'running'
             AND owner_host_id = ${owner.hostId}
@@ -1682,31 +1800,36 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         })
       const guard = yield* snapshotGuard(guardInput)
       yield* Effect.annotateCurrentSpan({ runId, ownerHostId: owner.hostId, to: toStatus })
-      // A guard is compiled into the same UPDATE as the ownership fence, so a
-      // concurrent cancellation request can never slip between check and write.
-      const requireCancelAbsent = guard?.cancelRequested === "absent" ? 1 : 0
-      const requireCancelPresent = guard?.cancelRequested === "present" ? 1 : 0
       const transitionedAtMs = yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))
       const outcome = yield* write(
         "transitionOwned",
         Effect.gen(function*() {
-          const rows = toStatus === "running"
-            ? yield* sql<{ readonly runId: string }>`
+          // The fence check is the strategy's guard (R3); the row check keeps
+          // the mirror honest. Both run in the serialized write transaction,
+          // so a concurrent cancellation request or reclaim can never slip
+          // between check and write.
+          const held = yield* consensus.guard(runId, owner).pipe(
+            Effect.as(true),
+            Effect.catch((cause) => cause.code === "fence_lost" ? Effect.succeed(false) : Effect.fail(cause))
+          )
+          const row = (yield* selectRun(sql, runId))[0]
+          if (row === undefined) return notFound
+          if (!held || !rowOwnedBy(row, owner)) return fenceLost
+          const guardBlocked = (guard?.cancelRequested === "absent" && row.cancelRequestedAtMs !== null) ||
+            (guard?.cancelRequested === "present" && row.cancelRequestedAtMs === null)
+          if (guardBlocked) return guardFailed
+          if (toStatus === "running") {
+            yield* sql`
                 UPDATE flows_runs
                 SET
                   status = 'running',
                   finished_at_ms = NULL,
                   state_json = COALESCE(${state}, state_json)
                 WHERE run_id = ${runId}
-                  AND status = 'running'
-                  AND owner_host_id = ${owner.hostId}
-                  AND owner_pid = ${owner.pid}
-                  AND owner_nonce = ${owner.nonce}
-                  AND (${requireCancelAbsent} = 0 OR cancel_requested_at_ms IS NULL)
-                  AND (${requireCancelPresent} = 0 OR cancel_requested_at_ms IS NOT NULL)
-                RETURNING run_id AS "runId"
               `
-            : yield* sql<{ readonly runId: string }>`
+            return transitioned
+          }
+          yield* sql`
                 UPDATE flows_runs
                 SET
                   status = ${toStatus},
@@ -1721,29 +1844,13 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
                   claimed_at_ms = NULL,
                   state_json = COALESCE(${state}, state_json)
                 WHERE run_id = ${runId}
-                  AND status = 'running'
-                  AND owner_host_id = ${owner.hostId}
-                  AND owner_pid = ${owner.pid}
-                  AND owner_nonce = ${owner.nonce}
-                  AND (${requireCancelAbsent} = 0 OR cancel_requested_at_ms IS NULL)
-                  AND (${requireCancelPresent} = 0 OR cancel_requested_at_ms IS NOT NULL)
-                RETURNING run_id AS "runId"
               `
-          /* v8 ignore next -- both CAS outcomes are asserted; V8 reports a synthetic implicit branch */
-          if (rows.length > 0) {
-            if (terminalStatuses.has(toStatus)) {
-              yield* afterCommit(Metric.update(ObservabilityMetric.runThroughput, 1), sql)
-            }
-            return transitioned
+          yield* consensus.release(runId, owner)
+          yield* recordTransition(runId, "released", owner, null)
+          if (terminalStatuses.has(toStatus)) {
+            yield* afterCommit(Metric.update(ObservabilityMetric.runThroughput, 1), sql)
           }
-          const current = yield* selectRun(sql, runId)
-          const row = current[0]
-          if (row === undefined) return notFound
-          const ownsRow = row.status === "running" &&
-            row.ownerHostId === owner.hostId &&
-            row.ownerPid === owner.pid &&
-            row.ownerNonce === owner.nonce
-          return ownsRow ? guardFailed : fenceLost
+          return transitioned
         })
       )
       return outcome
@@ -1778,33 +1885,33 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         if (!evidenceMatches(expected, claimant, nowMs, evidence)) {
           return Effect.succeed(livenessUnconfirmed)
         }
-        const expectedOwner = expected.owner!
         return write(
           "steal",
           Effect.gen(function*() {
-            const rows = yield* sql<{ readonly runId: string }>`
+            const row = (yield* selectRun(sql, runId))[0]
+            const admissible = row !== undefined &&
+              rowMatchesSnapshot(row, expected) &&
+              claimColumnsFree(row) &&
+              row.heartbeatAtMs !== null &&
+              row.heartbeatAtMs < nowMs - heartbeatStaleAfterMs
+            if (!admissible) return classifyClaimLoss(row, nowMs)
+            const grant = yield* consensus.steal(runId, claimant, nowMs, evidence)
+            if (grant._tag === "Rejected") {
+              // The strategy refused what the row admitted — for example its
+              // lease still records a fresh heartbeat — and is authoritative.
+              return classifyClaimLoss(row, nowMs)
+            }
+            yield* sql`
           UPDATE flows_runs
           SET
             claim_host_id = ${claimant.hostId},
             claim_pid = ${claimant.pid},
             claim_nonce = ${claimant.nonce},
-            claimed_at_ms = ${nowMs}
+            claimed_at_ms = ${grant.grantedAtMs}
           WHERE run_id = ${runId}
-            AND status = ${expected.status}
-            AND owner_host_id IS NOT DISTINCT FROM ${expectedOwner.hostId}
-            AND owner_pid IS NOT DISTINCT FROM ${expectedOwner.pid}
-            AND owner_nonce IS NOT DISTINCT FROM ${expectedOwner.nonce}
-            AND heartbeat_at_ms IS NOT DISTINCT FROM ${expected.heartbeatAtMs}
-            AND heartbeat_at_ms < ${nowMs - heartbeatStaleAfterMs}
-            AND claim_host_id IS NULL
-            AND claim_pid IS NULL
-            AND claim_nonce IS NULL
-            AND claimed_at_ms IS NULL
-          RETURNING run_id AS "runId"
         `
-            if (rows.length > 0) return claimed(nowMs)
-            const current = yield* selectRun(sql, runId)
-            return classifyClaimLoss(current[0], nowMs)
+            yield* recordTransition(runId, "stolen", claimant, grant.grantedAtMs)
+            return claimed(grant.grantedAtMs)
           })
         )
       })
@@ -1855,7 +1962,8 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
     transitionOwned,
     steal
   })
-})
+  }
+)
 
 /**
  * Constructs a stub `RunStore` whose direct operations fail and whose
@@ -1897,9 +2005,34 @@ export const layerNoop = (overrides: Partial<Service> = {}): Layer.Layer<RunStor
   Layer.succeed(RunStore)(makeNoop(overrides))
 
 /**
- * Provides the database-backed `RunStore`.
+ * Provides the database-backed `RunStore` over an explicitly injected
+ * consensus strategy.
+ *
+ * Arbitration — claims, activation, steals, heartbeats, and fence checks — is
+ * delegated to the `Consensus` service in context; the run row mirrors the
+ * outcome in the same transaction. Provide the SAME strategy instance the
+ * journal fences through (`SqlJournal.layerWith`), because
+ * `Consensus.layerLocal` keeps its leases per layer build. When a `Journal`
+ * is in the caller's context, ownership transitions append R6 events
+ * through it.
+ *
+ * @since 1.0.0
+ * @category layers
+ */
+export const layerWith: Layer.Layer<RunStore, never, Consensus | DurableWriter | SqlClient.SqlClient> = Layer.effect(
+  RunStore,
+  make
+)
+
+/**
+ * Provides the database-backed `RunStore` arbitrated by the database-backed
+ * strategy, `SqlConsensus`, over the same client — the strategy
+ * `SqlJournal.layer` fences through. Use {@link layerWith} to inject a
+ * different strategy.
  *
  * @since 0.1.0
  * @category layers
  */
-export const layer: Layer.Layer<RunStore, never, DurableWriter | SqlClient.SqlClient> = Layer.effect(RunStore, make)
+export const layer: Layer.Layer<RunStore, never, DurableWriter | SqlClient.SqlClient> = layerWith.pipe(
+  Layer.provide(SqlConsensus.layer)
+)

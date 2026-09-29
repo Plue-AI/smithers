@@ -75,25 +75,51 @@ const gateWrites = (gate: Deferred.Deferred<void>, passthrough = 0): Layer.Layer
     TestDatabase.layer
   )
 
-const activateRun = (sql: SqlClient.SqlClient, run: RunId, owner: OwnerId) =>
+/** The lease the journal's fence reads, beside the run row that mirrors it. */
+const holdLease = (sql: SqlClient.SqlClient, run: RunId, owner: OwnerId) =>
   sql`
-    INSERT INTO flows_runs (
-      run_id, status, created_at_ms, started_at_ms,
-      owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms, state_json
+    INSERT INTO flows_consensus_leases (
+      run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms
     ) VALUES (
-      ${run}, 'running', 0, 0,
-      ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0, '{}'
+      ${run}, ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0, 0
     )
+    ON CONFLICT (run_id) DO UPDATE SET
+      owner_host_id = excluded.owner_host_id,
+      owner_pid = excluded.owner_pid,
+      owner_nonce = excluded.owner_nonce,
+      granted_at_ms = excluded.granted_at_ms,
+      heartbeat_at_ms = excluded.heartbeat_at_ms,
+      claim_host_id = NULL,
+      claim_pid = NULL,
+      claim_nonce = NULL,
+      claimed_at_ms = NULL
   `
 
+const activateRun = (sql: SqlClient.SqlClient, run: RunId, owner: OwnerId) =>
+  Effect.andThen(
+    sql`
+      INSERT INTO flows_runs (
+        run_id, status, created_at_ms, started_at_ms,
+        owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms, state_json
+      ) VALUES (
+        ${run}, 'running', 0, 0,
+        ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0, '{}'
+      )
+    `,
+    holdLease(sql, run, owner)
+  )
+
 const reclaimRun = (sql: SqlClient.SqlClient, run: RunId, owner: OwnerId) =>
-  sql`
-    UPDATE flows_runs
-    SET owner_host_id = ${owner.hostId},
-      owner_pid = ${owner.pid},
-      owner_nonce = ${owner.nonce}
-    WHERE run_id = ${run}
-  `
+  Effect.andThen(
+    sql`
+      UPDATE flows_runs
+      SET owner_host_id = ${owner.hostId},
+        owner_pid = ${owner.pid},
+        owner_nonce = ${owner.nonce}
+      WHERE run_id = ${run}
+    `,
+    holdLease(sql, run, owner)
+  )
 
 const seqsOf = (sql: SqlClient.SqlClient, run: RunId) =>
   Effect.map(

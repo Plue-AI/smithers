@@ -1,15 +1,15 @@
 /**
  * The journal's durable channel accepts an `OwnerId` and fences the append on
- * it: the INSERT only lands while `flows_runs` still records that owner as the
- * running run's owner, and otherwise the append fails `fence_lost` rather than
- * writing behind a live successor.
+ * it: the INSERT only lands while the consensus strategy still records that
+ * owner as the run's owner, and otherwise the append fails `fence_lost` rather
+ * than writing behind a live successor.
  *
- * `flows_runs` belongs to `@smthrs/run-store`, which depends on this package
- * and so cannot be depended on from here. This suite therefore stands up the
- * *columns the fence reads* as a fixture, which is exactly the contract the
- * journal asserts on a table it does not own. `@smthrs/engine-store` — which
- * composes both — pins the same behaviour against the real migrated schema in
- * its `JournalFencing` suite.
+ * The default strategy, `SqlConsensus`, keeps its lease in
+ * `flows_consensus_leases`, a table this package's own migrations create, so
+ * this suite stands the fence up by writing the lease row the strategy's
+ * `guard` reads. `ConsensusConformance` drives the same fence through the
+ * strategy's public operations, and `@smthrs/engine-store` pins the behaviour
+ * against the whole composed schema in its `JournalFencing` suite.
  */
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
@@ -23,6 +23,7 @@ import { Input, type RunId, type Seq, type SourceId, type SourceSeq } from "../s
 import * as Migrations from "../src/Migrations.ts"
 import type { OwnerId } from "../src/OwnerId.ts"
 import * as SqlJournal from "../src/SqlJournal.ts"
+import * as Leases from "./fixtures/leases.ts"
 
 const runId = (value: string): RunId => value as RunId
 const sourceId = (value: string): SourceId => value as SourceId
@@ -38,36 +39,16 @@ const input = (run: RunId, source: SourceId, sourceSeq: number): Input =>
     payload: { decision: "created" }
   }, { disableChecks: true })
 
-/** The `flows_runs` columns the fenced append's `WHERE EXISTS` reads. */
-const fenceTable = Layer.effectDiscard(Effect.gen(function*() {
-  const sql = yield* SqlClient.SqlClient
-  yield* sql`CREATE TABLE flows_runs (
-    run_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    owner_host_id TEXT,
-    owner_pid INTEGER,
-    owner_nonce TEXT
-  )`
-}))
-
 const stack = SqlJournal.layer({ capacity: 8, overflow: "reject" }).pipe(
-  Layer.provideMerge(
-    Layer.provideMerge(Layer.provideMerge(fenceTable, Migrations.layer), TestDatabase.layer)
-  )
+  Layer.provideMerge(Layer.provideMerge(Migrations.layer, TestDatabase.layer))
 )
 
 const withStack = <A, E>(
   body: Effect.Effect<A, E, Journal | DurableWriter | SqlClient.SqlClient | Scope.Scope>
 ) => Effect.scoped(body.pipe(Effect.provide(stack), Effect.provide(TestClock.layer())))
 
-const claim = (sql: SqlClient.SqlClient, run: RunId, holder: OwnerId) =>
-  sql`INSERT INTO flows_runs (run_id, status, owner_host_id, owner_pid, owner_nonce)
-      VALUES (${run}, 'running', ${holder.hostId}, ${holder.pid}, ${holder.nonce})`
-
-const reclaim = (sql: SqlClient.SqlClient, run: RunId, holder: OwnerId) =>
-  sql`UPDATE flows_runs
-      SET owner_host_id = ${holder.hostId}, owner_pid = ${holder.pid}, owner_nonce = ${holder.nonce}
-      WHERE run_id = ${run}`
+const claim = Leases.hold
+const reclaim = Leases.hold
 
 describe("SqlJournal durable fencing", () => {
   it.effect("commits a fenced append while the supplied owner still holds the run", () =>
@@ -226,18 +207,22 @@ describe("SqlJournal durable fencing", () => {
       expect((failure as JournalError).code).toBe("fence_lost")
     }))
 
-  // All non-running statuses allowed by the run-store migration. Keep the
-  // owner tuple intact so only the status predicate can reject these calls.
-  const lostFences = [
-    ...["pending", "suspended", "completed", "failed", "cancelled"].map((status) => ({
-      label: `${status} status`,
-      status,
-      pid: owner.pid
-    })),
-    { label: "PID-only mismatch", status: "running", pid: 7 }
+  // A released lease is what every non-running run holds: `RunStore`'s
+  // suspension and terminal transitions release the strategy's lease, so the
+  // fence no longer answers for the owner at all. The PID-only mismatch keeps
+  // the row and changes one member of the tuple.
+  const lostFences: ReadonlyArray<{
+    readonly label: string
+    readonly lose: (sql: SqlClient.SqlClient, run: RunId) => Effect.Effect<unknown, unknown>
+  }> = [
+    { label: "a released lease", lose: Leases.release },
+    {
+      label: "a PID-only mismatch",
+      lose: (sql, run) => sql`UPDATE flows_consensus_leases SET owner_pid = 7 WHERE run_id = ${run}`
+    }
   ]
 
-  for (const { label, pid, status } of lostFences) {
+  for (const { label, lose } of lostFences) {
     for (const operation of ["fresh append", "duplicate append", "checkpoint", "compact"] as const) {
       it.effect(`rejects ${operation} with ${label} without changing durable state`, () =>
         withStack(Effect.gen(function*() {
@@ -271,7 +256,7 @@ describe("SqlJournal durable fencing", () => {
           expect(before.checkpoints).toHaveLength(2)
           expect(before.floor).toBe(0)
 
-          yield* sql`UPDATE flows_runs SET status = ${status}, owner_pid = ${pid} WHERE run_id = ${run}`
+          yield* lose(sql, run)
           // The fresh identity exercises the fenced INSERT; the duplicate
           // must pass fenceGuard before it can be classified as idempotent.
           // Replacing the uncompacted checkpoint is otherwise valid, and

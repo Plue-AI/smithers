@@ -12,7 +12,8 @@ zombie write lands behind the live successor and the run's history says two
 processes were driving it.
 
 The journal refuses that write. `emitDurable`, `checkpoint`, and `compact` each
-take an `OwnerId`, and each lands only while the run still records that owner.
+take an `OwnerId`, and each lands only while the consensus strategy the
+journal was built with still records that owner as holding the run.
 
 ## The token
 
@@ -38,26 +39,43 @@ The run store stores the token on runs and decides who holds it, and its
 
 ## What the fence actually checks
 
-A fenced write carries its own predicate. The insert lands only when
-`flows_runs` holds a row for the run whose `status` is `running` and whose
-three owner columns equal the supplied token. The predicate travels in the
-write statement, so the check and the write cannot be separated by a race.
+A fenced write joins the injected `Consensus` strategy's `guard` inside its
+own write transaction. The guard succeeds while the strategy records the
+supplied token as the run's owner and fails `fence_lost` otherwise, and
+because the durable writer serializes write transactions no reclaim can
+commit between the guard and the statements beside it.
 
 Two consequences follow:
 
 - A run that another process reclaimed fails the write with `fence_lost`.
-- A run that is no longer `running` fails the same way, whatever moved it.
-  A finished run does not accept late lifecycle writes.
+- A run whose owner released it, because it suspended or finished, fails the
+  same way. A finished run does not accept late lifecycle writes.
 
-`flows_runs` belongs to `@smthrs/run-store`, so a fenced write reads a table
-this package does not own. That coupling is deliberate, and both sides test it:
-this package asserts the fence against a fixture of the columns it reads, and
-[`@smthrs/engine-store`](/api/engine-store) asserts the same behavior against
-the real migrated schema.
+The strategy is the journal's own service. `SqlJournal.layer` fences through
+`SqlConsensus`, whose lease lives in `flows_consensus_leases`, a table this
+package's migrations create; `SqlJournal.layerWith` fences through whatever
+strategy the composition provides, such as `Consensus.layerLocal` for a
+single process. The same instance must arbitrate the run store's claims, which
+is why `RunStore.layerWith` takes the strategy too.
 
-If the table is absent entirely, the write fails `sink_failed` with
-`no such table: flows_runs`, not `fence_lost`. That is a composition problem;
-see [Installation](../installation.md#what-a-fenced-write-needs).
+## Who arbitrates
+
+The journal owns the rules: one writer per run, fenced and unfenced appends,
+commit-time admission, the generation fence, steal only on staleness plus
+liveness evidence, and ownership transitions as events. A strategy chooses
+where the lease lives and how the fence is checked. The claim lifecycle is
+two-phase — `claim` or `steal` reserves the run and returns a grant
+timestamp, `activate` presents that grant to take ownership, `release` gives
+it back, and `recover` clears a dead claimant's stale claim — and
+[`@smthrs/run-store`](/api/run-store) drives it for a durable run, mirroring
+the outcome on the run row in the same transaction.
+
+Every transition the strategy admits is appended to the run's journal as a
+`flows.consensus.claimed`, `activated`, `released`, `stolen`, or `expired`
+event, so the history says who took the run and when. Heartbeats renew the
+lease and never enter the journal. A consumer that projects one run's stream
+selects its own event-type namespace, because the stream carries these events
+beside its own.
 
 ## A bad token is not a lost fence
 

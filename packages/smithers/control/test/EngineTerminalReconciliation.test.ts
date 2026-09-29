@@ -24,7 +24,9 @@ const events = (runId: string) =>
   Effect.gen(function*() {
     const journal = yield* Journal.Journal
     const entries = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 100 })
-    return entries.entries.map((entry) => entry.eventType)
+    // The run store's ownership transitions share the stream; control's
+    // reconciliation facts are what is under test.
+    return entries.entries.map((entry) => entry.eventType).filter((eventType) => eventType.startsWith("control."))
   })
 
 describe("terminal engine authority and durable control reconciliation", () => {

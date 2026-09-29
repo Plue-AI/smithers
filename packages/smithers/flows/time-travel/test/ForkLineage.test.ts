@@ -5,6 +5,7 @@ import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as Migrations from "@smthrs/engine-store/Migrations"
 import * as Jj from "@smthrs/jj"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import * as CacheStore from "@smthrs/step-cache/CacheStore"
 import * as Effect from "effect/Effect"
@@ -67,7 +68,7 @@ describe("fork lineage", () => {
         Effect.gen(function*() {
           yield* Migrations.run
           const store = yield* SqlTimeTravelStore.make
-          const runs = yield* RunStore.make
+          const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
           yield* seed("root")
           const child = yield* store.createFork("root", { lineageId: "root/root", seq: 0 })
           return yield* runs.get(child.runId)

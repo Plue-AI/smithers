@@ -40,8 +40,9 @@ incarnation still owns.
 The engine claims a run before driving it, and from then on every durable write
 carries the owner:
 
-- Run state transitions go through the run store's compare-and-swap, which
-  matches on the persisted owner. A stale owner gets `FenceLost`.
+- Run state transitions go through the run store, which asks the journal's
+  consensus strategy whether the owner still holds the run inside the same
+  write transaction. A stale owner gets `FenceLost`.
 - Attempt lifecycle writes pass the owner to the journal, which fences the
   append. A reclaimed owner fails with `fence_lost` and self-interrupts rather
   than appending.

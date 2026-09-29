@@ -81,6 +81,11 @@ describe("durable run state redaction", () => {
           owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms, state_json
         ) VALUES ('run-transition', 'running', 1, 1, 'host-a', 42, 'nonce-a', 1, '{}')
       `
+        yield* sql`
+        INSERT INTO flows_consensus_leases (
+          run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms
+        ) VALUES ('run-transition', 'host-a', 42, 'nonce-a', 1, 1)
+      `
         const store = yield* RunStore.RunStore
         const owner = { hostId: "host-a", pid: 42, nonce: "nonce-a" }
         const outcome = yield* store.transitionOwned(

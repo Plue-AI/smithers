@@ -71,7 +71,7 @@ const acquire = (
   runs: RunStore.Service,
   audit: Audit,
   options: Options
-): Effect.Effect<RunStore.RunRow, TimeTravelFailure> =>
+): Effect.Effect<RunStore.RunRow, TimeTravelFailure, Journal.Journal> =>
   Effect.gen(function*() {
     const row = yield* runs.get(audit.runId).pipe(
       Effect.mapError((cause) => RunRow.failure("read recovery run", cause))
@@ -94,7 +94,10 @@ const acquire = (
         return found
       })
       : undefined
-    yield* Lease.claimAndActivate(runs, {
+    // Recovery of an interrupted rewind is the same administrative surgery
+    // as the rewind itself: its fencing must not append into the journal
+    // whose post-frame emptiness `archiveCommitted` reads as evidence.
+    yield* Lease.unjournaled(Lease.claimAndActivate(runs, {
       runId: audit.runId,
       expected: RunRow.snapshotOf(row),
       claimant: options.owner,
@@ -106,7 +109,7 @@ const acquire = (
       },
       refused: () => error("busy", `run ${audit.runId} could not be claimed for recovery`),
       lost: error("busy", `run ${audit.runId} lost its recovery claim`)
-    })
+    }))
     return row
   })
 
@@ -334,13 +337,13 @@ const recoverOne = (
       Effect.suspend(() =>
         acquired === undefined
           ? Effect.void
-          : Effect.exit(runs.transitionOwned(
+          : Effect.exit(Lease.unjournaled(runs.transitionOwned(
             audit.runId,
             options.owner,
             // Pending cannot be restored directly; suspended releases ownership.
             status === "pending" ? "suspended" : status,
             acquired.stateJson
-          )).pipe(
+          ))).pipe(
             Effect.flatMap((released) =>
               Effect.sync(() => {
                 if (Exit.isFailure(released)) {
@@ -373,12 +376,12 @@ const recoverOne = (
                 // falls back to the row recovery acquired.
                 const frameState = yield* store.stateAt(audit.runId, audit.frame)
                 yield* lease.releasing
-                const suspended = yield* runs.transitionOwned(
+                const suspended = yield* Lease.unjournaled(runs.transitionOwned(
                   audit.runId,
                   options.owner,
                   "suspended",
                   frameState ?? acquiredRow.stateJson
-                ).pipe(
+                )).pipe(
                   Effect.mapError((cause) => RunRow.failure("finish recovered suspension", cause))
                 )
                 if (suspended._tag !== "Transitioned") {
@@ -410,12 +413,12 @@ const recoverOne = (
               }
               detail = yield* resolvePending(runs, audit, detail, options, false)
               yield* lease.releasing
-              const restored = yield* runs.transitionOwned(
+              const restored = yield* Lease.unjournaled(runs.transitionOwned(
                 audit.runId,
                 options.owner,
                 detail.originalStatus === "pending" ? "suspended" : detail.originalStatus,
                 acquiredRow.stateJson
-              ).pipe(
+              )).pipe(
                 Effect.mapError((cause) => RunRow.failure("restore recovered run", cause))
               )
               if (restored._tag !== "Transitioned") {

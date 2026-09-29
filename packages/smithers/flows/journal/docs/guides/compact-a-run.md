@@ -9,7 +9,8 @@ Compaction drops the entries a run no longer needs to replay. It is off by
 default, so nothing here happens unless you ask for it.
 
 Every step is fenced: `checkpoint` and `compact` both take an `OwnerId` and
-both need a `flows_runs` row from [`@smthrs/run-store`](/api/run-store). See
+both need the run claimed and activated through the journal's `Consensus`
+strategy, which [`@smthrs/run-store`](/api/run-store) drives. See
 [Installation](../installation.md#what-a-fenced-write-needs).
 
 ## Checkpoint the replay state
@@ -118,7 +119,7 @@ const layer = SqlJournal.layer({
 Once a run's committed entry count reaches `entryThreshold`, the journal
 captures your replay state at the run's durable tail, checkpoints it, and
 compacts below it. The policy holds no fence, so it needs no owner and no
-`flows_runs` row.
+lease.
 
 Write `capture` to finish quickly and to tolerate being abandoned: it is
 interrupted after 30 seconds, and a failed or refused attempt is logged at

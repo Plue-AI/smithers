@@ -15,9 +15,13 @@ state a restart re-enters. It also arbitrates who is allowed to touch that row,
 so a process that comes back from the dead cannot overwrite the one that
 replaced it.
 
-Two services, `RunStore` and `AttemptStore`, plus the `Ownership` arbitration
-that decides who holds a run. They carry no database of their own: both are
-written against the driver-neutral
+Two services, `RunStore` and `AttemptStore`, plus the `Ownership` liveness
+checks and heartbeat supervision. Arbitration itself — who holds the claim,
+who holds the lease, whether a fence still stands — is delegated to
+[`@smthrs/journal`](https://journal.smithers.sh)'s injectable `Consensus`
+strategy, the same one the journal fences its durable channel through; the
+run row mirrors the strategy's answer in the same transaction. They carry no
+database of their own: both are written against the driver-neutral
 [`@smthrs/database`](https://database.smithers.sh) contract, so the same code
 runs over a local SQLite file, over a server, or over an in-memory database in a
 test.
@@ -98,9 +102,14 @@ ownership unchanged.
   status, owner, heartbeat, cancellation request, and the executable state to
   re-enter, instead of replaying a log to work out where it was.
 - **Every owned write carries a fence.** An owner identity is
-  `{ hostId, pid, nonce }`, and all three fields are compared inside the same
-  SQL statement as the mutation they guard. There is no window between checking
-  ownership and using it, so two processes cannot both win.
+  `{ hostId, pid, nonce }`, and every owned mutation asks the `Consensus`
+  strategy whether that identity still holds the run inside the same
+  serialized write transaction as the mutation it guards. There is no window
+  between checking ownership and using it, so two processes cannot both win.
+- **Every transition is history.** A claim, an activation, a release, a steal,
+  and an expired claim are appended to the run's journal as
+  `flows.consensus.*` events when a journal is in context; heartbeats renew
+  the lease and never enter the journal.
 - **Competition is a value, not an error.** Losing a race returns
   `AlreadyClaimed`, `HeartbeatFresh`, or `FenceLost` as an ordinary success
   value you branch on. The error channel is reserved for real defects: invalid
@@ -125,18 +134,18 @@ the matching `@smthrs/run-store/*` subpath. The
 
 | Namespace         | What it holds                                                                                                         |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `RunStore`        | The run lifecycle: create, read, cancel, the six claim operations, heartbeat, and owned transitions, with its layers. |
+| `RunStore`        | The run lifecycle: create, read, cancel, the six claim operations, heartbeat, and owned transitions, with `layer` over `SqlConsensus` and `layerWith` over an injected strategy. |
 | `AttemptStore`    | Fenced step attempts: start, heartbeat with a checkpoint, finish, patch, and read, with its policy options.           |
-| `Ownership`       | `OwnerId`, liveness evidence, fail-closed pid probing, the lease checks, and the heartbeat supervision loop.          |
+| `Ownership`       | `OwnerId` and `LivenessEvidence` from the journal, fail-closed pid probing, the lease checks, and the heartbeat supervision loop. |
 | `RunStoreMetrics` | `flows_run_claims`, `flows_run_heartbeats`, and `flows_run_transitions`, attributed by operation and outcome.         |
-| `Migrations`      | The `flows_runs` and `flows_attempts` migration set, its runner, and its layer.                                       |
+| `Migrations`      | The `flows_runs` and `flows_attempts` migration set, and the runner and layer that install the journal's set ahead of it. |
 
 The root and those subpaths are driver-neutral and bundle for the browser.
 Two subpaths are not namespaces of the root:
 
 | Import                                | Platform | What it holds                                                                                                                                                                                                                                 |
 | ------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@smthrs/run-store/Heartbeat`         | any      | The lease durations `heartbeatInterval`, `heartbeatStaleAfter`, `heartbeatSkewAllowance`, and `heartbeatWriteTolerance`, also re-exported from `Ownership`. A consumer that needs only the durations imports this leaf and pulls in no store. |
+| `@smthrs/run-store/Heartbeat`         | any      | The lease durations `heartbeatInterval`, `heartbeatStaleAfter`, `heartbeatSkewAllowance`, and `heartbeatWriteTolerance`, defined by `@smthrs/journal`'s `Consensus` and also re-exported from `Ownership`. A consumer that needs only the durations imports this leaf and pulls in no store. |
 | `@smthrs/run-store/test/TestRunStore` | Node     | `layer`, providing migrated in-memory `RunStore` and `AttemptStore` services.                                                                                                                                                                 |
 
 Migration implementations and package internals are blocked in the export map:

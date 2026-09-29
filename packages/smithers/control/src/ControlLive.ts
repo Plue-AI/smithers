@@ -316,6 +316,19 @@ const eventFromEntry = (entry: JournalEvent.Entry): ControlEvent => ({
 })
 
 /**
+ * Selects the entries a watcher is shown out of a run's stream. A run's
+ * journal carries every event-type namespace appended to that run, and the
+ * watch projects the run's lifecycle out of several of them — control's own
+ * `control.*` records, and the engine's `flows.engine.*` decisions the lineage
+ * and steering derivations read. The run store's `flows.consensus.*` ownership
+ * transitions are lease evidence for the stores that arbitrate the run, not
+ * lifecycle a watcher acts on, so the projection selects them out instead of
+ * assuming the stream carries only what it consumes. Adding that namespace to
+ * the journal is therefore not a breaking change for the watch.
+ */
+const isControlEntry = (entry: JournalEvent.Entry): boolean => !entry.eventType.startsWith("flows.consensus.")
+
+/**
  * Live in-process Control layer.
  *
  * Writes delegate to `ControlRuntime`; journal events are observational
@@ -1119,6 +1132,7 @@ export const layer: Layer.Layer<
           ? {}
           : { afterSequence: JournalEvent.Seq.make(filter.afterSequence) })
       }).pipe(
+        Stream.filter(isControlEntry),
         Stream.map(eventFromEntry),
         Stream.mapError(watchReadFailed)
       )
@@ -1201,7 +1215,9 @@ export const layer: Layer.Layer<
             const next = last === undefined || last.seq >= highWater || !page.hasMore
               ? Option.none<JournalEvent.Seq | undefined>()
               : Option.some<JournalEvent.Seq | undefined>(last.seq)
-            return [entries, next] as const
+            // The cursor advances over every entry, so a foreign namespace
+            // never stalls the page; only control's entries are emitted.
+            return [entries.filter(isControlEntry), next] as const
           }),
           Effect.mapError(watchReadFailed)
         )).pipe(Stream.map(eventFromEntry))
@@ -1385,7 +1401,7 @@ export const layer: Layer.Layer<
                   const history = claimed ? snapshotForRunAt(partition, filter, highWater) : Stream.empty
                   if (highWater !== undefined && entry.seq <= highWater) return history
                   const tracked = yield* trackTail(entry, highWater)
-                  return Option.isSome(tracked)
+                  return Option.isSome(tracked) && isControlEntry(tracked.value)
                     ? Stream.concat(history, Stream.succeed(eventFromEntry(tracked.value)))
                     : history
                 }))

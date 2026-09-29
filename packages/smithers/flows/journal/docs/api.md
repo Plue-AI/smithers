@@ -64,18 +64,18 @@ savepoints and transaction retries discard their registrations. See
 [commit state and its entry together](./guides/commit-state-and-entry.md).
 
 `owner` is mandatory on `emitDurable`, `checkpoint`, and `compact`. The insert,
-the checkpoint replacement, and the truncation land only while `flows_runs`
-still records that owner as the running run's owner, and otherwise fail
-`fence_lost`. An owner that is missing, null, or not an `OwnerId` at all fails
+the checkpoint replacement, and the truncation join the `Consensus` strategy's
+`guard` inside their write transaction and land only while the strategy still
+records that owner as holding the run, and otherwise fail `fence_lost`. An owner that is missing, null, or not an `OwnerId` at all fails
 `invalid_event` instead: that is a caller contract violation, and reporting it
 as `fence_lost` would send the caller hunting a race that never happened.
 `emitDurableUnfenced` is the one sanctioned ownerless path, for an import or a
 repair tool that owns no run. Reaching for it to dodge `fence_lost` writes
 exactly the zombie entry the fence exists to reject.
 
-`flows_runs` belongs to [`@smthrs/run-store`](/api/run-store), so a composition
-that installs only this package's migrations fails every fenced call with
-`sink_failed` and `no such table: flows_runs`.
+`SqlJournal.layer` fences through [`SqlConsensus`](#sqlconsensus), whose lease
+table this package's own migrations create; `SqlJournal.layerWith` fences
+through any injected [`Consensus`](#consensus).
 
 ### Errors
 
@@ -218,6 +218,67 @@ It lives here rather than with the ownership arbitration in
 [`@smthrs/run-store`](/api/run-store) because the journal is what it fences.
 That package's `Ownership` re-exports it alongside `LivenessEvidence`,
 `LivenessProbe`, and the heartbeat constants.
+
+## Consensus
+
+The injectable strategy that arbitrates who holds a run. The journal owns the
+rules — one writer per run, fenced and unfenced appends, commit-time
+admission, the generation fence, steal only on staleness plus liveness
+evidence, and ownership transitions as events — and a strategy chooses where
+the lease lives and how the fence is checked at commit time.
+
+| Export                                                           | Signature                                                                                                                              |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `Consensus`                                                      | `Context.Service<Consensus, Service>`                                                                                                  |
+| `Service.claim`                                                  | `(runId, claimant: OwnerId, nowMs) => Effect<ClaimOutcome, ConsensusError>`                                                            |
+| `Service.activate`                                               | `(runId, owner: OwnerId, grantedAtMs, nowMs) => Effect<ActivateOutcome, ConsensusError>`                                               |
+| `Service.heartbeat`                                              | `(runId, owner: OwnerId, nowMs) => Effect<HeartbeatOutcome, ConsensusError>`                                                           |
+| `Service.release`                                                | `(runId, owner: OwnerId) => Effect<void, ConsensusError>`                                                                              |
+| `Service.steal`                                                  | `(runId, claimant: OwnerId, nowMs, evidence: LivenessEvidence) => Effect<ClaimOutcome, ConsensusError>`                               |
+| `Service.recover`                                                | `(runId, staleClaimant: OwnerId, grantedAtMs, observer: OwnerId, nowMs, evidence: LivenessEvidence) => Effect<RecoverOutcome, ConsensusError>` |
+| `Service.guard`                                                  | `(runId, owner: OwnerId) => Effect<void, ConsensusError>`; fails `fence_lost` unless `owner` holds the run                              |
+| `ClaimOutcome`                                                   | `Claimed { grantedAtMs }` or `Rejected { reason }`                                                                                     |
+| `ActivateOutcome`                                                | `Activated` or `Lost`                                                                                                                  |
+| `HeartbeatOutcome`                                               | `Renewed { heartbeatAtMs }` or `Lost`                                                                                                  |
+| `RecoverOutcome`                                                 | `Recovered` or `Rejected { reason }`                                                                                                   |
+| `RejectionReason`                                                | `already_claimed`, `owner_held`, `owner_live`, `evidence_invalid`, `claim_fresh`, `claim_changed`, `unavailable`                       |
+| `ConsensusError`                                                 | `{ code: "fence_lost" \| "persistence_failed", message, cause? }`                                                                     |
+| `LivenessEvidence`                                               | `{ expectedOwner: OwnerId, checkedAtMs, kind }` with `kind` one of `same-host-pid-dead`, `cross-host-unreachable-stale`, `lease-expired` |
+| `matchesEvidence`, `sameOwner`                                   | The evidence and identity predicates every strategy applies                                                                            |
+| `heartbeatInterval`, `heartbeatStaleAfter`, `heartbeatSkewAllowance`, `heartbeatWriteTolerance` | The lease durations every strategy judges staleness against                                                                |
+| `make`, `makeNoop`, `makeLocal`, `layerNoop`, `layerLocal`       | Constructors and layers; `layerLocal` is the in-memory single-process strategy                                                          |
+
+The claim lifecycle is two-phase: `claim` (or `steal`, its evidence-gated
+form) reserves the run and returns the grant timestamp, `activate` presents
+that grant to take ownership, and `release` clears whichever of the caller's
+claim or ownership still stands. `recover` clears a third party's stale claim
+after its claimant was proven dead. Every operation takes the caller's clock
+reading, so staleness is judged against the reading the caller observed.
+Heartbeats and lease state never enter the journal; the run store appends
+`flows.consensus.claimed`, `activated`, `released`, `stolen`, and `expired`
+events for the transitions it drives.
+
+`layerLocal` keeps its leases per layer build and outside any database
+transaction: provide one instance to every service that must agree, and
+prefer `SqlConsensus` wherever a database is present.
+
+## SqlConsensus
+
+The default database-backed strategy. Its lease is the `flows_consensus_leases`
+row this package's migration `0006_consensus` creates, holding the owner tuple,
+the two-phase claim columns, the grant timestamp, and the heartbeat. `guard`
+is a plain SELECT inside the caller's write transaction, and every mutating
+operation runs through `DurableWriter.write`, joining an enclosing transaction
+as a savepoint, so a rolled-back ownership write rolls its lease back too.
+
+| Export  | Signature                                                          |
+| ------- | ------------------------------------------------------------------ |
+| `make`  | `Effect<Consensus.Service, never, DurableWriter \| SqlClient>`     |
+| `layer` | `Layer<Consensus, never, DurableWriter \| SqlClient>`              |
+
+The migration backfills a lease for every `flows_runs` row that was running
+or claimed when the table is already present, so an owner driving a run
+before the upgrade keeps its fence afterwards.
 
 ## Redaction
 
@@ -369,10 +430,10 @@ migrated in-memory database:
 `TestJournalOptions` is the production option type, so every field forwards to
 `SqlJournal.layer` unchanged and a new production option is reachable here the
 day it is added. The defaults are `capacity: 1024` and `overflow: "reject"`.
-This bundle creates the journal's tables only, so a suite exercising a fenced
-call supplies `flows_runs` itself or takes
-`@smthrs/engine-store/test/TestStores`, which provides the journal, run,
-attempt, and cache services over one database.
+This bundle creates the journal's tables, the consensus lease table included,
+so a suite exercising a fenced call takes the run through `Consensus.claim`
+and `activate`, or takes `@smthrs/engine-store/test/TestStores`, which
+provides the journal, run, attempt, and cache services over one database.
 
 `@smthrs/journal/test/Notifying` wraps a record-of-Effect-methods service so a
 hook fires around every operation:

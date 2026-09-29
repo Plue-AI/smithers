@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import type * as Consensus from "@smthrs/journal/Consensus"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import * as ObservabilityMetric from "@smthrs/observability/Metric"
 import { Clock, Effect, Exit, Metric, Option } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -17,8 +19,11 @@ const busy = () =>
     reason: new SqlError.LockTimeoutError({ cause: { code: "SQLITE_BUSY", message: secret } })
   })
 
-const migrated = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient | DurableWriter.DurableWriter>) =>
+const migrated = <A, E>(
+  effect: Effect.Effect<A, E, SqlClient.SqlClient | DurableWriter.DurableWriter | Consensus.Consensus>
+) =>
   Effect.runPromise(effect.pipe(
+    Effect.provide(SqlConsensus.layer),
     Effect.provide(Migrations.layer),
     Effect.provide(TestDatabase.layer),
     Effect.provideService(Metric.MetricRegistry, new Map())
@@ -138,7 +143,12 @@ describe("nested store writes", () => {
     migrated(Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
       const writer = DurableWriter.make(sql, retryOptions)
-      const runs = yield* RunStore.make.pipe(Effect.provideService(DurableWriter.DurableWriter, writer))
+      // The strategy writes through the same injected writer as the store, so
+      // the lease statements see the same injected failures.
+      const runs = yield* RunStore.make.pipe(
+        Effect.provide(SqlConsensus.layer),
+        Effect.provideService(DurableWriter.DurableWriter, writer)
+      )
       yield* activate(runs)
       const before = yield* throughput
       let outerBodies = 0

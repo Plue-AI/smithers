@@ -6,7 +6,7 @@
  * run against both — an adapter that only satisfies its own tests is how a
  * port silently forks into two behaviours.
  */
-import { Journal } from "@smthrs/journal"
+import { Journal, JournalEvent } from "@smthrs/journal"
 import { NotificationQueue } from "@smthrs/notifications"
 import { Cause, Effect, Exit, Fiber, type Layer, Stream } from "effect"
 import { describe, expect, it } from "vitest"
@@ -879,6 +879,47 @@ export const contract = (name: string, harness: Harness): void => {
         )
 
         expect(events.map((event) => event.kind)).toContain("control.signal.admitted")
+      }))
+
+    test("watch selects control's namespace and skips other namespaces in the run stream", () =>
+      Effect.gen(function*() {
+        const control = yield* Control
+        const journal = yield* Journal.Journal
+        const { runId } = yield* start
+        // The journal reserves other event-type namespaces on the same run —
+        // here an ownership transition the run store appends — so a control
+        // projection selects its own namespace instead of assuming the stream
+        // carries only control events.
+        yield* journal.emitDurableUnfenced(
+          new JournalEvent.Input({
+            runId: JournalEvent.RunId.make(runId),
+            sourceId: JournalEvent.SourceId.make("flows/run-store/consensus"),
+            eventType: "flows.consensus.claimed",
+            payload: { owner: { hostId: "host-x", pid: 1, nonce: "n" }, grantedAtMs: 0 }
+          })
+        )
+        // A control record lands after the foreign one, so a follower can
+        // stop at it and prove the foreign entry was neither shown nor a stall.
+        yield* control.signal({
+          runId,
+          signal: { name: "namespaced", payload: null },
+          idempotencyKey: "signal:namespaced"
+        })
+        yield* journal.flush
+
+        const followed = yield* control.watch({ runId }).pipe(
+          Stream.takeUntil((event) => event.kind === "control.steer.enqueued"),
+          Stream.runCollect
+        )
+        const snapshot = yield* control.watch({ runId, follow: false }).pipe(
+          Stream.runCollect,
+          Effect.timeout("1 second")
+        )
+        for (const events of [followed, snapshot]) {
+          expect(events.length).toBeGreaterThan(0)
+          expect(events.map((event) => event.kind).every((kind) => !kind.startsWith("flows.consensus."))).toBe(true)
+        }
+        expect(snapshot.map((event) => event.kind)).toContain("control.steer.enqueued")
       }))
 
     test("unscoped finite watch includes plan-only journal partitions", () =>

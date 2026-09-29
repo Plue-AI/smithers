@@ -88,11 +88,12 @@ const program = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
   if (mode !== "finish") {
     const owner = { hostId: "snapshot-test", pid: process.pid, nonce: "snapshot-owner" }
-    // Only the ownership fence is fixture data. Checkpoint creation and deletion
-    // of the history prefix go through the real fenced journal APIs.
-    yield* sql`CREATE TABLE flows_runs (run_id TEXT PRIMARY KEY, status TEXT,
-      owner_host_id TEXT, owner_pid INTEGER, owner_nonce TEXT)`
-    yield* sql`INSERT INTO flows_runs VALUES (${runId}, 'running', ${owner.hostId}, ${owner.pid}, ${owner.nonce})`
+    // Only the ownership lease is fixture data. Checkpoint creation and
+    // deletion of the history prefix go through the real fenced journal APIs.
+    yield* sql`
+      INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+      VALUES (${runId}, ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0, 0)
+    `
     for (const increment of increments) {
       yield* journal.emitDurableUnfenced({
         runId,

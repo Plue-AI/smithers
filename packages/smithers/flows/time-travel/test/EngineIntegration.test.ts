@@ -462,15 +462,25 @@ describe("time travel over an engine-written journal", () => {
               reduce: (state: number, entry) => entry.eventType === "flows.engine.attempt-started" ? state + 1 : state
             }
           )
+          // The run store's ownership transitions share the stream and carry
+          // no lineage: they address the run as a whole, and every reader
+          // keeps a lineage-less entry as evidence of its run.
+          const engineRecords = committed.filter((entry) => entry.eventType.startsWith("flows.engine."))
           return {
             attempts,
-            lineages: [...new Set(committed.map((entry) => (entry.meta as { lineageId?: string }).lineageId))],
+            lineages: [...new Set(engineRecords.map((entry) => (entry.meta as { lineageId?: string }).lineageId))],
+            transitions: committed.filter((entry) => entry.eventType.startsWith("flows.consensus.")),
             anchored: committed.filter((entry) => entry.eventType === "flows.engine.snapshot-identified").length
           }
         }))
 
       // The engine minted one lineage for the run and stamped it on every record.
       expect(result.lineages).toEqual([ledgerLineage])
+      expect(result.transitions.map((entry) => entry.eventType).slice(0, 2)).toEqual([
+        "flows.consensus.claimed",
+        "flows.consensus.activated"
+      ])
+      expect(result.transitions.every((entry) => entry.meta === null)).toBe(true)
       // Four dispatches, and the fold saw them: the body's own step, then the
       // three actions its implementation runs before the deferred parks it.
       expect(result.attempts).toBe(4)

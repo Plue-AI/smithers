@@ -9,6 +9,7 @@ import { Journal } from "../../src/Journal.ts"
 import { Input, type RunId, type Seq, type SourceId, type SourceSeq } from "../../src/JournalEvent.ts"
 import * as Migrations from "../../src/Migrations.ts"
 import * as SqlJournal from "../../src/SqlJournal.ts"
+import * as Leases from "./leases.ts"
 
 const [filename, operation] = process.argv.slice(2)
 if (filename === undefined || (operation !== "append" && operation !== "compact")) {
@@ -66,11 +67,7 @@ await Effect.runPromise(Effect.scoped(
     yield* Effect.addFinalizer(() => Effect.sync(() => writeFileSync(`${filename}.finalized`, "scope closed")))
     const journal = yield* Journal
     const sql = yield* SqlClient.SqlClient
-    yield* sql`CREATE TABLE flows_runs (
-    run_id TEXT PRIMARY KEY, status TEXT NOT NULL,
-    owner_host_id TEXT, owner_pid INTEGER, owner_nonce TEXT
-  )`
-    yield* sql`INSERT INTO flows_runs VALUES (${runId}, 'running', ${owner.hostId}, ${owner.pid}, ${owner.nonce})`
+    yield* Leases.hold(sql, runId, owner)
     yield* journal.emitDurableUnfenced(input(0))
     yield* journal.emitDurableUnfenced(input(1))
     if (operation === "append") {

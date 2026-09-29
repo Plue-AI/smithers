@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { DatabaseError, DurableWriter } from "@smthrs/database/DurableWriter"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Journal, JournalEvent, SqlJournal } from "@smthrs/journal"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
@@ -585,7 +586,10 @@ for (const adapter of ["sqlite", "memory"] as const) {
                   return yield* writer.write(effect.pipe(Effect.andThen(Effect.fail(storageFailure))))
                 })
             }
-            const store = yield* RunStore.make.pipe(Effect.provideService(DurableWriter, failingWriter))
+            const store = yield* RunStore.make.pipe(
+              Effect.provide(SqlConsensus.layer),
+              Effect.provideService(DurableWriter, failingWriter)
+            )
             const state = adapter === "sqlite"
               ? yield* DurableEngineState.make.pipe(Effect.provideService(DurableWriter, failingWriter))
               : DurableEngineState.makeMemory()

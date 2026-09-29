@@ -94,7 +94,7 @@ Once a run's committed entry count reaches `entryThreshold`, the journal asks
 a checkpoint at that sequence, and compacts below it.
 
 The policy is the journal's own post-commit maintenance rather than a caller's
-entrypoint, so it holds no fence and needs no `flows_runs` row. It only ever
+entrypoint, so it holds no fence and needs no lease. It only ever
 truncates below a tail the run's own commits produced, and a retry after a
 reclaim compacts the same committed prefix the live owner sees.
 

@@ -488,7 +488,7 @@ const claimRun = (
   runs: RunStore.Service,
   options: Options,
   nowMs: number
-): Effect.Effect<ClaimedRun, TimeTravelFailure> =>
+): Effect.Effect<ClaimedRun, TimeTravelFailure, Journal.Journal> =>
   Effect.gen(function*() {
     const row = yield* runs.get(options.runId).pipe(
       Effect.mapError((cause) => RunRow.failure("read run", cause))
@@ -500,7 +500,7 @@ const claimRun = (
     if (row.owner !== null || row.claim !== null) {
       return yield* Effect.fail(error("busy", `run ${options.runId} is not available for rewind`))
     }
-    const claimedAtMs = yield* Lease.claimAndActivate(runs, {
+    const claimedAtMs = yield* Lease.unjournaled(Lease.claimAndActivate(runs, {
       runId: options.runId,
       expected: RunRow.snapshotOf(row),
       claimant: options.owner,
@@ -511,7 +511,7 @@ const claimRun = (
           ? error("not_found", `run ${options.runId} was not found`)
           : error("busy", `run ${options.runId} lost the rewind claim`),
       lost: error("busy", `run ${options.runId} lost the rewind activation`)
-    })
+    }))
     return { row: rewindableRow, claimedAtMs }
   })
 
@@ -963,12 +963,12 @@ const finish = (
     // From here, losing the heartbeat is expected: this transition
     // intentionally releases the ownership the supervisor watches.
     yield* lease.releasing
-    const suspended = yield* runs.transitionOwned(
+    const suspended = yield* Lease.unjournaled(runs.transitionOwned(
       options.runId,
       options.owner,
       "suspended",
       frameState ?? claimed.row.stateJson
-    ).pipe(
+    )).pipe(
       Effect.mapError((cause) => RunRow.failure("suspend rewound run", cause))
     )
     if (suspended._tag !== "Transitioned") {
@@ -1109,21 +1109,23 @@ const settleFailure = (
           restorationProblems.push(`restore child ${childRunId} returned ${restoredChild.value._tag}`)
         }
       }
-      const restored = yield* runs.transitionOwned(
+      const restored = yield* Lease.unjournaled(runs.transitionOwned(
         options.runId,
         options.owner,
         // Pending is not a transition target; suspended clears the rewind
         // owner while preserving the run's resumable state.
         claimed.row.status === "pending" ? "suspended" : claimed.row.status,
         claimed.row.stateJson
-      ).pipe(
+      )).pipe(
         Effect.mapError((cause) => RunRow.failure("restore run state", cause)),
         Effect.exit
       )
       if (Exit.isFailure(restored)) {
         restorationProblems.push(fromCause(restored.cause).message)
         if (progress.detail === undefined) {
-          yield* Effect.ignore(runs.abandonClaim(options.runId, options.owner, claimed.claimedAtMs))
+          yield* Effect.ignore(
+            Lease.unjournaled(runs.abandonClaim(options.runId, options.owner, claimed.claimedAtMs))
+          )
         }
       } else if (restored.value._tag !== "Transitioned") {
         restorationProblems.push(`restore run state returned ${restored.value._tag}`)

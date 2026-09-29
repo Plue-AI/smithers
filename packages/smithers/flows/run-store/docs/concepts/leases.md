@@ -129,8 +129,8 @@ cross a trust boundary.
 
 Beyond `heartbeatSkewAllowance` of clock offset between two hosts, a peer can
 be admitted while the previous owner is still running. Durable writes stay safe
-regardless, because they are fenced by the ownership compare-and-swap and the
-displaced owner's writes fail rather than corrupt. Non-durable external side
+regardless, because they are fenced by the consensus strategy's commit-time
+guard and the displaced owner's writes fail rather than corrupt. Non-durable external side
 effects, such as an HTTP call or a spawned process, can genuinely overlap.
 
 That is inherent to any wall-clock lease. A caller that cannot tolerate any
