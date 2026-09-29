@@ -23,6 +23,7 @@ import * as NodeOs from "node:os"
 import * as NodePathModule from "node:path"
 import * as ChildProcessEnvironment from "../src/ChildProcessEnvironment.ts"
 import * as ChildProcessSpawner from "../src/ChildProcessSpawner.ts"
+import * as CommandLine from "../src/CommandLine.ts"
 import * as GrantStore from "../src/GrantStore.ts"
 import * as Workspace from "../src/Workspace.ts"
 
@@ -241,7 +242,7 @@ describe("proc:spawn grant identity", () => {
         const bare = yield* onDisk([allow("git status")], linked)
         expect(refused(bare)).toBe(true)
         expect(bare.spawned).toBe(0)
-        const named = yield* onDisk([allow(`cwd ${realOther} -- git status`)], linked)
+        const named = yield* onDisk([allow(`cwd ${CommandLine.quote(realOther)} -- git status`)], linked)
         expect(named.exit._tag).toBe("Success")
         // The same directory reached through its real path (/private/... on
         // macOS) is still inside the workspace.
