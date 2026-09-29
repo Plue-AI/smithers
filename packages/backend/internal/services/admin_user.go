@@ -19,6 +19,7 @@ type AdminUserQuerier interface {
 	CountUsers(ctx context.Context) (int64, error)
 	CreateUser(ctx context.Context, arg db.CreateUserParams) (db.User, error)
 	GetUserByLowerUsername(ctx context.Context, lowerUsername string) (db.User, error)
+	AdminGetUserForSuspension(ctx context.Context, lowerUsername string) (db.User, error)
 	SuspendUser(ctx context.Context, id int64) error
 	SetUserAdmin(ctx context.Context, arg db.SetUserAdminParams) error
 	SetUserSuspended(ctx context.Context, arg db.SetUserSuspendedParams) (db.User, error)
@@ -328,7 +329,7 @@ func (s *AdminUserService) SetSuspended(ctx context.Context, username string, su
 		return UserProfile{}, pkgerrors.BadRequest("username is required")
 	}
 
-	user, err := s.queries.GetUserByLowerUsername(ctx, strings.ToLower(username))
+	user, err := s.queries.AdminGetUserForSuspension(ctx, strings.ToLower(username))
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
 			return UserProfile{}, pkgerrors.NotFound("user not found")
@@ -341,6 +342,9 @@ func (s *AdminUserService) SetSuspended(ctx context.Context, username string, su
 		Suspended: suspended,
 	})
 	if err != nil {
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			return UserProfile{}, pkgerrors.NotFound("user not found")
+		}
 		return UserProfile{}, pkgerrors.Internal("failed to update suspension status").WithCause(err)
 	}
 

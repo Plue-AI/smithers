@@ -133,10 +133,11 @@ WHERE id = $1;
 -- Toggles login suspension without permanently deleting the user.
 -- When suspended=true: prohibit_login=true, is_active=false.
 -- When suspended=false: prohibit_login=false, is_active=true.
--- deleted_at is intentionally not modified so this is reversible.
+-- deleted_at is intentionally not modified so this is reversible for live users.
 UPDATE users
 SET prohibit_login = sqlc.arg(suspended),
     is_active      = NOT sqlc.arg(suspended)::boolean,
     updated_at     = NOW()
 WHERE id = sqlc.arg(user_id)
+  AND deleted_at IS NULL
 RETURNING *;

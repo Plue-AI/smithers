@@ -537,6 +537,7 @@ SET prohibit_login = $1,
     is_active      = NOT $1::boolean,
     updated_at     = NOW()
 WHERE id = $2
+  AND deleted_at IS NULL
 RETURNING id, username, lower_username, email, lower_email, display_name, bio, search_vector, avatar_url, wallet_address, user_type, is_active, is_admin, prohibit_login, email_notifications_enabled, last_login_at, deleted_at, created_at, updated_at, is_synthetic
 `
 
@@ -548,7 +549,7 @@ type SetUserSuspendedParams struct {
 // Toggles login suspension without permanently deleting the user.
 // When suspended=true: prohibit_login=true, is_active=false.
 // When suspended=false: prohibit_login=false, is_active=true.
-// deleted_at is intentionally not modified so this is reversible.
+// deleted_at is intentionally not modified so this is reversible for live users.
 func (q *Queries) SetUserSuspended(ctx context.Context, arg SetUserSuspendedParams) (User, error) {
 	row := q.db.QueryRow(ctx, setUserSuspended, arg.Suspended, arg.UserID)
 	var i User

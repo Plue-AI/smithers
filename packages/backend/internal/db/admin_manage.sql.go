@@ -309,6 +309,40 @@ func (q *Queries) AdminGetUserForErasure(ctx context.Context, lowerUsername stri
 	return i, err
 }
 
+const adminGetUserForSuspension = `-- name: AdminGetUserForSuspension :one
+SELECT id, username, lower_username, email, lower_email, display_name, bio, search_vector, avatar_url, wallet_address, user_type, is_active, is_admin, prohibit_login, email_notifications_enabled, last_login_at, deleted_at, created_at, updated_at, is_synthetic FROM users
+WHERE lower_username = $1
+AND deleted_at IS NULL
+`
+
+func (q *Queries) AdminGetUserForSuspension(ctx context.Context, lowerUsername string) (User, error) {
+	row := q.db.QueryRow(ctx, adminGetUserForSuspension, lowerUsername)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.LowerUsername,
+		&i.Email,
+		&i.LowerEmail,
+		&i.DisplayName,
+		&i.Bio,
+		&i.SearchVector,
+		&i.AvatarUrl,
+		&i.WalletAddress,
+		&i.UserType,
+		&i.IsActive,
+		&i.IsAdmin,
+		&i.ProhibitLogin,
+		&i.EmailNotificationsEnabled,
+		&i.LastLoginAt,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsSynthetic,
+	)
+	return i, err
+}
+
 const adminListAgentSessions = `-- name: AdminListAgentSessions :many
 
 SELECT s.id, s.repository_id, s.user_id, s.workflow_run_id, s.title, s.status, s.metadata, s.workspace_id, s.started_at, s.finished_at, s.created_at, s.updated_at, s.deleted_at, u.username AS username,

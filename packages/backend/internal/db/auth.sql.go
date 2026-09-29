@@ -1140,18 +1140,18 @@ WITH unset_primary AS (
         updated_at = NOW()
 	    WHERE ea.user_id = $1
 	      AND ea.is_primary = TRUE
-	      AND ea.lower_email <> $4
-	      AND $2::boolean = TRUE
+	      AND ea.lower_email <> $2
+	      AND $3::boolean = TRUE
 	    RETURNING ea.id
 ),
 upserted AS (
     INSERT INTO email_addresses (user_id, email, lower_email, is_activated, is_primary)
     SELECT
         $1,
-        $3,
         $4,
+        $2,
         $5,
-        $2::boolean
+        $3::boolean
     FROM (SELECT 1) AS force_cte
     LEFT JOIN unset_primary ON TRUE
     ON CONFLICT (user_id, lower_email)
@@ -1167,9 +1167,9 @@ SELECT id, user_id, email, lower_email, is_activated, is_primary, created_at, up
 
 type UpsertEmailAddressParams struct {
 	UserID      int64  `json:"user_id"`
+	LowerEmail  string `json:"lower_email"`
 	IsPrimary   bool   `json:"is_primary"`
 	Email       string `json:"email"`
-	LowerEmail  string `json:"lower_email"`
 	IsActivated bool   `json:"is_activated"`
 }
 
@@ -1187,9 +1187,9 @@ type UpsertEmailAddressRow struct {
 func (q *Queries) UpsertEmailAddress(ctx context.Context, arg UpsertEmailAddressParams) (UpsertEmailAddressRow, error) {
 	row := q.db.QueryRow(ctx, upsertEmailAddress,
 		arg.UserID,
+		arg.LowerEmail,
 		arg.IsPrimary,
 		arg.Email,
-		arg.LowerEmail,
 		arg.IsActivated,
 	)
 	var i UpsertEmailAddressRow

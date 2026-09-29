@@ -83,7 +83,7 @@ func TestAdminUser_Cov_SetSuspendedAndRevokeTokenErrorBranches(t *testing.T) {
 	ctx := context.Background()
 
 	svc := NewAdminUserService(&mockAdminUserQuerier{
-		getUserByLowerUsernameFn: func(context.Context, string) (db.User, error) {
+		adminGetUserForSuspensionFn: func(context.Context, string) (db.User, error) {
 			return db.User{}, stdErrors.New("lookup failed")
 		},
 	})

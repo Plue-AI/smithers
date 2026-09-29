@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ type mockAdminUserQuerier struct {
 	countUsersFn                   func(ctx context.Context) (int64, error)
 	createUserFn                   func(ctx context.Context, arg db.CreateUserParams) (db.User, error)
 	getUserByLowerUsernameFn       func(ctx context.Context, lowerUsername string) (db.User, error)
+	adminGetUserForSuspensionFn    func(ctx context.Context, lowerUsername string) (db.User, error)
 	suspendUserFn                  func(ctx context.Context, id int64) error
 	setUserAdminFn                 func(ctx context.Context, arg db.SetUserAdminParams) error
 	setUserSuspendedFn             func(ctx context.Context, arg db.SetUserSuspendedParams) (db.User, error)
@@ -54,6 +56,13 @@ func (m *mockAdminUserQuerier) CreateUser(ctx context.Context, arg db.CreateUser
 func (m *mockAdminUserQuerier) GetUserByLowerUsername(ctx context.Context, lowerUsername string) (db.User, error) {
 	if m.getUserByLowerUsernameFn != nil {
 		return m.getUserByLowerUsernameFn(ctx, lowerUsername)
+	}
+	return db.User{}, nil
+}
+
+func (m *mockAdminUserQuerier) AdminGetUserForSuspension(ctx context.Context, lowerUsername string) (db.User, error) {
+	if m.adminGetUserForSuspensionFn != nil {
+		return m.adminGetUserForSuspensionFn(ctx, lowerUsername)
 	}
 	return db.User{}, nil
 }
@@ -661,7 +670,7 @@ func TestAdminUserService_SetSuspended(t *testing.T) {
 		updated.IsActive = false
 
 		q := &mockAdminUserQuerier{
-			getUserByLowerUsernameFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
+			adminGetUserForSuspensionFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
 				return target, nil
 			},
 			setUserSuspendedFn: func(ctx context.Context, arg db.SetUserSuspendedParams) (db.User, error) {
@@ -695,7 +704,7 @@ func TestAdminUserService_SetSuspended(t *testing.T) {
 		restored.IsActive = true
 
 		q := &mockAdminUserQuerier{
-			getUserByLowerUsernameFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
+			adminGetUserForSuspensionFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
 				return target, nil
 			},
 			setUserSuspendedFn: func(ctx context.Context, arg db.SetUserSuspendedParams) (db.User, error) {
@@ -717,7 +726,7 @@ func TestAdminUserService_SetSuspended(t *testing.T) {
 		t.Parallel()
 
 		q := &mockAdminUserQuerier{
-			getUserByLowerUsernameFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
+			adminGetUserForSuspensionFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
 				return db.User{}, pgx.ErrNoRows
 			},
 		}
@@ -744,7 +753,7 @@ func TestAdminUserService_SetSuspended(t *testing.T) {
 		t.Parallel()
 
 		q := &mockAdminUserQuerier{
-			getUserByLowerUsernameFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
+			adminGetUserForSuspensionFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
 				return makeDBUser(5, "charlie", false), nil
 			},
 			setUserSuspendedFn: func(ctx context.Context, arg db.SetUserSuspendedParams) (db.User, error) {
@@ -757,12 +766,27 @@ func TestAdminUserService_SetSuspended(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to update suspension status")
 	})
 
+	t.Run("returns not found if user is deleted after lookup", func(t *testing.T) {
+		t.Parallel()
+
+		q := &mockAdminUserQuerier{
+			adminGetUserForSuspensionFn: func(context.Context, string) (db.User, error) {
+				return makeDBUser(7, "removed", false), nil
+			},
+			setUserSuspendedFn: func(context.Context, db.SetUserSuspendedParams) (db.User, error) {
+				return db.User{}, pgx.ErrNoRows
+			},
+		}
+		_, err := NewAdminUserService(q).SetSuspended(ctx, "removed", false)
+		require.Equal(t, http.StatusNotFound, apiStatus(t, err))
+	})
+
 	t.Run("no audit event when auditor not configured", func(t *testing.T) {
 		t.Parallel()
 
 		target := makeDBUser(6, "dave", false)
 		q := &mockAdminUserQuerier{
-			getUserByLowerUsernameFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
+			adminGetUserForSuspensionFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
 				return target, nil
 			},
 			setUserSuspendedFn: func(ctx context.Context, arg db.SetUserSuspendedParams) (db.User, error) {

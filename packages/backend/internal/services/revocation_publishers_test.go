@@ -183,7 +183,8 @@ func TestAdminUserService_TokenPublishesAndSuspensionUsesDatabaseTrigger(t *test
 	publisher := &recordingPublisher{}
 	target := db.User{ID: 5, Username: "alice", LowerUsername: "alice"}
 	q := &mockAdminUserQuerier{
-		getUserByLowerUsernameFn: func(context.Context, string) (db.User, error) { return target, nil },
+		getUserByLowerUsernameFn:    func(context.Context, string) (db.User, error) { return target, nil },
+		adminGetUserForSuspensionFn: func(context.Context, string) (db.User, error) { return target, nil },
 		setUserSuspendedFn: func(_ context.Context, arg db.SetUserSuspendedParams) (db.User, error) {
 			target.IsActive = !arg.Suspended
 			return target, nil

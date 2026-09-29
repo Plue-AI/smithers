@@ -54,6 +54,12 @@ RETURNING *;
 SELECT * FROM users WHERE lower_username = sqlc.arg(lower_username);
 
 
+-- name: AdminGetUserForSuspension :one
+SELECT * FROM users
+WHERE lower_username = sqlc.arg(lower_username)
+AND deleted_at IS NULL;
+
+
 -- name: AdminFindErasedUser :one
 -- The newest tombstone for a username whose account existed before the
 -- deletion request, so a retry never resolves to a later holder of the name.
