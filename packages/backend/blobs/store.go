@@ -9,6 +9,16 @@ import (
 )
 
 type Store = blob.Store
+
+// FilesystemConfig configures the durable local blob store.
+type FilesystemConfig = blob.FilesystemConfig
+type FilesystemStore = blob.FilesystemStore
+
+// NewFilesystemStore opens a durable filesystem-backed blob store.
+func NewFilesystemStore(cfg FilesystemConfig) (*FilesystemStore, error) {
+	return blob.NewFilesystemStore(cfg)
+}
+
 type ObjectAttrs = blob.ObjectAttrs
 type SignedUpload = blob.SignedUpload
 type CreateOnlyUploadSigner = blob.CreateOnlyUploadSigner
