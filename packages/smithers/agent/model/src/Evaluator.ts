@@ -123,19 +123,19 @@ const criteriaKeyCount = Schema.makeFilter(
       ? undefined
       : `A choice question offers between 2 and 255 options, not ${count}`
   },
-  { identifier: "choiceCriteria" }
+  { identifier: "choiceCriteria", representation: { id: "flows/model/choiceCriteria", payload: null } }
 )
 
 const rungCount = Schema.makeFilter(
   (rungs: ReadonlyArray<string>) =>
     rungs.length >= 2 ? undefined : `A score question orders at least 2 rungs, not ${rungs.length}`,
-  { identifier: "scoreRungCount" }
+  { identifier: "scoreRungCount", representation: { id: "flows/model/scoreRungCount", payload: null } }
 )
 
 const distinctRungs = Schema.makeFilter(
   (rungs: ReadonlyArray<string>) =>
     new Set(rungs).size === rungs.length ? undefined : "A score question's rungs are distinct",
-  { identifier: "scoreRungsDistinct" }
+  { identifier: "scoreRungsDistinct", representation: { id: "flows/model/scoreRungsDistinct", payload: null } }
 )
 
 /**

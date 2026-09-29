@@ -21,7 +21,6 @@ import { Action } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Judgement from "@smthrs/harness/Judgement"
 import * as Classifier from "@smthrs/model/Classifier"
-import * as Evaluator from "@smthrs/model/Evaluator"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -405,11 +404,7 @@ export const DecisionSchema = Schema.Struct({
   asked: Schema.NullOr(Schema.Struct({
     classifier: Schema.String,
     digest: Schema.String,
-    /**
-     * The questions in their wire form: a question's own schema has checks
-     * the engine cannot key a durable step on.
-     */
-    questions: Schema.Record(Schema.String, Schema.Json),
+    questions: AgentEvent.DecisionSettled.fields.questions,
     state: Schema.Json,
     answers: AgentEvent.DecisionSettled.fields.answers,
     usage: AgentEvent.DecisionSettled.fields.usage
@@ -496,7 +491,7 @@ export const route = (input: Input): Effect.Effect<Decision, Seat.SeatUnrouted, 
         `None of ${[planned.seat, ...backupsOf(planned.seat, answers.phase)].join(", ")} is available here`
       )
     }
-    const { latencyMs, questions, ...rest } = reading.asked
+    const { latencyMs, ...asked } = reading.asked
     return {
       ...routed,
       variant: read.system === undefined ? variants.length === 1 ? variants[0]!.id : null : choice("system"),
@@ -504,7 +499,7 @@ export const route = (input: Input): Effect.Effect<Decision, Seat.SeatUnrouted, 
       answers,
       latencyMs,
       candidates,
-      asked: { ...rest, questions: Evaluator.encodeQuestions(questions) as Readonly<Record<string, Schema.Json>> }
+      asked
     }
   })
 
@@ -529,9 +524,6 @@ export const durable = (
     idempotencyKey: `seat/route:${key.executionId}:${key.purpose}`,
     execute: route(input)
   })
-
-// The wire form was encoded from these questions by `route`.
-const decodeQuestions = Schema.decodeUnknownSync(AgentEvent.DecisionSettled.fields.questions)
 
 /**
  * The rows that journal a decision: `seat-routed`, with the route's backups
@@ -561,7 +553,7 @@ export const events = (
       ...(decision.panel === undefined ? {} : { panel: decision.panel })
     }),
     Judgement.decision(
-      { ...decision.asked, questions: decodeQuestions(decision.asked.questions), latencyMs: decision.latencyMs },
+      { ...decision.asked, latencyMs: decision.latencyMs },
       { scope: at.scope, frame: 0, acted: true }
     )
   ]

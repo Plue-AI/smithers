@@ -600,6 +600,50 @@ describe("SeatRouter.durable", () => {
     expect(first).toMatchObject({ seat: "sonnet", variant: "investigate", decidedBy: "jev" })
   })
 
+  it("replays a decision with ChoiceQuestion values through the real engine", async () => {
+    const Durable = Schema.Struct({ route: SeatRouter.DecisionSchema, settled: AgentEvent.DecisionSettled })
+    const Full = Action.make("agent/test/FullRoute", {
+      payload: {},
+      success: Durable,
+      error: Seat.SeatUnrouted
+    })
+    const FullFlow = Flow.make("agent/test/FullRouting", {
+      payload: {},
+      success: Durable,
+      error: Seat.SeatUnrouted,
+      body: () => Full.call({})
+    })
+    const requests: Array<Evaluator.Request> = []
+    const host = ManagedRuntime.make(
+      Interpreter.layer(FullFlow).pipe(
+        Layer.provideMerge(Full.toLayer(() =>
+          SeatRouter.durable(input, { executionId: "full-route", purpose: "root" }).pipe(
+            Effect.map((route) => ({
+              route,
+              settled: SeatRouter.events(route, { scope: "s", modelId: "m" })[1] as AgentEvent.DecisionSettled
+            }))
+          )
+        )),
+        Layer.provideMerge(Layer.mergeAll(catalog(everySeat), answering(requests))),
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(FlowEngine.layerMemory),
+        Layer.provideMerge(NodeCrypto.layer)
+      )
+    )
+    try {
+      const execute = FullFlow.execute({}, { executionId: "full-route" })
+      const first = await host.runPromise(execute)
+      const replayed = await host.runPromise(execute)
+      expect(requests).toHaveLength(1)
+      expect(first.route.asked?.questions.phase).toBeInstanceOf(Evaluator.ChoiceQuestion)
+      expect(first.settled.questions.phase).toBeInstanceOf(Evaluator.ChoiceQuestion)
+      expect(replayed).toEqual(first)
+      expect(replayed.settled.questions.phase).toBeInstanceOf(Evaluator.ChoiceQuestion)
+    } finally {
+      await host.dispose()
+    }
+  })
+
   it("re-asks once when the process dies before Jev's answer is recorded", async () => {
     const directory = mkdtempSync(join(tmpdir(), "seat-router-"))
     let calls = 0
