@@ -3,7 +3,6 @@ package email
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,14 +22,12 @@ func TestRateLimitedTransport_DelegatesAvailability(t *testing.T) {
 	t.Parallel()
 
 	disabled := NewRateLimitedTransport(&DisabledTransport{}, RateLimitConfig{
-		MaxPerSecond:           10,
-		MaxPerRecipientPerHour: 20,
+		MaxPerSecond: 10,
 	})
 	assert.False(t, DeliveryConfigured(disabled))
 
 	available := NewRateLimitedTransport(&NoopTransport{}, RateLimitConfig{
-		MaxPerSecond:           10,
-		MaxPerRecipientPerHour: 20,
+		MaxPerSecond: 10,
 	})
 	assert.True(t, DeliveryConfigured(available))
 }
@@ -60,11 +57,12 @@ func TestRateLimitedTransport_GlobalRateLimit(t *testing.T) {
 }
 
 func TestRateLimitedTransport_PerRecipientRateLimit(t *testing.T) {
-	t.Parallel()
+	pool, _ := recipientLimitPools(t)
 
 	inner := &NoopTransport{}
 	wrapped := NewRateLimitedTransport(inner, RateLimitConfig{
 		MaxPerRecipientPerHour: 2,
+		RecipientPool:          pool,
 	})
 
 	msgAlice := Message{
@@ -92,45 +90,34 @@ func TestRateLimitedTransport_PerRecipientRateLimit(t *testing.T) {
 	require.NoError(t, wrapped.Send(context.Background(), msgBob))
 }
 
+func TestRateLimitedTransport_SharedBudget(t *testing.T) {
+	firstPool, secondPool := recipientLimitPools(t)
+	firstInner := &NoopTransport{}
+	secondInner := &NoopTransport{}
+	first := NewRateLimitedTransport(firstInner, RateLimitConfig{MaxPerRecipientPerHour: 1, RecipientPool: firstPool})
+	second := NewRateLimitedTransport(secondInner, RateLimitConfig{MaxPerRecipientPerHour: 1, RecipientPool: secondPool})
+	msg := Message{To: []string{"shared@example.com"}}
+	require.NoError(t, first.Send(context.Background(), msg))
+	require.ErrorContains(t, second.Send(context.Background(), msg), "per-recipient rate limit exceeded")
+	require.Len(t, firstInner.Sent, 1)
+	require.Empty(t, secondInner.Sent)
+}
+
 func TestRateLimitedTransport_PrunesExpiredRecipientWindows(t *testing.T) {
-	t.Parallel()
-
-	inner := &NoopTransport{}
-	tr := NewRateLimitedTransport(inner, RateLimitConfig{
-		MaxPerRecipientPerHour: 10,
-	}).(*RateLimitedTransport)
-
-	expiredMsg := Message{
-		To:      []string{"expired@example.com"},
-		Subject: "Test",
-		Text:    "Hello",
-	}
-	freshMsg := Message{
-		To:      []string{"fresh@example.com"},
-		Subject: "Test",
-		Text:    "Hello",
-	}
-
-	require.NoError(t, tr.Send(context.Background(), expiredMsg))
-
-	tr.mu.Lock()
-	w := tr.recipientCounts["expired@example.com"]
-	require.NotNil(t, w)
-	w.resetAt = time.Now().Add(-time.Minute)
-	tr.mu.Unlock()
-
-	require.NoError(t, tr.Send(context.Background(), freshMsg))
-
-	tr.mu.Lock()
-	_, expiredExists := tr.recipientCounts["expired@example.com"]
-	fresh := tr.recipientCounts["fresh@example.com"]
-	count := len(tr.recipientCounts)
-	tr.mu.Unlock()
-
-	assert.False(t, expiredExists)
-	require.NotNil(t, fresh)
-	assert.Equal(t, 1, fresh.count)
-	assert.Equal(t, 1, count)
+	pool, _ := recipientLimitPools(t)
+	tr := NewRateLimitedTransport(&NoopTransport{}, RateLimitConfig{
+		MaxPerRecipientPerHour: 10, RecipientPool: pool,
+	})
+	require.NoError(t, tr.Send(context.Background(), Message{To: []string{"expired@example.com"}}))
+	_, err := pool.Exec(context.Background(),
+		"UPDATE email_recipient_rate_limits SET reset_at = NOW() - INTERVAL '1 minute' WHERE recipient = 'expired@example.com'")
+	require.NoError(t, err)
+	require.NoError(t, tr.Send(context.Background(), Message{To: []string{"fresh@example.com"}}))
+	var expiredRows int
+	require.NoError(t, pool.QueryRow(context.Background(),
+		"SELECT count(*) FROM email_recipient_rate_limits WHERE recipient = 'expired@example.com'").Scan(&expiredRows))
+	assert.Zero(t, expiredRows)
+	assert.EqualValues(t, 1, recipientCount(t, pool, "fresh@example.com"))
 }
 
 func TestRateLimitedTransport_DelegatesToInner(t *testing.T) {

@@ -39,37 +39,25 @@ func TestRatelimit_Cover_GlobalRefillAfterWindow(t *testing.T) {
 	require.Len(t, inner.Sent, 2)
 }
 
-// TestRatelimit_Cover_PerRecipientExpiredWindowRecreated exercises the
-// per-recipient expired-window path: when resetAt has passed, the old window is
-// pruned and the send succeeds with a fresh window instead of being rejected.
+// TestRatelimit_Cover_PerRecipientExpiredWindowRecreated verifies that an
+// expired database window starts a fresh count even across transport instances.
 func TestRatelimit_Cover_PerRecipientExpiredWindowRecreated(t *testing.T) {
-	t.Parallel()
-
+	firstPool, secondPool := recipientLimitPools(t)
 	inner := &NoopTransport{}
-	tr := NewRateLimitedTransport(inner, RateLimitConfig{MaxPerRecipientPerHour: 1}).(*RateLimitedTransport)
+	tr := NewRateLimitedTransport(inner, RateLimitConfig{MaxPerRecipientPerHour: 1, RecipientPool: firstPool})
+	other := NewRateLimitedTransport(inner, RateLimitConfig{MaxPerRecipientPerHour: 1, RecipientPool: secondPool})
 
 	msg := Message{To: []string{"user@example.com"}, Subject: "s", Text: "t"}
 
-	// First send creates the recipient window with count 1.
 	require.NoError(t, tr.Send(context.Background(), msg))
-
-	// A second send in the same window would exceed the limit.
-	err := tr.Send(context.Background(), msg)
+	err := other.Send(context.Background(), msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "per-recipient rate limit exceeded")
 
-	// Expire the window so it is pruned and recreated on the next send.
-	tr.mu.Lock()
-	w := tr.recipientCounts["user@example.com"]
-	require.NotNil(t, w)
-	w.resetAt = time.Now().Add(-time.Minute)
-	tr.mu.Unlock()
-
-	require.NoError(t, tr.Send(context.Background(), msg))
-
-	// The window was recreated, so count is back to 1.
-	tr.mu.Lock()
-	got := tr.recipientCounts["user@example.com"].count
-	tr.mu.Unlock()
-	assert.Equal(t, 1, got)
+	_, err = firstPool.Exec(context.Background(),
+		"UPDATE email_recipient_rate_limits SET reset_at = $1 WHERE recipient = $2",
+		time.Now().Add(-time.Minute), "user@example.com")
+	require.NoError(t, err)
+	require.NoError(t, other.Send(context.Background(), msg))
+	assert.EqualValues(t, 1, recipientCount(t, firstPool, "user@example.com"))
 }

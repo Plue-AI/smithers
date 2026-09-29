@@ -424,6 +424,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	emailTransport = email.NewRateLimitedTransport(emailTransport, email.RateLimitConfig{
 		MaxPerSecond:           cfg.Email.RateLimitPerSecond,
 		MaxPerRecipientPerHour: cfg.Email.RateLimitPerRecipientPerHr,
+		RecipientPool:          pool,
 	})
 	emailFrom := cfg.Email.From
 	if emailFrom == "" {
