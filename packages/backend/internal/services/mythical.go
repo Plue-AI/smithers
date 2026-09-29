@@ -188,10 +188,11 @@ type mythicalOp struct {
 
 // mythicalAdoption is a merged item's verified candidate.
 type mythicalAdoption struct {
-	ItemID string `json:"itemId"`
-	Issue  int64  `json:"issue,omitempty"`
-	Base   string `json:"base"`
-	Head   string `json:"head"`
+	ItemID  string           `json:"itemId"`
+	Issue   int64            `json:"issue,omitempty"`
+	Base    string           `json:"base"`
+	Head    string           `json:"head"`
+	Drivers []mythicalDriver `json:"drivers,omitempty"`
 }
 
 // mythicalOutcome is what one run records.
@@ -654,7 +655,7 @@ func (s *MythicalService) compute(ctx context.Context, r *mythicalRun, op *mythi
 			}
 			if adoption, ok := op.Adopt[id]; ok {
 				adopted, ok, err := r.g.adopt(ctx, parent, mythicalCandidate{ItemID: adoption.ItemID, Issue: adoption.Issue,
-					Base: adoption.Base, Head: adoption.Head}, mythicalChainLimit)
+					Base: adoption.Base, Head: adoption.Head, Drivers: adoption.Drivers}, mythicalChainLimit)
 				if err != nil {
 					return fmt.Errorf("adopt %s: %w", short(adoption.Head), err)
 				}
@@ -926,7 +927,7 @@ func (s *MythicalService) adoptions(ctx context.Context, r *mythicalRun, op *myt
 			op.Adopt = map[string]mythicalAdoption{}
 		}
 		op.Adopt[item.PRMergeCommit] = mythicalAdoption{ItemID: uuidString(item.ID), Issue: item.IssueNumber.Int64,
-			Base: item.CandidateBase, Head: item.CandidateHead}
+			Base: item.CandidateBase, Head: item.CandidateHead, Drivers: mythicalDrivers(item.Checks)}
 		if !r.g.has(ctx, item.CandidateHead) {
 			refs = append(refs, repohost.MythicalReservedRefNS+"keep/"+item.CandidateHead)
 		}

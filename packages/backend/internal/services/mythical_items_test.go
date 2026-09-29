@@ -413,10 +413,15 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	o.git(o.work, "commit", "-q", "-m", "📝 docs: add docs (#101)")
 	merged := o.publish()
 	o.github.merge(item.PRNumber.Int64, merged)
+	// A person took the item's run over for a while: the adopted change's note names them.
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks = COALESCE(checks, '{}'::jsonb) || '{"drivers":[{"by":"will","run":"run_7","from":"2026-09-28T14:02:00Z","to":"2026-09-28T14:09:00Z","messages":3}]}'::jsonb WHERE id = $1`, item.ID)
+	require.NoError(t, err)
 	stack = o.wake()
 	require.Equal(t, "active", stack.State, stack.LastError)
 	assert.Equal(t, merged, stack.LandedMain)
 	assert.Equal(t, "landed", o.item(7).State)
+	assert.Contains(t, o.git(o.hostDir, "cat-file", "-p", stack.NotesCommit+":"+stack.TipCommit),
+		"drivers:\n  - by: \"will\"\n    run: \"run_7\"\n    from: \"2026-09-28T14:02:00Z\"\n    to: \"2026-09-28T14:09:00Z\"\n    messages: 3\n")
 	assert.Equal(t, o.hostTree(merged), o.hostTree(stack.TipCommit))
 	// The fold adopted the item's own change instead of a flat copy.
 	changes, err := db.New(o.pool).ListRecentMythicalChanges(ctx, o.repoID, 1)

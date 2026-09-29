@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -282,6 +283,36 @@ type mythicalStackCommit struct {
 	Predecessor string // the lane change id an adopted change replaces
 	ItemID      string
 	Issue       int64
+	Drivers     []mythicalDriver // people who took over the item's run
+}
+
+// mythicalDriver is one take-over of an item's run: who drove it, which run,
+// when, and how many messages they sent. The note lists them under drivers:.
+type mythicalDriver struct {
+	By       string `json:"by"`
+	Run      string `json:"run,omitempty"`
+	From     string `json:"from"`
+	To       string `json:"to,omitempty"`
+	Messages int    `json:"messages,omitempty"`
+}
+
+// mythicalDrivers reads the take-overs an item's checks recorded under
+// "drivers"; checks without them, or unreadable ones, have none.
+func mythicalDrivers(checks []byte) []mythicalDriver {
+	var recorded struct {
+		Drivers []mythicalDriver `json:"drivers"`
+	}
+	if json.Unmarshal(checks, &recorded) != nil {
+		return nil
+	}
+	// A driver names a person; one without a name records no one.
+	var named []mythicalDriver
+	for _, driver := range recorded.Drivers {
+		if driver.By != "" {
+			named = append(named, driver)
+		}
+	}
+	return named
 }
 
 // mythicalCommitter is the committer every service-written commit carries.
@@ -364,10 +395,11 @@ func (g mythicalGit) bootstrap(ctx context.Context, main string, depth int) ([]m
 // mythicalCandidate is a lane's validated chain: base is the stack commit it
 // started from, head its cleaned tip.
 type mythicalCandidate struct {
-	ItemID string
-	Issue  int64
-	Base   string
-	Head   string
+	ItemID  string
+	Issue   int64
+	Base    string
+	Head    string
+	Drivers []mythicalDriver
 }
 
 // candidateShape reads a candidate's chain back to where it leaves base's
@@ -487,7 +519,7 @@ func (g mythicalGit) adopt(ctx context.Context, tip string, candidate mythicalCa
 		return nil, false, err
 	}
 	for i := range written {
-		written[i].ItemID, written[i].Issue = candidate.ItemID, candidate.Issue
+		written[i].ItemID, written[i].Issue, written[i].Drivers = candidate.ItemID, candidate.Issue, candidate.Drivers
 	}
 	return written, true, nil
 }
@@ -533,6 +565,22 @@ func mythicalNote(commit mythicalStackCommit) string {
 	}
 	if commit.FoldedFrom != "" {
 		note.WriteString("folded: " + commit.FoldedFrom + "\n")
+	}
+	if len(commit.Drivers) > 0 {
+		note.WriteString("drivers:\n")
+		for _, driver := range commit.Drivers {
+			note.WriteString("  - by: " + strconv.Quote(driver.By) + "\n")
+			if driver.Run != "" {
+				note.WriteString("    run: " + strconv.Quote(driver.Run) + "\n")
+			}
+			note.WriteString("    from: " + strconv.Quote(driver.From) + "\n")
+			if driver.To != "" {
+				note.WriteString("    to: " + strconv.Quote(driver.To) + "\n")
+			}
+			if driver.Messages > 0 {
+				note.WriteString("    messages: " + strconv.Itoa(driver.Messages) + "\n")
+			}
+		}
 	}
 	note.WriteString("---\n\n")
 	if commit.FoldedFrom != "" {

@@ -315,3 +315,15 @@ func TestMythicalNotesAndIdsAreDeterministic(t *testing.T) {
 	assert.NotEqual(t, mythicalChangeIDFor("fold", "a", "b"), mythicalChangeIDFor("fold", "a", "c"))
 	assert.Regexp(t, mythicalChangeID, mythicalChangeIDFor("anything"))
 }
+
+func TestMythicalNoteRecordsDriversFromItemChecks(t *testing.T) {
+	drivers := mythicalDrivers([]byte(`{"route":"bug","drivers":[{"by":"will","run":"run_8f3","from":"2026-09-28T14:02:00Z","to":"2026-09-28T14:09:00Z","messages":3}]}`))
+	require.Len(t, drivers, 1)
+	commit := mythicalStackCommit{ChangeID: mythicalChangeIDFor("x"), Kind: "item", ItemID: "i", Drivers: drivers}
+	note := mythicalNote(commit)
+	assert.Contains(t, note, "drivers:\n  - by: \"will\"\n    run: \"run_8f3\"\n    from: \"2026-09-28T14:02:00Z\"\n    to: \"2026-09-28T14:09:00Z\"\n    messages: 3\n---\n")
+	assert.NotContains(t, mythicalNote(mythicalStackCommit{ChangeID: mythicalChangeIDFor("x"), Kind: "item"}), "drivers:")
+	assert.Nil(t, mythicalDrivers([]byte(`{}`)))
+	assert.Nil(t, mythicalDrivers([]byte(`{"drivers":[{"by":"","from":"x"}]}`)))
+	assert.Nil(t, mythicalDrivers([]byte(`not json`)))
+}
