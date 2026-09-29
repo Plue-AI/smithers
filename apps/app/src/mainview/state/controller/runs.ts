@@ -33,6 +33,7 @@ import { sameApproval } from "../ApprovalReference"
 import { refuseOrPickBox } from "./boxChoice"
 import { gatewayBindingFor,gatewayRunContextFor,recordedRunBinding,type GatewayBinding } from "../RepoContext"
 import { approvalCardIdFor,cardContainsRun,runCardIdFor,runCardInScope,runScopeFromCard,sameRunScope,type BoxRunScope,type RunScope } from "../RunReference"
+import { runtimeRunKey } from "../RuntimeProjection"
 import { reconcileRunApprovals } from "./approval-reconciliation"
 import type { ControllerContext } from "./context"
 import { TOAST_SUPERSEDED } from "./failures"
@@ -400,6 +401,16 @@ export const createRunsController = (
         checkSource()
         await store.dispatch({ type: "gateway.run.observed", actor: "system", observation: { scope: target, summary: summary.value, summaryCursor: summary.cursor } }).isPersisted.promise
         if (!current()) return TOAST_SUPERSEDED
+        /*
+         * A summary read keeps a quiet or stopped watch as it was (#1999), but
+         * a person opening the run asks for it to be watched again: re-arm it
+         * the way Retry does, so the pump below re-reads its history.
+         */
+        const observer = store.collections.runtimeRuns.get(runtimeRunKey(target))?.observer
+        if (observer?.state === "quiet" || observer?.state === "stopped") {
+          await store.dispatch({ type: "gateway.run.observer.changed", actor: "system", scope: target, observer: { state: "connected", action: "retry" } }).isPersisted.promise
+          if (!current()) return TOAST_SUPERSEDED
+        }
         checkSource()
         await workflows.upsertRunCard({ ...target, cardId: request.cardId, requireExisting: request.requireExisting, workflow: summary.value.flowId,
           title: `${summary.value.flowId} — ${request.repo}`, firstStep: `Watching ${summary.value.flowId} (run ${request.runId}).`, observe: true })
