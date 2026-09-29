@@ -31,10 +31,10 @@ func TestMythicalSeatAliasesMatchProviders(t *testing.T) {
 		defaults[m[1]] = m[2]
 	}
 	want := map[string]string{}
-	for _, m := range regexp.MustCompile(`(?m)^\s*([a-z0-9]+):\s*(?:"([^"]+)"|defaultSeat\.([a-z0-9]+))`).FindAllStringSubmatch(block("seatAliases"), -1) {
+	for _, m := range regexp.MustCompile(`(?m)^\s*([a-z0-9]+):\s*(?:"([^"]+)"|defaultSeat(?:\.([a-z0-9]+)|\["([a-z0-9-]+)"\]))`).FindAllStringSubmatch(block("seatAliases"), -1) {
 		seat := m[2]
 		if seat == "" {
-			seat = defaults[m[3]]
+			seat = defaults[m[3]+m[4]]
 		}
 		_, model, ok := strings.Cut(seat, ":")
 		require.True(t, ok, "alias %s names provider:model", m[1])

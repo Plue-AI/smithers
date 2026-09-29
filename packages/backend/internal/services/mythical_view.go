@@ -248,12 +248,14 @@ func providerAccountLabel(use db.WorkspaceProviderUse) string {
 // model each seat alias names, answered as its alias. Keep them in step;
 // TestMythicalSeatAliasesMatchProviders reads Providers.ts.
 var mythicalSeatAliases = map[string]string{
-	"gpt-6-sol":        "sol",
-	"gpt-6-astra":      "astra",
-	"gpt-6-luna":       "luna",
-	"claude-opus-5-5":  "opus",
-	"claude-fable-5-1": "fable",
-	"qwen-3.8-27b":     "qwen",
+	"gpt-6-sol":         "sol",
+	"gpt-6-astra":       "astra",
+	"gpt-6-luna":        "luna",
+	"claude-opus-5-5":   "opus",
+	"claude-sonnet-5-5": "sonnet",
+	"claude-fable-5-1":  "fable",
+	"kimi-k3":           "kimi",
+	"qwen-3.8-27b":      "qwen",
 }
 
 // mythicalSeat answers a model call's seat: its alias, else the model id.
