@@ -48,7 +48,7 @@ const seatOver = <A>(
       const replay = yield* RecordedModel.scripted(...calls)
       const seat = yield* ModelAuthor.make(config).pipe(Effect.provide(modelLayerOf(replay)))
       return yield* use(seat)
-    }) as Effect.Effect<A, never, never>
+    })
   )
 
 const seatFailure = (
@@ -167,7 +167,7 @@ describe("ModelAuthor", () => {
           Effect.provide(Layer.succeed(Model.Model)(failing))
         )
         return yield* Effect.flip(seat.author({ context: ["x"], prefix: "" }))
-      }) as Effect.Effect<Author.AuthorError, never, never>
+      })
     )
     expect(error.code).toBe("author_unavailable")
     expect(error.cause).toBe("rate_limited")
@@ -187,7 +187,7 @@ describe("ModelAuthor", () => {
           Effect.provide(Layer.succeed(Model.Model)(failing))
         )
         return yield* Effect.flip(seat.author({ context: ["x"], prefix: "" }))
-      }) as Effect.Effect<Author.AuthorError, never, never>
+      })
     )
     expect(error.cause).toBe("PermissionRequired")
     expect(error.message).toBe("PermissionRequired: grant needed")
@@ -203,7 +203,7 @@ describe("ModelAuthor", () => {
           Effect.provide(Layer.succeed(Model.Model)(failing))
         )
         return yield* Effect.flip(seat.author({ context: ["x"], prefix: "" }))
-      }) as Effect.Effect<Author.AuthorError, never, never>
+      })
     )
     expect(error.cause).toBe("unknown")
     expect(error.message).toBe("wire fell over")
@@ -219,7 +219,7 @@ describe("ModelAuthor", () => {
           Effect.provide(Layer.succeed(Model.Model)(failing))
         )
         return yield* Effect.flip(seat.author({ context: ["x"], prefix: "" }))
-      }) as Effect.Effect<Author.AuthorError, never, never>
+      })
     )
     expect(error.cause).toBe("unknown")
   })
@@ -266,15 +266,7 @@ describe("ModelAuthor", () => {
         )
         const remaining = yield* replay.controller.unconsumed()
         return { ...run, unconsumed: remaining }
-      }) as Effect.Effect<
-        {
-          events: ReadonlyArray<{ _tag: string }>
-          outcome: unknown
-          unconsumed: ReadonlyArray<unknown>
-        },
-        never,
-        never
-      >
+      })
     )
     expect(outcome).toEqual({ _tag: "Done", value: { patched: true } })
     expect(grep.count()).toBe(1)

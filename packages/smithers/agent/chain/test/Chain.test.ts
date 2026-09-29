@@ -14,7 +14,7 @@ import * as QuickJsRunner from "../src/QuickJsRunner.ts"
 import * as ScriptRunner from "../src/ScriptRunner.ts"
 import * as Steering from "../src/Steering.ts"
 import * as SubChains from "../src/SubChains.ts"
-import { countingEntry, failChain, failingEntry, flow, runChain } from "./harness.ts"
+import { countingEntry, failChain, failingEntry, flow, runChain, runOn } from "./harness.ts"
 
 const grepResult = { files: ["a.ts", "b.ts", "c.ts", "d.ts"] }
 
@@ -697,11 +697,7 @@ describe("Chain journal ownership", () => {
         }),
       name: "edit"
     }
-    const error = await Effect.runPromise(
-      Effect.flip(Chain.run({ goal: "race" })).pipe(
-        Effect.provide(sharedLayers([intruder], journal))
-      ) as unknown as Effect.Effect<{ _tag: string; code: string }, never, never>
-    )
+    const error = await runOn(sharedLayers([intruder], journal), Effect.flip(Chain.run({ goal: "race" })))
     expect(error._tag).toBe("/chain/JournalError")
     expect(error.code).toBe("journal_conflict")
   })
@@ -774,10 +770,9 @@ describe("Chain journal cost", () => {
     const grep = countingEntry("grep", grepResult)
     const edit = countingEntry("edit", { ok: true })
     const journal = countingJournal()
-    const outcome = await Effect.runPromise(
-      Chain.run({ goal: "count" }).pipe(
-        Effect.provide(layersOver(journal.layer, Author.layerMock([l1, l2]), Catalog.layer([grep.entry, edit.entry])))
-      ) as Effect.Effect<Outcome.RunResult, never, never>
+    const outcome = await runOn(
+      layersOver(journal.layer, Author.layerMock([l1, l2]), Catalog.layer([grep.entry, edit.entry])),
+      Chain.run({ goal: "count" })
     )
     expect(outcome).toEqual({ _tag: "Done", value: { patched: true } })
     expect(journal.stored.map((event) => event._tag)).toEqual(goldenTags)
@@ -795,10 +790,9 @@ describe("Chain journal cost", () => {
     )
     const journal = countingJournal()
     const catalog = Layer.effect(Catalog.Catalog)(SubChains.make({ entries: [] }))
-    const outcome = await Effect.runPromise(
-      Chain.run({ goal: "spawn" }).pipe(
-        Effect.provide(layersOver(journal.layer, Author.layerMock([spawn, flow(`return done("child done")`)]), catalog))
-      ) as Effect.Effect<Outcome.RunResult, never, never>
+    const outcome = await runOn(
+      layersOver(journal.layer, Author.layerMock([spawn, flow(`return done("child done")`)]), catalog),
+      Chain.run({ goal: "spawn" })
     )
     expect(outcome).toEqual({ _tag: "Done", value: { _tag: "Done", value: "child done" } })
     expect(journal.reads()).toBe(3)
@@ -843,10 +837,9 @@ describe("Chain journal cost", () => {
         }),
       read: Effect.sync(() => stored.slice())
     }))
-    const error = await Effect.runPromise(
-      Effect.flip(Chain.run({ goal: "stuck" })).pipe(
-        Effect.provide(layersOver(journal, Author.layerMock([doneScript]), Catalog.layer([])))
-      ) as unknown as Effect.Effect<Journal.JournalError, never, never>
+    const error = await runOn(
+      layersOver(journal, Author.layerMock([doneScript]), Catalog.layer([])),
+      Effect.flip(Chain.run({ goal: "stuck" }))
     )
     expect(error._tag).toBe("/chain/JournalError")
     expect(error.code).toBe("journal_conflict")
@@ -865,10 +858,9 @@ describe("Chain journal cost", () => {
         }),
       read: Effect.sync(() => stored.slice())
     }))
-    const error = await Effect.runPromise(
-      Effect.flip(Chain.run({ goal: "gone" })).pipe(
-        Effect.provide(layersOver(journal, Author.layerMock([doneScript]), Catalog.layer([])))
-      ) as unknown as Effect.Effect<Journal.JournalError, never, never>
+    const error = await runOn(
+      layersOver(journal, Author.layerMock([doneScript]), Catalog.layer([])),
+      Effect.flip(Chain.run({ goal: "gone" }))
     )
     expect(error.code).toBe("journal_unavailable")
     expect(error.message).toBe("disk gone")

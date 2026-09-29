@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect"
+import { Effect, Layer, type Scope } from "effect"
 import type * as Author from "../src/Author.ts"
 import type * as Authorize from "../src/Authorize.ts"
 import * as Catalog from "../src/Catalog.ts"
@@ -68,24 +68,30 @@ const chainOptions = (options: RunOptions): Chain.Options => ({
   maxCallsPerLink: options.maxCallsPerLink
 })
 
+/**
+ * Runs one body against a layer. The body may need only what the layer
+ * provides, so a service nobody provides fails tsc instead of at run time.
+ */
+export const runOn = <ROut, LE, A, E>(
+  layer: Layer.Layer<ROut, LE>,
+  body: Effect.Effect<A, E, NoInfer<ROut> | Scope.Scope>
+): Promise<A> => Effect.runPromise(Effect.scoped(Effect.provide(body, layer)))
+
 /** Runs a chain over an in-memory journal and returns outcome plus journal. */
 export const runChain = (options: RunOptions): Promise<RunResult> =>
-  Effect.runPromise(
+  runOn(
+    layersOf(options),
     Effect.gen(function*() {
       const outcome = yield* Chain.run(chainOptions(options))
       const journal = yield* Journal.Journal
       const events = yield* journal.read
       return { events, outcome }
-    }).pipe(Effect.provide(layersOf(options))) as Effect.Effect<RunResult, never, never>
+    })
   )
 
 /** Runs a chain expected to fail, returning its typed error. */
 export const failChain = (options: RunOptions): Promise<unknown> =>
-  Effect.runPromise(
-    Effect.flip(Chain.run(chainOptions(options))).pipe(
-      Effect.provide(layersOf(options))
-    ) as Effect.Effect<unknown, never, never>
-  )
+  runOn(layersOf(options), Effect.flip(Chain.run(chainOptions(options))))
 
 /** A catalog entry that counts its executions — the "zero effects" probe. */
 export const countingEntry = (

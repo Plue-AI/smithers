@@ -12,7 +12,7 @@ import * as QuickJsRunner from "../src/QuickJsRunner.ts"
 import * as ScriptRunner from "../src/ScriptRunner.ts"
 import * as Steering from "../src/Steering.ts"
 import * as SubChains from "../src/SubChains.ts"
-import { countingEntry, flow, runChain } from "./harness.ts"
+import { countingEntry, flow, runChain, runOn } from "./harness.ts"
 
 const runners = [
   ["in-process", ScriptRunner.layerInProcess],
@@ -207,11 +207,7 @@ describe("SubChains", () => {
       ScriptRunner.layerInProcess
     )
     await expect(
-      Effect.runPromise(
-        SubChains.make({ entries: [countingEntry("agent", null).entry] }).pipe(
-          Effect.provide(layers)
-        ) as Effect.Effect<unknown, never, never>
-      )
+      runOn(layers, SubChains.make({ entries: [countingEntry("agent", null).entry] }))
     ).rejects.toThrow("shadow reserved catalog names: agent")
   })
 

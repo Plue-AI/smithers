@@ -7,20 +7,14 @@ import { describe, expect, it } from "vitest"
 import * as Author from "../src/Author.ts"
 import type * as Catalog from "../src/Catalog.ts"
 import * as MemoryEntries from "../src/MemoryEntries.ts"
-import { flow, runChain } from "./harness.ts"
+import { flow, runChain, runOn } from "./harness.ts"
 
 const services = Layer.provideMerge(RecallKeyword.layer, TestMemory.layerWithDatabase)
 
 const policy = { banks: ["worldview", "b"], maxTokens: 1000, retain: "on-complete" } as const
 
 const entriesOf = (): Promise<ReadonlyArray<Catalog.Entry>> =>
-  Effect.runPromise(
-    MemoryEntries.make(policy).pipe(Effect.provide(services)) as Effect.Effect<
-      ReadonlyArray<Catalog.Entry>,
-      never,
-      never
-    >
-  )
+  runOn(services, MemoryEntries.make(policy))
 
 const call = (entry: Catalog.Entry, payload: unknown): Promise<unknown> =>
   Effect.runPromise(entry.handler(payload) as Effect.Effect<unknown, never, never>)
@@ -37,7 +31,8 @@ describe("MemoryEntries", () => {
   })
 
   it("remembers into the real store and recalls it back", async () => {
-    const entries = await Effect.runPromise(
+    const entries = await runOn(
+      services,
       Effect.gen(function*() {
         const built = yield* MemoryEntries.make(policy)
         const remember = built[0] as Catalog.Entry
@@ -54,11 +49,7 @@ describe("MemoryEntries", () => {
         })
         const found = yield* recall.handler({ banks: ["worldview"], query: "chain harness" })
         return { found, written }
-      }).pipe(Effect.provide(services)) as Effect.Effect<
-        { found: unknown; written: unknown },
-        never,
-        never
-      >
+      })
     )
     expect(entries.written).toEqual({ key: "release-plan" })
     const found = entries.found as Array<{ readonly bank: string; readonly key: string; readonly text: string }>
@@ -98,7 +89,7 @@ describe("MemoryEntries", () => {
             )
           )
         )
-      ) as Effect.Effect<ReadonlyArray<Catalog.Entry>, never, never>
+      )
     )
     const remember = failing[0] as Catalog.Entry
     const error = await callError(remember, { bank: "b", key: "k", text: "t" })
@@ -176,7 +167,7 @@ describe("MemoryEntries", () => {
             )
           )
         )
-      ) as Effect.Effect<ReadonlyArray<Catalog.Entry>, never, never>
+      )
     )
     const remember = codeless[0] as Catalog.Entry
     const error = await callError(remember, { bank: "b", key: "k", text: "t" })
@@ -202,7 +193,7 @@ describe("MemoryEntries", () => {
             )
           )
         )
-      ) as Effect.Effect<ReadonlyArray<Catalog.Entry>, never, never>
+      )
     )
     const nonStringCode = await callError(oddFailures[0] as Catalog.Entry, { bank: "b", key: "k", text: "t" })
     expect(nonStringCode.cause).toBe("unknown")
@@ -232,7 +223,7 @@ describe("MemoryEntries", () => {
             )
           )
         )
-      ) as Effect.Effect<ReadonlyArray<Catalog.Entry>, never, never>
+      )
     )
     const recall = broken[1] as Catalog.Entry
     const error = await callError(recall, { banks: ["b"], query: "q" })
@@ -259,13 +250,14 @@ describe("MemoryEntries", () => {
       `const found = await ctx.call("recall", { banks: ["worldview"], query: "registry" })`,
       `return done(found)`
     )
-    const { entries, outcome } = await Effect.runPromise(
+    const { entries, outcome } = await runOn(
+      services,
       Effect.gen(function*() {
         const built = yield* MemoryEntries.make(policy)
         const run = yield* Effect.promise(() => runChain({ author: Author.layerMock([script]), entries: built }))
         return { entries: built, ...run }
-      }).pipe(Effect.provide(services)) as Effect.Effect<never, never, never> as never
-    ) as { entries: ReadonlyArray<Catalog.Entry>; outcome: unknown }
+      })
+    )
     expect(entries).toHaveLength(2)
     expect(JSON.stringify(outcome)).toContain("the registry mounts flows")
   })
@@ -290,7 +282,7 @@ describe("MemoryEntries", () => {
         const store = yield* MemoryStore.MemoryStore
         const facts = yield* store.listAllFacts
         return facts.find((row) => row.key === "traced")
-      }).pipe(Effect.provide(services)) as Effect.Effect<MemoryStore.Fact | undefined, never, never>
+      }).pipe(Effect.provide(services))
     )
     expect(fact?.provenance).toEqual({ iteration: 3, nodeId: "link-2", runId: "chain-1" })
   })
@@ -299,11 +291,7 @@ describe("MemoryEntries", () => {
     const error = await Effect.runPromise(
       Effect.flip(MemoryEntries.make({ ...policy, banks: [] })).pipe(
         Effect.provide(services)
-      ) as unknown as Effect.Effect<
-        { readonly code: string },
-        never,
-        never
-      >
+      )
     )
     expect(error.code).toBe("invalid_argument")
   })

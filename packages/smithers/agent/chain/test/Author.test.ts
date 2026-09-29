@@ -1,9 +1,9 @@
-import { Effect } from "effect"
+import { Context, Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Author from "../src/Author.ts"
 import * as QuickJsRunner from "../src/QuickJsRunner.ts"
 import * as ScriptRunner from "../src/ScriptRunner.ts"
-import { flow, runChain } from "./harness.ts"
+import { flow, runChain, runOn } from "./harness.ts"
 
 const jsonContext: ReadonlyArray<unknown> = [
   { toString: null },
@@ -25,30 +25,22 @@ const normalizedContext = [
 ]
 
 const authorWith = (layer: ReturnType<typeof Author.layerMock>, input: Author.Input) =>
-  Effect.runPromise(
-    Effect.flatMap(Author.Author, (author) => author.author(input)).pipe(
-      Effect.provide(layer)
-    ) as Effect.Effect<string, never, never>
-  )
+  runOn(layer, Effect.flatMap(Author.Author, (author) => author.author(input)))
 
 const input: Author.Input = { context: ["goal"], prefix: "" }
 
 describe("Author", () => {
   it("pops mocked outputs in order and then exhausts", async () => {
     const layer = Author.layerMock(["one", "two"])
-    const program = Effect.gen(function*() {
-      const author = yield* Author.Author
-      const first = yield* author.author(input)
-      const second = yield* author.author(input)
-      const error = yield* Effect.flip(author.author(input))
-      return { error, first, second }
-    }).pipe(Effect.provide(layer))
-    const { error, first, second } = await Effect.runPromise(
-      program as Effect.Effect<
-        { error: Author.AuthorError; first: string; second: string },
-        never,
-        never
-      >
+    const { error, first, second } = await runOn(
+      layer,
+      Effect.gen(function*() {
+        const author = yield* Author.Author
+        const first = yield* author.author(input)
+        const second = yield* author.author(input)
+        const error = yield* Effect.flip(author.author(input))
+        return { error, first, second }
+      })
     )
     expect(first).toBe("one")
     expect(second).toBe("two")
@@ -70,10 +62,9 @@ describe("Author", () => {
   it("accepts noop overrides and provides the noop layer", async () => {
     const overridden = Author.makeNoop({ author: () => Effect.succeed("canned") })
     expect(await Effect.runPromise(overridden.author(input))).toBe("canned")
-    const error = await Effect.runPromise(
-      Effect.flip(Effect.flatMap(Author.Author, (author) => author.author(input))).pipe(
-        Effect.provide(Author.layerNoop())
-      ) as Effect.Effect<Author.AuthorError, never, never>
+    const error = await runOn(
+      Author.layerNoop(),
+      Effect.flip(Effect.flatMap(Author.Author, (author) => author.author(input)))
     )
     expect(error.code).toBe("author_unavailable")
   })
@@ -132,5 +123,22 @@ describe("Author", () => {
     expect(Author.contextOf({ context: [circular] })).toEqual(["[unprintable context]"])
     expect(Author.contextOf({ context: [{ toString: null, toJSON: () => undefined }] }))
       .toEqual(["[unprintable context]"])
+  })
+})
+
+/** A service no chain test layer provides. */
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()("test/chain/Author/Unprovided") {}
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error the author layer does not provide Unprovided
+  runOn(Author.layerMock([]), Effect.map(Unprovided, (service) => service.value))
+  runOn(Author.layerMock([]), Effect.map(Author.Author, (author) => author))
+}
+
+describe("regression: Remaining provide-then-cast test helpers erase layer requirements (follow-up to #2347)", () => {
+  it("rejects a body that needs a service its layer does not provide", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
   })
 })

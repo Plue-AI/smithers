@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import type * as Outcome from "../src/Outcome.ts"
 import * as Script from "../src/Script.ts"
 import * as ScriptRunner from "../src/ScriptRunner.ts"
+import { runOn } from "./harness.ts"
 
 const echo = (request: ScriptRunner.Request): Effect.Effect<unknown> =>
   Effect.succeed({ name: request.name, payload: request.payload })
@@ -28,7 +29,8 @@ describe("ScriptRunner", () => {
       calls.push(request.name)
       return request.name === "boom" ? Effect.fail("handler down") : echo(request)
     }
-    const error = await Effect.runPromise(
+    const error = await runOn(
+      ScriptRunner.layerInProcess,
       Effect.flip(
         Effect.flatMap(
           ScriptRunner.ScriptRunner,
@@ -44,8 +46,8 @@ describe("ScriptRunner", () => {
               ),
               handler
             )
-        ).pipe(Effect.provide(ScriptRunner.layerInProcess))
-      ) as Effect.Effect<unknown, never, never>
+        )
+      )
     )
     expect(error).toBe("handler down")
     expect(calls).toEqual(["boom"])

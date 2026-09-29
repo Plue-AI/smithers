@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import * as Catalog from "../src/Catalog.ts"
+import { runOn } from "./harness.ts"
 
 const entry: Catalog.Entry = {
   description: "search the tree",
@@ -92,18 +93,13 @@ describe("Catalog", () => {
   })
 
   it("provides layers", async () => {
-    const fromLayer = await Effect.runPromise(
-      Effect.map(Catalog.Catalog, (catalog) => catalog.lookup("grep")).pipe(
-        Effect.provide(Catalog.layer([entry]))
-      ) as Effect.Effect<Catalog.Entry | undefined, never, never>
+    const fromLayer = await runOn(
+      Catalog.layer([entry]),
+      Effect.map(Catalog.Catalog, (catalog) => catalog.lookup("grep"))
     )
     expect(fromLayer).toEqual(entry)
     expect(fromLayer?.handler).toBe(entry.handler)
-    const fromNoop = await Effect.runPromise(
-      Effect.map(Catalog.Catalog, (catalog) => catalog.entries).pipe(
-        Effect.provide(Catalog.layerNoop)
-      ) as Effect.Effect<ReadonlyArray<Catalog.Entry>, never, never>
-    )
+    const fromNoop = await runOn(Catalog.layerNoop, Effect.map(Catalog.Catalog, (catalog) => catalog.entries))
     expect(fromNoop).toEqual([])
   })
 

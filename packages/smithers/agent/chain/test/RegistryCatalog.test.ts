@@ -6,7 +6,7 @@ import * as Author from "../src/Author.ts"
 import * as Catalog from "../src/Catalog.ts"
 import type * as Event from "../src/Event.ts"
 import * as RegistryCatalog from "../src/RegistryCatalog.ts"
-import { flow, runChain } from "./harness.ts"
+import { flow, runChain, runOn } from "./harness.ts"
 
 const effects = {
   mode: "expected",
@@ -64,11 +64,7 @@ const catalogFrom = (
   options: RegistryCatalog.Options = {},
   overrides: Partial<Registry.Registry> = {}
 ): Promise<Catalog.Service> =>
-  Effect.runPromise(
-    RegistryCatalog.make(options).pipe(
-      Effect.provide(registryOf(descriptors, overrides))
-    ) as Effect.Effect<Catalog.Service, never, never>
-  )
+  runOn(registryOf(descriptors, overrides), RegistryCatalog.make(options))
 
 const echoImplementation: RegistryCatalog.Implementation = (payload) => Effect.succeed({ echoed: payload })
 
