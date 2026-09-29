@@ -10,6 +10,7 @@ import * as Fs from "node:fs"
 import * as Path from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { maxEventBytes, maxEventsPerPage, maxEventsPerRun, maxProjectionBytes } from "../src/Projections.ts"
 
 const packageRoot = Path.join(Path.dirname(fileURLToPath(import.meta.url)), "..")
 const read = (file: string): string => Fs.readFileSync(Path.join(packageRoot, file), "utf8")
@@ -61,6 +62,23 @@ describe("the package docs", () => {
     expect(overview).toMatch(
       /Projection\.Subscribe[^.]*`\/projections\/ws`|`\/projections\/ws`[^.]*Projection\.Subscribe/
     )
+  })
+
+  it("describes event retention and paged history without promising a full-history refusal", () => {
+    const section = read("docs/troubleshooting.md").split("### resource_limit\n")[1]?.split("\n### ")[0]
+      ?.replaceAll(/\s+/g, " ")
+    expect(section).toBeDefined()
+    expect(section).toContain(`at most ${maxEventsPerRun.toLocaleString("en-US")} events`)
+    expect(section).toContain(`and ${maxProjectionBytes / (1024 * 1024)} MiB of retained events`)
+    expect(section).toContain("carried digest")
+    expect(section).toContain(`at most ${maxEventsPerPage.toLocaleString("en-US")} events`)
+    expect(section).toContain("pass that cursor as `after`")
+    expect(section).toContain("`control.engine.event` payloads remain complete")
+    expect(section).toContain("`flows.engine.plan-recorded`")
+    expect(section).toContain("`flows.engine.subgraph-appended`")
+    expect(section).toContain(`events within ${maxEventBytes / 1024} KiB`)
+    expect(section).toContain(`projected row set exceeds ${maxProjectionBytes / (1024 * 1024)} MiB`)
+    expect(section).not.toContain("Every run-scoped selector reads the full journal")
   })
 
   it.each(docSources())("%s contains no em-dash", (file) => {

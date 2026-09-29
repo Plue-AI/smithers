@@ -183,24 +183,31 @@ reached the control plane and the gateway is reporting that correctly.
 
 **Symptom** A `resource_limit` `GatewayError` on a snapshot or a delta.
 
-**Cause: event history** One run's history exceeds 10,000 events or 4 MiB of
-encoded events. Every run-scoped selector reads the full journal before
-projecting rows, so a narrower selector cannot bypass these fixed ceilings.
+**Cause: retained state** A run projection keeps a window of at most 10,000
+events and 4 MiB of retained events plus digest identity state. Older events
+enter a carried digest. Large retained events are clipped to 16 KiB. The read
+fails if the digest's exact identity state cannot fit the 4 MiB budget.
 
-**Fix** Inspect larger histories through `Control.watch({ runId, follow: false,
-afterSequence })`, bounded with `Stream.take(n)`, or a bounded journal read.
-Resume from the last sequence read to inspect another batch. These reads expose
-events directly; they do not produce gateway projections.
+**Cause: oversized graph event** A native `flows.engine.plan-recorded` or
+`flows.engine.subgraph-appended` event exceeds 16 KiB. These events are refused
+instead of clipped, including on `run-events` pages, so graph topology stays
+intact.
 
-**Cause: projected rows** The encoded projected rows exceed 4 MiB after the
-history has passed its own limits.
+**Fix** Inspect raw history through `run-events` snapshots. Each page returns
+at most 1,000 events and 4 MiB, plus a cursor; pass that cursor as `after` until
+a page is empty. Other large events are clipped, while admitted native
+`control.engine.event` payloads remain complete. One event too large for a
+4 MiB page fails with `resource_limit`. Inspect an oversized graph event with
+a bounded `Control.watch` read and keep future graph events within 16 KiB.
+
+**Cause: projected rows** The encoded projected row set exceeds 4 MiB.
 
 **Fix** Narrow the selector to reduce the projected row set, for example
 `node-output` for one node or `run-summary`. This only helps if the selected
 rows fit within the row budget.
 
-A history or row overflow refuses the snapshot or delta; it does not return a
-partial answer.
+A `resource_limit` refusal returns no rows. A successful `run-events` page is a
+bounded part of the history; use its cursor to continue.
 
 ### run_unavailable with a cause that says almost nothing
 

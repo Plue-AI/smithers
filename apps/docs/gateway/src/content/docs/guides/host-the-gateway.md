@@ -114,7 +114,9 @@ import { Effect } from "effect"
 import { HttpServer } from "effect/unstable/http"
 
 const baseUrl = Effect.map(HttpServer.HttpServer, (server) => {
-  if (server.address._tag !== "TcpAddress") throw new Error("expected a TCP gateway")
+  if (server.address._tag !== "InetAddressV4" && server.address._tag !== "InetAddressV6") {
+    throw new Error("expected a TCP gateway")
+  }
   return `http://127.0.0.1:${server.address.port}`
 })
 ```

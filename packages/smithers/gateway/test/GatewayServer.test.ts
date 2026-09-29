@@ -36,8 +36,10 @@ import * as SyncServer from "@smthrs/sync/SyncServer"
 import { Deferred, Effect, Fiber, Layer, Logger, Schema, type Scope, Stream } from "effect"
 import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
+import { readFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { connect } from "node:net"
+import { compileFunction } from "node:vm"
 import { GatewayError, GatewayErrorCode, type GatewayErrorCode as GatewayErrorCodeValue } from "../src/GatewayError.ts"
 import { GatewayRpcs } from "../src/GatewayRpcs.ts"
 import * as GatewayServer from "../src/GatewayServer.ts"
@@ -759,6 +761,24 @@ describe("a binary serialization through ingress on the Node adapter", () => {
 })
 
 describe("the assembled gateway over a real loopback bind", () => {
+  for (const guide of ["host-the-gateway", "testing"] as const) {
+    test(`executes the ${guide} port-0 address snippet against a served gateway`, () =>
+      Effect.gen(function*() {
+        const source = readFileSync(new URL(`../docs/guides/${guide}.md`, import.meta.url), "utf8")
+        const snippet = source.match(
+          /const baseUrl = Effect\.map\(HttpServer\.HttpServer, \(server\) => \{[\s\S]*?\n\}\)/
+        )?.[0]
+        if (!snippet) throw new Error(`${guide} has no address snippet`)
+        const documentedBaseUrl = compileFunction(`${snippet}\nreturn baseUrl`, ["Effect", "HttpServer"])(
+          Effect,
+          HttpServer
+        ) as typeof baseUrl
+        const url = yield* documentedBaseUrl
+        const response = yield* Effect.promise(() => fetch(`${url}/health`))
+        expect(response.status).toBe(200)
+        expect(yield* Effect.promise(() => response.json() as Promise<unknown>)).toEqual(health)
+      }).pipe(Effect.provide(served())))
+  }
   test("blocks browser HTTP and WebSocket attacks before any RPC dispatch", () =>
     Effect.gen(function*() {
       const url = yield* baseUrl

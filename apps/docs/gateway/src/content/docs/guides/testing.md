@@ -94,7 +94,9 @@ import { HttpServer } from "effect/unstable/http"
 const served = NodeGateway.layer(health, { host: "127.0.0.1", port: 0 }).pipe(Layer.provideMerge(stack(filename)))
 
 const baseUrl = Effect.map(HttpServer.HttpServer, (server) => {
-  if (server.address._tag !== "TcpAddress") throw new Error("expected a TCP gateway")
+  if (server.address._tag !== "InetAddressV4" && server.address._tag !== "InetAddressV6") {
+    throw new Error("expected a TCP gateway")
+  }
   return `http://127.0.0.1:${server.address.port}`
 })
 ```
