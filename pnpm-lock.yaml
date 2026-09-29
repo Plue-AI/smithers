@@ -1912,6 +1912,19 @@ importers:
         version: 5.9.3
 
   evals/recommend:
+    dependencies:
+      '@smthrs/core':
+        specifier: workspace:*
+        version: link:../../packages/smithers/flows/core
+      '@smthrs/evals':
+        specifier: workspace:*
+        version: link:../../packages/smithers/agent/evals
+      '@smthrs/scorers':
+        specifier: workspace:*
+        version: link:../../packages/smithers/agent/scorers
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
     devDependencies:
       '@smthrs/targets':
         specifier: workspace:*
@@ -1931,12 +1944,21 @@ importers:
       '@smthrs/agent':
         specifier: workspace:*
         version: link:../../packages/smithers/agent
+      '@smthrs/core':
+        specifier: workspace:*
+        version: link:../../packages/smithers/flows/core
+      '@smthrs/evals':
+        specifier: workspace:*
+        version: link:../../packages/smithers/agent/evals
       '@smthrs/model':
         specifier: workspace:*
         version: link:../../packages/smithers/agent/model
       '@smthrs/review':
         specifier: workspace:*
         version: link:../../apps/review
+      '@smthrs/scorers':
+        specifier: workspace:*
+        version: link:../../packages/smithers/agent/scorers
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115

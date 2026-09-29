@@ -50,7 +50,7 @@ interface FixtureRun extends FixtureOutcome {
   findings: ReviewFinding[];
 }
 
-async function runFixture(label: PlantedBugLabel, layer: ReturnType<typeof layerMemory>): Promise<FixtureRun> {
+export async function runFixture(label: PlantedBugLabel, layer: ReturnType<typeof layerMemory>): Promise<FixtureRun> {
   const workRoot = mkdtempSync(join(tmpdir(), `review-seeded-${label.fixture}-`));
   try {
     const repoDir = materializeFixture(join(corpusDir, label.fixture), workRoot);

@@ -39,7 +39,7 @@ import {
   Runner,
   Suite
 } from "../../packages/smithers/agent/evals/src/index.ts"
-import * as AgentSuite from "./suite.ts"
+import * as AgentSuite from "./agent.eval.ts"
 
 const baselinePath = new URL("./baseline.json", import.meta.url)
 

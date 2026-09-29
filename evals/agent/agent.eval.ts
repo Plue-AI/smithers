@@ -22,7 +22,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Flow as CoreFlow } from "../../packages/smithers/flows/core/src/index.ts"
-import { CaseExecutor, EvalError, type Runner as EvalRunner, type Suite } from "../../packages/smithers/agent/evals/src/index.ts"
+import { CaseExecutor, EvalError, Suite, type Runner as EvalRunner } from "../../packages/smithers/agent/evals/src/index.ts"
 import { Binding, Runner as ScorerRunner, Scorer } from "../../packages/smithers/agent/scorers/src/index.ts"
 import * as Subject from "./subject.ts"
 
@@ -611,6 +611,10 @@ export const bindings: ReadonlyArray<Binding.Binding> = [
   Binding.make({ scorer: contract, appliesTo: target })
 ]
 
+/** Fixed-suite declaration for the public eval CLI. */
+export const suite = Suite.make({ name: "agent", concurrency: 1, cases, bindings })
+
+
 /**
  * The batch runner the evaluation runner scores through.
  *
@@ -697,3 +701,5 @@ export const executor: CaseExecutor.Service = CaseExecutor.make((suiteCase) =>
     )
   })
 )
+export default { suite, executor }
+

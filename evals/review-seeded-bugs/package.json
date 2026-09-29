@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@smthrs/agent": "workspace:*",
+    "@smthrs/evals": "workspace:*",
+    "@smthrs/scorers": "workspace:*",
+    "@smthrs/core": "workspace:*",
     "@smthrs/model": "workspace:*",
     "@smthrs/review": "workspace:*",
     "effect": "4.0.0-rc.115"

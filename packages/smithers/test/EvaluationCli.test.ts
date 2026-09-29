@@ -60,6 +60,14 @@ const result = async (score: number): Promise<Evaluation.RunArtifact> => {
 }
 
 describe("evaluation CLI", () => {
+  it("lists the repo\u0027s shipped fixed suites from its root", async () => {
+    const listed = await serve(process.cwd(), ["list"])
+    expect(listed.code, listed.output).toBe(0)
+    expect(listed.json.suites.map((entry: { name: string }) => entry.name)).toEqual([
+      "agent/agent", "recommend/recommend", "review-seeded-bugs/review-seeded-bugs"
+    ])
+  })
+
   it("discovers suite metadata without importing modules", async () => {
     const root = await fixture()
     await mkdir(join(root, "evals", "nested"), { recursive: true })

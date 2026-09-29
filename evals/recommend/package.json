@@ -9,6 +9,12 @@
     "test": "bun test score.test.ts run.test.ts",
     "test:suite": "bun run.ts"
   },
+  "dependencies": {
+    "@smthrs/evals": "workspace:*",
+    "@smthrs/scorers": "workspace:*",
+    "@smthrs/core": "workspace:*",
+    "effect": "4.0.0-rc.115"
+  },
   "devDependencies": {
     "@smthrs/targets": "workspace:*",
     "@types/node": "26.4.1",
