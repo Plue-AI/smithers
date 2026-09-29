@@ -14,6 +14,7 @@ import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core"
 import { flushSync, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Form from "@smthrs/ui/flow-form"
+import { Schema } from "effect"
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename, join } from "node:path"
@@ -25,6 +26,7 @@ import * as AppView from "./app-view.tsx"
 import { CompletionMenu, FlowFormView, PickerDialog, StatusLine } from "./app-view.tsx"
 import * as Approvals from "./approvals.ts"
 import * as Asks from "./asks.ts"
+import * as Budget from "./budget.ts"
 import * as Clipboard from "./clipboard.ts"
 import * as Composer from "./composer.ts"
 import * as Context from "./context.ts"
@@ -104,6 +106,8 @@ type Picker = Pickers.Picker
 type FlowForm = Dispatch.FlowForm
 /** A form's id prefix when it answers a worker's ask rather than filling a flow run. */
 const askForm = "ask:"
+/** A form's id prefix when it raises a capped worker's token cap. */
+const capForm = "cap:"
 
 export function App(props: AppProps) {
   const renderer = useRenderer()
@@ -381,12 +385,24 @@ export function App(props: AppProps) {
     setPanelFocus(false)
     changeForm({ id, flow: run.flow, fields, draft: Form.draftFrom(fields, run.input, "json"), focus: 0 })
   }, [runs, changeForm])
+  /**
+   * A person's form closed, answered or not: the list or tab it came from takes the keys back,
+   * unless the person went somewhere else.
+   */
+  const formReturn = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (form !== undefined || formReturn.current === undefined) return
+    const from = formReturn.current
+    formReturn.current = undefined
+    if (from === surface) setPanelFocus(true)
+  }, [form, surface, setPanelFocus])
   /** Opens the form for a worker's ask the person holds. */
   const openAsk = useCallback((tabId: string) => {
     const ask = workspace.asks.fromPerson(tabId)
     if (ask === undefined) return
     const fields = Form.formFieldsFor(Asks.schema(ask))
     const title = workspace.snapshot().tabs.find((tab) => tab.id === tabId)?.title ?? tabId
+    formReturn.current = panelFocus ? surface : undefined
     setPanelFocus(false)
     changeForm({
       id: `${askForm}${ask.id}`,
@@ -396,12 +412,48 @@ export function App(props: AppProps) {
       draft: Form.draftFrom(fields, ask.options === undefined ? {} : { answer: ask.options[0] }, "json"),
       focus: 0
     })
-  }, [workspace, changeForm])
+  }, [workspace, changeForm, panelFocus, surface])
+  /** What the cap form offers a worker stopped at its run cap, and its schema; undefined for any other worker. */
+  const capOffer = useCallback((tabId: string) => {
+    const tab = workspace.snapshot().tabs.find((each) => each.id === tabId)
+    const base = props.host.runCap
+    if (tab?.status !== "failed" || !Budget.capped(tab.failure) || base === undefined) return undefined
+    const labels = Budget.offers.map((times) => Budget.offer(base * times)) as [string, ...Array<string>]
+    return { tab, offers: Budget.offers, labels, schema: Schema.Struct({ cap: Schema.Literals(labels) }) }
+  }, [workspace, props.host])
+  /** Opens the cap form for a worker stopped by a token cap. */
+  const openCap = useCallback((tabId: string) => {
+    const offer = capOffer(tabId)
+    if (offer === undefined) return
+    const fields = Form.formFieldsFor(offer.schema)
+    formReturn.current = panelFocus ? surface : undefined
+    setPanelFocus(false)
+    changeForm({
+      id: `${capForm}${tabId}`,
+      flow: `● ${offer.tab.title} · ${offer.tab.failure!.line}`,
+      fields,
+      // Enter alone keeps at least the allowance the worker already had.
+      draft: Form.draftFrom(fields, {
+        cap: offer.labels[Math.max(0, offer.offers.findIndex((times) => times >= (offer.tab.caps?.times ?? 1)))]
+      }, "json"),
+      focus: 0
+    })
+  }, [capOffer, changeForm, panelFocus, surface])
+  /** `a` on a worker: its ask, else its cap. */
+  const answerWorker = useCallback((tabId: string) => {
+    if (workspace.asks.fromPerson(tabId) !== undefined) openAsk(tabId)
+    else openCap(tabId)
+  }, [workspace, openAsk, openCap])
   useEffect(() => {
     const open = liveForm.current
     if (open !== undefined) {
+      const capped = open.id.startsWith(capForm)
+        ? workspace.snapshot().tabs.find((tab) => tab.id === open.id.slice(capForm.length))
+        : undefined
       const live = open.id.startsWith(askForm)
         ? workspace.asks.get(open.id.slice(askForm.length))?.holder === Asks.person
+        : open.id.startsWith(capForm)
+        ? capped?.status === "failed" && Budget.capped(capped.failure)
         : runs.get(open.id)?.status === "input"
       // A pending tool approval takes the keys; the run stays parked and `a` in its tab reopens the form.
       if (!live || approvals.length > 0) changeForm(undefined)
@@ -1641,14 +1693,25 @@ export function App(props: AppProps) {
           // read arrive. Advancing only the ref leaves typing on the old field.
           change: (next) => flushSync(() => changeForm(next)),
           schema: (id) => {
+            if (id.startsWith(capForm)) return capOffer(id.slice(capForm.length))?.schema
             const ask = id.startsWith(askForm) ? workspace.asks.get(id.slice(askForm.length)) : undefined
             return ask === undefined ? runs.schema(id) : Asks.schema(ask)
           },
-          input: (id) => id.startsWith(askForm) ? {} : runs.get(id)?.input,
-          fill: (id, payload) =>
-            id.startsWith(askForm)
-              ? void workspace.asks.answer(id.slice(askForm.length), String(payload.answer))
-              : runs.fill(id, payload)
+          input: (id) => id.startsWith(askForm) || id.startsWith(capForm) ? {} : runs.get(id)?.input,
+          fill: (id, payload) => {
+            if (id.startsWith(askForm)) {
+              return void workspace.asks.answer(id.slice(askForm.length), String(payload.answer))
+            }
+            if (!id.startsWith(capForm)) return runs.fill(id, payload)
+            const offer = capOffer(id.slice(capForm.length))
+            const chosen = offer?.offers[offer.labels.indexOf(String(payload.cap))]
+            if (offer === undefined || chosen === undefined) return setStatus("No cap to raise", "warning")
+            try {
+              workspace.raiseCap(offer.tab.id, { times: chosen })
+            } catch (error) {
+              setStatus(error instanceof Error ? error.message : String(error), "warning")
+            }
+          }
         })
       }
       changeForm(undefined)
@@ -1773,7 +1836,7 @@ export function App(props: AppProps) {
         peek: () => setOverview((current) => ({ ...current, selected: overviewSelected, peek: current.peek !== true })),
         answer: () =>
           flushSync(() => {
-            if (overviewRow?.ask !== undefined) openAsk(overviewRow.ask.from)
+            if (overviewRow?.worker !== undefined) answerWorker(overviewRow.worker.id)
             else if (overviewRow?.run?.status === "input") openForm(overviewRow.run.id)
           }),
         card: (direction) => {
@@ -1820,7 +1883,7 @@ export function App(props: AppProps) {
         },
         cancelRun: runs.cancel,
         fillRun: (id) => flushSync(() => openForm(id)),
-        answerWorker: (id) => flushSync(() => openAsk(id)),
+        answerWorker: (id) => flushSync(() => answerWorker(id)),
         undo: undoRow,
         workerAction,
         scroll: (direction) => panelScroll.current?.(direction),
@@ -1949,7 +2012,9 @@ export function App(props: AppProps) {
     : footerContext === "overview"
     // `a` shows only on a row it answers.
     ? Keys.hintsFor("overview", merged).filter((binding) =>
-      binding.id !== "overview-answer" || overviewRow?.ask !== undefined || overviewRow?.run?.status === "input"
+      binding.id !== "overview-answer" || overviewRow?.ask !== undefined || overviewRow?.run?.status === "input" ||
+      (overviewRow?.worker !== undefined && overviewRow.worker.status === "failed" &&
+        Budget.capped(overviewRow.worker.failure) && props.host.runCap !== undefined)
     )
     : Keys.hintsFor(footerContext, merged)
   const meter = AppView.meter(transcript, window, compact)

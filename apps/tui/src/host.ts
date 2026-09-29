@@ -95,9 +95,22 @@ export interface TurnInput {
   readonly thinking?: ModelRequest.ReasoningEffort
   /** A custom agent's prompt, flows, envelope and effort, applied to a worker turn. */
   readonly agent?: Agents.Profile
+  /** Caps the person raised for this worker's run; the host's own otherwise. */
+  readonly caps?: Caps
   /** Async listeners can backpressure an unparked worker until a pool seat opens. */
   readonly onEvent: (event: AgentEvent.AgentEvent) => unknown
 }
+
+/** A worker's run cap as a multiple of the host's, so it follows the operator's cap up or down. */
+export interface Caps {
+  readonly times?: number
+}
+
+/** `policy` with the run cap the person chose: `times` the host's own. */
+export const raised = (policy: Budget.Policy, caps: Caps): Budget.Policy =>
+  caps.times === undefined || policy.tokens === undefined
+    ? policy
+    : { ...policy, tokens: { ...policy.tokens, max: policy.tokens.max * caps.times } }
 
 export interface Turn {
   readonly done: Promise<Outcome>
@@ -106,6 +119,8 @@ export interface Turn {
 
 export interface Host {
   readonly cwd: string
+  /** The host's run token cap; absent when it is off. */
+  readonly runCap?: number
   readonly compaction: (used: number, window: number) => Promise<number | undefined>
   /** A one-line tab description, asked of `seat`: the seat the task already goes to. */
   readonly describe?: (input: { title: string; prompt: string; seat: string }) => Promise<string>
@@ -211,12 +226,13 @@ export const make = (options: {
   const catalog = routing(available, env, true)
   // The operator's stance, validated where `smithers run` validates it.
   const stance = NodeControl.supervisorStance(env)
+  const ledgerOptions = options.ledger === undefined ? {} : { ledger: options.ledger }
   // The local TUI runs without an approved envelope, so it is unbounded unless the operator sets a ceiling.
   const budget = options.budget === undefined
     // eslint-disable-next-line no-restricted-syntax -- no envelope, see above
     ? Budget.layerUnbounded()
     // `budget.ts` validated the policy; a refusal here is a defect.
-    : Layer.orDie(Budget.layer(options.budget, options.ledger === undefined ? {} : { ledger: options.ledger }))
+    : Layer.orDie(Budget.layer(options.budget, ledgerOptions))
   const layer = Layer.mergeAll(
     Agent.layer.pipe(Layer.provide(Layer.mergeAll(QuotaPolicy.layerDefault(), budget))),
     Agent.layerDefaults,
@@ -432,6 +448,15 @@ export const make = (options: {
         maxFrames
       }).pipe(
         Stream.provideService(Steering.Source, input.steering ?? Steering.makeNoop()),
+        // A cap the person raised for this worker replaces the host's own for its run.
+        (stream) =>
+          input.caps === undefined || options.budget === undefined
+            ? stream
+            : Stream.provideServiceEffect(
+              stream,
+              Budget.Budget,
+              Effect.orDie(Budget.make(raised(options.budget, input.caps), ledgerOptions))
+            ),
         Stream.runForEach((journaled) =>
           Effect.gen(function*() {
             const event = receipts(journaled)
@@ -492,6 +517,7 @@ export const make = (options: {
 
   return {
     cwd: options.cwd,
+    ...(options.budget?.tokens === undefined ? {} : { runCap: options.budget.tokens.max }),
     judged: true,
     routes: catalog !== undefined,
     compaction,

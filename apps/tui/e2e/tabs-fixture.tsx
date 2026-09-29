@@ -11,7 +11,8 @@ const workers: Record<string, { title: string; prompt: string; model?: "sol" | "
   frame: { title: "Profile frame budget", prompt: "Profile the frame budget.", model: "astra" },
   docs: { title: "Document which-key", prompt: "Document which-key." },
   lint: { title: "Lint the key registry", prompt: "Lint the key registry." },
-  api: { title: "implement/api", prompt: "Implement the OAuth session." }
+  api: { title: "implement/api", prompt: "Implement the OAuth session." },
+  capped: { title: "flaky seat queue", prompt: "Loop on the seat queue." }
 }
 /** The chat's delegating cell: each worker is requested from an `agent.delegate` call, as a model's cell does. */
 const delegate = (input: Host.TurnInput, prose: string, ids: ReadonlyArray<string>) => {
@@ -59,6 +60,7 @@ const stream = (input: Host.TurnInput, prose: string, code: string, flow: string
 const pending = new Map<string, (outcome: Host.Outcome) => void>()
 const host: Host.Host = {
   cwd: process.cwd(),
+  runCap: 200,
   judged: false,
   compaction: async () => undefined,
   dispose: async () => {},
@@ -76,6 +78,22 @@ const host: Host.Host = {
         )
         return {
           done: Promise.resolve({ _tag: "done", answer: "Fixed: the queue drained before the seat freed." }),
+          cancel: () => {}
+        }
+      }
+      // The capped worker trips its token cap; raised from the form, it resumes under the new cap.
+      if (id === "capped") {
+        return {
+          done: Promise.resolve(
+            input.caps?.times === undefined
+              ? {
+                _tag: "failed",
+                message: "Token budget reached",
+                detail: "",
+                error: { _tag: "flows/agent/BudgetExceeded", scope: "tokens", used: 200, max: 200 }
+              }
+              : { _tag: "done", answer: `Resumed under ${input.caps.times * 200} tokens.` }
+          ),
           cancel: () => {}
         }
       }
@@ -116,6 +134,10 @@ const host: Host.Host = {
     if (input.prompt === "delegate") {
       delegate(input, "I'll split this into three workers.", ["audit", "flaky", "strip"])
       answer = "Requested three workers."
+    }
+    if (input.prompt === "cap") {
+      delegate(input, "One worker.", ["capped"])
+      answer = "Requested one worker."
     }
     if (input.prompt === "help") {
       delegate(input, "One worker.", ["api"])

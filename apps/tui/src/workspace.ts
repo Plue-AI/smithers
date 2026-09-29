@@ -5,6 +5,7 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Agents from "./agents.ts"
 import * as Asks from "./asks.ts"
+import * as Budget from "./budget.ts"
 import type * as Context from "./context.ts"
 import type * as Extension from "./extension.ts"
 import type * as Host from "./host.ts"
@@ -51,6 +52,8 @@ export interface Tab {
   readonly code?: Agents.Code
   /** Conversation captured with the request so a queued launch survives restart. */
   readonly history?: ReadonlyArray<Context.Entry>
+  /** Token caps the person raised for this worker after it hit one. */
+  readonly caps?: Host.Caps
 }
 /** What `agent.wait` returns per tab: its outcome so far, and an ask it holds for the waiting parent. */
 export type Waited = Pick<Tab, "id" | "status" | "answer" | "message"> & {
@@ -435,7 +438,8 @@ export class Workspace {
       startedAt: prior?.startedAt ?? Date.now(),
       ...(parks === undefined || parks === 0 ? {} : { parks }),
       ...(request.model === undefined ? {} : { model: request.model }),
-      ...(request.agent === undefined ? {} : { agent: { name: request.agent } })
+      ...(request.agent === undefined ? {} : { agent: { name: request.agent } }),
+      ...(prior?.caps === undefined ? {} : { caps: prior.caps })
     })
     void this.describe(tab)
     const by = request.by ?? "agent"
@@ -609,6 +613,7 @@ export class Workspace {
         source: tab.id,
         history,
         role: "worker",
+        ...(tab.caps === undefined ? {} : { caps: tab.caps }),
         maxParks: Math.max(0, QuotaPolicy.defaultMaxParks - (tab.parks ?? 0)),
         ...(agent === undefined ? {} : { agent }),
         steering: steering.source,
@@ -948,6 +953,20 @@ export class Workspace {
       )
     } catch (error) {
       this.tabs.adopt(tab)
+      throw error
+    }
+  }
+  /** Resumes a worker stopped at its run cap, with its prior steps, as a run with the chosen allowance. */
+  raiseCap = (id: string, caps: Host.Caps): { id: string; status: Tab["status"] } => {
+    const tab = this.tabs.get(id)
+    if (tab?.status !== "failed" || !Budget.capped(tab.failure)) {
+      throw new Error(`Only a worker stopped at its run cap can be resumed with a new one; ${id} is not`)
+    }
+    this.tabs.put({ ...tab, caps })
+    try {
+      return this.retry(id)
+    } catch (error) {
+      this.tabs.put(tab)
       throw error
     }
   }

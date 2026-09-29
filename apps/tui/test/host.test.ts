@@ -1216,6 +1216,42 @@ for (const role of ["coordinator", "worker"] as const) {
   })
 }
 
+test("Host.run gives a worker the cap the person raised, in place of the host's own", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-budget-"))
+  roots.push(cwd)
+  const file = join(cwd, "spend.jsonl")
+  const delta = (value: object) => JSON.stringify({ at: 0, event: { _tag: "model-delta", delta: value } })
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
+      delta({ type: "text-start", id: "cell" }),
+      delta({ type: "text-delta", id: "cell", text: "```cell\nconst spent = 1\n```" }),
+      delta({ type: "text-end", id: "cell" }),
+      delta({ type: "usage", inputTokens: 500, outputTokens: 100, totalTokens: 600 }),
+      JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
+    ].join("\n")
+  )
+  const host = Host.make({ cwd, environment: {}, budget: { tokens: { max: 1000 } } })
+  expect(host.runCap).toBe(1000)
+  const events: Array<AgentEvent.AgentEvent> = []
+  try {
+    const outcome = await host.run({
+      prompt: "spend",
+      role: "worker",
+      seat: `replay:${file}`,
+      history: [],
+      caps: { times: 2 },
+      onEvent: (event) => events.push(event)
+    }).done
+    expect(events.filter((event) => event._tag === "cell-settled").length).toBeGreaterThan(1)
+    if (outcome._tag !== "failed") throw new Error("Expected the raised cap to stop the worker")
+    expect(outcome.detail).toContain("of its 2000 approved tokens")
+  } finally {
+    await host.dispose()
+  }
+})
+
 describe("default caps through the host", () => {
   const today = () => new Date().toISOString().slice(0, 10)
 

@@ -1,3 +1,4 @@
+import * as FailureCopy from "@smthrs/model/FailureCopy"
 import { expect, it } from "bun:test"
 import * as Budget from "../src/budget.ts"
 
@@ -51,4 +52,15 @@ it("refuses a cap that is not a positive whole number, 0, or none", () => {
   expect(Budget.policy({}, { daily: "x" })).toEqual({
     error: "--budget-daily-tokens must be a positive whole number, 0, or none"
   })
+})
+
+it("knows a run cap stop from the failure copy, and offers the cap or twice it", () => {
+  const exceeded = (scope: string) => ({ _tag: "flows/agent/BudgetExceeded", scope, used: 10, max: 10 })
+  expect(Budget.capped(FailureCopy.describe(exceeded("tokens")))).toBe(true)
+  // The day's cap is shared by every run; the form never raises it.
+  expect(Budget.capped(FailureCopy.describe(exceeded("daily")))).toBe(false)
+  expect(Budget.capped(FailureCopy.describe(exceeded("latency")))).toBe(false)
+  expect(Budget.capped(FailureCopy.describe(new Error("boom")))).toBe(false)
+  expect(Budget.capped(undefined)).toBe(false)
+  expect(Budget.offers.map((times) => Budget.offer(200_000_000 * times))).toEqual(["200M", "400M"])
 })

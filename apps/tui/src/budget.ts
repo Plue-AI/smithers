@@ -9,6 +9,7 @@
  * disables a cap. A run that would pass one stops with `Budget.BudgetExceeded`.
  */
 import type * as Budget from "@smthrs/agent/Budget"
+import * as Editor from "./editor.ts"
 
 export const environmentKey = "SMITHERS_TUI_BUDGET_TOKENS"
 export const dailyEnvironmentKey = "SMITHERS_TUI_BUDGET_DAILY_TOKENS"
@@ -56,3 +57,19 @@ export const policy = (
     ...(daily === undefined ? {} : { daily: { max: daily } })
   }
 }
+
+/** Whether a failed worker stopped at its run's token cap, from its failure copy. */
+export const capped = (failure: { readonly headline: string } | undefined): boolean =>
+  failure?.headline === "Token budget reached"
+
+/**
+ * The run allowances the cap form offers a stopped worker, as multiples of the
+ * host's cap: the cap, or twice it. A resumed worker is a new run, so what it
+ * gets is an allowance of its own. The day's cap is shared by every run on the
+ * machine and is never raised from here.
+ */
+export const offers: ReadonlyArray<number> = [1, 2]
+
+/** `200M`: an offer as the form shows it. */
+export const offer = (tokens: number): string =>
+  tokens >= 1_000_000 && tokens % 1_000_000 === 0 ? `${tokens / 1_000_000}M` : Editor.tokens(tokens)

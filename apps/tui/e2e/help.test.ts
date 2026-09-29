@@ -48,3 +48,42 @@ it("answers a worker's ask with a from the overview, and the worker finishes wit
     rmSync(root, { recursive: true, force: true })
   }
 }, 60_000)
+
+it("raises a capped worker's token cap with a from the overview, and it resumes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "tui-cap-"))
+  let tui: Tui | undefined
+  try {
+    tui = await Tui.start({
+      cwd: root,
+      cols: 110,
+      rows: 30,
+      command: `bun ${join(app, "e2e", "tabs-fixture.tsx")}`,
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SMITHERS_TUI_SESSION_DIR: join(root, "s") }
+    })
+    await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
+    await tui.type("cap")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("Requested one worker."), 5_000, "delegated")
+    await tui.press(key.ctrlS)
+    await tui.until((screen) => screen.includes("Needs you 1") && screen.includes("flaky seat queue"), 5_000, "capped")
+    await tui.press("a")
+    await tui.until(
+      (screen) => screen.includes("200 of 200 tokens used") && /Cap\s+200/.test(screen),
+      5_000,
+      "cap form"
+    )
+    await tui.press("\x1b[C") // right: twice the cap
+    await tui.until((screen) => /Cap\s+400/.test(screen), 5_000, "chosen")
+    await tui.press(key.enter)
+    await tui.until(
+      (screen) => screen.includes("Done 1") && !screen.includes("Needs you"),
+      5_000,
+      "resumed under the raised cap"
+    )
+    await tui.press(" ")
+    await tui.until((screen) => screen.includes("Resumed under 400 tokens."), 5_000, "the new cap reached the run")
+  } finally {
+    await tui?.stop()
+    rmSync(root, { recursive: true, force: true })
+  }
+}, 60_000)

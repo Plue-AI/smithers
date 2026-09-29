@@ -78,8 +78,11 @@ Fable worker is about 60M tokens by estimate, so a hit likely means a loop.
 
 A hit is loud: the status row and the tab's failure card name the cap (**Token
 budget reached** or **Daily token cap reached**), the run, and the spend, and
-the failure is blamed on the factory, not on you. Raise the cap and restart,
-then resume the tab; a daily cap also clears at 00:00 UTC. Estimates use reported
+the failure is blamed on the factory, not on you. A worker stopped at
+its run cap shows under Needs you; **a** there or in its tab offers the cap or
+twice it (`200M`, `400M`), and the worker resumes with its prior steps as a new
+run with that allowance, for it alone. The day's cap is never raised there. Otherwise raise the
+cap and restart, then resume the tab; a daily cap also clears at 00:00 UTC. Estimates use reported
 usage; an admitted call can consume more than its estimate. The daily total is
 the append-only `spend/<UTC day>.jsonl` under `~/.smithers/tui`
 (`SMITHERS_TUI_SESSION_DIR` moves it).
