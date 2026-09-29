@@ -229,6 +229,28 @@ call site: a body reads the table its registration was built with.
 run row on this engine, and a remote child has none. See
 [Place a child flow on another engine](/guides/place-a-child-on-another-engine/).
 
+## PlacedAction
+
+Runs one action's body on the host its placement names, so a secret the body
+uses lives only on that host.
+
+| Export   | Signature                                                      | Meaning                                                                                                                                                                                                                                            |
+| -------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layer`  | `(action, placement, body) => Layer`                           | Implements `action`. When `Hosts` binds `placement` here, `body` runs in this process. When it binds a `Proxy`, the holder runs `served(action)` under the action's invocation key, so a retry after a lost reply joins the holder's recorded run. |
+| `served` | `(action) => Flow<"<action>/remote", Payload, Success, Error>` | The one-node flow a holder serves for `action`: the action's payload, success and error, and a body that calls it. One flow per declaration.                                                                                                       |
+
+The holder implements `action` with its real body and serves
+`FlowProxyServer.layerRpcHandlers([PlacedAction.served(action)])`. The caller
+journals the call and its outcome: the success value, the declared error, or
+the holder's redacted defect. The body, its environment, and any credential it
+reads stay on the holder. A caller cancelled while the holder runs the body does
+not cancel the holder's run. Declare retries for the holder: a caller that
+retries asks again under the same key and receives the recorded outcome.
+Two callers that share an execution id and payload share one holder run;
+scope them with `FlowProxyServer`'s `executionId` option. Routed here on a host without the
+credential, a body that reads it fails there, as `SecretUnavailable` does in
+`examples/src/42-placed-deploy.ts`.
+
 ## FlowProxyServer
 
 Binds the derived definitions to a running engine.

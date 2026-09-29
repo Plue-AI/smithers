@@ -36,6 +36,7 @@
     "@smthrs/std": "workspace:*",
     "@smthrs/step-cache": "workspace:*",
     "@smthrs/sync": "workspace:*",
+    "@smthrs/targets": "workspace:*",
     "@smthrs/time-travel": "workspace:*",
     "effect": "4.0.0-rc.115"
   },

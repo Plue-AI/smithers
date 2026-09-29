@@ -2080,6 +2080,9 @@ importers:
       '@smthrs/sync':
         specifier: workspace:*
         version: link:../packages/smithers/flows/sync
+      '@smthrs/targets':
+        specifier: workspace:*
+        version: link:../packages/smithers/build/targets
       '@smthrs/time-travel':
         specifier: workspace:*
         version: link:../packages/smithers/flows/time-travel

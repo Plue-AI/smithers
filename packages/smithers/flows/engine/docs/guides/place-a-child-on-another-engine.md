@@ -91,3 +91,17 @@ unchanged on a host that is the deploy machine.
 
 `agent/spawn` of a `Proxy` flow is not supported: the spawner confirms the child
 by reading its run row on this engine, and a remote child has none.
+
+## Place one action instead of a flow
+
+When only one action must run elsewhere, implement it with
+`PlacedAction.layer(action, placement, body)` and serve
+`PlacedAction.served(action)` on the holder. The caller's plan is unchanged;
+the action's invocation key is the remote execution id, so a lost reply is
+asked again and joins the holder's recorded run. A cancelled caller does not
+cancel the holder's run once the holder is running it: an action sees only
+the cancellation its run had when it was dispatched, so place a `.child()`
+flow when a cancel must reach the remote engine. Declare an action's retry
+policy for the holder: a caller that retries asks again under the same key and
+receives the holder's recorded outcome. `examples/src/42-placed-deploy.ts` runs a deploy action only where
+`DEPLOY_TOKEN` is set, against the holder's own endpoint.

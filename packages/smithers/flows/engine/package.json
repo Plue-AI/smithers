@@ -41,6 +41,7 @@
     "./*/index": null,
     "./FlowProxy": "./src/FlowProxy.ts",
     "./Hosts": "./src/Hosts.ts",
+    "./PlacedAction": "./src/PlacedAction.ts",
     "./FlowProxyServer": "./src/FlowProxyServer.ts",
     "./index": "./src/index.ts"
   },
@@ -104,6 +105,16 @@
         "require": {
           "types": "./dist/cjs/Hosts.d.ts",
           "default": "./dist/cjs/Hosts.js"
+        }
+      },
+      "./PlacedAction": {
+        "import": {
+          "types": "./dist/esm/PlacedAction.d.ts",
+          "default": "./dist/esm/PlacedAction.js"
+        },
+        "require": {
+          "types": "./dist/cjs/PlacedAction.d.ts",
+          "default": "./dist/cjs/PlacedAction.js"
         }
       },
       "./FlowProxyServer": {

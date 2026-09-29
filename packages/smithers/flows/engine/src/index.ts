@@ -26,6 +26,13 @@ export * as FlowEngine from "./FlowEngine/index.ts"
 export * as Hosts from "./Hosts.ts"
 
 /**
+ * Runs one action's body on the host its placement names.
+ *
+ * @since 1.0.0
+ */
+export * as PlacedAction from "./PlacedAction.ts"
+
+/**
  * Client-side flow proxies.
  *
  * @since 0.1.0
