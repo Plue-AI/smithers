@@ -979,6 +979,55 @@ func TestMythicalUntrustedEscapesEverySpelling(t *testing.T) {
 	}
 }
 
+// Review titles and diffs show default-ignorable characters as code points,
+// including marks and Hangul fillers that are neither Cf nor NFKC-changing.
+func TestMythicalUntrustedEscapesDefaultIgnorablesInReview(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		r    rune
+		want string
+	}{
+		{"before combining grapheme joiner", '\u034e', "\u034e"},
+		{"combining grapheme joiner", '\u034f', "[U+034F]"},
+		{"after combining grapheme joiner", '\u0350', "\u0350"},
+		{"before Hangul fillers", '\u115e', "\u115e"},
+		{"Hangul choseong filler", '\u115f', "[U+115F]"},
+		{"Hangul jungseong filler", '\u1160', "[U+1160]"},
+		{"after Hangul fillers", '\u1161', "\u1161"},
+		{"before Khmer inherent vowels", '\u17b3', "\u17b3"},
+		{"Khmer inherent vowel aq", '\u17b4', "[U+17B4]"},
+		{"Khmer inherent vowel aa", '\u17b5', "[U+17B5]"},
+		{"after Khmer inherent vowels", '\u17b6', "\u17b6"},
+		{"before Mongolian variation selectors", '\u180a', "\u180a"},
+		{"Mongolian variation selector one", '\u180b', "[U+180B]"},
+		{"Mongolian variation selector four", '\u180f', "[U+180F]"},
+		{"after Mongolian variation selectors", '\u1810', "\u1810"},
+		{"reserved between invisible operators and bidi isolates", '\u2065', "[U+2065]"},
+		{"Hangul compatibility filler", '\u3164', "[U+3164]"},
+		{"emoji variation selector", '\ufe0f', "[U+FE0F]"},
+		{"halfwidth Hangul filler", '\uffa0', "[U+FFA0]"},
+		{"first reserved annotation code point", '\ufff0', "[U+FFF0]"},
+		{"last reserved annotation code point", '\ufff8', "[U+FFF8]"},
+		{"format character outside default-ignorable", '\ufff9', "[U+FFF9]"},
+		{"reserved before supplementary variation selectors", '\U000e00ff', "[U+E00FF]"},
+		{"first supplementary variation selector", '\U000e0100', "[U+E0100]"},
+		{"last supplementary variation selector", '\U000e01ef', "[U+E01EF]"},
+		{"reserved after supplementary variation selectors", '\U000e01f0', "[U+E01F0]"},
+		{"after supplementary reserved range", '\U000e1000', "\U000e1000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			raw := string(tt.r)
+			want := fmt.Sprintf("Pull request #42.\n\n<untrusted-title>\nA%sz\n</untrusted-title>\n\n<untrusted-diff>\n-A\n+A%sz\n</untrusted-diff>\n", tt.want, tt.want)
+			got := fmt.Sprintf("Pull request #42.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n",
+				mythicalUntrusted("A"+raw+"z"), mythicalUntrusted("-A\n+A"+raw+"z"))
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
 // Before a merge the issue must still be a TODO as it stands now: a
 // maintainer's todo taken off stops the merge.
 func TestMythicalAutomergeRereadsTheTodoLabel(t *testing.T) {

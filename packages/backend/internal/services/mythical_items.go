@@ -2110,17 +2110,55 @@ const mythicalReviewFlow = "review/change"
 // URL escape.
 var mythicalUntrustedTag = regexp.MustCompile(`(?i)(?:<|\x{2039}|\x{2329}|\x{27E8}|\x{3008}|&lt;?|&#0*60;?|&#x0*3c;?|\\u0*3c|\\x3c|%3c)(\s*/?\s*untrusted)`)
 
+// mythicalDefaultIgnorable is Default_Ignorable_Code_Point from Unicode
+// 15.0.0 DerivedCoreProperties.txt
+// (unicode.org/Public/15.0.0/ucd/DerivedCoreProperties.txt). Keep the reserved
+// ranges: they must be visible too if they appear after a Unicode update.
+var mythicalDefaultIgnorable = &unicode.RangeTable{
+	R16: []unicode.Range16{
+		{0x00AD, 0x00AD, 1},
+		{0x034F, 0x034F, 1},
+		{0x061C, 0x061C, 1},
+		{0x115F, 0x1160, 1},
+		{0x17B4, 0x17B5, 1},
+		{0x180B, 0x180D, 1},
+		{0x180E, 0x180E, 1},
+		{0x180F, 0x180F, 1},
+		{0x200B, 0x200F, 1},
+		{0x202A, 0x202E, 1},
+		{0x2060, 0x2064, 1},
+		{0x2065, 0x2065, 1},
+		{0x2066, 0x206F, 1},
+		{0x3164, 0x3164, 1},
+		{0xFE00, 0xFE0F, 1},
+		{0xFEFF, 0xFEFF, 1},
+		{0xFFA0, 0xFFA0, 1},
+		{0xFFF0, 0xFFF8, 1},
+	},
+	R32: []unicode.Range32{
+		{0x1BCA0, 0x1BCA3, 1},
+		{0x1D173, 0x1D17A, 1},
+		{0xE0000, 0xE0000, 1},
+		{0xE0001, 0xE0001, 1},
+		{0xE0002, 0xE001F, 1},
+		{0xE0020, 0xE007F, 1},
+		{0xE0080, 0xE00FF, 1},
+		{0xE0100, 0xE01EF, 1},
+		{0xE01F0, 0xE0FFF, 1},
+	},
+}
+
 // mythicalUntrusted keeps text inside its untrusted block: no tag it
 // carries, in any spelling, can end the block early or open another. The
 // text is never rewritten into what it resembles: a character that reads as
 // another (a fullwidth letter or "<", a ligature, a superscript: anything
-// NFKC would fold) or that is invisible (a zero-width space, a bidi
-// control) is written out as [U+XXXX], so the reader sees the change as it
+// NFKC would fold), any default-ignorable character, or another format
+// character is written out as [U+XXXX], so the reader sees the change as it
 // is and no such character spells a tag.
 func mythicalUntrusted(text string) string {
 	var shown strings.Builder
 	for _, r := range text {
-		if unicode.Is(unicode.Cf, r) || r != utf8.RuneError && norm.NFKC.String(string(r)) != string(r) {
+		if unicode.In(r, mythicalDefaultIgnorable, unicode.Cf) || r != utf8.RuneError && norm.NFKC.String(string(r)) != string(r) {
 			fmt.Fprintf(&shown, "[U+%04X]", r)
 			continue
 		}
