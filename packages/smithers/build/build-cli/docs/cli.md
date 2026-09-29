@@ -389,6 +389,9 @@ A `core.hooksPath` outside the workspace root and the repository's git directory
 is refused with `hooks_path_outside_repository`, because that directory is
 shared with other repositories. An existing hook that smthrs did not generate is
 copied to `<hook>.bak` before `--write` replaces it.
+Both checking and installation resolve symlinks before checking containment,
+including existing parents of directories that have not been created yet.
+A repository-local symlink cannot authorize an external hooks directory.
 If Git is unavailable, the command falls back to `.git/hooks` under the workspace
 root; that fallback requires a `.git` directory.
 

@@ -281,6 +281,86 @@ describe("check and install", () => {
     expect(await Fs.readFile(NodePath.join(shared, "pre-commit"), "utf8")).toBe("#!/bin/sh\ngit secrets --scan\n")
   })
 
+  it.each(["install", "check"] as const)("%s refuses a repository link to external hooks", async (action) => {
+    const root = await temporaryRoot()
+    const repository = NodePath.join(root, "repository")
+    const external = NodePath.join(root, "external-hooks")
+    NodeChildProcess.execFileSync("git", ["init", "-q", repository])
+    await Fs.mkdir(external)
+    const hook = NodePath.join(external, "pre-commit")
+    await Fs.writeFile(hook, "#!/bin/sh\necho external\n", { mode: 0o755 })
+    await Fs.symlink(external, NodePath.join(repository, "linked-hooks"), "dir")
+    NodeChildProcess.execFileSync("git", ["-C", repository, "config", "core.hooksPath", "linked-hooks"])
+    const beforeEntries = await Fs.readdir(external)
+    const beforeBytes = await Fs.readFile(hook)
+    const rendered = GitHooks.render({ preCommit: "//:preCommit" })
+
+    const [result] = await Promise.allSettled([GitHooks[action](repository, rendered)])
+    expect(await Fs.readdir(external)).toEqual(beforeEntries)
+    expect(await Fs.readFile(hook)).toEqual(beforeBytes)
+    expect(result).toMatchObject({
+      status: "rejected",
+      reason: { code: "hooks_path_outside_repository" }
+    })
+  })
+
+  it.each(["install", "check"] as const)("%s refuses a missing descendant under an external link", async (action) => {
+    const root = await temporaryRoot()
+    const repository = NodePath.join(root, "repository")
+    const external = NodePath.join(root, "external-hooks")
+    NodeChildProcess.execFileSync("git", ["init", "-q", repository])
+    await Fs.mkdir(external)
+    const sentinel = NodePath.join(external, "sentinel")
+    await Fs.writeFile(sentinel, "external data\n")
+    await Fs.symlink(external, NodePath.join(repository, "linked-hooks"), "dir")
+    NodeChildProcess.execFileSync("git", [
+      "-C",
+      repository,
+      "config",
+      "core.hooksPath",
+      "linked-hooks/not-created/hooks"
+    ])
+    const beforeEntries = await Fs.readdir(external)
+    const beforeBytes = await Fs.readFile(sentinel)
+    const rendered = GitHooks.render({ preCommit: "//:preCommit" })
+
+    const [result] = await Promise.allSettled([GitHooks[action](repository, rendered)])
+    expect(await Fs.readdir(external)).toEqual(beforeEntries)
+    expect(await Fs.readFile(sentinel)).toEqual(beforeBytes)
+    expect(result).toMatchObject({
+      status: "rejected",
+      reason: { code: "hooks_path_outside_repository" }
+    })
+  })
+
+  it("allows a hooks directory linked within the repository", async () => {
+    const root = await temporaryRoot()
+    NodeChildProcess.execFileSync("git", ["init", "-q", root])
+    const hooksDirectory = NodePath.join(root, "internal-hooks")
+    await Fs.mkdir(hooksDirectory)
+    await Fs.symlink(hooksDirectory, NodePath.join(root, "linked-hooks"), "dir")
+    NodeChildProcess.execFileSync("git", ["-C", root, "config", "core.hooksPath", "linked-hooks"])
+    const rendered = GitHooks.render({ preCommit: "//:preCommit" })
+    expect((await GitHooks.check(root, rendered)).entries).toEqual([{ file: "pre-commit", status: "missing" }])
+    expect((await GitHooks.install(root, rendered)).wrote).toEqual(["pre-commit"])
+    expect(await Fs.readFile(NodePath.join(hooksDirectory, "pre-commit"), "utf8")).toBe(rendered[0]!.content)
+    expect((await GitHooks.check(root, rendered)).clean).toBe(true)
+  })
+
+  it("accepts a symlink alias for the canonical repository root", async () => {
+    const root = await temporaryRoot()
+    const repository = NodePath.join(root, "repository")
+    const alias = NodePath.join(root, "alias")
+    NodeChildProcess.execFileSync("git", ["init", "-q", repository])
+    await Fs.symlink(repository, alias, "dir")
+    const rendered = GitHooks.render({ preCommit: "//:preCommit" })
+    expect((await GitHooks.check(alias, rendered)).entries).toEqual([{ file: "pre-commit", status: "missing" }])
+    expect((await GitHooks.install(alias, rendered)).wrote).toEqual(["pre-commit"])
+    expect(await Fs.readFile(NodePath.join(repository, ".git", "hooks", "pre-commit"), "utf8"))
+      .toBe(rendered[0]!.content)
+    expect((await GitHooks.check(alias, rendered)).clean).toBe(true)
+  })
+
   it("keeps a hand-written hook as a .bak before replacing it", async () => {
     const root = await temporaryRoot()
     NodeChildProcess.execFileSync("git", ["init", "-q", root])
@@ -352,4 +432,43 @@ describe("bindings against the target objects the index labels", () => {
     const [row] = index.resolve("//:preCommit")
     expect(row!.target).toBe(bound)
   })
+})
+
+describe("hooks directory resolution failures", () => {
+  it.each(["install", "check"] as const)("%s refuses external fallback hooks without Git", async (action) => {
+    const root = await temporaryRoot()
+    const repository = NodePath.join(root, "repository")
+    const external = NodePath.join(root, "external")
+    await Fs.mkdir(NodePath.join(repository, ".git"), { recursive: true })
+    await Fs.mkdir(external)
+    await Fs.writeFile(NodePath.join(external, "pre-commit"), "external hook\n")
+    await Fs.symlink(external, NodePath.join(repository, ".git", "hooks"), "dir")
+    vi.stubEnv("PATH", repository)
+    try {
+      await expect(GitHooks[action](repository, GitHooks.render({ preCommit: "//:preCommit" })))
+        .rejects.toMatchObject({ code: "hooks_path_outside_repository" })
+      expect(await Fs.readdir(external)).toEqual(["pre-commit"])
+      expect(await Fs.readFile(NodePath.join(external, "pre-commit"), "utf8")).toBe("external hook\n")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each(["linked-hooks", "linked-hooks/missing/hooks"])(
+    "refuses a dangling %s without creating its target",
+    async (hooksPath) => {
+      const root = await temporaryRoot()
+      const repository = NodePath.join(root, "repository")
+      const external = NodePath.join(root, "missing-external")
+      NodeChildProcess.execFileSync("git", ["init", "-q", repository])
+      await Fs.symlink(external, NodePath.join(repository, "linked-hooks"), "dir")
+      NodeChildProcess.execFileSync("git", ["-C", repository, "config", "core.hooksPath", hooksPath])
+      const rendered = GitHooks.render({ preCommit: "//:preCommit" })
+      for (const action of ["install", "check"] as const) {
+        await expect(GitHooks[action](repository, rendered)).rejects.toMatchObject({ code: "not_a_git_repository" })
+      }
+      await expect(Fs.lstat(external)).rejects.toMatchObject({ code: "ENOENT" })
+      expect((await Fs.lstat(NodePath.join(repository, "linked-hooks"))).isSymbolicLink()).toBe(true)
+    }
+  )
 })

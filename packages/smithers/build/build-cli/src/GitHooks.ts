@@ -217,51 +217,63 @@ const within = (directory: string, path: string): boolean => {
   return relative === "" || (!relative.startsWith("..") && !NodePath.isAbsolute(relative))
 }
 
+/** Canonicalizes existing parents without treating a dangling symlink as a missing directory. */
+const canonicalDirectory = async (path: string): Promise<string> => {
+  try {
+    await Fs.lstat(path)
+  } catch (cause) {
+    const parent = NodePath.dirname(path)
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT" && parent !== path) {
+      return NodePath.join(await canonicalDirectory(parent), NodePath.basename(path))
+    }
+    throw cause
+  }
+  return Fs.realpath(path)
+}
+
 /**
  * Resolves the active hooks directory, including worktrees and core.hooksPath.
  *
- * A `core.hooksPath` that points outside both the workspace root and the
- * repository's git common directory (a user-level `~/.githooks`, say) is
- * shared with every other repository on the machine, so writing there is a
- * typed refusal rather than a silent global change.
+ * Both existing hooks directories and their missing descendants must resolve
+ * inside the canonical workspace root or Git common directory.
  */
 const resolveHooksDirectory = async (root: string): Promise<string> => {
   try {
-    const hooks = NodePath.resolve(root, await revParse(root, ["--git-path", "hooks"]))
-    const common = NodePath.resolve(root, await revParse(root, ["--git-common-dir"]))
-    const [realRoot, realCommon] = await Promise.all([
-      Fs.realpath(root).catch(() => root),
-      Fs.realpath(common).catch(() => common)
+    let hooks: string
+    let common: string
+    try {
+      hooks = NodePath.resolve(root, await revParse(root, ["--git-path", "hooks"]))
+      common = NodePath.resolve(root, await revParse(root, ["--git-common-dir"]))
+    } catch (cause) {
+      if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) throw cause
+      // Without Git, only the ordinary .git directory layout can be resolved locally.
+      common = NodePath.resolve(root, ".git")
+      const stats = await Fs.stat(common).catch(() => undefined)
+      if (!stats?.isDirectory()) {
+        throw new GitHooksError("not_a_git_repository", `${root} has no .git directory and git is unavailable`)
+      }
+      hooks = NodePath.join(common, "hooks")
+    }
+    const [realRoot, realCommon, realHooks] = await Promise.all([
+      Fs.realpath(root),
+      Fs.realpath(common),
+      canonicalDirectory(hooks)
     ])
-    const realHooks = await Fs.realpath(hooks).catch(() => hooks)
-    if (
-      ![root, realRoot, common, realCommon].some((directory) =>
-        within(directory, hooks) || within(directory, realHooks)
-      )
-    ) {
+    if (![realRoot, realCommon].some((directory) => within(directory, realHooks))) {
       throw new GitHooksError(
         "hooks_path_outside_repository",
-        `core.hooksPath resolves to ${hooks}, outside ${root} and its git directory; ` +
+        `core.hooksPath resolves to ${realHooks}, outside ${realRoot} and its git directory; ` +
           "unset core.hooksPath or scope it to this repository before installing hooks"
       )
     }
-    return hooks
+    return realHooks
   } catch (cause) {
     if (isGitHooksError(cause)) throw cause
-    if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) {
-      throw new GitHooksError(
-        "not_a_git_repository",
-        `could not resolve the hooks directory for ${root}: ${cause instanceof Error ? cause.message : String(cause)}`
-      )
-    }
+    throw new GitHooksError(
+      "not_a_git_repository",
+      `could not resolve the hooks directory for ${root}: ${cause instanceof Error ? cause.message : String(cause)}`
+    )
   }
-  // Without Git, only the ordinary .git directory layout can be resolved locally.
-  const gitDirectory = NodePath.join(root, ".git")
-  const stats = await Fs.stat(gitDirectory).catch(() => undefined)
-  if (!stats?.isDirectory()) {
-    throw new GitHooksError("not_a_git_repository", `${root} has no .git directory and git is unavailable`)
-  }
-  return NodePath.join(gitDirectory, "hooks")
 }
 
 /**

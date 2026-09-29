@@ -675,7 +675,10 @@ including linked worktrees and `core.hooksPath`. They fall back to `.git/hooks`
 only when Git is unavailable and the root has a `.git` directory. A Git failure
 raises `not_a_git_repository` without falling back. A hooks directory outside
 both the workspace root and the git common directory, such as a user-level
-`core.hooksPath`, raises `hooks_path_outside_repository`. Each script runs
+`core.hooksPath`, raises `hooks_path_outside_repository`. Containment uses
+canonical paths, resolving symlinks in existing parents even when the hooks
+directory does not exist yet. Both operations refuse external destinations
+before reading or writing hook files. Each script runs
 `smthrs '<label>'`, the bare-label form, so the label's flavor-implied verb runs.
 `install` copies an existing hook it did not generate to `<hook>.bak` first.
 
