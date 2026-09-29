@@ -1374,6 +1374,8 @@ Fix the failing search tests. Keep changes inside src/search.ts and its tests.
 
 **Available now.** Ask in chat. Smithers starts a worker in its own tab and returns to chat. Up to six run at once (`SMITHERS_TUI_WORKERS`); more wait in order.
 
+Use `/claude <prompt>` or `/codex <prompt>` to run a signed-in CLI as a worker.
+
 ![A worker runs in its own TUI tab while chat stays available.](/images/learn/tui-background-worker.gif)
 
 The TUI with a scripted test model.
@@ -1409,7 +1411,7 @@ smthrs flow start review --data '{"args":"Review main"}' --detached
 
 **TUI**
 
-**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers, `x` stops, and `r` resumes with its earlier steps. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. `/stop <id>` and `/retry <id>` work from anywhere.
+**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers a Smithers worker, `x` stops, and `r` resumes with its earlier steps. `t` takes over any running worker: a Smithers worker pauses at each step until Enter, and Ctrl+Y releases it; a `/claude` or `/codex` worker opens its CLI on the same session, and quitting that CLI hands it back. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. `/stop <id>` and `/retry <id>` work from anywhere.
 
 ![Stopping and retrying a worker from its TUI tab.](/images/learn/tui-worker-controls.gif)
 
@@ -2492,6 +2494,8 @@ Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc clos
 | `/flows` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
 | `/flow <name> [json\|key=value]` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
 | `/agent [name] [prompt]` | Run a custom agent. | [Guide](/docs/how-it-works/agents/) |
+| `/claude <prompt>` | Run Claude Code as a worker. | [Guide](/docs/learn/background-work/) |
+| `/codex <prompt>` | Run Codex as a worker. | [Guide](/docs/learn/background-work/) |
 | `/retry <id>` | Retry a stopped worker or flow. | [Guide](/docs/learn/background-work/) |
 | `/stop <id>` | Stop a worker or flow. | [Guide](/docs/learn/background-work/) |
 | `/hotkeys` | Show the keys. | [Guide](/docs/tui/keys/) |
@@ -2575,6 +2579,7 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `w` | Wait for reset. |
 | `x` | Stop. |
 | `s` | Steer. |
+| `t` | Take over. |
 | `a` | Action. |
 | `u` | Undo changes. |
 | `tab` | Next tab. |
@@ -2640,6 +2645,9 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `tab` | Pane. |
 | `up` / `down` / `left` / `right` / `h` / `j` / `k` / `l` | Move. |
 | `enter` | Open. |
+| `space` | Peek. |
+| `a` | Answer. |
+| `g` | Graph. |
 | `f` | Files. |
 | `esc` | Close. |
 
@@ -34956,7 +34964,12 @@ itself, so nothing about the request's settlement is known.
 `switch-model`, `wait`, and `details`. A model seat supplies the provider name
 for a limit. Unknown errors have a generic headline. Raw messages and stacks
 belong in technical details, never in the headline. A bare string is never
-read for a fault: the fault arrives typed.
+read for a fault: the fault arrives typed. A `SeatUnresolved` anywhere on the
+cause chain reads "Model sign-in required" with the host's own sign-in
+instruction as the line, bounded to 240 characters. A cause that names what
+happened better than its wrapper wins: frames spent without an answer, the
+repeated-failure guard, and a person's rejection or silence on a human task
+each read as themselves, not as a model call that failed.
 
 `ModelError` registers its codes with `Fault`: `rate_limited` and
 `quota_exceeded` are `wait`; `invalid_request` and
