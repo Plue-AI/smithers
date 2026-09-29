@@ -86,7 +86,7 @@ func TestAgentReaper_Cov_TransitionNotifyArchiveAndWorkflowBranches(t *testing.T
 	session.WorkflowRunID = pgtype.Int8{Int64: 900, Valid: true}
 
 	emptySvc := &AgentService{}
-	_, updated, err := emptySvc.transitionAgentSessionTerminalStatus(ctx, sessionID, "failed")
+	_, updated, err := emptySvc.transitionAgentSessionTerminalStatus(ctx, sessionID, "failed", pgtype.Int8{})
 	require.NoError(t, err)
 	assert.False(t, updated)
 
@@ -95,7 +95,7 @@ func TestAgentReaper_Cov_TransitionNotifyArchiveAndWorkflowBranches(t *testing.T
 			return db.AgentSession{}, pgx.ErrNoRows
 		},
 	}}
-	_, updated, err = svc.transitionAgentSessionTerminalStatus(ctx, sessionID, "failed")
+	_, updated, err = svc.transitionAgentSessionTerminalStatus(ctx, sessionID, "failed", pgtype.Int8{})
 	require.NoError(t, err)
 	assert.False(t, updated)
 	svc.dispatchQ = &mockAgentDispatchQuerier{
@@ -103,7 +103,7 @@ func TestAgentReaper_Cov_TransitionNotifyArchiveAndWorkflowBranches(t *testing.T
 			return db.AgentSession{}, errors.New("transition failed")
 		},
 	}
-	_, _, err = svc.transitionAgentSessionTerminalStatus(ctx, sessionID, "failed")
+	_, _, err = svc.transitionAgentSessionTerminalStatus(ctx, sessionID, "failed", pgtype.Int8{})
 	require.Error(t, err)
 
 	var notifyPayload string

@@ -125,7 +125,7 @@ func TestAgentReaper_H_NotifyArchiveTerminalAndSandboxBranches(t *testing.T) {
 				return s, nil
 			},
 		},
-	}).transitionAgentSessionTerminalStatus(ctx, sessionID, "completed")
+	}).transitionAgentSessionTerminalStatus(ctx, sessionID, "completed", pgtype.Int8{})
 	require.NoError(t, err)
 	assert.True(t, updated)
 	assert.Equal(t, "completed", transitioned.Status)

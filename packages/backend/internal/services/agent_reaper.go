@@ -183,15 +183,16 @@ func (s *AgentService) reapExpiredSession(ctx context.Context, session db.AgentS
 	return nil
 }
 
-func (s *AgentService) transitionAgentSessionTerminalStatus(ctx context.Context, sessionID, status string) (db.AgentSession, bool, error) {
+func (s *AgentService) transitionAgentSessionTerminalStatus(ctx context.Context, sessionID, status string, expectedWorkflowRunID pgtype.Int8) (db.AgentSession, bool, error) {
 	if s.dispatchQ == nil {
 		return db.AgentSession{}, false, nil
 	}
 
 	session, err := s.dispatchQ.UpdateAgentSessionTerminalStatus(ctx, db.UpdateAgentSessionTerminalStatusParams{
-		ID:         sessionID,
-		Status:     status,
-		FinishedAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		ID:                    sessionID,
+		Status:                status,
+		FinishedAt:            pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		ExpectedWorkflowRunID: expectedWorkflowRunID,
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {

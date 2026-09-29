@@ -953,17 +953,27 @@ const updateAgentSessionTerminalStatus = `-- name: UpdateAgentSessionTerminalSta
 UPDATE agent_sessions
 SET status = $2, finished_at = $3, updated_at = NOW()
 WHERE id = $1 AND status = 'active' AND deleted_at IS NULL
+  AND ($4::bigint IS NULL
+       OR workflow_run_id = $4::bigint)
 RETURNING id, repository_id, user_id, workflow_run_id, title, status, metadata, workspace_id, started_at, finished_at, created_at, updated_at, deleted_at
 `
 
 type UpdateAgentSessionTerminalStatusParams struct {
-	ID         string             `json:"id"`
-	Status     string             `json:"status"`
-	FinishedAt pgtype.Timestamptz `json:"finished_at"`
+	ID                    string             `json:"id"`
+	Status                string             `json:"status"`
+	FinishedAt            pgtype.Timestamptz `json:"finished_at"`
+	ExpectedWorkflowRunID pgtype.Int8        `json:"expected_workflow_run_id"`
 }
 
+// Dispatch cleanup must still own the session's run. A NULL expected run is
+// reserved for session-scoped completion/cancellation, which targets the session.
 func (q *Queries) UpdateAgentSessionTerminalStatus(ctx context.Context, arg UpdateAgentSessionTerminalStatusParams) (AgentSession, error) {
-	row := q.db.QueryRow(ctx, updateAgentSessionTerminalStatus, arg.ID, arg.Status, arg.FinishedAt)
+	row := q.db.QueryRow(ctx, updateAgentSessionTerminalStatus,
+		arg.ID,
+		arg.Status,
+		arg.FinishedAt,
+		arg.ExpectedWorkflowRunID,
+	)
 	var i AgentSession
 	err := row.Scan(
 		&i.ID,

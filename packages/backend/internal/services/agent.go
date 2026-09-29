@@ -1159,7 +1159,7 @@ func (s *AgentService) IngestRunnerEvent(ctx context.Context, input IngestRunner
 			finalStatus = "failed"
 		}
 
-		session, updated, err := s.transitionAgentSessionTerminalStatus(ctx, input.SessionID, finalStatus)
+		session, updated, err := s.transitionAgentSessionTerminalStatus(ctx, input.SessionID, finalStatus, pgtype.Int8{})
 		if err != nil {
 			return pkgerrors.Internal("update session status: " + err.Error())
 		}
@@ -1209,14 +1209,17 @@ func (s *AgentService) markAgentDispatchInfrastructureFailed(ctx context.Context
 			}
 		}
 		NotifyWorkflowRunEvent(ctx, s.dispatchQ, workflowRunID, "agent.infrastructure_failed")
+		// A losing dispatch already minted its callback token before claiming
+		// the session. Revoke that run's token even when it never owned the
+		// session, or a newer run has claimed it before cleanup arrives.
+		s.revokeAgentSessionToken(ctx, pgtype.Int8{Int64: workflowRunID, Valid: true})
 	}
 	if s.dispatchQ != nil && strings.TrimSpace(sessionID) != "" {
 		s.cancelAgentRuntimeWatchdogForRun(sessionID, workflowRunID)
-		session, updated, err := s.transitionAgentSessionTerminalStatus(ctx, sessionID, "failed")
+		session, updated, err := s.transitionAgentSessionTerminalStatus(ctx, sessionID, "failed", pgtype.Int8{Int64: workflowRunID, Valid: true})
 		if err == nil && updated {
 			s.observeAgentSessionCompletion("failed")
 			s.archiveAgentTranscript(ctx, session, "failed")
-			s.revokeAgentSessionToken(ctx, session.WorkflowRunID)
 			s.revokeAgentSessionJJHubToken(ctx, session.UserID, session.WorkflowRunID)
 		}
 	}
@@ -1533,7 +1536,7 @@ func (s *AgentService) CancelSession(ctx context.Context, sessionID string, user
 		// projector observes actual cancellation.
 		return nil
 	}
-	terminal, updated, err := s.transitionAgentSessionTerminalStatus(ctx, sessionID, "cancelled")
+	terminal, updated, err := s.transitionAgentSessionTerminalStatus(ctx, sessionID, "cancelled", pgtype.Int8{})
 	if err != nil {
 		return pkgerrors.Internal("cancel agent session").WithCause(err)
 	}
@@ -1581,7 +1584,7 @@ func (s *AgentService) DeleteSession(ctx context.Context, sessionID string, user
 		s.cancelAgentFlowRunBestEffort(ctx, session, "delete")
 	}
 	if s.dispatchQ != nil {
-		terminal, updated, terr := s.transitionAgentSessionTerminalStatus(ctx, sessionID, "cancelled")
+		terminal, updated, terr := s.transitionAgentSessionTerminalStatus(ctx, sessionID, "cancelled", pgtype.Int8{})
 		if terr != nil {
 			return pkgerrors.Internal("cancel agent session before delete: " + terr.Error())
 		}

@@ -59,9 +59,13 @@ WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;
 
 -- name: UpdateAgentSessionTerminalStatus :one
+-- Dispatch cleanup must still own the session's run. A NULL expected run is
+-- reserved for session-scoped completion/cancellation, which targets the session.
 UPDATE agent_sessions
 SET status = $2, finished_at = $3, updated_at = NOW()
 WHERE id = $1 AND status = 'active' AND deleted_at IS NULL
+  AND (sqlc.narg(expected_workflow_run_id)::bigint IS NULL
+       OR workflow_run_id = sqlc.narg(expected_workflow_run_id)::bigint)
 RETURNING *;
 
 -- name: GetAgentSessionForFlowProjection :one
