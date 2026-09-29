@@ -1,4 +1,4 @@
-smthrs workspace exec — Run a non-interactive command on a workspace over SSH, streaming stdout/stderr through
+smthrs workspace exec — Run a workspace command with a durable receipt and bounded output
 
 Usage: smthrs workspace exec [id] [options]
 
@@ -12,9 +12,7 @@ Options:
   --exec-id <string>
   --repo, -R <string>
   --seed-agent-auth <string>
-  --stdin
   --timeout <number>
-  --user <string>              (default: developer)
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

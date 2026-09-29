@@ -7867,7 +7867,7 @@
     },
     {
       "name": "review",
-      "description": "Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent)",
+      "description": "Review committed source using policy from an approved commit",
       "schema": {
         "args": {
           "type": "object",
@@ -7898,43 +7898,26 @@
               "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
               "type": "string"
             },
-            "verbose": {
-              "default": false,
-              "description": "Show plain progress for agent and pipe consumers",
-              "type": "boolean"
+            "policyRevision": {
+              "type": "string",
+              "description": "Full approved commit SHA containing the trusted review index"
+            },
+            "revision": {
+              "default": "HEAD",
+              "description": "Committed source revision: HEAD or a full commit SHA",
+              "type": "string"
             },
             "plan": {
               "default": false,
-              "description": "Print the inert plan instead of executing",
+              "description": "Show pinned policy and source selection without inference",
               "type": "boolean"
-            },
-            "jobs": {
-              "description": "Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work",
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 9007199254740991
-            },
-            "includeExclusive": {
-              "default": false,
-              "description": "Include exclusive targets in wildcard ci/test selections; explicit labels already include them",
-              "type": "boolean"
-            },
-            "cache": {
-              "default": true,
-              "description": "Consult the result cache before running; --no-cache bypasses reads",
-              "type": "boolean"
-            },
-            "knownRed": {
-              "description": "JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red",
-              "type": "string"
             }
           },
           "required": [
             "workspace",
-            "verbose",
-            "plan",
-            "includeExclusive",
-            "cache"
+            "policyRevision",
+            "revision",
+            "plan"
           ],
           "additionalProperties": false
         }
@@ -11288,7 +11271,7 @@
     },
     {
       "name": "workspace exec",
-      "description": "Run a non-interactive command on a workspace over SSH, streaming stdout/stderr through",
+      "description": "Run a workspace command with a durable receipt and bounded output",
       "schema": {
         "args": {
           "type": "object",
@@ -11309,7 +11292,7 @@
             },
             "cwd": {
               "type": "string",
-              "description": "Remote working directory (default: /home/developer/workspace, or the home directory when missing)"
+              "description": "Working directory (default: workspace root)"
             },
             "env": {
               "default": [],
@@ -11331,26 +11314,14 @@
               "type": "string",
               "description": "Comma-separated list of agent auth to seed before running the command (claude seeds ANTHROPIC_API_KEY, codex seeds the Codex login)"
             },
-            "stdin": {
-              "default": false,
-              "type": "boolean",
-              "description": "Forward the terminal's stdin (a pipe or file is always forwarded)"
-            },
             "timeout": {
               "type": "number",
-              "description": "Client timeout in seconds (default: 120; 0 = no limit)"
-            },
-            "user": {
-              "default": "developer",
-              "type": "string",
-              "description": "Guest user to run as (developer or root)"
+              "description": "Cancel after this many seconds (default: 0; server guard: 60 minutes)"
             }
           },
           "required": [
             "command",
-            "env",
-            "stdin",
-            "user"
+            "env"
           ],
           "additionalProperties": false
         }

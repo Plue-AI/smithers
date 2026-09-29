@@ -11243,6 +11243,7 @@ The members and the value each one carries across the seam:
 | `resume`                | no       | None.                                                                                                                                      |
 | `resumeSignal`          | yes      | None.                                                                                                                                      |
 | `actionExecute`         | no       | Encoded. `makeUnsafe` decodes it through the action's `exitSchemaPartial`.                                                                 |
+| `actionReplayKey`       | yes      | None.                                                                                                                                      |
 | `actionRetryOrigin`     | yes      | None.                                                                                                                                      |
 | `actionLatestAttempt`   | yes      | None.                                                                                                                                      |
 | `actionSnapshot`        | yes      | None.                                                                                                                                      |
@@ -11412,7 +11413,7 @@ The minimal host snapshot boundary compensable actions execute against. The engi
 
 ### `FlowProxy.FlowProxyCollision`
 
-- **Type:** `class FlowProxyCollision extends Error`
+- **Type:** `class FlowProxyCollision extends Schema.TaggedError<FlowProxyCollision>()("@smthrs/engine/FlowProxyCollision", { operation })`
 - **Since:** `1.0.0`
 - **Related:** `FlowProxy.assertNoCollisions`
 
@@ -11420,7 +11421,7 @@ The refusal thrown before proxy construction when two flow operations share one 
 
 ### `FlowProxy.InvalidFlowTag`
 
-- **Type:** `class InvalidFlowTag extends Error`
+- **Type:** `class InvalidFlowTag extends Schema.TaggedError<InvalidFlowTag>()("@smthrs/engine/InvalidFlowTag", { tag })`
 - **Since:** `1.0.0`
 - **Related:** `FlowProxy.toHttpApiGroup`
 
@@ -12740,6 +12741,8 @@ const changesetsPublish = S.Changesets.Publish({
 ## CI toolchains and workflow generation
 
 `CiToolchain.Node` takes exactly one of `release`, an exact version the job installs, or `versionFile`, a checked-in file the setup action reads at run time. Prefer `versionFile` whenever anything outside the workflow needs the same number: `.node-version` is read by `actions/setup-node`, by fnm, nvm and asdf, and by a shell bootstrap that has no Node to parse JSON with, so one file keeps them from drifting apart.
+
+The Cloud CI bootstrap keeps an installed Node release when its full version meets `package.json` `engines.node`. Otherwise it installs the verified release from `.node-version`.
 
 `CiToolchain.Node` accepts an optional `npmRelease` pin. The generated job installs that npm version after setting up Node; omitting it keeps Node's bundled npm. The release tarball rehearsal requires npm 11.16.0, so its toolchain declares that pin explicitly.
 
@@ -35275,18 +35278,18 @@ text is not a contract and changes without notice.
 `ModelError` is a `Schema.TaggedError` with tag `flows/model/ModelError` and
 these fields:
 
-| Field                | Type             | Meaning                                                                                                                                                                                           |
-| -------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `code`               | `ModelErrorCode` | The stable serialized field and the public error contract.                                                                                                                                        |
-| `message`            | `string`         | Human-readable detail, already scrubbed of credentials.                                                                                                                                           |
-| `path`               | `string?`        | A key path only (for example `messages[2].content[0].text`), never a value, because a request member may hold a credential or user content. Present when the package refused to send the request. |
-| `retryAfterMillis`   | `number?`        | The wait the provider asked for, when it asked.                                                                                                                                                   |
-| `resetAtEpochMillis` | `number?`        | The durable wake instant for a parked run.                                                                                                                                                        |
-| `resetSource`        | `string?`        | Which header or body field supplied the reset instant.                                                                                                                                            |
-| `quotaScope` | `"model" \| "account"?` | Optional scope supplied by a protocol classifier. Model scope leaves sibling models eligible; account scope cools every model on the same route. |
-| `providerCode`       | `string?`        | The provider's own error code.                                                                                                                                                                    |
-| `requestId`          | `string?`        | The provider's request id, from the usual `x-request-id` family of headers.                                                                                                                       |
-| `httpStatus`         | `number?`        | The HTTP status, when a response was received.                                                                                                                                                    |
+| Field                | Type                    | Meaning                                                                                                                                                                                           |
+| -------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `code`               | `ModelErrorCode`        | The stable serialized field and the public error contract.                                                                                                                                        |
+| `message`            | `string`                | Human-readable detail, already scrubbed of credentials.                                                                                                                                           |
+| `path`               | `string?`               | A key path only (for example `messages[2].content[0].text`), never a value, because a request member may hold a credential or user content. Present when the package refused to send the request. |
+| `retryAfterMillis`   | `number?`               | The wait the provider asked for, when it asked.                                                                                                                                                   |
+| `resetAtEpochMillis` | `number?`               | The durable wake instant for a parked run.                                                                                                                                                        |
+| `resetSource`        | `string?`               | Which header or body field supplied the reset instant.                                                                                                                                            |
+| `quotaScope`         | `"model" \| "account"?` | Optional scope supplied by a protocol classifier. Model scope leaves sibling models eligible; account scope cools every model on the same route.                                                  |
+| `providerCode`       | `string?`               | The provider's own error code.                                                                                                                                                                    |
+| `requestId`          | `string?`               | The provider's request id, from the usual `x-request-id` family of headers.                                                                                                                       |
+| `httpStatus`         | `number?`               | The HTTP status, when a response was received.                                                                                                                                                    |
 
 The failed provider response body is reachable as `error.body`, capped at
 16 KiB, with `error.bodyTruncated` set when the cap bites. Both live outside
@@ -43363,7 +43366,7 @@ const provider = ContainerSandbox.make({
 })
 ```
 
-The default CLI is `docker`; set `program: "podman"` for Podman or name a compatible wrapper. Network access is disabled by default with `--network none`; `network: "none"` says so explicitly, and setting `network` to another engine mode is an explicit egress opt-in. An allowlist `network: { allow }` throws at `make`: an engine network mode is not a host firewall. `acquire` deterministically names the container, runs `create` then `start`, and reattaches when that name already exists: a refused create is followed by `container inspect`, and the returned configuration and ownership fingerprint must match before reattachment. Commands, reads, and writes all travel through `exec` to the same guest workdir. The scope finalizer runs `rm --force`, ending the container and everything still inside it.
+The default CLI is `docker`; set `program: "podman"` for Podman or name a compatible wrapper. Network access is disabled by default with `--network none`; `network: "none"` says so explicitly, and setting `network` to another engine mode is an explicit egress opt-in. An allowlist `network: { allow }` throws at `make`: an engine network mode is not a host firewall. `acquire` deterministically names the container, runs `create` then `start`, and reattaches when that name already exists: a refused create is followed by `container inspect`, and the returned configuration and ownership fingerprint must match before reattachment. Commands, reads, and writes all travel through `exec` to the same guest workdir. The scope finalizer runs `rm --force`, ending the container and everything still inside it. A nonzero removal exit logs the resource name and exit code without CLI stderr. A CLI failure without an exit code logs the resource name. Teardown still finishes within five seconds.
 
 Creation environment values travel through `--env-file /dev/stdin`. The host must expose `/dev/stdin`; values containing CR, LF, or NUL fail with `spawn_error` before creation because the CLI env-file format cannot represent them. Per-command environment operands travel as a base64 line on exec stdin, followed by the command's original stdin bytes. The guest shell reads that line before starting the command. The guest image needs `base64` as well as `sh` and `env`. Environment values are absent from local CLI argv.
 
@@ -43389,7 +43392,7 @@ const provider = KubernetesSandbox.make({
 })
 ```
 
-`acquire` derives the Pod name from the session key (prefix `smthrs-sbx-`, lowercased, bounded to 63 characters with the key's digest kept), runs `kubectl run` with `--restart Never` and `sleep infinity`, inspects an `AlreadyExists` Pod, refuses it untouched when its configuration or fingerprint differs, reattaches it only when it is live and carries a valid `reattachKey` seal, and otherwise deletes and replaces it, waits for the `Ready` condition with a 300 second timeout, and prepares the workdir and a session-private pidfile directory. Options `kubectl run` has no flag for (`serviceAccount`, `nodeSelector`, `resources`) travel as a strategic-merge `--overrides` document; `context`, `namespace`, and `kubeconfig` prefix every invocation. The scope finalizer runs `kubectl delete pod --force --grace-period=0`, and a Pod that was created but never became Ready or could not prepare its workspace is deleted the same way.
+`acquire` derives the Pod name from the session key (prefix `smthrs-sbx-`, lowercased, bounded to 63 characters with the key's digest kept), runs `kubectl run` with `--restart Never` and `sleep infinity`, inspects an `AlreadyExists` Pod, refuses it untouched when its configuration or fingerprint differs, reattaches it only when it is live and carries a valid `reattachKey` seal, and otherwise deletes and replaces it, waits for the `Ready` condition with a 300 second timeout, and prepares the workdir and a session-private pidfile directory. Options `kubectl run` has no flag for (`serviceAccount`, `nodeSelector`, `resources`) travel as a strategic-merge `--overrides` document; `context`, `namespace`, and `kubeconfig` prefix every invocation. The scope finalizer runs `kubectl delete pod --force --grace-period=0`, and a Pod that was created but never became Ready or could not prepare its workspace is deleted the same way. A nonzero deletion exit logs the Pod name and exit code without CLI stderr. A CLI failure without an exit code logs the Pod name. Teardown still finishes within five seconds.
 
 Reattaching a Pod across processes needs `reattachKey`, an operator secret kept the same across restarts. After creating a Pod the provider reads its server-assigned `metadata.uid` and labels it `smithers.dev/sandbox-seal` with `s1-` and the first 60 hex digits of HMAC-SHA256(`reattachKey`, fingerprint NUL uid), which needs `pods/patch` in the namespace. The fingerprint alone is a hash of configuration anyone who knows the flow can compute, so without the seal a principal with `pods/create` but not `pods/exec` could pre-create a Pod under the session's name, fingerprint, and image with its own command and receive the session's commands, stdin, and environment. Binding the uid means a seal copied off an earlier Pod does not validate a new one under the same name. Without `reattachKey`, or when a leftover's seal is missing or wrong (including one created before sealing, or one a crash left between creation and sealing), the leftover is deleted and a fresh Pod created, so its files are lost; a replacement that loses a race for the name fails with `unavailable` rather than adopting the new holder. A principal that can delete and recreate Pods in the namespace, or exec into them, is outside this check.
 
@@ -46564,6 +46567,7 @@ interface ModelErrorLike {
   readonly retryAfterMillis?: number | undefined
   readonly resetAtEpochMillis?: number | undefined
   readonly resetSource?: string | undefined
+  readonly quotaScope?: "model" | "account" | undefined
   readonly providerCode?: string | undefined
   readonly requestId?: string | undefined
   readonly httpStatus?: number | undefined
@@ -57342,7 +57346,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/review/
 
 ```text
-smthrs review — Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent)
+smthrs review — Review committed source using policy from an approved commit
 
 Usage: smthrs review <patterns...> [options]
 
@@ -57350,14 +57354,11 @@ Arguments:
   patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
-  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
-  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
-  --verbose                 Show plain progress for agent and pipe consumers
-  --plan                    Print the inert plan instead of executing
-  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
-  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
-  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
-  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --workspace, -w <string>    Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>        Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --policy-revision <string>  Full approved commit SHA containing the trusted review index
+  --revision <string>         Committed source revision: HEAD or a full commit SHA (default: HEAD)
+  --plan                      Show pinned policy and source selection without inference
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59562,7 +59563,7 @@ Commands:
   cp         Copy files or directories between the local machine and a workspace
   create     Create a workspace
   delete     Delete a workspace
-  exec       Run a non-interactive command on a workspace over SSH, streaming stdout/stderr through
+  exec       Run a workspace command with a durable receipt and bounded output
   fork       Fork a workspace
   issue      Spin up a workspace for an issue, run Claude Code, then create a landing request
   list       List workspaces
@@ -59695,7 +59696,7 @@ Global Options:
 ## workspace exec
 
 ```text
-smthrs workspace exec — Run a non-interactive command on a workspace over SSH, streaming stdout/stderr through
+smthrs workspace exec — Run a workspace command with a durable receipt and bounded output
 
 Usage: smthrs workspace exec [id] [options]
 
@@ -59709,9 +59710,7 @@ Options:
   --exec-id <string>
   --repo, -R <string>
   --seed-agent-auth <string>
-  --stdin
   --timeout <number>
-  --user <string>              (default: developer)
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60035,7 +60034,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`owners`](/docs/reference/cli/owners/) | Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches |
 | [`query`](/docs/reference/cli/query/) | List labels or evaluate deps(label), rdeps(label), or owners(label) |
 | [`repo`](/docs/reference/cli/repo/) | repo |
-| [`review`](/docs/reference/cli/review/) | Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent) |
+| [`review`](/docs/reference/cli/review/) | Review committed source using policy from an approved commit |
 | [`run`](/docs/reference/cli/run/) | Execute run targets selected by a pattern |
 | [`runs`](/docs/reference/cli/runs/) | Inspect and control durable execution records |
 | [`search`](/docs/reference/cli/search/) | search |

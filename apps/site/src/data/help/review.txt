@@ -1,4 +1,4 @@
-smthrs review — Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent)
+smthrs review — Review committed source using policy from an approved commit
 
 Usage: smthrs review <patterns...> [options]
 
@@ -6,14 +6,11 @@ Arguments:
   patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
-  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
-  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
-  --verbose                 Show plain progress for agent and pipe consumers
-  --plan                    Print the inert plan instead of executing
-  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
-  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
-  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
-  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --workspace, -w <string>    Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>        Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --policy-revision <string>  Full approved commit SHA containing the trusted review index
+  --revision <string>         Committed source revision: HEAD or a full commit SHA (default: HEAD)
+  --plan                      Show pinned policy and source selection without inference
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -6,7 +6,7 @@ Commands:
   cp         Copy files or directories between the local machine and a workspace
   create     Create a workspace
   delete     Delete a workspace
-  exec       Run a non-interactive command on a workspace over SSH, streaming stdout/stderr through
+  exec       Run a workspace command with a durable receipt and bounded output
   fork       Fork a workspace
   issue      Spin up a workspace for an issue, run Claude Code, then create a landing request
   list       List workspaces
