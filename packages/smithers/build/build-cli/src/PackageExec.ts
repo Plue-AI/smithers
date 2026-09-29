@@ -22,12 +22,14 @@ export type {
   TestOperandPlan
 } from "./internal/PackageOptions.ts"
 export {
+  attended,
   closureResultDigest,
   graphKeySentinel,
   keyMaterialWithGraph,
   PACKAGE_EXECUTION_FORMAT,
   plan,
   takesExclusiveTreePermit,
+  wildcardOmits,
   workspaceRootToken
 } from "./internal/PackagePlanner.ts"
 export { execute } from "./internal/PackageRunner.ts"

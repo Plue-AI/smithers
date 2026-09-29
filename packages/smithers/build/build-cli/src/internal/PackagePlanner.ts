@@ -3121,6 +3121,42 @@ const managerBinaryOf = (workspace: PackageIndexModule.PackageIndex["workspace"]
 }
 
 /**
+ * Whether a bare wildcard (`//...`, `//pkg/...`) leaves a target out: an
+ * exclusive target under `test` or an unattended plan unless exclusive runs
+ * were asked for, a target declared for other hosts, a manual target, and in
+ * an unattended plan a rule that spawns an agent. A pattern that names the
+ * target keeps it, except that an unattended plan drops attended rules always.
+ *
+ * @category planning
+ * @since 1.0.0
+ */
+export const wildcardOmits = (
+  target: Target.AnyTarget,
+  options: {
+    readonly verb: string
+    readonly unattended?: boolean | undefined
+    readonly includeExclusive?: boolean | undefined
+    readonly platform?: string | undefined
+  }
+): boolean => {
+  const metadata = Target.metadata(target)
+  const omitExclusive = (options.verb === "test" || options.unattended === true) && options.includeExclusive !== true
+  return (omitExclusive && Target.isExclusive(metadata.attrs)) ||
+    !(metadata.hosts?.includes(options.platform ?? process.platform) ?? true) || metadata.manual === true ||
+    (options.unattended === true && RulePolicy.of(metadata.target).attended === true)
+}
+
+/**
+ * Whether a target is a rule that spawns an agent, which an unattended plan
+ * drops however it was selected.
+ *
+ * @category planning
+ * @since 1.0.0
+ */
+export const attended = (target: Target.AnyTarget): boolean =>
+  RulePolicy.of(Target.metadata(target).target).attended === true
+
+/**
  * Plans one PACKAGE.ts invocation: resolves roots, walks the graph,
  * resolves tools, and keys every node.
  *
@@ -3147,14 +3183,17 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
     const wildcard = parsedPattern._tag === "Subtree" && parsedPattern.target === undefined
     const omitExclusive = (verb === "test" || options.unattended === true) && wildcard &&
       options.includeExclusive !== true
-    // A wildcard omits a target declared for other hosts; a pattern that names
-    // it keeps it, and the closure check below refuses it. A wildcard also
-    // omits a manual target, which only a label or a named pattern selects.
-    const rows = index.resolve(pattern).filter((row) => {
-      const metadata = Target.metadata(row.target)
-      return (!omitExclusive || !Target.isExclusive(metadata.attrs)) &&
-        (!wildcard || ((metadata.hosts?.includes(platform) ?? true) && !metadata.manual))
-    })
+    // A wildcard omits exclusive, other-host and manual targets; a pattern that
+    // names one keeps it, and the closure check below refuses an other-host one.
+    const rows = index.resolve(pattern).filter((row) =>
+      !wildcard ||
+      !wildcardOmits(row.target, {
+        verb,
+        unattended: options.unattended,
+        includeExclusive: options.includeExclusive,
+        platform
+      })
+    )
     const eligible = verb === "auto"
       ? rows
       : (await Promise.all(rows.map(async (row) => ({

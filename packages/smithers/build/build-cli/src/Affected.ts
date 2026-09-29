@@ -259,3 +259,88 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
     }))
   }
 }
+
+/**
+ * Whether changed files meet a pattern that names no target: an empty graph
+ * or a renamed package, which would otherwise gate a real diff with nothing
+ * and pass green. Pass the number of targets each pattern resolves to. A
+ * pattern that resolves but whose targets the diff does not reach, or that
+ * have no rule of the verb's kind, is a legitimate green.
+ *
+ * @category selection
+ * @since 1.0.0
+ */
+export const silent = (files: ReadonlyArray<string>, resolved: ReadonlyArray<number>): boolean =>
+  files.length > 0 && resolved.some((count) => count === 0)
+
+/**
+ * The labels an execution summary holds no record of: a planned target the
+ * executor never recorded never ran, and that is red.
+ *
+ * @category selection
+ * @since 1.0.0
+ */
+export const unrecorded = (
+  labels: ReadonlyArray<string>,
+  summary: { readonly results: ReadonlyArray<{ readonly label: string }> }
+): ReadonlyArray<string> => {
+  const recorded = new Set(summary.results.map((row) => row.label))
+  return labels.filter((label) => !recorded.has(label))
+}
+
+/**
+ * A summary in which a selected gate was skipped without a failure behind it,
+ * turned red. A skip is a failure's shadow only when its `blockedBy` chain ends
+ * at a failed row; one that ends anywhere else never ran for a reason of its
+ * own (a review whose engine is not installed here), whatever else failed. The
+ * skipped rows become failed rows that keep their reason, so the results
+ * survive and the known-red list can still excuse one by label and failure.
+ *
+ * @category selection
+ * @since 1.0.0
+ */
+export const unskipped = <
+  S extends {
+    readonly ok: boolean
+    readonly counts: { readonly failed: number; readonly skipped: number }
+    readonly results: ReadonlyArray<
+      {
+        readonly label: string
+        readonly status: string
+        readonly error?: string | undefined
+        readonly blockedBy?: string | undefined
+      }
+    >
+  }
+>(labels: ReadonlyArray<string>, summary: S): S => {
+  const selected = new Set(labels)
+  const byLabel = new Map(summary.results.map((row) => [row.label, row]))
+  const shadowOfFailure = (row: S["results"][number]): boolean => {
+    const seen = new Set<string>()
+    let current: S["results"][number] | undefined = row
+    while (current !== undefined && current.status === "skipped" && current.blockedBy !== undefined) {
+      if (seen.has(current.label)) return false
+      seen.add(current.label)
+      current = byLabel.get(current.blockedBy)
+    }
+    return current?.status === "failed"
+  }
+  const skipped = summary.results.filter((row) =>
+    selected.has(row.label) && row.status === "skipped" && !shadowOfFailure(row)
+  )
+  if (skipped.length === 0) return summary
+  return {
+    ...summary,
+    ok: false,
+    counts: {
+      ...summary.counts,
+      failed: summary.counts.failed + skipped.length,
+      skipped: summary.counts.skipped - skipped.length
+    },
+    results: summary.results.map((row) =>
+      skipped.includes(row)
+        ? { ...row, status: "failed", error: `skipped without running: ${row.error ?? "no reason recorded"}` }
+        : row
+    )
+  }
+}

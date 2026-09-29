@@ -193,3 +193,82 @@ it("indexes 1000 targets once and selects 200 owned paths within a one-second CP
   expect(calls.views).toBeLessThanOrEqual(250)
   expect((elapsed.user + elapsed.system) / 1000).toBeLessThan(1000)
 })
+
+it("calls changed files silent when any pattern names no target", () => {
+  expect(Affected.silent(["a.ts"], [0])).toBe(true)
+  expect(Affected.silent(["a.ts"], [3, 0])).toBe(true)
+  expect(Affected.silent([], [0])).toBe(false)
+  expect(Affected.silent(["a.ts"], [1, 2])).toBe(false)
+})
+
+it("never selects nothing for a real diff over a graph with targets, owned or not", () => {
+  const graph = fixture()
+  graph.add("pkg", "lint", target([Input.glob("src/**/*.ts")]))
+  const owned = Affected.select(graph.index, ["//..."], ["pkg/src/a.ts"])
+  expect(owned).toMatchObject({ conservative: false, targets: [{ label: "//pkg:lint" }] })
+  expect(Affected.select(graph.index, ["//..."], ["elsewhere/b.ts"])).toMatchObject({
+    conservative: true,
+    targets: [{ label: "//pkg:lint" }]
+  })
+})
+
+it("names every label the summary holds no record of", () => {
+  const summary = { results: [{ label: "//a:test" }, { label: "//b:test" }] }
+  expect(Affected.unrecorded(["//a:test", "//b:test"], summary)).toEqual([])
+  expect(Affected.unrecorded(["//a:test", "//c:test", "//d:test"], summary)).toEqual(["//c:test", "//d:test"])
+  expect(Affected.unrecorded([], { results: [] })).toEqual([])
+})
+
+it("turns a selected gate skipped without a failure at the end of its chain red, keeping its reason and results", () => {
+  const rows = [
+    { label: "//a:review", status: "skipped", error: "the codex CLI is not installed" },
+    { label: "//b:test", status: "skipped", blockedBy: "//a:review" },
+    { label: "//d:test", status: "ran" },
+    { label: "//e:dep", status: "skipped" }
+  ]
+  const green = { ok: true, counts: { hit: 0, ran: 1, failed: 0, skipped: 3 }, results: rows }
+  const red = Affected.unskipped(["//a:review", "//b:test", "//d:test"], green)
+  expect(red.ok).toBe(false)
+  expect(red.counts).toEqual({ hit: 0, ran: 1, failed: 2, skipped: 1 })
+  expect(red.results.map((row) => [row.label, row.status])).toEqual([
+    ["//a:review", "failed"],
+    ["//b:test", "failed"],
+    ["//d:test", "ran"],
+    ["//e:dep", "skipped"]
+  ])
+  expect(red.results[0]!.error).toBe("skipped without running: the codex CLI is not installed")
+  // Something else failed (a known red, say). A skip whose chain ends at that failure is its shadow;
+  // an unblocked skip, or one behind an unselected dependency's own skip, is still red.
+  const failing = {
+    ok: false,
+    counts: { hit: 0, ran: 0, failed: 1, skipped: 4 },
+    results: [
+      { label: "//k:test", status: "failed", error: "known" },
+      { label: "//a:review", status: "skipped", error: "the codex CLI is not installed" },
+      { label: "//c:test", status: "skipped", blockedBy: "//k:test" },
+      { label: "//d:review", status: "skipped", error: "the codex CLI is not installed" },
+      { label: "//x:alias", status: "skipped", blockedBy: "//d:review" }
+    ]
+  }
+  const still = Affected.unskipped(["//k:test", "//a:review", "//c:test", "//x:alias"], failing)
+  expect(still.results.map((row) => [row.label, row.status])).toEqual([
+    ["//k:test", "failed"],
+    ["//a:review", "failed"],
+    ["//c:test", "skipped"],
+    ["//d:review", "skipped"],
+    ["//x:alias", "failed"]
+  ])
+  expect(still.counts).toEqual({ hit: 0, ran: 0, failed: 3, skipped: 2 })
+  // A chain that loops never counts as a failure's shadow.
+  const loop = {
+    ok: true,
+    counts: { hit: 0, ran: 0, failed: 0, skipped: 2 },
+    results: [
+      { label: "//p:test", status: "skipped", blockedBy: "//q:test" },
+      { label: "//q:test", status: "skipped", blockedBy: "//p:test" }
+    ]
+  }
+  expect(Affected.unskipped(["//p:test"], loop).results[0]!.status).toBe("failed")
+  // A summary with no such skip is returned as it was.
+  expect(Affected.unskipped(["//d:test"], green)).toBe(green)
+})

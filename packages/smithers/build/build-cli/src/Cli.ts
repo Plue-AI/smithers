@@ -28,6 +28,7 @@ import * as Executor from "./Executor.ts"
 import * as GitHooks from "./GitHooks.ts"
 import * as GraphOutput from "./GraphOutput.ts"
 import * as KnownRed from "./KnownRed.ts"
+import * as Label from "./Label.ts"
 import * as Owners from "./Owners.ts"
 import * as PackageDiscovery from "./PackageDiscovery.ts"
 import * as PackageExec from "./PackageExec.ts"
@@ -908,7 +909,8 @@ const runSelected = async (
     signal: config.signal,
     reporter,
     environment: config.environment,
-    plan: flags.plan
+    plan: flags.plan,
+    includeExclusive: flags.includeExclusive
   }
   const plans: Array<PackageExec.PackagePlan> = []
   const selectedLabels = new Set(labels)
@@ -918,13 +920,25 @@ const runSelected = async (
     rows: await Promise.all(
       index.resolve(pattern).map(async (row) => ({
         row,
-        kinds: await RepoResolution.effectiveKinds(resolver, row.target)
+        kinds: await RepoResolution.effectiveKinds(resolver, row.target, config.signal)
       }))
     )
   })))
+  const bare = (pattern: string) => {
+    const parsed = Label.parse(pattern, index.currentPackage ?? "")
+    return parsed._tag === "Subtree" && parsed.target === undefined
+  }
   for (const kind of verb === "ci" ? ciKinds : [verb]) {
     for (const { pattern, rows } of selections) {
-      const eligible = rows.filter((entry) => kind === "auto" || entry.kinds.includes(kind))
+      // What the wildcard itself leaves out does not count against planning the wildcard whole.
+      const eligible = rows.filter((entry) =>
+        (kind === "auto" || entry.kinds.includes(kind)) &&
+        !(kind !== "auto" && bare(pattern) && PackageExec.wildcardOmits(entry.row.target, {
+          verb: kind,
+          unattended: verb === "ci",
+          includeExclusive: flags.includeExclusive
+        }))
+      )
       const roots = eligible.length > 0 && eligible.every((entry) => selectedLabels.has(entry.row.label))
         ? [pattern]
         : eligible.filter((entry) => selectedLabels.has(entry.row.label)).map((entry) => entry.row.label)
@@ -963,7 +977,11 @@ const runSelected = async (
       }))
     }
   }
-  return PackageExec.execute(combined, { ...options, verb, patterns })
+  const summary = await PackageExec.execute(combined, { ...options, verb, patterns })
+  // A planned target the executor holds no record of never ran; that is red.
+  const missing = Affected.unrecorded(combined.workList.map((node) => node.label), summary)
+  if (missing.length > 0) throw new Error(`Planned targets have no execution record: ${missing.join(", ")}`)
+  return summary
 }
 
 const showTarget = async (
@@ -1187,27 +1205,83 @@ const makeCommands = (config: RuntimeConfig) =>
           const changed = Affected.select(index, context.args.patterns, files)
           const kinds = context.args.verb === "ci" ? ciKinds : [context.args.verb]
           const resolver = RepoResolution.resolver(index, environmentOf(config))
-          const eligibility = await Promise.all(changed.targets.map(async (target) => ({
-            target,
-            kinds: await RepoResolution.effectiveKinds(resolver, index.resolve(target.label)[0]!.target)
-          })))
-          const selection = {
-            ...changed,
-            targets: eligibility.filter((entry) => kinds.some((kind) => entry.kinds.includes(kind))).map((entry) =>
-              entry.target
+          // A target only bare wildcards select is left out where the wildcard
+          // itself would leave it (manual, exclusive, other-host, attended under
+          // ci), and said so; a pattern that names it keeps it.
+          const bare = (pattern: string) => {
+            const parsed = Label.parse(pattern, index.currentPackage ?? "")
+            return parsed._tag === "Subtree" && parsed.target === undefined
+          }
+          // A child repository that could not be read has no kinds; one that would
+          // run is refused, not passed over, through any alias that wraps it.
+          const refusalOf = async (target: Target.AnyTarget): Promise<string | undefined> => {
+            const metadata = Target.metadata(target)
+            if (metadata.target === "Repo.Target") {
+              return (await RepoResolution.resolve(resolver, target, config.signal)).refusal
+            }
+            return metadata.target === "Alias" && metadata.dependencies[0] !== undefined
+              ? refusalOf(metadata.dependencies[0])
+              : undefined
+          }
+          const eligibility = await Promise.all(changed.targets.map(async (target) => {
+            const row = index.resolve(target.label)[0]!
+            return { target, kinds: await RepoResolution.effectiveKinds(resolver, row.target, config.signal) }
+          }))
+          const eligible = eligibility.filter((entry) => kinds.some((kind) => entry.kinds.includes(kind)))
+            .map((entry) => entry.target)
+          const omits = (label: string) => {
+            const selecting = context.args.patterns.filter((pattern) =>
+              index.resolve(pattern).some((row) => row.label === label)
+            )
+            const target = index.resolve(label)[0]!.target
+            // An unattended plan drops a rule that spawns an agent however it was named.
+            if (context.args.verb === "ci" && PackageExec.attended(target)) return true
+            return selecting.length > 0 && selecting.every(bare) && kinds.some((kind) =>
+              PackageExec.wildcardOmits(target, {
+                verb: kind,
+                unattended: context.args.verb === "ci",
+                includeExclusive: context.options.includeExclusive
+              })
             )
           }
-          if (context.options.list) return selection
-          return await executeCommand(context, config, "affected_failed", (reporter) =>
-            runSelected(
-              index,
-              selection.targets.map((target) => target.label),
-              context.args.verb,
-              context.args.patterns,
-              context.options,
-              config,
-              reporter
-            ))
+          const kept = changed.targets.filter((target) => !omits(target.label))
+          for (const target of kept) {
+            const refusal = await refusalOf(index.resolve(target.label)[0]!.target)
+            if (refusal !== undefined) throw new Error(refusal)
+          }
+          const selection = { ...changed, targets: eligible.filter((target) => !omits(target.label)) }
+          const omitted = eligible.filter((target) => omits(target.label)).map((target) => target.label)
+          if (context.options.list) return { ...selection, omitted }
+          const resolved = context.args.patterns.map((pattern) => index.resolve(pattern).length)
+          if (!context.options.plan && Affected.silent(files, resolved)) {
+            return context.error({
+              code: "affected_failed",
+              message: `${files.length} changed files met patterns that name no target, so no gate ran`
+            })
+          }
+          const labels = selection.targets.map((target) => target.label)
+          try {
+            return await executeCommand(context, config, "affected_failed", async (reporter) => {
+              const outcome = await runSelected(
+                index,
+                labels,
+                context.args.verb,
+                context.args.patterns,
+                context.options,
+                config,
+                reporter
+              )
+              if (!isSummary(outcome)) return outcome
+              // Every selected gate the planner was left to plan must have run or been recorded.
+              const unplanned = Affected.unrecorded(labels, outcome)
+              if (unplanned.length > 0) throw new Error(`Affected gates were never planned: ${unplanned.join(", ")}`)
+              return Affected.unskipped(labels, outcome)
+            })
+          } finally {
+            if (omitted.length > 0) {
+              terminalsOf(config).stderr.write(`Affected but not run here: ${omitted.join(", ")}\n`)
+            }
+          }
         } catch (cause) {
           return context.error({ code: "affected_failed", message: Diagnostic.describe(cause) })
         }
