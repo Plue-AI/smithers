@@ -40,9 +40,9 @@ import { INDEX_SESSION, indexSession, titleFrom } from "./registry.ts"
 import { track } from "./stream.ts"
 import { runTurn } from "./turn.ts"
 
-// The tool services this object backs — `FlowStore`, `CardSink`, `CellHistory`
-// — are declared once, in `../tools/promote.ts` and `../tools/ui.ts`. This file
-// used to restate their shapes because those modules did not exist yet.
+// The tool services this object backs are declared once: `FlowStore` and
+// `CardSink` in `../tools/promote.ts` and `../tools/ui.ts`, `CellHistory` in
+// `@smthrs/harness/CellHistory`.
 
 // ---------------------------------------------------------------------------
 // Storage

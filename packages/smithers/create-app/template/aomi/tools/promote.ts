@@ -6,14 +6,12 @@
  * follow and the file template to fill in. `flows/write-flow` takes the three
  * files that come back and writes them through a {@link FlowStore}.
  *
- * Both halves are work in progress in the Smithers packages. `packages/smithers/agent/harness`
- * is to ship the `CellHistory` service and `packages/smithers/agent` + `packages/smithers/agent/std` the
- * two bindings, with the filesystem `FlowStore` in the workspace and the Durable
- * Object one here. This module is the app-local stand-in with the same shapes, so
- * deleting it later is a change of import path.
+ * `flows/show-script` reads the harness's `CellHistory`; the Durable Object
+ * `FlowStore` lives here.
  */
 import { isRouteSegment } from "@smthrs/create-app/app"
 import * as Flow from "@smthrs/core/Flow"
+import * as CellHistory from "@smthrs/harness/CellHistory"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -31,46 +29,6 @@ export class PromoteError extends Schema.TaggedError<PromoteError>()("aomi/tools
   message: Schema.String,
   cause: Schema.optional(Schema.Unknown)
 }) {}
-
-// ---------------------------------------------------------------------------
-// CellHistory
-// ---------------------------------------------------------------------------
-
-/** One executed cell of the current turn. */
-export interface ExecutedCell {
-  readonly ordinal: number
-  readonly source: string
-}
-
-/**
- * The source of every cell the current turn executed, oldest first.
- *
- * TODO(upstream): `packages/smithers/agent/harness` records this already for the transcript.
- * Delete this service and read the harness's own record once that package
- * exposes the executed cells of the current turn.
- */
-export interface CellHistoryService {
-  readonly cells: () => Effect.Effect<ReadonlyArray<ExecutedCell>>
-}
-
-/** Service tag for the current turn's executed cells. */
-export class CellHistory extends Context.Service<CellHistory, CellHistoryService>()("aomi/tools/CellHistory") {}
-
-/** A history over a fixed cell list. */
-export const makeCells = (cells: ReadonlyArray<ExecutedCell>): CellHistoryService =>
-  CellHistory.of({ cells: () => Effect.succeed(cells) })
-
-/** An empty history: `flows/show-script` reports that nothing has run yet. */
-export const makeNoopHistory = (overrides: Partial<CellHistoryService> = {}): CellHistoryService =>
-  CellHistory.of({ cells: () => Effect.succeed([]), ...overrides })
-
-/** Provides a history over a fixed cell list. */
-export const layerCells = (cells: ReadonlyArray<ExecutedCell>): Layer.Layer<CellHistory> =>
-  Layer.succeed(CellHistory)(makeCells(cells))
-
-/** Provides an empty in-memory history. */
-export const layerNoopHistory = (overrides: Partial<CellHistoryService> = {}): Layer.Layer<CellHistory> =>
-  Layer.sync(CellHistory)(() => makeNoopHistory(overrides))
 
 // ---------------------------------------------------------------------------
 // FlowStore
@@ -282,14 +240,14 @@ const filesFor = (input: WriteFlowInput): Record<string, string> => ({
 // ---------------------------------------------------------------------------
 
 /** The promote flows, bound to the history and store the host built. */
-export const promoteSource = (services: Context.Context<CellHistory | FlowStore>): FlowBinding.Source =>
+export const promoteSource = (services: Context.Context<CellHistory.CellHistory | FlowStore>): FlowBinding.Source =>
   FlowBinding.source("flows", [
     FlowBinding.provide(
       FlowBinding.make({
         flow: showScriptFlow,
         handler: (input) =>
           Effect.gen(function*() {
-            const history = yield* CellHistory
+            const history = yield* CellHistory.CellHistory
             const cells = yield* history.cells()
             const extra = input.bestPractices
             return {
@@ -339,7 +297,7 @@ export const promoteSource = (services: Context.Context<CellHistory | FlowStore>
  * A Worker turn replaces it with {@link sessionSource}.
  */
 export const promote: FlowBinding.Source = promoteSource(
-  Context.add(Context.make(CellHistory, makeNoopHistory()), FlowStore, makeMemoryStore())
+  Context.add(Context.make(CellHistory.CellHistory, CellHistory.makeNoop()), FlowStore, makeMemoryStore())
 )
 
 /** The half of a session `flows/write-flow` writes through. */
@@ -359,11 +317,11 @@ export interface SessionFlows {
  */
 export const sessionSource = (
   session: SessionFlows,
-  cells: ReadonlyArray<ExecutedCell>
+  cells: ReadonlyArray<CellHistory.ExecutedCell>
 ): FlowBinding.Source =>
   promoteSource(
     Context.add(
-      Context.make(CellHistory, CellHistory.of({ cells: () => Effect.sync(() => [...cells]) })),
+      Context.make(CellHistory.CellHistory, CellHistory.makeNoop({ cells: () => Effect.sync(() => [...cells]) })),
       FlowStore,
       FlowStore.of({
         write: (id, files, description) =>

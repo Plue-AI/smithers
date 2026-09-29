@@ -16,11 +16,12 @@ import type { AppCard, TurnFrame } from "@smthrs/create-app/ui"
 import type { SeatProvider } from "@smthrs/create-app/runtime"
 import type { TurnHost, TurnRefusal, TurnRoute } from "@smthrs/create-app/worker"
 import type * as Evaluator from "@smthrs/model/Evaluator"
+import type * as CellHistory from "@smthrs/harness/CellHistory"
 import type * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import type * as Layer from "effect/Layer"
-import { type ExecutedCell, type SessionFlows, sessionSource } from "../tools/promote.ts"
+import { type SessionFlows, sessionSource } from "../tools/promote.ts"
 import { layerTevm, type Service as TevmService, Tevm, tevmSource } from "../tools/tevm.ts"
 import { turnSource } from "../tools/ui.ts"
 import type { Env } from "./env.ts"
@@ -81,7 +82,7 @@ export const hostFor = async (
     ? await generated()
     : { flows: await seams.routes(), paneNames: seams.paneNames ?? [] }
   const sandboxVariant = seams.sandboxVariant ?? (await import("./sandbox.ts")).sandboxVariant
-  const cells: Array<ExecutedCell> = []
+  const cells: Array<CellHistory.ExecutedCell> = []
   const origin = chain.rpcUrl === undefined ? undefined : new URL(chain.rpcUrl).origin
 
   const tools = (route: TurnRoute, cards: Parameters<NonNullable<TurnHost["tools"]>>[1]): ToolsSpec => ({
