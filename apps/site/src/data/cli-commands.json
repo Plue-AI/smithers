@@ -7629,7 +7629,7 @@
     },
     {
       "name": "repo home",
-      "description": "List remote homepage blocks in server order using the saved login; local smthrs ls reads checkout apps",
+      "description": "List remote homepage blocks in server order using the saved login; local smthrs flow list reads checkout flows",
       "schema": {
         "args": {
           "type": "object",

@@ -1,4 +1,4 @@
-smthrs repo home — List remote homepage blocks in server order using the saved login; local smthrs ls reads checkout apps
+smthrs repo home — List remote homepage blocks in server order using the saved login; local smthrs flow list reads checkout flows
 
 Usage: smthrs repo home [repo] [options]
 

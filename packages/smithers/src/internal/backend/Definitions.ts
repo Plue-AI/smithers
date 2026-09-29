@@ -965,7 +965,7 @@ export const definitions = {
   },
   "repo home": {
     description:
-      "List remote homepage blocks in server order using the saved login; local smthrs ls reads checkout apps",
+      "List remote homepage blocks in server order using the saved login; local smthrs flow list reads checkout flows",
     args: z.object({
       "repo": z.string().describe("Repository in OWNER/REPO format; detected when omitted").optional()
     }),

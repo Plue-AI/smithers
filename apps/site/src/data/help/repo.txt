@@ -11,7 +11,7 @@ Commands:
   disconnect   Disconnect this repository from Smithers
   edit         Edit repository settings
   fork         Fork a repository
-  home         List remote homepage blocks in server order using the saved login; local smthrs ls reads checkout apps
+  home         List remote homepage blocks in server order using the saved login; local smthrs flow list reads checkout flows
   list         List your repositories
   mirror-sync  Start a GitHub mirror sync run
   push         Push this checkout to your own ref on Smithers Cloud for a workspace to fetch
