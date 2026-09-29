@@ -372,9 +372,18 @@ impl FilePatch {
                 }
             }
             if edit.content.is_some() {
-                fs::hard_link(self.directory.join(format!("{index}.after")), &target).map_err(
-                    |_| self.failure("file_recovery_required", "cannot install proposed file"),
-                )?;
+                // Keep the recovery proposal independent of the working file: the Flow
+                // filesystem refuses content operations on files with multiple links.
+                let proposal = self.directory.join(format!("{index}.after"));
+                let install = self.directory.join(format!("{index}.install"));
+                fs::copy(&proposal, &install).map_err(|_| io_error())?;
+                fs::File::open(&install)
+                    .and_then(|file| file.sync_all())
+                    .map_err(|_| io_error())?;
+                fs::hard_link(&install, &target).map_err(|_| {
+                    self.failure("file_recovery_required", "cannot install proposed file")
+                })?;
+                fs::remove_file(&install).map_err(|_| io_error())?;
             }
         }
         self.verify()?;
@@ -438,6 +447,31 @@ mod tests {
         let reopened = FilePatch::new(&root, "request-1", "digest-1", &request).unwrap();
         assert!(!reopened.prepare().unwrap());
         reopened.verify().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_files_are_distinct_from_retained_proposals() {
+        use std::os::unix::fs::MetadataExt;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repository");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("original.txt"), "before").unwrap();
+        let request = json!({"files":[
+            {"path":"original.txt", "beforeDigest":hash(b"before"), "content":"after"},
+            {"path":"new.txt", "content":"new"}
+        ]});
+        let patch = FilePatch::new(&root, "request-4", "digest-4", &request).unwrap();
+        assert!(patch.prepare().unwrap());
+        patch.install().unwrap();
+        for (index, name) in ["original.txt", "new.txt"].iter().enumerate() {
+            let target = root.join(name);
+            let proposed = patch.directory.join(format!("{index}.after"));
+            assert_eq!(fs::metadata(&target).unwrap().nlink(), 1, "{name}");
+            let retained = fs::read(&proposed).unwrap();
+            fs::write(&target, "edited later").unwrap();
+            assert_eq!(fs::read(&proposed).unwrap(), retained);
+        }
     }
 
     #[test]
