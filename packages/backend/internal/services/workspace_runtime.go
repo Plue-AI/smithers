@@ -187,6 +187,16 @@ func validateRuntimeWorkspace(expectedID string, observed workspaceapi.Workspace
 	return nil
 }
 
+// lostWorkerError keeps the controller's typed host_lease_lost (503, infra)
+// when a workspace's worker was replaced, as the create path does
+// (workspaceProvisioningError); nil for any other cause.
+func lostWorkerError(err error) error {
+	if details := workspaceFailureDetailsFor(err); details.Code == pkgerrors.CodeHostLeaseLost {
+		return pkgerrors.New(details.Code, details.Message)
+	}
+	return nil
+}
+
 func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Context, row db.Workspace, requesterID int64) (db.Workspace, error) {
 	if err := s.refuseRebuildRequired(row); err != nil {
 		return row, err
@@ -220,6 +230,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
 			return row, pkgerrors.Conflict("workspace runtime no longer exists; create a fresh workspace")
 		}
+		if lost := lostWorkerError(err); lost != nil {
+			return row, lost
+		}
 		return row, pkgerrors.Internal("inspect workspace runtime: " + err.Error())
 	}
 	if validationErr := validateRuntimeWorkspace(row.ID, observed); validationErr != nil {
@@ -248,6 +261,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		}
 		observed, err = s.runtime.StartWorkspace(startCtx, row.ID)
 		if err != nil {
+			if lost := lostWorkerError(err); lost != nil {
+				return row, lost
+			}
 			return row, pkgerrors.Internal("start workspace runtime: " + err.Error())
 		}
 		if validationErr := validateRuntimeWorkspace(row.ID, observed); validationErr != nil {
