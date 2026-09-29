@@ -7,9 +7,9 @@
 import type { RuntimeConfig } from "@smthrs/build-cli/Cli"
 import { Cli, z } from "incur"
 import { randomUUID } from "node:crypto"
-import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import * as Presentation from "../cli/Presentation.ts"
+import * as CliError from "../CliError.ts"
 import * as Project from "../Project.ts"
 import * as Evaluation from "./Evaluation.ts"
 
@@ -116,7 +116,11 @@ export const createEvalCli = (runtime: RuntimeConfig = {}) =>
             run.cases.some((entry) => entry.error !== undefined) || run.observations.length === 0 ||
             run.observations.some((entry) => entry.kind !== "score")
           ) {
-            throw new Error("Cannot commit an incomplete or inconclusive evaluation as a baseline")
+            throw new CliError.Refused({
+              fault: "user",
+              code: "eval_run_incomplete",
+              message: "Cannot commit an incomplete or inconclusive evaluation as a baseline"
+            })
           }
           const file = context.options.output === undefined
             ? Evaluation.defaultBaselinePath(root, run.suite)
@@ -144,7 +148,7 @@ export const createEvalCli = (runtime: RuntimeConfig = {}) =>
           const file = context.options.baseline === undefined
             ? Evaluation.defaultBaselinePath(root, run.suite)
             : resolve(root, context.options.baseline)
-          result = await Evaluation.compare(run, await readFile(file, "utf8"), {
+          result = await Evaluation.compare(run, await Evaluation.readBaseline(file), {
             mean: context.options.mean,
             min: context.options.min
           })

@@ -138,7 +138,8 @@ describe("evaluation suite discovery and execution", () => {
     const unreadable = await serve(root, ["list"])
     expect(unreadable.code).toBe(1)
     expect(unreadable.output).toContain("eval_list_failed")
-    expect(unreadable.output).toContain("ENOTDIR")
+    expect(unreadable.json.message).toBe(`Cannot read ${join(root, "evals")} as a directory`)
+    expect(unreadable.output).not.toContain("ENOTDIR")
     vi.stubEnv("SMITHERS_REMOTE", "https://control.invalid")
     const remote = await serve(root, ["list"])
     expect(remote.code).toBe(1)
@@ -346,6 +347,9 @@ describe("evaluation suite discovery and execution", () => {
     expect(response.code).toBe(5)
     expect(response.output).toContain("eval_run_failed")
     expect(response.output).not.toContain("private-eval-fixture")
+    expect(response.json.message).toBe(
+      `Could not import ${join(root, "evals", "unsafe.eval.mjs")}; run it directly to see why`
+    )
   })
 })
 
@@ -364,7 +368,11 @@ describe("evaluation artifact selection and verdicts", () => {
     )
     await expect(Evaluation.readRun(root, "broken.json")).rejects.toThrow()
     await writeFile(join(root, "invalid.json"), "{")
-    await expect(Evaluation.readRun(root, "invalid.json")).rejects.toBeInstanceOf(SyntaxError)
+    await expect(Evaluation.readRun(root, "invalid.json")).rejects.toMatchObject({
+      _tag: "/cli/Refused",
+      fault: "user",
+      code: "eval_run_invalid"
+    })
     expect(Evaluation.defaultBaselinePath(root, "../nested/exact")).toBe(
       join(root, "evals", "..%2Fnested%2Fexact.baseline.json")
     )

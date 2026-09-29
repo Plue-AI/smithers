@@ -8,8 +8,9 @@
  * the pane again without creating another instance.
  *
  * Props arrive over the wire as `unknown` and are decoded with the pane's own
- * schema. A decode failure renders the message instead of throwing through the
- * transcript.
+ * schema. A decode failure renders one plain sentence instead of throwing
+ * through the transcript; the schema's own text stays behind a collapsed
+ * Details control for the pane's author.
  */
 import type { AnyPaneDefinition, PaneCard, PaneContext, PaneRegistry } from "@smthrs/create-app/ui"
 import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState } from "@smthrs/ui"
@@ -98,7 +99,13 @@ export function PaneHost({ card, panes, maximized = false, onMaximize, onRestore
   const body = rendered.ok ? (
     rendered.node
   ) : (
-    <EmptyState title="Pane props rejected" description={rendered.message} />
+    <>
+      <EmptyState title="Pane props rejected" description="This card sent data the pane cannot show." />
+      <details className="aomi-pane-detail">
+        <summary>Details</summary>
+        <pre>{rendered.message}</pre>
+      </details>
+    </>
   )
   const frame = (
     <Frame

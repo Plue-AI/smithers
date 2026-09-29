@@ -4,7 +4,9 @@
  *
  * The composer posts to `/api/turn` and reads the `TurnFrame` NDJSON stream
  * back: `done.output.answer` is the final answer, each `card` renders through the pane
- * registry, and an `error` frame or a refused request shows as one line.
+ * registry, and an `error` frame or a refused request shows as one line. A
+ * failure the page catches itself shows one plain sentence, with its raw text
+ * behind a collapsed Details control.
  *
  * A deployed Worker refuses a turn without `APP_API_TOKEN`. Open the app once
  * as `/#token=<value>`: the fragment never leaves the browser, and
@@ -20,6 +22,7 @@ interface Turn {
   readonly text: string
   readonly cards: ReadonlyArray<AppCard>
   readonly error?: string
+  readonly detail?: string
 }
 
 const empty: Turn = { text: "", cards: [] }
@@ -71,6 +74,21 @@ const authHeaders = (): Record<string, string> => {
 
 const noContext = { fullscreen: false, maximize: () => {}, restore: () => {} }
 
+const rawText = (cause: unknown): string => cause instanceof Error ? cause.message : String(cause)
+
+/** One plain sentence, and the raw text only behind a collapsed Details control. */
+const Failure = ({ sentence, detail }: { readonly sentence: string; readonly detail?: string | undefined }) => (
+  <>
+    <p className="answer-error">{sentence}</p>
+    {detail === undefined ? null : (
+      <details className="answer-detail">
+        <summary>Details</summary>
+        <pre>{detail}</pre>
+      </details>
+    )}
+  </>
+)
+
 const renderCard = (card: AppCard, panes: PaneRegistry): ReactNode => {
   if (card.kind !== "pane") return null
   const pane = panes[card.name]
@@ -78,7 +96,7 @@ const renderCard = (card: AppCard, panes: PaneRegistry): ReactNode => {
   try {
     return pane.renderUnknown(card.props, noContext)
   } catch (cause) {
-    return <p className="answer-error">{cause instanceof Error ? cause.message : String(cause)}</p>
+    return <Failure sentence="This card sent data the pane cannot show." detail={rawText(cause)} />
   }
 }
 
@@ -119,7 +137,7 @@ export default function Page() {
         }
       }
     } catch (cause) {
-      setTurn({ ...empty, error: cause instanceof Error ? cause.message : String(cause) })
+      setTurn({ ...empty, error: "The app did not answer. Try again.", detail: rawText(cause) })
     } finally {
       busy.current = false
       setPending(false)
@@ -151,7 +169,7 @@ export default function Page() {
         <div className="answer">
           {turn.text === "" ? null : <p className="answer-text">{turn.text}</p>}
           {turn.cards.map((card) => <div key={card.id}>{renderCard(card, panes)}</div>)}
-          {turn.error === undefined ? null : <p className="answer-error">{turn.error}</p>}
+          {turn.error === undefined ? null : <Failure sentence={turn.error} detail={turn.detail} />}
         </div>
       )}
     </section>

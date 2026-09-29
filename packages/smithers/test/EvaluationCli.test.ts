@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import * as Binding from "../agent/scorers/src/Binding.ts"
 import * as Scorer from "../agent/scorers/src/Scorer.ts"
 import * as Flow from "../flows/core/src/Flow.ts"
+import * as CliError from "../src/CliError.ts"
 import { createEvalCli } from "../src/evaluation/EvalCli.ts"
 import * as Evaluation from "../src/evaluation/Evaluation.ts"
 
@@ -139,8 +140,73 @@ describe("evaluation CLI", () => {
     await Evaluation.writeJson(Evaluation.runPath(root, "inconclusive"), JSON.stringify(inconclusive))
     expect((await serve(root, ["baseline", "inconclusive"])).code).toBe(1)
     const invalid = await serve(root, ["run", "missing.eval.ts"])
-    expect(invalid.code).toBe(5)
+    expect(invalid.code).toBe(2)
     expect(invalid.output).toContain("eval_run_failed")
+    expect(invalid.json.message).toContain("is not a suite module under")
+  })
+
+  it("answers operator mistakes with exit 2 and the sentence that names the fix", async () => {
+    const root = await fixture()
+    await mkdir(join(root, "evals"))
+    await writeFile(join(root, "evals", "same.eval.mjs"), "throw new Error(\"must not import\")")
+    await writeFile(join(root, "evals", "same.eval.js"), "throw new Error(\"must not import\")")
+    const ambiguous = await serve(root, ["run", "same"])
+    expect(ambiguous.code, ambiguous.output).toBe(2)
+    expect(ambiguous.json).toMatchObject({
+      code: "eval_run_failed",
+      message: "Ambiguous evaluation suite same; specify its file"
+    })
+    expect(ambiguous.output).not.toContain("must not import")
+    const runId = await serve(root, ["run", "same.eval.mjs", "--run-id", "../escape"])
+    expect(runId.code, runId.output).toBe(2)
+    expect(runId.json.message).toBe("Run IDs must contain only letters, digits, '.', '_' or '-'")
+    const baselineId = await serve(root, ["baseline", "bad id"])
+    expect(baselineId.code, baselineId.output).toBe(2)
+    expect(baselineId.json.code).toBe("eval_baseline_failed")
+  })
+
+  it("names a missing or unreadable saved run without leaking the file-system or parser text", async () => {
+    const root = await fixture()
+    const missing = await serve(root, ["compare", "absent"])
+    expect(missing.code, missing.output).toBe(5)
+    expect(missing.json).toMatchObject({
+      code: "eval_compare_failed",
+      message: `No saved evaluation run at ${Evaluation.runPath(root, "absent")}; run the suite first`
+    })
+    expect(missing.output).not.toMatch(/ENOENT|no such file/)
+    await writeFile(join(root, "broken.json"), "{ not json")
+    const broken = await serve(root, ["baseline", "broken.json"])
+    expect(broken.code, broken.output).toBe(1)
+    expect(broken.json).toMatchObject({
+      code: "eval_baseline_failed",
+      message: `${join(root, "broken.json")} is not a saved evaluation run`
+    })
+    expect(broken.output).not.toMatch(/Unexpected|JSON|position/)
+    const good = await result(1)
+    await writeFile(join(root, "wrong.json"), JSON.stringify({ ...good, version: 2 }))
+    const wrong = await serve(root, ["compare", "wrong.json"])
+    expect(wrong.code, wrong.output).toBe(5)
+    expect(wrong.json.message).toBe(`${join(root, "wrong.json")} is not a saved evaluation run`)
+    expect(wrong.output).not.toMatch(/invalid_literal|expected|Zod/i)
+  })
+
+  it("names a missing baseline and refuses an incomplete run as one", async () => {
+    const root = await fixture()
+    const good = await result(1)
+    await Evaluation.writeJson(Evaluation.runPath(root, good.runId), JSON.stringify(good))
+    const noBaseline = await serve(root, ["compare", good.runId])
+    expect(noBaseline.code, noBaseline.output).toBe(5)
+    expect(noBaseline.json.message).toBe(
+      `No baseline at ${Evaluation.defaultBaselinePath(root, good.suite)}; write one with eval baseline`
+    )
+    expect(noBaseline.output).not.toMatch(/ENOENT|no such file/)
+    await Evaluation.writeJson(Evaluation.runPath(root, "empty"), JSON.stringify({ ...good, observations: [] }))
+    const incomplete = await serve(root, ["baseline", "empty"])
+    expect(incomplete.code, incomplete.output).toBe(1)
+    expect(incomplete.json).toMatchObject({
+      code: "eval_baseline_failed",
+      message: "Cannot commit an incomplete or inconclusive evaluation as a baseline"
+    })
   })
 
   it("publishes artifacts without replacement or leftover temporary files", async () => {
@@ -150,7 +216,7 @@ describe("evaluation CLI", () => {
     await expect(Evaluation.writeJson(file, "replacement")).rejects.toMatchObject({ code: "EEXIST" })
     expect(await readFile(file, "utf8")).toBe("{\"original\":true}")
     expect(await readdir(root)).toEqual(["result.json"])
-    expect(() => Evaluation.runPath(root, "../escape")).toThrow("Run IDs")
+    expect(() => Evaluation.runPath(root, "../escape")).toThrow(CliError.UsageError)
     expect(() => Evaluation.localRoot({ root, remote: "https://example.invalid" })).toThrow("--remote")
   })
 })

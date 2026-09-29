@@ -36,7 +36,9 @@ vi.mock("@smthrs/ui", async () => {
     Badge: container, Select: container,
     Button: ({ children, onClick }: { readonly children?: ReactNode; readonly onClick?: () => void }) =>
       createElement("button", { onClick }, children),
-    ChatComposer: hidden, EmptyState: hidden, FileTree: hidden, StatusPill: hidden,
+    EmptyState: ({ title, description }: { readonly title?: string; readonly description?: string }) =>
+      createElement("div", { "data-empty": true }, createElement("strong", null, title), createElement("p", null, description)),
+    ChatComposer: hidden, FileTree: hidden, StatusPill: hidden,
     SelectContent: hidden, SelectItem: hidden, SelectTrigger: hidden, SelectValue: hidden,
     Dialog: hidden, DialogContent: hidden, DialogDescription: hidden, DialogHeader: hidden, DialogTitle: hidden,
     formatRelativeTime: () => "now"
@@ -129,5 +131,24 @@ describe("PaneHost fullscreen", () => {
     expect(counter.dataset.fullscreen).toBe("false")
     expect(mounted).toHaveBeenCalledTimes(1)
     expect(unmounted).not.toHaveBeenCalled()
+  })
+})
+
+describe("PaneHost rejected props", () => {
+  test("shows one plain sentence and keeps the schema text behind a collapsed Details control", async () => {
+    const pane = definePane({ props: Schema.Struct({ steps: Schema.Array(Schema.String) }), render: () => "Plan" })
+    await act(() => root.render(createElement(PaneHost, {
+      card: { ...card, props: { steps: 42 } }, panes: { plan: pane }
+    })))
+    const notice = container.querySelector("[data-empty]")
+    expect(notice?.textContent).toBe("Pane props rejectedThis card sent data the pane cannot show.")
+    const details = container.querySelector("details")
+    expect(details?.open).toBe(false)
+    expect(details?.querySelector("summary")?.textContent).toBe("Details")
+    const raw = details?.querySelector("pre")?.textContent ?? ""
+    expect(raw).toContain("steps")
+    // The raw schema text appears only inside the collapsed control.
+    expect(notice?.textContent).not.toContain("steps")
+    expect(container.textContent?.replace(raw, "")).not.toContain("steps")
   })
 })
