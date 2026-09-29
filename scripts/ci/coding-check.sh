@@ -3,6 +3,16 @@
 # and workspace-local build CLI. Never resolve declarations against the editor.
 set -eu
 export HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
+if [ "${1:-}" = affected ]; then
+  if [ -z "${SMITHERS_CHECK_FILES+set}" ]; then
+    echo 'An affected check needs SMITHERS_CHECK_FILES from its check host.' >&2
+    exit 2
+  fi
+  if [ -z "$SMITHERS_CHECK_FILES" ]; then
+    echo 'The Change wrote no files; no target is affected.' >&2
+    exit 0
+  fi
+fi
 # Every check runs in a fresh export. Target results and downloaded packages
 # persist in a host check cache (scripts/ci/check-cache.mjs) so a rebased
 # revision replays every target whose content key is unchanged. The Bun cache
@@ -29,7 +39,28 @@ done
 node scripts/ci/check-cache.mjs seed . || echo 'Check cache unavailable; running cold.' >&2
 # The check is a child rather than exec'd so the cache can be saved after it;
 # forward termination so signalling this wrapper still stops the check.
-node packages/smithers/build/build-cli/src/main.js test "$@" &
+# `affected <verb> <patterns...>` runs only the targets the Change's written
+# paths (SMITHERS_CHECK_FILES, one per line, from the check host) affect, and
+# fails only on a target that is red and not on the known-red list. Anything
+# else runs `test` on the named targets.
+if [ "${1:-}" = affected ]; then
+  shift
+  set -- affected "$@" --known-red .github/ci-known-red.json
+  newline='
+'
+  old_ifs=$IFS
+  IFS=$newline
+  # A written path is a name, never a pattern: `app/[id].tsx` stays itself.
+  set -f
+  for file in $SMITHERS_CHECK_FILES; do
+    set -- "$@" --files "$file"
+  done
+  set +f
+  IFS=$old_ifs
+else
+  set -- test "$@"
+fi
+node packages/smithers/build/build-cli/src/main.js "$@" &
 check_pid=$!
 trap 'kill -TERM "$check_pid" 2>/dev/null; wait "$check_pid"; exit 143' TERM INT HUP
 test_status=0

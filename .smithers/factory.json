@@ -184,6 +184,72 @@
       }
     },
     {
+      "id": "checks/affected-lint",
+      "description": "Lint every target the Change's written files affect; a known red does not fail it.",
+      "summary": null,
+      "featured": false,
+      "kind": "mdx",
+      "path": "flows/checks/affected-lint/flow.mdx",
+      "capabilities": [
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [
+        "coding/CommandCheck"
+      ]
+    },
+    {
+      "id": "checks/affected-test",
+      "description": "Test every target the Change's written files affect; a known red does not fail it.",
+      "summary": null,
+      "featured": false,
+      "kind": "mdx",
+      "path": "flows/checks/affected-test/flow.mdx",
+      "capabilities": [
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [
+        "coding/CommandCheck"
+      ]
+    },
+    {
       "id": "checks/bundle",
       "description": "Run the existing //flows:codingBundle acceptance target.",
       "summary": null,
@@ -191,7 +257,8 @@
       "kind": "mdx",
       "path": "flows/checks/bundle/flow.mdx",
       "capabilities": [
-        "*"
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
       ],
       "model": null,
       "modelInvocable": true,
@@ -223,7 +290,8 @@
       "kind": "mdx",
       "path": "flows/checks/bundle-bun/flow.mdx",
       "capabilities": [
-        "*"
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
       ],
       "model": null,
       "modelInvocable": true,
@@ -255,7 +323,7 @@
       "kind": "mdx",
       "path": "flows/checks/lint/flow.mdx",
       "capabilities": [
-        "*"
+        "fs:read:**"
       ],
       "model": null,
       "modelInvocable": true,
@@ -287,7 +355,8 @@
       "kind": "mdx",
       "path": "flows/checks/native/flow.mdx",
       "capabilities": [
-        "*"
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
       ],
       "model": null,
       "modelInvocable": true,
@@ -319,7 +388,8 @@
       "kind": "mdx",
       "path": "flows/checks/native-bun/flow.mdx",
       "capabilities": [
-        "*"
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
       ],
       "model": null,
       "modelInvocable": true,
@@ -351,7 +421,8 @@
       "kind": "mdx",
       "path": "flows/checks/policy/flow.mdx",
       "capabilities": [
-        "*"
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
       ],
       "model": null,
       "modelInvocable": true,
@@ -383,7 +454,8 @@
       "kind": "mdx",
       "path": "flows/checks/runtime/flow.mdx",
       "capabilities": [
-        "*"
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
       ],
       "model": null,
       "modelInvocable": true,

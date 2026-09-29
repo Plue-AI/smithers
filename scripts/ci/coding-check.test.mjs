@@ -6,7 +6,7 @@ import { join, resolve } from "node:path"
 import { test } from "node:test"
 
 const script = resolve(import.meta.dirname, "coding-check.sh")
-const fixture = (mode) => {
+const fixture = (mode, args = ["//flows:codingNative"], env = {}) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "coding-bootstrap-")))
   writeFileSync(join(root, "bun"), `#!/bin/sh
 echo "$*" >> "$FIXTURE/install.log"
@@ -23,16 +23,16 @@ case "$MODE:$1" in
   testfail:packages/*) exit 7 ;;
 esac
 `, { mode: 0o755 })
-  const result = spawnSync("sh", [script, "//flows:codingNative"], {
+  const result = spawnSync("sh", [script, ...args], {
     cwd: root, encoding: "utf8", timeout: 15_000,
     env: { ...process.env, PATH: `${root}:${process.env.PATH}`, FIXTURE: root, MODE: mode,
       SMITHERS_CHECK_INSTALL_TIMEOUT: "1s", BUN_INSTALL_CACHE_DIR: join(tmpdir(), "persistent-bun-cache"),
-      SMITHERS_CHECK_CACHE_DIR: join(root, "check-cache") }
+      SMITHERS_CHECK_CACHE_DIR: join(root, "check-cache"), ...env }
   })
-  const attempts = readFileSync(join(root, "install.log"), "utf8").trim().split("\n")
+  const attempts = existsSync(join(root, "install.log")) ? readFileSync(join(root, "install.log"), "utf8").trim().split("\n") : []
   const calls = existsSync(join(root, "node.log")) ? readFileSync(join(root, "node.log"), "utf8").trim().split("\n") : []
   const checked = calls.find(call => call.startsWith("packages/")) ?? null
-  const caches = readFileSync(join(root, "cache.log"), "utf8").trim().split("\n")
+  const caches = existsSync(join(root, "cache.log")) ? readFileSync(join(root, "cache.log"), "utf8").trim().split("\n") : []
   rmSync(root, { recursive: true, force: true })
   assert.equal(result.error, undefined)
   assert.ok(attempts.every(args => args === "install --frozen-lockfile"))
@@ -93,4 +93,47 @@ esac
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test("an affected check passes each written path as one literal argument, judged by the known-red list", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "coding-affected-")))
+  try {
+    writeFileSync(join(root, "bun"), "#!/bin/sh\nexit 0\n", { mode: 0o755 })
+    writeFileSync(join(root, "node"), `#!/bin/sh
+case "$1" in packages/*) printf '%s\\n' "$@" > "$FIXTURE/argv.log" ;; esac
+`, { mode: 0o755 })
+    // Files that a glob would match: a written path must never expand to them.
+    writeFileSync(join(root, "i.tsx"), "")
+    writeFileSync(join(root, "d.tsx"), "")
+    const result = spawnSync("sh", [script, "affected", "lint", "//..."], {
+      cwd: root, encoding: "utf8", timeout: 15_000,
+      env: { ...process.env, PATH: `${root}:${process.env.PATH}`, FIXTURE: root,
+        SMITHERS_CHECK_CACHE_DIR: join(root, "check-cache"),
+        SMITHERS_CHECK_FILES: "flows/coding/todo.ts\ndocs/a file.md\n[id].tsx\n*.tsx" }
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(readFileSync(join(root, "argv.log"), "utf8").trim().split("\n"), [
+      "packages/smithers/build/build-cli/src/main.js", "affected", "lint", "//...",
+      "--known-red", ".github/ci-known-red.json",
+      "--files", "flows/coding/todo.ts", "--files", "docs/a file.md", "--files", "[id].tsx", "--files", "*.tsx"
+    ])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("an affected check of a Change that wrote nothing passes without installing or running anything", () => {
+  const { result, attempts, calls } = fixture("ok", ["affected", "test", "//..."], { SMITHERS_CHECK_FILES: "" })
+  assert.equal(result.status, 0)
+  assert.match(result.stderr, /wrote no files/)
+  assert.deepEqual(attempts, [])
+  assert.deepEqual(calls, [])
+})
+
+test("an affected check without its check host's written paths refuses instead of passing", () => {
+  const { result, attempts, calls } = fixture("ok", ["affected", "test", "//..."])
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /needs SMITHERS_CHECK_FILES/)
+  assert.deepEqual(attempts, [])
+  assert.deepEqual(calls, [])
 })

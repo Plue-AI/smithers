@@ -43,6 +43,8 @@ const run = (effect) => Effect.runPromise(effect.pipe(Effect.provide(platform)))
  * and the `checks/*` bodies that pin a command for `coding/CommandCheck`.
  */
 const EXPECTED_FLOWS = [
+  "checks/affected-lint",
+  "checks/affected-test",
   "checks/bundle",
   "checks/bundle-bun",
   "checks/lint",

@@ -70,7 +70,13 @@ export const checkLayers = (options: CheckHostOptions) => {
             if (!contained(root, cwd, path)) {
               return yield* invalid("Check cwd resolves outside its immutable source export")
             }
-            const result = yield* runSourceProcess(options, command.argv, cwd, command.timeoutMs)
+            // The Change's written paths, one per line, so a check can select
+            // only the targets they affect (checks/affected-*).
+            if (implementation.writes.some((file) => file.includes("\n"))) {
+              return yield* invalid("A written path contains a line break; the check cannot name it")
+            }
+            const environment = { ...options.environment, SMITHERS_CHECK_FILES: implementation.writes.join("\n") }
+            const result = yield* runSourceProcess({ ...options, environment }, command.argv, cwd, command.timeoutMs)
             const passed = result.exitCode === 0
             return {
               checkId: check.id,

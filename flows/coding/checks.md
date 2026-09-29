@@ -127,3 +127,14 @@ each rule (the `check/rule` classifier, 0.8/0.2 thresholds). A decisive flag
 or an unsure answer fails the receipt with a finding; more than 256 questions
 or a diff over 1 MB fails without asking. An unreachable Jev fails the check;
 no other model answers in its place. See `flows/checks/lint/flow.mdx`.
+
+## Check only the affected targets
+
+The command receives the Change's written paths in `SMITHERS_CHECK_FILES`,
+one per line. `checks/affected-lint` (fast) and `checks/affected-test` (slow)
+pass them to `smthrs affected` through `scripts/ci/coding-check.sh affected
+<verb> <patterns>`, with `.github/ci-known-red.json` as the known-red list. A
+Change whose affected target is newly red fails its gate, so `FastGate` stops
+the next Change and correction feeds the failure back to the owning one. A
+target already on the known-red list is reported but does not fail the check.
+A Change that wrote nothing affects no target and passes.

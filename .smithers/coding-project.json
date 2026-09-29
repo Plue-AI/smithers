@@ -619,6 +619,20 @@
       "flow": "checks/lint",
       "tier": "fast",
       "required": false
+    },
+    {
+      "id": "affected-lint",
+      "target": ".",
+      "flow": "checks/affected-lint",
+      "tier": "fast",
+      "required": true
+    },
+    {
+      "id": "affected-test",
+      "target": ".",
+      "flow": "checks/affected-test",
+      "tier": "slow",
+      "required": true
     }
   ],
   "historyLimit": 100,

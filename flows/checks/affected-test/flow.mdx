@@ -1,0 +1,6 @@
+---
+description: Test every target the Change's written files affect; a known red does not fail it.
+flows: [coding/CommandCheck]
+capabilities: ["fs:read:**", "proc:spawn:sh scripts/ci/coding-check.sh *"]
+---
+{"argv":["sh","scripts/ci/coding-check.sh","affected","test","//..."],"cwd":".","timeoutMs":2700000}
