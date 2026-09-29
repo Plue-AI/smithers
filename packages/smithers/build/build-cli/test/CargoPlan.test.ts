@@ -253,7 +253,9 @@ describe.skipIf(!hasCargo)("cargo build-system planning", () => {
     expect(plugins.refusal).toBeUndefined()
     // The plan keeps the workspace-relative form so two checkouts of the same
     // tree key alike; the spawn substitutes the absolute root.
-    expect(plugins.argv?.[0]).toBe(`${PackageExec.workspaceRootToken}/target/debug/aomi-build`)
+    expect(plugins.argv?.[0]).toBe(
+      `${PackageExec.workspaceRootToken}/target/debug/aomi-build${process.platform === "win32" ? ".exe" : ""}`
+    )
     expect(plugins.argv?.slice(1)).toEqual(["compile"])
     expect(plugins.dependencies).toContain("//sdk:buildCli")
   })

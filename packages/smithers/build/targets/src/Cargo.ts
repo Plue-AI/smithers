@@ -473,8 +473,16 @@ export const packageArgs = (
 export const binaries = (attrs: unknown): ReadonlyArray<string> => {
   const values = (typeof attrs === "object" && attrs !== null ? attrs : {}) as Record<string, unknown>
   const profile = typeof values["profile"] === "string" ? values["profile"] : "dev"
-  const directory = profile === "dev" ? "debug" : profile
-  return optionalArray(values["bins"]).map((bin) => `target/${directory}/${bin}`)
+  const directory = profile === "dev" || profile === "test" ? "debug" : profile === "bench" ? "release" : profile
+  const target = typeof values["target"] === "string" ? values["target"] : undefined
+  const suffix = target === undefined
+    ? process.platform === "win32" ? ".exe" : ""
+    : /-windows(?:-|$)/.test(target)
+    ? ".exe"
+    : ""
+  return optionalArray(values["bins"]).map((bin) =>
+    `target/${target === undefined ? "" : `${target}/`}${directory}/${bin}${suffix}`
+  )
 }
 
 /**

@@ -265,6 +265,14 @@ refuses with an opt-in diagnostic instead of silently adding the fault suite.
 - [Filegroup](./reference/filegroup.md) and
   [Agent.Diff](./reference/agent-diff.md), two rules documented in full.
 
+## Cargo tool edges
+
+`Cargo.Build({ bins: ["tool"] })` can supply the `bin` of a `Shell.Run` target.
+The executable is under `target/debug/` by default. An explicit Cargo `target`
+places it under `target/<target>/debug/`; `profile: "release"` uses `release/`,
+`profile: "test"` also uses `debug/`, `profile: "bench"` uses `release/`, other
+profile names use their own directory, and Windows targets add `.exe`.
+
 ## Shell selector migration
 
 Shell text is declared with `Shell.Test({ shell: "node --version" })`. For direct

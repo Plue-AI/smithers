@@ -109,6 +109,22 @@ describe("a build target as a tool edge", () => {
 })
 
 describe("Cargo.Build", () => {
+  it.each([
+    [{ bins: ["tool"] }, [`target/debug/tool${process.platform === "win32" ? ".exe" : ""}`]],
+    [{ bins: ["tool"], target: "aarch64-apple-darwin" }, ["target/aarch64-apple-darwin/debug/tool"]],
+    [{ bins: ["tool"], target: "x86_64-pc-windows-msvc", profile: "release" }, [
+      "target/x86_64-pc-windows-msvc/release/tool.exe"
+    ]],
+    [{ bins: ["tool"], target: "aarch64-apple-darwin", profile: "fast" }, ["target/aarch64-apple-darwin/fast/tool"]],
+    [{ bins: ["tool"], target: "aarch64-apple-darwin", profile: "test" }, ["target/aarch64-apple-darwin/debug/tool"]],
+    [{ bins: ["tool"], target: "aarch64-apple-darwin", profile: "bench" }, [
+      "target/aarch64-apple-darwin/release/tool"
+    ]],
+    [{ bins: [] }, []]
+  ])("resolves built binaries for %o", (attrs, expected) => {
+    expect(Cargo.binaries(attrs)).toEqual(expected)
+  })
+
   it("renders the workspace form with the resolution flags the declaration asks for", () => {
     const build = Cargo.Build({ workspace: true, locked: true, offline: true, data: [] })
     expect(args(build)).toEqual(["build", "--workspace", "--locked", "--offline"])
@@ -147,7 +163,9 @@ describe("Cargo.Build", () => {
     ])
     // A named bin under the default profile is a known path, which is what
     // lets another target take this one as a tool edge.
-    expect(Cargo.binaries(attrsOf(buildCli))).toEqual(["target/debug/aomi-build"])
+    expect(Cargo.binaries(attrsOf(buildCli))).toEqual([
+      `target/debug/aomi-build${process.platform === "win32" ? ".exe" : ""}`
+    ])
   })
 
   it("renders a crate-set member against its own manifest", () => {
@@ -174,7 +192,7 @@ describe("Cargo.Build", () => {
     expect(args(Cargo.Build({ workspace: true, profile: "bench", data: [] })))
       .toEqual(["build", "--workspace", "--profile", "bench"])
     expect(Cargo.binaries(attrsOf(Cargo.Build({ package: "a", bins: ["x"], profile: "release", data: [] }))))
-      .toEqual(["target/release/x"])
+      .toEqual([`target/release/x${process.platform === "win32" ? ".exe" : ""}`])
   })
 
   it("refuses a declaration that names no crate selector, or more than one", () => {
