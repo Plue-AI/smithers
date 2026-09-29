@@ -130,6 +130,22 @@ step runs. Map those events onto `TurnFrame` from `@smthrs/create-app/ui`, and
 the browser gets `delta`, `cell`, `call`, `card`, `card.update`, `park`,
 `done`, and `error` in the shape the shell already decodes.
 
+The default chat page displays `done.output.answer` as the completed answer.
+Model `delta` frames can contain executable cell source; they are not the
+flow's decoded answer. Keep execution details separate from that answer and
+retain cards when the terminal output arrives.
+
+The package's browser regression runs the shipped page against the real Worker
+host and QuickJS with a recorded model. From `packages/smithers/create-app`:
+
+```sh
+pnpm exec playwright install chromium
+pnpm run test:browser
+```
+
+Set `SMITHERS_CHROME_PATH` to use an existing Chrome executable instead.
+Run this browser check separately from the default unit suite.
+
 Cards are the other half of that stream. The `ui` binding a host composes into
 `TOOLS.ts` needs a card sink, and a real host binds one per turn so `ui/pane`
 writes into the response rather than into a module-level array. See

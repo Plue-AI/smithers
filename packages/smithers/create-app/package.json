@@ -200,6 +200,7 @@
     "check": "tsc -b tsconfig.json && tsc -p tsconfig.test.json --noEmit",
     "circular": "node scripts/circular.mjs",
     "test": "vitest",
+    "test:browser": "tsx --tsconfig tsconfig.test.json --test test/defaultPage.browser.ts",
     "coverage": "vitest --coverage"
   },
   "dependencies": {
@@ -264,7 +265,9 @@
     "eslint-plugin-jsdoc": "64.3.4",
     "eslint-plugin-unicorn": "65.0.0",
     "madge": "8.0.0",
+    "playwright": "1.62.1",
     "react": "19.2.8",
+    "react-dom": "19.2.8",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
     "typescript-eslint": "8.69.0",

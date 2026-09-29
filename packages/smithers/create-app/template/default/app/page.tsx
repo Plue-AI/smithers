@@ -3,7 +3,7 @@
  * be `/settings`. Nothing registers a page but its location.
  *
  * The composer posts to `/api/turn` and reads the `TurnFrame` NDJSON stream
- * back: `delta` text becomes the answer, each `card` renders through the pane
+ * back: `done.output.answer` is the final answer, each `card` renders through the pane
  * registry, and an `error` frame or a refused request shows as one line.
  *
  * A deployed Worker refuses a turn without `APP_API_TOKEN`. Open the app once
@@ -26,8 +26,13 @@ const empty: Turn = { text: "", cards: [] }
 
 const apply = (turn: Turn, frame: TurnFrame): Turn => {
   switch (frame.type) {
-    case "delta":
-      return { ...turn, text: turn.text + frame.text }
+    case "done": {
+      const output = frame.output
+      const answer = typeof output === "object" && output !== null && "answer" in output
+        ? output.answer
+        : undefined
+      return { ...turn, text: typeof answer === "string" ? answer : "" }
+    }
     case "card":
       return { ...turn, cards: [...turn.cards, frame.card] }
     case "card.update":
