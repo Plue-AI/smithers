@@ -227,11 +227,13 @@ const codingRuntime = Smithers.NodeTest({
   cwd,
   cache: true
 })
-// Agent memory: calibration, the transcript miner and the wrapped-harness
-// launch, each over `@smthrs/agent/Memory`.
+// Agent memory: the dependency-doc import, calibration, the transcript miner
+// and the wrapped-harness launch, each over `@smthrs/agent/Memory`.
 const memory = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
+    Smithers.file("//flows/test/memory-deps.test.ts"),
+    Smithers.file("//flows/test/coding-wiki-import-docs.test.ts"),
     Smithers.file("//flows/test/memory-calibrate.test.ts"),
     Smithers.file("//flows/test/memory-mine.test.ts"),
     Smithers.file("//flows/test/wrapped.test.ts")

@@ -76,5 +76,8 @@ export const Workspace = S.Workspace("smithers", {
   // Gitignored caches with no CACHEDIR.TAG: run evidence, the Go module
   // cache, the pnpm store, and scratch. Discovery is ignore-blind, so each one
   // costs its full size on every `smthrs` verb until it is named here.
-  discovery: { prune: [".artifacts", ".backend-go-modcache", ".pnpm-store", "tmp"] }
+  discovery: { prune: [".artifacts", ".backend-go-modcache", ".pnpm-store", "tmp"] },
+  // Dependency documentation a wiki refresh imports for agent memory, pinned
+  // by the installed version.
+  docs: { effect: S.Docs.Package("effect", { files: ["README.md"] }) }
 })

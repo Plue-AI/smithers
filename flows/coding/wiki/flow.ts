@@ -5,13 +5,14 @@ import { Schema } from "effect"
 import { RefreshWiki } from "../planning-wiki.ts"
 import { CodingError } from "../schema.ts"
 import { admitStackBase } from "../stack.ts"
-import { ReadPublishedWiki, WikiRefreshInput, WikiRefreshResult } from "../wiki-refresh.ts"
+import { ImportDocs, ReadPublishedWiki, WikiRefreshInput, WikiRefreshResult } from "../wiki-refresh.ts"
 
 /**
  * The stack service runs this on the repository's wiki workspace after every
- * fold: it stands on the folded tip, refreshes the verified wiki the project
- * declares (reusing every unchanged page's last review), and answers the
- * pages the service publishes.
+ * fold: it stands on the folded tip, imports the dependency documentation the
+ * workspace declares, refreshes the verified wiki the project declares
+ * (reusing every unchanged page's last review), and answers the pages the
+ * service publishes.
  */
 export default Flow.make("coding/Wiki", {
   description:
@@ -23,6 +24,7 @@ export default Flow.make("coding/Wiki", {
   error: Schema.Union([CodingError, RefreshWiki.errorSchema]),
   body: (input) =>
     admitStackBase(input.base).pipe(
+      Node.andThen(ImportDocs.call({})),
       Node.andThen(RefreshWiki.child({ pool: input.prior ?? null })),
       Node.bindPlanned((refreshed) => ReadPublishedWiki.call({ base: input.base, refreshed }))
     )

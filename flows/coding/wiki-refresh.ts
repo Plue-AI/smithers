@@ -46,6 +46,18 @@ export const WikiRefreshResult = Schema.Struct({
 })
 export type WikiRefreshResult = typeof WikiRefreshResult.Type
 
+/**
+ * Imports the dependency documentation the workspace declares into
+ * `.flows/wiki/deps`, pinned, before the pages refresh; `memory` reads it
+ * there as dependency pages.
+ */
+export const ImportDocs = Action.make("coding/import-dependency-docs", {
+  payload: {},
+  success: Schema.Array(Schema.Struct({ name: Schema.String, files: Schema.Array(Schema.String), pin: Schema.String })),
+  error: WikiError,
+  nondeterministic: true
+})
+
 /** Reads the verified snapshot the refresh just installed, through its owning checker. */
 export const ReadPublishedWiki = Action.make("coding/read-published-wiki", {
   payload: { base: StackBase, refreshed: Refreshed },
