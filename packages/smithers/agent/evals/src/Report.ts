@@ -198,6 +198,15 @@ export const markdown = (report: RegressionReport): string => {
     `- Missing observations: ${report.missing.length}`,
     `- Inconclusive observations: ${report.inconclusive.length}`,
     `- Failed cases: ${report.run.cases.filter((result) => result.error !== undefined).length}`,
+    ...(report.run.trials === undefined ? [] : [
+      `- pass@1: ${report.run.trials.passAt1.toFixed(6)}`,
+      `- pass@${report.run.k ?? 1}: ${report.run.trials.passAtK.toFixed(6)}`,
+      `- pass^${report.run.k ?? 1}: ${report.run.trials.passHatK.toFixed(6)}`,
+      `- stderr: ${
+        (Object.values(report.run.trials.perCase).reduce((sum, item) => sum + item.stderr, 0) / report.run.trials.cases)
+          .toFixed(6)
+      }`
+    ]),
     "",
     ...section(
       "Regressions",

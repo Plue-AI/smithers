@@ -49,6 +49,8 @@ export const createEvalCli = (runtime: RuntimeConfig = {}) =>
         ...localOptions,
         runId: z.string().optional().describe("Explicit run identity; defaults to a UUID"),
         at: z.string().datetime().optional().describe("Explicit observation timestamp for reproducible runs"),
+        trials: z.coerce.number().int().min(1).max(1000).optional().describe("Runs per case (default: 1)"),
+        k: z.coerce.number().int().min(1).optional().describe("Number of samples for pass@k (default: 1)"),
         output: z.string().optional().describe("Additional output JSON path; refuses overwriting existing files")
       }),
       async run(context) {
@@ -61,7 +63,9 @@ export const createEvalCli = (runtime: RuntimeConfig = {}) =>
           const loaded = await Evaluation.load(root, context.args.suite, runtime)
           result = await Evaluation.execute(loaded.suite, loaded.executor, {
             runId,
-            at: context.options.at ?? new Date().toISOString()
+            at: context.options.at ?? new Date().toISOString(),
+            ...(context.options.trials === undefined ? {} : { trials: context.options.trials }),
+            ...(context.options.k === undefined ? {} : { k: context.options.k })
           }, runtime)
           runtime.signal?.throwIfAborted()
           const source = `${JSON.stringify(result, null, 2)}\n`
@@ -82,7 +86,17 @@ export const createEvalCli = (runtime: RuntimeConfig = {}) =>
             message: `Evaluation is inconclusive; results saved to ${file}`
           })
         }
-        return Presentation.finish(context, { file, ...result }, { next })
+        return Presentation.finish(context, {
+          file,
+          ...result,
+          ...(result.trials === undefined ? {} : {
+            summary: `pass@1=${result.trials.passAt1}; pass@${result.k ?? 1}=${result.trials.passAtK}; pass^${
+              result.k ?? 1
+            }=${result.trials.passHatK}; stderr=${
+              Object.values(result.trials.perCase).reduce((sum, item) => sum + item.stderr, 0) / result.trials.cases
+            }`
+          })
+        }, { next })
       }
     })
     .command("baseline", {

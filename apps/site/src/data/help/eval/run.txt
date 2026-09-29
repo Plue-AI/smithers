@@ -10,6 +10,8 @@ Options:
   --remote <string>  Not supported: evaluations execute local modules
   --run-id <string>  Explicit run identity; defaults to a UUID
   --at <string>      Explicit observation timestamp for reproducible runs
+  --trials <number>  Runs per case (default: 1)
+  --k <number>       Number of samples for pass@k (default: 1)
   --output <string>  Additional output JSON path; refuses overwriting existing files
 
 Custom Global Options:

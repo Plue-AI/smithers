@@ -1,6 +1,7 @@
 import { CaseExecutor, Suite } from "@smthrs/evals"
 import { Effect } from "effect"
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -61,6 +62,35 @@ const result = async (score: number): Promise<Evaluation.RunArtifact> => {
 }
 
 describe("evaluation CLI", () => {
+  it("CLI runs three trials and reports pass@k", async () => {
+    const root = await fixture()
+    await mkdir(join(root, "evals"))
+    const base = process.cwd()
+    const effectPath = createRequire(import.meta.url).resolve("effect/Effect")
+    await writeFile(
+      join(root, "evals", "trials.eval.ts"),
+      [
+        `import * as Effect from "${effectPath}"`,
+        `import * as Flow from "${base}/packages/smithers/flows/core/src/Flow.ts"`,
+        `import * as Scorer from "${base}/packages/smithers/agent/scorers/src/Scorer.ts"`,
+        `import * as Binding from "${base}/packages/smithers/agent/scorers/src/Binding.ts"`,
+        `import * as CaseExecutor from "${base}/packages/smithers/agent/evals/src/CaseExecutor.ts"`,
+        "const target = Flow.make({ name: 'trial-target' })",
+        "const scorer = Scorer.make({ id: 'cli/trials', version: '1', name: 'trial', score: ({ output }) => Effect.succeed({ score: output }) })",
+        "export const suite = { name: 'trials', concurrency: 1, cases: [{ name: 'one', input: 1 }], bindings: [Binding.make({ scorer, appliesTo: target })] }",
+        "let calls = 0",
+        "export const executor = CaseExecutor.make(() => Effect.sync(() => ({ output: ++calls % 3 === 0 ? 0 : 1, stepKey: 'step', latencyMs: 0, target })))"
+      ].join("\n")
+    )
+    const run = await serve(root, ["run", "trials", "--trials", "3", "--k", "2"])
+    expect(run.code, run.output).toBe(0)
+    expect(run.output).toContain("pass@1")
+    expect(run.output).toContain("pass@2")
+    const saved = JSON.parse(await readFile(Evaluation.runPath(root, run.json.runId), "utf8"))
+    expect(saved.cases[0].trials).toMatchObject({ n: 3, passes: 2, passAtK: 1 })
+    expect(saved.observations).toHaveLength(3)
+  })
+
   it("lists the repo\u0027s shipped fixed suites from its root", async () => {
     // The shipped suites live under the repository root's `evals/`; vitest
     // runs from `packages/smithers`, so the root is named from this file.

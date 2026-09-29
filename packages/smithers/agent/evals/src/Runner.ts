@@ -23,6 +23,7 @@ import { flattenControlCharacters } from "./internal/controlCharacters.ts"
 import { scorerLabel } from "./internal/scorerLabel.ts"
 import { tupleKey } from "./internal/tupleKey.ts"
 import type { Binding, Case, Suite } from "./Suite.ts"
+import * as Trials from "./Trials.ts"
 
 /**
  * One score observation emitted by a suite run.
@@ -143,6 +144,7 @@ export interface CaseResult {
   readonly execution?: Execution | undefined
   readonly error?: EvalError | undefined
   readonly observations: ReadonlyArray<Observation>
+  readonly trials?: Trials.Summary | undefined
 }
 
 /**
@@ -156,6 +158,8 @@ export interface RunResult {
   readonly suite: string
   readonly cases: ReadonlyArray<CaseResult>
   readonly observations: ReadonlyArray<Observation>
+  readonly trials?: Trials.Aggregate | undefined
+  readonly k?: number | undefined
 }
 
 /**
@@ -168,6 +172,8 @@ export interface RunOptions {
   readonly scorer?: ScoreBatchRunner | undefined
   readonly runId: string
   readonly sampleId?: string | undefined
+  readonly trials?: number | undefined
+  readonly k?: number | undefined
   readonly at: string
 }
 
@@ -673,19 +679,60 @@ export const run = (
         })
       )
     }
+    const n = options.trials ?? suite.trials ?? 1
+    const k = options.k ?? 1
+    if (!Number.isSafeInteger(n) || n < 1 || n > 1000 || !Number.isSafeInteger(k) || k < 1 || k > n) {
+      return yield* Effect.fail(
+        new EvalError({
+          code: "invalid_trials",
+          message: "trials must be an integer from 1 to 1000 and k must be an integer from 1 to trials",
+          path: "options.trials"
+        })
+      )
+    }
     const at = options.at
     const runId = options.runId
     const sampleId = options.sampleId ?? "default"
-    const cases = yield* Effect.forEach(suite.cases, (suiteCase) => runCase(executor, suiteCase), {
-      concurrency: suite.concurrency,
-      discard: false
+    // Await each batch before starting the next: concurrency within a trial is
+    // bounded by the suite, and neither scheduling nor scorer latency reorders trials.
+    const batches = yield* Effect.forEach(Array.from({ length: n }, (_, index) => index), (index) =>
+      Effect.gen(function*() {
+        const cases = yield* Effect.forEach(suite.cases, (suiteCase) =>
+          runCase(executor, suiteCase), {
+          concurrency: suite.concurrency,
+          discard: false
+        })
+        return yield* score(cases, suite, scorer, {
+          concurrency: suite.concurrency,
+          at,
+          runId,
+          sampleId: n === 1 ? sampleId : tupleKey(sampleId, String(index))
+        })
+      }), { concurrency: 1 })
+    const outcomes: Record<string, Array<boolean>> = {}
+    const cases = suite.cases.map((suiteCase, index) => {
+      const attempts = batches.map((batch) =>
+        batch[index]!
+      )
+      const passed = attempts.map((attempt) =>
+        attempt.error === undefined && attempt.observations.length > 0 &&
+        attempt.observations.every((observation) => observation.kind === "score" && observation.score === 1)
+      )
+      outcomes[suiteCase.name] = passed
+      return {
+        ...attempts[0]!,
+        error: attempts.find((attempt) => attempt.error !== undefined)?.error,
+        observations: attempts.flatMap((attempt) => attempt.observations),
+        trials: Trials.summarize(passed, k)
+      }
     })
-    const scored = yield* score(cases, suite, scorer, { concurrency: suite.concurrency, at, runId, sampleId })
     return {
       runId,
       suite: suite.name,
-      cases: scored,
-      observations: scored.flatMap((caseResult) => caseResult.observations)
+      cases,
+      observations: cases.flatMap((caseResult) => caseResult.observations),
+      trials: Trials.aggregate(outcomes, k),
+      k
     }
   }).pipe(Effect.withSpan("Eval.run", { attributes: { suite: suite.name, runId: options.runId } }))
 

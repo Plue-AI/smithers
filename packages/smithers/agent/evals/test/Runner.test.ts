@@ -49,6 +49,28 @@ const failureOf = (effect: Effect.Effect<unknown, EvalError, never>): Promise<Ev
   Effect.runPromise(Effect.flip(effect))
 
 describe("Runner", () => {
+  it("runs a case three times and reports pass@k", async () => {
+    const suite = await suiteOf("trials", [binding], [{ name: "one", input: 1, expected: 1 }])
+    let calls = 0
+    const executor = executorFor(() =>
+      Effect.sync(() => ({
+        output: ++calls % 3 === 0 ? 0 : 1,
+        stepKey: "step",
+        latencyMs: 0,
+        target
+      }))
+    )
+    const options = { ...runOptions, trials: 3, k: 2 }
+    const first = await Effect.runPromise(Runner.run(suite, options).pipe(Effect.provide(executor)))
+    expect(calls).toBe(3)
+    expect(first.observations).toHaveLength(3)
+    expect(first.cases[0]?.trials).toMatchObject({ n: 3, passes: 2, passAt1: 2 / 3, passAtK: 1 })
+    expect(first.trials).toMatchObject({ passAt1: 2 / 3, passAtK: 1 })
+    calls = 0
+    const second = await Effect.runPromise(Runner.run(suite, options).pipe(Effect.provide(executor)))
+    expect(JSON.stringify(first.observations)).toBe(JSON.stringify(second.observations))
+  })
+
   it("runs a suite under an Eval.run span and each case under an Eval.case span", async () => {
     const spans: Array<Tracer.NativeSpan> = []
     const tracer = Tracer.make({

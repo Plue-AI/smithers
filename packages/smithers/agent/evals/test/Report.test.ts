@@ -56,6 +56,26 @@ const report = (overrides: Partial<Regression.Report>) =>
   ).then((base) => ({ ...base, ...overrides }))
 
 describe("Report", () => {
+  it("prints pass@k and stderr in JSON and Markdown", async () => {
+    const base = await empty()
+    const trials = {
+      cases: 1,
+      passAt1: 2 / 3,
+      passAtK: 1,
+      passHatK: 1 / 3,
+      allPass: 0,
+      perCase: {
+        c: { n: 3, passes: 2, rate: 2 / 3, passAt1: 2 / 3, passAtK: 1, passHatK: 1 / 3, stderr: Math.sqrt(2 / 27) }
+      }
+    }
+    const result = { ...base, run: { ...base.run, trials, k: 2 } }
+    expect(Report.json(result)).toContain("\"passAtK\":1")
+    expect(Report.markdown(result)).toContain("- pass@1: 0.666667")
+    expect(Report.markdown(result)).toContain("- pass@2: 1.000000")
+    expect(Report.markdown(result)).toContain("- pass^2: 0.333333")
+    expect(Report.markdown(result)).toContain("- stderr: 0.272166")
+  })
+
   it("renders stable JSON and a summary-only Markdown report", async () => {
     const result = await empty()
     expect(Report.json(result)).toContain("\"suite\":\"s\"")

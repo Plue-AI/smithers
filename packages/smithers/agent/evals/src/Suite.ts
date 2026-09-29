@@ -57,6 +57,7 @@ export interface MakeOptions {
   readonly cases: ReadonlyArray<Case>
   readonly bindings?: ReadonlyArray<Binding> | undefined
   readonly concurrency: number
+  readonly trials?: number | undefined
 }
 
 /**
@@ -73,6 +74,7 @@ export interface Suite {
   readonly cases: ReadonlyArray<Case>
   readonly bindings: ReadonlyArray<Binding>
   readonly concurrency: number
+  readonly trials?: number | undefined
 }
 
 /**
@@ -144,6 +146,9 @@ const validate = (options: MakeOptions): EvalError | undefined => {
   const nameControl = controlCharacter(options.name)
   if (nameControl !== undefined) {
     return invalid(`Suite name must not contain the control character ${nameControl}`, "name")
+  }
+  if (!Number.isSafeInteger(options.trials ?? 1) || (options.trials ?? 1) < 1 || (options.trials ?? 1) > 1000) {
+    return invalid("Suite trials must be an integer from 1 to 1000", "trials")
   }
   if (options.cases.length === 0) return invalid("Suite must contain at least one case", "cases")
   if (options.cases.length > limits.cases) {
@@ -263,7 +268,8 @@ export const make = (options: MakeOptions): Effect.Effect<Suite, EvalError> =>
     const concurrency = options.concurrency
     const cases = [...options.cases].map(readCase)
     const bindings = [...(options.bindings ?? [])].map(readBinding)
-    const snapshot: MakeOptions = { name, concurrency, cases, bindings }
+    const trials = options.trials ?? 1
+    const snapshot: MakeOptions = { name, concurrency, cases, bindings, trials }
     const error = validate(snapshot)
     if (error !== undefined) return Effect.fail(error)
     return Effect.gen(function*() {
@@ -273,7 +279,8 @@ export const make = (options: MakeOptions): Effect.Effect<Suite, EvalError> =>
         name,
         cases: Object.freeze(copiedCases),
         bindings: Object.freeze(copiedBindings),
-        concurrency
+        concurrency,
+        trials
       })
     })
   })
@@ -288,6 +295,7 @@ export interface JsonLinesOptions {
   readonly name: string
   readonly bindings?: ReadonlyArray<Binding> | undefined
   readonly concurrency: number
+  readonly trials?: number | undefined
 }
 
 const jsonCase = Schema.Struct({

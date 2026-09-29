@@ -162,9 +162,38 @@ export const RunArtifact = z.object({
   cases: z.array(z.object({
     case: identity,
     error: z.object({ code: z.string(), message: z.string() }).optional(),
-    observations: z.array(observation)
+    observations: z.array(observation),
+    trials: z.object({
+      n: z.number(),
+      passes: z.number(),
+      rate: z.number(),
+      passAt1: z.number(),
+      passAtK: z.number(),
+      passHatK: z.number(),
+      stderr: z.number()
+    }).optional()
   })),
-  observations: z.array(observation)
+  observations: z.array(observation),
+  trials: z.object({
+    cases: z.number(),
+    passAt1: z.number(),
+    passAtK: z.number(),
+    passHatK: z.number(),
+    allPass: z.number(),
+    perCase: z.record(
+      z.string(),
+      z.object({
+        n: z.number(),
+        passes: z.number(),
+        rate: z.number(),
+        passAt1: z.number(),
+        passAtK: z.number(),
+        passHatK: z.number(),
+        stderr: z.number()
+      })
+    )
+  }).optional(),
+  k: z.number().optional()
 })
 /**
  * JSON-safe result of an evaluation run.
@@ -186,9 +215,11 @@ export const artifactOf = (run: Runner.RunResult): RunArtifact =>
     cases: run.cases.map((result) => ({
       case: result.case,
       ...(result.error === undefined ? {} : { error: { code: result.error.code, message: result.error.message } }),
-      observations: result.observations
+      observations: result.observations,
+      ...(result.trials === undefined ? {} : { trials: result.trials })
     })),
-    observations: run.observations
+    observations: run.observations,
+    ...(run.trials === undefined ? {} : { trials: run.trials, k: run.k })
   })
 
 /**
@@ -202,11 +233,13 @@ export const runOf = (artifact: RunArtifact): Runner.RunResult => ({
   cases: artifact.cases.map((result) => ({
     case: result.case,
     observations: result.observations,
+    ...(result.trials === undefined ? {} : { trials: result.trials }),
     ...(result.error === undefined ? {} : {
       error: new EvalError({ code: "executor", message: `${result.error.code}: ${result.error.message}` })
     })
   })),
-  observations: artifact.observations
+  observations: artifact.observations,
+  ...(artifact.trials === undefined ? {} : { trials: artifact.trials, k: artifact.k })
 })
 
 /**
@@ -263,7 +296,7 @@ export const writeJson = async (
 export const execute = async (
   suite: Suite.Suite,
   executor: CaseExecutor.Service,
-  options: { readonly runId: string; readonly at: string },
+  options: { readonly runId: string; readonly at: string; readonly trials?: number; readonly k?: number },
   runtime: RuntimeConfig = {}
 ): Promise<RunArtifact> =>
   artifactOf(
