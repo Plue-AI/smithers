@@ -1,0 +1,56 @@
+import { repository } from "./issues.ts"
+
+export interface BriefIssue {
+  readonly n: number
+  readonly title: string
+  readonly blocked?: boolean
+}
+
+export interface BriefOptions {
+  readonly repo: string
+  readonly lead: BriefIssue
+  readonly extras?: ReadonlyArray<BriefIssue>
+  readonly others?: ReadonlyArray<{ readonly repo: string; readonly n: number; readonly title: string }>
+  readonly workdir: string
+  readonly landing: {
+    readonly claimBy: string
+    readonly lockPath?: string
+  }
+}
+
+/** The worker prepares commits; only the merge queue can publish main. */
+export const brief = ({ repo, lead, extras = [], others = [], workdir, landing }: BriefOptions): string => {
+  const fullRepo = repository(repo)
+  const name = fullRepo.split("/").at(-1)!
+  const active = others.map((other) => `  - ${repository(other.repo)}#${other.n} (${other.title})`).join("\n")
+    || "  (none yet)"
+  const lock = landing.lockPath ?? "~/Smithers-Ops/dispatch/vcs_lock.py"
+  const decision = lead.blocked
+    ? "This issue carries blocked-on-will. Read why. If the blocker is a DECISION, make it now on Will's behalf: pick the simplest MVP option, state it in one strong sentence, record an issue comment starting `Decision (on Will's behalf):`, add a durable decision to AGENTS.md, remove blocked-on-will, and build it. Stop only for an action nobody but Will can perform (a credential, secret, payment, external account, DNS or signup); comment the exact steps and keep the label."
+    : "If the issue asks for a decision, make it on Will's behalf: choose the simplest MVP option, state it in one strong sentence, record an issue comment starting `Decision (on Will's behalf):`, persist durable decisions in AGENTS.md, then build it. Never hedge or hand the decision back."
+  const extra = extras.length === 0 ? "" : `
+EXTRA ISSUES IN THE SAME CODE: ${extras.map((issue) => `#${issue.n} (${issue.title})`).join(", ")}.
+Finish #${lead.n} first, then each extra in turn, one commit per issue. If an extra turns out hard, unrelated or blocked, comment why and release its claim with the exact --by value below; never let an extra delay or endanger the lead.`
+  return `YOU ARE ONE OF MANY AGENTS WORKING ON THIS REPOSITORY.
+WORKDIR: ${workdir}. Read its AGENTS.md and the nearest scoped AGENTS.md before touching files. No worktrees, no jj workspaces, no branches. Use jj only; git writes are disabled. Other agents may edit the checkout: preserve their hunks, re-read files before editing, and keep an rsync backup of your own paths.
+MODEL: Codex uses gpt-6.1-sol; Claude uses Opus. Any delegated coding or bug-fix agent uses GPT-6.1 Sol.
+Agents active at launch (also re-read ~/Smithers-Ops/dispatch/active.md):
+${active}
+
+TASK: resolve ${fullRepo}#${lead.n} (${lead.title}) end to end. Read the issue and all comments first: gh issue view ${lead.n} --repo ${fullRepo} --comments. Earlier comments claiming fixed are not proof: verify real behavior against current main. If a dependency blocks final completion, finish all independent implementation, tests and docs, then comment the dependency and precise remaining acceptance criteria. Stop without a change only when every useful step is blocked.
+${decision}${extra}
+
+CLAIMS: the launcher claimed every assigned issue as ${landing.claimBy}. Check ownership first: node ~/smithers/scripts/issue-claim.mjs check ${fullRepo}#${lead.n} --by ${landing.claimBy}. Run claim or release ONLY when the check output contains "mine":true. If the output contains "mine":false, do not mutate ownership even when the claim is expired; report the request to the launcher in durable notes and never force takeover. Refresh before six hours expire: node ~/smithers/scripts/issue-claim.mjs claim ${fullRepo}#${lead.n} --by ${landing.claimBy}. Release blocked, failed or skipped work: node ~/smithers/scripts/issue-claim.mjs release ${fullRepo}#${lead.n} --by ${landing.claimBy} --note "<reason>". Repeat the command for each assigned issue with its own number. Claim ownership includes the hostname: if your host differs from the launcher host, report the refresh or release request to the launcher in durable notes so the launcher performs it; never force or take over its claim. Do not take unassigned issues. READY transfers responsibility to the merge queue: keep those claims held until the queue lands or quarantines them. Release each blocked, failed or skipped issue separately with --note; never remove another owner's claim. Remove mega:in-progress when you exit for a non-ready issue.
+
+ENGINEERING: TDD vertical tracer bullet: write a failing behavior test through the public boundary, confirm it fails on current main, then implement the minimal fix. Zero tech debt: finish the migration, delete the old path, no shims, no second implementation. Product code belongs in smithers (backend = packages/backend), never Plue. Effect v4 4.0.0-rc.115 and the Smithers 1.0 flow API only: Flow.make, Action.make + toLayer, Node, Interpreter, Sandbox, AgentAction, @smthrs/patterns. Read package README/docs first. No JSX or 0.x APIs. Use product words in UI and docs. Edit package docs/, run pnpm docs:sync and pass pnpm docs:check. Run relevant tests, typecheck and lint in the FOREGROUND. For unrelated reds from another agent, retry once, prove the failing file is not yours, and retain that evidence.
+SCRATCH: use supplied TMPDIR and GOCACHE for disposable output. Keep patches, source, logs and review receipts in the workspace or ~/Smithers-Ops/dispatch/receipts. Do not override those paths with per-issue /tmp directories.
+COORDINATION: before editing, inspect ~/Smithers-Ops/dispatch/claims/ for path ownership; append each owned path to its claim file. Re-read shared files before each edit and preserve others' hunks. Verify your files against your rsync backup before committing.
+
+REVIEW: review critical/high, security or hard changes in the foreground with claude -p --model claude-fable-5-1, pinned via CLAUDE_CONFIG_DIR to a non-operator account. Never use will@codeplane.app, ~/.claude, ~/.smithers/accounts/claude-4 or claude-6. Verify the chosen account identity before invoking it. Require a final VERDICT line, retain the receipt, and fix findings. If Fable is out of quota, use Opus on an allowed account.
+
+VCS: the agent does NOT push main; the merge queue lands. Prepare one commit per issue on top of main@origin in ${workdir}. All jj writes for preparing the bundle run in one executable script through python3 ${lock} ${name} /absolute/path/to/preparation.sh. Inside the lock: jj st, verify your files and other agents' changes are intact, jj git fetch, jj commit <your issue paths only> -m "<emoji conventional message>". End each message with a blank line and Co-Authored-By: GPT-6.1 Sol <noreply@openai.com>. Rebase only your commits onto current main@origin if needed, preserving the bundle's commit order. Never jj new/abandon/restore/undo, jj rebase -s @, or jj squash without -u. Never rewrite main, set the main bookmark, force push or run jj git push. On a stale working copy use jj workspace update-stale under the same lock and re-verify your own paths. Report each resulting full commit id in issue order on a separate line:
+READY <commit-id>
+Do not report READY before tests and required review pass. Retain the issue-to-commit mapping with test evidence and review verdict in your notes.
+
+FINISH: comment on each issue with its prepared commit id, test evidence and review verdict. Do not close ready issues: only the merge queue closes after the commit is on origin main and verified. Never claim production is fixed without deploying and checking it. For blocked/failed work, release the claim with the precise remaining work. Final stdout: at most 6 lines, READY lines first, then blockers or notes.`
+}
