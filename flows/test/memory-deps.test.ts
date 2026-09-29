@@ -15,6 +15,7 @@ import {
   importDeclared,
   importDocs,
   installPages,
+  isDependencyPage,
   maxDocBytes,
   maxPageBytes,
   publishedPages,
@@ -287,6 +288,20 @@ test("imported Markdown publishes as ordinary pages that a lane writes back wher
     await readFile(join(lane, directory, "lib", "docs__api.md"), "utf8"),
     "<!-- @scope/lib@1.2.3 -->\n# API\n"
   )
+})
+
+test("a dependency page title names one Markdown file and never a control character or separator", () => {
+  const page = (title: string) => isDependencyPage({ id: "dep-x", title })
+  for (const title of ["deps/lib/README.md", "deps/lib/docs__api.MDX", "deps/lib/Ünïcode.md"]) {
+    assert.equal(page(title), true, title)
+  }
+  for (const code of [0x00, 0x09, 0x1f, 0x7f, 0x85]) {
+    assert.equal(page(`deps/lib/a${String.fromCharCode(code)}.md`), false, `U+${code.toString(16).padStart(4, "0")}`)
+  }
+  for (const title of ["deps/lib/a/b.md", "deps/lib/a\\b.md", "deps/lib/README.txt", "deps/-lib/README.md"]) {
+    assert.equal(page(title), false, title)
+  }
+  assert.equal(isDependencyPage({ id: "start-here", title: "deps/lib/README.md" }), false)
 })
 
 test("a lane refuses to write dependency pages through a linked .flows directory", async (t) => {

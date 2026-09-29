@@ -2148,6 +2148,9 @@ importers:
       '@smthrs/agent':
         specifier: workspace:*
         version: link:../packages/smithers/agent
+      '@smthrs/build-cli':
+        specifier: workspace:*
+        version: link:../packages/smithers/build/build-cli
       '@smthrs/capability':
         specifier: workspace:*
         version: link:../packages/smithers/flows/capability

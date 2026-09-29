@@ -8,12 +8,12 @@
  * lockfile installed, and a URL's bytes must hash to the declared SHA-256.
  * Each directory carries a `source.json` receipt naming the pin.
  */
+import * as PackageDiscovery from "@smthrs/build-cli/PackageDiscovery"
+import * as PackageLoader from "@smthrs/build-cli/PackageLoader"
 import { Fault } from "@smthrs/flow"
 import * as DependencyDocs from "@smthrs/targets/DependencyDocs"
 import { Effect, FileSystem, Path, Schema } from "effect"
 import { createHash } from "node:crypto"
-import * as PackageDiscovery from "../../packages/smithers/build/build-cli/src/PackageDiscovery.ts"
-import * as PackageLoader from "../../packages/smithers/build/build-cli/src/PackageLoader.ts"
 
 /** Where imported pages live, relative to the repository root. */
 export const directory = ".flows/wiki/deps"
@@ -288,7 +288,7 @@ export const importDeclared = (root: string, fetchBytes?: (url: string) => Promi
  * next refresh. The pages also show in the cloud wiki; a person's edit there
  * stays in the cloud wiki and never reaches a lane.
  */
-const pageTitle = /^deps\/([A-Za-z0-9][A-Za-z0-9._-]*)\/([^/\\\0-\x1f\x7f]+\.mdx?)$/i
+const pageTitle = /^deps\/([A-Za-z0-9][A-Za-z0-9._-]*)\/([^/\\\p{Cc}]+\.mdx?)$/iu
 /**
  * The most bytes all dependency pages together may take: a quarter of the
  * 64 KiB of wiki the stack hands a lane, so the repository's own pages keep

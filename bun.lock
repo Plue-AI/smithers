@@ -1040,6 +1040,12 @@
     "evals/recommend": {
       "name": "@smthrs/eval-recommend",
       "version": "0.0.0",
+      "dependencies": {
+        "@smthrs/core": "workspace:*",
+        "@smthrs/evals": "workspace:*",
+        "@smthrs/scorers": "workspace:*",
+        "effect": "4.0.0-rc.115",
+      },
       "devDependencies": {
         "@smthrs/targets": "workspace:*",
         "@types/node": "26.4.1",
@@ -1052,8 +1058,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@smthrs/agent": "workspace:*",
+        "@smthrs/core": "workspace:*",
+        "@smthrs/evals": "workspace:*",
         "@smthrs/model": "workspace:*",
         "@smthrs/review": "workspace:*",
+        "@smthrs/scorers": "workspace:*",
         "effect": "4.0.0-rc.115",
       },
       "devDependencies": {
@@ -1136,6 +1145,7 @@
         "@effect/platform-bun": "4.0.0-rc.115",
         "@effect/platform-node": "4.0.0-rc.115",
         "@smthrs/agent": "workspace:*",
+        "@smthrs/build-cli": "workspace:*",
         "@smthrs/capability": "workspace:*",
         "@smthrs/cli": "workspace:*",
         "@smthrs/control": "workspace:*",
@@ -1145,12 +1155,14 @@
         "@smthrs/flow": "workspace:*",
         "@smthrs/flows": "workspace:*",
         "@smthrs/gateway": "workspace:*",
+        "@smthrs/kernel": "workspace:*",
         "@smthrs/migrate": "workspace:*",
         "@smthrs/model": "workspace:*",
         "@smthrs/plan": "workspace:*",
         "@smthrs/platform-node": "workspace:*",
         "@smthrs/registry": "workspace:*",
         "@smthrs/run-store": "workspace:*",
+        "@smthrs/std": "workspace:*",
         "@smthrs/targets": "workspace:*",
         "effect": "4.0.0-rc.115",
         "microsandbox": "0.6.16",
@@ -2032,7 +2044,9 @@
         "eslint-plugin-jsdoc": "64.3.4",
         "eslint-plugin-unicorn": "65.0.0",
         "madge": "8.0.0",
+        "playwright": "1.62.1",
         "react": "19.2.8",
+        "react-dom": "19.2.8",
         "tsx": "4.23.13",
         "typescript": "5.9.3",
         "typescript-eslint": "8.69.0",
@@ -7032,6 +7046,8 @@
 
     "@smthrs/create-app/react": ["react@19.2.8", "", {}, "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="],
 
+    "@smthrs/create-app/react-dom": ["react-dom@19.2.8", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.8" } }, "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ=="],
+
     "@smthrs/migrate/typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
     "@smthrs/model-host/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
@@ -7417,6 +7433,8 @@
     "@smthrs/build-infra/typescript-eslint/@typescript-eslint/typescript-estree": ["@typescript-eslint/typescript-estree@8.65.0", "", { "dependencies": { "@typescript-eslint/project-service": "8.65.0", "@typescript-eslint/tsconfig-utils": "8.65.0", "@typescript-eslint/types": "8.65.0", "@typescript-eslint/visitor-keys": "8.65.0", "debug": "^4.4.3", "minimatch": "^10.2.2", "semver": "^7.7.3", "tinyglobby": "^0.2.15", "ts-api-utils": "^2.5.0" }, "peerDependencies": { "typescript": ">=4.8.4 <6.1.0" } }, "sha512-JboAE2swaYt4tb1fHhHTABE2K+OLy09XfcTbhnk4Pw96f9dd2e9iYsJ28gBggHlo5z5x1rkyWvcPoTuNTd4oGg=="],
 
     "@smthrs/build-infra/typescript-eslint/@typescript-eslint/utils": ["@typescript-eslint/utils@8.65.0", "", { "dependencies": { "@eslint-community/eslint-utils": "^4.9.1", "@typescript-eslint/scope-manager": "8.65.0", "@typescript-eslint/types": "8.65.0", "@typescript-eslint/typescript-estree": "8.65.0" }, "peerDependencies": { "eslint": "^8.57.0 || ^9.0.0 || ^10.0.0", "typescript": ">=4.8.4 <6.1.0" } }, "sha512-gXiwIHsYreboxeJucHKPvgwl7dXt50mF8s1/c00cP/WoVTyWKFdtfhRWwZiXYFU5H2O8vVoSLNrexFZjYS/SGA=="],
+
+    "@smthrs/create-app/react-dom/scheduler": ["scheduler@0.27.0", "", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
 
     "@smthrs/rpc/dprint/@dprint/android-arm64": ["@dprint/android-arm64@0.55.2", "", { "os": "android", "cpu": "arm64" }, "sha512-cywqM0E2h8lCA/b5BMFcuascaGuekm2lnyKb5hRH9juKbsqKeR8A7qf2p3nVWRQ8cM7djOnQwhy8ecQ3qd6j9A=="],
 
