@@ -1,3 +1,3 @@
 export const runs = [
-  "runs.seat", "runs.signal",
+  "runs.release", "runs.seat", "runs.signal", "runs.takeover",
 ] as const

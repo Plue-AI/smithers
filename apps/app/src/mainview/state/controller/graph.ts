@@ -20,8 +20,7 @@ import type { CommandResult } from "../../flows/Flows"
 import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
 import { actorSharedState } from "../ActorBindings"
-import { gatewayRunContextFor } from "../RepoContext"
-import { runCardInScope } from "../RunReference"
+import { runCardOf } from "../RepoContext"
 import { TOAST_SUPERSEDED } from "./failures"
 
 type RunTraceCard = Extract<Card, { kind: "run-trace" }>
@@ -186,21 +185,7 @@ export const createGraphController = (
     }).catch(() => { /* The shared toast reports persistence failures. */ })
   }
 
-  /*
-   * The run's own card. A `sourceCard` names the card the act was raised
-   * from, so it must be that run's card and not another's; without one the
-   * recorded gateway scope must be unambiguous before choosing its lowest-id
-   * view, just as other run references resolve it.
-   */
-  const runCardFor = (runId: string, sourceCard?: string): RunTraceCard | { readonly error: string } | undefined => {
-    if (sourceCard !== undefined) {
-      const source = store.collections.cards.get(sourceCard)
-      return source?.kind === "run-trace" && source.payload.runId === runId ? source : undefined
-    }
-    const scope = gatewayRunContextFor(store, runId)
-    if (scope === undefined || "error" in scope) return scope
-    return runCardInScope(store, { ...scope, runId })
-  }
+  const runCardFor = (runId: string, sourceCard?: string) => runCardOf(store, runId, sourceCard)
 
   /** Every node id this run's graph can draw: the plan's own, and the journal's. */
   const runNodeIds = (card: RunTraceCard): ReadonlySet<string> => {

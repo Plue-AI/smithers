@@ -80,6 +80,7 @@ import { createPresentationController } from "./controller/presentation"
 import type { RecommenderConfig } from "./controller/recommend"
 import { createRecommendController } from "./controller/recommend"
 import { createRepositoryUpdate } from "./controller/repositoryUpdate"
+import { createTakeoverController, type TakeoverController } from "./controller/takeover"
 import { createGraphController,type GraphController } from "./controller/graph"
 import { createRunsController,type RunsController } from "./controller/runs"
 import type { SidebarController } from "./controller/sidebar"
@@ -322,6 +323,8 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly traceView: RunsController["traceView"]
   readonly graphFollow: RunsController["graphFollow"]
   readonly graphExecution: RunsController["graphExecution"]
+  readonly takeOverRun: TakeoverController["takeOver"]
+  readonly releaseRun: TakeoverController["release"]
   /* The node drawer both graph cards open (see controller/graph.ts). */
   readonly selectGraphNode: GraphController["selectGraphNode"]
   readonly graphNodeTab: GraphController["graphNodeTab"]
@@ -1202,6 +1205,8 @@ export const createAppController = (
   const { listTriggers, registerTrigger } = triggersSeam
   const runs = actors.pair(ctx, (context, select) => createRunsController(context, store.nextOrdinal, select(workflowController), select(renderFlowForm)))
   const graph = actors.pair(ctx, (context, select) => createGraphController(context, select(filesSeam.readFile)))
+  const takeover = actors.pair(ctx, (context, select) =>
+    createTakeoverController(context, { openTerminal: select(workspaceSeam.openTerminal), input: cloudTerminal.input }))
   const {
     subscribeToAgent,
     send,
@@ -1726,6 +1731,8 @@ export const createAppController = (
     traceView: runs.traceView,
     graphFollow: runs.graphFollow,
     graphExecution: runs.graphExecution,
+    takeOverRun: takeover.takeOver,
+    releaseRun: takeover.release,
     selectGraphNode: graph.selectGraphNode,
     graphNodeTab: graph.graphNodeTab,
     selectPlanNode: graph.selectPlanNode,

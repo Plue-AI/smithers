@@ -251,6 +251,8 @@ export const FLOW_NAMES = [
   "runs.events",
   "runs.graph.follow",
   "runs.graph.execution",
+  "runs.takeover",
+  "runs.release",
   "runs.graph.select",
   "runs.graph.tab",
   "runs.handoff",

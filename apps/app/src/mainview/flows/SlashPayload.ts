@@ -606,6 +606,18 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (rest.length > 0) return no("runs.graph.follow takes a run id and on or off")
     return ok({ runId, follow })
   },
+  "runs.takeover": (args) => {
+    const [runId, ...rest] = tokensOf(args)
+    if (runId === undefined) return no("runs.takeover needs a run id")
+    if (rest.length > 0) return no("runs.takeover takes one run id")
+    return ok({ runId })
+  },
+  "runs.release": (args) => {
+    const [runId, ...rest] = tokensOf(args)
+    if (runId === undefined) return no("runs.release needs a run id")
+    if (rest.length > 0) return no("runs.release takes one run id")
+    return ok({ runId })
+  },
   "runs.graph.execution": (args) => {
     const [runId, executionId, ...rest] = tokensOf(args)
     if (runId === undefined) return no("runs.graph.execution needs a run id")

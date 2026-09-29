@@ -248,6 +248,27 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, executionId, sourceCard }) => actions.graphExecution(runId, executionId, sourceCard)
   }),
   flow({
+    /* Launching a person into a run's harness is consequential: the agent's door confirms (THE THREE-DOOR LAW). */
+    name: "runs.takeover",
+    summary: "Take over a run from its box's terminal, on its harness session when it has one",
+    runtime: ["cloud", "cloud.terminal"],
+    confirm: "take over the run in its box's terminal",
+    args: "[sourceCard=id] <runId>",
+    requires: ["signed-in"],
+    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String }),
+    handler: ({ runId, sourceCard }) => actions.takeOverRun(runId, sourceCard)
+  }),
+  flow({
+    name: "runs.release",
+    summary: "Hand a taken-over run back; it carries on by itself",
+    runtime: ["cloud", "cloud.terminal"],
+    confirm: "exit the harness a person is driving in the box's terminal",
+    args: "[sourceCard=id] <runId>",
+    requires: ["signed-in"],
+    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String }),
+    handler: ({ runId, sourceCard }) => actions.releaseRun(runId, sourceCard)
+  }),
+  flow({
     name: "runs.trace.live",
     summary: "Return a run's trace to its latest recorded turn",
     runtimeAny: ["cloud"],

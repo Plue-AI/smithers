@@ -29,6 +29,8 @@ export interface FlowInput {
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
   readonly "runs.graph.follow": { readonly runId: string; readonly follow: boolean }
   readonly "runs.graph.execution": { readonly runId: string; readonly executionId?: string }
+  readonly "runs.takeover": { readonly runId: string }
+  readonly "runs.release": { readonly runId: string }
   readonly "runs.coding.select": { readonly runId: string; readonly changeId: string }
   readonly "signup.set": { readonly field: string; readonly value: string }
   readonly "wiki.cloud": { readonly repo: string; readonly page: number; readonly space?: "public" | "private" }
@@ -205,6 +207,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
   "runs.graph.follow": payload => line(token(payload, "runId"), payload.follow ? "on" : "off"),
   "runs.graph.execution": payload => line(token(payload, "runId"), token(payload, "executionId")),
+  "runs.takeover": payload => line(token(payload, "runId")),
+  "runs.release": payload => line(token(payload, "runId")),
   "runs.coding.select": payload => line(token(payload, "runId"), token(payload, "changeId")),
   "signup.set": payload => `${payload.field} ${payload.value}`,
   "wiki.cloud": payload => line(token(payload, "repo"), token(payload, "page"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),

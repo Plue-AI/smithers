@@ -17,7 +17,7 @@ export interface CloudTerminalAttachment {
 export interface CloudTerminalClient {
   /** Subscribe to one workspace session's output; the returned function detaches. */
   readonly attach: (repo: string, sessionId: string, attachment: CloudTerminalAttachment) => () => void
-  /** Text the user typed, forwarded to the session's stdin as a binary frame. */
+  /** Text typed into the session's stdin as a binary frame; typed before any view attaches, it waits for the attach. */
   readonly input: (sessionId: string, data: string) => void
   /** A resize control frame; sent before the socket opens it waits with the keystrokes. */
   readonly resize: (sessionId: string, cols: number, rows: number) => void
@@ -59,6 +59,8 @@ export interface CloudTerminalClientOptions {
 
 /** Frames queued per session before its socket opens. */
 const MAX_PENDING = 256
+/** How long keystrokes typed before any view attached wait for one: a terminal view loads in seconds. */
+const EARLY_INPUT_MS = 30_000
 
 /**
  * A frame written before the socket opened. Its kind survives the wait: stdin
@@ -248,14 +250,19 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
     conn.socket = opened
     sockets.add(opened)
     let openedAt: number | undefined
+    /* The keystrokes this socket flushed on open: a shell that never came up never read them. */
+    let flushed: Array<PendingFrame> = []
     opened.onopen = () => {
       if (conn.socket !== opened) return
       openedAt = Date.now()
       for (const frame of conn.pending) {
         opened.send(frame.kind === "input" ? new TextEncoder().encode(frame.data) : frame.frame)
       }
+      flushed = conn.pending.filter((frame) => frame.kind === "input")
       conn.pending.length = 0
     }
+    /* The two redials a shell that was never up earns hand its flushed keystrokes to the next socket. */
+    const requeue = () => { conn.pending.unshift(...flushed); flushed = [] }
     opened.onmessage = (event: MessageEvent) => {
       // Text frames carry transport control, while terminal bytes are binary.
       // Never paint the replay handshake into the user's shell output.
@@ -282,6 +289,7 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
       }
       if (event.code === 1011 && !conn.retriedAttach) {
         conn.retriedAttach = true
+        requeue()
         scheduleReconnect(sessionId, entry)
         return
       }
@@ -299,6 +307,7 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
         && !conn.retriedEarlyExit
       ) {
         conn.retriedEarlyExit = true
+        requeue()
         scheduleReconnect(sessionId, entry)
         return
       }
@@ -327,16 +336,28 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
     })()
   }
 
+  /*
+   * Keystrokes a program typed for a session no view has attached yet (a
+   * take-over types its resume line the moment the box terminal opens, while
+   * the terminal view is still loading). They wait here and lead the session's
+   * queue once it attaches, instead of being dropped.
+   */
+  const early = new Map<string, { readonly at: number; readonly frames: Array<{ readonly kind: "input"; readonly data: string }> }>()
+
   const attach: CloudTerminalClient["attach"] = (repo, sessionId, attachment) => {
     let entry = connections.get(sessionId)
     if (entry === undefined) {
+      /* Keystrokes older than the wait for a view to load are not typed into whatever runs there now. */
+      const held = early.get(sessionId)
+      const waiting = held !== undefined && Date.now() - held.at <= EARLY_INPUT_MS ? held.frames : []
+      early.delete(sessionId)
       entry = {
         repo,
         conn: {
           socket: undefined,
           opening: undefined,
           listeners: new Set(),
-          pending: [],
+          pending: [...waiting],
           reconnect: undefined,
           attempts: 0,
           retriedAttach: false,
@@ -373,7 +394,15 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
 
   const input: CloudTerminalClient["input"] = (sessionId, data) => {
     const entry = connections.get(sessionId)
-    if (entry === undefined) return
+    if (entry === undefined) {
+      const now = Date.now()
+      for (const [id, held] of early) if (now - held.at > EARLY_INPUT_MS) early.delete(id)
+      const held = early.get(sessionId)
+      if (!disposed && (held?.frames.length ?? 0) < MAX_PENDING) {
+        early.set(sessionId, { at: held?.at ?? now, frames: [...held?.frames ?? [], { kind: "input", data }] })
+      }
+      return
+    }
     const socket = entry.conn.socket
     if (socket !== undefined && socket.readyState === WebSocket.OPEN) {
       socket.send(new TextEncoder().encode(data))
@@ -406,6 +435,7 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
 
   const dispose = (): void => {
     disposed = true
+    early.clear()
     for (const entry of connections.values()) {
       if (entry.conn.reconnect !== undefined) clearTimeout(entry.conn.reconnect)
       entry.conn.opening?.abort()

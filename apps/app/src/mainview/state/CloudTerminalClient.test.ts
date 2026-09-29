@@ -188,6 +188,20 @@ test("keystrokes sent before the socket opens flush on open", async () => {
   terminal.dispose()
 })
 
+test("keystrokes typed before any view attaches wait for the attach, then lead the session's queue", async () => {
+  const server = serve()
+  const terminal = client(server)
+  // A take-over types its resume line while the terminal view is still loading.
+  terminal.input("sess-1", "claude --resume sess-7\r")
+  await Bun.sleep(20)
+  expect(server.seen).toHaveLength(0)
+  terminal.attach("will/smithers", "sess-1", { onOutput: () => {} })
+  terminal.input("sess-1", "ls\r")
+  await until(() => server.seen.length >= 2)
+  expect(server.seen.map((frame) => text(frame))).toEqual(["claude --resume sess-7\r", "ls\r"])
+  terminal.dispose()
+})
+
 test("UTF-8 characters survive arbitrary binary frame boundaries", async () => {
   const server = serve()
   const terminal = client(server)
@@ -340,6 +354,18 @@ test("1011 retries once, then is final", async () => {
   expect(output[0]).toContain("failed to attach terminal")
   await Bun.sleep(120)
   expect(server.protocols.length).toBe(2)
+  terminal.dispose()
+})
+
+test("keystrokes flushed into a socket that 1011s right after the upgrade reach the redialed one", async () => {
+  let opens = 0
+  const server = serve({ onOpen: (socket) => { opens += 1; if (opens === 1) setTimeout(() => socket.close(1011, "failed to attach terminal"), 20) } })
+  const terminal = client(server, 10)
+  terminal.input("sess-1", "claude --resume sess-7\r")
+  terminal.attach("will/smithers", "sess-1", { onOutput: () => {} })
+  // The first socket read the line before it closed; the second, whose shell is up, reads it again.
+  await until(() => opens === 2 && server.seen.length >= 2)
+  expect(server.seen.map((frame) => text(frame))).toEqual(["claude --resume sess-7\r", "claude --resume sess-7\r"])
   terminal.dispose()
 })
 

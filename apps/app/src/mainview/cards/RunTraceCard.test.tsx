@@ -1179,3 +1179,18 @@ describe("the run card's token meter", () => {
     expect(host.querySelector("[data-testid='run-meter-run-1']")).toBeNull()
   })
 })
+
+describe("the run card's take over", () => {
+  test("a live run on a box offers Take over; taken over, the same place offers Release", () => {
+    const box = "3f2b8c1e-8a7d-4b2a-9c3e-1d2f3a4b5c6d"
+    const header = (payload: Record<string, unknown>) => renderRun({ phase: "running", workspaceId: box, ...payload } as never).host
+      .querySelector("[data-testid='run-outcome-run-1']")!
+    const take = header({}).querySelector("[data-testid='flow-run-takeover-run-1']")!
+    expect(take.textContent).toBe("Take over")
+    expect(take.getAttribute("data-flow")).toBe("runs.takeover")
+    const release = header({ takeover: { terminalSessionId: "t-1" } }).querySelector("[data-testid='flow-run-release-run-1']")!
+    expect(release.textContent).toBe("Release")
+    expect(release.getAttribute("data-flow")).toBe("runs.release")
+    expect(renderRun({ phase: "completed", workspaceId: box } as never).host.querySelector("[data-testid^='flow-run-takeover']")).toBeNull()
+  })
+})

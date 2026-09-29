@@ -10,7 +10,8 @@ import { parseRepoSelection } from "./AppState"
 import type { CloudRepository, CloudWorkspaceRow } from "./AppState"
 import type { AppStore } from "./AppStore"
 import { repositoryJobWorkspace } from "./RepositoryJobs"
-import { cardContainsRun, runScopeFromCard, sameRunScope, type RunScope } from "./RunReference"
+import { cardContainsRun, runCardInScope, runScopeFromCard, sameRunScope, type RunScope } from "./RunReference"
+import type { Card } from "./AppState"
 
 /** The `owner/repo` shape; exported for the grammars that take a LEADING repo token (agent.session.new). */
 export { REPO_TOKEN } from "@smthrs/ui/command-line"
@@ -282,3 +283,20 @@ export const repositoryJobBinding = (store: AppStore, repo: string): GatewayBind
  */
 export const flowAuthoringBinding = (store: AppStore, repo: string): GatewayBinding =>
   selectedBoxBinding(store, repo) ?? repositoryJobBinding(store, repo)
+
+/**
+ * A run's own card. A `sourceCard` names the card the act was raised from, so
+ * it must be that run's card and not another's; without one the recorded
+ * gateway scope must be unambiguous before choosing its lowest-id view, just
+ * as other run references resolve it.
+ */
+export const runCardOf = (store: AppStore, runId: string, sourceCard?: string):
+  Extract<Card, { kind: "run-trace" }> | { readonly error: string } | undefined => {
+  if (sourceCard !== undefined) {
+    const source = store.collections.cards.get(sourceCard)
+    return source?.kind === "run-trace" && source.payload.runId === runId ? source : undefined
+  }
+  const scope = gatewayRunContextFor(store, runId)
+  if (scope === undefined || "error" in scope) return scope
+  return runCardInScope(store, { ...scope, runId })
+}

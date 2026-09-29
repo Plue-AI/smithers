@@ -1175,6 +1175,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         execution: z.string().optional(),
         ...GraphDrawerSchema.shape
       }).optional(),
+      /** A person is driving the run from its box's terminal session (runs.takeover); Release clears it. */
+      takeover: z.object({ terminalSessionId: z.string() }).optional(),
       /** The predicted Change inspected within the recorded coding plan. */
       codingChangeId: z.string().optional(),
       /** Local launch intent, retained until the authoring run's real receipt arrives. */
