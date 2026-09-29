@@ -70,6 +70,15 @@ for (const failure of [false, true]) {
         )
       )
       const replay = await Effect.runPromise(RecordedModel.make(fixture))
+      let modelCalls = 0
+      let releaseModel = () => {}
+      const modelGate = new Promise<void>((resolve) => {
+        releaseModel = resolve
+      })
+      let modelStarted = () => {}
+      const started = new Promise<void>((resolve) => {
+        modelStarted = resolve
+      })
       const model = makeModel({
         stream: (request) =>
           failure
@@ -80,10 +89,15 @@ for (const failure of [false, true]) {
               ]),
               Stream.fail(new ModelError({ code: "authentication", message: "Controlled model failure" }))
             )
-            : replay.model.stream(request).pipe(
-              Stream.mapError(replayModelError),
-              Stream.map((event): ModelEvent.ModelEvent => event)
-            )
+            : Stream.unwrap(Effect.promise(async () => {
+              modelCalls++
+              modelStarted()
+              await modelGate
+              return replay.model.stream(request).pipe(
+                Stream.mapError(replayModelError),
+                Stream.map((event): ModelEvent.ModelEvent => event)
+              )
+            }))
       })
       const seats = {
         resolve: () => Effect.succeed({ model, route: { prepare: () => Effect.succeed(preparedRequest) } })
@@ -116,6 +130,7 @@ for (const failure of [false, true]) {
         server: { middlewareMode: true, hmr: false, ws: false }
       })
       let frames: ReadonlyArray<TurnFrame> = []
+      let requests = 0
       let releaseTerminal = () => {}
       const terminalGate = new Promise<void>((resolve) => {
         releaseTerminal = resolve
@@ -125,6 +140,7 @@ for (const failure of [false, true]) {
           vite.middlewares(request, response)
           return
         }
+        requests++
         try {
           const chunks: Array<Uint8Array> = []
           for await (const chunk of request) chunks.push(chunk)
@@ -154,6 +170,7 @@ for (const failure of [false, true]) {
       })
       let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
       cleanup = async () => {
+        releaseModel()
         releaseTerminal()
         await browser?.close()
         server.closeAllConnections()
@@ -176,6 +193,14 @@ for (const failure of [false, true]) {
       await page.locator(".composer-input").fill("What does durable execution buy me?")
       await page.locator(".composer-send").click()
       if (!failure) {
+        await started
+        assert.equal(await page.locator(".composer-send").isDisabled(), true)
+        await page.locator(".composer-input").press("Enter")
+        await page.locator(".composer-input").press("Enter")
+        await page.waitForTimeout(200)
+        assert.equal(requests, 1)
+        assert.equal(modelCalls, 1)
+        releaseModel()
         await page.locator(".pane-heading").waitFor()
         assert.equal(await page.locator(".answer-text").count(), 0)
         releaseTerminal()
@@ -188,6 +213,10 @@ for (const failure of [false, true]) {
         assert.ok(terminal?.type === "error")
         assert.equal(await page.locator(".answer-error").textContent(), terminal.message)
         assert.equal(await page.locator(".answer-text").count(), 0)
+        const retried = page.waitForResponse((response) => response.url().endsWith("/api/turn"))
+        await page.locator(".composer-input").press("Enter")
+        await retried
+        assert.equal(requests, 2)
       } else {
         assert.deepEqual(frames.at(-1), {
           type: "done",

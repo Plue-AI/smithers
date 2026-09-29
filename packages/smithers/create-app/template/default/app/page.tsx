@@ -14,7 +14,7 @@
  * module imports this page, so a top-level import would close a cycle.
  */
 import type { AppCard, PaneRegistry, TurnFrame } from "@smthrs/create-app/ui"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useRef, useState } from "react"
 
 interface Turn {
   readonly text: string
@@ -83,9 +83,11 @@ export default function Page() {
   const [turn, setTurn] = useState<Turn | undefined>(undefined)
   const [panes, setPanes] = useState<PaneRegistry>({})
   const [pending, setPending] = useState(false)
+  const busy = useRef(false)
 
   const send = async () => {
-    if (message.trim() === "") return
+    if (busy.current || message.trim() === "") return
+    busy.current = true
     setPending(true)
     setTurn(empty)
     try {
@@ -115,6 +117,7 @@ export default function Page() {
     } catch (cause) {
       setTurn({ ...empty, error: cause instanceof Error ? cause.message : String(cause) })
     } finally {
+      busy.current = false
       setPending(false)
     }
   }
