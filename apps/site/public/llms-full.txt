@@ -17108,6 +17108,7 @@ interface RuntimeConfig {
   readonly cliDescription?: string | undefined
   readonly cacheUrl?: string | undefined
   readonly cacheToken?: string | undefined
+  readonly cacheSteps?: ReturnType<typeof Cli.create> | undefined
   readonly signal?: AbortSignal | undefined
   readonly environment?: Readonly<Record<string, string | undefined>> | undefined
   readonly stdout?: Reporter.Terminal | undefined
@@ -17128,6 +17129,7 @@ This block is the one copy; the other pages link here.
 | `cliDescription` | The one-line description help output leads with.                                                                              |
 | `cacheUrl`       | `SMITHERS_CACHE_URL`, already captured by the caller.                                                                         |
 | `cacheToken`     | `SMITHERS_CACHE_TOKEN`, already captured by the caller.                                                                       |
+| `cacheSteps`     | Nothing by default. An Incur CLI mounted under `cache`, so `cache steps` runs the unified CLI's durable step-cache commands.  |
 | `signal`         | The interruption source. Aborting it aborts every running target.                                                             |
 | `environment`    | `process.env`, read for agent-fake selection, `PATH` lookups, and preconditions.                                              |
 | `stdout`         | `process.stdout` as a `Reporter.Terminal`.                                                                                    |
@@ -17841,6 +17843,7 @@ than driving them directly.
 | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `Cli`                                                                                                                      | `makeCli`, `cli`, `normalizeArgv`, `RuntimeConfig`.                                          |
 | `Positionals`                                                                                                              | `guard`, `surplus`, and `unconsumed`: every command refuses positionals it does not consume. |
+| `KnownRed`                                                                                                                 | The known-red list: `parse`, `read`, `judge`, `describe`, `fingerprint`, and `today`.        |
 | `effect-resolution`                                                                                                        | The single-instance Effect resolver the process entry installs.                              |
 | `CacheAdmin`                                                                                                               | Local action-cache inspection and retention: `directory`, `entries`, `inspect`, `remove`.    |
 | `OutputStream`                                                                                                             | Bounded, redacted live views of subprocess output.                                           |
