@@ -316,7 +316,7 @@ describe("the run graph's node drawer", () => {
   test("the tab enum refuses a word no tab answers to", async () => {
     const { store, controller } = await launched()
     expect(payloadFor("runs.graph.tab", `${RUN} frames`))
-      .toEqual({ error: "runs.graph.tab needs one of declaration, code, output, events, attempts" })
+      .toEqual({ error: "runs.graph.tab needs one of in, declaration, code, output, events, attempts" })
     expect((await controller.commands.run("runs.graph.tab", `${RUN} frames`)).status).toBe("form")
     expect(runCard(store)?.payload.graph).toBeUndefined()
     await controller.commands.run("runs.graph.select", `${RUN} gate`)
@@ -624,7 +624,7 @@ describe("the plan card's node drawer", () => {
     const { store, controller } = await planned()
     await controller.commands.run("flow.plan.select", `${PLAN_CARD} steady`)
     expect(payloadFor("flow.plan.tab", `${PLAN_CARD} frames`))
-      .toEqual({ error: "flow.plan.tab needs one of declaration, code, output, events, attempts" })
+      .toEqual({ error: "flow.plan.tab needs one of in, declaration, code, output, events, attempts" })
     expect((await controller.commands.run("flow.plan.tab", `${PLAN_CARD} frames`)).status).toBe("form")
     expect(planCard(store)?.payload.view?.tab).toBeUndefined()
   })

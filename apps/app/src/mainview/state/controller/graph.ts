@@ -37,7 +37,7 @@ export type GraphDrawerTab = NonNullable<NonNullable<FlowPlanCard["payload"]["vi
  * The enum is the vocabulary a flow accepts; whether a tab RENDERS is the
  * drawer's own question, answered by the evidence the node carries (D-035).
  */
-export const GRAPH_DRAWER_TABS = ["declaration", "code", "output", "events", "attempts"] as const satisfies ReadonlyArray<GraphDrawerTab>
+export const GRAPH_DRAWER_TABS = ["in", "declaration", "code", "output", "events", "attempts"] as const satisfies ReadonlyArray<GraphDrawerTab>
 
 /** Whether a word is one of the drawer's tabs. */
 export const isGraphDrawerTab = (value: string): value is GraphDrawerTab =>

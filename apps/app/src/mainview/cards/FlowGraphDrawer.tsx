@@ -27,6 +27,7 @@
  * itself belongs to the flow that opened the tab (state/controller/graph.ts),
  * so this component still reads nothing and holds nothing.
  */
+import { memoryWords, type RunInputs } from "./RunInputs"
 import { Suspense, useContext } from "react"
 import { CodeSurface } from "../ViewModules"
 import { ControllerContext } from "../ControllerContext"
@@ -47,10 +48,10 @@ import { durationWords } from "./RunTrace"
 import { drawerTabAct } from "./flowGraph/TabKeys"
 
 /** Which of a node's tabs the drawer is showing. */
-export type DrawerTab = "declaration" | "code" | "output" | "events" | "attempts"
+export type DrawerTab = "in" | "declaration" | "code" | "output" | "events" | "attempts"
 
 /** The tabs, in the order the strip lays them out. */
-const TAB_ORDER: ReadonlyArray<DrawerTab> = ["declaration", "code", "output", "events", "attempts"]
+const TAB_ORDER: ReadonlyArray<DrawerTab> = ["declaration", "in", "code", "output", "events", "attempts"]
 
 /** What one node declared it reads and writes, as the engine recorded it. */
 export interface DrawerEffects {
@@ -388,10 +389,12 @@ export const nodeJournal = (
 export const drawerTabs = (
   node: DrawerNode,
   journal: ReturnType<typeof nodeJournal>,
-  sourceRevision?: string | undefined
+  sourceRevision?: string | undefined,
+  inputs?: RunInputs | undefined
 ): ReadonlyArray<DrawerTab> =>
   TAB_ORDER.filter((tab) =>
-    tab === "declaration" ? true
+    tab === "in" ? inputs !== undefined && (inputs.memory !== undefined || inputs.runsOn !== undefined || inputs.secrets.length > 0)
+      : tab === "declaration" ? true
       : tab === "code" ? node.declaredAt !== undefined && sourceRevision !== undefined
       : tab === "output" ? node.result !== undefined
       : tab === "events" ? journal.events.length > 0
@@ -519,6 +522,7 @@ const DrawerCode = ({ file, line, onRunCommand }: {
 
 /** The tab word as the strip prints it: the engine's noun, capitalised once. */
 const TAB_LABEL: Readonly<Record<DrawerTab, string>> = {
+  in: "In",
   declaration: "Declaration",
   code: "Code",
   output: "Output",
@@ -532,6 +536,33 @@ const TAB_LABEL: Readonly<Record<DrawerTab, string>> = {
  */
 const byteWords = (bytes: number): string =>
   bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`
+
+/** The In tab: the memory the run was handed and what Jev withheld, where it ran, and the secret names its box can reach. */
+const InputsPanel = ({ inputs }: { readonly inputs: RunInputs }) => (
+  <div className="flow-graph-inputs">
+    {inputs.memory === undefined ? null : (
+      <>
+        <p className="flow-graph-inputs-head" data-testid="run-inputs-memory">{memoryWords(inputs.memory)}</p>
+        <ul className="flow-graph-inputs-list" aria-label="Memory">
+          {inputs.memory.kept.map((item) => (
+            <li key={`kept-${item.id}`} data-kept="true"><span aria-hidden>✓</span><span className="ghc-visually-hidden">in:</span> {item.id} <span className="flow-graph-inputs-p" title="relevance">{item.relevance.toFixed(2).replace(/^0/, "")}</span></li>
+          ))}
+          {inputs.memory.withheld.map((item) => (
+            <li key={`withheld-${item.id}`} data-kept="false"><span aria-hidden>–</span><span className="ghc-visually-hidden">withheld:</span> {item.id} <span className="flow-graph-inputs-p" title="relevance">{item.relevance.toFixed(2).replace(/^0/, "")}</span></li>
+          ))}
+        </ul>
+      </>
+    )}
+    {inputs.runsOn === undefined ? null : <p className="flow-graph-inputs-head" data-testid="run-inputs-where">runs on {inputs.runsOn}</p>}
+    {inputs.secrets.length === 0 ? null : (
+      <ul className="flow-graph-inputs-list" aria-label="Secrets">
+        {inputs.secrets.map((secret) => (
+          <li key={secret.name}><span aria-hidden>⚷</span> {secret.name}{secret.hosts.length === 0 ? null : <span className="flow-graph-inputs-p"> {secret.hosts.join(" ")}</span>}</li>
+        ))}
+      </ul>
+    )}
+  </div>
+)
 
 const Field = ({ name, children }: { readonly name: string; readonly children: React.ReactNode }) => (
   <>
@@ -555,8 +586,11 @@ export const FlowGraphDrawer = ({
   codeError,
   sourceRevision,
   records = EMPTY,
+  inputs,
   onRunCommand
 }: {
+  /** What went into the run this node belongs to (RunInputs.ts): the In tab. */
+  readonly inputs?: RunInputs | undefined
   readonly node: DrawerNode
   readonly tab?: DrawerTab | undefined
   readonly doors: DrawerDoors
@@ -584,7 +618,7 @@ export const FlowGraphDrawer = ({
   readonly onRunCommand: RunCommand
 }) => {
   const journal = nodeJournal(records, node)
-  const available = drawerTabs(node, journal, sourceRevision)
+  const available = drawerTabs(node, journal, sourceRevision, inputs)
   /* A tab this node cannot fill falls back to the one it always has, never to an empty panel. */
   const shown = tab !== undefined && available.includes(tab) ? tab : available[0]!
   const crumbs = node.id.split(".")
@@ -686,7 +720,7 @@ export const FlowGraphDrawer = ({
         aria-labelledby={`${strip}-tab-${shown}`}
         data-tab={shown}
       >
-        {shown === "declaration" ? (
+        {shown === "in" && inputs !== undefined ? <InputsPanel inputs={inputs} /> : shown === "declaration" ? (
           <>
             <dl className="flow-graph-declaration">
               <Field name="tier">{node.tier}</Field>

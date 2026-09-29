@@ -269,6 +269,27 @@ describe("the node the run's graph has open", () => {
     expect(host.querySelector(".flow-graph-code")).toBeNull()
   })
 
+  test("In states what went into the run: memory in and withheld, where it ran, the box's secret names; absent when nothing did", () => {
+    const node = runDrawerNode(recordedNode(STEADY), recordedRun(STEADY))
+    const inputs = {
+      memory: { kept: [{ id: "wiki/auth/sessions", kind: "memory", relevance: 0.82 }], withheld: [{ id: "wiki/billing", kind: "memory", relevance: 0.12 }] },
+      runsOn: "box-2",
+      secrets: [{ name: "DEPLOY_TOKEN", hosts: ["api.vercel.com"] }]
+    }
+    const host = render(<FlowGraphDrawer node={node} doors={DOORS} records={RECORDED.rows} inputs={inputs} onRunCommand={() => {}} />)
+    expect(tabs(host)).toEqual(["declaration", "in", "output", "events", "attempts"])
+    /* Declaration stays the node's default; In is one tab over. */
+    expect(host.querySelector(".flow-graph-drawer-body")?.getAttribute("data-tab")).toBe("declaration")
+    render(<FlowGraphDrawer node={node} tab="in" doors={DOORS} records={RECORDED.rows} inputs={inputs} onRunCommand={() => {}} />)
+    const opened = document.body.lastElementChild as HTMLElement
+    expect(opened.querySelector("[data-testid='run-inputs-memory']")?.textContent).toBe("memory · 1 in · 1 withheld")
+    expect([...opened.querySelectorAll("[aria-label='Memory'] li")].map((row) => row.textContent)).toEqual(["✓in: wiki/auth/sessions .82", "–withheld: wiki/billing .12"])
+    expect(opened.querySelector("[data-testid='run-inputs-where']")?.textContent).toBe("runs on box-2")
+    expect(opened.querySelector("[aria-label='Secrets']")?.textContent).toBe("⚷ DEPLOY_TOKEN api.vercel.com")
+    const none = render(<FlowGraphDrawer node={node} doors={DOORS} records={RECORDED.rows} inputs={{ secrets: [] }} onRunCommand={() => {}} />)
+    expect(tabs(none)).not.toContain("in")
+  })
+
   test("the events are the node's own records, in journal order", () => {
     const host = render(
       <FlowGraphDrawer

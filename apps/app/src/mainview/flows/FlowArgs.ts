@@ -82,8 +82,8 @@ export interface FlowInput {
 
   readonly "runs.graph.select": { readonly runId: string; readonly nodeId?: string }
   readonly "flow.plan.select": { readonly cardId: string; readonly nodeId?: string }
-  readonly "runs.graph.tab": { readonly runId: string; readonly tab: "declaration" | "code" | "output" | "events" | "attempts" }
-  readonly "flow.plan.tab": { readonly cardId: string; readonly tab: "declaration" | "code" | "output" | "events" | "attempts" }
+  readonly "runs.graph.tab": { readonly runId: string; readonly tab: "in" | "declaration" | "code" | "output" | "events" | "attempts" }
+  readonly "flow.plan.tab": { readonly cardId: string; readonly tab: "in" | "declaration" | "code" | "output" | "events" | "attempts" }
   readonly "issues.list": { readonly filter?: "open" | "closed" | "all"; readonly repo?: string; readonly kind?: "all" | "conversation" | "issue" }
   readonly "setup.configure": { readonly cardId: string; readonly field: string; readonly value: unknown }
   readonly "setup.view": { readonly cardId: string; readonly view: "flows" | "prompts" | "checks" | "evals" | "test" | "work"; readonly step?: string }

@@ -677,7 +677,7 @@ const PlanCardGraphSchema = z.object({
  * evidence this node has none of is absent rather than empty (D-035). The
  * enum is the vocabulary, never a promise that every node has all of it.
  */
-const GraphDrawerTabSchema = z.enum(["declaration", "code", "output", "events", "attempts"])
+const GraphDrawerTabSchema = z.enum(["in", "declaration", "code", "output", "events", "attempts"])
 
 /**
  * Which node of a graph a card has open, and which of its tabs.

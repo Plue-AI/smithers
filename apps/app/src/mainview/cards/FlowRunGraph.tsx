@@ -21,6 +21,7 @@ import type { RunCommand } from "./CardFamily"
 import type { JournalRecord } from "./RunTrace"
 import type { NodeRun, RunGraphEdge, RunGraphNode } from "./FlowGraphStatus"
 import { drawnGraphOf, runForestOf } from "./RunForest"
+import { runInputsOf } from "./RunInputs"
 import { useCardRows } from "../state/useCardRows"
 import type { CardProjectionAuthority } from "./CardFamily"
 
@@ -268,6 +269,7 @@ const RunGraphBody = ({
 }: FlowRunGraphProps & { readonly cards: ReadonlyArray<Card> }) => {
   const { runId, graph, repo, events } = card.payload
   const forest = useMemo(() => runForestOf(card, cards, view, view.executionId, view.defaultExecutionId), [card, cards, view])
+  const inputs = useMemo(() => runInputsOf(card, cards), [card, cards])
   const measured = useMemo(() => flowDurations.filter((row) => row.repo === repo && row.flowId === card.payload.workflow && row.workspaceId === card.payload.workspaceId), [flowDurations, repo, card.payload.workflow, card.payload.workspaceId])
   // The surface extends this last engine timestamp with a subscribed
   // monotonic clock while nodes run, even between journal pages.
@@ -325,6 +327,7 @@ const RunGraphBody = ({
           {...(observedAt === undefined ? {} : { observedAt })}
           {...(events === undefined ? {} : { records: events })}
           {...(view.executionId === undefined ? {} : { executionId: view.executionId })}
+          {...(view.executionId === view.defaultExecutionId ? { inputs } : {})}
           drill={drill}
         />
       </Suspense>

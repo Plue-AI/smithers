@@ -186,10 +186,10 @@ describe("the runs grammar", () => {
     })
     expect(payloadFor("runs.graph.tab", "run-1 code")).toEqual({ payload: { runId: "run-1", tab: "code" } })
     expect(payloadFor("runs.graph.tab", "run-1 frames")).toEqual({
-      error: "runs.graph.tab needs one of declaration, code, output, events, attempts"
+      error: "runs.graph.tab needs one of in, declaration, code, output, events, attempts"
     })
     expect(payloadFor("runs.graph.tab", "run-1")).toEqual({
-      error: "runs.graph.tab needs one of declaration, code, output, events, attempts"
+      error: "runs.graph.tab needs one of in, declaration, code, output, events, attempts"
     })
     expect(payloadFor("flow.plan.select", "flow-plan-1 gate")).toEqual({ payload: { cardId: "flow-plan-1", nodeId: "gate" } })
     expect(payloadFor("flow.plan.select", "flow-plan-1")).toEqual({ payload: { cardId: "flow-plan-1" } })
@@ -202,7 +202,7 @@ describe("the runs grammar", () => {
     })
     /* A word the drawer has no tab for is refused by name (the mock's `input` is not one the engine can fill). */
     expect(payloadFor("flow.plan.tab", "flow-plan-1 input")).toEqual({
-      error: "flow.plan.tab needs one of declaration, code, output, events, attempts"
+      error: "flow.plan.tab needs one of in, declaration, code, output, events, attempts"
     })
   })
 

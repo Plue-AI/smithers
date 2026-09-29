@@ -27,6 +27,7 @@ import { focusedNodeId, focusWalkedNode, graphNodeLabel, nodeButton, type GraphC
 import { durationWords, type JournalRecord } from "./RunTrace"
 import type { FlowDurationsRow } from "../state/AppState"
 import { FlowGraphDrawer, fileFor, graphKeyAct, runDrawerNode, type GraphDrill } from "./FlowGraphDrawer"
+import type { RunInputs } from "./RunInputs"
 import { stateWord, type NodeRun, type RunGraphEdge, type RunGraphNode } from "./FlowGraphStatus"
 
 /* The word lives with the fold it reads (FlowGraphStatus.ts); the canvas and the drawer print the same one. */
@@ -274,8 +275,11 @@ export const FlowRunGraphSurface = ({
   observedAt,
   records,
   executionId,
+  inputs,
   drill
 }: {
+  /** What went into the run, for the open node's In tab. */
+  readonly inputs?: RunInputs | undefined
   readonly nodes: ReadonlyArray<RunGraphNode>
   readonly edges: ReadonlyArray<RunGraphEdge>
   readonly status: ReadonlyMap<string, NodeRun>
@@ -317,6 +321,8 @@ export const FlowRunGraphSurface = ({
   const camera = useRef<GraphCamera | undefined>(undefined)
   if (laidOut.nodes.length === 0) return null
   const open = nodes.find((candidate) => candidate.id === selected)
+  /* What went into the run is the run's own fact: its In tab is on the node the run entered by, never on every node. */
+  const entered = open !== undefined && open.dependsOn.length === 0 && open.forest !== true
   const onKeyDown = drill === undefined ? undefined : (event: React.KeyboardEvent<HTMLDivElement>): void => {
     const focused = focusedNodeId(event.target)
     const act = graphKeyAct(event.key, {
@@ -348,9 +354,10 @@ export const FlowRunGraphSurface = ({
          * mounts, so keying the canvas by the node it is watching is what
          * moves it: a new running node mounts a canvas already framed on that
          * node. With no focus the key never changes, and a reader's own pan
-         * and zoom survive every poll.
+         * and zoom survive every poll. Opening another execution of the run
+         * forest is a new graph, so it mounts a canvas framed on its own nodes.
          */
-        key={focusId ?? "whole"}
+        key={`${executionId ?? ""}:${focusId ?? "whole"}`}
         nodes={[...drawn]}
         edges={[...laidOut.edges]}
         nodeTypes={nodeTypes}
@@ -384,6 +391,7 @@ export const FlowRunGraphSurface = ({
           : { file: fileFor(drill.files, drill.repo, open.declaredAt, drill.sourceRevision) })}
         {...(drill.codeError === undefined ? {} : { codeError: drill.codeError })}
         {...(records === undefined ? {} : { records })}
+        {...(inputs === undefined || !entered ? {} : { inputs })}
         onRunCommand={drill.onRunCommand}
       />
     )}
