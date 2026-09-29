@@ -208,9 +208,10 @@ func TestCronSchedulerWorker_PollOnce_ComputesNextFireAt(t *testing.T) {
 	require.Len(t, queries.updateFireTimesCalls, 1)
 	nextFire := queries.updateFireTimesCalls[0].NextFireAt
 
-	// Check it's basically midnight (ignoring exact day)
-	assert.Equal(t, 0, nextFire.Hour())
-	assert.Equal(t, 0, nextFire.Minute())
+	// Unprefixed schedules fire at UTC midnight even when NextFireAt has
+	// the host's local location.
+	assert.Equal(t, 0, nextFire.UTC().Hour())
+	assert.Equal(t, 0, nextFire.UTC().Minute())
 }
 
 func TestCronSchedulerWorker_PollOnce_ContextCancelled(t *testing.T) {
@@ -263,10 +264,11 @@ func TestCronSchedulerWorker_Start_PollsRepeatedlyAndStops(t *testing.T) {
 }
 
 func TestNextFireTime_Standard(t *testing.T) {
-	now := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
+	// A non-UTC host must still interpret an unprefixed cron in UTC.
+	now := time.Date(2023, 1, 1, 4, 0, 0, 0, time.FixedZone("UTC-8", -8*60*60))
 	next, err := nextFireTime("0 0 * * *", now)
 	require.NoError(t, err)
-	assert.Equal(t, time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC), next)
+	assert.Equal(t, time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC), next.UTC())
 }
 
 func TestNextFireTime_EveryFiveMinutes(t *testing.T) {
