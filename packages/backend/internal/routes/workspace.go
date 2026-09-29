@@ -52,6 +52,10 @@ type asyncWorkspaceCreator interface {
 	CreateWorkspaceAsync(ctx context.Context, input services.CreateWorkspaceInput) (services.WorkspaceResponse, error)
 }
 
+type workspaceLeaseRenewer interface {
+	RenewWorkspaceLease(ctx context.Context, workspaceID string, repositoryID, userID int64) (services.WorkspaceResponse, error)
+}
+
 type workspaceServiceLaunchRouteService interface {
 	LaunchWorkspaceService(ctx context.Context, workspaceID string, repositoryID, userID int64, input services.WorkspaceServiceLaunchInput) (services.WorkspaceManagedService, error)
 }
@@ -142,6 +146,9 @@ type createWorkspaceRequest struct {
 	SourceBookmark string                        `json:"source_bookmark,omitempty"`
 	Kind           string                        `json:"kind,omitempty"`
 	Environment    services.WorkspaceEnvironment `json:"environment,omitempty"`
+	// ClientLeaseSeconds leases the workspace to this client; renew it with
+	// POST .../workspaces/{id}/lease or the workspace is reclaimed (#2457).
+	ClientLeaseSeconds int32 `json:"client_lease_seconds,omitempty"`
 }
 
 type forkWorkspaceRequest struct {
@@ -369,15 +376,16 @@ func (h *WorkspaceHandler) CreateWorkspace(w http.ResponseWriter, r *http.Reques
 	}
 
 	input := services.CreateWorkspaceInput{
-		RepositoryID:   repoCtx.Repository.ID,
-		UserID:         user.ID,
-		RepoOwner:      repoCtx.Owner,
-		RepoName:       repoCtx.Repository.Name,
-		Name:           req.Name,
-		SnapshotID:     req.SnapshotID,
-		SourceBookmark: req.SourceBookmark,
-		Kind:           req.Kind,
-		Environment:    req.Environment,
+		RepositoryID:       repoCtx.Repository.ID,
+		UserID:             user.ID,
+		RepoOwner:          repoCtx.Owner,
+		RepoName:           repoCtx.Repository.Name,
+		Name:               req.Name,
+		SnapshotID:         req.SnapshotID,
+		SourceBookmark:     req.SourceBookmark,
+		Kind:               req.Kind,
+		Environment:        req.Environment,
+		ClientLeaseSeconds: req.ClientLeaseSeconds,
 	}
 	status := http.StatusCreated
 	var workspace services.WorkspaceResponse
@@ -639,6 +647,40 @@ func (h *WorkspaceHandler) SuspendWorkspace(w http.ResponseWriter, r *http.Reque
 	}
 
 	updated, svcErr := h.Service.SuspendWorkspace(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID)
+	if svcErr != nil {
+		writeRouteError(w, r, svcErr)
+		return
+	}
+
+	pkgerrors.WriteJSON(w, http.StatusOK, updated)
+}
+
+// RenewWorkspaceLease handles POST /api/repos/{owner}/{repo}/workspaces/{id}/lease.
+func (h *WorkspaceHandler) RenewWorkspaceLease(w http.ResponseWriter, r *http.Request) {
+	user, err := requireRouteUser(r)
+	if err != nil {
+		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
+		return
+	}
+
+	repoCtx := middleware.RepoContextFromContext(r.Context())
+	if repoCtx == nil || repoCtx.Repository == nil {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("repository context required"))
+		return
+	}
+
+	workspaceID, err := routeParam(r, "id", "workspace id is required")
+	if err != nil {
+		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
+		return
+	}
+
+	renewer, ok := h.Service.(workspaceLeaseRenewer)
+	if !ok {
+		pkgerrors.WriteError(w, pkgerrors.Internal("workspace lease renewal unavailable"))
+		return
+	}
+	updated, svcErr := renewer.RenewWorkspaceLease(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID)
 	if svcErr != nil {
 		writeRouteError(w, r, svcErr)
 		return

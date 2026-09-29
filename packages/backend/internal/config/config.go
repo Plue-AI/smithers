@@ -308,11 +308,15 @@ type SandboxConfig struct {
 	// spawn). 0 means UNLIMITED/disabled — the knob is opt-in and must be set
 	// explicitly (e.g. in Helm) to take effect, so the code default never changes
 	// prod behavior.
-	AgentMaxConcurrent   int32  `mapstructure:"agent_max_concurrent"`
-	WorkspaceIdleTimeout int64  `mapstructure:"workspace_idle_timeout"`
-	WorkspacePersistence string `mapstructure:"workspace_persistence"`
-	WorkspaceSSHHost     string `mapstructure:"workspace_ssh_host"`
-	WorkspaceSSHDialHost string `mapstructure:"workspace_ssh_dial_host"`
+	AgentMaxConcurrent   int32 `mapstructure:"agent_max_concurrent"`
+	WorkspaceIdleTimeout int64 `mapstructure:"workspace_idle_timeout"`
+	// WorkspaceLeaseDeleteAfter is how many seconds after a workspace's client
+	// lease lapses it is deleted; it is suspended at the lapse. 0 deletes at
+	// the lapse. Env: SMITHERS_SANDBOX_WORKSPACE_LEASE_DELETE_AFTER.
+	WorkspaceLeaseDeleteAfter int64  `mapstructure:"workspace_lease_delete_after"`
+	WorkspacePersistence      string `mapstructure:"workspace_persistence"`
+	WorkspaceSSHHost          string `mapstructure:"workspace_ssh_host"`
+	WorkspaceSSHDialHost      string `mapstructure:"workspace_ssh_dial_host"`
 
 	// Optional public model pin for workspace coding. Repository model settings
 	// and runtime credentials keep precedence; pool-only defaults resolve at host start.
@@ -497,6 +501,7 @@ func Load(configFile string) (*Config, error) {
 	// SMITHERS_SANDBOX_AGENT_MAX_CONCURRENT in Helm) is a deliberate change.
 	v.SetDefault("sandbox.agent_max_concurrent", 0)
 	v.SetDefault("sandbox.workspace_idle_timeout", 1800)
+	v.SetDefault("sandbox.workspace_lease_delete_after", 86400)
 	v.SetDefault("sandbox.workspace_persistence", "persistent")
 	v.SetDefault("sandbox.workspace_ssh_host", "ssh.smithers.sh")
 	v.SetDefault("ssh.addr", ":2222")
@@ -848,6 +853,7 @@ func Load(configFile string) (*Config, error) {
 		{"sandbox.desktop_observe_text", "SMITHERS_DESKTOP_OBSERVE_TEXT"},
 		{"sandbox.agent_max_concurrent", "SMITHERS_SANDBOX_AGENT_MAX_CONCURRENT"},
 		{"sandbox.workspace_idle_timeout", "SMITHERS_SANDBOX_WORKSPACE_IDLE_TIMEOUT"},
+		{"sandbox.workspace_lease_delete_after", "SMITHERS_SANDBOX_WORKSPACE_LEASE_DELETE_AFTER"},
 		{"sandbox.workspace_persistence", "SMITHERS_SANDBOX_WORKSPACE_PERSISTENCE"},
 	} {
 		_ = v.BindEnv(b[0], b[1])

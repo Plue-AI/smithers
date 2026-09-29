@@ -255,6 +255,9 @@ func validateCommonStartupWithRepository(cfg *Config, errs *[]string, requireRep
 	if cfg.Sandbox.WorkspaceIdleTimeout < 0 {
 		*errs = append(*errs, "sandbox.workspace_idle_timeout must be >= 0")
 	}
+	if cfg.Sandbox.WorkspaceLeaseDeleteAfter < 0 {
+		*errs = append(*errs, "sandbox.workspace_lease_delete_after must be >= 0")
+	}
 	if cfg.Sandbox.AgentMaxConcurrent < 0 {
 		*errs = append(*errs, "sandbox.agent_max_concurrent must be >= 0")
 	}

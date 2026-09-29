@@ -904,3 +904,29 @@ WHERE id = sqlc.arg(id)
   AND deleted_at IS NULL
   AND updated_at < NOW() - make_interval(secs => sqlc.arg(stale_after_secs)::int)
 RETURNING *;
+
+-- name: SetWorkspaceClientLease :one
+-- #2457: starts or clears a workspace's client lease. A NULL lease clears it.
+-- updated_at is left alone: stale-provision reapers read it.
+UPDATE workspaces
+SET client_lease_secs = sqlc.narg(lease_secs)::integer,
+    client_lease_expires_at = NOW() + make_interval(secs => sqlc.narg(lease_secs)::integer)
+WHERE id = sqlc.arg(id) AND deleted_at IS NULL
+RETURNING *;
+
+-- name: RenewWorkspaceClientLease :one
+-- #2457: extends a leased workspace by its own lease length.
+UPDATE workspaces
+SET client_lease_expires_at = NOW() + make_interval(secs => client_lease_secs)
+WHERE id = $1 AND deleted_at IS NULL AND client_lease_secs IS NOT NULL
+RETURNING *;
+
+-- name: ListLapsedLeaseWorkspaces :many
+-- #2457: workspaces whose client stopped renewing, oldest lapse first.
+-- Leaseless workspaces have a NULL expiry and never match.
+SELECT *
+FROM workspaces
+WHERE client_lease_expires_at < NOW()
+  AND deleted_at IS NULL
+ORDER BY client_lease_expires_at ASC
+LIMIT sqlc.arg(max_rows)::integer;

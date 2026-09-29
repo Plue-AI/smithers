@@ -236,11 +236,13 @@ type WorkspaceResponse struct {
 	LSP                WorkspaceLSP `json:"lsp"`
 	IdleTimeoutSeconds int32        `json:"idle_timeout_seconds"`
 	LastActivityAt     time.Time    `json:"last_activity_at"`
-	SuspendedAt        *time.Time   `json:"suspended_at"`
-	StartedAt          *time.Time   `json:"started_at"`
-	ResumedAt          *time.Time   `json:"resumed_at"`
-	CreatedAt          time.Time    `json:"created_at"`
-	UpdatedAt          time.Time    `json:"updated_at"`
+	// ClientLeaseExpiresAt is set only on a leased workspace (#2457).
+	ClientLeaseExpiresAt *time.Time `json:"client_lease_expires_at,omitempty"`
+	SuspendedAt          *time.Time `json:"suspended_at"`
+	StartedAt            *time.Time `json:"started_at"`
+	ResumedAt            *time.Time `json:"resumed_at"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 
 	// Present only when the exact immutable source pin was verified.
 	RetainedSource *WorkspaceRetainedSource `json:"retained_source,omitempty"`
@@ -432,6 +434,9 @@ type CreateWorkspaceInput struct {
 	SourceBookmark string
 	Kind           string
 	Environment    WorkspaceEnvironment
+	// ClientLeaseSeconds, when positive, leases the workspace to a client that
+	// renews it; a lapsed lease lets the abandon reaper reclaim it (#2457).
+	ClientLeaseSeconds int32
 }
 
 // CreateWorkspaceSessionInput is the input for creating a new workspace session.
@@ -614,6 +619,9 @@ type WorkspaceService struct {
 	// desktopObserveText allows the focused Chrome tab's document text into
 	// desktop observations. See WithWorkspaceDesktopObserveText.
 	desktopObserveText bool
+	// leaseDeleteAfter is how long after a client lease lapses the abandon
+	// reaper deletes the workspace. See WithWorkspaceLeaseDeleteAfter.
+	leaseDeleteAfter time.Duration
 }
 
 // WorkspaceServiceOption configures optional dependencies.
@@ -809,6 +817,7 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		desktopMemoryMB:              defaultWorkspaceDesktopMemoryMB,
 		desktopVCPUCount:             defaultWorkspaceDesktopVCPUCount,
 		desktopObserveText:           true,
+		leaseDeleteAfter:             defaultWorkspaceLeaseDeleteAfter,
 		runtimeLocks:                 &workspaceRuntimeLockRegistry{entries: make(map[string]*workspaceRuntimeLock)},
 	}
 	for _, opt := range opts {
@@ -1230,6 +1239,10 @@ func (s *WorkspaceService) toWorkspaceResponse(workspace db.Workspace) Workspace
 		CreatedAt:          workspace.CreatedAt,
 		UpdatedAt:          workspace.UpdatedAt,
 	}
+	if workspace.ClientLeaseExpiresAt.Valid {
+		expires := workspace.ClientLeaseExpiresAt.Time
+		resp.ClientLeaseExpiresAt = &expires
+	}
 	if s.runtime != nil {
 		resp.Isolation = s.runtime.Isolation()
 	} else if s.sandbox != nil {
@@ -1295,7 +1308,7 @@ func validateWorkspaceCreateMetadata(input CreateWorkspaceInput) error {
 	if (strings.TrimSpace(input.Environment.Revision) == "") != (strings.TrimSpace(input.Environment.ClosureHash) == "") {
 		return pkgerrors.BadRequest("environment revision and closure_hash must be provided together")
 	}
-	return nil
+	return validateWorkspaceClientLease(input.ClientLeaseSeconds)
 }
 
 func workspaceCreateParamsMetadata(input CreateWorkspaceInput) (string, WorkspaceEnvironment) {

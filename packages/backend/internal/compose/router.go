@@ -1567,6 +1567,7 @@ func buildRouter(
 					r.With(writeWorkspace...).Post("/workspaces/{id}/services/{name}/{action}", workspaceHandler.ManageWorkspaceService)
 					r.With(writeWorkspace...).Delete("/workspaces/{id}", workspaceHandler.DeleteWorkspace)
 					r.With(writeWorkspace...).Post("/workspaces/{id}/suspend", workspaceHandler.SuspendWorkspace)
+					r.With(writeWorkspace...).Post("/workspaces/{id}/lease", workspaceHandler.RenewWorkspaceLease)
 					if extras.UserRefs != nil {
 						r.With(writeWorkspace...).Post("/workspaces/{id}/user-source", extras.UserRefs.StartFrom)
 					}
