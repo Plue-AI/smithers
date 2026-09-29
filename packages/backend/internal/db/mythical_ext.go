@@ -273,6 +273,14 @@ func (q *Queries) ListRecentMythicalChanges(ctx context.Context, repositoryID in
 	return scanMythicalChanges(rows)
 }
 
+// MythicalLandedPosition locates the main boundary on the stack.
+func (q *Queries) MythicalLandedPosition(ctx context.Context, repositoryID int64, commitID string) (int32, error) {
+	var position int32
+	err := q.db.QueryRow(ctx, `SELECT position FROM mythical_changes WHERE repository_id = $1 AND commit_id = $2`,
+		repositoryID, commitID).Scan(&position)
+	return position, err
+}
+
 const mythicalItemColumns = `id, repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, proposal_round,
 source, version, state, reason, attempt,
 generation, lane, workspace_id, base_commit, candidate_base, candidate_head, candidate_verified, request_run_id, vibe_run_id, verify_run_id,
@@ -317,6 +325,13 @@ func (q *Queries) ListMythicalItems(ctx context.Context, repositoryID int64, lim
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+// LatestMythicalItemUpdate includes items outside the snapshot's display limit.
+func (q *Queries) LatestMythicalItemUpdate(ctx context.Context, repositoryID int64) (pgtype.Timestamptz, error) {
+	var updated pgtype.Timestamptz
+	err := q.db.QueryRow(ctx, `SELECT MAX(updated_at) FROM mythical_items WHERE repository_id = $1`, repositoryID).Scan(&updated)
+	return updated, err
 }
 
 // NotifyMythical wakes the repository's `mythical` event stream with a hint.

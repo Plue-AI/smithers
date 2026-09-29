@@ -513,8 +513,8 @@ export type MythicalWiki = z.infer<typeof MythicalWikiSchema>
  * The snapshot `GET …/mythical` answers. `tip` is the bookmark's commit;
  * `landedMain` the last main commit folded into the stack; `mainBehind` is
  * true while main has moved past `landedMain`. `changes` are tip first,
- * bounded to the newest 200. `generation` increases with every change to
- * the stack or an item, so a client can drop an older snapshot.
+ * bounded to the newest 200. `generation` counts stack writes only; clients
+ * key on `updatedAt` (the latest stack or item save) for item changes.
  *
  * @since 1.0.0
  * @category schemas

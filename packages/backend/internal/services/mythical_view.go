@@ -228,15 +228,33 @@ func (s *MythicalService) Snapshot(ctx context.Context, repositoryID int64, slug
 		return view, err
 	}
 	if stack.UpdatedAt.Valid {
-		view.UpdatedAt = stack.UpdatedAt.Time.UTC().Format(time.RFC3339)
+		view.UpdatedAt = stack.UpdatedAt.Time.UTC().Format(time.RFC3339Nano)
+	}
+	latestItemUpdate, err := q.LatestMythicalItemUpdate(ctx, repositoryID)
+	if err != nil {
+		return view, err
+	}
+	if latestItemUpdate.Valid && (!stack.UpdatedAt.Valid || latestItemUpdate.Time.After(stack.UpdatedAt.Time)) {
+		view.UpdatedAt = latestItemUpdate.Time.UTC().Format(time.RFC3339Nano)
 	}
 	changes, err := q.ListRecentMythicalChanges(ctx, repositoryID, mythicalRecentChanges)
 	if err != nil {
 		return view, err
 	}
+	landedPosition := int32(-1)
+	if stack.LandedMain != "" {
+		landedPosition, err = q.MythicalLandedPosition(ctx, repositoryID, stack.LandedMain)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return view, err
+		}
+	}
 	for _, change := range changes {
+		state := "landed"
+		if change.ItemID.Valid && change.Position > landedPosition {
+			state = "pending"
+		}
 		row := MythicalChangeView{ChangeID: change.ChangeID, CommitID: change.CommitID, Title: change.Title, Kind: change.Kind,
-			State: "landed", Predecessor: change.Predecessor}
+			State: state, Predecessor: change.Predecessor}
 		if change.ItemID.Valid {
 			row.ItemID = uuidString(change.ItemID)
 		}

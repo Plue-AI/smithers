@@ -109,6 +109,11 @@ const snapshot = {
 describe("the mythical stack contract", () => {
   test("a snapshot with every section decodes unchanged", () => {
     expect(MythicalStackSchema.parse(snapshot)).toEqual(snapshot)
+    expect(MythicalStackSchema.parse({
+      ...snapshot,
+      generation: snapshot.generation,
+      updatedAt: "2026-09-25T12:00:00.123456Z"
+    }).changes.map(change => change.state)).toEqual(["pending", "landed"])
   })
 
   test("an absent stack is an empty snapshot, not an error", () => {

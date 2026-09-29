@@ -442,6 +442,50 @@ const validatedRequest = `{"plan":{"changes":[{"title":"Docs","atoms":[{"changeI
 "checks":[{"id":"fast","target":"flows","flow":"checks/fast","flowDigest":"f","tier":"fast","required":true}]}]},
 "outcome":{"status":"validated"}}`
 
+func TestMythicalSnapshotPendingAndItemUpdatedAt(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	q := db.New(o.pool)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{
+		Number: 7, Title: "Docs", URL: "https://github.com/smithersai/smithers/issues/7",
+		State: "open", TextByMaintainer: true, Body: "Docs", Labels: []string{"todo"},
+	}, maintainerTodo))
+	item := o.item(7)
+	changes, err := q.ListMythicalChanges(ctx, o.repoID)
+	require.NoError(t, err)
+	require.NotEmpty(t, changes)
+	main := changes[len(changes)-1]
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main = $2, updated_at = NOW() - interval '1 day' WHERE repository_id = $1`,
+		o.repoID, main.CommitID)
+	require.NoError(t, err)
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET updated_at = NOW() - interval '1 day' WHERE id = $1`, item.ID)
+	require.NoError(t, err)
+	require.NoError(t, q.ReplaceMythicalChanges(ctx, o.repoID, main.Position+1, []db.MythicalChange{{
+		Position: main.Position + 1, ChangeID: "pending-change", CommitID: "pending-commit",
+		Title: "Docs", Kind: "item", ItemID: item.ID,
+	}}))
+	snapshot := func() MythicalStackView {
+		t.Helper()
+		view, err := o.service.Snapshot(ctx, o.repoID, "owner/repo", "", MythicalViewer{})
+		require.NoError(t, err)
+		return view
+	}
+	before := snapshot()
+	require.Equal(t, "pending", before.Changes[0].State)
+	require.Equal(t, "landed", before.Changes[1].State)
+	item = o.item(7)
+	item.Reason = "saved"
+	_, err = q.SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	after := snapshot()
+	require.Equal(t, before.Generation, after.Generation, "generation counts stack writes only")
+	require.Greater(t, after.UpdatedAt, before.UpdatedAt, "item saves advance snapshot time")
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main = $2 WHERE repository_id = $1`,
+		o.repoID, "pending-commit")
+	require.NoError(t, err)
+	require.Equal(t, "landed", snapshot().Changes[0].State)
+}
+
 func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
