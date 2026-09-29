@@ -985,12 +985,27 @@ export const layer: Layer.Layer<
           )
         ))
 
-    /** The runs a trigger's recorded fires started. */
+    /**
+     * The runs every recorded fire of a trigger started. A reader answers the
+     * ledger prefix a page at `cursor` needs, so the window widens until the
+     * reader answers less than it could.
+     */
     const triggerRuns = (triggerId: string) =>
-      Effect.map(
-        dispatch.fires({ _tag: "fires", filters: { triggerId } }),
-        (fires) => fires.flatMap((fire) => fire.triggerId === triggerId && fire.runId !== undefined ? [fire.runId] : [])
-      )
+      Effect.gen(function*() {
+        let start = 0
+        while (true) {
+          const fires = yield* dispatch.fires({
+            _tag: "fires",
+            filters: { triggerId },
+            limit: maxPageSize,
+            ...(start === 0 ? {} : { cursor: String(start) })
+          })
+          if (fires.length <= start + maxPageSize) {
+            return fires.flatMap((fire) => fire.triggerId === triggerId && fire.runId !== undefined ? [fire.runId] : [])
+          }
+          start = Math.max(fires.length, start * 2)
+        }
+      })
 
     const list = (request: ListRequest): Effect.Effect<ListResponse, ControlError> =>
       Effect.gen(function*() {

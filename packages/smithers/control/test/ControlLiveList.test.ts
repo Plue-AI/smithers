@@ -401,6 +401,50 @@ describe("ControlLive listings", () => {
     )
   })
 
+  it("selects a trigger's runs beyond one fire-ledger page", async () => {
+    const requests: Array<{ readonly cursor?: string | undefined; readonly limit?: number | undefined }> = []
+    let ledger: Array<FireSummary> = []
+    const observed = await run(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const started = [yield* start("system/test", "ledger-a"), yield* start("system/test", "ledger-b")]
+        yield* start("system/test", "ledger-c")
+        // The oldest fire, which a single default page of the ledger would miss.
+        ledger = [
+          ...Array.from({ length: 1400 }, (_, index) => ({
+            triggerId: "nightly",
+            occurrenceAtMs: 2000 - index,
+            outcome: "skipped" as const
+          })),
+          { triggerId: "nightly", occurrenceAtMs: 1, outcome: "launched", runId: started[0]!.runId },
+          { triggerId: "nightly", occurrenceAtMs: 0, outcome: "launched", runId: started[1]!.runId }
+        ]
+        return {
+          listed: items(yield* control.list({ _tag: "runs", filters: { triggerId: "nightly" } })),
+          expected: started.map((entry) => entry.runId)
+        }
+      }),
+      live({
+        runtime: memoryRuntime({ flows }),
+        // Answers the prefix a page at `cursor` needs, as the trigger store's reader does.
+        dispatch: DispatchReader.make({
+          list: () => Effect.succeed([]),
+          fires: (request) =>
+            Effect.sync(() => {
+              requests.push({ cursor: request.cursor, limit: request.limit })
+              return ledger.slice(0, Number(request.cursor ?? 0) + (request.limit ?? 100) + 1)
+            })
+        })
+      })
+    )
+    expect(observed.listed).toEqual(observed.expected)
+    expect(requests).toEqual([
+      { cursor: undefined, limit: 500 },
+      { cursor: "501", limit: 500 },
+      { cursor: "1002", limit: 500 }
+    ])
+  })
+
   it("refuses a trigger filter when no trigger store is composed", async () => {
     const refused = await run(
       Effect.gen(function*() {
