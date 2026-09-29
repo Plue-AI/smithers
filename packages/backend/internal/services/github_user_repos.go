@@ -496,6 +496,21 @@ func (s *GitHubUserReposService) listLiveGitHubRepos(ctx context.Context, userID
 	return GitHubRepoListResult{Repos: repos, Link: link}, nil
 }
 
+// UserGitHubReadToken returns the user's own GitHub credential for a read the
+// App cannot serve. Keep it server-side.
+func (s *GitHubUserReposService) UserGitHubReadToken(ctx context.Context, userID int64) (string, db.OauthAccount, error) {
+	if s == nil || s.queries == nil || s.decrypter == nil {
+		return "", db.OauthAccount{}, pkgerrors.Internal("github user token service unavailable")
+	}
+	return s.resolveUserGitHubAccessToken(ctx, userID)
+}
+
+// RefreshUserGitHubReadToken rotates the credential UserGitHubReadToken
+// returned, once, after GitHub answered 401.
+func (s *GitHubUserReposService) RefreshUserGitHubReadToken(ctx context.Context, account db.OauthAccount) (string, error) {
+	return s.refreshUserGitHubToken(ctx, account)
+}
+
 func (s *GitHubUserReposService) resolveUserGitHubAccessToken(ctx context.Context, userID int64) (string, db.OauthAccount, error) {
 	accounts, err := s.queries.ListUserOAuthAccounts(ctx, userID)
 	if err != nil {

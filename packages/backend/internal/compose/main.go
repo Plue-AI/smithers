@@ -1229,6 +1229,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Service: services.NewGitHubProxyService(
 			repoConnectionService,
 			services.WithGitHubProxyBudgetTracker(gitHubBudgetTracker),
+			services.WithGitHubProxyUserTokens(gitHubUserReposService),
 		),
 	}
 	gitHubRepoListHandler := &routes.GitHubRepoListHandler{Service: gitHubRepoListService}

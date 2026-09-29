@@ -4,11 +4,13 @@ import { Action, HumanTask } from "@smthrs/flow"
 import * as DurableDeferred from "@smthrs/flow/DurableDeferred"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect, FileSystem, Layer, Option, Schema } from "effect"
+import { Effect, FileSystem, Layer, Option, Redacted, Schema } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test, type TestContext } from "node:test"
@@ -39,7 +41,7 @@ import {
 import { namesCommand, readiness } from "../register-repository/readiness.ts"
 import type { Outcome } from "../register-repository/schema.ts"
 import { checkCommands, checkRunners, licenseCandidates, type Tree } from "../register-repository/tree.ts"
-import { githubReadable, RepositoryRemote } from "../repository/remote.ts"
+import { githubReadable, makeRemote, RepositoryRemote } from "../repository/remote.ts"
 
 test("a freeform link becomes one canonical owner/repo, and anything else is refused", () => {
   for (
@@ -134,6 +136,52 @@ test("GitHub reads are limited to the paths registration uses, and AGENTS.md mus
   assert.ok(namesCommand("cargo test", "cargo test --quiet"))
   assert.ok(!namesCommand("Use the latest release.", "npm run test"))
   assert.ok(!namesCommand("Run `go vet`.", "go test ./..."))
+})
+
+test("a mirror under another name reads its source's pull requests and CI runs through the source's proxy", async (t) => {
+  const proxied: Array<{ url: string | undefined; path: string }> = []
+  const server = createServer(async (request, response) => {
+    response.setHeader("content-type", "application/json")
+    if (request.url === "/api/repos/alice/widgets-import/repository-source") {
+      response.end(JSON.stringify({ source: "github", full_name: "acme/widgets" }))
+      return
+    }
+    let text = ""
+    for await (const chunk of request) text += chunk
+    const body = JSON.parse(text) as { method: string; path: string }
+    assert.equal(body.method, "GET")
+    proxied.push({ url: request.url, path: body.path })
+    response.end(JSON.stringify(body.path.includes("/actions/runs") ? { workflow_runs: [] } : [{ number: 12 }]))
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const address = server.address()
+  assert(address && typeof address !== "string")
+  const bound = await Effect.runPromise(
+    makeRemote({
+      apiBaseUrl: `http://127.0.0.1:${address.port}/api`,
+      repositorySlug: "alice/widgets-import",
+      repositoryId: 1,
+      workspaceId: "22222222-2222-4222-8222-222222222222",
+      token: Redacted.make("fixture-token"),
+      gatewayId: "11111111-1111-4111-8111-111111111111",
+      credential: "fixture-gateway"
+    }).pipe(Effect.provide(FetchHttpClient.layer))
+  )
+  assert.equal(await Effect.runPromise(bound.githubSource!), "acme/widgets")
+  const reads = [
+    "/pulls?state=all&per_page=50",
+    "/pulls/12/reviews?per_page=10",
+    "/pulls/12/files?per_page=100",
+    "/actions/runs?event=pull_request&status=success&per_page=30"
+  ]
+  for (const path of reads) await Effect.runPromise(bound.github!(path))
+  assert.deepEqual(
+    proxied,
+    reads.map((path) => ({ url: "/api/repos/acme/widgets/github-proxy", path: `/repos/acme/widgets${path}` }))
+  )
+  await assert.rejects(Effect.runPromise(bound.github!("/issues")), /outside this repository/)
+  assert.equal(proxied.length, reads.length)
 })
 
 test("churn counts lines deleted within two weeks of being added", () => {

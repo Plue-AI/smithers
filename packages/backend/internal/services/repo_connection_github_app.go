@@ -128,6 +128,11 @@ type GitHubInstallationToken struct {
 
 var errGitHubImportedSourceProvenanceNotFound = stdErrors.New("github imported source provenance not found")
 
+// errGitHubImportedSourceAppNotInstalled is the cause of the refusal for a
+// verified imported source the App does not cover; the proxy may then read it
+// with the importer's own GitHub credential.
+var errGitHubImportedSourceAppNotInstalled = stdErrors.New("github app is not installed for this imported source")
+
 // GitHubRepositoryInstallationResolver resolves the GitHub App installation
 // for a Smithers repository's owner/repo on background (no-actor) paths,
 // scoped to the repository owner's repo_connections binding. Implemented by
@@ -325,7 +330,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationTokenForImportedSource(
 		return GitHubInstallationToken{}, err
 	}
 	if installationID <= 0 {
-		return GitHubInstallationToken{}, pkgerrors.BadRequest("github app is not installed for this repository")
+		return GitHubInstallationToken{}, pkgerrors.BadRequest("github app is not installed for this repository").WithCause(errGitHubImportedSourceAppNotInstalled)
 	}
 
 	token, err := s.createGitHubInstallationTokenForInstallationID(ctx, installationID)

@@ -126,6 +126,10 @@ func EvaluateGitHubProxyPolicy(input GitHubProxyPolicyInput) GitHubProxyPolicyDe
 		return allowGitHubProxyPolicy("metadata read allowed")
 	}
 
+	if method == "GET" && subpath == "/actions/runs" {
+		return allowGitHubProxyPolicy("workflow runs read allowed")
+	}
+
 	return denyGitHubProxyPolicy(gitHubProxyReasonDefaultDenied)
 }
 
@@ -170,6 +174,25 @@ func parseGitHubRepoPath(path string) (owner string, repo string, subpath string
 		return owner, repo, "", true
 	}
 	return owner, repo, "/" + strings.Join(parts[3:], "/"), true
+}
+
+// isUserTokenReadPath names the read-only pull request and CI paths that
+// registration asks for; only these may fall back to the importer's own
+// GitHub credential when the App does not cover the imported source.
+func isUserTokenReadPath(subpath string) bool {
+	if subpath == "/pulls" || subpath == "/actions/runs" {
+		return true
+	}
+	parts := strings.Split(strings.Trim(subpath, "/"), "/")
+	if len(parts) != 3 || parts[0] != "pulls" || (parts[2] != "reviews" && parts[2] != "files") {
+		return false
+	}
+	for _, r := range parts[1] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return parts[1] != ""
 }
 
 func isPullMergePath(subpath string) bool {

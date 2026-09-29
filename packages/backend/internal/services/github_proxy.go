@@ -29,8 +29,16 @@ type gitHubProxyImportedSourceTokenIssuer interface {
 	CreateGitHubInstallationTokenForImportedSource(ctx context.Context, userID int64, repositoryID int64, owner string, repo string) (GitHubInstallationToken, error)
 }
 
+// GitHubProxyUserTokens resolves the acting user's own GitHub credential and
+// rotates it once after a 401. Implemented by *GitHubUserReposService.
+type GitHubProxyUserTokens interface {
+	UserGitHubReadToken(ctx context.Context, userID int64) (string, db.OauthAccount, error)
+	RefreshUserGitHubReadToken(ctx context.Context, account db.OauthAccount) (string, error)
+}
+
 type GitHubProxyService struct {
 	tokenIssuer         GitHubProxyInstallationTokenIssuer
+	userTokens          GitHubProxyUserTokens
 	httpClient          *http.Client
 	gitHubBudgetTracker *BudgetTracker
 }
@@ -48,6 +56,15 @@ func WithGitHubProxyHTTPClient(client *http.Client) GitHubProxyServiceOption {
 func WithGitHubProxyBudgetTracker(tracker *BudgetTracker) GitHubProxyServiceOption {
 	return func(s *GitHubProxyService) {
 		s.gitHubBudgetTracker = tracker
+	}
+}
+
+// WithGitHubProxyUserTokens lets read-only pull request and CI reads of a
+// verified imported source the App does not cover use the importer's own
+// GitHub credential.
+func WithGitHubProxyUserTokens(tokens GitHubProxyUserTokens) GitHubProxyServiceOption {
+	return func(s *GitHubProxyService) {
+		s.userTokens = tokens
 	}
 }
 
@@ -168,6 +185,9 @@ func (s *GitHubProxyService) proxyRequest(ctx context.Context, resolved gitHubPr
 	}
 
 	installationToken, err := s.createInstallationToken(ctx, resolved)
+	if err != nil && s.canReadWithUserToken(method, requestPath, err) {
+		return s.proxyWithUserToken(ctx, resolved.ActorUserID, method, requestPath, input.Headers, policyDecision.Reason)
+	}
 	if err != nil {
 		logGitHubProxyRequest(method, requestPath, statusCodeFromError(err), "deny", "failed to create github installation token")
 		return nil, err
@@ -213,6 +233,58 @@ func (s *GitHubProxyService) proxyRequest(ctx context.Context, resolved gitHubPr
 
 	logGitHubProxyRequest(method, requestPath, upstreamResp.StatusCode, "allow", policyDecision.Reason)
 
+	return &GitHubProxyResponse{
+		StatusCode: upstreamResp.StatusCode,
+		Headers:    upstreamResp.Header.Clone(),
+		Body:       upstreamResp.Body,
+	}, nil
+}
+
+// canReadWithUserToken is true only for a read-only pull request or CI GET of
+// an imported source whose provenance was verified and that the App does not
+// cover. The importer's own credential then reads what GitHub lets them see.
+func (s *GitHubProxyService) canReadWithUserToken(method string, requestPath string, err error) bool {
+	if s.userTokens == nil || method != http.MethodGet {
+		return false
+	}
+	var apiErr *pkgerrors.APIError
+	if !stdErrors.As(err, &apiErr) || apiErr.Cause() != errGitHubImportedSourceAppNotInstalled {
+		return false
+	}
+	_, _, subpath, ok := parseGitHubRepoPath(normalizeGitHubProxyPath(requestPath))
+	return ok && isUserTokenReadPath(subpath)
+}
+
+func (s *GitHubProxyService) proxyWithUserToken(ctx context.Context, userID int64, method string, requestPath string, headers map[string]string, reason string) (*GitHubProxyResponse, error) {
+	token, account, err := s.userTokens.UserGitHubReadToken(ctx, userID)
+	if err != nil {
+		logGitHubProxyRequest(method, requestPath, statusCodeFromError(err), "deny", "failed to resolve github user token")
+		return nil, err
+	}
+	send := func(token string) (*http.Response, error) {
+		upstreamReq, err := s.buildUpstreamRequest(ctx, method, requestPath, headers, nil, false, token)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := s.httpClient.Do(upstreamReq) //nolint:bodyclose // Body ownership transfers to GitHubProxyResponse and its caller.
+		if err != nil {
+			return nil, pkgerrors.Internal("failed to proxy github request").WithCause(err)
+		}
+		return resp, nil
+	}
+	upstreamResp, err := send(token)
+	if err == nil && upstreamResp.StatusCode == http.StatusUnauthorized {
+		// GitHub App user tokens expire: rotate once on an actual 401.
+		if rotated, refreshErr := s.userTokens.RefreshUserGitHubReadToken(ctx, account); refreshErr == nil {
+			_ = upstreamResp.Body.Close()
+			upstreamResp, err = send(rotated)
+		}
+	}
+	if err != nil {
+		logGitHubProxyRequest(method, requestPath, http.StatusBadGateway, "deny", "github proxy request failed")
+		return nil, err
+	}
+	logGitHubProxyRequest(method, requestPath, upstreamResp.StatusCode, "allow", reason+" with the importer's github token")
 	return &GitHubProxyResponse{
 		StatusCode: upstreamResp.StatusCode,
 		Headers:    upstreamResp.Header.Clone(),
