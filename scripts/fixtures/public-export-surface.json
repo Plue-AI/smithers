@@ -630,6 +630,17 @@
       "reason": "Closes the CommandSandbox directory's deep paths, as every other provider directory in this package does, so ./CommandSandbox is its only entrypoint."
     },
     {
+      "name": "@smthrs/build-cli",
+      "subpath": "./KnownRed",
+      "development": "./src/KnownRed.ts",
+      "published": {
+        "types": "./dist/esm/KnownRed.d.ts",
+        "import": "./dist/esm/KnownRed.js",
+        "require": "./dist/cjs/KnownRed.js"
+      },
+      "reason": "The parser, fingerprint and verdict rendering for the --known-red file smthrs ci already reads, so the CI coverage check that owns every main red imports them by package name instead of reaching into src (#2482)."
+    },
+    {
       "name": "@smthrs/cli",
       "subpath": "./BunControl",
       "development": "./src/BunControl.ts",

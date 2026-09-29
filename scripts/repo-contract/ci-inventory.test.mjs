@@ -259,7 +259,7 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
 })
 
 test("public project copy keeps the support contract out of the short description", () => {
-  const description = "Smithers maintains your codebase. It turns issues into reviewed, tested changes and keeps the project wiki current. Flows beside your code define how."
+  const description = "Smithers maintains your codebase. It turns issues into reviewed, tested changes and, when enabled, keeps the project wiki current. Flows beside your code define how."
   const project = JSON.parse(readFileSync(join(root, "apps/site/src/data/project.json"), "utf8"))
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
   assert.equal(project.description, description)

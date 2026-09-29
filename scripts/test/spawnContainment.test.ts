@@ -108,6 +108,13 @@ describe("child-process containment conformance", () => {
       + "scripted host. No durable process ledger or hard-kill recovery guarantee."
     ],
     [
+      "smithers/src/Providers.ts",
+      "Claude Code seat detection runs the installed `claude auth status` from PATH to "
+      + "read its sign-in: fixed arguments, no shell, a 15-second timeout, memoized per "
+      + "executable and login variables, outside a durable flow. No durable process "
+      + "ledger or hard-kill recovery guarantee."
+    ],
+    [
       "smithers/src/Detached.ts",
       "`smithers up -d`, the one launcher whose child must OUTLIVE the process that "
       + "started it. Routing it through the host spawner would kill the engine on the "

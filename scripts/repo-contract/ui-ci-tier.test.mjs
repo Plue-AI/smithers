@@ -10,7 +10,7 @@
  */
 import { execFileSync, spawnSync } from "node:child_process"
 import assert from "node:assert/strict"
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, delimiter, join } from "node:path"
 import { describe, it } from "node:test"
@@ -122,11 +122,12 @@ export const Workspace = S.Workspace("ui-devkit-refusal", {
     }
     // The app declaration imports package targets. Project their real declarations
     // as well, so this fixture reaches the SDK prerequisite after graph discovery.
-    for (const path of libraryPackages().map((entry) => `${entry.dir}/PACKAGE.ts`).filter((path) => existsSync(join(root, path)))) {
+    const libraryDeclarations = libraryPackages().map((entry) => `${entry.dir}/PACKAGE.ts`).filter((path) => existsSync(join(root, path)))
+    for (const path of libraryDeclarations) {
       const destination = write(path, "")
       copyFileSync(join(root, path), destination)
     }
-    for (const path of ["PACKAGE.ts", "apps/site/src/data/project.json"]) {
+    for (const path of ["PACKAGE.ts", "apps/site/src/data/project.json", "flows/PACKAGE.ts", ".smithers/coding-project.json"]) {
       const destination = write(path, "")
       copyFileSync(join(root, path), destination)
     }
@@ -146,6 +147,23 @@ if (process.argv[2] === "--version") console.log(${JSON.stringify(rootManifest.p
 else { writeFileSync(${JSON.stringify(tscMarker)}, JSON.stringify(process.argv.slice(2))); process.exit(91) }
 `)
     chmodSync(pnpm, 0o755)
+    // Evaluating a SecurityReview checks that each check path names a file the
+    // review reads, so copy each file the projected declarations name. A
+    // declaration file is left out, so the projection's own WORKSPACE.ts and
+    // PACKAGE.ts files stay the only ones discovered.
+    for (const declaration of [...libraryDeclarations, "apps/app/PACKAGE.ts", "PACKAGE.ts", "flows/PACKAGE.ts"]) {
+      const directory = dirname(declaration)
+      const source = readFileSync(join(root, declaration), "utf8")
+      const patterns = [...source.matchAll(/\bpaths: \[([^\]]*)\]/g)]
+        .flatMap(([, list]) => [...list.matchAll(/"([^"]+)"/g)].map(([, pattern]) => pattern))
+      for (const pattern of patterns) {
+        for (const match of globSync(pattern, { cwd: join(root, directory), exclude: (name) => name === "node_modules" })) {
+          const path = join(directory, match)
+          if (/(?:^|\/)(?:WORKSPACE|PACKAGE)\.ts$/.test(path) || !statSync(join(root, path)).isFile()) continue
+          if (!existsSync(join(temporary, path))) copyFileSync(join(root, path), write(path, ""))
+        }
+      }
+    }
     assert.equal(existsSync(join(temporary, "apps/app/.hutch")), false)
     let failure
     try {
