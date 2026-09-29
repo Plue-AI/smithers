@@ -39,6 +39,7 @@ const (
 	provisionPhasePublished = "published"
 
 	provisionConflictDestinationOccupied = "destination_occupied"
+	provisionConflictCompleted           = "provision_completed"
 )
 
 type stageProvisionRequest struct {
@@ -116,6 +117,11 @@ func (s *Server) stageProvisionRepo(w http.ResponseWriter, r *http.Request) erro
 	defer unlockPaths()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
+	}
+	if _, decided, err := readTerminalStageDecision(s.provisionDecisionRoot(), metadata.Token); err != nil {
+		return internalError("failed to read repository provisioning completion decision", err)
+	} else if decided {
+		return conflictCode(provisionConflictCompleted, "repository provisioning token was already completed")
 	}
 
 	if err := ensureDurableDirectory(filepath.Dir(stageDir), 0o700); err != nil {
@@ -268,6 +274,21 @@ func (s *Server) completeStagedProvision(w http.ResponseWriter, r *http.Request,
 		return err
 	}
 	defer unlockStage()
+	if err := checkMutationDeadline(r.Context()); err != nil {
+		return err
+	}
+	decision, decided, err := readTerminalStageDecision(s.provisionDecisionRoot(), token)
+	if err != nil {
+		return internalError("failed to read repository provisioning completion decision", err)
+	}
+	if decided {
+		if decision.Action != action || action == "publish" {
+			return conflictCode(provisionConflictCompleted, "repository provisioning token was already completed")
+		}
+		// The receipt proves storage cleanup completed. A crash may have left
+		// a partially removed journal; never inspect or mutate live storage again.
+		return s.finishProvisionCompletion(w, stageDir, token, action)
+	}
 	metadata, exists, err := readStagedProvisionMetadata(stageDir, token)
 	if err != nil {
 		return internalError("failed to read repository provisioning journal", err)
@@ -276,14 +297,7 @@ func (s *Server) completeStagedProvision(w http.ResponseWriter, r *http.Request,
 		if action == "publish" {
 			return notFound("repository provisioning journal not found")
 		}
-		// A previous finalize/abort may have removed stageDir successfully and
-		// then failed while syncing its parent. Retry that durability barrier
-		// before allowing the control plane to discard the operation record.
-		if err := settleMissingProvisionJournal(stageDir); err != nil {
-			return internalError("failed to settle removed repository provisioning stage", err)
-		}
-		w.WriteHeader(http.StatusNoContent)
-		return nil
+		return s.finishProvisionCompletion(w, stageDir, token, action)
 	}
 	stagedPath := filepath.Join(stageDir, provisionRepositoryDir)
 	livePath := s.config.RepoPath(metadata.Owner, metadata.Repo)
@@ -362,14 +376,7 @@ func (s *Server) completeStagedProvision(w http.ResponseWriter, r *http.Request,
 		if err := verifyPublishedProvision(stagedPath, livePath); err != nil {
 			return err
 		}
-		// One recursive durable removal is crash-idempotent. Removing metadata
-		// first can strand an empty, unreadable stage if the process stops before
-		// removing the directory.
-		if err := durableRemoveAll(stageDir); err != nil {
-			return internalError("failed to remove repository provisioning stage", err)
-		}
-		w.WriteHeader(http.StatusNoContent)
-		return nil
+		return s.finishProvisionCompletion(w, stageDir, token, action)
 
 	case "abort":
 		stagedExists, err := pathExists(stagedPath)
@@ -406,14 +413,27 @@ func (s *Server) completeStagedProvision(w http.ResponseWriter, r *http.Request,
 				return internalError("failed to abort staged repository", err)
 			}
 		}
-		if err := durableRemoveAll(stageDir); err != nil {
-			return internalError("failed to remove aborted repository provisioning stage", err)
-		}
-		w.WriteHeader(http.StatusNoContent)
-		return nil
+		return s.finishProvisionCompletion(w, stageDir, token, action)
 	default:
 		return internalError("unknown repository provisioning action", fmt.Errorf("action %q", action))
 	}
+}
+
+// finishProvisionCompletion runs under the token lock, after eligibility and
+// physical cleanup. Persist the permanent fence before removing the journal.
+// Rewriting an existing receipt settles a prior rename whose fsync failed.
+func (s *Server) finishProvisionCompletion(w http.ResponseWriter, stageDir, token, action string) error {
+	if err := writeTerminalStageDecision(s.provisionDecisionRoot(), token, action); err != nil {
+		return internalError("failed to persist repository provisioning completion decision", err)
+	}
+	if err := os.RemoveAll(stageDir); err != nil {
+		return internalError("failed to remove completed repository provisioning stage", err)
+	}
+	if err := settleMissingProvisionJournal(stageDir); err != nil {
+		return internalError("failed to settle removed repository provisioning stage", err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // lockStagedImportRepository resolves an unguessable provisioning token to its
@@ -435,6 +455,11 @@ func (s *Server) lockStagedImportRepository(ctx context.Context, r *http.Request
 			unlockStage()
 		}
 	}()
+	if _, decided, err := readTerminalStageDecision(s.provisionDecisionRoot(), token); err != nil {
+		return "", "", nil, internalError("failed to read repository provisioning completion decision", err)
+	} else if decided {
+		return "", "", nil, conflictCode(provisionConflictCompleted, "repository provisioning token was already completed")
+	}
 	metadata, exists, err := readStagedProvisionMetadata(stageDir, token)
 	if err != nil {
 		return "", "", nil, internalError("failed to read repository provisioning journal", err)
@@ -674,6 +699,10 @@ func validateStageProvisionRequest(req stageProvisionRequest) (stagedProvisionMe
 
 func (s *Server) provisionStageDir(token string) string {
 	return filepath.Join(s.config.StoragePath, provisionStagingDirName, token)
+}
+
+func (s *Server) provisionDecisionRoot() string {
+	return filepath.Join(s.config.StoragePath, ".provision-decisions@")
 }
 
 func readStagedProvisionMetadata(stageDir, expectedToken string) (stagedProvisionMetadata, bool, error) {

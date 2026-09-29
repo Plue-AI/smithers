@@ -784,7 +784,7 @@ func isDefinitiveProvisionConflict(err error) bool {
 	if !stdErrors.As(err, &statusErr) {
 		return false
 	}
-	return statusErr.StatusCode == 409 && statusErr.Code == "destination_occupied"
+	return statusErr.StatusCode == 409 && (statusErr.Code == "destination_occupied" || statusErr.Code == "provision_completed")
 }
 
 // CreateRepo validates inputs, creates the repo in the DB, and initializes it on disk.

@@ -381,7 +381,17 @@ func (s *RepoService) ReconcileProductRepositoryCreates(ctx context.Context) err
 		if err := s.productProvisioning.withNamespaceLock(ctx, operation, true, func(conn *pgxpool.Conn) error {
 			consistencyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), repoHostMutationConsistencyTimeout)
 			defer cancel()
-			_, settleErr := s.productProvisioning.settle(consistencyCtx, conn, operation)
+			// The pending list is only a hint. Compensation or another recovery
+			// may have completed it before this namespace lock was acquired.
+			current, err := scanProductCreation(conn.QueryRow(consistencyCtx, `SELECT `+productCreationColumns+`
+				FROM public.repository_creation_jobs WHERE repository_id=$1 AND token=$2`, operation.RepositoryID, operation.Token))
+			if stdErrors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			_, settleErr := s.productProvisioning.settle(consistencyCtx, conn, current)
 			return settleErr
 		}); err != nil && !stdErrors.Is(err, errProductCreationBusy) {
 			slog.Error("product repository creation recovery failed", "repo_id", operation.RepositoryID, "error", err)
