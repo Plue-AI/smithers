@@ -117,6 +117,7 @@ type Product interface {
 	ListIdleWorkspaces(ctx context.Context) ([]db.Workspace, error)
 	ListLFSObjects(ctx context.Context, arg db.ListLFSObjectsParams) ([]db.LfsObject, error)
 	ListPrunableWorkflowArtifacts(ctx context.Context, arg db.ListPrunableWorkflowArtifactsParams) ([]db.WorkflowArtifact, error)
+	ListRunningWorkspaces(ctx context.Context) ([]db.Workspace, error)
 	ListRunningWorkspacesForUserRepoBookmark(ctx context.Context, arg db.ListRunningWorkspacesForUserRepoBookmarkParams) ([]db.Workspace, error)
 	ListStaleActiveSessions(ctx context.Context, startedAt pgtype.Timestamptz) ([]db.AgentSession, error)
 	ListStalePendingWorkspaces(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error)
