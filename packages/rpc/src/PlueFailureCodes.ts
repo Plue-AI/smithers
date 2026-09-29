@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:56cd462c0e89d718cb7d7135eb2f00de9aeff0a66bd155d0ee612d3e806e3a1c"
+export const PLUE_FAILURE_DIGEST = "sha256:ab27e1e1113c4b6aa0efcc5ae6c4e4ea6b9437f9e8b00e22bc955d9183376b4e"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -46,11 +46,13 @@ export const PLUE_FAILURE_DIGEST = "sha256:56cd462c0e89d718cb7d7135eb2f00de9aeff
  * - `infra` Smithers' own fleet failed the caller. Not their fault.
  * - `dependency` something Smithers depends on failed or throttled us.
  * - `bug` Smithers is defective here.
+ * - `factory` Smithers' own work did not converge; a replan may fix it.
+ * - `policy` a cap the owner set stopped the work.
  *
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAULTS = ["user", "wait", "infra", "dependency", "bug"] as const
+export const PLUE_FAULTS = ["user", "wait", "infra", "dependency", "bug", "factory", "policy"] as const
 
 /**
  * Whose problem a failure is.
@@ -150,6 +152,7 @@ export const PLUE_FAILURE_CODES = [
   "plan_limit_exceeded",
   "preview_unavailable",
   "provisioning_failed",
+  "push_too_large",
   "push_too_slow",
   "quiesce_failed",
   "quota_exceeded",
@@ -179,6 +182,7 @@ export const PLUE_FAILURE_CODES = [
   "unprocessable_entity",
   "unsupported_media_type",
   "user_ref_missing",
+  "user_ref_push_too_large",
   "user_ref_stack",
   "validation_failed",
   "wiki_unavailable",
@@ -396,6 +400,8 @@ export const PLUE_FAILURES = {
   "preview_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
   /** Provisioning a box failed for a reason plue has no specific code for. Persisted on the workspace row as failure_code. */
   "provisioning_failed": { fault: "bug", status: 500, retryAfter: 0 },
+  /** The push exceeds the repository push size limit. */
+  "push_too_large": { fault: "user", status: 413, retryAfter: 0 },
   /** The push held its repository longer than the push duration limit and was stopped; nothing changed. */
   "push_too_slow": { fault: "user", status: 408, retryAfter: 0 },
   /** The worker could not quiesce the guest in time to take the action; retrying usually succeeds. */
@@ -454,6 +460,8 @@ export const PLUE_FAILURES = {
   "unsupported_media_type": { fault: "user", status: 415, retryAfter: 0 },
   /** The pushed ref refs/smithers/users/<id>/<name> does not exist or expired; push it again with `smithers repo push`. */
   "user_ref_missing": { fault: "user", status: 404, retryAfter: 0 },
+  /** The push exceeds the user ref push size limit. */
+  "user_ref_push_too_large": { fault: "user", status: 413, retryAfter: 0 },
   /** This repository lands through its mythical stack, so a change cannot start from a pushed ref. */
   "user_ref_stack": { fault: "user", status: 409, retryAfter: 0 },
   /** One or more fields failed validation; the errors array names each one. */

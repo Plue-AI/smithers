@@ -204,7 +204,9 @@ export const runFailureOf = (payload: {
         case "wait":
         case "infra":
         case "dependency":
-        case "bug": return payload.workflow === SETUP_FLOW ? { fault, message: REFUSAL_COPY[fault].lead, detail: failure.detail } : failure
+        case "bug":
+        case "factory":
+        case "policy": return payload.workflow === SETUP_FLOW ? { fault, message: REFUSAL_COPY[fault].lead, detail: failure.detail } : failure
         default: { const unhandled: never = fault; return unhandled }
       }
     }

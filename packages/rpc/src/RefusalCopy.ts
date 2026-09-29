@@ -193,6 +193,18 @@ export const REFUSAL_COPY = {
     agent:
       "fault=bug: Smithers is defective here. Do not blame the user, do not invent a workaround, and do not dress the internal message up as an explanation.",
     doors: ["retry", "report"]
+  },
+  factory: {
+    lead: "Smithers could not finish this one. Not your fault.",
+    agent:
+      "fault=factory: Smithers' own work on this did not converge (a stalled plan, an unproven result). Not the user's fault and not their request's. Say it plainly; retrying replans it.",
+    doors: ["retry"]
+  },
+  policy: {
+    lead: "A cap stopped this. Not your fault.",
+    agent:
+      "fault=policy: a spend or time cap the owner set stopped this, and it stays stopped. Nothing is broken. Say which cap if the message names it; the person raising the cap, or pressing Retry, resumes the work. Do not retry on a timer.",
+    doors: ["retry"]
   }
 } satisfies Record<PlueFault, RefusalCopyRow>
 

@@ -387,7 +387,7 @@ export const ModelCredentialResultSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(false),
     failure: ModelCredentialFailureSchema,
-    fault: z.enum(["user", "wait", "infra", "dependency", "bug"])
+    fault: z.enum(PLUE_FAULTS)
   })
 ])
 /** A safe mutation result.
@@ -421,7 +421,7 @@ export const ModelCredentialPendingSchema = z.strictObject({
   origin: z.string().optional(),
   state: z.enum(["requested", "completed", "failed"]),
   failure: ModelCredentialFailureSchema.optional(),
-  fault: z.enum(["user", "wait", "infra", "dependency", "bug"]).optional()
+  fault: z.enum(PLUE_FAULTS).optional()
 })
 
 const modelShape = {

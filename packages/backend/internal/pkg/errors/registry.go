@@ -29,6 +29,14 @@ type Code string
 //	dependency something plue depends on (GitHub, a payment provider, a model
 //	           provider) failed or throttled us.
 //	bug        plue is defective. The message is never shown to the caller.
+//	factory    the factory's own work did not converge (a stalled plan, an
+//	           unproven claim). A replan may fix it; it is nobody's request.
+//	policy     a cap the owner set stopped the work. Not a defect and not
+//	           the platform; raising the cap resumes it.
+//
+// factory and policy are stamped on failed runs (the observed run's
+// failureFault) so the worker picks a response by class alone; no code row
+// uses them yet.
 type Fault string
 
 const (
@@ -37,11 +45,13 @@ const (
 	FaultInfra      Fault = "infra"
 	FaultDependency Fault = "dependency"
 	FaultBug        Fault = "bug"
+	FaultFactory    Fault = "factory"
+	FaultPolicy     Fault = "policy"
 )
 
 // Faults is every Fault, in the order a taxonomy reads: whose fault, then how
 // bad. Exported for the generated artifact and for exhaustiveness checks.
-var Faults = []Fault{FaultUser, FaultWait, FaultInfra, FaultDependency, FaultBug}
+var Faults = []Fault{FaultUser, FaultWait, FaultInfra, FaultDependency, FaultBug, FaultFactory, FaultPolicy}
 
 // Entry is everything the transport layer needs to answer a failure without
 // asking the call site. The call site chooses the Code; it does not get to

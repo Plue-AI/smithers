@@ -119,7 +119,7 @@ func TestPublicFailureDocumentIsSortedAndSelfVerifying(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(raw, &document))
 	require.Equal(t, 1, document.Schema)
-	require.Equal(t, []string{"user", "wait", "infra", "dependency", "bug"}, document.Faults)
+	require.Equal(t, []string{"user", "wait", "infra", "dependency", "bug", "factory", "policy"}, document.Faults)
 	var compact bytes.Buffer
 	require.NoError(t, json.Compact(&compact, document.Codes))
 	digest := sha256.Sum256(compact.Bytes())

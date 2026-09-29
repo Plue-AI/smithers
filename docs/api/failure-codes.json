@@ -6,7 +6,9 @@
     "wait",
     "infra",
     "dependency",
-    "bug"
+    "bug",
+    "factory",
+    "policy"
   ],
   "codes": [
     {

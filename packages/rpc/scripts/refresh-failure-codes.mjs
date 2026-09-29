@@ -140,6 +140,8 @@ export const PLUE_FAILURE_DIGEST = ${quote(document.digest)}
  * - \`infra\` Smithers' own fleet failed the caller. Not their fault.
  * - \`dependency\` something Smithers depends on failed or throttled us.
  * - \`bug\` Smithers is defective here.
+ * - \`factory\` Smithers' own work did not converge; a replan may fix it.
+ * - \`policy\` a cap the owner set stopped the work.
  *
  * @since 1.0.0
  * @category constants
