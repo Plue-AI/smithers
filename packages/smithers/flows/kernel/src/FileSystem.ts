@@ -202,9 +202,9 @@ export type AtomicHandlers = {
  */
 export interface AtomicFileSystem {
   /**
-   * The executor refuses links during every handle-relative operation. Grants
-   * can name the logical path directly, without following links to inspect a
-   * target that the executor will never access.
+   * The executor refuses symlinks and hard links during every handle-relative
+   * operation. Authorization still resolves the on-disk path spelling, but
+   * does not need a separate hard-link stat before invoking the executor.
    */
   readonly noFollowAuthorization?: true | undefined
   /** Exact composition-time identity when native file IDs exceed numeric precision. */
@@ -587,7 +587,9 @@ const identityOf = (info: EffectFileSystem.File.Info): Option.Option<string> =>
  * canonical workspace back to the stable logical workspace root. Existing
  * symlinks therefore cannot turn an inside-workspace grant into outside
  * authority, while capability resources remain stable when the root itself is
- * a symlink.
+ * a symlink. The host's `realPath` must return the on-disk spelling of existing
+ * components, including on case-insensitive volumes. Native Node hosts use
+ * the promise-based `realpath`, which uses the native implementation.
  *
  * @category security
  * @since 1.0.0-rc.0
@@ -646,10 +648,10 @@ export const canonicalResource = (
 
 /**
  * Decorates Effect's filesystem service in place with workspace-normalized
- * capability checks. Executors that refuse links during descriptor-relative
- * operations authorize logical workspace paths without opening descendants.
- * Other hosts evaluate canonical-path and hard-link guards before the capability
- * check and resolve the canonical resource again after every grant decision: a decision can
+ * capability checks. Every host resolves canonical path spelling before the
+ * capability check and again after every grant decision. Descriptor-relative
+ * executors enforce hard-link refusal themselves; other hosts also run the
+ * hard-link guard here. A decision can
  * suspend (an attended request, a journal-backed store), and an operation
  * whose path no longer names the resource that was authorized is refused
  * rather than performed. Open file handles bind their authorization to the
@@ -698,8 +700,8 @@ export const layer: Layer.Layer<
         Effect.mapError(refuse(method, resource))
       )
     /**
-     * Names the logical resource for executors that refuse links themselves;
-     * otherwise resolves the canonical resource and refuses hard links. `guard` runs it twice — once
+     * Resolves the on-disk resource spelling even for no-follow executors:
+     * a differently cased name can address the same file. `guard` runs it twice — once
      * before the grant decision and once after — so the resolution must be a
      * pure question about the current filesystem state.
      */
@@ -709,19 +711,14 @@ export const layer: Layer.Layer<
       value: string
     ): Effect.Effect<string, PlatformError.PlatformError> => {
       const normalized = normalize(value)
-      if (atomic?.noFollowAuthorization === true) {
-        const resource = isInside(path, logicalRoot, normalized)
-          ? normalized
-          : isInside(path, boundaryRoot, normalized)
-          ? path.join(logicalRoot, path.relative(boundaryRoot, normalized))
-          : undefined
-        return resource === undefined
-          ? deny(action, method, normalized, "path is outside the workspace")
-          : Effect.succeed(resource)
-      }
       return canonicalResource(fileSystem, path, logicalRoot, normalized).pipe(
-        Effect.flatMap((resource) =>
-          fileSystem.stat(normalized).pipe(
+        Effect.flatMap((resource) => {
+          if (atomic?.noFollowAuthorization === true) {
+            return isInside(path, logicalRoot, resource)
+              ? Effect.succeed(resource)
+              : deny(action, method, resource, "path is outside the workspace")
+          }
+          return fileSystem.stat(normalized).pipe(
             Effect.matchEffect({
               onFailure: () => Effect.succeed(resource),
               onSuccess: (info) => {
@@ -732,7 +729,7 @@ export const layer: Layer.Layer<
               }
             })
           )
-        )
+        })
       )
     }
     const guard = (

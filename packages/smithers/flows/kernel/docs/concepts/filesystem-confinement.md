@@ -24,6 +24,19 @@ that lands inside the workspace back to the stable logical workspace root, so
 capability resources stay readable and stable even when the root itself is a
 symlink. A relative path is resolved against the workspace root first.
 
+Every host, including a descriptor-relative executor, resolves existing
+components to their on-disk spelling before and after a grant decision.
+On a case-insensitive volume, `.ENV` therefore names `.env` for permission
+checks, and `REPORTDIR/new.txt` names `ReportDir/new.txt` when `ReportDir`
+already exists. Missing components retain their requested spelling. Hosts
+must implement `realPath` with canonical on-disk spelling; the Node host uses
+native promise-based `realpath`. The capability matcher remains case-sensitive
+so distinct files on case-sensitive volumes keep distinct permissions.
+
+Native guarded operations on outside-pointing symlinks fail with
+`PermissionDenied`, including `readLink`, `stat`, `exists`, and `remove`.
+The link and its outside target remain untouched.
+
 Resolution also applies one always-on refusal: a regular file with more than
 one link fails with `"hard-linked files cannot be confined to the workspace"`.
 A hard link is a second name for the same inode with no ancestry to check, so

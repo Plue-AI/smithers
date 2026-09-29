@@ -265,9 +265,8 @@ describe("Node atomic filesystem", () => {
   }
 
   /**
-   * Listing is the one family that must not simply fail: it resolves nothing,
-   * so the property to pin is that no path behind the planted link is ever
-   * reported, not that the call errors.
+   * Listings rooted above the planted link never report paths behind it.
+   * A glob anchored at the link is refused by canonical authorization.
    */
   it.live("reports nothing behind an intermediate component swapped to an outside directory", () =>
     Effect.gen(function*() {
@@ -288,7 +287,7 @@ describe("Node atomic filesystem", () => {
           return {
             listing: yield* Effect.result(fs.readDirectory(gate)),
             rootedGlob: yield* Effect.result(fs.glob("**", { root: gate })),
-            matched: yield* fs.glob("gate/**", { root }),
+            matched: yield* Effect.result(fs.glob("gate/**", { root })),
             everything: yield* fs.readDirectory(root, { recursive: true })
           }
         }),
@@ -302,12 +301,10 @@ describe("Node atomic filesystem", () => {
       // named as the listing target or as a glob root.
       expect(result.listing._tag).toBe("Failure")
       expect(result.rootedGlob._tag).toBe("Failure")
-      // A trailing `**` names the anchor itself as well as everything below
-      // it, which is what the native globber does, so the swapped entry's own
-      // name is returned. Nothing BELOW it is, which is the confinement claim:
-      // the listing never descended through the symlink, and reading the name
-      // that came back is itself refused as a symlink.
-      expect(result.matched).toEqual([gate])
+      expect(result.matched).toMatchObject({
+        _tag: "Failure",
+        failure: { reason: { _tag: "PermissionDenied" } }
+      })
       expect(result.everything).toContain("gate")
       expect(result.everything.some((entry) => entry.startsWith("gate/"))).toBe(false)
       expect(yield* Effect.promise(() => readFile(join(outside, "victim.txt"), "utf8"))).toBe("outside")
@@ -609,7 +606,7 @@ describe("Node atomic filesystem", () => {
       // absorb its EEXIST.
       expect(outcome.file).toMatchObject({ reason: { _tag: "AlreadyExists" } })
       // A symlink is refused even when it points at a directory, inside or out.
-      expect(outcome.escape).toMatchObject({ reason: { _tag: "BadResource" } })
+      expect(outcome.escape).toMatchObject({ reason: { _tag: "PermissionDenied" } })
       expect(outcome.alias).toMatchObject({ reason: { _tag: "BadResource" } })
       expect(outcome.nestedUnderFile).toMatchObject({ reason: { _tag: "BadResource" } })
       expect(yield* Effect.promise(() => readFile(join(root, "file.txt"), "utf8"))).toBe("regular")

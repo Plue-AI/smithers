@@ -58,7 +58,7 @@ const provide = (
     Effect.provideService(GrantStore, grants)
   )
 
-itEffect("authorizes no-follow executors without resolving or statting descendant targets", () => {
+itEffect("resolves no-follow executor resources without statting descendant targets", () => {
   const checks: Array<Capability.Capability> = []
   const requests: Array<FileSystem.AtomicRequest> = []
   const inspected: Array<string> = []
@@ -67,7 +67,7 @@ itEffect("authorizes no-follow executors without resolving or statting descendan
     EffectFileSystem.makeNoop({
       realPath: (path) => {
         inspected.push(path)
-        return path === "/workspace" ? Effect.succeed("/canonical") : Effect.die("descendant metadata was followed")
+        return Effect.succeed(path.replace("/workspace", "/canonical"))
       },
       stat: () => Effect.die("descendant metadata was opened")
     }),
@@ -90,7 +90,9 @@ itEffect("authorizes no-follow executors without resolving or statting descendan
       expect(yield* fs.readFile("/canonical/a")).toEqual(new Uint8Array([7]))
       expect(yield* Effect.flip(fs.readFile("link"))).toBe(refusal)
       expect((yield* Effect.exit(fs.readFile("/outside/a")))._tag).toBe("Failure")
-      expect(inspected).toEqual(["/workspace"])
+      expect(inspected.filter((path) => path === "/workspace/a")).toHaveLength(2)
+      expect(inspected.filter((path) => path === "/canonical/a")).toHaveLength(2)
+      expect(inspected.filter((path) => path === "/workspace/link")).toHaveLength(2)
       expect(requests).toHaveLength(3)
       expect(checks).toEqual([
         { action: "fs:read", resource: "/workspace/a" },
@@ -100,6 +102,50 @@ itEffect("authorizes no-follow executors without resolving or statting descendan
     }),
     host,
     scriptedStore(new Set(["fs:read:/workspace/a", "fs:read:/workspace/link"]), checks)
+  )
+})
+
+itEffect("refuses a case-only resource change during a native grant decision", () => {
+  let spelling = "Allowed"
+  let executed = false
+  const checks: Array<Capability.Capability> = []
+  const host = FileSystem.withAtomicFileSystem(
+    EffectFileSystem.makeNoop({
+      realPath: (value) => Effect.sync(() => value === "/workspace/ALLOWED" ? `/workspace/${spelling}` : value),
+      stat: () => Effect.die("native executor owns hard-link checks")
+    }),
+    {
+      noFollowAuthorization: true,
+      identifyRoot: () => Effect.succeed("7:9"),
+      execute: () =>
+        Effect.sync(() => {
+          executed = true
+          throw new Error("changed resource reached native executor")
+        })
+    }
+  )
+  const grants = GrantStore.of({
+    ...scriptedStore(new Set(), checks),
+    check: (capability) =>
+      Effect.sync(() => {
+        checks.push(capability)
+        spelling = "allowed"
+      })
+  })
+  return provide(
+    Effect.gen(function*() {
+      const fs = yield* EffectFileSystem.FileSystem
+      const failure = yield* Effect.flip(fs.readFileString("ALLOWED"))
+      expect(denial(failure)).toMatchObject({
+        code: "permission_denied",
+        capability: { action: "fs:read", resource: "/workspace/Allowed" },
+        reason: "path no longer names the resource that was authorized"
+      })
+      expect(checks).toEqual([{ action: "fs:read", resource: "/workspace/Allowed" }])
+      expect(executed).toBe(false)
+    }),
+    host,
+    grants
   )
 })
 
