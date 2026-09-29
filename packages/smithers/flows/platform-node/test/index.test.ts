@@ -11,7 +11,9 @@ describe("@smthrs/platform-node barrel", () => {
       "EgressHttpClient",
       "HostLiveness",
       "NodeHost",
+      "ProcessConfinement",
       "ProcessReaper",
+      "ProcessSandbox",
       "ScopedProcess"
     ])
     expect(Index.NodeHost.layer).toBe(NodeHost.layer)

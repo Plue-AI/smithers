@@ -143,6 +143,14 @@ export * as Path from "./Path.ts"
 export * as Permission from "@smthrs/capability/Permission"
 
 /**
+ * Operating-system confinement of approved processes, derived from grants.
+ *
+ * @category namespace exports
+ * @since 1.0.0-rc.1
+ */
+export * as ProcessConfinement from "./ProcessConfinement.ts"
+
+/**
  * The host's durable record of the processes it started.
  *
  * @category namespace exports

@@ -60,14 +60,16 @@ adapter at it; see [Configure the filesystem helper](./guides/configure-the-file
 
 ## Entry points
 
-| Import                                   | Source                                                                                                                                    | Platform   |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `@smthrs/platform-node`                  | [src/index.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/index.ts)                       | Node       |
-| `@smthrs/platform-node/NodeHost`         | [src/NodeHost.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/NodeHost.ts)                 | Node       |
-| `@smthrs/platform-node/AtomicFileSystem` | [src/AtomicFileSystem.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/AtomicFileSystem.ts) | Node       |
-| `@smthrs/platform-node/HostLiveness`     | [src/HostLiveness.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/HostLiveness.ts)         | Node       |
-| `@smthrs/platform-node/ProcessReaper`    | [src/ProcessReaper.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessReaper.ts)       | Node       |
-| `@smthrs/platform-node/ScopedProcess`    | [src/ScopedProcess.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ScopedProcess.ts)       | Node / Bun |
+| Import                                     | Source                                                                                                                                        | Platform   |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `@smthrs/platform-node`                    | [src/index.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/index.ts)                           | Node       |
+| `@smthrs/platform-node/NodeHost`           | [src/NodeHost.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/NodeHost.ts)                     | Node       |
+| `@smthrs/platform-node/AtomicFileSystem`   | [src/AtomicFileSystem.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/AtomicFileSystem.ts)     | Node       |
+| `@smthrs/platform-node/HostLiveness`       | [src/HostLiveness.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/HostLiveness.ts)             | Node       |
+| `@smthrs/platform-node/ProcessReaper`      | [src/ProcessReaper.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessReaper.ts)           | Node       |
+| `@smthrs/platform-node/ScopedProcess`      | [src/ScopedProcess.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ScopedProcess.ts)           | Node / Bun |
+| `@smthrs/platform-node/ProcessConfinement` | [src/ProcessConfinement.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessConfinement.ts) | Node       |
+| `@smthrs/platform-node/ProcessSandbox`     | [src/ProcessSandbox.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessSandbox.ts)         | Node       |
 
 The barrel exports `NodeHost`, `HostLiveness`, `ProcessReaper`, and `ScopedProcess`.
 `AtomicFileSystem` is reached as `NodeHost.AtomicFileSystem` or through its own
@@ -229,6 +231,55 @@ sessions. Windows remains unsupported best effort.
 The supervisor starts the current Node or Bun runtime. Compiled Bun
 applications and Node single-executable applications are refused before target
 execution because they do not implement the runtime's eval entry point.
+
+## ProcessConfinement
+
+The kernel's `ProcessConfinement` seam, filled with this host's native sandbox:
+bubblewrap on Linux, seatbelt on macOS. Compose it beside the grant store the
+kernel spawner reads, and every command that passes its `proc:spawn` check runs
+under the profile the grants in force admit: it writes only where an
+`fs:write` grant opens, reads only what an `fs:read` grant opens plus the
+enumerated runtime paths, and reaches the network only under a `net:*` grant.
+
+```ts
+import { ChildProcessSpawner, Workspace } from "@smthrs/kernel"
+import { NodeHost, ProcessConfinement } from "@smthrs/platform-node"
+import { Layer } from "effect"
+
+const guarded = ChildProcessSpawner.layer.pipe(
+  Layer.provide([grants, Workspace.layer(root), ProcessConfinement.layer({ unavailable: "refuse" })]),
+  Layer.provideMerge(NodeHost.layerAt(root))
+)
+```
+
+```ts
+interface Options {
+  readonly unavailable?: "refuse" | "unconfined" | undefined // default "unconfined", with a warning
+  readonly host?: ProcessSandbox.Host | undefined
+  readonly temporaryDirectory?: string | undefined
+}
+const make: (options?: Options) => KernelProcessConfinement.Service
+const layer: (options?: Options) => Layer.Layer<KernelProcessConfinement.ProcessConfinement>
+```
+
+A `shell: true` stage is spelled out as `/bin/sh -c <line>` before it is
+wrapped, so its redirections run inside the sandbox. A write set the mechanism
+cannot enforce safely, a symbolic link below the workspace root, is refused
+whatever `unavailable` says. Each run gets a private temporary directory and
+home that live as long as the spawn's scope.
+
+## ProcessSandbox
+
+The operating-system sandbox itself, shared by `ProcessConfinement` and the
+build's `@smthrs/targets/ExecSandbox`: `select` picks the mechanism a host has
+for a `Request` (`network`, optional `mechanism`, `reads`, `writes`,
+`writeFiles`, `readOnly`, `externalReads`), `plan` anchors the request at the
+canonical workspace root and refuses a write that crosses a symbolic link,
+`bubblewrap`, `seatbelt` and `docker` render a plan, `wrap` chooses among them,
+`environment` supplies the private home and tmp, `host` reads the real host,
+and `diagnose` reads a denied run's own output back into which side of the
+boundary each path fell on. Every declared confinement is enforced or refused
+with an `Unenforceable` naming what the host lacks.
 
 ## Filesystem
 

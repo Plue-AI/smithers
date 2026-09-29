@@ -36,3 +36,9 @@ export * as ProcessReaper from "./ProcessReaper.ts"
 
 /** Transient pipe-based commands with supervised process cleanup. */
 export * as ScopedProcess from "./ScopedProcess.ts"
+
+/** The kernel's process confinement seam, filled with bubblewrap or seatbelt. */
+export * as ProcessConfinement from "./ProcessConfinement.ts"
+
+/** The operating-system sandbox itself: mechanism selection, planning and rendering. */
+export * as ProcessSandbox from "./ProcessSandbox.ts"

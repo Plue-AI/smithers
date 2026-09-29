@@ -132,6 +132,7 @@ describe("FileSystem.sink failures", () => {
       check: () => Effect.void,
       reply: () => Effect.die("not used"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const host = FileSystem.withIsolatedFileSystem(EffectFileSystem.makeNoop({
@@ -159,6 +160,7 @@ describe("FileSystem.sink failures", () => {
       check: (capability) => Effect.fail(Permission.permissionDenied(capability, "denied by test")),
       reply: () => Effect.die("not used"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const host = FileSystem.withIsolatedFileSystem(EffectFileSystem.makeNoop({

@@ -15,6 +15,7 @@ const grants = GrantStore.of({
   check: () => Effect.void,
   reply: () => Effect.void,
   list: Effect.succeed([]),
+  rules: () => Effect.succeed([]),
   grantEnvelope: () => Effect.void
 })
 

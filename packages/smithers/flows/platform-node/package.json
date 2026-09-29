@@ -41,7 +41,9 @@
     "./EgressHttpClient": "./src/EgressHttpClient.ts",
     "./HostLiveness": "./src/HostLiveness.ts",
     "./NodeHost": "./src/NodeHost.ts",
+    "./ProcessConfinement": "./src/ProcessConfinement.ts",
     "./ProcessReaper": "./src/ProcessReaper.ts",
+    "./ProcessSandbox": "./src/ProcessSandbox.ts",
     "./index": "./src/index.ts",
     "./ScopedProcess": "./src/ScopedProcess.ts"
   },
@@ -115,6 +117,16 @@
           "default": "./dist/cjs/NodeHost.js"
         }
       },
+      "./ProcessConfinement": {
+        "import": {
+          "types": "./dist/esm/ProcessConfinement.d.ts",
+          "default": "./dist/esm/ProcessConfinement.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessConfinement.d.ts",
+          "default": "./dist/cjs/ProcessConfinement.js"
+        }
+      },
       "./ProcessReaper": {
         "import": {
           "types": "./dist/esm/ProcessReaper.d.ts",
@@ -123,6 +135,16 @@
         "require": {
           "types": "./dist/cjs/ProcessReaper.d.ts",
           "default": "./dist/cjs/ProcessReaper.js"
+        }
+      },
+      "./ProcessSandbox": {
+        "import": {
+          "types": "./dist/esm/ProcessSandbox.d.ts",
+          "default": "./dist/esm/ProcessSandbox.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessSandbox.d.ts",
+          "default": "./dist/cjs/ProcessSandbox.js"
         }
       },
       "./index": {

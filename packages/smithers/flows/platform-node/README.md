@@ -103,18 +103,20 @@ Complete host bundles require jj 0.39.0 or newer. Construction probes the binary
 
 ## Modules
 
-The barrel exports four namespaces: `NodeHost`, `HostLiveness`,
-`ProcessReaper`, and `ScopedProcess`. `AtomicFileSystem` is deliberately not among them; it is reached
+The barrel exports six namespaces: `NodeHost`, `HostLiveness`,
+`ProcessReaper`, `ScopedProcess`, `ProcessConfinement`, and `ProcessSandbox`. `AtomicFileSystem` is deliberately not among them; it is reached
 as `NodeHost.AtomicFileSystem` or through the
 `@smthrs/platform-node/AtomicFileSystem` subpath.
 
-| Module             | What it provides                                                                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `NodeHost`         | the complete closed Host bundle, plus re-exports of `AtomicFileSystem`, `ProcessReaper`, `NodeCrypto`, and Effect's raw `NodeFileSystem`, spawner, and `HttpClient`                  |
-| `AtomicFileSystem` | the descriptor-relative, no-follow filesystem layer and its options, ceilings, and glob grammar                                                                                      |
-| `HostLiveness`     | whether a recorded run owner is still alive: `isAlive`, `Owner`, `Options`                                                                                                           |
-| `ProcessReaper`    | live containment and restart reconciliation: `layerSpawner`, `SpawnerOptions`, `processLifecycle`, `reap`, `layer`, `System`, `Refusal`, `posixSystem`, `windowsSystem`, `systemFor` |
-| `ScopedProcess`    | transient scoped commands with the same lifecycle: `Options`, `Handle`, `spawn`, `Status`, `status`                                                                                  |
+| Module               | What it provides                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NodeHost`           | the complete closed Host bundle, plus re-exports of `AtomicFileSystem`, `ProcessReaper`, `NodeCrypto`, and Effect's raw `NodeFileSystem`, spawner, and `HttpClient`                  |
+| `AtomicFileSystem`   | the descriptor-relative, no-follow filesystem layer and its options, ceilings, and glob grammar                                                                                      |
+| `HostLiveness`       | whether a recorded run owner is still alive: `isAlive`, `Owner`, `Options`                                                                                                           |
+| `ProcessReaper`      | live containment and restart reconciliation: `layerSpawner`, `SpawnerOptions`, `processLifecycle`, `reap`, `layer`, `System`, `Refusal`, `posixSystem`, `windowsSystem`, `systemFor` |
+| `ScopedProcess`      | transient scoped commands with the same lifecycle: `Options`, `Handle`, `spawn`, `Status`, `status`                                                                                  |
+| `ProcessConfinement` | the kernel's `ProcessConfinement` seam filled with this host's sandbox: `make`, `layer`, `Options` (`unavailable: "refuse"                                                           |
+| `ProcessSandbox`     | the operating-system sandbox itself: `select`, `plan`, `bubblewrap`, `seatbelt`, `docker`, `wrap`, `diagnose`, `host`; the build's `ExecSandbox` and `ProcessConfinement` share it   |
 
 `NodeCrypto` is re-exported for a different reason than the rest: `Crypto` is not
 a Host service, so it is not in the closed list, but every durable composition

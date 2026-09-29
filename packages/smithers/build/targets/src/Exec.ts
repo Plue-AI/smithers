@@ -11,6 +11,7 @@
 
 import { Action, type FlowRuntime } from "@smthrs/flow"
 import type * as Node from "@smthrs/plan/Node"
+import * as ProcessSandbox from "@smthrs/platform-node/ProcessSandbox"
 import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
 import * as Effect from "effect/Effect"
 import type * as Layer from "effect/Layer"
@@ -1349,7 +1350,7 @@ export const run = (
               cwd,
               tmp: NodePath.join(cacheRoot, "sandbox", sandboxRunId())
             },
-            ExecSandbox.host()
+            ProcessSandbox.host()
           )
         return { resolved, sensitiveEnv, cwd, confinement }
       },
@@ -1364,7 +1365,7 @@ export const run = (
         })
     }),
     ({ confinement, cwd, resolved, sensitiveEnv }) => {
-      if (ExecSandbox.isUnenforceable(confinement)) {
+      if (ProcessSandbox.isUnenforceable(confinement)) {
         return Effect.fail(
           execError({
             argv: resolved.argv,
@@ -1438,7 +1439,7 @@ let runCounter = 0
 /** Appends the sandbox's reading of a failed run's output, when it has one. */
 const annotate = (confinement: ExecSandbox.Plan | undefined, stderr: string): string => {
   if (confinement === undefined) return stderr
-  const note = ExecSandbox.diagnose(confinement, stderr)
+  const note = ProcessSandbox.diagnose(confinement, stderr)
   return note === undefined ? stderr : `${stderr}\n${note}`
 }
 
@@ -1475,14 +1476,14 @@ const confined = (
     })
   const prepare = Effect.try({
     try: () => {
-      ExecSandbox.validateWrites(confinement)
+      ProcessSandbox.validateWrites(confinement)
       NodeFs.mkdirSync(NodePath.join(confinement.tmp, "home"), { recursive: true })
       NodeFs.mkdirSync(NodePath.join(confinement.tmp, "cache"), { recursive: true })
       for (const write of confinement.writes) NodeFs.mkdirSync(write, { recursive: true })
       const base = toolEnvironment(resolved.env, sensitiveEnv, secretEnv, options.environment)
       const visible: Record<string, string> = {}
       for (const [name, value] of Object.entries(base)) if (typeof value === "string") visible[name] = value
-      const wrapped = ExecSandbox.wrap(confinement, resolved.argv, visible)
+      const wrapped = ProcessSandbox.wrap(confinement, resolved.argv, visible)
       return {
         containerName: wrapped.containerName,
         payload: {

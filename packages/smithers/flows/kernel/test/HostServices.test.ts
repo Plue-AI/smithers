@@ -38,6 +38,7 @@ const allowAll = GrantStore.GrantStore.of({
   check: () => Effect.void,
   reply: () => Effect.die("not used by aggregate-layer tests"),
   list: Effect.succeed([]),
+  rules: () => Effect.succeed([]),
   grantEnvelope: () => Effect.void
 })
 
@@ -185,6 +186,7 @@ describe("HostServices", () => {
         },
         reply: () => Effect.die("not used by aggregate-layer tests"),
         list: Effect.succeed([]),
+        rules: () => Effect.succeed([]),
         grantEnvelope: () => Effect.void
       })
       const http = EffectHttpClient.make((request) => Effect.succeed({ status: 200, headers: {}, request } as never))

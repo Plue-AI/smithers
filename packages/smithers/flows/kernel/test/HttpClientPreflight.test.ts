@@ -19,6 +19,7 @@ const recordingStore = () => {
       }),
     reply: () => Effect.die("unused"),
     list: Effect.succeed([]),
+    rules: () => Effect.succeed([]),
     grantEnvelope: () => Effect.die("unused")
   })
   return { checked, service }

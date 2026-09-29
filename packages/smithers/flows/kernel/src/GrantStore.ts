@@ -9,6 +9,7 @@
  */
 
 import {
+  type Action,
   type Capability,
   Capability as CapabilityValue,
   CapabilityPattern,
@@ -87,6 +88,16 @@ export interface Service {
   ) => Effect.Effect<void, GrantStoreError>
   readonly list: Effect.Effect<ReadonlyArray<PendingRequest>>
   readonly grantEnvelope: (options: EnvelopeGrantOptions) => Effect.Effect<void, GrantStoreError>
+  /**
+   * The rules in force for one action, in evaluation order: every allow rule
+   * whose own resource the store would allow right now, and every deny rule
+   * whose own resource it would deny, each re-spelled with `action`. A rule
+   * the capability ceiling excludes, a run rule outside its captured ceiling,
+   * and an allow a later deny masks are all left out, so a reader of this
+   * list sees exactly the authority a {@link check} would honour without
+   * asking. Pending requests are not grants and never appear.
+   */
+  readonly rules: (action: Action) => Effect.Effect<ReadonlyArray<Rule>, GrantStoreError>
 }
 
 /**
@@ -1254,7 +1265,51 @@ export const make = (
       })
     )
 
-    return GrantStore.of({ check, reply, list, grantEnvelope })
+    const rules: Service["rules"] = Effect.fn("GrantStore.rules")((action) =>
+      mutation.withPermit(
+        Effect.gen(function*() {
+          if (closed) {
+            return yield* Effect.fail(new GrantStoreError({ code: "store_closed" }))
+          }
+          const ceiling = yield* current
+          const inForce: Array<Rule> = []
+          const seen = new Set<string>()
+          // Run rules are probed regardless of their captured ceiling: the
+          // probe below re-applies it through `rulesets`, exactly as a check
+          // of that resource would.
+          const candidates = [
+            ...configuredRules,
+            ...envelopeRules,
+            ...runRules.map(({ rule }) => rule),
+            ...rememberedRules
+          ]
+          for (const rule of candidates) {
+            // The rule's own resource is the probe: a glob matches itself, so
+            // the store's answer for it is the store's answer for the pattern.
+            // A pattern resource is a capability resource, same schema, so
+            // the probe always constructs.
+            const probe = new CapabilityValue({ action, resource: rule.pattern.resource })
+            if (!matches(rule.pattern, probe)) continue
+            const identity = `${rule.effect} ${rule.pattern.resource}`
+            if (seen.has(identity)) continue
+            const decision = allows(ceiling, probe) ? evaluate(rulesets(probe), probe) : "deny"
+            if (decision !== rule.effect) continue
+            seen.add(identity)
+            inForce.push(
+              snapshotRule(
+                new Rule({
+                  effect: rule.effect,
+                  pattern: new CapabilityPattern({ action, resource: rule.pattern.resource })
+                })
+              )
+            )
+          }
+          return Object.freeze(inForce)
+        })
+      )
+    )
+
+    return GrantStore.of({ check, reply, list, grantEnvelope, rules })
   })
 
 /**
@@ -1277,7 +1332,12 @@ export const makeNoop: Service = GrantStore.of({
   check: Effect.fn("GrantStore.check")(() => Effect.void),
   reply: Effect.fn("GrantStore.reply")(() => Effect.void),
   list: Effect.fn("GrantStore.list")(() => Effect.succeed([]))(),
-  grantEnvelope: Effect.fn("GrantStore.grantEnvelope")(() => Effect.void)
+  grantEnvelope: Effect.fn("GrantStore.grantEnvelope")(() => Effect.void),
+  // Allow-all is one rule in force per action, so a confinement derived from
+  // this store opens everything a grant could, never less than `check` does.
+  rules: Effect.fn("GrantStore.rules")((action) =>
+    Effect.succeed([new Rule({ effect: "allow", pattern: new CapabilityPattern({ action, resource: "**" }) })])
+  )
 })
 
 /**

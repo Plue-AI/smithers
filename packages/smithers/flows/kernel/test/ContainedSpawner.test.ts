@@ -153,6 +153,7 @@ describe("ContainedSpawner", () => {
           },
           reply: () => Effect.void,
           list: Effect.succeed([]),
+          rules: () => Effect.succeed([]),
           grantEnvelope: () => Effect.void
         })
         yield* Effect.gen(function*() {

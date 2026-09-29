@@ -26,6 +26,7 @@ const scriptedStore = (
     },
     reply: () => Effect.die("not used by filesystem decorator tests"),
     list: Effect.succeed([]),
+    rules: () => Effect.succeed([]),
     grantEnvelope: () => Effect.void
   })
 

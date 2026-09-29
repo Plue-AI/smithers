@@ -23,14 +23,15 @@
  */
 
 import { toPlatformError } from "@smthrs/capability/Permission"
-import { Effect, FileSystem, Layer, Option, Path } from "effect"
-import { systemError } from "effect/PlatformError"
+import { Effect, FileSystem, Layer, Option, Path, type Scope } from "effect"
+import { type PlatformError, systemError } from "effect/PlatformError"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as CommandLine from "./CommandLine.ts"
 import { GrantStore } from "./GrantStore.ts"
 import * as Containment from "./internal/Containment.ts"
 import { makeCapability } from "./internal/makeCapability.ts"
+import * as ProcessConfinement from "./ProcessConfinement.ts"
 import * as Rooted from "./Rooted.ts"
 import { Workspace } from "./Workspace.ts"
 
@@ -276,6 +277,13 @@ export const layerNoop = (
  * `Workspace.root` are compared by real path, so a symlink inside the
  * workspace that leads out of it is named, as its target, in the `cwd` prefix.
  *
+ * When a `ProcessConfinement` is in the layer's context, every stage that
+ * passed its check is handed to it with the `ProcessConfinement.Profile` the
+ * grants in force admit, and the stage the confinement returns is what the
+ * host spawns. The profile is read after the check, so an attended approval
+ * that arrives with new grants confines under them. Without a confinement the
+ * approved stage runs as it was given.
+ *
  * @category layers
  * @since 1.0.0-rc.0
  */
@@ -344,6 +352,39 @@ export const layer: Layer.Layer<
     }
     const check = (command: ChildProcess.Command) =>
       Effect.forEach(CommandLine.stages(command), checkStage, { discard: true })
+    const confinement = yield* Effect.serviceOption(ProcessConfinement.ProcessConfinement)
+    const confineStages = (
+      command: ChildProcess.Command,
+      profile: ProcessConfinement.Profile,
+      service: ProcessConfinement.Service
+    ): Effect.Effect<ChildProcess.Command, PlatformError, Scope.Scope> =>
+      command._tag === "StandardCommand"
+        ? service.confine(command, profile)
+        : Effect.map(
+          Effect.all([
+            confineStages(command.left, profile, service),
+            confineStages(command.right, profile, service)
+          ]),
+          ([left, right]) => ChildProcess.pipeTo(left, right, command.options)
+        )
+    // The profile is derived once per spawn, after the check: a check that
+    // waited on an attended reply may have brought new grants with it.
+    const confine = (command: ChildProcess.Command): Effect.Effect<ChildProcess.Command, PlatformError, Scope.Scope> =>
+      Option.match(confinement, {
+        onNone: () => Effect.succeed(command),
+        onSome: (service) =>
+          ProcessConfinement.profile(grants, root, path).pipe(
+            Effect.mapError((error) =>
+              toPlatformError({
+                module: "ChildProcessSpawner",
+                method: "spawn",
+                pathOrDescriptor: CommandLine.render(command),
+                error
+              })
+            ),
+            Effect.flatMap((profile) => confineStages(command, profile, service))
+          )
+      })
     return Containment.inherit(
       spawner,
       makeSpawner(
@@ -359,7 +400,12 @@ export const layer: Layer.Layer<
               })
           }).pipe(
             Effect.map((snapshot) => Rooted.command(snapshot, rooted)),
-            Effect.flatMap((rooted) => check(rooted).pipe(Effect.andThen(spawner.spawn(rooted))))
+            Effect.flatMap((rooted) =>
+              check(rooted).pipe(
+                Effect.andThen(confine(rooted)),
+                Effect.flatMap((confined) => spawner.spawn(confined))
+              )
+            )
           )
         )
       )

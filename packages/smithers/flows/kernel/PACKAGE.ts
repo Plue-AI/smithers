@@ -21,9 +21,17 @@ const securityReview = Smithers.SecurityReview({
         "A command field read for the capability check and read again (getter, proxy, mutation) for the actual spawn instead of from one frozen snapshot.",
         "CommandLine.resource producing the same resource for two commands that execute differently (shell: true vs argv, custom shell), a chained shell line that a prefix grant still matches, or a pipeline checked as one joined resource instead of once per CommandLine.stages entry.",
         "A spawner method (string, lines, exitCode, stream*) or pipeline leg that reaches the host spawner without passing the guarded spawn.",
-        "An env override the child would not inherit (a name outside ChildProcessEnvironment.isInheritedName such as LD_PRELOAD, GIT_*, NODE_OPTIONS, or a PATH/HOME value that differs from the ambient one) missing from the CommandLine.resource env prefix, or a cwd outside Workspace.root missing its cwd prefix, so it changes what a granted line executes while staying outside the grant."
+        "An env override the child would not inherit (a name outside ChildProcessEnvironment.isInheritedName such as LD_PRELOAD, GIT_*, NODE_OPTIONS, or a PATH/HOME value that differs from the ambient one) missing from the CommandLine.resource env prefix, or a cwd outside Workspace.root missing its cwd prefix, so it changes what a granted line executes while staying outside the grant.",
+        "A ProcessConfinement.profile that opens a tree no fs:* allow in force covers (a deny or ceiling ignored, a grant outside the workspace anchored inside it), or a spawn that reaches the host spawner before confine() ran when a ProcessConfinement is in context."
       ],
-      paths: ["src/ChildProcessSpawner.ts", "src/CommandLine.ts", "src/Rooted.ts", "src/internal/Pipeline.ts"]
+      paths: [
+        "src/ChildProcessSpawner.ts",
+        "src/CommandLine.ts",
+        "src/Rooted.ts",
+        "src/ProcessConfinement.ts",
+        "src/GrantStore.ts",
+        "src/internal/Pipeline.ts"
+      ]
     },
     {
       id: "child-env-least-authority",

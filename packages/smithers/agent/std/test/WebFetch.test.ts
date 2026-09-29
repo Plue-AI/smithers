@@ -265,6 +265,7 @@ describe("WebFetch", () => {
       },
       reply: () => Effect.die("unused"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const result = await Effect.runPromise(
@@ -306,6 +307,7 @@ describe("WebFetch", () => {
       },
       reply: () => Effect.die("unused"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const failure = await Effect.runPromise(Effect.flip(
@@ -345,6 +347,7 @@ describe("WebFetch", () => {
       },
       reply: () => Effect.die("unused"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const result = await Effect.runPromise(

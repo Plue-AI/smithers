@@ -101,9 +101,12 @@ const TimeoutMs = Schema.optional(Schema.Number).annotate({
  * Input schema for the bash flow.
  *
  * The mode named `hermetic` requires explicit read and write envelopes for a
- * lexical pre-check; it does not by itself confine the process. Unhermetic mode
- * deliberately omits those declarations so the distinction stays visible in
- * the input shape.
+ * lexical pre-check, which refuses a command before it runs. Confinement is
+ * not the mode's to give: whichever mode is named, the kernel spawner runs
+ * the approved command under the host's `ProcessConfinement`, so what it may
+ * write and reach is decided by the grants in force and enforced by the
+ * operating system. Unhermetic mode deliberately omits the declarations so
+ * the distinction stays visible in the input shape.
  *
  * @category schemas
  * @since 1.0.0
@@ -111,7 +114,7 @@ const TimeoutMs = Schema.optional(Schema.Number).annotate({
 export const Input = Schema.Union([
   Schema.Struct({
     mode: Schema.Literal("hermetic").annotate({
-      description: "Lexically pre-check explicit path tokens against declared reads and writes; does not sandbox"
+      description: "Lexically pre-check explicit path tokens against declared reads and writes before running"
     }),
     command: Command,
     script: Script,

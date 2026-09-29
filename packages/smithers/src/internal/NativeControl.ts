@@ -57,6 +57,7 @@ import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import type { NotificationQueue } from "@smthrs/notifications"
 import * as PersistedPlan from "@smthrs/plan/Plan"
+import * as ProcessConfinement from "@smthrs/platform-node/ProcessConfinement"
 import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
@@ -1018,9 +1019,12 @@ export const make = (
       Layer.provide(contain().pipe(Layer.provide(engine.journal)))
     )
     // Commands and relative paths resolve in the checkout the run executes in,
-    // never the process's own directory.
+    // never the process's own directory. Every approved command then runs
+    // under this host's sandbox with the grants in force as its profile; a
+    // host with no mechanism runs it unconfined and says so, the way it did
+    // before the sandbox existed.
     const guarded = Layer.merge(KernelChildProcessSpawner.layer, KernelPath.layer).pipe(
-      Layer.provide([grants, Workspace.layer(workspaceRoot)]),
+      Layer.provide([grants, Workspace.layer(workspaceRoot), ProcessConfinement.layer()]),
       Layer.provideMerge(contained)
     )
     // `SMITHERS_MEMORY_DB` moves the memory store to its own SQLite file, so

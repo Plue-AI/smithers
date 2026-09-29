@@ -8,6 +8,7 @@
  * outside the workspace to write into.
  */
 import { Flow, FlowRuntime } from "@smthrs/flow"
+import * as ProcessSandbox from "@smthrs/platform-node/ProcessSandbox"
 import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -80,8 +81,8 @@ const dockerImageAvailable = dockerAvailable &&
 describe("Docker cleanup", () => {
   it.skipIf(!dockerImageAvailable)("removes a real daemon container on cancellation", async () => {
     let containerName: string | undefined
-    const wrap = ExecSandbox.wrap
-    vi.spyOn(ExecSandbox, "wrap").mockImplementation((...args) => {
+    const wrap = ProcessSandbox.wrap
+    vi.spyOn(ProcessSandbox, "wrap").mockImplementation((...args) => {
       const wrapped = wrap(...args)
       const index = wrapped.argv.indexOf("--name")
       if (index !== -1) containerName = wrapped.argv[index + 1]
@@ -155,8 +156,8 @@ describe("Docker cleanup", () => {
   ])(
     "removes the container after client cleanup and before scratch cleanup: %s",
     async (mode) => {
-      const host = ExecSandbox.host()
-      vi.spyOn(ExecSandbox, "host").mockReturnValue({ ...host, executable: () => "/fake/docker" })
+      const host = ProcessSandbox.host()
+      vi.spyOn(ProcessSandbox, "host").mockReturnValue({ ...host, executable: () => "/fake/docker" })
       const events: Array<string> = []
       const calls: Array<ScopedProcess.Options> = []
       let scratch = ""
@@ -261,8 +262,8 @@ describe("Docker cleanup", () => {
 
 describe("run", () => {
   it("removes scratch directories when preparing a write directory fails", async () => {
-    const host = ExecSandbox.host()
-    vi.spyOn(ExecSandbox, "host").mockReturnValue({
+    const host = ProcessSandbox.host()
+    vi.spyOn(ProcessSandbox, "host").mockReturnValue({
       ...host,
       platform: "linux",
       executable: (name) => `/usr/bin/${name}`
@@ -297,8 +298,8 @@ describe("run", () => {
       ["darwin", "sandbox: { network: \"loopback\" } on macOS"]
     ] as const
   )("refuses declared secrets under a closed network on %s before spawning", async (platform, remedy) => {
-    const host = ExecSandbox.host()
-    vi.spyOn(ExecSandbox, "host").mockReturnValue({
+    const host = ProcessSandbox.host()
+    vi.spyOn(ProcessSandbox, "host").mockReturnValue({
       ...host,
       platform,
       executable: (name) => `/usr/bin/${name}`

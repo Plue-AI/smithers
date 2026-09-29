@@ -51,6 +51,7 @@
     "./Jj": "./src/Jj.ts",
     "./JournalGrantStore": "./src/JournalGrantStore.ts",
     "./Path": "./src/Path.ts",
+    "./ProcessConfinement": "./src/ProcessConfinement.ts",
     "./ProcessLedger": "./src/ProcessLedger.ts",
     "./Rooted": "./src/Rooted.ts",
     "./Workspace": "./src/Workspace.ts",
@@ -226,6 +227,16 @@
         "require": {
           "types": "./dist/cjs/Path.d.ts",
           "default": "./dist/cjs/Path.js"
+        }
+      },
+      "./ProcessConfinement": {
+        "import": {
+          "types": "./dist/esm/ProcessConfinement.d.ts",
+          "default": "./dist/esm/ProcessConfinement.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessConfinement.d.ts",
+          "default": "./dist/cjs/ProcessConfinement.js"
         }
       },
       "./ProcessLedger": {

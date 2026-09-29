@@ -36,6 +36,7 @@ const scriptedStore = (allowed: ReadonlySet<string>, checks: Array<Capability.Ca
     },
     reply: () => Effect.die("not used by filesystem decorator tests"),
     list: Effect.succeed([]),
+    rules: () => Effect.succeed([]),
     grantEnvelope: () => Effect.void
   })
 
@@ -459,6 +460,7 @@ describe("FileSystem", () => {
           },
           reply: () => Effect.die("not used by option snapshot test"),
           list: Effect.succeed([]),
+          rules: () => Effect.succeed([]),
           grantEnvelope: () => Effect.void
         })
         const handle: EffectFileSystem.File = {
@@ -525,6 +527,7 @@ describe("FileSystem", () => {
         }),
       reply: () => Effect.die("not used by option snapshot test"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const host = hostFileSystem({
@@ -592,6 +595,7 @@ describe("FileSystem", () => {
       },
       reply: () => Effect.die("not used by filesystem decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const handle: EffectFileSystem.File = {

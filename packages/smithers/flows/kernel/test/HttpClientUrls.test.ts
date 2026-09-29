@@ -29,6 +29,7 @@ const store = (checks: Array<Capability.Capability>) =>
     },
     reply: () => Effect.die("not used by HTTP decorator tests"),
     list: Effect.succeed([]),
+    rules: () => Effect.succeed([]),
     grantEnvelope: () => Effect.void
   })
 

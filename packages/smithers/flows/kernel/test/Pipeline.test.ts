@@ -76,6 +76,7 @@ describe("contained pipeline wiring", () => {
         },
         reply: () => Effect.void,
         list: Effect.succeed([]),
+        rules: () => Effect.succeed([]),
         grantEnvelope: () => Effect.void
       })
       return Effect.gen(function*() {

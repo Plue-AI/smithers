@@ -119,6 +119,7 @@ describe("HttpClient with a real GrantStore lifecycle", () => {
           },
           reply: () => Effect.die("not used by request snapshot test"),
           list: Effect.succeed([]),
+          rules: () => Effect.succeed([]),
           grantEnvelope: () => Effect.void
         })
         const raw = EffectHttpClient.make((request) =>

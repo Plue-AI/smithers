@@ -24,6 +24,7 @@ const store = (checks: Array<Capability.Capability>, allowed = true) =>
     },
     reply: () => Effect.die("not used by HTTP decorator tests"),
     list: Effect.succeed([]),
+    rules: () => Effect.succeed([]),
     grantEnvelope: () => Effect.void
   })
 
@@ -311,6 +312,7 @@ describe("HttpClient", () => {
           },
           reply: () => Effect.die("unused"),
           list: Effect.succeed([]),
+          rules: () => Effect.succeed([]),
           grantEnvelope: () => Effect.void
         })
       )
@@ -329,6 +331,7 @@ describe("HttpClient", () => {
       },
       reply: () => Effect.die("not used by HTTP decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     return Effect.gen(function*() {

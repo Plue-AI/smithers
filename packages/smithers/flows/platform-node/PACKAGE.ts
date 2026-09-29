@@ -126,6 +126,19 @@ const securityReview = Smithers.SecurityReview({
       paths: ["src/EgressHttpClient.ts", "src/NodeHost.ts"]
     },
     {
+      id: "confinement-encloses-shell",
+      title: "A confined stage runs entirely inside the mechanism, with only what its profile opens",
+      threat:
+        "An approved shell command writes outside its fs:write grants, reads host credentials, or reaches the network without a net grant because part of it ran outside the sandbox or the profile widened past the grants.",
+      lookFor: [
+        "A shell: true or string-shell stage wrapped without first being spelled as <shell> -c <line>, so redirections, pipes or chains run in a shell outside the mechanism.",
+        "A profile path anchored outside the canonical workspace root, a writeFiles entry opening more than its parent, or a readOnly entry dropped under a write it should re-close.",
+        "unavailable: \"refuse\" still spawning, a symlinked write path reaching bubblewrap or seatbelt without validateWrites, or the private tmp reused across runs or left behind on failure.",
+        "A network posture of open derived from anything but a net:* allow in force, or seatbelt/bubblewrap rendered with the host home, credentials or PATH entries the runtime allowlist does not enumerate."
+      ],
+      paths: ["src/ProcessConfinement.ts", "src/ProcessSandbox.ts"]
+    },
+    {
       id: "contained-host-bypass",
       title: "Contained host layers route every child process, including jj, through the reaping spawner",
       threat:

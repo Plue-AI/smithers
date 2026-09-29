@@ -27,7 +27,8 @@ export const layerDeny = (reason = "denied by test"): Layer.Layer<GrantStore> =>
     check: Effect.fn("GrantStore.check")((capability) => Effect.fail(permissionDenied(capability, reason))),
     reply: Effect.fn("GrantStore.reply")(() => Effect.fail(new GrantStoreError({ code: "request_not_found" }))),
     list: Effect.fn("GrantStore.list")(() => Effect.succeed([]))(),
-    grantEnvelope: Effect.fn("GrantStore.grantEnvelope")(() => Effect.void)
+    grantEnvelope: Effect.fn("GrantStore.grantEnvelope")(() => Effect.void),
+    rules: Effect.fn("GrantStore.rules")(() => Effect.succeed([]))
   })
   return Layer.succeed(GrantStore)(service)
 }
@@ -63,7 +64,8 @@ export const layerScripted = (
         ),
         reply: Effect.fn("GrantStore.reply")(() => Effect.fail(new GrantStoreError({ code: "request_not_found" }))),
         list: Effect.fn("GrantStore.list")(() => Effect.succeed([]))(),
-        grantEnvelope: Effect.fn("GrantStore.grantEnvelope")(() => Effect.void)
+        grantEnvelope: Effect.fn("GrantStore.grantEnvelope")(() => Effect.void),
+        rules: Effect.fn("GrantStore.rules")(() => Effect.succeed([]))
       })
       return service
     })

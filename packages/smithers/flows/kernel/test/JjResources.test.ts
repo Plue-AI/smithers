@@ -25,6 +25,7 @@ const scriptedStore = (checks: Array<Capability.Capability>) =>
     },
     reply: () => Effect.die("not used by decorator tests"),
     list: Effect.succeed([]),
+    rules: () => Effect.succeed([]),
     grantEnvelope: () => Effect.void
   })
 
@@ -143,6 +144,7 @@ describe("Jj capability resources", () => {
       },
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
 

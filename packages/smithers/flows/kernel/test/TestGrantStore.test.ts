@@ -18,7 +18,20 @@ describe("TestGrantStore", () => {
       yield* store.reply("unused", "remembered")
       yield* store.grantEnvelope({ planDigest: "", patterns: [] })
       expect(yield* store.list).toEqual([])
+      expect((yield* store.rules("fs:read")).map((rule) => rule.pattern.resource)).toEqual(["**"])
     }).pipe(Effect.provide(TestGrantStore.layerAllow)))
+
+  itEffect("holds no rules in force under the deny and scripted contracts", () =>
+    Effect.gen(function*() {
+      const denied = yield* Effect.flatMap(GrantStore, (store) => store.rules("fs:write")).pipe(
+        Effect.provide(TestGrantStore.layerDeny())
+      )
+      const scripted = yield* Effect.flatMap(GrantStore, (store) => store.rules("fs:write")).pipe(
+        Effect.provide(TestGrantStore.layerScripted(["once"]))
+      )
+      expect(denied).toEqual([])
+      expect(scripted).toEqual([])
+    }))
 
   itEffect("provides default and customized deny contracts", () =>
     Effect.gen(function*() {

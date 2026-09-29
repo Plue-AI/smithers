@@ -16,6 +16,7 @@ const allowAll = GrantStore.of({
   check: () => Effect.void,
   reply: () => Effect.die("not used"),
   list: Effect.succeed([]),
+  rules: () => Effect.succeed([]),
   grantEnvelope: () => Effect.void
 })
 
@@ -23,6 +24,7 @@ const neverGrants = GrantStore.of({
   check: () => Effect.die("confined views never consult a grant store"),
   reply: () => Effect.die("not used"),
   list: Effect.succeed([]),
+  rules: () => Effect.succeed([]),
   grantEnvelope: () => Effect.void
 })
 

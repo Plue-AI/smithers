@@ -371,6 +371,21 @@ journal authority changes. `maximumPersistMillis` instead bounds time: a
 journal write that exceeds it fails the admission with `journal_failed`
 without activating the decision.
 
+### GrantStore.rules
+
+```ts
+readonly rules: (action: Action) => Effect.Effect<ReadonlyArray<Rule>, GrantStoreError>
+```
+
+The rules in force for one action, in evaluation order: every allow whose own
+resource the store would allow right now, and every deny whose own resource it
+would deny, each re-spelled with `action`. A rule the capability ceiling
+excludes, a run rule outside its captured ceiling, and an allow a later deny
+masks are left out; pending requests never appear. `ProcessConfinement.profile`
+derives a sandbox profile from it, and the allow-all `makeNoop` answers one
+`**` allow per action so a profile derived from it opens everything a check
+would.
+
 ## GrantEvent
 
 The durable wire shapes a decision is persisted as. The union has exactly five
@@ -969,6 +984,55 @@ caller's whole command before expansion. A decorator below containment sees
 platform preparation commands, which may differ from the caller's command.
 Both layers provide the spawner tag they require, but their order has this
 semantic effect.
+
+## ProcessConfinement
+
+Operating-system confinement of an approved process, derived from the grants
+in force. `proc:spawn` decides whether a command starts; this seam decides what
+it may touch once it runs.
+
+```ts
+interface Profile {
+  readonly workspaceRoot: string
+  readonly reads: ReadonlyArray<string> // workspace-relative trees or files an fs:read allow opens
+  readonly writes: ReadonlyArray<string> // directory trees an fs:write glob allow opens
+  readonly writeFiles: ReadonlyArray<string> // paths a literal fs:write allow names
+  readonly readOnly: ReadonlyArray<string> // trees or paths an fs:write deny re-closes
+  readonly network: "none" | "open" // open when any net:* allow is in force
+}
+
+interface Service {
+  readonly confine: (
+    command: ChildProcess.StandardCommand,
+    profile: Profile
+  ) => Effect.Effect<ChildProcess.StandardCommand, PlatformError, Scope.Scope>
+}
+
+class ProcessConfinement extends Context.Service<ProcessConfinement, Service>()("@smthrs/kernel/ProcessConfinement") {}
+
+const profile: (
+  grants: GrantStore.Service,
+  workspaceRoot: string,
+  path: Path.Path
+) => Effect.Effect<Profile, GrantStoreError>
+const makeNoop: Service
+const layerNoop: Layer.Layer<ProcessConfinement>
+```
+
+`ChildProcessSpawner.layer` reads this service optionally. When it is in the
+layer's context, every stage that passed its check is handed to `confine` with
+the profile `GrantStore.rules` admits at that moment, and the stage the
+confinement returns is what the host spawns. Without it the approved stage runs
+as given. `@smthrs/platform-node/ProcessConfinement` fills the seam with
+bubblewrap on Linux and seatbelt on macOS, and carries the one option the
+kernel leaves open: whether a host with no mechanism refuses the spawn or runs
+it unconfined.
+
+The profile is a floor under the grants, not a translation of them: a glob such
+as `src/**/*.ts` opens `src`, a deny narrower than a whole tree is left to the
+filesystem check that already enforces it, and a grant outside the workspace
+opens nothing. `makeNoop` is the explicit unconfined choice for a composition
+that has to name one.
 
 ## ProcessLedger
 

@@ -19,6 +19,7 @@ describe("kernel package barrel", () => {
       "JournalGrantStore",
       "Path",
       "Permission",
+      "ProcessConfinement",
       "ProcessLedger",
       "Rooted",
       "Workspace"

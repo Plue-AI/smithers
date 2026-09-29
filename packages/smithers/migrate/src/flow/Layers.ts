@@ -49,6 +49,7 @@ import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Route from "@smthrs/model/Route"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
+import * as ProcessConfinement from "@smthrs/platform-node/ProcessConfinement"
 import type * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -470,7 +471,7 @@ const hostFor = (
     Layer.provideMerge(Layer.provideMerge(AtomicFileSystem.layer, NodeServices.layer))
   )
   const guarded = Layer.merge(KernelChildProcessSpawner.layer, KernelPath.layer).pipe(
-    Layer.provide([Workspace.layer(config.root), grants]),
+    Layer.provide([Workspace.layer(config.root), grants, ProcessConfinement.layer()]),
     Layer.provideMerge(platform)
   )
   return Transform.hostLayer({ root: config.root, commands: config.commands }).pipe(Layer.provide(guarded))

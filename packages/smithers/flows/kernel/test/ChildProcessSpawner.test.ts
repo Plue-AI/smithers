@@ -14,6 +14,7 @@ import {
 import * as ChildProcessSpawner from "../src/ChildProcessSpawner.ts"
 import * as CommandLine from "../src/CommandLine.ts"
 import { GrantStore } from "../src/GrantStore.ts"
+import * as ProcessConfinement from "../src/ProcessConfinement.ts"
 import * as Workspace from "../src/Workspace.ts"
 
 /**
@@ -42,6 +43,7 @@ const scriptedStore = (allowed: ReadonlySet<string>, checks: Array<Capability.Ca
     },
     reply: () => Effect.die("not used by decorator tests"),
     list: Effect.succeed([]),
+    rules: () => Effect.succeed([]),
     grantEnvelope: () => Effect.void
   })
 
@@ -134,6 +136,7 @@ describe("ChildProcessSpawner", () => {
         })),
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
 
@@ -171,6 +174,7 @@ describe("ChildProcessSpawner", () => {
         ),
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
 
@@ -223,6 +227,7 @@ describe("ChildProcessSpawner", () => {
             ]).pipe(Effect.asVoid),
           reply: () => Effect.die("not used by command snapshot test"),
           list: Effect.succeed([]),
+          rules: () => Effect.succeed([]),
           grantEnvelope: () => Effect.void
         })
         const args = ["safe"]
@@ -339,6 +344,7 @@ describe("ChildProcessSpawner", () => {
       },
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
 
@@ -382,6 +388,7 @@ describe("ChildProcessSpawner", () => {
       },
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
 
@@ -414,6 +421,7 @@ describe("ChildProcessSpawner", () => {
       },
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
 
@@ -444,6 +452,7 @@ describe("ChildProcessSpawner", () => {
       },
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
 
@@ -472,6 +481,7 @@ describe("ChildProcessSpawner", () => {
       },
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const cwds = [undefined, "src", "E:\\other", "\\\\server\\share\\dir"]
@@ -692,6 +702,131 @@ describe("ChildProcessSpawner", () => {
         hostSpawner({ stdout: "never", onSpawn: () => (delegated = true) })
       ),
       Effect.provideService(GrantStore, scriptedStore(new Set(), []))
+    )
+  })
+})
+
+describe("ChildProcessSpawner with a ProcessConfinement", () => {
+  const store = (rules: ReadonlyArray<Permission.Rule>, allowed: ReadonlySet<string>) =>
+    GrantStore.of({
+      check: (capability) =>
+        allowed.has(`${capability.action}:${capability.resource}`)
+          ? Effect.void
+          : Effect.fail(Permission.permissionDenied(capability, "denied by test")),
+      reply: () => Effect.die("not used by confinement tests"),
+      list: Effect.succeed([]),
+      grantEnvelope: () => Effect.void,
+      rules: (action) => Effect.succeed(rules.filter((rule) => rule.pattern.action === action))
+    })
+
+  const write = new Permission.Rule({
+    effect: "allow",
+    pattern: new Capability.CapabilityPattern({ action: "fs:write", resource: "/workspace/out/**" })
+  })
+
+  /** Records what it was asked to confine and prefixes the stage's argv with a marker. */
+  const recording = (seen: Array<{ readonly line: string; readonly profile: ProcessConfinement.Profile }>) =>
+    Layer.succeed(ProcessConfinement.ProcessConfinement)({
+      confine: (command, profile) =>
+        Effect.sync(() => {
+          seen.push({ line: CommandLine.render(command), profile })
+          return ChildProcess.make("confine", [command.command, ...command.args], command.options)
+        })
+    })
+
+  itEffect("spawns the stage the confinement returns, under the profile the grants in force admit", () => {
+    const seen: Array<{ readonly line: string; readonly profile: ProcessConfinement.Profile }> = []
+    let delegated: ChildProcess.Command | undefined
+    return Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      expect(yield* spawner.string(ChildProcess.make("tool", ["--run"], { cwd: "out" }))).toBe("out")
+      expect(seen).toEqual([{
+        line: "tool --run",
+        profile: {
+          workspaceRoot: "/workspace",
+          reads: [],
+          writes: ["out"],
+          writeFiles: [],
+          readOnly: [],
+          network: "none"
+        }
+      }])
+      expect(delegated).toMatchObject({
+        _tag: "StandardCommand",
+        command: "confine",
+        args: ["tool", "--run"],
+        options: { cwd: "/workspace/out" }
+      })
+    }).pipe(
+      Effect.provide(guarded.pipe(Layer.provide(recording(seen)))),
+      Effect.provideService(
+        HostChildProcessSpawner,
+        hostSpawner({ stdout: "out", onSpawn: (command) => (delegated = command) })
+      ),
+      Effect.provideService(GrantStore, store([write], new Set(["proc:spawn:tool --run"])))
+    )
+  })
+
+  itEffect("confines every stage of a pipeline and keeps its plumbing", () => {
+    const seen: Array<{ readonly line: string; readonly profile: ProcessConfinement.Profile }> = []
+    let delegated: ChildProcess.Command | undefined
+    const pipeline = ChildProcess.pipeTo(ChildProcess.make("left"), ChildProcess.make("right"), { from: "stderr" })
+    return Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      yield* spawner.string(pipeline)
+      expect(seen.map((entry) => entry.line)).toEqual(["left", "right"])
+      expect(delegated).toMatchObject({
+        _tag: "PipedCommand",
+        left: { command: "confine", args: ["left"] },
+        right: { command: "confine", args: ["right"] },
+        options: { from: "stderr" }
+      })
+    }).pipe(
+      Effect.provide(guarded.pipe(Layer.provide(recording(seen)))),
+      Effect.provideService(
+        HostChildProcessSpawner,
+        hostSpawner({ stdout: "", onSpawn: (command) => (delegated = command) })
+      ),
+      Effect.provideService(GrantStore, store([], new Set(["proc:spawn:left", "proc:spawn:right"])))
+    )
+  })
+
+  itEffect("never confines a stage the check refused", () => {
+    const seen: Array<{ readonly line: string; readonly profile: ProcessConfinement.Profile }> = []
+    let invoked = false
+    return Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      expect(denial(yield* Effect.flip(spawner.string(ChildProcess.make("blocked"))))).toMatchObject({
+        code: "permission_denied"
+      })
+      expect(seen).toEqual([])
+      expect(invoked).toBe(false)
+    }).pipe(
+      Effect.provide(guarded.pipe(Layer.provide(recording(seen)))),
+      Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "", onSpawn: () => (invoked = true) })),
+      Effect.provideService(GrantStore, store([], new Set()))
+    )
+  })
+
+  itEffect("projects a grant store that cannot list its rules into the process error, before spawning", () => {
+    let invoked = false
+    const failing = GrantStore.of({
+      ...store([], new Set(["proc:spawn:tool"])),
+      rules: () => Effect.fail(new Permission.GrantStoreError({ code: "journal_failed", message: "journal gone" }))
+    })
+    return Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const failure = yield* Effect.flip(spawner.string(ChildProcess.make("tool")))
+      expect(failure).toMatchObject({
+        _tag: "PlatformError",
+        reason: { _tag: "PermissionDenied", module: "ChildProcessSpawner", method: "spawn", pathOrDescriptor: "tool" }
+      })
+      expect(denial(failure)).toMatchObject({ code: "journal_failed", message: "journal gone" })
+      expect(invoked).toBe(false)
+    }).pipe(
+      Effect.provide(guarded.pipe(Layer.provide(ProcessConfinement.layerNoop))),
+      Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "", onSpawn: () => (invoked = true) })),
+      Effect.provideService(GrantStore, failing)
     )
   })
 })

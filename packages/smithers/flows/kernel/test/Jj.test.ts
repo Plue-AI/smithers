@@ -17,6 +17,7 @@ const scriptedStore = (checks: Array<Capability.Capability>) =>
     },
     reply: () => Effect.die("not used by decorator tests"),
     list: Effect.succeed([]),
+    rules: () => Effect.succeed([]),
     grantEnvelope: () => Effect.void
   })
 
@@ -224,6 +225,7 @@ describe("Jj", () => {
           },
           reply: () => Effect.die("not used by workspace mutation test"),
           list: Effect.succeed([]),
+          rules: () => Effect.succeed([]),
           grantEnvelope: () => Effect.void
         })
         const host = HostJj.makeNoop({
@@ -310,6 +312,7 @@ describe("Jj", () => {
       },
       reply: () => Effect.die("not used by decorator tests"),
       list: Effect.succeed([]),
+      rules: () => Effect.succeed([]),
       grantEnvelope: () => Effect.void
     })
     const host = HostJj.makeNoop({
