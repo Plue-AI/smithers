@@ -149,7 +149,9 @@ export const makeCommand = (options?: { readonly program?: string | undefined })
   const program = options?.program ?? "docker"
   return make({
     exec: (request) => {
-      const names = Object.keys(request.env ?? {})
+      const env = request.env
+      const entries = Object.entries(env ?? {})
+      const names = entries.map(([key]) => key)
       const invalid = names.find((key) => !environmentName.test(key))
       if (invalid !== undefined) {
         return Effect.fail(
@@ -190,9 +192,9 @@ export const makeCommand = (options?: { readonly program?: string | undefined })
           request.file,
           ...args
         ],
-        ...(request.env === undefined ? {} : {
+        ...(env === undefined ? {} : {
           env: Object.fromEntries(
-            Object.entries(request.env).map(([key, value]) => [`${forwardedPrefix}${key}`, value])
+            entries.map(([key, value]) => [`${forwardedPrefix}${key}`, value])
           )
         })
       })
