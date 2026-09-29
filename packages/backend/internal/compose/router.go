@@ -1389,7 +1389,7 @@ func buildRouter(
 					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-source", repositoryJobHandler.GetRepositorySource)
 					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), gateWorkflows)...).Post("/repository-source/retain", repositoryJobHandler.RetainRepositorySource)
 					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs/{job}/dispatches", repositoryJobHandler.GetRepositoryJobDispatches)
-					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), gateWorkflows)...).Post("/repository-jobs/{job}/pause", repositoryJobHandler.PauseRepositoryJob)
+					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RefuseRunCredentials, gateWorkflows)...).Post("/repository-jobs/{job}/pause", repositoryJobHandler.PauseRepositoryJob)
 					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), middleware.RequireMatchingRepositoryRestriction, gateWorkflows)...).Get("/repository-jobs/{job}/approvals", repositoryJobHandler.GetRepositoryJobApprovals)
 					// No workspace, agent or other system-issued credential may
 					// stamp the human approval whose authority it later consumes.
@@ -1400,11 +1400,11 @@ func buildRouter(
 				if workflowHandler != nil {
 					// Ticket 0153: dedicated per-user limiter on manual dispatch
 					// endpoints (both canonical ID and legacy name routes).
-					// A run credential starts, reruns or resumes no workflow run:
-					// its run's agent would otherwise run the default bookmark's
-					// workflows with inputs it chooses, as a person's request.
-					workflowStartRepo := append(append([]func(http.Handler) http.Handler{}, workflowWriteRepo...), middleware.RefuseRunCredentials)
-					workflowDispatchWriteRepo := append([]func(http.Handler) http.Handler{}, workflowStartRepo...)
+					// Starting, rerunning, resuming and cancelling require a person:
+					// an agent would otherwise run the default bookmark's
+					// workflows with inputs it chooses, or cancel a person's run.
+					workflowPersonRepo := append(append([]func(http.Handler) http.Handler{}, workflowWriteRepo...), middleware.RefuseRunCredentials)
+					workflowDispatchWriteRepo := append([]func(http.Handler) http.Handler{}, workflowPersonRepo...)
 					workflowDispatchWriteRepo = append(
 						workflowDispatchWriteRepo,
 						repoWorkflowQuota,
@@ -1417,18 +1417,18 @@ func buildRouter(
 					// sandbox-plane run per call, started by a person's
 					// write-scoped session or token.
 					r.With(workflowDispatchWriteRepo...).Post("/invoke", workflowHandler.InvokeWorkflow)
-					r.With(workflowWriteRepo...).Post("/workflows/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowStartRepo...).Post("/workflows/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
-					r.With(workflowStartRepo...).Post("/workflows/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
-					r.With(workflowWriteRepo...).Post("/actions/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowStartRepo...).Post("/actions/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
+					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
+					r.With(workflowPersonRepo...).Post("/actions/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
+					r.With(workflowPersonRepo...).Post("/actions/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
 					// Ticket 0111: canonical `/runs/{id}/...` client surface.
 					// Aliases the existing `/workflows/runs/...` and
 					// `/actions/runs/...` paths at the same handlers — no new
 					// semantics; just one naming clients can standardize on.
-					r.With(workflowWriteRepo...).Post("/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowStartRepo...).Post("/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
-					r.With(workflowStartRepo...).Post("/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
+					r.With(workflowPersonRepo...).Post("/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
+					r.With(workflowPersonRepo...).Post("/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowPersonRepo...).Post("/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
 				}
 				if workflowCacheHandler != nil {
 					// Clearing every cache belongs to a person, not a run.

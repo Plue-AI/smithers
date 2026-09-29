@@ -140,10 +140,10 @@ func requirePerson(ctx context.Context, action string) *apierrors.APIError {
 
 // RefuseRunCredentials applies RequirePerson to a whole route: managing build
 // cache read tokens (a run could revoke the committed read token or mint one
-// for itself), clearing workflow caches, starting, rerunning or resuming
+// for itself), clearing workflow caches, starting, rerunning, resuming or cancelling
 // workflow runs (a run could start the default bookmark's workflows with
 // inputs it chooses, and their caches are what every later run restores),
-// deciding human approvals, and reporting commit statuses.
+// pausing repository jobs, deciding human approvals, and reporting commit statuses.
 func RefuseRunCredentials(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := requirePerson(r.Context(), "use this endpoint"); err != nil {
