@@ -21,6 +21,7 @@
     "@smthrs/flow": "workspace:*",
     "@smthrs/gateway": "workspace:*",
     "@smthrs/flows": "workspace:*",
+    "@smthrs/kernel": "workspace:*",
     "@smthrs/migrate": "workspace:*",
     "@smthrs/model": "workspace:*",
     "@smthrs/plan": "workspace:*",

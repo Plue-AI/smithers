@@ -1183,6 +1183,20 @@
       "model": null,
       "modelInvocable": true,
       "flows": []
+    },
+    {
+      "id": "wrapped",
+      "description": "Run Claude Code on a task with the memory a native agent starts with and the shared Smithers prompt appended through its own mechanism.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/wrapped/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "flows": []
     }
   ],
   "on": [

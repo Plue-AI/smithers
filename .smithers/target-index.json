@@ -29156,6 +29156,10 @@
         "path": "flows/test/memory-mine.test.ts"
       },
       {
+        "kind": "file",
+        "path": "flows/test/wrapped.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []

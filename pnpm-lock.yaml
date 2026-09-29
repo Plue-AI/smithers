@@ -2153,6 +2153,9 @@ importers:
       '@smthrs/gateway':
         specifier: workspace:*
         version: link:../packages/smithers/gateway
+      '@smthrs/kernel':
+        specifier: workspace:*
+        version: link:../packages/smithers/flows/kernel
       '@smthrs/migrate':
         specifier: workspace:*
         version: link:../packages/smithers/migrate
