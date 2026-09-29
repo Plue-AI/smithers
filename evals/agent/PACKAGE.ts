@@ -159,11 +159,11 @@ const securityReview = Smithers.SecurityReview({
       title: "The offline suite stays offline and its baseline gate cannot be silently bypassed",
       threat: "A change makes CI's agent eval spend real model calls with a checked-in key, or pass while scores regress.",
       lookFor: [
-        "`subject.ts` or `suite.ts` resolving a real provider seat, route, or `EgressHttpClient` instead of the scripted `Model` and in-process route.",
+        "`subject.ts` or `agent.eval.ts` resolving a real provider seat, route, or `EgressHttpClient` instead of the scripted `Model` and in-process route.",
         "`run.ts` returning exit 0 when `Regression.compare` reports regressions, missing observations, or a case error.",
         "`--update` writing `baseline.json` in a CI path, or an unbounded budget used outside the offline scripted seat."
       ],
-      paths: ["run.ts", "subject.ts", "suite.ts"]
+      paths: ["run.ts", "subject.ts", "agent.eval.ts"]
     },
     {
       id: "example-fixture-secrets",

@@ -111,7 +111,7 @@ loop that suspended quietly cannot pass by ending some other way.
 | File            | What it is                                                                                                           |
 | --------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `subject.ts`    | The composition under evaluation: the scripted provider, the seat seam, the host, and the two ways to run the agent. |
-| `suite.ts`      | The seventeen scenarios, their declared expectations, the two scorers, and the case executor.                            |
+| `agent.eval.ts`      | The seventeen scenarios, their declared expectations, the two scorers, and the case executor.                            |
 | `run.ts`        | The entry point: runs the suite, compares it to the baseline, applies the gate, sets the exit code.                  |
 | `baseline.json` | The committed baseline, in `@smthrs/evals` `Baseline` v1 form. Thirty-four records: seventeen cases times two scorers.          |
 | `tsconfig.json` | Typechecks the suite: `npx tsc -p evals/agent`. Nothing else references it.                                          |
@@ -143,7 +143,7 @@ red run:
 
 ## Adding a case
 
-1. Add a scenario to the `scenarios` table in `suite.ts` with its `summary`, its
+1. Add a scenario to the `scenarios` table in `agent.eval.ts` with its `summary`, its
    `run`, and the `expected` observation written out in full. `cases` is derived
    from that table, so there is nothing else to keep in sync.
 2. Prefer a scenario whose answer encodes the behaviour, not just its cost. A
