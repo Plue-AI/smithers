@@ -559,6 +559,7 @@ type WorkspaceService struct {
 	// with the pending ticket; see workspaceSessionProvisionGrace.
 	sessionProvisionGrace time.Duration
 	billing               BillingPolicy
+	audit                 *AuditService
 	sourceReader          WorkspaceSourceReader
 	refDeleter            WorkspaceRefDeleter
 	q                     WorkspaceQuerier
@@ -1387,4 +1388,10 @@ func stringToUUID(s string) pgtype.UUID {
 
 func WithWorkspaceBillingPolicy(policy BillingPolicy) WorkspaceServiceOption {
 	return func(s *WorkspaceService) { s.billing = policy }
+}
+
+// WithWorkspaceAuditService records system workspace actions, such as
+// sandbox-hours suspensions, in the audit log.
+func WithWorkspaceAuditService(audit *AuditService) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.audit = audit }
 }

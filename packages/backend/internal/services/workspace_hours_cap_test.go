@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -63,7 +64,8 @@ func TestWorkspaceService_CleanupOverQuotaWorkspaces(t *testing.T) {
 			return ws, nil
 		},
 	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(policy), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	audits := &hoursCapAuditLog{}
+	svc := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(policy), WithWorkspaceAuditService(NewAuditService(audits)), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		suspendVMFn: func(_ context.Context, id string) (sandbox.SuspendResult, error) {
 			suspended = append(suspended, id)
 			return sandbox.SuspendResult{}, nil
@@ -74,6 +76,13 @@ func TestWorkspaceService_CleanupOverQuotaWorkspaces(t *testing.T) {
 	assert.ElementsMatch(t, []string{"vm-at-cap-a", "vm-at-cap-b", "vm-other-owner", "vm-zero-allowance"}, suspended)
 	assert.ElementsMatch(t, []string{"at-cap-a", "at-cap-b", "other-owner", "zero-allowance"}, statuses)
 	assert.Equal(t, map[int64]int{1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1}, policy.reads)
+	assert.ElementsMatch(t, []string{"at-cap-a", "at-cap-b", "other-owner", "zero-allowance"}, audits.targets())
+	for _, row := range audits.rows {
+		assert.Equal(t, "workspace.suspend", row.EventType)
+		assert.Equal(t, "sandbox_hours_per_day", row.Action)
+		assert.Equal(t, "system", row.ActorName)
+		assert.False(t, row.ActorID.Valid)
+	}
 	q.requireClose(t, "workspace", "at-cap-a")
 	q.requireClose(t, "workspace", "at-cap-b")
 	q.requireClose(t, "workspace", "other-owner")
@@ -111,7 +120,8 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesProviderFailure(t *te
 			return out, nil
 		},
 	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(policy), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	audits := &hoursCapAuditLog{}
+	svc := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(policy), WithWorkspaceAuditService(NewAuditService(audits)), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		suspendVMFn: func(context.Context, string) (sandbox.SuspendResult, error) {
 			attempts++
 			if attempts == 1 {
@@ -123,7 +133,9 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesProviderFailure(t *te
 	require.ErrorContains(t, svc.CleanupOverQuotaWorkspaces(context.Background()), "provider unavailable")
 	assert.Zero(t, statusWrites)
 	assert.Empty(t, q.closes)
+	assert.Empty(t, audits.rows, "a failed suspend is not audited as a suspension")
 	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
+	assert.Equal(t, []string{ws.ID}, audits.targets())
 	assert.Equal(t, 2, attempts)
 	assert.Equal(t, 2, policy.reads[ws.UserID], "the entitlement must be refreshed on retry")
 	assert.Equal(t, 1, statusWrites)
@@ -138,9 +150,10 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesEntitlementRead(t *te
 		reads:        map[int64]int{},
 	}
 	suspends := 0
+	audits := &hoursCapAuditLog{}
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		listRunningWorkspacesFn: func(context.Context) ([]db.Workspace, error) { return []db.Workspace{ws}, nil },
-	}, WithWorkspaceBillingPolicy(policy), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	}, WithWorkspaceBillingPolicy(policy), WithWorkspaceAuditService(NewAuditService(audits)), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		suspendVMFn: func(context.Context, string) (sandbox.SuspendResult, error) {
 			suspends++
 			return sandbox.SuspendResult{}, nil
@@ -148,6 +161,7 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesEntitlementRead(t *te
 	}))
 	require.ErrorContains(t, svc.CleanupOverQuotaWorkspaces(context.Background()), "meter unavailable")
 	assert.Zero(t, suspends)
+	assert.Empty(t, audits.rows)
 	delete(policy.errors, ws.UserID)
 	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
 	assert.Equal(t, 2, policy.reads[ws.UserID])
@@ -211,4 +225,128 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesReadsNewDayAllowance(t *test
 	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
 	assert.Equal(t, 1, suspends)
 	require.NoError(t, policy.AuthorizeSandboxStart(context.Background(), ws.UserID))
+}
+
+type hoursCapAuditLog struct {
+	rows []db.InsertAuditLogParams
+}
+
+func (l *hoursCapAuditLog) InsertAuditLog(_ context.Context, row db.InsertAuditLogParams) error {
+	l.rows = append(l.rows, row)
+	return nil
+}
+
+func (l *hoursCapAuditLog) targets() []string {
+	out := make([]string, 0, len(l.rows))
+	for _, row := range l.rows {
+		out = append(out, row.TargetName)
+	}
+	return out
+}
+
+// A Free workspace swept at the cap is refused on resume with the same
+// plan-limit error its audit event records, and resumes after UTC midnight.
+func TestWorkspaceService_HoursCapSuspensionAuditsAndResumesNextDay(t *testing.T) {
+	ws := sampleDBWorkspace("capped")
+	ws.UserID = 7
+	ws.VmID = "vm-capped"
+	policy, billingQ := sandboxTestBilling(BillingPlanFree)
+	now := time.Date(2026, 9, 15, 23, 0, 0, 0, time.UTC)
+	policy.now = func() time.Time { return now }
+	billingQ.countActiveSandboxesFn = func(context.Context, int64) (int, error) { return 0, nil }
+	billingQ.countActiveAgentsFn = func(context.Context, int64) (int64, error) { return 0, nil }
+	used := int64(3*3600 + 50*60)
+	billingQ.sumSandboxSecondsFn = func(_ context.Context, _ int64, since time.Time) (int64, error) {
+		if since.Day() == 15 {
+			return used, nil
+		}
+		return 0, nil
+	}
+	current := ws
+	vmState := sandbox.StateRunning
+	q := &mockWorkspaceQuerier{
+		listRunningWorkspacesFn: func(context.Context) ([]db.Workspace, error) {
+			if current.Status != "running" {
+				return nil, nil
+			}
+			return []db.Workspace{current}, nil
+		},
+		getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return current, nil },
+		suspendRunningWorkspaceFn: func(context.Context, string) (db.Workspace, error) {
+			current.Status = "suspended"
+			return current, nil
+		},
+		resumeWorkspaceToRunningFn: func(context.Context, string) (db.Workspace, error) {
+			current.Status = "running"
+			return current, nil
+		},
+	}
+	audits := &hoursCapAuditLog{}
+	starts := 0
+	svc := newWorkspaceServiceForTests(&countedResumeStore{mockWorkspaceQuerier: q, workspace: ws},
+		WithWorkspaceBillingPolicy(policy),
+		WithWorkspaceAuditService(NewAuditService(audits)),
+		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+			getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
+				return sandbox.Sandbox{ID: ws.VmID, State: vmState}, nil
+			},
+			suspendVMFn: func(context.Context, string) (sandbox.SuspendResult, error) {
+				vmState = sandbox.StateStopped
+				return sandbox.SuspendResult{}, nil
+			},
+			startVMFn: func(context.Context, string, sandbox.StartRequest) (sandbox.StartResult, error) {
+				starts++
+				vmState = sandbox.StateRunning
+				return sandbox.StartResult{}, nil
+			},
+		}))
+
+	// 3h50m used: the sweep leaves the workspace running.
+	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
+	assert.Equal(t, "running", current.Status)
+	assert.Empty(t, audits.rows)
+
+	// The first tick after 4h suspends it and audits the plan-limit error.
+	used = 4 * 3600
+	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
+	assert.Equal(t, "suspended", current.Status)
+	require.Len(t, audits.rows, 1)
+	row := audits.rows[0]
+	assert.Equal(t, "workspace.suspend", row.EventType)
+	assert.Equal(t, "sandbox_hours_per_day", row.Action)
+	assert.Equal(t, "user", row.TargetType)
+	assert.Equal(t, pgtypeInt8(7), row.TargetID)
+	assert.Equal(t, ws.ID, row.TargetName)
+	var metadata map[string]any
+	require.NoError(t, json.Unmarshal(row.Metadata, &metadata))
+	assert.Equal(t, "plan_limit_exceeded", metadata["code"])
+	assert.Equal(t, "sandbox_hours_per_day", metadata["limit_kind"])
+	assert.Equal(t, BillingPlanFree, metadata["plan_key"])
+	assert.Equal(t, float64(4), metadata["limit"])
+	assert.Equal(t, "2026-09-16T00:00:00Z", metadata["reset_at"])
+	assert.Equal(t, float64(ws.RepositoryID), metadata["repository_id"])
+	assert.Equal(t, ws.VmID, metadata["vm_id"])
+
+	// A second tick finds nothing running and writes nothing.
+	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
+	assert.Len(t, audits.rows, 1)
+
+	// Resuming before reset_at returns the same plan-limit error.
+	_, err := svc.ensureExistingWorkspaceRunning(context.Background(), current)
+	var refusal *pkgerrors.APIError
+	require.ErrorAs(t, err, &refusal)
+	assert.Equal(t, pkgerrors.CodePlanLimitExceeded, refusal.Code)
+	assert.Equal(t, "sandbox_hours_per_day", refusal.LimitKind)
+	require.NotNil(t, refusal.ResetAt)
+	assert.Equal(t, "2026-09-16T00:00:00Z", refusal.ResetAt.UTC().Format(time.RFC3339))
+	assert.Equal(t, metadata["message"], refusal.Message)
+	assert.Zero(t, starts)
+	assert.Equal(t, "suspended", current.Status)
+
+	// After UTC midnight the same resume succeeds.
+	now = time.Date(2026, 9, 16, 0, 0, 1, 0, time.UTC)
+	resumed, err := svc.ensureExistingWorkspaceRunning(context.Background(), current)
+	require.NoError(t, err)
+	assert.Equal(t, "running", resumed.Status)
+	assert.Equal(t, 1, starts)
 }

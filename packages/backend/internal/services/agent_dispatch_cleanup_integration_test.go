@@ -165,13 +165,14 @@ func TestDispatchAgentRun_LostClaimPreservesWinner(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "failure", loserRun.Status)
 	require.False(t, loserRun.AgentTokenHash.Valid, "loser's own callback token must be revoked")
+	// The session claim precedes step and task creation, so the loser never
+	// created either.
+	var loserTasks, loserSteps int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_tasks WHERE workflow_run_id = $1`, loserRunID).Scan(&loserTasks))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_steps WHERE workflow_run_id = $1`, loserRunID).Scan(&loserSteps))
+	require.Zero(t, loserTasks)
+	require.Zero(t, loserSteps)
 	var taskStatus, stepStatus string
-	err = pool.QueryRow(ctx, `SELECT status FROM workflow_tasks WHERE workflow_run_id = $1`, loserRunID).Scan(&taskStatus)
-	require.NoError(t, err)
-	err = pool.QueryRow(ctx, `SELECT status FROM workflow_steps WHERE workflow_run_id = $1`, loserRunID).Scan(&stepStatus)
-	require.NoError(t, err)
-	require.Equal(t, "failed", taskStatus)
-	require.Equal(t, "failure", stepStatus)
 
 	releaseOnce.Do(func() { close(admission.release) })
 	select {

@@ -746,6 +746,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceTransactions(pool),
 		services.WithWorkspaceBillingPolicy(billingPolicy),
+		services.WithWorkspaceAuditService(auditService),
 		services.WithWorkspaceSandboxClient(sandboxClient),
 		services.WithWorkspaceSourceReader(repoHostClient),
 		services.WithWorkspaceRefDeleter(repoHostClient),
