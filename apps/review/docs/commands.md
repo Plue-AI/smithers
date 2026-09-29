@@ -1,8 +1,19 @@
-# Review commands
+---
+title: "Review commands"
+description: "Run a review locally or on a pull request."
+---
 
 Comment `@smithers review` on an open pull request to trigger the action.
 The commenter needs write, maintain, or admin permission on the repository;
 comments from bots or GitHub Apps never trigger.
+
+`--pr <number|url>` resolves the current base branch through GitHub's ref API
+and pins its commit ID alongside the PR head. The comparison uses their merge
+base, fetching missing commits before
+preparing the review. Stale local branches and remote-tracking refs do not select
+the comparison. If the base commit cannot be obtained, the command fails before
+rendering or posting a review. To select a different comparison, use
+`--from`/`--to` or `--commit` instead of `--pr`.
 
 For a local walkthrough without model calls:
 

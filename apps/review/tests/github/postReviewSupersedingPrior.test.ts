@@ -29,6 +29,7 @@ const pr: PullRequestTarget = {
   number: 306,
   url: "https://github.com/smithersai/smithers/pull/306",
   baseRefName: "main",
+  baseSha: "a".repeat(40),
   headRefName: "fix-i306-w8",
   headSha: "abc123",
   title: "Fix the widget",

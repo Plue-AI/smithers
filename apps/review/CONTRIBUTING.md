@@ -46,13 +46,14 @@ decide.
 ## Reviewing GitHub PRs
 
 `--pr <number|url>` resolves the PR via the `gh` CLI, defaults the review
-range to `origin/<base>..<headSha>`, and after the run posts one PR review:
-the narrative summary (headline, synopsis, reading order, walkthrough link
+range to the immutable base and head commit IDs returned by GitHub. After the
+run it posts one PR review: the narrative summary (headline, synopsis, reading order, walkthrough link
 when `--publish` ran) as the body, and every anchorable finding as an inline
 comment with a ` ```suggestion ` fence when replacement code exists. If
 GitHub rejects the inline batch, the findings are folded into the body and
-the review still posts. The CLI fetches the PR head and base refs before
-loading the review snapshot.
+the review still posts. The CLI obtains missing PR commits before
+loading the review snapshot and fails if the base commit is unavailable.
+Local branch and remote-tracking refs never select the default PR comparison.
 
 ## CI
 
@@ -123,7 +124,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0 # the review diffs origin/<base>..<head>; merge-base needs history
+          fetch-depth: 0 # merge-base needs history
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: smithersai/smithers

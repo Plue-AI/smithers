@@ -70,6 +70,32 @@ function refExists(repoDir: string, ref: string): boolean {
   }
 }
 
+function obtainPullRequestBase(repoDir: string, sha: string): void {
+  if (typeof sha !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(sha)) {
+    throw new Error("PR metadata has no valid immutable base commit ID");
+  }
+  if (refExists(repoDir, `${sha}^{commit}`)) return;
+  const remotes = execFileSync("git", ["remote"], { cwd: repoDir, encoding: "utf8", stdio: "pipe" })
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && line !== "origin");
+  for (const remote of ["origin", ...remotes]) {
+    try {
+      execFileSync("git", ["fetch", "--", remote, sha], {
+        cwd: repoDir,
+        stdio: "pipe",
+        timeout: 30_000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+    } catch {
+      // Another configured remote may have the commit. Never substitute a branch tip.
+      continue;
+    }
+    if (refExists(repoDir, `${sha}^{commit}`)) return;
+  }
+  throw new Error(`could not obtain PR base commit ${sha} from any remote`);
+}
+
 function untrustedPullRequestBackground(pr: PullRequestTarget): string {
   const content = `PR #${pr.number}: ${pr.title}${pr.body.trim() ? `\n\n${pr.body.trim()}` : ""}`;
   const fence = fenceFor(content);
@@ -160,9 +186,14 @@ export async function runReview(args: ReviewArgs): Promise<void> {
       }
     }
     if (!args.from && !args.to && !args.commit) {
-      // Prefer the remote-tracking base: the local base branch may be stale
-      // and would drag unrelated commits into the review diff.
-      args.from = refExists(repoDir, `origin/${pr.baseRefName}`) ? `origin/${pr.baseRefName}` : pr.baseRefName;
+      // The resolved base pins the comparison even when local tracking refs are stale
+      // or the remote branch advances while the review is preparing.
+      try {
+        obtainPullRequestBase(repoDir, pr.baseSha);
+      } catch (error) {
+        return failRun(`smithers-review: ${(error as Error).message.split("\n")[0]}`);
+      }
+      args.from = pr.baseSha;
       args.to = pr.headSha;
       console.error(
         `[smithers-review] PR #${pr.number} (${pr.baseRefName}…${pr.headRefName}) → ${args.from}..${args.to}`,

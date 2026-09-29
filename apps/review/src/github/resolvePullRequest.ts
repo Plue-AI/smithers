@@ -6,6 +6,7 @@ export type PullRequestTarget = {
   number: number;
   url: string;
   baseRefName: string;
+  baseSha: string;
   headRefName: string;
   headSha: string;
   title: string;
@@ -44,12 +45,23 @@ export async function resolvePullRequest(
   }
   const match = /\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(path);
   if (!match) throw new Error(`cannot parse owner/repo from PR url: ${data.url}`);
+  // baseRefOid on the PR can retain an older base even while the branch moves.
+  // Resolve the live base branch once, then pin the comparison to its commit.
+  const baseSha = (await runGh(repoDir, [
+    "api",
+    `repos/${match[1]}/${match[2]}/git/ref/heads/${encodeURIComponent(data.baseRefName)}`,
+    "--jq",
+    ".object.sha",
+    "--hostname",
+    new URL(data.url).hostname,
+  ])).trim();
   return {
     owner: match[1],
     repo: match[2],
     number: data.number,
     url: data.url,
     baseRefName: data.baseRefName,
+    baseSha,
     headRefName: data.headRefName,
     headSha: data.headRefOid,
     title: data.title ?? "",

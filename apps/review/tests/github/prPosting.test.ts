@@ -35,6 +35,7 @@ const pr: PullRequestTarget = {
   number: 306,
   url: "https://github.com/smithersai/smithers/pull/306",
   baseRefName: "main",
+  baseSha: "a".repeat(40),
   headRefName: "fix-i306-w8",
   headSha: "abc123",
   title: "Fix the widget",
@@ -48,11 +49,13 @@ describe("GitHub PR posting helpers", () => {
         number: 306,
         url: "https://github.com/smithersai/smithers/pull/306",
         baseRefName: "main",
+        baseRefOid: "f".repeat(40),
         headRefName: "fix-i306-w8",
         headRefOid: "abc123",
         title: "Fix the widget",
         body: "Closes #306.",
       }),
+      "a".repeat(40),
     );
 
     await expect(resolvePullRequest("/repo", "306", runGhMock)).resolves.toEqual(pr);
@@ -60,6 +63,10 @@ describe("GitHub PR posting helpers", () => {
       {
         repoDir: "/repo",
         args: ["pr", "view", "306", "--json", "number,url,baseRefName,headRefName,headRefOid,title,body"],
+      },
+      {
+        repoDir: "/repo",
+        args: ["api", "repos/smithersai/smithers/git/ref/heads/main", "--jq", ".object.sha", "--hostname", "github.com"],
       },
     ]);
   });
@@ -70,17 +77,56 @@ describe("GitHub PR posting helpers", () => {
         number: 9,
         url: "https://ghe.example.corp/acme/tools/pull/9",
         baseRefName: "main",
+        baseRefOid: "c".repeat(40),
         headRefName: "topic",
         headRefOid: "fee1dead",
       }),
+      "b".repeat(40),
     );
 
     const resolved = await resolvePullRequest("/repo", "9", runGhMock);
     expect(resolved.owner).toBe("acme");
     expect(resolved.repo).toBe("tools");
     expect(resolved.number).toBe(9);
+    expect(resolved.baseSha).toBe("b".repeat(40));
     expect(resolved.title).toBe("");
     expect(resolved.body).toBe("");
+    expect(ghCalls[1]?.args).toEqual([
+      "api", "repos/acme/tools/git/ref/heads/main", "--jq", ".object.sha", "--hostname", "ghe.example.corp",
+    ]);
+  });
+
+  test("resolvePullRequest encodes slashes in the live base branch name", async () => {
+    ghResponses.push(
+      JSON.stringify({
+        number: 13,
+        url: "https://github.com/acme/tools/pull/13",
+        baseRefName: "release/1",
+        headRefName: "feature",
+        headRefOid: "head",
+      }),
+      "d".repeat(40),
+    );
+    const resolved = await resolvePullRequest("/repo", "13", runGhMock);
+    expect(resolved.baseSha).toBe("d".repeat(40));
+    expect(ghCalls[1]?.args).toEqual([
+      "api", "repos/acme/tools/git/ref/heads/release%2F1", "--jq", ".object.sha", "--hostname", "github.com",
+    ]);
+  });
+
+  test("resolvePullRequest fails when the live base branch cannot be read", async () => {
+    ghResponses.push(
+      JSON.stringify({
+        number: 14,
+        url: "https://github.com/acme/tools/pull/14",
+        baseRefName: "main",
+        headRefName: "feature",
+        headRefOid: "head",
+      }),
+      new Error("base ref HTTP 503"),
+    );
+    await expect(resolvePullRequest("/repo", "14", runGhMock)).rejects.toThrow("base ref HTTP 503");
+    expect(ghCalls).toHaveLength(2);
   });
 
   test("resolvePullRequest rejects PR URLs that cannot identify owner and repo", async () => {
@@ -89,6 +135,7 @@ describe("GitHub PR posting helpers", () => {
         number: 12,
         url: "https://example.test/not-a-github-pr",
         baseRefName: "main",
+        baseRefOid: "c".repeat(40),
         headRefName: "branch",
         headRefOid: "def456",
       }),
