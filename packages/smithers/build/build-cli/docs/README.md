@@ -104,6 +104,8 @@ executors, while declaration bodies cross the explicit `Target.plan` boundary
 inside an executor-owned Flow. If you arrived from a search result and want the product
 rather than its build system, start at [`@smthrs/cli`](/api/cli).
 
+See [Accepted agent edits](./concepts/agent-edits.md) for publication and hard-link behavior.
+
 ## How to get it
 
 Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).

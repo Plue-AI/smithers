@@ -1471,22 +1471,14 @@ export const executeEffect = (
         apply: local.apply,
         commit: (overlay) =>
           Effect.gen(function*() {
-            const written: Array<string> = []
+            let written: ReadonlyArray<string> = []
             const outcome = yield* enforceWriteSet(
               node.label,
               patterns,
               literalAdmitted(overlay.files.keys()),
               Effect.gen(function*() {
-                for (const [path, contents] of [...overlay.files.entries()].sort(([a], [b]) => a < b ? -1 : 1)) {
-                  const absolute = NodePath.join(root, ...path.split("/"))
-                  if (contents === null) {
-                    yield* joined(() => Fs.rm(absolute, { force: true }))
-                  } else {
-                    yield* joined(() => Fs.mkdir(NodePath.dirname(absolute), { recursive: true }))
-                    yield* joined(() => Fs.writeFile(absolute, contents, "utf8"))
-                  }
-                  written.push(path)
-                }
+                // Publication must settle before the guard measures or restores the tree.
+                written = yield* Effect.uninterruptible(local.commit(overlay))
                 return { ok: true }
               })
             )
