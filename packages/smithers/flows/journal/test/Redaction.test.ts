@@ -526,6 +526,23 @@ describe("Redaction", () => {
     expect(Redaction.redact(plainCallable)).toBe(Redaction.functionMarker)
   })
 
+  it("passes JSON.stringify keys to root, member, array and shared serializers", () => {
+    const keyed = {
+      toJSON(key: string) {
+        return { seenKey: key, kind: key === "" ? "root" : key }
+      }
+    }
+    expect(Redaction.redact(keyed)).toEqual(JSON.parse(JSON.stringify(keyed)))
+    const shared = {
+      toJSON(key: string) {
+        return { seenKey: key }
+      }
+    }
+    const value = { member: keyed, array: [keyed], left: shared, right: shared }
+    expect(Redaction.redact(value)).toEqual(JSON.parse(JSON.stringify(value)))
+    expect(Redaction.redact({ apiKey: keyed })).toEqual({ apiKey: Redaction.placeholder })
+  })
+
   it("accepts a value at the depth bound and rejects one beyond it", () => {
     expect(() => Redaction.redact(nestedValue(Redaction.maxDepth))).not.toThrow()
     expect(() => Redaction.redact(nestedValue(Redaction.maxDepth + 1))).toThrow(
@@ -569,6 +586,49 @@ describe("Redaction", () => {
         prompt: "call with Bearer [REDACTED_TOKEN]"
       })
       expect(entry.meta).toEqual({ authorization: Redaction.placeholder })
+    }).pipe(Effect.provide(journalLayer()), Effect.scoped))
+
+  effect("persists key-sensitive serializers and compares canonical producer retries", () =>
+    Effect.gen(function*() {
+      const journal = yield* Journal
+      const run = runId("key-sensitive-json")
+      const source = sourceId("producer")
+      const shared = {
+        toJSON(key: string) {
+          return { seenKey: key }
+        }
+      }
+      const payload = {
+        member: shared,
+        array: [shared],
+        other: shared,
+        at: new Date("2020-01-01T00:00:00.000Z"),
+        apiKey: "private"
+      }
+      const expected = {
+        member: { seenKey: "member" },
+        array: [{ seenKey: "0" }],
+        other: { seenKey: "other" },
+        at: "2020-01-01T00:00:00.000Z",
+        apiKey: Redaction.placeholder
+      }
+      const event = (value: unknown) =>
+        new Input({
+          runId: run,
+          sourceId: source,
+          sourceSeq: 7 as Input["sourceSeq"],
+          eventType: "keyed",
+          payload: value
+        }, { disableChecks: true })
+      expect((yield* journal.emitDurableUnfenced(event(payload)))._tag).toBe("Accepted")
+      const page = yield* journal.entries({ runId: run, limit: 10 })
+      expect(page.entries).toHaveLength(1)
+      expect(page.entries[0]!.payload).toEqual(expected)
+      expect((yield* journal.emitDurableUnfenced(event(payload)))._tag).toBe("Duplicate")
+      const failure = yield* Effect.flip(
+        journal.emitDurableUnfenced(event({ ...payload, other: { seenKey: "different" } }))
+      )
+      expect(failure.code).toBe("idempotency_conflict")
     }).pipe(Effect.provide(journalLayer()), Effect.scoped))
 
   effect("persists a Date through its JSON representation", () =>

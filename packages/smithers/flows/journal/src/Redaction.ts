@@ -518,7 +518,7 @@ export const redact = (value: unknown, options?: Options): unknown => {
         walked++
         entries.push([
           redactKey(key, rules),
-          redactMember(key, field, (value) => walk(value, ancestors, depth + 1))
+          redactMember(key, field, (value) => walk(value, ancestors, depth + 1, key))
         ])
       }
     }
@@ -528,7 +528,7 @@ export const redact = (value: unknown, options?: Options): unknown => {
     return Object.fromEntries(entries)
   }
 
-  const walk = (node: unknown, ancestors: WeakSet<object>, depth: number): unknown => {
+  const walk = (node: unknown, ancestors: WeakSet<object>, depth: number, key: string): unknown => {
     if (depth > maxDepth) {
       if (onTooDeep === "name") return depthMarker
       throw new Error(`redaction depth exceeds ${maxDepth}`)
@@ -550,7 +550,9 @@ export const redact = (value: unknown, options?: Options): unknown => {
     ancestors.add(node)
     try {
       const toJSON = (node as { toJSON?: unknown }).toJSON
-      if (typeof toJSON === "function") return walk(toJSON.call(node), ancestors, depth)
+      // JSON.stringify passes the containing key (or "" at the root) to toJSON.
+      // Reuse it when walking the replacement; siblings may share this object.
+      if (typeof toJSON === "function") return walk(toJSON.call(node, key), ancestors, depth, key)
       if (Array.isArray(node)) {
         // `map` invokes the input's species constructor, which can restore
         // credential fields and inspection hooks after the elements are walked.
@@ -558,7 +560,7 @@ export const redact = (value: unknown, options?: Options): unknown => {
         const length = node.length
         const result = new Array<unknown>(length)
         for (let index = 0; index < length; index++) {
-          if (index in node) result[index] = walk(node[index], ancestors, depth + 1)
+          if (index in node) result[index] = walk(node[index], ancestors, depth + 1, String(index))
         }
         return result
       }
@@ -575,14 +577,14 @@ export const redact = (value: unknown, options?: Options): unknown => {
           // a log annotation key reach the operator, since Effect renders an
           // annotation as `key=value`, and become an OTLP span attribute name.
           redactKey(key, rules),
-          redactMember(key, field, (value) => walk(value, ancestors, depth + 1))
+          redactMember(key, field, (value) => walk(value, ancestors, depth + 1, key))
         ])
       )
     } finally {
       ancestors.delete(node)
     }
   }
-  return walk(value, new WeakSet(), 0)
+  return walk(value, new WeakSet(), 0, "")
 }
 
 /**
