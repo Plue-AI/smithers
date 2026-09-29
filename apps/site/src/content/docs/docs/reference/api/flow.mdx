@@ -31,11 +31,11 @@ The `exports` map declares these subpaths:
 | `@smthrs/flow/StepIdentity`     | `src/Action/StepIdentity.ts`     | any      |
 | `@smthrs/flow/<Module>`         | `src/<Module>.ts`                | any      |
 
-`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `DurableClock`, `DurableDeferred`, `DurableQueue`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
+`<Module>` is one of the top-level modules, each listed explicitly in the `exports` map: `DurableClock`, `DurableDeferred`, `DurableQueue`, `Fault`, `Graph`, `HumanTask`, `Interpreter`, `Poll`, `RetryPolicy`, `Sleep`, `Stall`, and `WaitFor`. No `./*` wildcard is declared. The `exports` map maps `./internal/*`, `./*/index`, `./Action/*`, `./Flow/*`, and `./FlowRuntime/*` to `null`, so those paths do not resolve.
 
 ## Namespaces
 
-The package index re-exports fourteen namespaces:
+The package index re-exports sixteen namespaces:
 
 | Namespace         | Summary                                                              |
 | ----------------- | -------------------------------------------------------------------- |
@@ -43,6 +43,7 @@ The package index re-exports fourteen namespaces:
 | `DurableClock`    | Durable clock and timer services.                                    |
 | `DurableDeferred` | Durable deferred values.                                             |
 | `DurableQueue`    | Durable queues.                                                      |
+| `Fault`           | One typed fault class per failure, and the response ladder.          |
 | `Flow`            | Durable flow definitions.                                            |
 | `FlowRuntime`     | The execution contract flow authoring APIs are written against.      |
 | `Graph`           | Plan-time graph building from flow declarations.                     |
@@ -51,6 +52,7 @@ The package index re-exports fourteen namespaces:
 | `Poll`            | The durable poller: attempts as rounds, waits as durable timers.     |
 | `RetryPolicy`     | Retry policy models and constructors.                                |
 | `Sleep`           | The system timer action and its implementation layer.                |
+| `Stall`           | The stall breaker round loops share.                                 |
 | `StepIdentity`    | Stable step identity construction.                                   |
 | `WaitFor`         | The system wait-point action and its implementation layer.           |
 
@@ -528,6 +530,52 @@ Creates the worker effect that processes items from the queue. It throws a `Rang
 - **Since:** `0.1.0`
 
 The layer form of `DurableQueue.makeWorker`, forking the worker into the layer's scope.
+
+## Fault
+
+One typed fault for every failure. The owner of an error union registers each code with a class, so a failure crosses every seam as `{ class, tag }` instead of prose.
+
+### `Fault.Class`
+
+- **Type:** `Schema.Literals<["user", "wait", "infra", "dependency", "bug", "factory", "policy"]>`
+- **Since:** `1.0.0`
+
+`user`, `wait`, `infra`, `dependency`, and `bug` are the wire registry. `factory` means the factory's own work did not converge, so a replan may fix it. `policy` means a cap stopped the work.
+
+### `Fault.Fault`
+
+- **Type:** `Schema.Struct<{ class: Class; tag: Schema.String }>`
+- **Since:** `1.0.0`
+
+`tag` is `<_tag>/<code>`, or `<_tag>` for an error without a code.
+
+### `Fault.register`
+
+- **Signature:** `register<Code extends string>(tag: string, table: Class | Rows<Code>, field?: string): void`
+- **Since:** `1.0.0`
+
+Registers one class for the whole tag, or one per value of `field` (default `code`). Owners write `satisfies Fault.Rows<Code>`, so a new code without a class does not compile. A value the table does not name is `bug`. The registry is one per process, shared by the ESM and CommonJS builds. Registering a tag again with the same rows is a no-op; registering it with different rows throws.
+
+### `Fault.of`
+
+- **Signature:** `of(error: unknown): Fault`
+- **Since:** `1.0.0`
+
+Walks `cause` up to 16 links and answers the innermost registered tag, because a wrapper names where a failure surfaced and its cause names why. Anything unregistered is `{ class: "bug", tag: "unregistered" }`.
+
+### `Fault.respond`
+
+- **Signature:** `respond(fault: Fault, state: State): Response`
+- **Since:** `1.0.0`
+
+The one response ladder, exhaustive over the classes. `wait` backs up, then parks while `parksLeft` allows. `dependency` backs up, then retries for 3 attempts. `infra` retries, then parks. `factory` replans twice, continues once as `very_hard`, then asks for `help`. A declined request (`coding/Error/declined`) closes, any other `user` fault asks for `help`, and `policy` and `bug` stop.
+
+### `Fault.registered`
+
+- **Signature:** `registered(): ReadonlySet<string>`
+- **Since:** `1.0.0`
+
+Every registered tag. The sweep tests read it.
 
 ## Flow
 
@@ -1478,6 +1526,30 @@ The declared `system/sleep` step: a relative `millis` from now, or an absolute `
 - **Since:** `0.1.0`
 
 The sleep implementation: arm the durable clock, park under `timer`, wake. Provide it beside the other action implementation layers, over `Action.layerImplementations`.
+
+## Stall
+
+`Stall` is the stall breaker round loops share. `@smthrs/patterns` loops and the coding correction flow use it.
+
+### `Stall.policy`
+
+- **Signature:** `policy(options: Options): Policy`
+- **Since:** `1.0.0`
+
+Resolves `rounds` (at least two) and `on`: `stop` (the default), `park`, or `escalate`. The loop decides what `on` means.
+
+### `Stall.observe`
+
+- **Since:** `1.0.0`
+
+`Stall.observe(policy, state, observation)` folds one round into the carried `State`. It returns the next state, with a `Stalled` verdict once one signal held for `rounds` rounds in a row. An observation reports any of `tree` (a tree fingerprint), `checks` (failing check ids, order ignored, empty not compared), and `output` (compared by the SHA-256 of its canonical JSON; a value with no canonical form is not compared).
+
+### `Stall.initial`
+
+- **Type:** `State`
+- **Since:** `1.0.0`
+
+The state before the first round. `State`, `Policy`, and `Stalled` are schemas, so a trampoline carries the state in its payload and replay reads the same verdict.
 
 ## StepIdentity
 
