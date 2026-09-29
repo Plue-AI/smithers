@@ -65,7 +65,7 @@ never connected: it runs on the user's own Claude Code.
 | `repo create/list/view/clone/fork/transfer/edit/archive/unarchive/delete` | Repository administration and cloning. |
 | `repo home [OWNER/REPO]` | List remote homepage blocks in server order with the saved login. |
 | `repo connect/disconnect/status/mirror-sync/push` | GitHub connection and lease-protected personal refs. |
-| `workspace create/list/view/delete/fork/snapshots/watch/ssh/shell/exec/cp/issue` | Boxes, terminal sessions, durable SSH commands, file copies and issue runs. |
+| `workspace create/list/view/delete/fork/snapshots/watch/ssh/shell/exec/cp/issue` | Boxes, terminal sessions, durable API commands, file copies and issue runs. |
 | `flow list/start --cloud`, `flow dispatch` | Repository flows; use `--repo OWNER/REPO` to select the repository. |
 | `runs list/show/rerun/cancel/logs/watch --cloud` | Backend runs. `watch` waits for the real terminal result. |
 | `change status/list/show/diff/files/conflicts`, `bookmark list/create/delete` | Local jj changes and bookmarks. |
@@ -276,3 +276,19 @@ the hidden-alias table.
 - [The API reference](/reference/api/): every public export of the package.
 - [The command surface](/concepts/command-surface/): how the shipped
   and removed verb lists are both kept closed.
+
+### Workspace commands
+
+`smthrs workspace exec BOX --repo OWNER/REPO --command 'pnpm test' --exec-id tests-1`
+admits a command and polls its durable receipt. Reuse the same ID and inputs to
+reattach after a disconnect. Reusing the ID with different inputs fails.
+Output is available at completion and is bounded; `output_truncated` reports
+truncation. Nonzero exit codes propagate to the CLI.
+
+`--timeout SECONDS` requests cancellation when the limit expires; Ctrl-C also
+requests cancellation and waits for confirmation. The default has no client
+timeout; the backend stops commands after 60 minutes. A lost execution lease
+produces an unknown outcome and never automatically reruns the command.
+Use `workspace ssh` or `workspace shell` for interactive input and guest-user
+selection. The former SSH log-file runner and its `--stdin`/`--user` exec options
+are removed.
