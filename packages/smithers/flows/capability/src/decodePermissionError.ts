@@ -16,7 +16,8 @@ import {
 
 /**
  * Validates data before constructing a yieldable permission error. Invalid
- * payloads or metadata exceeding the constructor's limits return None.
+ * payloads, inspection failures, or metadata exceeding the constructor's
+ * limits return None.
  * Construction also accepts instances from another copy of the package,
  * without relying on JavaScript instanceof identity.
  *
@@ -24,8 +25,8 @@ import {
  * @since 1.0.0-rc.0
  */
 export const decodePermissionError = (input: unknown): Option.Option<PermissionError> => {
-  if (!isPermissionError(input)) return Option.none()
   try {
+    if (!isPermissionError(input)) return Option.none()
     switch (input._tag) {
       case "@smthrs/capability/PermissionRequired":
         return Option.some(

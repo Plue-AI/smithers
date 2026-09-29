@@ -339,6 +339,60 @@ describe("permission failures", () => {
     expect(calls).toBe(0)
   })
 
+  describe("metadata array read traps", () => {
+    const request = (array: ReadonlyArray<unknown>) => ({
+      _tag: "@smthrs/capability/PermissionRequired",
+      code: "permission_required",
+      requestId: "r",
+      capability: { action: "fs:read", resource: "/a" },
+      tier: "sealed",
+      meta: { array }
+    })
+    const trapped = (throws: boolean) => {
+      const reads: Array<string> = []
+      const array = new Proxy([1, "two"], {
+        get(target, key, receiver) {
+          reads.push(String(key))
+          if (throws) throw new Error("metadata-read-marker")
+          return Reflect.get(target, key, receiver)
+        }
+      })
+      return { reads, input: request(array) }
+    }
+
+    it.each([false, true])("refines through descriptors without ordinary reads (throwing: %s)", (throws) => {
+      const { input, reads } = trapped(throws)
+      expect(isPermissionError(input)).toBe(true)
+      expect(reads).toEqual([])
+    })
+
+    it("constructs from a transparent trapped array", () => {
+      const { input } = trapped(false)
+      expect(Option.map(decodePermissionError(input), (error) => error._tag))
+        .toEqual(Option.some("@smthrs/capability/PermissionRequired"))
+    })
+
+    it("returns None when descriptor inspection throws", () => {
+      const array = new Proxy([1], {
+        ownKeys() {
+          throw new Error("metadata-inspection-marker")
+        }
+      })
+      const input = request(array)
+      expect(() => isPermissionError(input)).toThrow("metadata-inspection-marker")
+      expect(decodePermissionError(input)).toEqual(Option.none())
+    })
+
+    it("still rejects sparse, extra-member, and non-Array-prototype arrays", () => {
+      const extra = Object.assign([1], { extra: 2 })
+      const foreign = Object.setPrototypeOf([1], Object.create(Array.prototype))
+      for (const array of [[1, , 3], extra, foreign]) {
+        expect(isPermissionError(request(array))).toBe(false)
+        expect(decodePermissionError(request(array))).toEqual(Option.none())
+      }
+    })
+  })
+
   it.each([
     {
       _tag: "@smthrs/capability/PermissionRequired",

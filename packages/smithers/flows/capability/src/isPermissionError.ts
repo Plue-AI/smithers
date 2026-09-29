@@ -37,6 +37,8 @@ const isPermissionMeta = (input: unknown): boolean => {
     const array = Array.isArray(value)
     if (array ? Object.getPrototypeOf(value) !== Array.prototype : !isPlainObject(value)) return false
     const descriptors = Object.getOwnPropertyDescriptors(value)
+    // Arrays always own a non-configurable length data descriptor.
+    const length = array ? descriptors.length!.value as number : 0
     let elements = 0
     for (const key of Reflect.ownKeys(descriptors)) {
       const descriptor = descriptors[key as string]!
@@ -44,11 +46,11 @@ const isPermissionMeta = (input: unknown): boolean => {
       if (array) {
         if (key === "length") continue
         const index = Number(key)
-        if (!Number.isInteger(index) || index < 0 || String(index) !== key || index >= value.length) return false
+        if (!Number.isInteger(index) || index < 0 || String(index) !== key || index >= length) return false
         elements++
       }
     }
-    if (array && elements !== value.length) return false
+    if (array && elements !== length) return false
     active.add(value)
     stack.push({ value, exit: true })
     for (const key of Object.keys(descriptors)) {
