@@ -906,6 +906,51 @@ mod tests {
     }
 
     #[test]
+    fn apply_files_rejects_case_alias_metadata_without_mutation() {
+        let dir = tempdir().unwrap();
+        let output = Command::new("jj")
+            .args(["git", "init", "--colocate", dir.path().to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let read = run(serde_json::to_string(&json!({
+            "operation":"read", "repositoryPath":dir.path()
+        }))
+        .unwrap()
+        .as_bytes())
+        .unwrap();
+
+        for (index, (actual, alias)) in [
+            (".git/config", ".GIT/config"),
+            (".jj/working_copy/type", ".JJ/working_copy/type"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let actual = dir.path().join(actual);
+            let alias_path = dir.path().join(alias);
+            let original = std::fs::read(&actual).unwrap();
+            let mut changed = original.clone();
+            changed.extend_from_slice(b"\n# rejected metadata patch\n");
+            let request = json!({"operation":"apply_files", "repositoryPath":dir.path(),
+                "requestId":format!("77777777-7777-4777-8777-77777777777{index}"),
+                "expectedOperationId":read["operationId"], "target":read["head"],
+                "files":[{"path":alias, "beforeDigest":super::super::workspace_files::hash(&original),
+                    "content":String::from_utf8(changed.clone()).unwrap()}]});
+            assert_eq!(
+                run(serde_json::to_string(&request).unwrap().as_bytes())
+                    .unwrap_err()
+                    .code,
+                "invalid_request"
+            );
+            assert_eq!(std::fs::read(&actual).unwrap(), original);
+            if alias_path.exists() {
+                assert_eq!(std::fs::read(&alias_path).unwrap(), original);
+            }
+        }
+    }
+
+    #[test]
     fn create_source_keeps_the_editor_head_and_creates_an_immutable_child() {
         let _guard = LOCAL_OWNER_TEST_LOCK.lock().unwrap();
         let dir = tempdir().unwrap();

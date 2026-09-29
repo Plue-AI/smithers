@@ -175,10 +175,11 @@ fn validate(files: &[Edit]) -> Result<()> {
             || edit.path.len() > 4096
             || edit.path.contains('\\')
             || edit.path.bytes().any(|byte| byte < 32 || byte == 127)
-            || edit
-                .path
-                .split('/')
-                .any(|part| matches!(part, "" | "." | ".." | ".git" | ".jj"))
+            || edit.path.split('/').any(|part| {
+                matches!(part, "" | "." | "..")
+                    || part.eq_ignore_ascii_case(".git")
+                    || part.eq_ignore_ascii_case(".jj")
+            })
             || !paths.insert(edit.path.as_str())
         {
             return Err(Failure::new(
