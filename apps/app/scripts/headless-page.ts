@@ -181,7 +181,22 @@ export const createHeadlessBrowser = ({
 
   const createPage = async (cookie: string | undefined, signal: AbortSignal): Promise<ProbePage> => {
     launchOnce()
-    const root = await (browserConnection ??= openBrowser(signal))
+    if (browserConnection === undefined) {
+      const opening = openBrowser(signal)
+      browserConnection = opening
+      const abort = () => {
+        if (browserConnection === opening) browserConnection = undefined
+      }
+      signal.addEventListener("abort", abort, { once: true })
+      void opening.then(
+        () => signal.removeEventListener("abort", abort),
+        () => {
+          abort()
+          signal.removeEventListener("abort", abort)
+        }
+      )
+    }
+    const root = await browserConnection
     const { browserContextId } = await root.send("Target.createBrowserContext", { disposeOnDetach: true }, signal)
     const { targetId } = await root.send("Target.createTarget", { url: "about:blank", browserContextId }, signal)
     const { sessionId } = await root.send("Target.attachToTarget", { targetId, flatten: true }, signal)
@@ -287,6 +302,9 @@ export const createHeadlessBrowser = ({
         throw error
       })
       pages.set(key, created)
+      signal.addEventListener("abort", () => {
+        if (pages.get(key) === created) pages.delete(key)
+      }, { once: true })
       return created
     },
     close: async () => {

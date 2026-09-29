@@ -149,6 +149,38 @@ test("a mid-run CDP disconnect fails the row, preserves earlier results and cont
   expect(persisted).toEqual([["pass"], ["pass", "fail"], ["pass", "fail", "pass"]])
 })
 
+test("a canceled browser startup does not poison the next checklist row", async () => {
+  await browser.close()
+  browser = createHeadlessBrowser({ target: "https://smithers.test/repo", explicitBinary: "/fake/chrome", env: {}, requestTimeoutMs: 100 })
+  FakeSocket.open = false
+  const results = await runChecklist({
+    mode: "run", rowTimeoutMs: 25,
+    context: { target: "https://smithers.test", env: {}, page: (cookie, signal) => browser.page(cookie, signal), fetch, now: Date.now, sleep: async () => {} },
+    rows: [
+      { id: "A-1", section: "A", title: "startup canceled", browser: true, probe: async (ctx) => {
+        await ctx.page(undefined)
+        return { status: "pass", detail: "unexpected" }
+      } },
+      { id: "A-2", section: "A", title: "recovered", browser: true, probe: async (ctx) => {
+        FakeSocket.open = true
+        const page = await ctx.page(undefined)
+        return { status: "pass", detail: String(await page.evaluate<boolean>("true")) }
+      } }
+    ]
+  })
+  expect(results.map((row) => row.status)).toEqual(["fail", "pass"])
+  expect(results[0]?.reasons).toEqual(["row A-1 timed out after 25ms"])
+  expect(results[1]?.evidence).toEqual(["true"])
+  expect(FakeSocket.sockets).toHaveLength(2)
+})
+
+test("persistent socket startup failure retries for later pages", async () => {
+  FakeSocket.open = false
+  expect(await settled(browser.page("session=first"))).toEqual({ error: expect.stringContaining("socket open timed out") })
+  expect(await settled(browser.page("session=second"))).toEqual({ error: expect.stringContaining("socket open timed out") })
+  expect(FakeSocket.sockets).toHaveLength(2)
+})
+
 test("a socket that never opens times out", async () => {
   FakeSocket.open = false
   expect(await settled(browser.page(undefined))).toEqual({ error: expect.stringContaining("socket open timed out") })
