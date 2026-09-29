@@ -505,10 +505,10 @@ The file may declare `model: [sol, opus]` to set an ordered primary and fallback
 An explicit model override uses the host's fallback settings.
 The tab runs as a worker with the body appended to the worker instructions,
 `effort` as its reasoning effort, `capabilities` as its envelope and `flows`
-narrowing the filesystem and shell flows. The registry lists a body that
-declares `flows:` with capabilities `*`; the tab still runs under the file's
-own `capabilities:`. Retry reads the file again, so edits apply,
-and keeps the agent and the model. The tab records `agent: {name, digest}`.
+narrowing the filesystem and shell flows. For an agent declaring `flows:`, the
+registry lists its declared `capabilities:`; if omitted, it lists `*`. The tab
+runs under the file's `capabilities:`. Retry rereads the file, applies edits,
+and keeps the agent and model. The tab records `agent: {name, digest}`.
 
 Every refusal is a code and one line:
 
