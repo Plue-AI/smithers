@@ -551,6 +551,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly scopeSecret: SecretsSeam["scopeSecret"]
   /* The mythical stack (#1745), the repository history (D-20): the History card, its admin writes, and the live snapshots its views read. */
   readonly showStack: StackSeam["showStack"]
+  readonly setStackView: StackSeam["setStackView"]
   readonly bootstrapStack: StackSeam["bootstrapStack"]
   readonly backfillStack: StackSeam["backfillStack"]
   readonly setStackParallel: StackSeam["setStackParallel"]
@@ -1867,6 +1868,7 @@ export const createAppController = (
     listSecrets: secretsSeam.listSecrets,
     scopeSecret: secretsSeam.scopeSecret,
     showStack: stackSeam.showStack,
+    setStackView: stackSeam.setStackView,
     bootstrapStack: stackSeam.bootstrapStack,
     backfillStack: stackSeam.backfillStack,
     setStackParallel: stackSeam.setStackParallel,

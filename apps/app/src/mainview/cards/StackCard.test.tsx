@@ -13,8 +13,10 @@ import { accountLabel, itemStateLabel, laneRows, stackCounts, stackRows, wikiRow
  */
 
 const REPO = "smithersai/smithers"
+// The body reads the real clock; a minute ago keeps the Done rows inside "Done today".
+const RECENT = new Date(Date.now() - 60_000).toISOString()
 const item = (id: string, state: MythicalItem["state"], extra: Partial<MythicalItem> = {}): MythicalItem => ({
-  id, state, attempt: 1, runs: {}, dependsOn: [], updatedAt: "2026-09-25T10:00:00Z",
+  id, state, attempt: 1, runs: {}, dependsOn: [], updatedAt: RECENT,
   issue: { number: Number(id.replace(/\D/g, "")), title: `Issue ${id}`, url: `https://github.com/${REPO}/issues/${id.replace(/\D/g, "")}` },
   ...extra
 })
@@ -65,21 +67,18 @@ describe("the History card", () => {
     const pending = { ...STACK, mainBehind: true, changes: [{ ...STACK.changes[1]!, state: "pending" as const }] }
     const html = render({ snapshot: { stack: pending, error: null } })
     expect(html).toContain("main ahead")
-    expect(html).not.toContain(`data-testid="stack-landed"`)
     expect(html).toMatch(/data-testid="stack-change-kyyyyyyybbbb".*data-state="pending">pending</)
   })
 
   test("counts, not prose", () => {
     expect(stackCounts(STACK)).toEqual({ changes: 2, landed: 2, busy: 2, maxParallel: 2, queued: 1, open: 1, blocked: 1, declined: 1 })
     const html = render()
-    expect(html).toContain("2 changes")
-    expect(html).toContain("2 landed")
-    expect(html).not.toContain("main ahead")
-    expect(html).toContain("2/2 lanes")
-    expect(html).toContain("1 queued")
-    expect(html).toContain("1 PR<")
-    expect(html).toContain("1 blocked")
-    expect(html).toContain("1 declined")
+    const counts = html.slice(html.indexOf("stack-counts"), html.indexOf("</p>", html.indexOf("stack-counts")))
+    expect(counts).toContain("2 changes")
+    expect(counts).not.toContain("main ahead")
+    expect(counts).toContain("2/2 lanes")
+    // Queued, PRs, blocked and declined are the issue groups' to count now.
+    expect(counts).not.toMatch(/queued|PR|blocked|declined|landed/)
   })
 
   test("orders the stack: lanes, queue, decisions, declined, then the changes tip first", () => {
@@ -87,6 +86,9 @@ describe("the History card", () => {
       .toEqual(["i1", "i2", "i3", "i5", "i6", "i8", "kzzzzzzzaaaa", "kyyyyyyybbbb"])
     const html = render()
     expect(html.indexOf("stack-item-i1")).toBeLessThan(html.indexOf("stack-change-kzzzzzzzaaaa"))
+    // The stack list holds only changes: the issue groups own the items.
+    const rows = html.slice(html.indexOf('data-testid="stack-rows"'))
+    expect(rows).not.toContain("stack-item-")
     // The change i4 made is joined to its issue, state, checks and pull request.
     const change = html.slice(html.indexOf("stack-change-kzzzzzzzaaaa"), html.indexOf("stack-change-kyyyyyyybbbb"))
     expect(change).toContain(`href="https://github.com/${REPO}/issues/4"`)
@@ -97,8 +99,8 @@ describe("the History card", () => {
     expect(html).toContain("src/a.ts, src/b.ts")
     expect(html).toContain("✗ //:ci")
     expect(html).toContain("not actionable")
-    // A landed item that is no longer a stack row stays out of the list.
-    expect(html).not.toContain("stack-item-i7")
+    // A landed item that is no longer a stack row is in Done, not the stack list.
+    expect(rows).not.toContain("#7 Issue i7")
   })
 
   test("lanes show the issue each works on and its workspace, and a lowered limit keeps a busy lane", () => {
@@ -125,14 +127,15 @@ describe("the History card", () => {
     expect(lane0).toMatch(/<time[^>]*dateTime="2026-09-25T09:52:53Z"[^>]*data-testid="stack-lane-0-elapsed">\d+:\d{2}(:\d{2})?<\/time>/)
     expect(lane0).toContain(">work@example.com +1<")
     expect(lane0).toContain('data-testid="stack-lane-0-seat">opus<')
-    const lane1 = html.slice(html.indexOf("stack-lane-1"), html.indexOf("stack-rows"))
+    const lane1 = html.slice(html.indexOf("stack-lane-1"), html.indexOf('data-testid="stack-rows"'))
     expect(lane1).toContain('data-provider="codex">Codex<')
     expect(lane1).toContain(">luna<")
 
     // A lane the snapshot says nothing more about shows no clock, account or seat.
     const bare = { ...STACK, lanes: [{ index: 0, state: "busy" as const, itemId: "i1" }, { index: 1, state: "busy" as const, itemId: "i2" }] }
     const plain = render({ snapshot: { stack: bare, error: null } })
-    expect(plain).not.toContain("-elapsed")
+    expect(plain).not.toContain("stack-lane-0-elapsed")
+    expect(plain).not.toContain("stack-lane-1-elapsed")
     expect(plain).not.toContain("-account")
     expect(plain).not.toContain("-seat")
     expect(plain).not.toContain(" ago")
@@ -142,7 +145,7 @@ describe("the History card", () => {
     const html = render()
     const retries = [...html.matchAll(/data-flow="history.retry" data-flow-args="([^"]+)"/g)].map((match) => match[1])
     expect(retries).toEqual([`i5 ${REPO}`, `i8 ${REPO}`])
-    const declined = html.slice(html.indexOf("stack-item-i8"))
+    const declined = html.slice(html.indexOf("stack-item-i8"), html.indexOf("stack-counts"))
     expect(declined).toContain(">declined<")
     expect(declined).toContain("Already done.")
     expect(html).toContain(`data-flow="history.backfill" data-flow-args="${REPO}"`)

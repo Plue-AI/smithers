@@ -1801,7 +1801,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         message: z.string(),
         args: z.string()
       }).nullable(),
-      bootstrap: z.object({ requestedAt: z.number() }).optional()
+      bootstrap: z.object({ requestedAt: z.number() }).optional(),
+      /** The issue list (default) or the metrics table; changed through `history.view`. */
+      view: z.enum(["issues", "metrics"]).optional()
     })
   }),
   /*

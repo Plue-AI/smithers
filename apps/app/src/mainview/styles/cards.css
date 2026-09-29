@@ -1405,6 +1405,43 @@
 .stack-reason {
 	flex-basis: 100%;
 }
+/* The issue groups (purple: a person acts now; blue: the factory holds it; green landed, grey otherwise) and the metrics line. */
+.stack-metrics {
+	flex-wrap: wrap;
+	margin: 0;
+	font-variant-numeric: tabular-nums;
+}
+.stack-views {
+	display: inline-flex;
+	gap: 0.25rem;
+	margin-left: auto;
+}
+.stack-group {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+.stack-group-head {
+	display: flex;
+	gap: 0.5rem;
+	align-items: baseline;
+	margin: 0;
+	font-size: var(--fs-small);
+	font-weight: 600;
+}
+.stack-glyph[data-group="needs-you"] {
+	color: var(--brand);
+}
+.stack-glyph[data-group="working"] {
+	color: var(--info);
+}
+.stack-glyph[data-group="done"] {
+	color: var(--text-faint);
+}
+.stack-glyph[data-group="done"][data-state="landed"],
+.stack-group-head > .stack-glyph[data-group="done"] {
+	color: var(--success);
+}
 
 /* The models card: a row is its name, a test dot and its acts; maximized it is the list beside the facts and the seats. */
 .models-row {

@@ -110,6 +110,23 @@ test("history.show embeds the live stack and every hint re-reads the snapshot", 
   expect(controller.stackSnapshots.get(REPO)?.stack?.items[0]?.state).toBe("running")
 })
 
+test("history.view keeps the view in the card payload: it surfaces the card, survives other writes, and switches back", async () => {
+  const { store, controller, fake } = await setup()
+  fake.set(snapshot(1, [item("i1", "landed")]))
+  const shown = await controller.commands.run("history.view", `metrics ${REPO}`)
+  expect(shown).toMatchObject({ status: "executed" })
+  expect(stackCard(store)?.payload).toEqual({ repo: REPO, failure: null, view: "metrics" })
+  expect(controller.stackSnapshots.get(REPO)?.stack?.generation).toBe(1)
+  // Showing the card again keeps its view.
+  await controller.commands.run("history.show", REPO)
+  expect(stackCard(store)?.payload.view).toBe("metrics")
+  const back = await controller.commands.run("history.view", `issues ${REPO}`)
+  expect(back).toMatchObject({ status: "executed" })
+  expect(stackCard(store)?.payload.view).toBe("issues")
+  expect(await controller.commands.run("history.view", `graph ${REPO}`)).not.toMatchObject({ status: "executed" })
+  expect(stackCard(store)?.payload.view).toBe("issues")
+})
+
 test("lane notices start after the debounce, follow rebases and conflicts, and settle only on a real outcome", async () => {
   const { store, controller, fake } = await setup()
   fake.set(snapshot(1, [item("i1", "queued"), item("i2", "queued")]))

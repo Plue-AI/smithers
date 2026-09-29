@@ -32,6 +32,15 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ repo }) => actions.showStack(repo)
   }),
   flow({
+    name: "history.view",
+    summary: "Show the history as its issue list or its metrics",
+    runtime: ["cloud"],
+    args: "<issues|metrics> [owner/repo]",
+    requires: ["signed-in"],
+    input: Schema.Struct({ view: Schema.Literals(["issues", "metrics"]), repo: RepoOptional }),
+    handler: ({ view, repo }) => actions.setStackView(view, repo)
+  }),
+  flow({
     name: "history.bootstrap",
     summary: "Create the history from main's commits",
     runtime: ["cloud"],

@@ -99,7 +99,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "chat", "chat.dictate", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle",
     "chat.queue", "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload", "cloud.prompt", "flow.plan.select",
     "flow.plan.tab", "flow.repo.choose", "input.mode", "palette.actions", "palette.recent",
-    "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
+    "history.view", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
     "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
     "toast.dismiss", "wiki.pane", "wiki.select", "wiki.view", "workspace.rename.edit"
   ],

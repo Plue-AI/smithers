@@ -978,6 +978,11 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (!/^[\w-]{1,64}$/.test(rest)) return no("history.retry takes an item id")
     return ok(repo === undefined ? { id: rest } : { id: rest, repo })
   },
+  "history.view": (args) => {
+    const { rest, repo } = splitTrailingRepo(args)
+    if (rest !== "issues" && rest !== "metrics") return no("history.view takes issues or metrics")
+    return ok(repo === undefined ? { view: rest } : { view: rest, repo })
+  },
   /*
    * Both generators need a repository. Commands.ts renders a form only for a
    * grammar failure, so a blank line must fail here rather than reach schema

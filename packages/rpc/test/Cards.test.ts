@@ -1393,7 +1393,8 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     full: {
       repo: "smithersai/smithers",
       failure: { act: "backfill", message: "Refused", args: "smithersai/smithers" },
-      bootstrap: { requestedAt: 1 }
+      bootstrap: { requestedAt: 1 },
+      view: "metrics"
     }
   },
   "provider-accounts": {

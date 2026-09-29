@@ -173,6 +173,7 @@ export const FLOW_NAMES = [
   "history.parallel",
   "history.retry",
   "history.show",
+  "history.view",
   "input.mode",
   "integrations.list",
   "issue.add-flow",

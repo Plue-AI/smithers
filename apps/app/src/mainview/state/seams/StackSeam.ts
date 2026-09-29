@@ -40,6 +40,7 @@ import { readResult } from "./SeamContext"
 type StackCard = Extract<Card, { kind: "stack" }>
 type Failure = NonNullable<StackCard["payload"]["failure"]>
 type Result = { readonly value: string } | string
+type StackView = NonNullable<StackCard["payload"]["view"]>
 
 export const stackCardId = (repo: string): string => `stack:${repo}`
 
@@ -57,6 +58,8 @@ export interface StackSnapshots {
 
 export interface StackSeam {
   readonly showStack: (repo?: string) => Promise<Result>
+  /** The History card's view: its issue list or its metrics; surfaces the card when absent. */
+  readonly setStackView: (view: StackView, repo?: string) => Promise<Result>
   /** One snapshot without a card: the watched one, else a single read. */
   readonly readStack: (repo?: string) => Promise<MythicalStack | string>
   readonly heldStack: (repo: string) => MythicalStack | undefined
@@ -163,7 +166,8 @@ export const createStackSeam = (
     const previous = card(repo)
     if (previous === undefined && !surface) return
     const payload: StackCard["payload"] = { repo, failure: previous?.payload.failure ?? null,
-      ...(previous?.payload.bootstrap === undefined ? {} : { bootstrap: previous.payload.bootstrap }), ...patch }
+      ...(previous?.payload.bootstrap === undefined ? {} : { bootstrap: previous.payload.bootstrap }),
+      ...(previous?.payload.view === undefined ? {} : { view: previous.payload.view }), ...patch }
     if (patch.bootstrap === undefined && "bootstrap" in patch) delete (payload as { bootstrap?: unknown }).bootstrap
     const next: StackCard = {
       id: stackCardId(repo),
@@ -426,6 +430,17 @@ export const createStackSeam = (
     const value = shared.values.get(repo)
     if (value?.stack == null) return value?.error ?? "The history could not be read."
     return readResult(summary(value.stack))
+  }
+  const setStackView: StackSeam["setStackView"] = async (view, repoArg) => {
+    const resolved = target(repoArg)
+    if ("error" in resolved) return resolved.error
+    const { repo } = resolved
+    if (card(repo) === undefined) {
+      await write(repo, { view }, true)
+      return showStack(repo)
+    }
+    await write(repo, { view })
+    return { value: `The History card shows its ${view}.` }
   }
 
   /**
@@ -715,5 +730,5 @@ export const createStackSeam = (
     return parsed.success ? parsed.data : "The history could not be read."
   }
 
-  return { showStack, readStack, heldStack, bootstrapStack, backfillStack, setStackParallel, retryStackItem, refreshWiki, watchHomeStack, resumeStacks, snapshots }
+  return { showStack, setStackView, readStack, heldStack, bootstrapStack, backfillStack, setStackParallel, retryStackItem, refreshWiki, watchHomeStack, resumeStacks, snapshots }
 }
