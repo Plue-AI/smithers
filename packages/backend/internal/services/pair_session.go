@@ -412,21 +412,23 @@ func (s *PairSessionService) cleanupUnboundPairFork(ctx context.Context, session
 // EndSession flips a session terminal (owner only). Freeing the source from the
 // live-per-source index.
 func (s *PairSessionService) EndSession(ctx context.Context, sessionID string, actorID int64) error {
-	res, err := s.requireOwner(ctx, sessionID, actorID)
-	if err != nil {
-		return err
-	}
-	ender, ok := s.store.(pairSessionEnder)
-	if !ok {
-		return pkgerrors.Internal("pair session ender unavailable")
-	}
-	if _, err := ender.EndPairSessionForOwner(ctx, db.EndPairSessionForOwnerParams{ID: sessionID, OwnerUserID: res.Session.OwnerUserID}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return pkgerrors.NotFound("pair session has ended")
+	return s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		res, err := locked.requireOwner(ctx, sessionID, actorID)
+		if err != nil {
+			return err
 		}
-		return pkgerrors.Internal("end pair session: " + err.Error())
-	}
-	return nil
+		ender, ok := locked.store.(pairSessionEnder)
+		if !ok {
+			return pkgerrors.Internal("pair session ender unavailable")
+		}
+		if _, err := ender.EndPairSessionForOwner(ctx, db.EndPairSessionForOwnerParams{ID: sessionID, OwnerUserID: res.Session.OwnerUserID}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return pkgerrors.NotFound("pair session has ended")
+			}
+			return pkgerrors.Internal("end pair session: " + err.Error())
+		}
+		return nil
+	})
 }
 
 // pairStaleSweepInterval is how often the compensation sweeps run.
@@ -1335,6 +1337,19 @@ func (s *PairSessionService) enqueueSerial(ctx context.Context, sessionID string
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", sessionID); err != nil {
 		return db.PairPromptQueue{}, pkgerrors.Internal("lock session queue: " + err.Error())
 	}
+	// Wait for the queue lock before fencing membership changes, so a removal
+	// completed while this request waited is visible to the fresh role check.
+	// Enqueue and SubmitDraft take queue then membership; mutations take
+	// only membership. Hold both locks through the write transaction's commit.
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "pair-session:"+sessionID); err != nil {
+		return db.PairPromptQueue{}, pkgerrors.Internal("lock pair session mutation: " + err.Error())
+	}
+	locked := *s
+	locked.store = db.New(tx)
+	if _, err := locked.requireRole(ctx, sessionID, params.AuthorUserID, PairRoleEditor); err != nil {
+		return db.PairPromptQueue{}, err
+	}
+
 	prompt, err := db.New(tx).EnqueuePairPrompt(ctx, params)
 	if err != nil {
 		return db.PairPromptQueue{}, pkgerrors.Internal("enqueue prompt: " + err.Error())
@@ -1651,6 +1666,18 @@ func (s *PairSessionService) submitDraftSerial(ctx context.Context, sessionID st
 
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", sessionID); err != nil {
 		return db.PairPromptQueue{}, pkgerrors.Internal("lock session queue: " + err.Error())
+	}
+	// Wait for the queue lock before fencing membership changes, so a removal
+	// completed while this request waited is visible to the fresh role check.
+	// Enqueue and SubmitDraft take queue then membership; mutations take
+	// only membership. Hold both locks through the write transaction's commit.
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "pair-session:"+sessionID); err != nil {
+		return db.PairPromptQueue{}, pkgerrors.Internal("lock pair session mutation: " + err.Error())
+	}
+	locked := *s
+	locked.store = db.New(tx)
+	if _, err := locked.requireRole(ctx, sessionID, actorID, PairRoleEditor); err != nil {
+		return db.PairPromptQueue{}, err
 	}
 
 	q := db.New(tx)

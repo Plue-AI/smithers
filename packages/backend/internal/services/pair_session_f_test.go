@@ -434,13 +434,16 @@ func (r pairFakeRow) Scan(dest ...any) error {
 type pairFakeTx struct {
 	pgx.Tx
 	execErr   error
+	execErrAt int
+	execCalls int
 	commitErr error
 	rows      []pairFakeRow
 	rowIdx    int
 }
 
 func (t *pairFakeTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-	if t.execErr != nil {
+	t.execCalls++
+	if t.execErr != nil && (t.execErrAt == 0 || t.execCalls == t.execErrAt) {
 		return pgconn.CommandTag{}, t.execErr
 	}
 	return pgconn.NewCommandTag("SELECT 1"), nil
@@ -1230,17 +1233,25 @@ func TestPairSession_F_QueueErrors(t *testing.T) {
 	txSvc := func(b *pairFakeTxBeginner) *PairSessionService {
 		return NewPairSessionService(s.fx.store, pairAllowBilling{}, &stubForker{pool: s.fx.pool, repoID: s.fx.repoID}, PairSessionServiceConfig{TxBeginner: b})
 	}
+	sessionRow := pairFakeRow{scan: func(dest ...any) error {
+		*dest[1].(*int64) = s.owner
+		*dest[5].(*string) = "active"
+		return nil
+	}}
 	// Begin error.
 	_, err = txSvc(&pairFakeTxBeginner{beginErr: errPairBoom}).Enqueue(ctx, sid, s.owner, pairPromptSourceSolo, "b")
 	assert.Equal(t, 500, httpStatus(err))
 	// lock exec error.
 	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{execErr: errPairBoom}}).Enqueue(ctx, sid, s.owner, pairPromptSourceSolo, "b")
 	assert.Equal(t, 500, httpStatus(err))
+	// membership lock exec error.
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{execErr: errPairBoom, execErrAt: 2}}).Enqueue(ctx, sid, s.owner, pairPromptSourceSolo, "b")
+	assert.Equal(t, 500, httpStatus(err))
 	// enqueue query error.
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{err: errPairBoom}}}}).Enqueue(ctx, sid, s.owner, pairPromptSourceSolo, "b")
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {err: errPairBoom}}}}).Enqueue(ctx, sid, s.owner, pairPromptSourceSolo, "b")
 	assert.Equal(t, 500, httpStatus(err))
 	// commit error (enqueue scan succeeds).
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{scan: func(dest ...any) error { return nil }}}, commitErr: errPairBoom}}).Enqueue(ctx, sid, s.owner, pairPromptSourceSolo, "b")
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {scan: func(dest ...any) error { return nil }}}, commitErr: errPairBoom}}).Enqueue(ctx, sid, s.owner, pairPromptSourceSolo, "b")
 	assert.Equal(t, 500, httpStatus(err))
 
 	// ListQueue error.
@@ -1353,6 +1364,11 @@ func TestPairSession_F_SubmitDraftSerialErrors(t *testing.T) {
 	txSvc := func(b *pairFakeTxBeginner) *PairSessionService {
 		return NewPairSessionService(s.fx.store, pairAllowBilling{}, &stubForker{pool: s.fx.pool, repoID: s.fx.repoID}, PairSessionServiceConfig{TxBeginner: b})
 	}
+	sessionRow := pairFakeRow{scan: func(dest ...any) error {
+		*dest[1].(*int64) = s.owner
+		*dest[5].(*string) = "active"
+		return nil
+	}}
 	setContent := func(v string) func(dest ...any) error {
 		return func(dest ...any) error {
 			if len(dest) > 1 {
@@ -1371,26 +1387,29 @@ func TestPairSession_F_SubmitDraftSerialErrors(t *testing.T) {
 	// lock exec error.
 	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{execErr: errPairBoom}}).SubmitDraft(ctx, sid, s.owner)
 	assert.Equal(t, 500, httpStatus(err))
+	// membership lock exec error.
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{execErr: errPairBoom, execErrAt: 2}}).SubmitDraft(ctx, sid, s.owner)
+	assert.Equal(t, 500, httpStatus(err))
 	// draft load generic error.
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{err: errPairBoom}}}}).SubmitDraft(ctx, sid, s.owner)
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {err: errPairBoom}}}}).SubmitDraft(ctx, sid, s.owner)
 	assert.Equal(t, 500, httpStatus(err))
 	// draft load ErrNoRows -> BadRequest (empty).
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{err: pgx.ErrNoRows}}}}).SubmitDraft(ctx, sid, s.owner)
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {err: pgx.ErrNoRows}}}}).SubmitDraft(ctx, sid, s.owner)
 	assert.Equal(t, 400, httpStatus(err))
 	// empty content -> BadRequest.
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{scan: setContent("   ")}}}}).SubmitDraft(ctx, sid, s.owner)
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {scan: setContent("   ")}}}}).SubmitDraft(ctx, sid, s.owner)
 	assert.Equal(t, 400, httpStatus(err))
 	// enqueue error after valid draft.
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{scan: setContent("go")}, {err: errPairBoom}}}}).SubmitDraft(ctx, sid, s.owner)
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {scan: setContent("go")}, {err: errPairBoom}}}}).SubmitDraft(ctx, sid, s.owner)
 	assert.Equal(t, 500, httpStatus(err))
 	// clear conflict (ErrNoRows) -> Conflict.
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{scan: setContent("go")}, {scan: okScan}, {err: pgx.ErrNoRows}}}}).SubmitDraft(ctx, sid, s.owner)
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {scan: setContent("go")}, {scan: okScan}, {err: pgx.ErrNoRows}}}}).SubmitDraft(ctx, sid, s.owner)
 	assert.Equal(t, 409, httpStatus(err))
 	// clear generic error -> Internal.
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{scan: setContent("go")}, {scan: okScan}, {err: errPairBoom}}}}).SubmitDraft(ctx, sid, s.owner)
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {scan: setContent("go")}, {scan: okScan}, {err: errPairBoom}}}}).SubmitDraft(ctx, sid, s.owner)
 	assert.Equal(t, 500, httpStatus(err))
 	// commit error.
-	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{{scan: setContent("go")}, {scan: okScan}, {scan: okScan}}, commitErr: errPairBoom}}).SubmitDraft(ctx, sid, s.owner)
+	_, err = txSvc(&pairFakeTxBeginner{tx: &pairFakeTx{rows: []pairFakeRow{sessionRow, {scan: setContent("go")}, {scan: okScan}, {scan: okScan}}, commitErr: errPairBoom}}).SubmitDraft(ctx, sid, s.owner)
 	assert.Equal(t, 500, httpStatus(err))
 }
 
