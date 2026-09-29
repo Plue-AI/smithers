@@ -2,14 +2,14 @@
  * @since 1.0.0
  */
 
-import { NodeCrypto, NodeHttpClient, NodeServices } from "@effect/platform-node"
+import { NodeCrypto, NodeServices } from "@effect/platform-node"
 import type * as Undici from "@effect/platform-node/Undici"
 import * as NodeFlowsRuntime from "@smthrs/flows/NodeRuntime"
 import * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
 import * as NodeJj from "@smthrs/jj/node/NodeJj"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
-import { Effect, Exit, Layer, Scope, Semaphore } from "effect"
+import { Effect, Layer, type Scope } from "effect"
 import * as ControlDatabase from "./ControlDatabase.ts"
 import * as ControlFileSystem from "./ControlFileSystem.ts"
 import * as NativeControl from "./NativeControl.ts"
@@ -63,26 +63,7 @@ export const layerEgressHttpClient = EgressHttpClient.layer
  * @category constructors
  * @since 0.1.0
  */
-export const rebuildableTransport = (
-  acquire: Effect.Effect<Undici.Dispatcher, never, Scope.Scope>
-): Effect.Effect<RequestExecutor.Transport, never, Scope.Scope> =>
-  Effect.gen(function*() {
-    const scope = yield* Scope.Scope
-    const gate = yield* Semaphore.make(1)
-    let held: Scope.Closeable | undefined = undefined
-    const rebuild = gate.withPermit(Effect.gen(function*() {
-      const owned = yield* Scope.fork(scope)
-      const client = yield* NodeHttpClient.makeUndici.pipe(
-        Effect.provideServiceEffect(NodeHttpClient.Dispatcher, acquire),
-        Effect.provideService(Scope.Scope, owned)
-      )
-      const previous = held
-      held = owned
-      if (previous !== undefined) yield* Scope.close(previous, Exit.void)
-      return client
-    }))
-    return { client: yield* rebuild, rebuild }
-  })
+export const rebuildableTransport = EgressHttpClient.rebuildableTransport
 
 /**
  * The model transport every Node host in this repository runs on: an Undici

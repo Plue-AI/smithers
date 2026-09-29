@@ -117,6 +117,7 @@ const composed = ((): Profile.Composed => {
   }
 })()
 const seatId = option("seat") ?? suite.seat
+let liveSeat: Seat.Seat | undefined
 
 if (flag("check-profile")) {
   const cap = (used: number, limit: number) => `${used} of ${limit} bytes`
@@ -230,8 +231,10 @@ const converse = (suiteCase: CharacterSuite.Case, variant: Variant, trial: numbe
       const run = (seat: Seat.Seat) =>
         Subject.runTurn({ composed, seat, world, prompt, idBase: index * 100, session: `${suiteCase.id}-${index}` })
       // A transport failure is the network's, not the profile's: it is retried
-      // twice on a fresh connection, and a turn that still fails is scored as failed.
-      const liveTurn = Effect.scoped(Effect.flatMap(Subject.resolveLive(seatId, process.cwd()), run)).pipe(Effect.orDie)
+      // twice on the same executor, which replaces failed pools itself.
+      const liveTurn = Effect.suspend(() =>
+        liveSeat === undefined ? Effect.die("Live seat was not resolved") : run(liveSeat)
+      )
       let raw = variant.kind === "live" ? yield* liveTurn : yield* run(Subject.replaySeat(transcript!))
       for (
         let attempt = 1;
@@ -572,7 +575,7 @@ const rescore = (file: string) =>
 const program = Effect.gen(function*() {
   if (live || judging) {
     const root = process.cwd()
-    if (live) yield* Effect.scoped(Subject.resolveLive(seatId, root))
+    if (live) liveSeat = yield* Subject.resolveLive(seatId, root)
     if (judging) {
       judgeScorer = CharacterRubric.make(
         CharacterRubric.seatJudge(suite.judgeSeat, root),
@@ -840,6 +843,7 @@ const program = Effect.gen(function*() {
 
 const exitCode = await Effect.runPromise(
   program.pipe(
+    Effect.scoped,
     Effect.catchCause((cause) =>
       Effect.sync(() => {
         process.stderr.write(`${Cause.pretty(cause)}\n`)

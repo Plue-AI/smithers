@@ -103,29 +103,36 @@ client backed by a fresh pool. The host owns pool allocation and cleanup,
 including the replaced pool and the final pool when its scope closes. Both
 clients must preserve the host's permission middleware.
 
+Node hosts use the shared scoped transport. Provide the same `GrantStore`
+used by the rest of the host; every replacement retains its permission checks
+and the supplied environment's proxy policy.
+
 ```ts
-import { HttpClient as KernelHttpClient } from "@smthrs/kernel"
 import { RequestExecutor } from "@smthrs/model"
-import { Effect } from "effect"
+import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
+import { Effect, Layer } from "effect"
 
-// Supplied by the host, with resource ownership handled in its scope.
-declare const currentClient: KernelHttpClient.HttpClient
-declare const rebuildPool: Effect.Effect<KernelHttpClient.HttpClient>
-
-const transport: RequestExecutor.Transport = {
-  client: currentClient,
-  rebuild: rebuildPool
-}
-const executor = RequestExecutor.makeWith(transport)
+const executor = Layer.effect(
+  RequestExecutor.RequestExecutor,
+  Effect.flatMap(
+    EgressHttpClient.guardedTransport(process.env),
+    RequestExecutor.makeWith
+  )
+)
 ```
+
+Build this layer in the host's scope and retain it across model calls.
+Suggestion, migration model seats, and character evaluation use this composition; a new
+conversation does not need a new executor to recover from session loss.
+Browser and Fetch hosts keep `RequestExecutor.layer` over their HTTP client.
 
 The counter belongs to this executor and spans calls. Reaching three
 failures does not immediately rebuild or grant another retry. Before the
-next attempt, the executor runs `rebuildPool`, uses its returned client,
+next attempt, the executor runs the transport's `rebuild` effect, uses its returned client,
 and resets the counter. With the default two retries, that next attempt
 can be in a later call. Any HTTP response clears the transport-failure
 counter. Calls that reach the bound together share one rebuild: the first
-runs `rebuildPool` and the rest wait for its client. A failure reported by a
+runs `rebuild` and the rest wait for its client. A failure reported by a
 client the executor has already replaced does not count against the
 replacement.
 

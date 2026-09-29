@@ -34,7 +34,6 @@ import { Action, Flow, Interpreter } from "@smthrs/flow"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
 import { Capability, GrantStore, Permission, Workspace } from "@smthrs/kernel"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
-import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
@@ -322,10 +321,10 @@ export const layerNode = (config: NodeConfig) => {
   const evaluator = isAbsolute(config.root) ? config.evaluator ?? evaluatorFrom(config.environment) : undefined
   return Layer.unwrap(Effect.gen(function*() {
     if (!isAbsolute(config.root)) return yield* Effect.fail(new RelativeRoot(config.root))
-    const executor = RequestExecutor.layer.pipe(
-      Layer.provide(KernelHttpClient.layer),
-      Layer.provide([EgressHttpClient.layer(config.environment), grantsFor(config.root)])
-    )
+    const executor = Layer.effect(
+      RequestExecutor.RequestExecutor,
+      Effect.flatMap(EgressHttpClient.guardedTransport(config.environment), RequestExecutor.makeWith)
+    ).pipe(Layer.provide(grantsFor(config.root)))
     const seats = Layer.effect(
       SeatResolver.SeatResolver,
       Effect.map(RequestExecutor.RequestExecutor, (request) => {

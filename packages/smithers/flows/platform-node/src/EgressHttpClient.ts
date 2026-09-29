@@ -29,10 +29,14 @@
 
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient"
 import type * as Undici from "@effect/platform-node/Undici"
+import { GrantStore } from "@smthrs/kernel/GrantStore"
+import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
-import type * as Scope from "effect/Scope"
-import type { HttpClient } from "effect/unstable/http/HttpClient"
+import * as Scope from "effect/Scope"
+import * as Semaphore from "effect/Semaphore"
+import { HttpClient } from "effect/unstable/http/HttpClient"
 
 /**
  * The hosts a proxy is never for. A proxy is how a process leaves its machine;
@@ -122,3 +126,59 @@ export const layer = (
   NodeHttpClient.layerUndiciNoDispatcher.pipe(
     Layer.provide(Layer.effect(NodeHttpClient.Dispatcher)(dispatcher(environment)))
   )
+
+/**
+ * Owns one replaceable Undici pool in the caller's scope. Each replacement
+ * receives the same middleware and closes the previous pool.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const rebuildableTransport = (
+  acquire: Effect.Effect<Undici.Dispatcher, never, Scope.Scope>,
+  decorate: (client: HttpClient) => Effect.Effect<HttpClient> = Effect.succeed
+): Effect.Effect<
+  {
+    readonly client: HttpClient
+    readonly rebuild: Effect.Effect<HttpClient>
+  },
+  never,
+  Scope.Scope
+> =>
+  Effect.gen(function*() {
+    const scope = yield* Scope.Scope
+    const gate = yield* Semaphore.make(1)
+    let held: Scope.Closeable | undefined = undefined
+    const rebuild = gate.withPermit(Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function*() {
+        const owned = yield* Scope.fork(scope)
+        const client = yield* restore(NodeHttpClient.makeUndici.pipe(
+          Effect.provideServiceEffect(NodeHttpClient.Dispatcher, acquire),
+          Effect.flatMap(decorate),
+          Effect.provideService(Scope.Scope, owned)
+        )).pipe(Effect.onExit((exit) => Exit.isSuccess(exit) ? Effect.void : Scope.close(owned, exit)))
+        const previous = held
+        held = owned
+        if (previous !== undefined) yield* Scope.close(previous, Exit.void)
+        return client
+      })
+    ))
+    return { client: yield* rebuild, rebuild }
+  })
+
+/**
+ * A model transport whose replacements retain the caller's grant store and
+ * environment proxy policy. Pass it to RequestExecutor.makeWith in the host scope.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const guardedTransport = (environment: Readonly<Record<string, string | undefined>>) =>
+  Effect.gen(function*() {
+    const grants = yield* GrantStore
+    return yield* rebuildableTransport(dispatcher(environment), (client) =>
+      HttpClient.pipe(Effect.provide(KernelHttpClient.layer.pipe(
+        Layer.provide(Layer.succeed(HttpClient)(client)),
+        Layer.provide(Layer.succeed(GrantStore)(grants))
+      ))))
+  })

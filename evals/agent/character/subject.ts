@@ -43,13 +43,11 @@ import {
   Budget,
   type FlowEngineLike,
   QuotaPolicy,
-  Seat,
-  SeatResolver
+  Seat
 } from "../../../packages/smithers/agent/src/index.ts"
 import * as ScriptedJudge from "../../../packages/smithers/agent/src/ScriptedJudge.ts"
 import { FlowEngine } from "../../../packages/smithers/flows/engine/src/index.ts"
 import { Flow, FlowRuntime } from "../../../packages/smithers/flows/flow/src/index.ts"
-import * as KernelHttpClient from "../../../packages/smithers/flows/kernel/src/HttpClient.ts"
 import { Capability, GrantStore, Permission, Workspace } from "../../../packages/smithers/flows/kernel/src/index.ts"
 import { Node } from "../../../packages/smithers/flows/plan/src/index.ts"
 import * as EgressHttpClient from "../../../packages/smithers/flows/platform-node/src/EgressHttpClient.ts"
@@ -174,15 +172,14 @@ export const resolveLive = (seat: string, root: string): Effect.Effect<Seat.Seat
     Layer.provide(Workspace.layer(root)),
     Layer.orDie
   )
-  const executor = RequestExecutor.layer.pipe(
-    Layer.provide(KernelHttpClient.layer),
-    Layer.provide([EgressHttpClient.layer(env), grants])
-  )
+  const executor = Layer.effect(
+    RequestExecutor.RequestExecutor,
+    Effect.flatMap(EgressHttpClient.guardedTransport(env), RequestExecutor.makeWith)
+  ).pipe(Layer.provide(grants))
   // The seat's model keeps using the executor (and its grant store) for every
   // later call, so the layer is built into the caller's scope: the seat lives
-  // as long as that scope. Callers open one scope per conversation, because a
-  // pooled HTTP/2 session the server has closed is never replaced, and every
-  // later call on it fails with ERR_HTTP2_INVALID_SESSION.
+  // as long as that scope. Session loss replaces the pool without replacing
+  // the executor or its grant store.
   return Effect.gen(function*() {
     const context = yield* Layer.build(executor)
     const request = Context.get(context, RequestExecutor.RequestExecutor)

@@ -1,7 +1,16 @@
-import { Effect } from "effect"
+import { CapabilityPattern } from "@smthrs/capability/Capability"
+import { Rule } from "@smthrs/capability/Permission"
+import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
+import * as Workspace from "@smthrs/kernel/Workspace"
+import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
+import { Effect, Layer, Option } from "effect"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import { mkdtempSync, rmSync } from "node:fs"
 import { createServer, request as httpRequest, type Server } from "node:http"
 import { connect } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { Duplex } from "node:stream"
 import { describe, expect, it } from "vitest"
 import { environmentDispatcher, rebuildableTransport } from "../src/internal/NodeControlHost.ts"
@@ -16,6 +25,55 @@ const listen = (server: Server) =>
   })
 
 describe("Node model transport proxy policy", () => {
+  it("checks grants on both the initial and rebuilt pool before any socket is opened", async () => {
+    const root = mkdtempSync(join(tmpdir(), "smithers-transport-grants-"))
+    const requests: Array<string | undefined> = []
+    let connections = 0
+    const target = createServer((request, response) => {
+      requests.push(request.url)
+      response.end("unexpected")
+    })
+    target.on("connection", () => {
+      connections += 1
+    })
+    const targetUrl = await listen(target)
+    try {
+      const failures = await Effect.runPromise(Effect.scoped(
+        Effect.gen(function*() {
+          const transport = yield* EgressHttpClient.guardedTransport({})
+          const first = yield* Effect.flip(transport.client.execute(HttpClientRequest.get(`${targetUrl}/first`)))
+          const replacement = yield* transport.rebuild
+          const second = yield* Effect.flip(replacement.execute(HttpClientRequest.get(`${targetUrl}/rebuilt`)))
+          return [first, second]
+        }).pipe(Effect.provide(
+          GrantStore.layer({
+            attended: false,
+            rules: [
+              new Rule({
+                effect: "deny",
+                pattern: new CapabilityPattern({ action: "net:get", resource: targetUrl })
+              })
+            ]
+          }).pipe(
+            Layer.provide(Workspace.layer(root)),
+            Layer.orDie
+          )
+        ))
+      ))
+      expect(failures.map((failure) => Option.getOrThrow(KernelHttpClient.fromHttpClientError(failure)))).toMatchObject(
+        [
+          { code: "permission_denied", capability: { action: "net:get", resource: targetUrl } },
+          { code: "permission_denied", capability: { action: "net:get", resource: targetUrl } }
+        ]
+      )
+      expect(requests).toEqual([])
+      expect(connections).toBe(0)
+    } finally {
+      await new Promise<void>((resolve) => target.close(() => resolve()))
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("carries loopback itself from the initial and rebuilt pools, and preserves a denied proxy failure", async () => {
     const tunnels: Array<string> = []
     const forwarded: Array<string | undefined> = []
@@ -87,10 +145,15 @@ describe("Node model transport proxy policy", () => {
       // to direct egress after a denied request.
       const denied = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
         const transport = yield* rebuildableTransport(environmentDispatcher({ HTTPS_PROXY: proxyUrl }))
-        return yield* Effect.exit(transport.client.execute(HttpClientRequest.get("https://model.example.invalid/")))
+        const first = yield* Effect.exit(
+          transport.client.execute(HttpClientRequest.get("https://model.example.invalid/"))
+        )
+        const replacement = yield* transport.rebuild
+        const second = yield* Effect.exit(replacement.execute(HttpClientRequest.get("https://model.example.invalid/")))
+        return [first, second]
       })))
-      expect(denied._tag).toBe("Failure")
-      expect(tunnels).toEqual(["model.example.invalid:443"])
+      expect(denied.map((result) => result._tag)).toEqual(["Failure", "Failure"])
+      expect(tunnels).toEqual(["model.example.invalid:443", "model.example.invalid:443"])
     } finally {
       for (const socket of sockets) socket.destroy()
       await Promise.all([target, proxy].map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))

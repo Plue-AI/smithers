@@ -40,7 +40,6 @@ import type * as FlowRuntime from "@smthrs/flow/FlowRuntime"
 import { Capability, GrantStore, Permission, Workspace } from "@smthrs/kernel"
 import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
-import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as KernelPath from "@smthrs/kernel/Path"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
@@ -514,7 +513,13 @@ const evaluatorFor = (
           Effect.provide(Evaluator.layerFromSeat(seat))
         )
       }).pipe(
-        Effect.provide(RequestExecutor.layer.pipe(Layer.provide(EgressHttpClient.layer(config.environment ?? {}))))
+        Effect.provide(Layer.effect(
+          RequestExecutor.RequestExecutor,
+          Effect.flatMap(
+            EgressHttpClient.rebuildableTransport(EgressHttpClient.dispatcher(config.environment ?? {})),
+            RequestExecutor.makeWith
+          )
+        ))
       )
   })
 
@@ -525,10 +530,10 @@ const evaluatorFor = (
 // either one gets the narrowing it asked for instead of a guard consulting a
 // store nobody configured.
 const executorFor = (config: ValidatedConfig): Layer.Layer<RequestExecutor.RequestExecutor, never, never> =>
-  RequestExecutor.layer.pipe(
-    Layer.provide(KernelHttpClient.layer),
-    Layer.provide([EgressHttpClient.layer(config.environment ?? {}), grantsFor(config)])
-  )
+  Layer.effect(
+    RequestExecutor.RequestExecutor,
+    Effect.flatMap(EgressHttpClient.guardedTransport(config.environment ?? {}), RequestExecutor.makeWith)
+  ).pipe(Layer.provide(grantsFor(config)))
 
 /**
  * Everything a migration needs on Node, including the credentialed half.
