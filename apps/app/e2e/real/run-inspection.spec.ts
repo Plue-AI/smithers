@@ -80,9 +80,8 @@ test("signed-out run inspection parks durably before any workspace RPC", scenari
   description: "Ask to inspect a named run while signed out, require a durable sign-in step, and prove the browser never asks a workspace gateway about that run."
 }), async ({ page, request }) => {
   await bootRunWorkbench(page)
-  const session = await realApi(page, request, "GET", "/api/auth/session")
-  expect(session.status()).toBe(200)
-  expect(await session.json()).toEqual({ status: "signed-out" })
+  const session = await realApi(page, request, "GET", "/api/user")
+  expect(session.status()).toBe(401)
   const rpc = workflowRpcPosts(page)
 
   const requestedRun = `owned-but-absent-${Date.now()}`
@@ -95,7 +94,7 @@ test("signed-out run inspection parks durably before any workspace RPC", scenari
   await reloadApp(page)
   await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
   await expect(runCards(page)).toHaveCount(0)
-  expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toEqual({ status: "signed-out" })
+  expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
   expect(rpc).toEqual([])
 })
 
@@ -109,7 +108,7 @@ test("signed-out run attention cannot enumerate workspace state", scenario("runs
   description: "Open the attention inbox while signed out and require authentication to stop before any workspace-runs or approvals projection is requested."
 }), async ({ page, request }) => {
   await bootRunWorkbench(page)
-  expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toEqual({ status: "signed-out" })
+  expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
   const rpc = workflowRpcPosts(page)
 
   await command(page, `/runs.attention ${productionRepository}`)

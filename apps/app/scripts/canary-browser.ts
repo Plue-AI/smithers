@@ -69,8 +69,8 @@ try {
   active = await fresh.newPage()
   await boot(active, "/smithersai/smithers")
   await chatUsable(active)
-  const signedOut = await active.evaluate(async () => (await fetch("/api/auth/session")).json()) as { login?: string }
-  if (signedOut.login) throw new Error("Fresh browser was unexpectedly signed in")
+  const signedOut = await active.evaluate(async () => (await fetch("/api/user")).status)
+  if (signedOut !== 401) throw new Error("Fresh browser was unexpectedly signed in")
   record("fresh session boot and editable Chat")
   await active.screenshot({ path: `${dir}/fresh.png` })
   await fresh.close()
@@ -80,7 +80,7 @@ try {
   active = await signed.newPage()
   await boot(active, `/${repo}`)
   await active.getByTestId("signup").waitFor({ state: "hidden", timeout: 120_000 })
-  const session = await active.evaluate(async () => (await fetch("/api/auth/session")).json()) as { login?: string; admin?: boolean }
+  const session = await active.evaluate(async () => (await fetch("/api/user")).json()) as { login?: string; admin?: boolean }
   if (session.login !== login) throw new Error(`Expected signed-in session for ${login}`)
   if (session.admin !== false) throw new Error("Browser canary requires an ordinary non-admin session")
   record("signed-in browser session")

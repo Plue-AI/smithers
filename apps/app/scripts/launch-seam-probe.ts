@@ -39,8 +39,8 @@ const no501 = async (label: string, response: Response): Promise<string> => {
 }
 
 // 1. Identity seam: the session route answers a definitive signed-in session.
-const session = await fetch(`${origin}/api/auth/session`, { headers: { cookie } })
-const sessionBody = await no501("identity seam /api/auth/session", session)
+const session = await fetch(`${origin}/api/user`, { headers: { cookie } })
+const sessionBody = await no501("identity seam /api/user", session)
 {
   const body = JSON.parse(sessionBody || "{}") as { login?: string; allowlisted?: boolean }
   check(

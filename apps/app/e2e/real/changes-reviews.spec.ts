@@ -67,9 +67,8 @@ test("a signed-out production user can verify a public change and diff but chang
 }), async ({ page, request }, testInfo) => {
   const startedAt = performance.now()
   await page.goto(`/${PUBLIC_REPO}`, { waitUntil: "domcontentloaded" })
-  const session = await realApi(page, request, "GET", "/api/auth/session")
-  expect(session.status()).toBe(200)
-  expect(await session.json()).toEqual({ status: "signed-out" })
+  const session = await realApi(page, request, "GET", "/api/user")
+  expect(session.status()).toBe(401)
 
   const change = await currentPublicChange(page, request)
   const detailResponse = await realApi(page, request, "GET", `/api/repos/${PUBLIC_REPO}/changes/${change.change_id}`)
@@ -109,9 +108,8 @@ test("review.request issues no mutation while a production user is signed out", 
 }), async ({ page, request }, testInfo) => {
   const startedAt = performance.now()
   await page.goto(`/${PUBLIC_REPO}`, { waitUntil: "domcontentloaded" })
-  const session = await realApi(page, request, "GET", "/api/auth/session")
-  expect(session.status()).toBe(200)
-  expect(await session.json()).toEqual({ status: "signed-out" })
+  const session = await realApi(page, request, "GET", "/api/user")
+  expect(session.status()).toBe(401)
   const change = await currentPublicChange(page, request)
   const beforeResponse = await realApi(page, request, "GET", `/api/repos/${PUBLIC_REPO}/changes/${change.change_id}`)
   expect(beforeResponse.status()).toBe(200)

@@ -108,8 +108,8 @@ export const main = async (
   }
   writeStorageState(outPath, storageState)
 
-  // Prove the minted session against the real session route before declaring it.
-  const proof = await fetchImpl(`${identityBase}/api/auth/session`, {
+  // Prove the minted session against the real user route before declaring it.
+  const proof = await fetchImpl(`${identityBase}/api/user`, {
     headers: { cookie: `${cookie.name}=${cookie.value}` }
   })
   const session = (await proof.json()) as { login?: string; allowlisted?: boolean; admin?: boolean }

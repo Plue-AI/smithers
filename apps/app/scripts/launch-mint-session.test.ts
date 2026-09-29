@@ -54,7 +54,7 @@ const okFetch = () => {
         headers: { "set-cookie": `session=${cookieValue}; Path=/; HttpOnly; Max-Age=3600` }
       })
     }
-    if (url.includes("/api/auth/session")) return Response.json({ login: "fixture-user" })
+    if (url.includes("/api/user")) return Response.json({ login: "fixture-user" })
     throw new Error(`unexpected fetch: ${url}`)
   }) as typeof fetch
   return { impl, calls }
@@ -88,10 +88,11 @@ test("main does not echo the session cookie when the set-cookie header is unpars
 })
 
 test("main mints and proves a session, writing the storage state at mode 0600", async () => {
-  const { impl } = okFetch()
+  const { impl, calls } = okFetch()
   const outPath = join(workDir, "mvp-storage-state.json")
   const code = await main(["http://127.0.0.1:8861", "http://localhost:8788", outPath], impl)
   expect(code).toBe(0)
+  expect(calls.includes("http://127.0.0.1:8861/api/user")).toBe(true)
   expect(statSync(outPath).mode & 0o777).toBe(0o600)
   const stored = JSON.parse(readFileSync(outPath, "utf8"))
   expect(stored.cookies[0].name).toBe("session")
@@ -103,7 +104,7 @@ test("main mints and proves a session, writing the storage state at mode 0600", 
 test("main fails when the minted cookie does not validate", async () => {
   const { impl: base } = okFetch()
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).includes("/api/auth/session")) return Response.json({})
+    if (String(input).includes("/api/user")) return Response.json({})
     return base(input, init)
   }) as typeof fetch
   const code = await main(

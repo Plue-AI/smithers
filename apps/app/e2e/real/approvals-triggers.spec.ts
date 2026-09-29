@@ -28,7 +28,7 @@ test("signed-out approvals park behind the real sign-in door and survive reload 
   const requests: Array<{ method: string; path: string }> = []
   page.on("request", (entry) => requests.push({ method: entry.method(), path: new URL(entry.url()).pathname }))
   await bootLocal(page)
-  expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toEqual({ status: "signed-out" })
+  expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
 
   await command(page, `/approvals.list ${PRODUCTION_REPO}`)
   await expect(page.locator('[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
@@ -39,7 +39,7 @@ test("signed-out approvals park behind the real sign-in door and survive reload 
   await expect(page.locator('[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="approvals-inbox"]')).toHaveCount(0)
   expect(workflowPaths(requests)).toEqual([])
-  expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toEqual({ status: "signed-out" })
+  expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
 })
 
 test("signed-out dispatcher reads the public mirror, renders one real card, and never invents live trigger rows", scenario("triggers.signed-out-public-declaration", {

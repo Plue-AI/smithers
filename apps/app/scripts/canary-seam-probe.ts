@@ -39,11 +39,11 @@ const check = (label: string, ok: boolean, detail: string): void => {
 }
 
 // 1. Identity seam: signed-out honesty, never a 501, never an invented session.
-const session = await fetch(`${origin}/api/auth/session`)
+const session = await fetch(`${origin}/api/user`)
 const sessionBody = await session.text()
 check(
-  "identity seam /api/auth/session answers signed-out honestly (no 501, no fake login)",
-  session.status !== 501 && !sessionBody.includes("\"login\""),
+  "identity seam /api/user answers signed-out honestly (no 501, no fake login)",
+  session.status === 401 && !sessionBody.includes("\"login\""),
   `HTTP ${session.status} ${sessionBody.trim().slice(0, 120)}`
 )
 const scopes = await fetch(`${origin}/api/auth/scopes`)

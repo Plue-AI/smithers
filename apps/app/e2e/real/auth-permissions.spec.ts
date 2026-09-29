@@ -20,7 +20,7 @@ const openChat = async (page: Page): Promise<void> => {
 }
 
 const browserSession = async (page: Page): Promise<unknown> => page.evaluate(async () => {
-  const response = await fetch("/api/auth/session", { credentials: "include" })
+  const response = await fetch("/api/user", { credentials: "include" })
   if (response.status !== 200) throw new Error(`Browser session read returned HTTP ${response.status}.`)
   return response.json()
 })
@@ -81,9 +81,8 @@ test("a signed-out required action parks behind its durable sign-in step", scena
   description: "A real signed-out browser parks a protected slash action, retains its sign-in step across reload, and remains signed out server-side."
 }), async ({ page, request }) => {
   await openApp(page)
-  const before = await realApi(page, request, "GET", "/api/auth/session")
-  expect(before.status()).toBe(200)
-  expect(await before.json()).toEqual({ status: "signed-out" })
+  const before = await realApi(page, request, "GET", "/api/user")
+  expect(before.status()).toBe(401)
 
   await openChat(page)
   await command(page, "/billing.balance")
@@ -98,8 +97,8 @@ test("a signed-out required action parks behind its durable sign-in step", scena
   await expect(refusal).toBeVisible()
   await expect(signIn).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="balance"]')).toHaveCount(0)
-  const after = await realApi(page, request, "GET", "/api/auth/session")
-  expect(await after.json()).toEqual({ status: "signed-out" })
+  const after = await realApi(page, request, "GET", "/api/user")
+  expect(after.status()).toBe(401)
 })
 
 test("a signed-out browser gets the same concealed response as an unknown admin route", scenario("auth.signed-out-admin-api-denial", {
@@ -199,15 +198,15 @@ authenticatedTest("the saved admin identity can read admin health and survives a
   description: "The current sanctioned admin session proves its claim through the real session endpoint, reads the deployed admin health route, and retains admin UI after reload."
 }), async ({ page, request }, testInfo) => {
   const expectedSession = { login: "codeplanesmithers", allowlisted: true, admin: true }
-  const expectedWireSession = { ...expectedSession, scopes: ["read:user"] }
+  const expectedWireSession = expectedSession
   await expect.poll(() => readAuthenticatedSession(page)).toEqual(expectedSession)
-  const requestSession = await request.get("/api/auth/session")
+  const requestSession = await request.get("/api/user")
   expect(requestSession.status()).toBe(200)
   expect(await requestSession.json()).toEqual(expectedWireSession)
 
   const startedAt = performance.now()
   await page.goto(new URL(APP_PATH, String(testInfo.project.use.baseURL)).toString(), { waitUntil: "domcontentloaded" })
-  const afterNavigation = await request.get("/api/auth/session")
+  const afterNavigation = await request.get("/api/user")
   expect(afterNavigation.status()).toBe(200)
   expect(await afterNavigation.json()).toEqual(expectedWireSession)
   // A boot skeleton shows no sign-in door either, so boot before reading its absence.
@@ -235,7 +234,7 @@ authenticatedTest("authenticated cookies survive the canonical document and boot
 }), async ({ page, context, request }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL)
   const expectedSession = { login: "codeplanesmithers", allowlisted: true, admin: true }
-  const expectedWireSession = { ...expectedSession, scopes: ["read:user"] }
+  const expectedWireSession = expectedSession
   expect(await browserSession(page)).toEqual(expectedWireSession)
   const beforeCookies = await authCookieNames(context, baseURL)
   expect(beforeCookies).toContain("smithers.sh:smithers_identity")

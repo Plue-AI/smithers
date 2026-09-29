@@ -285,7 +285,7 @@ authenticatedTest("production recommendations come from the live recommender and
   description: "On smithers.sh, complete a real turn, match rendered pills to the live recommendation answer, and verify the chosen outcome request and its durable server log row."
 }), async ({ page, request }, testInfo) => {
   await bootWorkspace(page)
-  const sessionResponse = await realApi(page, request, "GET", "/api/auth/session")
+  const sessionResponse = await realApi(page, request, "GET", "/api/user")
   expect(sessionResponse.status()).toBe(200)
   const identity = await sessionResponse.json() as { readonly login?: unknown; readonly allowlisted?: unknown; readonly admin?: unknown }
   expect(identity.login,

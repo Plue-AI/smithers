@@ -19,7 +19,7 @@ test("public setup drafts for all five jobs retain keyboard edits without starti
   const started = performance.now()
   await page.goto(`/${repo}`, { waitUntil: "domcontentloaded" })
   await awaitBoot(page, "navigate", started)
-  expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toMatchObject({ status: "signed-out" })
+  expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
   for (const job of jobs) {
     const value = fixtureInputText(`Review ${job} evidence before changing this repository.`)
     await command(page, `/${job}.setup ${repo}`)
@@ -50,7 +50,7 @@ test("public setup drafts for all five jobs retain keyboard edits without starti
     const value = fixtureInputText(`Review ${job} evidence before changing this repository.`)
     await expect(page.getByTestId(`setup-${job}`).getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue(value)
   }
-  expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toMatchObject({ status: "signed-out" })
+  expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
   expect(work).toEqual([])
   await testInfo.attach("setup-draft-readback", { contentType: "application/json", body: Buffer.from(JSON.stringify({ jobs, width: 320, workRequests: work })) })
 })

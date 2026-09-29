@@ -19,7 +19,7 @@ test("the public repository homepage serves its declared apps before and after r
   const started = performance.now()
   await page.goto(`/${repo}`, { waitUntil: "domcontentloaded" })
   await awaitBoot(page, "navigate", started)
-  expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toMatchObject({ status: "signed-out" })
+  expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
   const declarationResponse = await realApi(page, request, "GET", `/api/repos/${repo}/contents/.smithers/home.json?ref=main`)
   expect(declarationResponse.status()).toBe(200)
   const file = await declarationResponse.json() as { encoding: string; content: string }

@@ -49,7 +49,7 @@ await page.goto(BASE, { waitUntil: "domcontentloaded" })
 await page.waitForTimeout(3000)
 
 const sessionProbe = await page.evaluate(async () => {
-  const response = await fetch("/api/auth/session")
+  const response = await fetch("/api/user")
   return { status: response.status, body: await response.json().catch(() => null) }
 })
 check("the session probe answers", sessionProbe.status === 200, JSON.stringify(sessionProbe.body))
@@ -70,7 +70,7 @@ if (!signedIn) {
   await page.waitForURL(/canary\.smithers\.sh/, { timeout: 30_000 })
   await page.waitForTimeout(4000)
   const after = await page.evaluate(async () => {
-    const response = await fetch("/api/auth/session")
+    const response = await fetch("/api/user")
     return response.json().catch(() => null)
   })
   check(

@@ -70,7 +70,7 @@ await page.waitForTimeout(3000)
 /* ---- 0. a real signed-in session (the profile holds github.com cookies) ---- */
 const sessionOf = async () =>
   page.evaluate(async () => {
-    const response = await fetch("/api/auth/session")
+    const response = await fetch("/api/user")
     return { status: response.status, body: await response.json().catch(() => null) }
   })
 let session = await sessionOf()

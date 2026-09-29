@@ -131,9 +131,8 @@ test(
   }),
   async ({ page, request }) => {
     await openApp(page)
-    const session = await realApi(page, request, "GET", "/api/auth/session")
-    expect(session.status()).toBe(200)
-    expect(await session.json()).toEqual({ status: "signed-out" })
+    const session = await realApi(page, request, "GET", "/api/user")
+    expect(session.status()).toBe(401)
 
     const issueWrites: string[] = []
     page.on("request", (outbound) => {
@@ -156,7 +155,7 @@ test(
     await expect(refusal).toBeVisible()
     await expect(signIn).toBeVisible()
     expect(issueWrites).toEqual([])
-    expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toEqual({ status: "signed-out" })
+    expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
   }
 )
 

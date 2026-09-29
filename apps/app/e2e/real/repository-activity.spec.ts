@@ -10,7 +10,7 @@ test("signed-out repository activity keeps actual source refusals visible withou
   const started = performance.now()
   await page.goto(`/${repo}`, { waitUntil: "domcontentloaded" })
   await awaitBoot(page, "navigate", started)
-  expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toMatchObject({ status: "signed-out" })
+  expect((await realApi(page, request, "GET", "/api/user")).status()).toBe(401)
   const refusal = () => page.waitForResponse(response => response.request().method() === "GET" && new URL(response.url()).pathname === "/api/notifications/list")
   const observed = refusal()
   void observed.catch(() => undefined)
