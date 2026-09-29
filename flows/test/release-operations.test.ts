@@ -4,9 +4,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
 import { releaseGateArgs, releaseGateCommand, releaseGates } from "../../scripts/release-gates.mjs"
-import { commandRunner, type RunCommand } from "./io.ts"
-import { type ReleaseGateSet, runReleaseGates } from "./operations.ts"
-import { GateEvidence } from "./schema.ts"
+import { commandRunner, type RunCommand } from "../release-support/io.ts"
+import { type ReleaseGateSet, runReleaseGates } from "../release-support/operations.ts"
+import { GateEvidence } from "../release-support/schema.ts"
 
 // The real command runner launches a verifier that reads and advances a disk
 // journal. It must validate each argv and the previous command's completion

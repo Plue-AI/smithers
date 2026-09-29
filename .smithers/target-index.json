@@ -1035,7 +1035,9 @@
     "outputs": [
       ".smithers/target-index.json"
     ],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:testCoverage"
+    ],
     "source": {
       "file": "PACKAGE.ts"
     }
@@ -30338,6 +30340,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/repository-intake-bounds.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/repository-jev-checks.test.ts"
       },
       {
@@ -30558,6 +30564,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/release-operations.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/publication.test.ts"
       },
       {
@@ -30589,6 +30599,40 @@
       {
         "kind": "file",
         "path": "pnpm-workspace.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//flows:testCoverage",
+    "package": "flows",
+    "name": "testCoverage",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/test/target-coverage.test.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/PACKAGE.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-native-gate.mjs"
       }
     ],
     "outputs": [],

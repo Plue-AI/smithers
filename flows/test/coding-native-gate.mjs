@@ -10,9 +10,11 @@ export const nativeTests = [
   "coding-native.test.ts", "coding-workspace-helper.test.ts", "coding-filesystem-native.test.ts",
   "coding-checks.test.ts", "coding-wiki-check.test.ts", "coding-feedback.test.ts",
   "repository-check-context.test.ts", "repository-checks.test.ts",
-  "repository-durable-pins.test.ts", "repository-eval-source.test.ts"
+  "repository-durable-pins.test.ts", "repository-eval-source.test.ts",
+  "wiki-citation-uncertainty.test.ts"
 ]
-const nodeOnly = ["repository-check-context.test.ts", "repository-checks.test.ts", "repository-eval-source.test.ts"]
+const nodeOnly = ["repository-check-context.test.ts", "repository-checks.test.ts", "repository-eval-source.test.ts",
+  "wiki-citation-uncertainty.test.ts"]
 export const bunNativeTests = nativeTests.filter(name => !nodeOnly.includes(name))
 
 const digest = async path => {

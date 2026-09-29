@@ -169,7 +169,8 @@ const factoryProjection = Smithers.FactoryProjection({
 // `lint` fails on drift; `smithers-build index '//...'` prints the same rows.
 const targetIndex = Smithers.TargetIndex({
   summary: "Regenerate and drift-check .smithers/target-index.json, the declaration-derived target index.",
-  featured: true
+  featured: true,
+  gates: [codingFlowsPackage.testCoverage]
 })
 // --- end target index ------------------------------------------------------
 

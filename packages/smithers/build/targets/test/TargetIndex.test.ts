@@ -4,6 +4,7 @@
  * `render` produces for the planner-filled rows.
  */
 import { describe, expect, it } from "vitest"
+import * as Shell from "../src/Shell.ts"
 import * as Target from "../src/Target.ts"
 import * as TargetIndex from "../src/TargetIndex.ts"
 import { plannedCalls } from "./plan.ts"
@@ -94,6 +95,13 @@ describe("TargetIndex target", () => {
   it("keeps the rows' inputs out of the check target's own inputs", () => {
     const checking = TargetIndex.TargetIndex({ targets: rows })
     expect(Target.metadata(checking).inputs.map(describeInput)).toEqual(["//.smithers/target-index.json"])
+  })
+
+  it("records a validation gate as a target dependency", () => {
+    const gate = Shell.Test({ shell: "true" })
+    const indexed = TargetIndex.TargetIndex({ gates: [gate] })
+    expect(Target.metadata(indexed).dependencies).toContain(gate)
+    expect((Target.metadata(indexed).attrs as TargetIndex.Attrs).gates).toEqual([gate])
   })
 
   it("refuses rows that are not the index's row shape", () => {

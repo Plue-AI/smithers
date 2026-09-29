@@ -30,6 +30,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/content.test.ts"),
     Smithers.file("//flows/test/release-redaction.test.ts"),
     Smithers.file("//flows/test/release-io.test.ts"),
+    Smithers.file("//flows/test/release-operations.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
     Smithers.file("//flows/test/review-flow.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
@@ -279,6 +280,14 @@ const codingNative = Smithers.Shell.Test({
   data: [...codingSources, ...codingDependencies],
   timeout: "45m"
 })
+
+// The target index runs this inventory before accepting a declaration set.
+const testCoverage = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//flows/test/target-coverage.test.ts")]),
+  srcs: [sources, Smithers.file("//flows/PACKAGE.ts"), Smithers.file("//flows/test/coding-native-gate.mjs")],
+  deps: [],
+  cwd
+})
 const codingNativeBun = Smithers.Shell.Test({
   bin: Smithers.Runtime.bin,
   runtime: bun,
@@ -342,6 +351,7 @@ const repositoryFixtures = [
   "heldout",
   "inspection-sources",
   "intake-screen",
+  "intake-bounds",
   "jev-checks",
   "jev-duplicates",
   "jev-observation",
@@ -604,6 +614,7 @@ export const Package = Smithers.Package({
     memory,
     codingConfigBun,
     codingNative,
+    testCoverage,
     codingNativeBun,
     codingBundle,
     codingBundleBun,

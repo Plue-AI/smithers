@@ -17,6 +17,7 @@ import type { Action } from "@smthrs/flow"
 import type * as Node from "@smthrs/plan/Node"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as Attr from "./Attr.ts"
 import * as GeneratedFile from "./GeneratedFile.ts"
 import * as Input from "./Input.ts"
 import * as Target from "./Target.ts"
@@ -145,6 +146,8 @@ export const Attrs = Schema.Struct({
   output: Schema.NonEmptyString.pipe(Schema.withConstructorDefault(Effect.succeed(indexPath))),
   /** Whether to write the file or verify the checked-in copy. @default "check" */
   mode: Mode,
+  /** Tests that must pass before the index is accepted or written. */
+  gates: Schema.optional(Attr.Gates),
   /** The rows, sorted by label; filled by the package planner from the loaded declarations, never written in a `PACKAGE.ts`. */
   targets: Schema.optional(Schema.Array(Row))
 })
