@@ -641,6 +641,39 @@
       "reason": "The parser, fingerprint and verdict rendering for the --known-red file smthrs ci already reads, so the CI coverage check that owns every main red imports them by package name instead of reaching into src (#2482)."
     },
     {
+      "name": "@smthrs/agent",
+      "subpath": "./Memory",
+      "development": "./src/Memory.ts",
+      "published": {
+        "types": "./dist/esm/Memory.d.ts",
+        "import": "./dist/esm/Memory.js",
+        "require": "./dist/cjs/Memory.js"
+      },
+      "reason": "The memory capability as one sealed flow a cell calls with ctx.call(\"memory\", ...): deterministic seeds and shortlists over the wiki, a README-guided repository walk, commits and facts, each kept by one Jev boolean; hosts bind it with plugin and run opening before frame 0 (5b745c566)."
+    },
+    {
+      "name": "@smthrs/agent",
+      "subpath": "./MemoryCalibration",
+      "development": "./src/MemoryCalibration.ts",
+      "published": {
+        "types": "./dist/esm/MemoryCalibration.d.ts",
+        "import": "./dist/esm/MemoryCalibration.js",
+        "require": "./dist/cjs/MemoryCalibration.js"
+      },
+      "reason": "The threshold math behind every memory routing decision: cost-derived thresholds over calibrated Jev probabilities, and the bounded refit memory/calibrate runs, which refuses moves past maxMove or fits on too few labels (5b745c566)."
+    },
+    {
+      "name": "@smthrs/agent",
+      "subpath": "./MemoryMine",
+      "development": "./src/MemoryMine.ts",
+      "published": {
+        "types": "./dist/esm/MemoryMine.d.ts",
+        "import": "./dist/esm/MemoryMine.js",
+        "require": "./dist/cjs/MemoryMine.js"
+      },
+      "reason": "Mines a finished run's transcript once for durable facts and steering decisions, judged by one Jev reading, and is the one redacted writer of a mined fact; the memory/mine file flow reads it (45e4f3ca6)."
+    },
+    {
       "name": "@smthrs/cli",
       "subpath": "./BunControl",
       "development": "./src/BunControl.ts",
