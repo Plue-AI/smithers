@@ -44,16 +44,16 @@ describe("Providers.detect", () => {
     expect(detections.some((detection) => detection.seat.startsWith("anthropic"))).toBe(false)
   })
 
-  it("finds a Codex session in ~/.codex/auth.json and runs it through the ChatGPT route", () => {
+  it("does not use a Codex login unless SMITHERS_OPENAI_AUTH=chatgpt", () => {
     const [codex] = Providers.detect(host({}, { "/home/op/.codex/auth.json": session }))
 
-    expect(codex!.available).toBe(true)
-    expect(codex!.reason).toBe("/home/op/.codex/auth.json holds a ChatGPT session")
+    expect(codex!.available).toBe(false)
+    expect(codex!.reason).toContain("SMITHERS_OPENAI_AUTH=chatgpt")
     expect(codex!.environment).toEqual({ SMITHERS_OPENAI_AUTH: "chatgpt" })
   })
 
   it("reads $CODEX_HOME/auth.json instead when it is set", () => {
-    const [codex] = Providers.detect(host({ CODEX_HOME: "/elsewhere" }, { "/elsewhere/auth.json": session }))
+    const [codex] = Providers.detect(host({ CODEX_HOME: "/elsewhere", SMITHERS_OPENAI_AUTH: "chatgpt" }, { "/elsewhere/auth.json": session }))
 
     expect(codex!.available).toBe(true)
     expect(codex!.reason).toBe("/elsewhere/auth.json holds a ChatGPT session")
@@ -120,9 +120,9 @@ describe("Providers.chooseSeat", () => {
     expect(chosen).toMatchObject({ seat: "moonshot:kimi-k3", source: "kimi-k3", label: "Kimi K3" })
   })
 
-  it("prefers the Codex session over every key", () => {
+  it("prefers an explicitly selected Codex session over every key", () => {
     const detections = Providers.detect(
-      host({ MOONSHOT_API_KEY: "m" }, { "/home/op/.codex/auth.json": session })
+      host({ MOONSHOT_API_KEY: "m", SMITHERS_OPENAI_AUTH: "chatgpt" }, { "/home/op/.codex/auth.json": session })
     )
     const chosen = Providers.chooseSeat(detections)
 
@@ -131,6 +131,14 @@ describe("Providers.chooseSeat", () => {
       source: "codex-subscription",
       environment: { SMITHERS_OPENAI_AUTH: "chatgpt" }
     })
+  })
+
+  it("chooses a key instead of an unconfigured Codex login", () => {
+    const chosen = Providers.chooseSeat(Providers.detect(
+      host({ OPENAI_API_KEY: "k" }, { "/home/op/.codex/auth.json": session })
+    ))
+
+    expect(chosen).toMatchObject({ source: "openai", environment: {} })
   })
 
   it("lists every seat it checked when nothing is available", () => {

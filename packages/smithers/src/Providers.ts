@@ -309,7 +309,11 @@ const codex = (host: Host): Detection => {
   const text = host.readFile(file)
   if (text !== undefined) {
     const parsed = CodexAuth.parse(text)
-    if (parsed.usable) return { ...base, available: true, reason: `${file} holds a ChatGPT session` }
+    if (parsed.usable) {
+      return Environment.read(host.environment, "SMITHERS_OPENAI_AUTH") === "chatgpt"
+        ? { ...base, available: true, reason: `${file} holds a ChatGPT session` }
+        : { ...base, available: false, reason: "set SMITHERS_OPENAI_AUTH=chatgpt to use this Codex login" }
+    }
     if (Environment.read(host.environment, "SMITHERS_OPENAI_AUTH") !== "chatgpt") {
       return {
         ...base,
