@@ -113,7 +113,10 @@ type LSPSessionManager struct {
 }
 
 // lspStartup is one launch that has not published yet.
-type lspStartup struct{ cancel context.CancelFunc }
+type lspStartup struct {
+	cancel    context.CancelCauseFunc
+	principal revocation.Principal
+}
 
 func NewLSPSessionManager(dial lspDialer) *LSPSessionManager {
 	return &LSPSessionManager{
@@ -134,7 +137,10 @@ func NewLSPSessionManager(dial lspDialer) *LSPSessionManager {
 // kills its server and reports errLanguageServerReplaced. The returned
 // session is not yet attached to a WebSocket; the caller attaches after the
 // upgrade.
-func (m *LSPSessionManager) start(ctx context.Context, sessionID string, info services.WorkspaceSSHConnectionInfo, launch services.LanguageServerLaunch) (*lspSession, error) {
+func (m *LSPSessionManager) start(ctx context.Context, sessionID string, info services.WorkspaceSSHConnectionInfo, launch services.LanguageServerLaunch, principal revocation.Principal) (session *lspSession, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if m.dial == nil {
 		return nil, errors.New("lsp session manager dialer is nil")
 	}
@@ -149,17 +155,20 @@ func (m *LSPSessionManager) start(ctx context.Context, sessionID string, info se
 	if m.starting == nil {
 		m.starting = make(map[string]*lspStartup)
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	startup := &lspStartup{cancel: cancel}
+	ctx, cancel := context.WithCancelCause(ctx)
+	startup := &lspStartup{cancel: cancel, principal: principal}
 	if pending := m.starting[sessionID]; pending != nil {
-		pending.cancel()
+		pending.cancel(context.Canceled)
 	}
 	m.starting[sessionID] = startup
 	previous := m.sessions[sessionID]
 	delete(m.sessions, sessionID)
 	m.mu.Unlock()
 	defer func() {
-		cancel()
+		if errors.Is(context.Cause(ctx), errWorkspaceSocketRevoked) {
+			err = errWorkspaceSocketRevoked
+		}
+		cancel(context.Canceled)
 		m.mu.Lock()
 		if m.starting[sessionID] == startup {
 			delete(m.starting, sessionID)
@@ -189,13 +198,14 @@ func (m *LSPSessionManager) start(ctx context.Context, sessionID string, info se
 			return nil, err
 		}
 		m.mu.Lock()
-		if m.closed || m.starting[sessionID] != startup {
+		if m.closed || m.starting[sessionID] != startup || ctx.Err() != nil {
 			// Superseded while dialing: whoever displaced this launch owns
 			// the id now, so this server dies instead of being orphaned.
 			m.mu.Unlock()
 			sess.destroy(websocket.StatusNormalClosure, lspCloseReasonReplaced)
 			return nil, errLanguageServerReplaced
 		}
+		sess.setPrincipal(principal)
 		m.sessions[sessionID] = sess
 		delete(m.starting, sessionID)
 		m.mu.Unlock()
@@ -210,6 +220,8 @@ func (m *LSPSessionManager) open(ctx context.Context, sessionID string, info ser
 	if err != nil {
 		return nil, err
 	}
+	stop := context.AfterFunc(ctx, func() { _ = sshSess.Close(); _ = client.Close() })
+	defer stop()
 	fail := func(err error) (*lspSession, error) {
 		_ = sshSess.Close()
 		_ = client.Close()
@@ -334,7 +346,7 @@ func (m *LSPSessionManager) Destroy(sessionID string, reason string) {
 	sess := m.sessions[sessionID]
 	delete(m.sessions, sessionID)
 	if pending := m.starting[sessionID]; pending != nil {
-		pending.cancel()
+		pending.cancel(context.Canceled)
 		delete(m.starting, sessionID)
 	}
 	m.mu.Unlock()
@@ -349,7 +361,7 @@ func (m *LSPSessionManager) Close() {
 	m.mu.Lock()
 	m.closed = true
 	for id, pending := range m.starting {
-		pending.cancel()
+		pending.cancel(context.Canceled)
 		delete(m.starting, id)
 	}
 	sessions := make([]*lspSession, 0, len(m.sessions))
@@ -366,6 +378,12 @@ func (m *LSPSessionManager) Close() {
 // same code the terminal uses, so clients treat it as final.
 func (m *LSPSessionManager) RevokeMatching(event revocation.Event) {
 	m.mu.Lock()
+	for id, pending := range m.starting {
+		if event.Affects(pending.principal) {
+			pending.cancel(errWorkspaceSocketRevoked)
+			delete(m.starting, id)
+		}
+	}
 	var doomed []*lspSession
 	for _, sess := range m.sessions {
 		if event.Affects(sess.principalValue()) {
@@ -454,6 +472,9 @@ func (s *lspSession) attach(ws *websocket.Conn, touch func()) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.dead {
+		if s.closeCode == websocket.StatusPolicyViolation {
+			return errWorkspaceSocketRevoked
+		}
 		return errors.New("language server ended before attach")
 	}
 	s.ws = ws
@@ -568,6 +589,9 @@ func (s *lspSession) pumpServerToClient(ctx context.Context, ws *websocket.Conn)
 			frames = lspSplitFragments(msg, lspFragmentDataBytes)
 		}
 		for _, frame := range frames {
+			if s.isDead() {
+				return
+			}
 			writeCtx, cancel := context.WithTimeout(ctx, lspWriteTimeout)
 			err := ws.Write(writeCtx, websocket.MessageText, frame)
 			cancel()
@@ -594,6 +618,9 @@ func (s *lspSession) pumpClientToServer(ctx context.Context, ws *websocket.Conn)
 				return
 			}
 			s.destroy(websocket.StatusNormalClosure, "client disconnected")
+			return
+		}
+		if s.isDead() {
 			return
 		}
 		if msgType != websocket.MessageText {
@@ -624,6 +651,9 @@ func (s *lspSession) pumpClientToServer(ctx context.Context, ws *websocket.Conn)
 				return
 			}
 			body = data
+		}
+		if s.isDead() {
+			return
 		}
 		if _, err := s.stdin.Write(lspEncodeMessage(body)); err != nil {
 			// The server went away; waitExit reports the typed exit.
@@ -696,7 +726,7 @@ func (s *lspSession) destroy(code websocket.StatusCode, reason string) {
 		ws := s.ws
 		s.mu.Unlock()
 		if ws != nil {
-			_ = ws.Close(code, reason)
+			go func() { _ = ws.Close(code, reason) }()
 		}
 		close(s.done)
 		go func() {

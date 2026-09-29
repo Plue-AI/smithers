@@ -20,6 +20,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -282,7 +283,7 @@ func TestWorkspaceTerminal_Z_LazyManagerDialAndDialSSHErrors(t *testing.T) {
 		sess, _, err := manager.getOrCreate(context.Background(), "sess-lazy", services.WorkspaceSSHConnectionInfo{
 			Host:     "127.0.0.1",
 			Username: "root",
-		}, 80, 24)
+		}, 80, 24, revocation.Principal{})
 
 		require.Nil(t, sess)
 		require.ErrorIs(t, err, errNoAdvertisedHostKeys)
@@ -291,7 +292,7 @@ func TestWorkspaceTerminal_Z_LazyManagerDialAndDialSSHErrors(t *testing.T) {
 	t.Run("new session failure closes client", func(t *testing.T) {
 		hostKey := newTestHostKey(t)
 		host, port := startSessionRejectingSSHServer(t, hostKey.signer)
-		client, session, err := (&WorkspaceTerminalHandler{}).dialSSH(services.WorkspaceSSHConnectionInfo{
+		client, session, err := (&WorkspaceTerminalHandler{}).dialSSH(context.Background(), services.WorkspaceSSHConnectionInfo{
 			VMID:        "vm-test",
 			Host:        host,
 			Port:        port,
@@ -320,7 +321,7 @@ func TestWorkspaceTerminal_Z_LazyManagerDialAndDialSSHErrors(t *testing.T) {
 			Username:    "root",
 			AccessToken: "token",
 			HostKeys:    []services.WorkspaceSSHHostKey{hostKey.advertise},
-		}, 80, 24)
+		}, 80, 24, revocation.Principal{})
 
 		require.NoError(t, err)
 		require.NotNil(t, sess)
@@ -425,7 +426,7 @@ func TestWorkspaceTerminal_Z_PipeWSToSSHErrors(t *testing.T) {
 	t.Run("window change error is logged", func(t *testing.T) {
 		hostKey := newTestHostKey(t)
 		host, port, _ := startTestSSHServer(t, hostKey.signer)
-		sshClient, sshSess, err := (&WorkspaceTerminalHandler{}).dialSSH(services.WorkspaceSSHConnectionInfo{
+		sshClient, sshSess, err := (&WorkspaceTerminalHandler{}).dialSSH(context.Background(), services.WorkspaceSSHConnectionInfo{
 			VMID:        "vm-test",
 			Host:        host,
 			Port:        port,
@@ -471,7 +472,7 @@ func TestWorkspaceTerminal_Z_PipeWSToTerminalSessionErrors(t *testing.T) {
 			defer ws.CloseNow()
 			ctx, cancel := context.WithCancel(r.Context())
 			cancel()
-			(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(ctx, ws, sess, "sess", func() {})
+			(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(ctx, ctx, ws, sess, "sess", func() {})
 			close(done)
 		}))
 		t.Cleanup(srv.Close)
@@ -496,7 +497,7 @@ func TestWorkspaceTerminal_Z_PipeWSToTerminalSessionErrors(t *testing.T) {
 			ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 			require.NoError(t, err)
 			defer ws.CloseNow()
-			(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(r.Context(), ws, sess, "sess", func() {})
+			(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(r.Context(), r.Context(), ws, sess, "sess", func() {})
 			close(done)
 		}))
 		t.Cleanup(srv.Close)
@@ -522,7 +523,7 @@ func TestWorkspaceTerminal_Z_PipeWSToTerminalSessionErrors(t *testing.T) {
 			ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 			require.NoError(t, err)
 			defer ws.CloseNow()
-			(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(r.Context(), ws, sess, "sess", func() {})
+			(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(r.Context(), r.Context(), ws, sess, "sess", func() {})
 			close(done)
 		}))
 		t.Cleanup(srv.Close)

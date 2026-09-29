@@ -875,6 +875,7 @@ func buildRouter(
 			r.Use(cors.Handler(apiCORS))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
+			r.Use(routes.WorkspaceSocketRevocations)
 			if queries != nil {
 				r.Use(middleware.LoadRepoContext(queries))
 			}

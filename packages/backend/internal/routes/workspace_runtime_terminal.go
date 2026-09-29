@@ -16,6 +16,7 @@ import (
 // activity refresh, and revocation identical to the hosted SSH path.
 type runtimeTerminalBackend struct {
 	terminal  workspaceapi.Terminal
+	cancel    context.CancelFunc
 	done      chan error
 	once      sync.Once
 	closeOnce sync.Once
@@ -24,12 +25,13 @@ type runtimeTerminalBackend struct {
 	stderrW   *io.PipeWriter
 }
 
-func newRuntimeTerminalBackend(terminal workspaceapi.Terminal) (terminalSSHClient, terminalSSHSession, error) {
+func newRuntimeTerminalBackend(terminal workspaceapi.Terminal, cancel context.CancelFunc) (terminalSSHClient, terminalSSHSession, error) {
 	if terminal == nil {
+		cancel()
 		return nil, nil, errors.New("workspace runtime returned a nil terminal")
 	}
 	stderrR, stderrW := io.Pipe()
-	backend := &runtimeTerminalBackend{terminal: terminal, done: make(chan error, 1), stderrR: stderrR, stderrW: stderrW}
+	backend := &runtimeTerminalBackend{terminal: terminal, cancel: cancel, done: make(chan error, 1), stderrR: stderrR, stderrW: stderrW}
 	return backend, backend, nil
 }
 
@@ -69,6 +71,7 @@ func (b *runtimeTerminalBackend) Wait() error { return <-b.done }
 
 func (b *runtimeTerminalBackend) Close() error {
 	b.closeOnce.Do(func() {
+		b.cancel()
 		b.closeErr = b.terminal.Close()
 		b.finish(b.closeErr)
 	})

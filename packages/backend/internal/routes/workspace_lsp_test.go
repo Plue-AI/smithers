@@ -689,13 +689,11 @@ func TestLSPSessionManager_RevokeMatchingCloses1008(t *testing.T) {
 	require.NoError(t, err)
 	defer ws.CloseNow()
 
-	// The handler records the principal on attach; wait for it.
-	require.Eventually(t, func() bool {
-		manager.mu.Lock()
-		defer manager.mu.Unlock()
-		sess := manager.sessions["s1"]
-		return sess != nil && sess.principalValue().UserID == 1
-	}, 2*time.Second, 10*time.Millisecond)
+	// A principal is recorded before attach completes. Observe the real
+	// initialized relay before testing the manager's attached-socket reason.
+	require.NoError(t, ws.Write(ctx, websocket.MessageText, []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)))
+	_, _, err = ws.Read(ctx)
+	require.NoError(t, err)
 
 	manager.RevokeMatching(revocation.Event{Kind: revocation.KindUserDisabled, UserID: 1, Reason: "token deleted"})
 	_, _, err = ws.Read(ctx)
@@ -804,7 +802,7 @@ func TestLSPSessionManager_StartBoundsReadyLine(t *testing.T) {
 	// The guest exits once the relay closes its stdin, like a real server.
 	go func() { _, _ = io.Copy(io.Discard, fake.stdinR); fake.exit(1) }()
 
-	_, err := m.start(context.Background(), "s", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{})
+	_, err := m.start(context.Background(), "s", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{})
 	require.ErrorIs(t, err, errLSPHeaderTooLarge)
 	// One bufio fill at most: the 64 KiB reader, never the 2 MiB line.
 	assert.LessOrEqual(t, len(input)-source.Len(), 64<<10)
@@ -839,7 +837,7 @@ func TestLSPSessionManager_OverlappingStartsKeepOneLiveServer(t *testing.T) {
 			}
 			results := make(chan result, 2)
 			start := func() {
-				s, e := m.start(context.Background(), "same", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{})
+				s, e := m.start(context.Background(), "same", services.WorkspaceSSHConnectionInfo{}, services.LanguageServerLaunch{}, revocation.Principal{})
 				results <- result{s, e}
 			}
 			go start()

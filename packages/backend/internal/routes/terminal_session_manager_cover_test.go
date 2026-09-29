@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
 
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -20,7 +21,7 @@ func TestTerminalSessionManager_Cov_GetOrCreateFailurePaths(t *testing.T) {
 	t.Run("nil dialer returns error", func(t *testing.T) {
 		manager := NewTerminalSessionManager(nil)
 
-		sess, created, err := manager.getOrCreate(context.Background(), "sess-nil", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+		sess, created, err := manager.getOrCreate(context.Background(), "sess-nil", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 
 		require.Nil(t, sess)
 		require.False(t, created)
@@ -79,7 +80,7 @@ func TestTerminalSessionManager_Cov_GetOrCreateFailurePaths(t *testing.T) {
 					return client, sshSess, nil
 				})
 
-				sess, created, err := manager.getOrCreate(context.Background(), "sess-"+tc.name, services.WorkspaceSSHConnectionInfo{}, 80, 24)
+				sess, created, err := manager.getOrCreate(context.Background(), "sess-"+tc.name, services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 
 				require.Nil(t, sess)
 				require.False(t, created)
@@ -95,7 +96,7 @@ func TestTerminalSessionManager_Cov_SessionLifecycleAndIO(t *testing.T) {
 	t.Run("write resize wait and dead error paths", func(t *testing.T) {
 		var touched int
 		sshSess := terminalSessionManagerCovNewSSHSession()
-		client := &terminalSessionManagerCovSSHClient{}
+		client := &terminalSessionManagerCovSSHClient{closeDone: make(chan struct{})}
 		sess := newTerminalSession("sess-io", client, sshSess, sshSess.stdin, bytes.NewBuffer(nil), bytes.NewBuffer(nil), 1024, time.Hour, 0, nil)
 		sink := newTerminalSink(&websocket.Conn{}, 4, time.Millisecond)
 		sink.touch = func() { touched++ }
@@ -123,6 +124,11 @@ func TestTerminalSessionManager_Cov_SessionLifecycleAndIO(t *testing.T) {
 		sess.wait()
 		require.True(t, sess.isDead())
 		require.ErrorContains(t, sess.deadErr(), "session exited: exit status 7")
+		select {
+		case <-client.closeDone:
+		case <-time.After(time.Second):
+			t.Fatal("terminal transport cleanup did not finish")
+		}
 		assert.True(t, client.closed)
 		assert.True(t, sshSess.closed)
 	})
@@ -255,8 +261,9 @@ func (w *terminalSessionManagerCovWriteCloser) Close() error {
 }
 
 type terminalSessionManagerCovSSHClient struct {
-	closed  bool
-	sendErr error
+	closed    bool
+	sendErr   error
+	closeDone chan struct{}
 }
 
 func (c *terminalSessionManagerCovSSHClient) NewSession() (*gossh.Session, error) { return nil, nil }
@@ -265,6 +272,9 @@ func (c *terminalSessionManagerCovSSHClient) SendRequest(name string, wantReply 
 }
 func (c *terminalSessionManagerCovSSHClient) Close() error {
 	c.closed = true
+	if c.closeDone != nil {
+		close(c.closeDone)
+	}
 	return nil
 }
 

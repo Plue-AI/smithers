@@ -27,7 +27,8 @@ type workspaceSocketPreflight struct {
 // workspaceSocketGate describes how one socket kind differs in its preflight.
 type workspaceSocketGate struct {
 	// kind names the socket in logs: "terminal" or "lsp".
-	kind string
+	kind       string
+	revocation *workspaceSocketRevocation
 	// observe records an attach outcome; nil records nothing.
 	observe func(result string)
 	// checkSession runs after the session loads and before its status gate.
@@ -92,6 +93,12 @@ func (h *WorkspaceTerminalHandler) preflightWorkspaceSocket(w http.ResponseWrite
 	}
 
 	session, svcErr := h.Service.GetSession(r.Context(), sessionID, repoCtx.Repository.ID, user.ID)
+	if gate.revocation != nil {
+		gate.revocation.scope(session.WorkspaceID, "", false)
+		if gate.revocation.reject(w) {
+			return workspaceSocketPreflight{}, false
+		}
+	}
 	if svcErr != nil {
 		observe("session_error")
 		writeRouteError(w, r, svcErr)

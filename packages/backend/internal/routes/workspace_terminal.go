@@ -20,7 +20,6 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -97,6 +96,7 @@ type WorkspaceTerminalHandler struct {
 	managerMu sync.Mutex
 
 	beforeTerminalAttach func(*terminalSession)
+	beforeLSPAttach      func(*lspSession)
 }
 
 // checkOrigin validates the Origin header against the handler's allowed origins list.
@@ -172,8 +172,16 @@ func (h *WorkspaceTerminalHandler) hasSessionCookie(r *http.Request) bool {
 //
 //	{"type": "resize", "cols": 120, "rows": 40}
 func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *http.Request) {
+	requestCtx := r.Context()
+	guard := watchWorkspaceSocket(r)
+	defer guard.close()
+	r = r.WithContext(guard.ctx)
+	if guard.reject(w) {
+		return
+	}
 	pre, ok := h.preflightWorkspaceSocket(w, r, workspaceSocketGate{
-		kind: "terminal",
+		revocation: guard,
+		kind:       "terminal",
 		observe: func(result string) {
 			if h.Metrics != nil {
 				h.Metrics.ObserveWorkspaceTerminalAttach(result)
@@ -200,6 +208,9 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		}
 	} else {
 		sshInfo, svcErr = h.Service.GetSSHConnectionInfo(r.Context(), sessionID, repoCtx.Repository.ID, user.ID)
+		if guard.reject(w) {
+			return
+		}
 		if svcErr != nil {
 			if h.Metrics != nil {
 				h.Metrics.ObserveWorkspaceTerminalAttach("ssh_info_error")
@@ -229,8 +240,18 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		}
 	}
 
+	principal := guard.scope(sshInfo.WorkspaceID, sshInfo.VMID, true)
+	if guard.reject(w) {
+		return
+	}
 	manager := h.terminalSessionManager()
-	termSession, created, err := manager.getOrCreate(r.Context(), sessionID, sshInfo, session.Cols, session.Rows)
+	termSession, created, err := manager.getOrCreate(r.Context(), sessionID, sshInfo, session.Cols, session.Rows, principal)
+	if guard.rejectStartup(w, err) {
+		if created {
+			termSession.destroyWithCode(websocket.StatusPolicyViolation, "access revoked")
+		}
+		return
+	}
 	if err != nil {
 		slog.Error("durable terminal session failed", "error", err, "session_id", sessionID)
 		if h.Metrics != nil {
@@ -238,6 +259,10 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		}
 		writeRouteError(w, r, err)
 		return
+	}
+
+	if created {
+		guard.onRevoke(func() { termSession.destroyWithCode(websocket.StatusPolicyViolation, "access revoked") })
 	}
 
 	// Accept only after the backend terminal is ready. If SSH dial/PTY/shell
@@ -261,17 +286,39 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		return
 	}
 	defer func() { _ = wsConn.CloseNow() }()
+	if !guard.bind(wsConn) {
+		if created {
+			termSession.destroyWithCode(websocket.StatusPolicyViolation, "access revoked")
+		}
+		return
+	}
 
 	wsConn.SetReadLimit(terminalReadLimit)
 
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(requestCtx)
 	defer cancel()
 
 	if h.beforeTerminalAttach != nil {
 		h.beforeTerminalAttach(termSession)
 	}
+	if !guard.bind(wsConn) {
+		if created {
+			termSession.destroyWithCode(websocket.StatusPolicyViolation, "access revoked")
+		}
+		return
+	}
 	sink, err := termSession.addSink(ctx, wsConn, notifyActivity)
 	if err != nil {
+		if created {
+			termSession.destroyIfUnattached("terminal attach failed")
+		}
+		if !guard.bind(wsConn) {
+			return
+		}
+		if errors.Is(err, errWorkspaceSocketRevoked) {
+			_ = wsConn.Close(websocket.StatusPolicyViolation, "access revoked")
+			return
+		}
 		slog.Error("durable terminal attach failed", "error", err, "session_id", sessionID)
 		if h.Metrics != nil {
 			h.Metrics.ObserveWorkspaceTerminalAttach("attach_error")
@@ -283,34 +330,6 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		h.Metrics.ObserveWorkspaceTerminalAttach("success")
 	}
 	defer termSession.removeSink(sink)
-	// Revocation: the WebSocket was authorized once at upgrade. Watch the
-	// caller's principal for the life of the connection and close it with a
-	// policy-violation code the moment a revocation lands; the durable session
-	// itself is handled by the manager's RevokeMatching subscription.
-	principal := requestPrincipal(r, revocation.Principal{
-		RepositoryID: repoCtx.Repository.ID,
-		WorkspaceID:  sshInfo.WorkspaceID,
-		SandboxID:    sshInfo.VMID,
-	})
-	if created {
-		termSession.setPrincipal(principal)
-	}
-	if source := currentRevocationSource(); source != nil {
-		revoked := source.Watch(ctx, principal)
-		go func() {
-			select {
-			case ev := <-revoked:
-				reason := "access revoked"
-				if ev.Reason != "" {
-					reason += ": " + ev.Reason
-				}
-				_ = wsConn.Close(websocket.StatusPolicyViolation, reason)
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
-	}
-
 	var wg sync.WaitGroup
 
 	// Goroutine 1: WebSocket -> durable SSH stdin (binary = keystrokes, text = control).
@@ -318,7 +337,7 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		h.pipeWSToTerminalSession(ctx, wsConn, termSession, sessionID, notifyActivity)
+		h.pipeWSToTerminalSession(ctx, guard.ctx, wsConn, termSession, sessionID, notifyActivity)
 	}()
 
 	// Goroutine 2: Keep-alive pings for this attached WebSocket.
@@ -390,13 +409,24 @@ func (h *WorkspaceTerminalHandler) terminalSessionManager() *TerminalSessionMana
 				if !ok || !runtimeService.WorkspaceRuntimeTerminalAvailable() {
 					return nil, nil, errors.New("workspace runtime terminal unavailable")
 				}
-				terminal, err := runtimeService.OpenWorkspaceTerminal(context.WithoutCancel(ctx), info.SessionID, info.RepositoryID, info.RequesterUserID, uint16(cols), uint16(rows))
+				terminalCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+				stop := context.AfterFunc(ctx, cancel)
+				terminal, err := runtimeService.OpenWorkspaceTerminal(terminalCtx, info.SessionID, info.RepositoryID, info.RequesterUserID, uint16(cols), uint16(rows))
+				detached := stop()
 				if err != nil {
+					cancel()
 					return nil, nil, err
 				}
-				return newRuntimeTerminalBackend(terminal)
+				if !detached || ctx.Err() != nil {
+					cancel()
+					if terminal != nil {
+						_ = terminal.Close()
+					}
+					return nil, nil, ctx.Err()
+				}
+				return newRuntimeTerminalBackend(terminal, cancel)
 			}
-			client, sess, err := h.dialSSH(info, cols, rows)
+			client, sess, err := h.dialSSH(ctx, info, cols, rows)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -417,7 +447,7 @@ func (h *WorkspaceTerminalHandler) terminalSessionManager() *TerminalSessionMana
 // auth method runs, so the access token never touches an unverified
 // peer. An empty HostKeys slice is a hard error; we never silently
 // accept any key.
-func (h *WorkspaceTerminalHandler) dialSSH(info services.WorkspaceSSHConnectionInfo, cols, rows int32) (*gossh.Client, *gossh.Session, error) {
+func (h *WorkspaceTerminalHandler) dialSSH(ctx context.Context, info services.WorkspaceSSHConnectionInfo, cols, rows int32) (*gossh.Client, *gossh.Session, error) {
 	// The SSH host format from sandbox is: {vmId}+{username}@{host}
 	// The access token is used as the password for SSH authentication.
 	sshUser := fmt.Sprintf("%s+%s", info.VMID, info.Username)
@@ -454,10 +484,20 @@ func (h *WorkspaceTerminalHandler) dialSSH(info services.WorkspaceSSHConnectionI
 	}
 
 	addr := net.JoinHostPort(sshHost, fmt.Sprintf("%d", port))
-	client, err := gossh.Dial("tcp", addr, config)
+	dialCtx, cancel := context.WithTimeout(ctx, terminalSSHDialTimeout)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("ssh dial %s: %w", addr, err)
 	}
+	stop := context.AfterFunc(dialCtx, func() { _ = conn.Close() })
+	defer stop()
+	sshConn, chans, reqs, err := gossh.NewClientConn(conn, addr, config)
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("ssh dial %s: %w", addr, err)
+	}
+	client := gossh.NewClient(sshConn, chans, reqs)
 
 	session, err := client.NewSession()
 	if err != nil {
@@ -465,6 +505,10 @@ func (h *WorkspaceTerminalHandler) dialSSH(info services.WorkspaceSSHConnectionI
 		return nil, nil, fmt.Errorf("ssh new session: %w", err)
 	}
 
+	if !stop() || dialCtx.Err() != nil {
+		_ = client.Close()
+		return nil, nil, dialCtx.Err()
+	}
 	return client, session, nil
 }
 
@@ -642,7 +686,7 @@ func (h *WorkspaceTerminalHandler) pipeWSToSSH(ctx context.Context, ws *websocke
 // pipeWSToTerminalSession reads one attached WebSocket and writes input/control
 // into the durable terminal session. The durable session owns stdin and the PTY;
 // this attachment closing must not close the shared stdin.
-func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx context.Context, ws *websocket.Conn, sess *terminalSession, sessionID string, notifyActivity func()) {
+func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx, authorization context.Context, ws *websocket.Conn, sess *terminalSession, sessionID string, notifyActivity func()) {
 	for {
 		msgType, data, err := ws.Read(ctx)
 		if err != nil {
@@ -654,6 +698,12 @@ func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx context.Context, 
 			return
 		}
 
+		// Close waits for a peer handshake. A peer may ignore that frame and
+		// keep sending data, so revoke input independently of socket closure.
+		if authorization.Err() != nil {
+			_ = ws.Close(websocket.StatusPolicyViolation, "access revoked")
+			return
+		}
 		notifyActivity()
 
 		switch msgType {

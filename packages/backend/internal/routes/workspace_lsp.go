@@ -12,7 +12,6 @@ import (
 	"github.com/coder/websocket"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
-	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -33,14 +32,22 @@ import (
 // retry once (`language_server_exited: <code>`), 1002/1003/1009 client
 // protocol faults (final).
 func (h *WorkspaceTerminalHandler) LSPWebSocket(w http.ResponseWriter, r *http.Request) {
+	requestCtx := r.Context()
+	guard := watchWorkspaceSocket(r)
+	defer guard.close()
+	r = r.WithContext(guard.ctx)
+	if guard.reject(w) {
+		return
+	}
 	observe := func(result string) {
 		if h.Metrics != nil {
 			h.Metrics.ObserveWorkspaceLSPAttach(result)
 		}
 	}
 	pre, ok := h.preflightWorkspaceSocket(w, r, workspaceSocketGate{
-		kind:    "lsp",
-		observe: observe,
+		revocation: guard,
+		kind:       "lsp",
+		observe:    observe,
 		checkSession: func(w http.ResponseWriter, session services.WorkspaceSessionResponse) bool {
 			if session.Kind != services.WorkspaceSessionKindLSP {
 				observe("kind_mismatch")
@@ -67,12 +74,22 @@ func (h *WorkspaceTerminalHandler) LSPWebSocket(w http.ResponseWriter, r *http.R
 	user, repoCtx, sessionID := pre.user, pre.repoCtx, pre.sessionID
 
 	sshInfo, svcErr := h.Service.GetSSHConnectionInfo(r.Context(), sessionID, repoCtx.Repository.ID, user.ID)
+	if guard.reject(w) {
+		return
+	}
 	if svcErr != nil {
 		observe("ssh_info_error")
 		writeRouteError(w, r, svcErr)
 		return
 	}
+	principal := guard.scope(sshInfo.WorkspaceID, sshInfo.VMID, true)
+	if guard.reject(w) {
+		return
+	}
 	launch, svcErr := h.Service.ResolveLanguageServer(r.Context(), sessionID, repoCtx.Repository.ID, user.ID)
+	if guard.reject(w) {
+		return
+	}
 	if svcErr != nil {
 		observe("resolve_error")
 		writeRouteError(w, r, svcErr)
@@ -88,7 +105,13 @@ func (h *WorkspaceTerminalHandler) LSPWebSocket(w http.ResponseWriter, r *http.R
 	)
 
 	manager := h.lspSessionManager()
-	lspSess, err := manager.start(r.Context(), sessionID, sshInfo, launch)
+	lspSess, err := manager.start(r.Context(), sessionID, sshInfo, launch, principal)
+	if guard.rejectStartup(w, err) {
+		if lspSess != nil {
+			lspSess.destroy(websocket.StatusPolicyViolation, "access revoked")
+		}
+		return
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, errLanguageServerMissing):
@@ -109,6 +132,8 @@ func (h *WorkspaceTerminalHandler) LSPWebSocket(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	guard.onRevoke(func() { lspSess.destroy(websocket.StatusPolicyViolation, "access revoked") })
+
 	activityCh := make(chan struct{}, 8)
 	notifyActivity := func() {
 		select {
@@ -128,39 +153,31 @@ func (h *WorkspaceTerminalHandler) LSPWebSocket(w http.ResponseWriter, r *http.R
 		return
 	}
 	defer func() { _ = wsConn.CloseNow() }()
+	if !guard.bind(wsConn) {
+		lspSess.destroy(websocket.StatusPolicyViolation, "access revoked")
+		return
+	}
 	wsConn.SetReadLimit(lspMaxMessageBytes)
 
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(requestCtx)
 	defer cancel()
 
+	if h.beforeLSPAttach != nil {
+		h.beforeLSPAttach(lspSess)
+	}
 	if err := lspSess.attach(wsConn, notifyActivity); err != nil {
+		if !guard.bind(wsConn) {
+			return
+		}
+		if errors.Is(err, errWorkspaceSocketRevoked) {
+			_ = wsConn.Close(websocket.StatusPolicyViolation, "access revoked")
+			return
+		}
 		observe("attach_error")
 		_ = wsConn.Close(websocket.StatusInternalError, "failed to attach language server")
 		return
 	}
 	observe("success")
-
-	principal := requestPrincipal(r, revocation.Principal{
-		RepositoryID: repoCtx.Repository.ID,
-		WorkspaceID:  sshInfo.WorkspaceID,
-		SandboxID:    sshInfo.VMID,
-	})
-	lspSess.setPrincipal(principal)
-	if source := currentRevocationSource(); source != nil {
-		revoked := source.Watch(ctx, principal)
-		go func() {
-			select {
-			case ev := <-revoked:
-				reason := "access revoked"
-				if ev.Reason != "" {
-					reason += ": " + ev.Reason
-				}
-				lspSess.destroy(websocket.StatusPolicyViolation, reason)
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
-	}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -226,7 +243,7 @@ func (h *WorkspaceTerminalHandler) lspSessionManager() *LSPSessionManager {
 	defer h.managerMu.Unlock()
 	if h.LSPSessions == nil {
 		h.LSPSessions = NewLSPSessionManager(func(ctx context.Context, info services.WorkspaceSSHConnectionInfo) (lspSSHClient, lspSSHSession, error) {
-			client, sess, err := h.dialSSH(info, 0, 0)
+			client, sess, err := h.dialSSH(ctx, info, 0, 0)
 			if err != nil {
 				return nil, nil, err
 			}

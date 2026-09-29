@@ -141,7 +141,7 @@ func TestWorkspaceTerminal_Cov_PipeWSToSSH(t *testing.T) {
 	stdin := &terminalSessionManagerCovWriteCloser{}
 	hostKey := newTestHostKey(t)
 	host, port, _ := startTestSSHServer(t, hostKey.signer)
-	sshClient, sshSess, err := (&WorkspaceTerminalHandler{}).dialSSH(services.WorkspaceSSHConnectionInfo{
+	sshClient, sshSess, err := (&WorkspaceTerminalHandler{}).dialSSH(context.Background(), services.WorkspaceSSHConnectionInfo{
 		VMID:        "vm-test",
 		Host:        host,
 		Port:        port,
@@ -224,7 +224,7 @@ func TestWorkspaceTerminal_Cov_PipeWSToTerminalSession(t *testing.T) {
 			return
 		}
 		defer conn.CloseNow()
-		(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(r.Context(), conn, sess, "sess-terminal", func() {
+		(&WorkspaceTerminalHandler{}).pipeWSToTerminalSession(r.Context(), r.Context(), conn, sess, "sess-terminal", func() {
 			activity.Add(1)
 		})
 		done <- nil

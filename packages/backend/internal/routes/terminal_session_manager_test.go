@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
 
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -33,7 +34,7 @@ func TestReattachReplaysRingBuffer(t *testing.T) {
 		require.NoError(t, err)
 		defer ws.CloseNow()
 
-		sess, _, err := manager.getOrCreate(r.Context(), "sess-1", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+		sess, _, err := manager.getOrCreate(r.Context(), "sess-1", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 		require.NoError(t, err)
 		sink, err := sess.addSink(r.Context(), ws, func() {})
 		require.NoError(t, err)
@@ -102,7 +103,7 @@ func TestSlowSinkDoesNotBlockHealthySink(t *testing.T) {
 	manager.keepaliveInterval = 0
 	defer manager.Close()
 
-	sess, _, err := manager.getOrCreate(context.Background(), "sess-slow", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+	sess, _, err := manager.getOrCreate(context.Background(), "sess-slow", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 	require.NoError(t, err)
 
 	accept := func(ready chan<- *websocket.Conn) *httptest.Server {
@@ -219,13 +220,18 @@ func TestTerminalSessionManagerRetriesEarlyExit127Once(t *testing.T) {
 	manager.keepaliveInterval = 0
 	defer manager.Close()
 
-	sess, created, err := manager.getOrCreate(context.Background(), "sess-retry-127", services.WorkspaceSSHConnectionInfo{Kind: "vm"}, 80, 24)
+	sess, created, err := manager.getOrCreate(context.Background(), "sess-retry-127", services.WorkspaceSSHConnectionInfo{Kind: "vm"}, 80, 24, revocation.Principal{})
 
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NotNil(t, sess)
 	assert.Equal(t, int32(2), dials.Load())
-	assert.True(t, first.session.closed.Load(), "failed first PTY must be released before retry")
+	select {
+	case <-first.session.done:
+	case <-time.After(time.Second):
+		t.Fatal("failed first PTY transport was not released")
+	}
+	assert.True(t, first.session.closed.Load(), "failed first PTY must be released")
 	assert.False(t, second.session.closed.Load(), "successful retry remains live")
 }
 
@@ -251,7 +257,7 @@ func TestIdleExpireStaleGenerationDoesNotKillReattachedSession(t *testing.T) {
 	manager.keepaliveInterval = 0
 	defer manager.Close()
 
-	sess, created, err := manager.getOrCreate(context.Background(), "sess-idle-gen", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+	sess, created, err := manager.getOrCreate(context.Background(), "sess-idle-gen", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 	require.NoError(t, err)
 	require.True(t, created)
 
@@ -299,7 +305,7 @@ func TestDestroyIfUnattached(t *testing.T) {
 	manager.keepaliveInterval = 0
 	defer manager.Close()
 
-	sess, created, err := manager.getOrCreate(context.Background(), "sess-unattached", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+	sess, created, err := manager.getOrCreate(context.Background(), "sess-unattached", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 	require.NoError(t, err)
 	require.True(t, created)
 
@@ -320,6 +326,11 @@ func TestDestroyIfUnattached(t *testing.T) {
 		defer manager.mu.Unlock()
 		return len(manager.sessions) == 0
 	}, time.Second, 10*time.Millisecond)
+	select {
+	case <-fake.session.done:
+	case <-time.After(time.Second):
+		t.Fatal("SSH session transport was not released")
+	}
 	assert.True(t, fake.session.closed.Load(), "SSH session must be closed on release")
 }
 
@@ -335,7 +346,7 @@ func TestReattachUsesFreshActivityCallback(t *testing.T) {
 	manager.keepaliveInterval = 0
 	defer manager.Close()
 
-	sess, _, err := manager.getOrCreate(context.Background(), "sess-touch", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+	sess, _, err := manager.getOrCreate(context.Background(), "sess-touch", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 	require.NoError(t, err)
 
 	var first, second atomic.Int32

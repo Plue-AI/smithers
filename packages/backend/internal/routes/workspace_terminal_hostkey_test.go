@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -107,7 +108,7 @@ func TestDialSSH_CorrectHostKey_DialSucceeds(t *testing.T) {
 		HostKeys:    []services.WorkspaceSSHHostKey{hk.advertise},
 	}
 
-	client, session, err := h.dialSSH(info, 80, 24)
+	client, session, err := h.dialSSH(context.Background(), info, 80, 24)
 	require.NoError(t, err, "dial must succeed when advertised key matches server")
 	require.NotNil(t, client)
 	require.NotNil(t, session)
@@ -124,6 +125,57 @@ func TestDialSSH_CorrectHostKey_DialSucceeds(t *testing.T) {
 
 	_ = session.Close()
 	_ = client.Close()
+}
+
+func TestDialSSH_CancellationInterruptsStalledHandshake(t *testing.T) {
+	key := newTestHostKey(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+	host, portText, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portText)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		client, session, dialErr := (&WorkspaceTerminalHandler{}).dialSSH(ctx, services.WorkspaceSSHConnectionInfo{
+			VMID: "vm", Host: host, Port: port, Username: "developer", AccessToken: "token",
+			HostKeys: []services.WorkspaceSSHHostKey{key.advertise},
+		}, 80, 24)
+		if session != nil {
+			_ = session.Close()
+		}
+		if client != nil {
+			_ = client.Close()
+		}
+		result <- dialErr
+	}()
+	var serverConn net.Conn
+	select {
+	case serverConn = <-accepted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("TCP connection did not reach the stalled SSH handshake")
+	}
+	defer serverConn.Close()
+	cancel()
+	select {
+	case err := <-result:
+		require.Error(t, err, "canceled handshake must not return an SSH client")
+	case <-time.After(2 * time.Second):
+		t.Fatal("context cancellation did not interrupt the SSH handshake")
+	}
+	_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, err = io.Copy(io.Discard, serverConn)
+	require.NoError(t, err, "the canceled client must close its TCP connection")
 }
 
 func TestDialSSH_UsesInternalDialHostWhenProvided(t *testing.T) {
@@ -143,7 +195,7 @@ func TestDialSSH_UsesInternalDialHostWhenProvided(t *testing.T) {
 		HostKeys:    []services.WorkspaceSSHHostKey{hk.advertise},
 	}
 
-	client, session, err := h.dialSSH(info, 80, 24)
+	client, session, err := h.dialSSH(context.Background(), info, 80, 24)
 	require.NoError(t, err, "dial must use DialHost while public Host remains user-facing")
 	require.NotNil(t, client)
 	require.NotNil(t, session)
@@ -183,7 +235,7 @@ func TestDialSSH_MismatchedHostKey_DialRejectedBeforePTY(t *testing.T) {
 		HostKeys:    []services.WorkspaceSSHHostKey{pinnedKey.advertise},
 	}
 
-	client, session, err := h.dialSSH(info, 80, 24)
+	client, session, err := h.dialSSH(context.Background(), info, 80, 24)
 	require.Error(t, err, "dial must fail when presented key is not in advertised set")
 	assert.Nil(t, client)
 	assert.Nil(t, session)
@@ -233,7 +285,7 @@ func TestDialSSH_RotationOverlap_EitherAdvertisedKeyWorks(t *testing.T) {
 				},
 			}
 
-			client, session, err := h.dialSSH(info, 80, 24)
+			client, session, err := h.dialSSH(context.Background(), info, 80, 24)
 			require.NoError(t, err, "either advertised key must satisfy the pinned callback during rotation")
 			_ = session.Close()
 			_ = client.Close()
@@ -257,7 +309,7 @@ func TestDialSSH_NoAdvertisedHostKeys_FailsClosed(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, _, err := h.dialSSH(info, 80, 24)
+	_, _, err := h.dialSSH(context.Background(), info, 80, 24)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errNoAdvertisedHostKeys, "empty pin set must short-circuit before any dial")
 	// Short-circuit sanity: we must not have attempted a real TCP dial
@@ -277,7 +329,7 @@ func TestDialSSH_MalformedAdvertisedKey_FailsClosed(t *testing.T) {
 			PublicKey: "not-base64-***",
 		}},
 	}
-	_, _, err := h.dialSSH(info, 80, 24)
+	_, _, err := h.dialSSH(context.Background(), info, 80, 24)
 	require.Error(t, err)
 	assert.True(t,
 		strings.Contains(err.Error(), "decode public_key") ||

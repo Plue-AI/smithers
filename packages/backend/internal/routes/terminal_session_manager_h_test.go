@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -28,10 +29,10 @@ func TestTerminalSessionManager_H_GetOrCreateBranches(t *testing.T) {
 		}
 		defer manager.Close()
 
-		sess, created, err := manager.getOrCreate(context.Background(), "sess", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+		sess, created, err := manager.getOrCreate(context.Background(), "sess", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 		require.True(t, created)
 		require.NoError(t, err)
-		same, sameCreated, err := manager.getOrCreate(context.Background(), "sess", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+		same, sameCreated, err := manager.getOrCreate(context.Background(), "sess", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 		require.False(t, sameCreated)
 		require.NoError(t, err)
 		require.Same(t, sess, same)
@@ -41,7 +42,7 @@ func TestTerminalSessionManager_H_GetOrCreateBranches(t *testing.T) {
 		manager.sessions["dead"] = dead
 		manager.mu.Unlock()
 		dead.destroy("done")
-		again, _, err := manager.getOrCreate(context.Background(), "dead", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+		again, _, err := manager.getOrCreate(context.Background(), "dead", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 		require.Nil(t, again)
 		require.ErrorContains(t, err, "done")
 	})
@@ -50,7 +51,7 @@ func TestTerminalSessionManager_H_GetOrCreateBranches(t *testing.T) {
 		manager := NewTerminalSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo, int32, int32) (terminalSSHClient, terminalSSHSession, error) {
 			return nil, nil, errors.New("dial failed")
 		})
-		sess, _, err := manager.getOrCreate(context.Background(), "dial", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+		sess, _, err := manager.getOrCreate(context.Background(), "dial", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 		require.Nil(t, sess)
 		require.EqualError(t, err, "dial failed")
 
@@ -63,7 +64,7 @@ func TestTerminalSessionManager_H_GetOrCreateBranches(t *testing.T) {
 			return fake.client, fake.session, nil
 		})
 		manager.keepaliveInterval = 0
-		got, gotCreated, err := manager.getOrCreate(context.Background(), "dup", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+		got, gotCreated, err := manager.getOrCreate(context.Background(), "dup", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 		require.False(t, gotCreated)
 		require.NoError(t, err)
 		require.Same(t, existing, got)
@@ -78,7 +79,7 @@ func TestTerminalSessionManager_H_GetOrCreateBranches(t *testing.T) {
 			manager.mu.Unlock()
 			return fake.client, fake.session, nil
 		})
-		got, _, err = manager.getOrCreate(context.Background(), "dup-dead", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+		got, _, err = manager.getOrCreate(context.Background(), "dup-dead", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 		require.Nil(t, got)
 		require.ErrorContains(t, err, "already dead")
 	})

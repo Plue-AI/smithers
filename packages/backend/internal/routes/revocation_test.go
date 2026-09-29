@@ -27,7 +27,7 @@ func TestTerminalSessionManager_RevokeMatchingDestroysOnlyAffectedSessions(t *te
 	manager.idleTimeout = time.Minute
 	manager.keepaliveInterval = 0
 	defer manager.Close()
-	sess, created, err := manager.getOrCreate(context.Background(), "sess-1", services.WorkspaceSSHConnectionInfo{WorkspaceID: "w1", VMID: "vm1"}, 80, 24)
+	sess, created, err := manager.getOrCreate(context.Background(), "sess-1", services.WorkspaceSSHConnectionInfo{WorkspaceID: "w1", VMID: "vm1"}, 80, 24, revocation.Principal{})
 	require.NoError(t, err)
 	require.True(t, created)
 	sess.setPrincipal(revocation.Principal{UserID: 7, RepositoryID: 3, WorkspaceID: "w1", SandboxID: "vm1"})
@@ -51,7 +51,7 @@ func TestTerminalSessionManager_RevokeMatchingDestroysOnlyAffectedSessions(t *te
 	orgManager.idleTimeout = time.Minute
 	orgManager.keepaliveInterval = 0
 	defer orgManager.Close()
-	orgSess, created, err := orgManager.getOrCreate(context.Background(), "sess-org", services.WorkspaceSSHConnectionInfo{WorkspaceID: "w2", VMID: "vm2"}, 80, 24)
+	orgSess, created, err := orgManager.getOrCreate(context.Background(), "sess-org", services.WorkspaceSSHConnectionInfo{WorkspaceID: "w2", VMID: "vm2"}, 80, 24, revocation.Principal{})
 	require.NoError(t, err)
 	require.True(t, created)
 	orgRequest := withOrgRepoCtx(newAuthedRequest(t, 7, ""), 4, 11)
@@ -78,7 +78,7 @@ func TestTerminalSessionManager_RevokeMatchingClosesAttachedSinkWithPolicyViolat
 	manager.keepaliveInterval = 0
 	defer manager.Close()
 
-	sess, _, err := manager.getOrCreate(context.Background(), "sess-revoked", services.WorkspaceSSHConnectionInfo{}, 80, 24)
+	sess, _, err := manager.getOrCreate(context.Background(), "sess-revoked", services.WorkspaceSSHConnectionInfo{}, 80, 24, revocation.Principal{})
 	require.NoError(t, err)
 	sess.setPrincipal(revocation.Principal{TokenHash: "token-hash"})
 

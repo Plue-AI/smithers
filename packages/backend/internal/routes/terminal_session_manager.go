@@ -59,12 +59,19 @@ type terminalDialer func(ctx context.Context, info services.WorkspaceSSHConnecti
 type TerminalSessionManager struct {
 	mu                sync.Mutex
 	sessions          map[string]*terminalSession
+	starting          map[*terminalStartup]struct{}
 	dial              terminalDialer
 	ringBufferBytes   int
 	idleTimeout       time.Duration
 	keepaliveInterval time.Duration
 	startupWatch      time.Duration
 	startupRetryDelay time.Duration
+}
+
+type terminalStartup struct {
+	cancel    context.CancelCauseFunc
+	principal revocation.Principal
+	sessionID string
 }
 
 func NewTerminalSessionManager(dial terminalDialer) *TerminalSessionManager {
@@ -83,7 +90,10 @@ func NewTerminalSessionManager(dial terminalDialer) *TerminalSessionManager {
 // session when none exists. The second return reports whether THIS call
 // created the session, so the caller can release it (destroyIfUnattached) if
 // the websocket upgrade fails before any sink attaches.
-func (m *TerminalSessionManager) getOrCreate(ctx context.Context, sessionID string, info services.WorkspaceSSHConnectionInfo, cols, rows int32) (*terminalSession, bool, error) {
+func (m *TerminalSessionManager) getOrCreate(ctx context.Context, sessionID string, info services.WorkspaceSSHConnectionInfo, cols, rows int32, principal revocation.Principal) (session *terminalSession, created bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	m.mu.Lock()
 	if m.sessions == nil {
 		m.sessions = make(map[string]*terminalSession)
@@ -95,7 +105,22 @@ func (m *TerminalSessionManager) getOrCreate(ctx context.Context, sessionID stri
 		}
 		return sess, false, nil
 	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	pending := &terminalStartup{cancel: cancel, principal: principal, sessionID: sessionID}
+	if m.starting == nil {
+		m.starting = make(map[*terminalStartup]struct{})
+	}
+	m.starting[pending] = struct{}{}
 	m.mu.Unlock()
+	defer func() {
+		if errors.Is(context.Cause(ctx), errWorkspaceSocketRevoked) {
+			err = errWorkspaceSocketRevoked
+		}
+		cancel(context.Canceled)
+		m.mu.Lock()
+		delete(m.starting, pending)
+		m.mu.Unlock()
+	}()
 
 	if m.dial == nil {
 		return nil, false, errors.New("terminal session manager dialer is nil")
@@ -152,6 +177,11 @@ func (m *TerminalSessionManager) getOrCreate(ctx context.Context, sessionID stri
 		}
 
 		m.mu.Lock()
+		if ctx.Err() != nil {
+			m.mu.Unlock()
+			sess.destroy("terminal startup canceled")
+			return nil, false, ctx.Err()
+		}
 		if existing := m.sessions[sessionID]; existing != nil {
 			m.mu.Unlock()
 			sess.destroy("duplicate session")
@@ -160,6 +190,7 @@ func (m *TerminalSessionManager) getOrCreate(ctx context.Context, sessionID stri
 			}
 			return existing, false, nil
 		}
+		sess.setPrincipal(principal)
 		m.sessions[sessionID] = sess
 		m.mu.Unlock()
 
@@ -177,6 +208,8 @@ func (m *TerminalSessionManager) open(ctx context.Context, sessionID string, inf
 	if err != nil {
 		return nil, nil, err
 	}
+	stop := context.AfterFunc(ctx, func() { _ = sshSess.Close(); _ = client.Close() })
+	defer stop()
 	stdin, err := sshSess.StdinPipe()
 	if err != nil {
 		_ = sshSess.Close()
@@ -300,6 +333,11 @@ func (m *TerminalSessionManager) removeSession(sessionID string, sess *terminalS
 
 func (m *TerminalSessionManager) Destroy(sessionID string) {
 	m.mu.Lock()
+	for pending := range m.starting {
+		if pending.sessionID == sessionID {
+			pending.cancel(context.Canceled)
+		}
+	}
 	sess := m.sessions[sessionID]
 	m.mu.Unlock()
 	if sess != nil {
@@ -309,6 +347,9 @@ func (m *TerminalSessionManager) Destroy(sessionID string) {
 
 func (m *TerminalSessionManager) Close() {
 	m.mu.Lock()
+	for pending := range m.starting {
+		pending.cancel(context.Canceled)
+	}
 	sessions := make([]*terminalSession, 0, len(m.sessions))
 	for _, sess := range m.sessions {
 		sessions = append(sessions, sess)
@@ -530,6 +571,9 @@ func (s *terminalSession) writeStdin(p []byte) error {
 	if len(p) == 0 {
 		return nil
 	}
+	if s.isDead() {
+		return s.deadErr()
+	}
 	if _, err := s.stdin.Write(p); err != nil {
 		s.markDead(fmt.Errorf("ssh stdin write: %w", err))
 		return err
@@ -541,6 +585,9 @@ func (s *terminalSession) writeStdin(p []byte) error {
 func (s *terminalSession) resize(rows, cols uint32) error {
 	if rows == 0 || cols == 0 {
 		return nil
+	}
+	if s.isDead() {
+		return s.deadErr()
 	}
 	if err := s.sshSess.WindowChange(int(rows), int(cols)); err != nil {
 		return err
@@ -655,6 +702,9 @@ func (s *terminalSession) markDeadWithCode(code websocket.StatusCode, err error)
 		s.dead = true
 		s.deadMsg = msg
 		s.deadErrV = err
+		if code == websocket.StatusPolicyViolation {
+			s.deadErrV = fmt.Errorf("%s: %w", msg, errWorkspaceSocketRevoked)
+		}
 		if s.idle != nil {
 			s.idle.Stop()
 		}
@@ -667,15 +717,19 @@ func (s *terminalSession) markDeadWithCode(code websocket.StatusCode, err error)
 		// Outside the lock: stop each writer goroutine and close its socket.
 		for _, sink := range sinks {
 			sink.stop()
-			_ = sink.close(code, msg)
+			go func() { _ = sink.close(code, msg) }()
 		}
 		close(s.done)
-		_ = s.stdin.Close()
-		_ = s.sshSess.Close()
-		_ = s.client.Close()
 		if s.onDone != nil {
 			s.onDone()
 		}
+		// State, sinks and publication are settled before returning. Transport
+		// closes may wait for the peer and must not delay revocation delivery.
+		go func() {
+			_ = s.stdin.Close()
+			_ = s.sshSess.Close()
+			_ = s.client.Close()
+		}()
 	})
 }
 
@@ -781,6 +835,11 @@ func (s *terminalSession) setPrincipal(principal revocation.Principal) {
 // told why, and the workspace session row is left for the normal lifecycle.
 func (m *TerminalSessionManager) RevokeMatching(event revocation.Event) {
 	m.mu.Lock()
+	for pending := range m.starting {
+		if event.Affects(pending.principal) {
+			pending.cancel(errWorkspaceSocketRevoked)
+		}
+	}
 	var doomed []*terminalSession
 	for _, sess := range m.sessions {
 		sess.mu.Lock()
