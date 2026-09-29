@@ -525,7 +525,10 @@ test("fixture workflow input and protocol IDs preserve explicit product checks",
     'function nested() { function protocol() {} const id = protocol(`missing-card-${nonce}`) }',
     'try {} catch (protocol) { const id = protocol(`missing-card-${nonce}`) }'
   ]) expect(check(imports + statement).length, statement).toBeGreaterThan(0)
-  expect(check('import { fixtureInputText as input } from "./unrelated"; const text = input(`s15-input-${nonce}`);').length).toBeGreaterThan(0)
+  const inputClaim = 'const text = input(`missing-card-${nonce}`);'
+  expect(check('import { fixtureInputText as input } from "./support/values";' + inputClaim)).toEqual([])
+  expect(check('import { fixtureInputText as input } from "./unrelated";' + inputClaim).map(violation => violation.rule))
+    .toContain("card-id-prefix")
 })
 
 test("fixture input provenance follows a local factory's selected return field", () => {
@@ -555,6 +558,28 @@ test("fixture input provenance follows a local factory's selected return field",
   expect(check(imports + 'const text = input(`missing-card-${nonce}`); const row = { id: text }; page.getByTestId(row.id);').length).toBeGreaterThan(0)
   expect(check(imports + 'const text = input(`missing-card-${nonce}`); page.getByTestId(decorate(text));').length).toBeGreaterThan(0)
   expect(check(imports + 'const make = () => { const text = input(`missing-card-${nonce}`); return { id: text }; }; const row = make(); page.getByTestId(row.id);').length).toBeGreaterThan(0)
+})
+
+test("extracts rendered selectors from JSX attributes and nested components", () => {
+  const source = [
+    'const controls = <section data-testid="agent-session-header">',
+    '  <p>session {sessionId} · {repo}</p>{live ? (<div><Button data-testid={`agent-session-stop-${sessionId}`}>Stop</Button></div>) : null}{running ? (<Button data-testid={`flow-run-stop-${runId}`}>Stop</Button>) : null}',
+    '</section>'
+  ].join("\n")
+  const selectors = new Set(["agent-session-header", "agent-session-stop-", "flow-run-stop-"])
+  expect(extractLiterals("/fixture/controls.tsx", source)
+    .filter(literal => selectors.has(literal.value))
+    .map(({ value, form, line }) => ({ value, form, line }))).toEqual([
+    { value: "agent-session-header", form: "string", line: 1 },
+    { value: "agent-session-stop-", form: "template-head", line: 2 },
+    { value: "flow-run-stop-", form: "template-head", line: 2 }
+  ])
+})
+
+test("keeps TypeScript generic arrows parseable in .ts files", () => {
+  const source = 'const identity = <T>(value: T): T => value; const id = identity(`flow-run-stop-${runId}`);'
+  expect(extractLiterals("/fixture/identity.ts", source)
+    .map(({ value, form }) => ({ value, form }))).toContainEqual({ value: "flow-run-stop-", form: "template-head" })
 })
 
 test("only a positive same-receiver delta guard removes a non-card kind claim", () => {

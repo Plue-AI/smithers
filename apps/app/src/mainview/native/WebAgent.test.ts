@@ -59,7 +59,7 @@ describe("createWebAgent", () => {
 
   test.each([true, false])("a terminal frame ends delivery with coalesced chunks: %s", async coalesced => {
     const frames: AgentTurnFrame[] = []
-    const lines = [
+    const lines: AgentTurnFrame[] = [
       { runId: "run-1", type: "delta", kind: "text", text: "before" },
       { runId: "run-1", type: "done" },
       { runId: "run-1", type: "delta", kind: "text", text: "after" },

@@ -39,10 +39,10 @@ test.each(["batch", "caught-up"] as const)("terminal %s ends journal delivery in
   const terminalBody = { ...body, frames: [{ type: "done" as const, runId: "turn" }] }
   const terminalBatch = { ...terminalBody, hash: digest(agentTurnJournalDigestInput("batch", terminalBody)) }
   const terminalCursor = { ...next, hash: terminalBatch.hash }
-  const terminal = terminalType === "batch"
+  const terminal: AgentTurnJournalDelivery = terminalType === "batch"
     ? { type: "batch", batch: terminalBatch, cursor: terminalCursor }
     : { type: "caught-up", cursor, terminal: true }
-  const lines = [{ type: "accepted", cursor }, terminal, { type: "accepted", cursor }]
+  const lines: AgentTurnJournalDelivery[] = [{ type: "accepted", cursor }, terminal, { type: "accepted", cursor }]
   for (const coalesced of [true, false]) {
     const delivered: AgentTurnJournalDelivery[] = []
     let cancelled!: () => void

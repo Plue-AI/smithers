@@ -4,7 +4,8 @@ import { errorMessage, type ClientErrorReporter } from "./ClientErrors"
 
 export type OperationalSeam = "journal.compaction" | "http.turn.driver" | "approval.forward" | "approval.reconcile" |
   "run.pump" | "run.cancel" | "setup.schedule" | "setup.guidance" | "setup.open-run" | "form.file-list" |
-  "recommend.outcome" | "archive.notice" | "turn.cancel" | "turn.sign-in" | "explain.cancel" | "command.boundary" | "toast.work" | "prompt.queue"
+  "recommend.outcome" | "archive.notice" | "turn.cancel" | "turn.sign-in" | "explain.cancel" | "explain.retire" | "explain.disconnect" |
+  "account.revoke" | "wiki.index.listener" | "command.boundary" | "toast.work" | "prompt.queue"
 
 export interface OperationalFailure {
   readonly seam: OperationalSeam

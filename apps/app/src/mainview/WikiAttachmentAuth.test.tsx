@@ -71,6 +71,9 @@ test("the Wiki pane uses its selected application identity to display and downlo
   const createObjectURL = URL.createObjectURL
   const revokeObjectURL = URL.revokeObjectURL
   URL.createObjectURL = (blob) => {
+    if (!("arrayBuffer" in blob) || typeof blob.arrayBuffer !== "function") {
+      throw new Error("Expected attachment bytes as a Blob")
+    }
     const url = `blob:wiki-attachment-${++nextBlob}`
     blobUrls.set(url, blob)
     return url
@@ -141,7 +144,10 @@ test("the Wiki pane uses its selected application identity to display and downlo
     await waitFor(() => revoked.includes(downloadUrl))
     await waitFor(() => revoked.includes(embeddedImageUrl))
   } finally {
-    if (root !== undefined) flushSync(() => root.unmount())
+    if (root !== undefined) {
+      const mountedRoot = root
+      flushSync(() => mountedRoot.unmount())
+    }
     host?.remove()
     await store?.dispose?.()
     URL.createObjectURL = createObjectURL
@@ -314,7 +320,13 @@ test("two views share one large attachment read and revoke its URL after the las
   const revoked: string[] = []
   const originalCreate = URL.createObjectURL
   const originalRevoke = URL.revokeObjectURL
-  URL.createObjectURL = (blob) => { object = blob; return "blob:shared-large-attachment" }
+  URL.createObjectURL = (blob) => {
+    if (!("arrayBuffer" in blob) || typeof blob.arrayBuffer !== "function") {
+      throw new Error("Expected attachment bytes as a Blob")
+    }
+    object = blob
+    return "blob:shared-large-attachment"
+  }
   URL.revokeObjectURL = (url) => { revoked.push(url) }
   const attachments = createWikiAttachmentStore({ baseUrl: "https://app.test", http: async () => {
     reads++

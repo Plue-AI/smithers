@@ -440,7 +440,7 @@ const kindClaimNodes = (parsed: ts.SourceFile): ReadonlySet<ts.Node> => {
 
 /** Every literal in one source file, with the position context each rule needs. */
 export const extractLiterals = (file: string, source: string): ReadonlyArray<ExtractedLiteral> => {
-  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS)
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.ESNext, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
   const claimed = kindClaimNodes(parsed)
   // These imported helper positions declare test metadata, not product IDs.
   // Resolve the import path, so an unrelated function with the same name does
