@@ -899,6 +899,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	auditCleaner := cleanup.NewAuditCleaner(queries, time.Hour, 90*24*time.Hour)
 	webhookDeliveryCleaner := cleanup.NewWebhookDeliveryCleaner(queries, time.Hour, 30, 1000)
+	workflowLogCleaner := cleanup.NewWorkflowLogCleaner(queries)
 
 	workspaceCleaner := cleanup.NewWorkspaceCleaner(workspaceService, 5*time.Minute)
 	repoSyncService := services.NewRepoSyncService("", repoConnectionService)
@@ -1686,6 +1687,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		workflowArtifactCleaner.Start(workerCtx)
 		auditCleaner.Start(workerCtx)
 		webhookDeliveryCleaner.Start(workerCtx)
+		workflowLogCleaner.Start(workerCtx)
 		workspaceCleaner.Start(workerCtx)
 	}
 	if options.topology.hosted() && options.topology.workers() {
@@ -1822,6 +1824,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			workflowArtifactCleaner.Stop()
 			auditCleaner.Stop()
 			webhookDeliveryCleaner.Stop()
+			workflowLogCleaner.Stop()
 			workspaceCleaner.Stop()
 		}
 		// Detached provisioning goroutines outlive the HTTP drain; join them
