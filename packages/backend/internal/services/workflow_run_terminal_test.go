@@ -251,3 +251,33 @@ func TestParseCheckRunAnnotationsFromLogEntry(t *testing.T) {
 	assert.Equal(t, GitHubCheckRunAnnotation{Path: "pkg/a.go", StartLine: 4, EndLine: 6, AnnotationLevel: "warning", Message: "slow\npath"}, got[0])
 	assert.Equal(t, GitHubCheckRunAnnotation{Path: "cmd/b.ts", StartLine: 12, EndLine: 12, AnnotationLevel: "failure", Message: "expected ';'"}, got[1])
 }
+
+func TestParsePathLineAnnotation_ColumnIsNotEndLine(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want GitHubCheckRunAnnotation
+	}{
+		{"no column", "bad.go:2: error: boom", GitHubCheckRunAnnotation{Path: "bad.go", StartLine: 2, EndLine: 2, AnnotationLevel: "failure", Message: "boom"}},
+		{"column below line", "bad.go:9:3: error: boom", GitHubCheckRunAnnotation{Path: "bad.go", StartLine: 9, EndLine: 9, AnnotationLevel: "failure", Message: "boom"}},
+		{"column equal to line", "bad.go:7:7: warning: slow", GitHubCheckRunAnnotation{Path: "bad.go", StartLine: 7, EndLine: 7, AnnotationLevel: "warning", Message: "slow"}},
+		{"column above line", "bad.go:2:61: error: boom", GitHubCheckRunAnnotation{Path: "bad.go", StartLine: 2, EndLine: 2, AnnotationLevel: "failure", Message: "boom"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parsePathLineAnnotation(tc.line)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseGitHubCommandAnnotation_EndLineRange(t *testing.T) {
+	got, ok := parseGitHubCommandAnnotation("::error file=bad.go,line=2,col=61,endLine=5::boom")
+	require.True(t, ok)
+	assert.Equal(t, GitHubCheckRunAnnotation{Path: "bad.go", StartLine: 2, EndLine: 5, AnnotationLevel: "failure", Message: "boom"}, got)
+
+	got, ok = parseGitHubCommandAnnotation("::error file=bad.go,line=5,endLine=2::boom")
+	require.True(t, ok)
+	assert.Equal(t, 5, got.EndLine)
+}

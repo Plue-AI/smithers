@@ -316,12 +316,7 @@ func parsePathLineAnnotation(line string) (GitHubCheckRunAnnotation, bool) {
 	if startLine <= 0 {
 		return GitHubCheckRunAnnotation{}, false
 	}
-	endLine := startLine
-	if strings.TrimSpace(matches[3]) != "" {
-		if parsed := parsePositiveInt(matches[3], startLine); parsed >= startLine {
-			endLine = parsed
-		}
-	}
+	// matches[3] is the optional column, never an end line.
 	level, message := splitAnnotationLevelAndMessage(matches[4])
 	if level == "" || strings.TrimSpace(message) == "" {
 		return GitHubCheckRunAnnotation{}, false
@@ -329,7 +324,7 @@ func parsePathLineAnnotation(line string) (GitHubCheckRunAnnotation, bool) {
 	return GitHubCheckRunAnnotation{
 		Path:            path,
 		StartLine:       startLine,
-		EndLine:         endLine,
+		EndLine:         startLine,
 		AnnotationLevel: level,
 		Message:         strings.TrimSpace(message),
 	}, true
