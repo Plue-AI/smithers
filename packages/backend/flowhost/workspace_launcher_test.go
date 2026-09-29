@@ -39,7 +39,7 @@ func init() {
 		os.Exit(2)
 	}
 	_ = flags.Parse(os.Args[2:])
-	bytes, _ := json.Marshal(map[string]string{"root": *root, "state": *state, "host": *host, "port": strconv.Itoa(*port)})
+	bytes, _ := json.Marshal(map[string]string{"root": *root, "state": *state, "host": *host, "port": strconv.Itoa(*port), "pid": strconv.Itoa(os.Getpid())})
 	if os.WriteFile(os.Getenv("SMITHERS_FLOWHOST_TEST_MARKER"), bytes, 0600) != nil {
 		os.Exit(3)
 	}
