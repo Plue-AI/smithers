@@ -122,6 +122,27 @@ test("a signed-out browser gets the same concealed response as an unknown admin 
   expect(await denied.json()).toEqual({ status: "error", code: "route_not_found", message: "Not found." })
 })
 
+test("GitHub sign-in advertises a callback on the initiating origin", scenario("auth.oauth-callback-origin", {
+  capabilities: ["identity"],
+  coverage: ["action:auth.sign-in", "host:production", "path:success", "door:user-only",
+    "dimension:oauth-callback-origin", "evidence:provider-callback-origin"],
+  description: "The deployed sign-in route must bind GitHub's callback to the browser origin before authentication."
+}), async ({ request }, testInfo) => {
+  const origin = new URL(String(testInfo.project.use.baseURL)).origin
+  const response = await request.get(`${origin}/api/auth/github?return_to=${encodeURIComponent(APP_PATH)}`, { maxRedirects: 0 })
+  // Record no state, authorization query, cookie value, or provider credential.
+  const location = new URL(response.headers().location ?? "/", origin)
+  const callback = location.searchParams.get("redirect_uri")
+  await testInfo.attach("oauth-origins", {
+    body: JSON.stringify({ origin, status: response.status(), destination: location.origin + location.pathname,
+      callback: callback === null ? null : new URL(callback, origin).origin + new URL(callback, origin).pathname }),
+    contentType: "application/json"
+  })
+  expect(response.status()).toBe(302)
+  expect(location.origin + location.pathname).toBe("https://github.com/login/oauth/authorize")
+  expect(callback).toBe(`${origin}/api/auth/github/callback`)
+})
+
 test("an unsafe absolute OAuth return destination is discarded before GitHub", scenario("auth.oauth-unsafe-return-to-rejected", {
   capabilities: ["identity"],
   coverage: [
