@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
@@ -1477,32 +1479,41 @@ func newTestDispatchService(dq AgentDispatchQuerier, logStore AgentLogStore) *Ag
 // ---- DispatchAgentRun Tests ----
 
 func TestAgentService_DispatchLandingAuthorTurn_AppendsFeedbackBeforeDispatch(t *testing.T) {
-	t.Parallel()
-	sessionID := "11111111-1111-4111-8111-111111111111"
-	var capturedPart db.CreateAgentPartParams
-	q := &mockAgentQuerier{
-		prepareAgentSessionForTurnFn: func(_ context.Context, got string) (db.AgentSession, error) {
-			assert.Equal(t, sessionID, got)
-			return sampleDBAgentSession(sessionID, 101, 7, "landing author"), nil
-		},
-		createAgentPartFn: func(_ context.Context, arg db.CreateAgentPartParams) (db.AgentPart, error) {
-			capturedPart = arg
-			return sampleDBAgentPart(1, arg.MessageID, arg.PartIndex, arg.PartType, arg.Content), nil
-		},
-	}
-	svc := NewAgentService(q)
-
-	err := svc.DispatchLandingAuthorTurn(context.Background(), LandingAgentTurnDispatchInput{
-		SessionID: sessionID, RepositoryID: 101, UserID: 7, RepoOwner: "alice", RepoName: "demo", Number: 12, Feedback: "please add the boundary test",
+	svc, input := newBoundaryMessageSession(t)
+	err := svc.DispatchLandingAuthorTurn(t.Context(), LandingAgentTurnDispatchInput{
+		SessionID: input.SessionID, RepositoryID: input.RepositoryID, UserID: input.UserID,
+		RepoOwner: input.RepoOwner, RepoName: input.RepoName,
+		Number: 12, Feedback: "please add the boundary test",
 	})
-
 	require.NoError(t, err)
-	assert.Equal(t, "text", capturedPart.PartType)
-	var prompt string
-	require.NoError(t, json.Unmarshal(capturedPart.Content, &prompt))
-	assert.Contains(t, prompt, "landing request #12")
-	assert.Contains(t, prompt, "all open review comments")
-	assert.Contains(t, prompt, "please add the boundary test")
+
+	var messageID int64
+	require.NoError(t, svc.messagePool.QueryRow(t.Context(), `SELECT id FROM agent_messages WHERE session_id=$1 AND role='user'`, input.SessionID).Scan(&messageID))
+	parts, err := db.New(svc.messagePool).ListAgentMessageParts(t.Context(), messageID)
+	require.NoError(t, err)
+	require.Len(t, parts, 1)
+	require.Equal(t, "text", parts[0].PartType)
+	var content struct {
+		Value string `json:"value"`
+	}
+	require.NoError(t, json.Unmarshal(parts[0].Content, &content))
+	prompt := content.Value
+	require.Contains(t, prompt, "landing request #12")
+	require.Contains(t, prompt, "all open review comments")
+	require.Contains(t, prompt, "please add the boundary test")
+
+	store, err := jobs.NewStore(svc.messagePool)
+	require.NoError(t, err)
+	operation, err := store.GetByRequest(t.Context(), repositoryJobFlowScope(input.RepositoryID, input.UserID), agentMessageDispatchOperation, "agent-message:"+strconv.FormatInt(messageID, 10))
+	require.NoError(t, err)
+	require.Equal(t, jobs.StateAccepted, operation.State)
+	var admitted DispatchAgentRunInput
+	require.NoError(t, json.Unmarshal(operation.Payload, &admitted))
+	require.Equal(t, input.SessionID, admitted.SessionID)
+	require.Equal(t, messageID, admitted.TriggerMessageID)
+	var runs int
+	require.NoError(t, svc.messagePool.QueryRow(t.Context(), `SELECT count(*) FROM workflow_runs WHERE repository_id=$1`, input.RepositoryID).Scan(&runs))
+	require.Zero(t, runs, "admission must not execute before a worker claims it")
 }
 
 func TestAgentService_DispatchAgentRun_CreatesRunStepTaskAndLinksSession(t *testing.T) {

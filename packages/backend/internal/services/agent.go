@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	stdErrors "errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
@@ -378,6 +378,8 @@ type AgentService struct {
 	revocations           revocation.Publisher
 	q                     AgentQuerier
 	appendTxManager       agentAppendTxManager
+	messageJobs           *jobs.Store
+	messagePool           *pgxpool.Pool
 	dispatchQ             AgentDispatchQuerier
 	logStore              AgentLogStore
 	secretInjector        *SecretInjector
@@ -417,6 +419,7 @@ type AgentServiceOption func(*AgentService)
 // AgentWorkspaceBackend is the workspace service surface an agent run uses
 // to execute inside a workspace (RFD-004).
 type AgentWorkspaceBackend interface {
+	CheckAgentWorkspaceQuota(ctx context.Context, userID int64) error
 	CreateAgentWorkspace(ctx context.Context, input CreateAgentWorkspaceInput) (AgentWorkspaceResult, error)
 	SuspendAgentWorkspace(ctx context.Context, workspaceID string) error
 	FailAgentWorkspace(ctx context.Context, workspaceID string) error
@@ -579,6 +582,8 @@ func NewAgentServiceWithPool(q AgentQuerier, pool *pgxpool.Pool, opts ...AgentSe
 		watchdogs: make(map[string]*agentRuntimeWatchdog),
 	}
 	if pool != nil {
+		svc.messagePool = pool
+		svc.messageJobs, _ = jobs.NewStore(pool)
 		svc.appendTxManager = &pgxAgentAppendTxManager{
 			pool: pool,
 		}
@@ -716,7 +721,7 @@ func (s *AgentService) AppendMessage(ctx context.Context, sessionID, role string
 
 	// Use transactional path if transaction manager is available
 	if s.appendTxManager != nil {
-		return s.appendMessageWithTx(ctx, sessionID, role, parts)
+		return s.appendMessageWithTx(ctx, sessionID, role, parts, nil)
 	}
 
 	// Fall back to non-transactional path for backward compatibility
@@ -760,7 +765,7 @@ func (s *AgentService) agentSessionWorkspaceID(ctx context.Context, sessionID st
 //     As a separate SQL statement in the same transaction, PostgreSQL READ
 //     COMMITTED semantics guarantee it re-reads committed data (including any
 //     rows committed by the previous lock holder), preventing duplicate sequences.
-func (s *AgentService) appendMessageWithTx(ctx context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (AgentMessageResponse, error) {
+func (s *AgentService) appendMessageWithTx(ctx context.Context, sessionID, role string, parts []db.CreateAgentPartParams, dispatch *DispatchAgentRunInput) (AgentMessageResponse, error) {
 	tx, err := s.appendTxManager.BeginAppendTx(ctx)
 	if err != nil {
 		return AgentMessageResponse{}, pkgerrors.Internal("begin append transaction: " + err.Error())
@@ -778,6 +783,13 @@ func (s *AgentService) appendMessageWithTx(ctx context.Context, sessionID, role 
 			return AgentMessageResponse{}, pkgerrors.Conflict("agent session is no longer active")
 		}
 		return AgentMessageResponse{}, pkgerrors.Internal("lock agent session: " + err.Error())
+	}
+
+	if dispatch != nil {
+		if err := s.validateMessageDispatch(ctx, tx, *dispatch); err != nil {
+			_ = tx.Rollback(ctx)
+			return AgentMessageResponse{}, err
+		}
 	}
 
 	// Step 2: Compute and insert the message. As a separate statement from the
@@ -813,6 +825,13 @@ func (s *AgentService) appendMessageWithTx(ctx context.Context, sessionID, role 
 			Type:      created.PartType,
 			Content:   created.Content,
 		})
+	}
+
+	if dispatch != nil {
+		if err := s.admitMessageDispatch(ctx, tx, *dispatch, msg.ID); err != nil {
+			_ = tx.Rollback(ctx)
+			return AgentMessageResponse{}, pkgerrors.Internal("admit message dispatch: " + err.Error())
+		}
 	}
 
 	// Commit transaction
@@ -1046,10 +1065,15 @@ func (s *AgentService) EnsureSessionDispatchable(ctx context.Context, sessionID 
 }
 
 func (s *AgentService) DispatchAgentRun(ctx context.Context, input DispatchAgentRunInput) (DispatchAgentRunResult, error) {
+	return s.dispatchAgentRun(ctx, input, nil)
+}
+
+func (s *AgentService) dispatchAgentRun(ctx context.Context, input DispatchAgentRunInput, beforeDispatch func(context.Context) error) (DispatchAgentRunResult, error) {
 	d := &agentDispatch{
-		svc:   s,
-		ctx:   ctx,
-		input: input,
+		beforeDispatch: beforeDispatch,
+		svc:            s,
+		ctx:            ctx,
+		input:          input,
 	}
 	return d.execute()
 }
@@ -1080,37 +1104,15 @@ func (s *AgentService) DispatchLandingAuthorTurn(ctx context.Context, input Land
 	if feedback := strings.TrimSpace(input.Feedback); feedback != "" {
 		prompt += "\n\nLatest feedback:\n" + feedback
 	}
-	content, err := json.Marshal(prompt)
+	content, err := json.Marshal(map[string]string{"value": prompt})
 	if err != nil {
 		return pkgerrors.Internal("encode landing feedback: " + err.Error())
 	}
-	message, err := s.AppendMessage(ctx, input.SessionID, "user", []db.CreateAgentPartParams{{
-		PartType: "text",
-		Content:  content,
-	}})
-	if err != nil {
-		return err
-	}
-
-	dispatchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
-	SafeGo("landing-author-turn-dispatch", func() {
-		defer cancel()
-		_, dispatchErr := s.DispatchAgentRun(dispatchCtx, DispatchAgentRunInput{
-			SessionID:        input.SessionID,
-			RepositoryID:     input.RepositoryID,
-			UserID:           input.UserID,
-			TriggerMessageID: message.ID,
-			RepoOwner:        input.RepoOwner,
-			RepoName:         input.RepoName,
-		})
-		if dispatchErr != nil {
-			slog.Error("landing author turn agent dispatch failed",
-				"landing_number", input.Number,
-				"agent_session_id", input.SessionID,
-				"error", dispatchErr)
-		}
-	})
-	return nil
+	_, err = s.AppendMessageAndDispatch(ctx, DispatchAgentRunInput{
+		SessionID: input.SessionID, RepositoryID: input.RepositoryID, UserID: input.UserID,
+		RepoOwner: input.RepoOwner, RepoName: input.RepoName,
+	}, []db.CreateAgentPartParams{{PartType: "text", Content: content}})
+	return err
 }
 
 func sandboxSystemdInternalError(err error) bool {

@@ -18,15 +18,16 @@ import (
 )
 
 type mockAgentSessionRouteService struct {
-	createSessionFn   func(ctx context.Context, input services.CreateAgentSessionInput) (services.AgentSessionResponse, error)
-	getSessionFn      func(ctx context.Context, sessionID string) (services.AgentSessionResponse, error)
-	getSessionForRepo func(ctx context.Context, sessionID string, repoID int64) error
-	listSessionsFn    func(ctx context.Context, repositoryID int64, page, perPage int) ([]services.AgentSessionResponse, int64, error)
-	deleteSessionFn   func(ctx context.Context, sessionID string, userID int64) error
-	appendMessageFn   func(ctx context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error)
-	listMessagesFn    func(ctx context.Context, sessionID string, page, perPage int) ([]services.AgentMessageResponse, error)
-	dispatchRunFn     func(ctx context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error)
-	ensureDispatchFn  func(ctx context.Context, sessionID string) error
+	createSessionFn     func(ctx context.Context, input services.CreateAgentSessionInput) (services.AgentSessionResponse, error)
+	getSessionFn        func(ctx context.Context, sessionID string) (services.AgentSessionResponse, error)
+	getSessionForRepo   func(ctx context.Context, sessionID string, repoID int64) error
+	listSessionsFn      func(ctx context.Context, repositoryID int64, page, perPage int) ([]services.AgentSessionResponse, int64, error)
+	deleteSessionFn     func(ctx context.Context, sessionID string, userID int64) error
+	appendMessageFn     func(ctx context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error)
+	appendAndDispatchFn func(ctx context.Context, input services.DispatchAgentRunInput, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error)
+	listMessagesFn      func(ctx context.Context, sessionID string, page, perPage int) ([]services.AgentMessageResponse, error)
+	dispatchRunFn       func(ctx context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error)
+	ensureDispatchFn    func(ctx context.Context, sessionID string) error
 }
 
 func (m *mockAgentSessionRouteService) EnsureSessionDispatchable(ctx context.Context, sessionID string) error {
@@ -69,6 +70,13 @@ func (m *mockAgentSessionRouteService) ListSessions(ctx context.Context, reposit
 func (m *mockAgentSessionRouteService) AppendMessage(ctx context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
 	if m.appendMessageFn != nil {
 		return m.appendMessageFn(ctx, sessionID, role, parts)
+	}
+	return services.AgentMessageResponse{}, nil
+}
+
+func (m *mockAgentSessionRouteService) AppendMessageAndDispatch(ctx context.Context, input services.DispatchAgentRunInput, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+	if m.appendAndDispatchFn != nil {
+		return m.appendAndDispatchFn(ctx, input, parts)
 	}
 	return services.AgentMessageResponse{}, nil
 }
@@ -188,7 +196,7 @@ func TestAgentSessionHandler_PostMessage_UserDispatchesSandboxRun(t *testing.T) 
 	t.Parallel()
 
 	var gotParts []db.CreateAgentPartParams
-	dispatchCh := make(chan services.DispatchAgentRunInput, 1)
+	var gotDispatch services.DispatchAgentRunInput
 	handler := &AgentSessionHandler{
 		Service: &mockAgentSessionRouteService{
 			getSessionForRepo: func(_ context.Context, sessionID string, repoID int64) error {
@@ -196,14 +204,13 @@ func TestAgentSessionHandler_PostMessage_UserDispatchesSandboxRun(t *testing.T) 
 				assert.Equal(t, int64(101), repoID)
 				return nil
 			},
-			appendMessageFn: func(_ context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+			appendAndDispatchFn: func(_ context.Context, input services.DispatchAgentRunInput, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
 				gotParts = parts
-				assert.Equal(t, "sess-123", sessionID)
-				assert.Equal(t, "user", role)
+				gotDispatch = input
 				return services.AgentMessageResponse{
 					ID:        55,
-					SessionID: sessionID,
-					Role:      role,
+					SessionID: input.SessionID,
+					Role:      "user",
 					Sequence:  0,
 					Parts: []services.AgentPartResponse{
 						{PartIndex: 0, Type: "text", Content: map[string]any{"value": "hello"}},
@@ -211,16 +218,18 @@ func TestAgentSessionHandler_PostMessage_UserDispatchesSandboxRun(t *testing.T) 
 					CreatedAt: time.Now().UTC(),
 				}, nil
 			},
-			dispatchRunFn: func(_ context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
-				dispatchCh <- input
-				return services.DispatchAgentRunResult{WorkflowRunID: 11, WorkflowTaskID: 22}, nil
+			dispatchRunFn: func(_ context.Context, _ services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
+				t.Error("HTTP acceptance must not execute an agent run")
+				return services.DispatchAgentRunResult{}, nil
 			},
 		},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/agent/sessions/sess-123/messages", strings.NewReader(`{
 		"role":"user",
-		"parts":[{"type":"text","content":"hello"}]
+		"parts":[{"type":"text","content":"hello"}],
+		"changeset_id":71,
+		"allowed_paths":["src/**","docs/*.md"]
 	}`))
 	req = withRouteParams(req, map[string]string{"id": "sess-123"})
 	req = withAuth(req, 7, "alice")
@@ -233,31 +242,33 @@ func TestAgentSessionHandler_PostMessage_UserDispatchesSandboxRun(t *testing.T) 
 	require.Len(t, gotParts, 1)
 	assert.Equal(t, "text", gotParts[0].PartType)
 	assert.JSONEq(t, `{"value":"hello"}`, string(gotParts[0].Content))
-	gotDispatch := receiveAgentDispatchInput(t, dispatchCh)
 	assert.Equal(t, "sess-123", gotDispatch.SessionID)
 	assert.Equal(t, int64(101), gotDispatch.RepositoryID)
 	assert.Equal(t, int64(7), gotDispatch.UserID)
-	assert.Equal(t, int64(55), gotDispatch.TriggerMessageID)
+	assert.Zero(t, gotDispatch.TriggerMessageID, "service assigns the message ID during admission")
 	assert.Equal(t, "alice", gotDispatch.MessageAuthor, "the authenticated poster, never parsed from the text")
 	assert.Equal(t, "alice", gotDispatch.RepoOwner)
 	assert.Equal(t, "demo", gotDispatch.RepoName)
+	assert.Equal(t, int64(71), gotDispatch.ChangesetID)
+	assert.Equal(t, []string{"src/**", "docs/*.md"}, gotDispatch.AllowedPaths)
 }
 
 func TestAgentSessionHandler_PostMessage_DispatchesCodexHTTPRuntime(t *testing.T) {
 	t.Parallel()
 
-	dispatchCh := make(chan services.DispatchAgentRunInput, 1)
+	var gotDispatch services.DispatchAgentRunInput
 	handler := &AgentSessionHandler{
 		Service: &mockAgentSessionRouteService{
 			getSessionForRepo: func(_ context.Context, sessionID string, repoID int64) error {
 				return nil
 			},
-			appendMessageFn: func(_ context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
-				return services.AgentMessageResponse{ID: 55, SessionID: sessionID, Role: role}, nil
+			appendAndDispatchFn: func(_ context.Context, input services.DispatchAgentRunInput, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+				gotDispatch = input
+				return services.AgentMessageResponse{ID: 55, SessionID: input.SessionID, Role: "user"}, nil
 			},
-			dispatchRunFn: func(_ context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
-				dispatchCh <- input
-				return services.DispatchAgentRunResult{WorkflowRunID: 11, WorkflowTaskID: 22}, nil
+			dispatchRunFn: func(_ context.Context, _ services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
+				t.Error("HTTP acceptance must not execute an agent run")
+				return services.DispatchAgentRunResult{}, nil
 			},
 		},
 	}
@@ -276,7 +287,6 @@ func TestAgentSessionHandler_PostMessage_DispatchesCodexHTTPRuntime(t *testing.T
 	handler.PostMessage(rec, req)
 
 	require.Equal(t, http.StatusCreated, rec.Code)
-	gotDispatch := receiveAgentDispatchInput(t, dispatchCh)
 	assert.Equal(t, "codex", gotDispatch.AgentProvider)
 	assert.Equal(t, "http", gotDispatch.AgentTransport)
 }
@@ -285,7 +295,7 @@ func TestAgentSessionHandler_PostMessage_RejectsHTTPTransportWithoutCodex(t *tes
 	t.Parallel()
 
 	appended := false
-	dispatched := false
+	admitted := false
 	handler := &AgentSessionHandler{
 		Service: &mockAgentSessionRouteService{
 			getSessionForRepo: func(_ context.Context, sessionID string, repoID int64) error {
@@ -295,9 +305,9 @@ func TestAgentSessionHandler_PostMessage_RejectsHTTPTransportWithoutCodex(t *tes
 				appended = true
 				return services.AgentMessageResponse{ID: 55, SessionID: sessionID, Role: role}, nil
 			},
-			dispatchRunFn: func(_ context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
-				dispatched = true
-				return services.DispatchAgentRunResult{}, nil
+			appendAndDispatchFn: func(_ context.Context, _ services.DispatchAgentRunInput, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+				admitted = true
+				return services.AgentMessageResponse{}, nil
 			},
 		},
 	}
@@ -316,14 +326,14 @@ func TestAgentSessionHandler_PostMessage_RejectsHTTPTransportWithoutCodex(t *tes
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.False(t, appended)
-	assert.False(t, dispatched)
+	assert.False(t, admitted)
 }
 
 func TestAgentSessionHandler_PostMessage_TextShortcutDefaultsToAssistant(t *testing.T) {
 	t.Parallel()
 
 	var gotParts []db.CreateAgentPartParams
-	dispatched := false
+	admitted := false
 	handler := &AgentSessionHandler{
 		Service: &mockAgentSessionRouteService{
 			getSessionForRepo: func(_ context.Context, sessionID string, repoID int64) error {
@@ -346,9 +356,9 @@ func TestAgentSessionHandler_PostMessage_TextShortcutDefaultsToAssistant(t *test
 					CreatedAt: time.Now().UTC(),
 				}, nil
 			},
-			dispatchRunFn: func(_ context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
-				dispatched = true
-				return services.DispatchAgentRunResult{}, nil
+			appendAndDispatchFn: func(_ context.Context, _ services.DispatchAgentRunInput, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+				admitted = true
+				return services.AgentMessageResponse{}, nil
 			},
 		},
 	}
@@ -367,13 +377,13 @@ func TestAgentSessionHandler_PostMessage_TextShortcutDefaultsToAssistant(t *test
 	require.Len(t, gotParts, 1)
 	assert.Equal(t, "text", gotParts[0].PartType)
 	assert.JSONEq(t, `{"value":"hello"}`, string(gotParts[0].Content))
-	assert.False(t, dispatched)
+	assert.False(t, admitted)
 }
 
 func TestAgentSessionHandler_PostMessage_AssistantDoesNotDispatch(t *testing.T) {
 	t.Parallel()
 
-	dispatched := false
+	admitted := false
 	handler := &AgentSessionHandler{
 		Service: &mockAgentSessionRouteService{
 			getSessionForRepo: func(_ context.Context, _ string, _ int64) error {
@@ -382,9 +392,9 @@ func TestAgentSessionHandler_PostMessage_AssistantDoesNotDispatch(t *testing.T) 
 			appendMessageFn: func(_ context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
 				return services.AgentMessageResponse{ID: 55, SessionID: sessionID, Role: role}, nil
 			},
-			dispatchRunFn: func(_ context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
-				dispatched = true
-				return services.DispatchAgentRunResult{}, nil
+			appendAndDispatchFn: func(_ context.Context, _ services.DispatchAgentRunInput, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+				admitted = true
+				return services.AgentMessageResponse{}, nil
 			},
 		},
 	}
@@ -401,7 +411,7 @@ func TestAgentSessionHandler_PostMessage_AssistantDoesNotDispatch(t *testing.T) 
 	handler.PostMessage(rec, req)
 
 	require.Equal(t, http.StatusCreated, rec.Code)
-	assert.False(t, dispatched)
+	assert.False(t, admitted)
 }
 
 func TestAgentSessionHandler_PostMessage_RejectsInvalidRole(t *testing.T) {
@@ -476,29 +486,26 @@ func TestNormalizeAgentMessageParts_RejectsInvalidPartType(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, err.Status)
 }
 
-func TestAgentSessionHandler_PostMessage_ReturnsCreatedWhenAsyncDispatchFails(t *testing.T) {
+func TestAgentSessionHandler_PostMessage_AdmissionFailureDoesNotReturnCreated(t *testing.T) {
 	t.Parallel()
 
-	dispatchCh := make(chan services.DispatchAgentRunInput, 1)
-	handler := &AgentSessionHandler{
-		Service: &mockAgentSessionRouteService{
-			getSessionForRepo: func(_ context.Context, _ string, _ int64) error {
-				return nil
-			},
-			appendMessageFn: func(_ context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
-				return services.AgentMessageResponse{ID: 55, SessionID: sessionID, Role: role}, nil
-			},
-			dispatchRunFn: func(_ context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
-				dispatchCh <- input
-				return services.DispatchAgentRunResult{}, pkgerrors.Internal("sandbox unavailable")
-			},
+	appendCalled := false
+	admissionCalled := false
+	handler := &AgentSessionHandler{Service: &mockAgentSessionRouteService{
+		appendMessageFn: func(_ context.Context, _, _ string, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+			appendCalled = true
+			return services.AgentMessageResponse{ID: 55}, nil
 		},
-	}
+		appendAndDispatchFn: func(_ context.Context, input services.DispatchAgentRunInput, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+			admissionCalled = true
+			assert.Equal(t, "sess-123", input.SessionID)
+			assert.Zero(t, input.TriggerMessageID)
+			require.Len(t, parts, 1)
+			return services.AgentMessageResponse{}, pkgerrors.Internal("admission unavailable")
+		},
+	}}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/agent/sessions/sess-123/messages", strings.NewReader(`{
-		"role":"user",
-		"parts":[{"type":"text","content":"hello"}]
-	}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/agent/sessions/sess-123/messages", strings.NewReader(`{"role":"user","parts":[{"type":"text","content":"hello"}]}`))
 	req = withRouteParams(req, map[string]string{"id": "sess-123"})
 	req = withAuth(req, 7, "alice")
 	req = withRepoCtx(req, 101, "alice", "demo")
@@ -506,37 +513,34 @@ func TestAgentSessionHandler_PostMessage_ReturnsCreatedWhenAsyncDispatchFails(t 
 
 	handler.PostMessage(rec, req)
 
-	require.Equal(t, http.StatusCreated, rec.Code)
-	gotDispatch := receiveAgentDispatchInput(t, dispatchCh)
-	assert.Equal(t, "sess-123", gotDispatch.SessionID)
-	assert.Equal(t, int64(55), gotDispatch.TriggerMessageID)
+	require.True(t, admissionCalled)
+	assert.False(t, appendCalled, "user message must use atomic admission")
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-func TestAgentSessionHandler_PostMessage_DoesNotBlockOnDispatch(t *testing.T) {
+func TestAgentSessionHandler_PostMessage_AdmissionSuccessDoesNotExecute(t *testing.T) {
 	t.Parallel()
 
-	dispatchStarted := make(chan services.DispatchAgentRunInput, 1)
-	releaseDispatch := make(chan struct{})
-	handler := &AgentSessionHandler{
-		Service: &mockAgentSessionRouteService{
-			getSessionForRepo: func(_ context.Context, _ string, _ int64) error {
-				return nil
-			},
-			appendMessageFn: func(_ context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
-				return services.AgentMessageResponse{ID: 55, SessionID: sessionID, Role: role}, nil
-			},
-			dispatchRunFn: func(_ context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
-				dispatchStarted <- input
-				<-releaseDispatch
-				return services.DispatchAgentRunResult{WorkflowRunID: 11, WorkflowTaskID: 22}, nil
-			},
+	admissionCalled := false
+	appendCalled := false
+	executionCalled := false
+	handler := &AgentSessionHandler{Service: &mockAgentSessionRouteService{
+		appendMessageFn: func(_ context.Context, _, _ string, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+			appendCalled = true
+			return services.AgentMessageResponse{}, nil
 		},
-	}
+		appendAndDispatchFn: func(_ context.Context, input services.DispatchAgentRunInput, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+			admissionCalled = true
+			assert.Equal(t, "sess-123", input.SessionID)
+			return services.AgentMessageResponse{ID: 55, SessionID: input.SessionID, Role: "user"}, nil
+		},
+		dispatchRunFn: func(_ context.Context, _ services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
+			executionCalled = true
+			return services.DispatchAgentRunResult{}, pkgerrors.Internal("execution unavailable")
+		},
+	}}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/agent/sessions/sess-123/messages", strings.NewReader(`{
-		"role":"user",
-		"parts":[{"type":"text","content":"hello"}]
-	}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/agent/sessions/sess-123/messages", strings.NewReader(`{"role":"user","parts":[{"type":"text","content":"hello"}]}`))
 	req = withRouteParams(req, map[string]string{"id": "sess-123"})
 	req = withAuth(req, 7, "alice")
 	req = withRepoCtx(req, 101, "alice", "demo")
@@ -544,22 +548,13 @@ func TestAgentSessionHandler_PostMessage_DoesNotBlockOnDispatch(t *testing.T) {
 
 	handler.PostMessage(rec, req)
 
+	require.True(t, admissionCalled)
+	assert.False(t, appendCalled)
+	assert.False(t, executionCalled)
 	require.Equal(t, http.StatusCreated, rec.Code)
-	gotDispatch := receiveAgentDispatchInput(t, dispatchStarted)
-	assert.Equal(t, int64(55), gotDispatch.TriggerMessageID)
-	close(releaseDispatch)
-}
-
-func receiveAgentDispatchInput(t *testing.T, ch <-chan services.DispatchAgentRunInput) services.DispatchAgentRunInput {
-	t.Helper()
-
-	select {
-	case input := <-ch:
-		return input
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for async agent dispatch")
-		return services.DispatchAgentRunInput{}
-	}
+	var message services.AgentMessageResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &message))
+	assert.Equal(t, int64(55), message.ID)
 }
 
 func TestAgentSessionHandler_DeleteSession_Success(t *testing.T) {
@@ -857,26 +852,22 @@ func TestAgentSessionHandler_PostMessage_ForbiddenWhenNotOwner(t *testing.T) {
 	assert.False(t, appendCalled, "message must not be appended to a session the caller does not own")
 }
 
-// Regression: every role=user message dispatched a new agent run even while a
-// previous run was still active, orphaning the running agent (VM leak).
+// Admission rejects a new user message while the session has an active run.
 func TestAgentSessionHandler_PostMessage_ConflictWhenSessionHasActiveRun(t *testing.T) {
 	t.Parallel()
 
 	appendCalled := false
-	dispatchCalled := false
+	admissionCalled := false
 	handler := &AgentSessionHandler{
 		Service: &mockAgentSessionRouteService{
-			ensureDispatchFn: func(_ context.Context, sessionID string) error {
-				assert.Equal(t, "sess-123", sessionID)
-				return pkgerrors.Conflict("agent session already has an active run")
-			},
 			appendMessageFn: func(_ context.Context, _, _ string, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
 				appendCalled = true
 				return services.AgentMessageResponse{}, nil
 			},
-			dispatchRunFn: func(_ context.Context, _ services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
-				dispatchCalled = true
-				return services.DispatchAgentRunResult{}, nil
+			appendAndDispatchFn: func(_ context.Context, input services.DispatchAgentRunInput, _ []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+				admissionCalled = true
+				assert.Equal(t, "sess-123", input.SessionID)
+				return services.AgentMessageResponse{}, pkgerrors.Conflict("agent session already has an active run")
 			},
 		},
 	}
@@ -894,5 +885,5 @@ func TestAgentSessionHandler_PostMessage_ConflictWhenSessionHasActiveRun(t *test
 
 	require.Equal(t, http.StatusConflict, rec.Code)
 	assert.False(t, appendCalled)
-	assert.False(t, dispatchCalled)
+	assert.True(t, admissionCalled)
 }

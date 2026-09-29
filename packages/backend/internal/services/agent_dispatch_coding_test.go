@@ -306,6 +306,8 @@ func TestProjectFlowRuntimeDoesNotCleanUpAfterOwnerChangesDuringProjection(t *te
 
 type stubAgentWorkspaceBackend struct{}
 
+func (stubAgentWorkspaceBackend) CheckAgentWorkspaceQuota(context.Context, int64) error { return nil }
+
 func (stubAgentWorkspaceBackend) CreateAgentWorkspace(context.Context, CreateAgentWorkspaceInput) (AgentWorkspaceResult, error) {
 	return AgentWorkspaceResult{}, nil
 }

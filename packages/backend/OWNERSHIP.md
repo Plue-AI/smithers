@@ -20,6 +20,7 @@ another product composition root.
 - `packages/backend/canonicalimport`
 - `packages/backend/cmd/failurecodes`
 - `packages/backend/cmd/legacyimport`
+- `packages/backend/cmd/resolve-agent-message`
 - `packages/backend/commerce`
 - `packages/backend/controlstore`
 - `packages/backend/credits`

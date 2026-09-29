@@ -39,7 +39,7 @@ type AgentSessionRouteService interface {
 	AppendMessage(ctx context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error)
 	ListMessages(ctx context.Context, sessionID string, page, perPage int) ([]services.AgentMessageResponse, error)
 	EnsureSessionDispatchable(ctx context.Context, sessionID string) error
-	DispatchAgentRun(ctx context.Context, input services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error)
+	AppendMessageAndDispatch(ctx context.Context, input services.DispatchAgentRunInput, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error)
 }
 
 // AgentSessionHandler handles the public repository-scoped agent session API.
@@ -47,8 +47,6 @@ type AgentSessionHandler struct {
 	Service     AgentSessionRouteService
 	EgressAudit SandboxEgressAuditRouteService
 }
-
-const agentMessageDispatchTimeout = 10 * time.Minute
 
 // ListEgressAudit handles GET /api/repos/{owner}/{repo}/agent-sessions/{id}/egress.
 func (h *AgentSessionHandler) ListEgressAudit(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +337,12 @@ func (h *AgentSessionHandler) PostMessage(w http.ResponseWriter, r *http.Request
 		"repo_id", repoCtx.Repository.ID,
 		"user_id", user.ID,
 	)
-	msg, svcErr := h.Service.AppendMessage(r.Context(), sessionID, role, parts)
+	var msg services.AgentMessageResponse
+	if role == "user" {
+		msg, svcErr = h.Service.AppendMessageAndDispatch(r.Context(), dispatchInput, parts)
+	} else {
+		msg, svcErr = h.Service.AppendMessage(r.Context(), sessionID, role, parts)
+	}
 	if svcErr != nil {
 		middleware.LoggerWithAgentSession(r.Context(), sessionID).Error("agent message append failed",
 			"role", role,
@@ -360,53 +363,7 @@ func (h *AgentSessionHandler) PostMessage(w http.ResponseWriter, r *http.Request
 		"duration_ms", time.Since(appendStartedAt).Milliseconds(),
 	)
 
-	if role == "user" {
-		dispatchInput.TriggerMessageID = msg.ID
-		h.dispatchAgentRunAsync(r.Context(), dispatchInput)
-	}
-
 	pkgerrors.WriteJSON(w, http.StatusCreated, msg)
-}
-
-func (h *AgentSessionHandler) dispatchAgentRunAsync(reqCtx context.Context, input services.DispatchAgentRunInput) {
-	dispatchCtx, cancel := context.WithTimeout(context.WithoutCancel(reqCtx), agentMessageDispatchTimeout)
-	logger := middleware.LoggerWithAgentSession(reqCtx, input.SessionID)
-
-	logger.Info("agent run dispatch queued after message append",
-		"repo_id", input.RepositoryID,
-		"user_id", input.UserID,
-		"trigger_message_id", input.TriggerMessageID,
-		"agent_provider", input.AgentProvider,
-		"agent_transport", input.AgentTransport,
-	)
-
-	services.SafeGo("agent-run-dispatch", func() {
-		defer cancel()
-		startedAt := time.Now()
-		result, err := h.Service.DispatchAgentRun(dispatchCtx, input)
-		if err != nil {
-			logger.Error("agent run dispatch failed after message append",
-				"repo_id", input.RepositoryID,
-				"user_id", input.UserID,
-				"trigger_message_id", input.TriggerMessageID,
-				"agent_provider", input.AgentProvider,
-				"agent_transport", input.AgentTransport,
-				"duration_ms", time.Since(startedAt).Milliseconds(),
-				"error", err,
-			)
-			return
-		}
-		logger.Info("agent run dispatch started after message append",
-			"repo_id", input.RepositoryID,
-			"user_id", input.UserID,
-			"trigger_message_id", input.TriggerMessageID,
-			"workflow_run_id", result.WorkflowRunID,
-			"workflow_task_id", result.WorkflowTaskID,
-			"agent_provider", input.AgentProvider,
-			"agent_transport", input.AgentTransport,
-			"duration_ms", time.Since(startedAt).Milliseconds(),
-		)
-	})
 }
 
 func normalizeAgentRuntimeRequest(provider, transport string) (string, string, *pkgerrors.APIError) {

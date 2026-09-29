@@ -17,6 +17,10 @@ type agentWorkspaceBackendStub struct {
 	failed    []string
 }
 
+func (s *agentWorkspaceBackendStub) CheckAgentWorkspaceQuota(context.Context, int64) error {
+	return nil
+}
+
 func (s *agentWorkspaceBackendStub) CreateAgentWorkspace(ctx context.Context, input CreateAgentWorkspaceInput) (AgentWorkspaceResult, error) {
 	if s.createFn != nil {
 		return s.createFn(ctx, input)

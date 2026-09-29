@@ -96,6 +96,15 @@ func mergeEgressSecrets(base, run []sandbox.EgressProxySecret) []sandbox.EgressP
 	return merged
 }
 
+// CheckAgentWorkspaceQuota uses the same quota authority as workspace creation,
+// before durable message dispatch creates any execution infrastructure.
+func (s *WorkspaceService) CheckAgentWorkspaceQuota(ctx context.Context, userID int64) error {
+	if s.q == nil || (s.runtime == nil && s.sandbox == nil) {
+		return pkgerrors.Internal("workspace service unavailable")
+	}
+	return s.enforceWorkspaceQuota(ctx, userID)
+}
+
 // CreateAgentWorkspace creates the row and provisions its VM synchronously.
 // On any provisioning failure the row is marked failed (quota released) and
 // the error is returned; the caller marks the run infrastructure-failed.

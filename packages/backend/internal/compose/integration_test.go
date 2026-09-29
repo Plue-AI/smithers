@@ -320,6 +320,10 @@ func (m *mockIntegrationAgentSessionService) DeleteSession(_ context.Context, _ 
 	return nil
 }
 
+func (m *mockIntegrationAgentSessionService) AppendMessageAndDispatch(ctx context.Context, input services.DispatchAgentRunInput, parts []db.CreateAgentPartParams) (services.AgentMessageResponse, error) {
+	return m.AppendMessage(ctx, input.SessionID, "user", parts)
+}
+
 func (m *mockIntegrationAgentSessionService) DispatchAgentRun(_ context.Context, _ services.DispatchAgentRunInput) (services.DispatchAgentRunResult, error) {
 	return services.DispatchAgentRunResult{}, nil
 }

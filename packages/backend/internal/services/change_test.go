@@ -343,6 +343,8 @@ type changeTestAgent struct {
 	appendSession string
 	appendRole    string
 	appendParts   []db.CreateAgentPartParams
+	admissionErr  error
+	admissions    int
 	dispatches    chan DispatchAgentRunInput
 	deleted       []string
 }
@@ -352,16 +354,16 @@ func (a *changeTestAgent) CreateSession(_ context.Context, input CreateAgentSess
 	return AgentSessionResponse{ID: "11111111-1111-4111-8111-111111111111", RepositoryID: input.RepositoryID, UserID: input.UserID, Metadata: input.Metadata}, nil
 }
 
-func (a *changeTestAgent) AppendMessage(_ context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (AgentMessageResponse, error) {
-	a.appendSession = sessionID
-	a.appendRole = role
+func (a *changeTestAgent) AppendMessageAndDispatch(_ context.Context, input DispatchAgentRunInput, parts []db.CreateAgentPartParams) (AgentMessageResponse, error) {
+	a.admissions++
+	a.appendSession = input.SessionID
+	a.appendRole = "user"
 	a.appendParts = parts
-	return AgentMessageResponse{ID: 77, SessionID: sessionID, Role: role}, nil
-}
-
-func (a *changeTestAgent) DispatchAgentRun(_ context.Context, input DispatchAgentRunInput) (DispatchAgentRunResult, error) {
+	if a.admissionErr != nil {
+		return AgentMessageResponse{}, a.admissionErr
+	}
 	a.dispatches <- input
-	return DispatchAgentRunResult{WorkflowRunID: 88}, nil
+	return AgentMessageResponse{ID: 77, SessionID: input.SessionID, Role: "user"}, nil
 }
 
 func (a *changeTestAgent) DeleteSession(_ context.Context, sessionID string, _ int64) error {
@@ -849,7 +851,7 @@ func TestChangeService_DispatchFindingUsesTaskMetadataAndChangeWorkspace(t *test
 	case dispatch := <-agent.dispatches:
 		assert.Equal(t, response.ID, dispatch.SessionID)
 		assert.Equal(t, "feature/finding-fix", dispatch.SourceBookmark)
-		assert.Equal(t, int64(77), dispatch.TriggerMessageID)
+		assert.Zero(t, dispatch.TriggerMessageID, "atomic admission assigns the message identity")
 		assert.Equal(t, "alice", dispatch.RepoOwner)
 		assert.Equal(t, "demo", dispatch.RepoName)
 		assert.Empty(t, dispatch.AllowedPaths)
@@ -1036,7 +1038,7 @@ func TestChangeService_ResolveConflictDispatchesPathScopedAgent(t *testing.T) {
 	select {
 	case dispatch := <-agent.dispatches:
 		assert.Equal(t, response.AgentSessionID, dispatch.SessionID)
-		assert.Equal(t, int64(77), dispatch.TriggerMessageID)
+		assert.Zero(t, dispatch.TriggerMessageID, "atomic admission assigns the message identity")
 		assert.Equal(t, "alice", dispatch.RepoOwner)
 		assert.Equal(t, "demo", dispatch.RepoName)
 		assert.Equal(t, []string{"src/conflicted.go"}, dispatch.AllowedPaths)
@@ -1082,4 +1084,25 @@ func TestChangeService_ResolveConflictRejectsMissingAndResolvedPaths(t *testing.
 	require.ErrorAs(t, unsafeErr, &unsafeAPIError)
 	assert.Equal(t, http.StatusBadRequest, unsafeAPIError.Status)
 	assert.Empty(t, agent.createInput)
+}
+
+func TestChangeService_DispatchAdmissionFailureDoesNotAcknowledge(t *testing.T) {
+	for _, finding := range []bool{true, false} {
+		t.Run(fmt.Sprint("finding=", finding), func(t *testing.T) {
+			queries := &changeTestQueries{findings: []db.Finding{{ID: 12, RepositoryID: 42, ChangeID: "change-1", Text: "repair"}}, conflicts: map[string]db.Conflict{changeConflictKey(42, "change-1", "src/conflicted.go"): {RepositoryID: 42, ChangeID: "change-1", FilePath: "src/conflicted.go"}}}
+			admissionErr := errors.New("durable admission unavailable")
+			agent := &changeTestAgent{admissionErr: admissionErr, dispatches: make(chan DispatchAgentRunInput, 1)}
+			service := NewChangeService(queries, &changeTestRepoHost{}, nil, WithChangeConflictAgent(agent))
+			var err error
+			if finding {
+				_, err = service.DispatchFinding(t.Context(), DispatchFindingInput{RepositoryID: 42, UserID: 7, Owner: "alice", Repo: "demo", ChangeID: "change-1", FindingID: 12})
+			} else {
+				_, err = service.ResolveConflict(t.Context(), ResolveChangeConflictInput{RepositoryID: 42, UserID: 7, Owner: "alice", Repo: "demo", ChangeID: "change-1", Path: "src/conflicted.go"})
+			}
+			require.ErrorIs(t, err, admissionErr)
+			require.Equal(t, 1, agent.admissions)
+			require.Equal(t, []string{"11111111-1111-4111-8111-111111111111"}, agent.deleted)
+			require.Empty(t, agent.dispatches)
+		})
+	}
 }

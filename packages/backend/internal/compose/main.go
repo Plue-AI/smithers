@@ -1174,6 +1174,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.topology.workers() && options.Workspace != nil && options.Workspace.Capabilities().Execution {
 		workspaceCommandWorker = newCriticalWorker()
 	}
+	var messageDispatchWorker *criticalWorker
+	if options.topology.workers() {
+		messageDispatchWorker = newCriticalWorker()
+	}
 	var flowWorker *criticalWorker
 	if flow != nil {
 		agentService.SetFlowDispatcher(flow.dispatcher)
@@ -1528,6 +1532,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	r = withCriticalWorkerReadiness(r, connectorWorker)
 	r = withCriticalWorkerReadiness(r, workspaceCommandWorker)
+	r = withCriticalWorkerReadiness(r, messageDispatchWorker)
 	r = withCriticalWorkerReadiness(r, flowWorker)
 	r = withCriticalWorkerReadiness(r, chatWorker)
 	r = withCriticalWorkerReadiness(r, chatCallbackWorker)
@@ -1589,6 +1594,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			})
 		})
 		workspaceCommandFailure = workspaceCommandWorker.Failed()
+	}
+	var messageDispatchFailure <-chan error
+	if messageDispatchWorker != nil {
+		messageDispatchWorker.Start(workerCtx, "message dispatch", func(ctx context.Context) error {
+			return agentService.RunMessageDispatchWorker(ctx, jobs.WorkerConfig{
+				WorkerID: "agent-message-" + uuid.NewString(), Capacity: 4, Lease: 30 * time.Second,
+				PollInterval: 250 * time.Millisecond, RetryDelay: time.Second,
+				OnError: func(err error) { slog.Error("message dispatch failed", "error", err) },
+			})
+		})
+		messageDispatchFailure = messageDispatchWorker.Failed()
 	}
 	var flowWorkerFailure <-chan error
 	if flowWorker != nil {
@@ -1747,6 +1763,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		case <-abortShutdown:
 		case fatalWorkerErr = <-connectorFailure:
 		case fatalWorkerErr = <-workspaceCommandFailure:
+		case fatalWorkerErr = <-messageDispatchFailure:
 		case fatalWorkerErr = <-flowWorkerFailure:
 		case fatalWorkerErr = <-chatWorkerFailure:
 		case fatalWorkerErr = <-chatCallbackFailure:
@@ -1789,7 +1806,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			}
 			stopFlow()
 		}
-		for name, worker := range map[string]*criticalWorker{"workspace commands": workspaceCommandWorker, "chat connectors": connectorWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
+		for name, worker := range map[string]*criticalWorker{"workspace commands": workspaceCommandWorker, "message dispatch": messageDispatchWorker, "chat connectors": connectorWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
 			if worker == nil {
 				continue
 			}

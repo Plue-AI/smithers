@@ -30,6 +30,7 @@ var (
 // agentDispatch encapsulates the state accumulated during agent run dispatch.
 // Each step method populates fields that subsequent steps depend on.
 type agentDispatch struct {
+	beforeDispatch         func(context.Context) error
 	sandboxConfig          AgentSandboxConfig
 	sandboxStartAuthorized bool
 	svc                    *AgentService
@@ -165,6 +166,19 @@ func (d *agentDispatch) execute() (DispatchAgentRunResult, error) {
 	}, nil
 }
 
+// beginDispatch fences the first non-idempotent database/run effects inside
+// committed admission, after authorization and plan/capacity checks. Flow admission can itself start a runtime,
+// so fencing only the later VM call would allow duplicate infrastructure.
+func (d *agentDispatch) beginDispatch() error {
+	if d.beforeDispatch != nil {
+		if err := d.refuseRetiredAgentLoop(); err != nil {
+			return err
+		}
+		return d.beforeDispatch(d.ctx)
+	}
+	return nil
+}
+
 // cleanup centralizes all the scattered cleanup logic. It revokes clone tokens,
 // cancels watchdogs, deletes VMs, and marks workflow infra as failed when DB
 // records were already created. This prevents orphaned run/step/task rows
@@ -283,10 +297,12 @@ func (d *agentDispatch) refuseRetiredAgentLoop() error {
 	if d.svc.guestEntrypointAssumed || d.codingDispatchEnabled() {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(d.ctx), 30*time.Second)
-	defer cancel()
-	d.infraFailedMarked = true
-	d.svc.markAgentDispatchInfrastructureFailed(ctx, d.task.ID, d.step.ID, d.run.ID, d.input.SessionID, agentLoopRetiredMessage)
+	if d.run.ID != 0 {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(d.ctx), 30*time.Second)
+		defer cancel()
+		d.infraFailedMarked = true
+		d.svc.markAgentDispatchInfrastructureFailed(ctx, d.task.ID, d.step.ID, d.run.ID, d.input.SessionID, agentLoopRetiredMessage)
+	}
 	return &pkgerrors.APIError{
 		Status:  http.StatusNotImplemented,
 		Code:    pkgerrors.CodeAgentLoopRetired,
@@ -351,6 +367,11 @@ func (d *agentDispatch) ensureNoActiveRun() error {
 // before the slow CreateSandbox call. This step exists only to reject cap-exceeded
 // dispatches cheaply, before any run/step/task rows or tokens are created.
 func (d *agentDispatch) enforceConcurrencyCap() error {
+	if d.workspaceMode() {
+		if err := d.svc.workspaces.CheckAgentWorkspaceQuota(d.ctx, d.input.UserID); err != nil {
+			return err
+		}
+	}
 	if err := authorizeSandboxStartForUser(d.ctx, d.svc.billing, d.input.UserID); err != nil {
 		return err
 	}
@@ -392,6 +413,9 @@ func (d *agentDispatch) upsertWorkflowDefinition() error {
 
 func (d *agentDispatch) createWorkflowRun() error {
 	commit := func(ctx context.Context, conn db.DBTX) error {
+		if err := d.beginDispatch(); err != nil {
+			return err
+		}
 		queries := d.svc.dispatchQ
 		if conn != nil {
 			queries = db.New(conn)

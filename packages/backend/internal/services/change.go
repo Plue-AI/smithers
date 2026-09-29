@@ -20,7 +20,6 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/diffview"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -214,8 +213,7 @@ type SplitChangeResponse struct {
 // responsible for orchestration without duplicating the agent runtime.
 type ChangeConflictAgent interface {
 	CreateSession(ctx context.Context, input CreateAgentSessionInput) (AgentSessionResponse, error)
-	AppendMessage(ctx context.Context, sessionID, role string, parts []db.CreateAgentPartParams) (AgentMessageResponse, error)
-	DispatchAgentRun(ctx context.Context, input DispatchAgentRunInput) (DispatchAgentRunResult, error)
+	AppendMessageAndDispatch(ctx context.Context, input DispatchAgentRunInput, parts []db.CreateAgentPartParams) (AgentMessageResponse, error)
 	DeleteSession(ctx context.Context, sessionID string, userID int64) error
 }
 
@@ -1259,13 +1257,6 @@ func (s *ChangeService) DispatchFinding(ctx context.Context, input DispatchFindi
 	if err != nil {
 		return AgentSessionResponse{}, pkgerrors.Internal("failed to encode finding task").WithCause(err)
 	}
-	message, err := s.agent.AppendMessage(ctx, session.ID, "user", []db.CreateAgentPartParams{{PartType: "text", Content: content}})
-	if err != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		_ = s.agent.DeleteSession(cleanupCtx, session.ID, input.UserID)
-		return AgentSessionResponse{}, err
-	}
 
 	sourceBookmark, bookmarkErr := s.queries.GetWorkspaceBookmarkForChange(ctx, db.GetWorkspaceBookmarkForChangeParams{
 		RepositoryID: input.RepositoryID, UserID: input.UserID, ChangeID: input.ChangeID,
@@ -1279,21 +1270,17 @@ func (s *ChangeService) DispatchFinding(ctx context.Context, input DispatchFindi
 
 	dispatchInput := DispatchAgentRunInput{
 		SessionID: session.ID, RepositoryID: input.RepositoryID, UserID: input.UserID,
-		TriggerMessageID: message.ID, RepoOwner: input.Owner, RepoName: input.Repo,
+		RepoOwner: input.Owner, RepoName: input.Repo,
 		AgentProvider: "smithers", AgentTransport: "workflow", SourceBookmark: sourceBookmark,
 	}
-	dispatchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), changeConflictDispatchTimeout)
-	logger := middleware.LoggerWithAgentSession(ctx, session.ID)
-	SafeGo("finding-agent-dispatch", func() {
+	if _, err := s.agent.AppendMessageAndDispatch(ctx, dispatchInput, []db.CreateAgentPartParams{{PartType: "text", Content: content}}); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		if _, dispatchErr := s.agent.DispatchAgentRun(dispatchCtx, dispatchInput); dispatchErr != nil {
-			logger.Error("finding agent dispatch failed", "repo_id", input.RepositoryID, "change_id", input.ChangeID, "finding_id", input.FindingID, "error", dispatchErr)
-		}
-	})
+		_ = s.agent.DeleteSession(cleanupCtx, session.ID, input.UserID)
+		return AgentSessionResponse{}, err
+	}
 	return session, nil
 }
-
-const changeConflictDispatchTimeout = 10 * time.Minute
 
 // ResolveConflict creates a repo-scoped agent session, records a precise task
 // for one unresolved path, and dispatches it through the ordinary agent run
@@ -1357,41 +1344,23 @@ func (s *ChangeService) ResolveConflict(ctx context.Context, input ResolveChange
 	if err != nil {
 		return ResolveChangeConflictResponse{}, pkgerrors.Internal("failed to encode conflict resolution task").WithCause(err)
 	}
-	message, err := s.agent.AppendMessage(ctx, session.ID, "user", []db.CreateAgentPartParams{{
-		PartType: "text",
-		Content:  content,
-	}})
-	if err != nil {
+
+	dispatchInput := DispatchAgentRunInput{
+		SessionID:      session.ID,
+		RepositoryID:   input.RepositoryID,
+		UserID:         input.UserID,
+		RepoOwner:      input.Owner,
+		RepoName:       input.Repo,
+		AgentProvider:  "smithers",
+		AgentTransport: "workflow",
+		AllowedPaths:   []string{conflict.FilePath},
+	}
+	if _, err := s.agent.AppendMessageAndDispatch(ctx, dispatchInput, []db.CreateAgentPartParams{{PartType: "text", Content: content}}); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		_ = s.agent.DeleteSession(cleanupCtx, session.ID, input.UserID)
 		return ResolveChangeConflictResponse{}, err
 	}
-
-	dispatchInput := DispatchAgentRunInput{
-		SessionID:        session.ID,
-		RepositoryID:     input.RepositoryID,
-		UserID:           input.UserID,
-		TriggerMessageID: message.ID,
-		RepoOwner:        input.Owner,
-		RepoName:         input.Repo,
-		AgentProvider:    "smithers",
-		AgentTransport:   "workflow",
-		AllowedPaths:     []string{conflict.FilePath},
-	}
-	dispatchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), changeConflictDispatchTimeout)
-	logger := middleware.LoggerWithAgentSession(ctx, session.ID)
-	SafeGo("change-conflict-agent-dispatch", func() {
-		defer cancel()
-		if _, dispatchErr := s.agent.DispatchAgentRun(dispatchCtx, dispatchInput); dispatchErr != nil {
-			logger.Error("change conflict agent dispatch failed",
-				"repo_id", input.RepositoryID,
-				"change_id", input.ChangeID,
-				"path", conflict.FilePath,
-				"error", dispatchErr,
-			)
-		}
-	})
 
 	return ResolveChangeConflictResponse{AgentSessionID: session.ID}, nil
 }
