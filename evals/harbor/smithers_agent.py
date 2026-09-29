@@ -339,7 +339,8 @@ def _text(value: Any) -> str:
 
 def summarize(events: list[dict[str, Any]]) -> dict[str, Any]:
     """Tokens, calls, route bindings and the run's own verdict, off the journal."""
-    usage = {"inputTokens": 0, "cachedInputTokens": 0, "outputTokens": 0, "reasoningTokens": 0}
+    usage = {"inputTokens": None, "cachedInputTokens": None, "outputTokens": None, "reasoningTokens": None}
+    missing_usage = {name: False for name in usage}
     seat = None
     frames = model_calls = calls = asks_refused = 0
     bindings: list[Any] = []
@@ -373,7 +374,9 @@ def summarize(events: list[dict[str, Any]]) -> dict[str, Any]:
             for name in usage:
                 value = counters.get(name)
                 if isinstance(value, (int, float)):
-                    usage[name] += int(value)
+                    usage[name] = (usage[name] or 0) + int(value)
+                else:
+                    missing_usage[name] = True
         elif kind == "control.agent.cell-call-started":
             calls += 1
         elif kind == "control.agent.cell-call-settled":
@@ -387,6 +390,9 @@ def summarize(events: list[dict[str, Any]]) -> dict[str, Any]:
             status = kind[len("control.run."):]
             if kind == "control.run.failed":
                 cause = payload.get("cause")
+    for name in usage:
+        if missing_usage[name]:
+            usage[name] = None
     return {
         "cause": (cause.split("\n", 1)[0][:500] if isinstance(cause, str) else None),
         "seat": seat,
@@ -423,7 +429,8 @@ def trajectory(events: list[dict[str, Any]], *, agent_name: str, agent_version: 
     turn: dict[str, Any] | None = None
     started: list[dict[str, Any]] = []
     settled: list[dict[str, Any]] = []
-    totals = {"prompt": 0, "completion": 0, "cached": 0}
+    totals = {"prompt": None, "completion": None, "cached": None}
+    missing = {"prompt": False, "completion": False, "cached": False}
 
     def close_turn() -> None:
         nonlocal turn, started, settled
@@ -474,19 +481,21 @@ def trajectory(events: list[dict[str, Any]], *, agent_name: str, agent_version: 
             continue
         elif kind == "control.agent.model-settled":
             counters = payload.get("usage") or {}
-            prompt = int(counters.get("inputTokens") or 0)
-            completion = int(counters.get("outputTokens") or 0)
-            cached = int(counters.get("cachedInputTokens") or 0)
-            totals["prompt"] += prompt
-            totals["completion"] += completion
-            totals["cached"] += cached
+            prompt = counters.get("inputTokens")
+            completion = counters.get("outputTokens")
+            cached = counters.get("cachedInputTokens")
+            for key, value in (("prompt", prompt), ("completion", completion), ("cached", cached)):
+                if isinstance(value, (int, float)):
+                    totals[key] = (totals[key] or 0) + int(value)
+                else:
+                    missing[key] = True
             turn["message"] = _text(payload.get("text"))
             turn["metrics"] = {
                 "prompt_tokens": prompt,
                 "completion_tokens": completion,
                 "cached_tokens": cached,
                 "extra": {
-                    "reasoning_tokens": int(counters.get("reasoningTokens") or 0),
+                    "reasoning_tokens": counters.get("reasoningTokens"),
                     "duration_millis": payload.get("durationMillis"),
                 },
             }
@@ -498,6 +507,9 @@ def trajectory(events: list[dict[str, Any]], *, agent_name: str, agent_version: 
         elif kind == "control.agent.cell-call-settled":
             settled.append(payload)
     close_turn()
+    for key in totals:
+        if missing[key]:
+            totals[key] = None
 
     return {
         "schema_version": "ATIF-v1.8",
@@ -508,6 +520,11 @@ def trajectory(events: list[dict[str, Any]], *, agent_name: str, agent_version: 
             "total_prompt_tokens": totals["prompt"],
             "total_completion_tokens": totals["completion"],
             "total_cached_tokens": totals["cached"],
+            "cached_share": (
+                totals["cached"] / totals["prompt"]
+                if totals["prompt"] is not None and totals["prompt"] > 0 and totals["cached"] is not None
+                else None
+            ),
             "total_steps": len(steps),
         },
     }

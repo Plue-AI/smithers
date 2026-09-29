@@ -1326,6 +1326,23 @@ describe("AgentSession", () => {
       protocolId: "test-protocol",
       toolCount: 0
     })
+    const traceRequest = (protocolId: string, changes: Record<string, unknown>) => AgentSession.trace({
+      _tag: "model-requested",
+      scope: runId,
+      frame: 0,
+      attempt: 1,
+      purpose: "frame",
+      seat: "test-model",
+      binding: { ...prepared, protocolId },
+      request: { ...captured[0]!.request, ...changes }
+    } as unknown as Parameters<typeof AgentSession.trace>[0])!.payload as Record<string, unknown>
+    const chatgpt = traceRequest("openai-responses-chatgpt", { cacheKey: "frame-0" })
+    expect(chatgpt).toMatchObject({ scope: runId, frame: 0, attempt: 1, cacheKey: "frame-0" })
+    expect(traceRequest("openai-responses", { cacheKey: "response-key" }).cacheKey).toBe("response-key")
+    const anthropic = traceRequest("anthropic-messages", { cacheKey: "not-sent", cacheBoundary: 1 })
+    expect(anthropic).toMatchObject({ scope: runId, frame: 0, attempt: 1, cacheBoundary: 1 })
+    expect(anthropic).not.toHaveProperty("cacheKey")
+    expect(traceRequest("test-protocol", { cacheKey: "not-sent" })).not.toHaveProperty("cacheKey")
 
     // One completion, judged once and replayed from its record thereafter.
     const decisions = typed("control.agent.decision-settled").map((entry) => entry.payload as Record<string, unknown>)

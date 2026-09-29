@@ -138,7 +138,7 @@ def check_journal() -> str:
         events = agent.read_journal(journal)
     assert len(events) == 17
     summary = agent.summarize(events)
-    assert summary["usage"] == {"inputTokens": 3000, "cachedInputTokens": 1100, "outputTokens": 120, "reasoningTokens": 10}, summary
+    assert summary["usage"] == {"inputTokens": 3000, "cachedInputTokens": 1100, "outputTokens": 120, "reasoningTokens": None}, summary
     assert summary["seat"] == "openai:gpt-6-sol"
     assert summary["frames"] == 2 and summary["modelCalls"] == 2 and summary["calls"] == 3
     assert summary["bindings"] == [BINDING], f"one distinct route is recorded: {summary['bindings']}"
@@ -162,7 +162,26 @@ def check_journal() -> str:
     assert steps[2]["tool_calls"][0]["function_name"] == "bash"
     assert steps[2]["observation"]["results"][0]["content"] == "print(1)"
     assert document["final_metrics"] == {"total_prompt_tokens": 3000, "total_completion_tokens": 120,
-                                         "total_cached_tokens": 1100, "total_steps": 3}
+                                         "total_cached_tokens": 1100, "cached_share": 1100 / 3000, "total_steps": 3}
+    def trial(usage: dict) -> dict:
+        rows = [{"seq": 1, "at": 0, "type": "control.agent.turn-opened", "payload": {}},
+                {"seq": 2, "at": 1, "type": "control.agent.model-settled", "payload": {"usage": usage}}]
+        return agent.trajectory(rows, agent_name="smithers", agent_version="test", seat="test",
+                                instruction="test", session_id="trial")["final_metrics"]
+
+    assert trial({"inputTokens": 10, "cachedInputTokens": 0})["cached_share"] == 0
+    assert trial({"inputTokens": 0, "cachedInputTokens": 0})["cached_share"] is None
+    missing = trial({"inputTokens": 10})
+    assert missing["total_cached_tokens"] is None and missing["cached_share"] is None
+    assert trial({})["total_prompt_tokens"] is None
+    mixed = [{"seq": 1, "at": 0, "type": "control.agent.turn-opened", "payload": {}},
+             {"seq": 2, "at": 1, "type": "control.agent.model-settled",
+              "payload": {"usage": {"inputTokens": 10, "cachedInputTokens": 2}}},
+             {"seq": 3, "at": 2, "type": "control.agent.model-settled",
+              "payload": {"usage": {"inputTokens": 10}}}]
+    assert agent.summarize(mixed)["usage"]["cachedInputTokens"] is None
+    assert agent.trajectory(mixed, agent_name="smithers", agent_version="test", seat="test",
+                            instruction="test", session_id="trial")["final_metrics"]["cached_share"] is None
     assert document["schema_version"] == "ATIF-v1.8" and document["agent"]["model_name"] == "openai:gpt-6-sol"
 
     try:
