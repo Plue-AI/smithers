@@ -466,7 +466,9 @@ function CellView(props: {
             ? <span fg={color.muted}>writing</span>
             : <span fg={color.muted}>{firstLine(cell.source)}</span>}
         </text>
+        {/* The leading space keeps clipped text off the clock. */}
         <text style={{ flexShrink: 0 }} wrapMode="none">
+          {" "}
           {result === ""
             ? null
             : (
@@ -558,6 +560,7 @@ function CallView(
           {call.exit === undefined ? null : <span fg={color.warning}>{"  "}exit {call.exit}</span>}
         </text>
         <text fg={color.faint} style={{ flexShrink: 0 }}>
+          {" "}
           {Transcript.duration((call.endedAt ?? props.now) - call.startedAt)}
         </text>
       </box>
