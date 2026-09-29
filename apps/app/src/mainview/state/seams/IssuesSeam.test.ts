@@ -8,6 +8,7 @@ import type { Card } from "../AppState"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
 import { processRepositoryEvents } from "../RepositoryNotifications"
+import { invalidatePreparedViews } from "../PreparedView"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import { readIssueOptions } from "./IssuesSeam"
 
@@ -328,6 +329,68 @@ describe("issues seam — the list", () => {
     })
     // The model reads the rows as text, GitHub rows marked.
     expect(outcome.status === "executed" ? outcome.value : "").toContain("#12 Upstream bug 12 · open · GitHub")
+  })
+
+  test("native 200 and optional GitHub 401 keep authorized rows and source-specific refusal", async () => {
+    const calls: string[] = []
+    const { store, controller } = await issuesController(backend({
+      "GET /api/repos/will/flows/issues": json(200, [wireIssue(7)]),
+      "GET /api/user/github-repos/will/flows/issues": json(401, { message: "GitHub connection required" }),
+      "GET /api/auth/session": json(200, { login: "will", allowlisted: true, admin: false })
+    }, calls))
+    const outcome = await controller.commands.run("issues.list")
+    expect(outcome.status).toBe("executed")
+    await settled()
+    const card = cardOfKind(store, "issues-will/flows", "issue-list")
+    expect(card.status).toBe("active")
+    expect(card.payload.issues.map(issue => [issue.number, issue.source])).toEqual([[7, "smithers-cloud"]])
+    expect(card.payload.github).toMatchObject({ source: "refused", refusal: "GitHub connection required" })
+    expect(outcome.status === "executed" ? outcome.value : "").toContain("#7 Fix the flake 7")
+    expect([...store.collections.messages.values()].filter(message => message.action?.flow === "auth.sign-in")).toHaveLength(0)
+    expect(calls.filter(call => call.includes("/issues?"))).toEqual([
+      "GET /api/repos/will/flows/issues?state=open",
+      "GET /api/user/github-repos/will/flows/issues?state=open"
+    ])
+  })
+
+  test("a native 401 refuses the list before reading GitHub or publishing stale rows", async () => {
+    const calls: string[] = []
+    let authorized = true
+    const { store, controller } = await issuesController(backend({
+      "GET /api/repos/will/flows/issues": () => authorized
+        ? json(200, [wireIssue(7)])
+        : json(401, { message: "Native session expired" }),
+      "GET /api/user/github-repos/will/flows/issues": json(200, [wireGithubIssue(12)]),
+      "GET /api/auth/session": json(200, { login: "will", allowlisted: true, admin: false })
+    }, calls))
+    expect((await controller.commands.run("issues.list")).status).toBe("executed")
+    await settled()
+    authorized = false
+    invalidatePreparedViews(store)
+    const result = await controller.commands.run("issues.list")
+    await settled()
+    expect(result.status).toBe("executed")
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "auth.sign-in")).toBe(true)
+    expect(calls.filter(call => call.startsWith("GET /api/user/github-repos/"))).toHaveLength(1)
+    const card = store.collections.cards.get("issues-will/flows")
+    expect(card?.kind === "issue-list" && card.status === "active" && card.payload.issues.length > 0).toBe(false)
+  })
+
+  test("conversation-only reads native rows without calling GitHub", async () => {
+    const calls: string[] = []
+    const { store, controller } = await issuesController(backend({
+      "GET /api/repos/will/flows/issues": json(200, [wireIssue(7, { kind: "chat" })]),
+      "GET /api/user/github-repos/will/flows/issues": json(401, { message: "GitHub connection required" }),
+      "GET /api/auth/session": json(200, { login: "will", allowlisted: true, admin: false })
+    }, calls))
+    const outcome = await controller.commands.run("issues.list", "open --kind conversation will/flows")
+    expect(outcome.status).toBe("executed")
+    await settled()
+    const card = cardOfKind(store, "issues-will/flows", "issue-list")
+    expect(card.payload.issues.map(issue => issue.source)).toEqual(["smithers-cloud"])
+    expect(card.payload.github).toBeUndefined()
+    expect(calls).toContain("GET /api/repos/will/flows/issues?state=open&kind=chat")
+    expect(calls.some(call => call.startsWith("GET /api/user/github-repos/"))).toBe(false)
   })
 
   test("a GitHub refusal (not linked, not mirrored) is stated on the card while Smithers Cloud's own issues still list", async () => {

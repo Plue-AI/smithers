@@ -338,7 +338,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       refusal: null as string | null
     }
     if (!response.ok) {
-      return { issues: [], meta: { ...meta, refusal: await readRepositoryListError(response, `GitHub issues answered ${response.status}`) } }
+      return { issues: [], meta: { ...meta, refusal: await readErrorMessage(response, `GitHub issues answered ${response.status}`) } }
     }
     const body: unknown = await response.json().catch(() => null)
     if (!Array.isArray(body)) return { issues: [], meta: { ...meta, refusal: "GitHub issues answered an unreadable payload" } }
@@ -554,6 +554,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         // The imported namespace 404s ⇔ the repo isn't imported: degrade to
         // the GitHub-source list instead of surfacing a broken 404.
         if (response.status === 404) return listFromGithubSource(repo, filter)
+        if (response.status === 401) ctx.dispatch({ type: "card.removed", actor: ctx.actor(), id: `issues-${repo}` })
         return readRepositoryListError(response, `Listing issues for ${repo} failed (${response.status})`)
       }
       const body: unknown = await response.json().catch(() => null)
