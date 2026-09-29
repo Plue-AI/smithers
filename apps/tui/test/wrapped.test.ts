@@ -228,6 +228,51 @@ it("runs a Claude Code worker on its session with memory and the shared brief, a
   for (const line of argv) expect(line).toContain(`--append-system-prompt ${brief.replaceAll("\n", " ")}`)
 })
 
+it("continues a finished Claude Code worker with the person's prompt on its existing session", async () => {
+  const log = vendors("0")
+  const workspace = workspaceOn(host())
+  workspace.request({ id: "c", title: "Fix", prompt: "Find the cause.", harness: "claude", by: "user" })
+  const tab = () => workspace.snapshot().tabs[0]!
+  await until(() => tab().status === "done")
+  const session = tab().harness!.session!
+  const brief = tab().harness!.brief!
+  const file = tab().file
+  expect(workspace.continue("c", "Correct the cache key.")).toEqual({ id: "c", status: "requested" })
+  await until(() => tab().status === "done" && readFileSync(log, "utf8").trim().split("\n").length === 2)
+  expect(tab()).toMatchObject({ file, harness: { vendor: "claude", session, brief } })
+  const argv = readFileSync(log, "utf8").trim().split("\n")
+  expect(argv[0]).toContain(`--session-id ${session}`)
+  expect(argv[0]).toContain("<<< Find the cause.")
+  expect(argv[1]).toContain(`--resume ${session}`)
+  expect(argv[1]).toContain("<<< Correct the cache key.")
+  expect(argv[1]).not.toContain(`<<< ${Wrapped.continuePrompt}`)
+  workspace.dispose()
+})
+
+it("resends a wrapped follow-up after its vendor failed to launch", async () => {
+  const log = vendors("0")
+  const vendorPath = process.env.PATH!
+  const workspace = workspaceOn(host())
+  workspace.request({ id: "c", title: "Fix", prompt: "Find the cause.", harness: "claude", by: "user" })
+  const tab = () => workspace.snapshot().tabs[0]!
+  await until(() => tab().status === "done")
+  const session = tab().harness!.session!
+  process.env.PATH = mkdtempSync(join(tmpdir(), "tui-no-vendor-"))
+  workspace.continue("c", "Correct the cache key.")
+  await until(() => tab().status === "failed")
+  expect(tab().status).toBe("failed")
+  process.env.PATH = vendorPath
+  workspace.retry("c")
+  await until(() => tab().status === "done")
+  expect(tab().status).toBe("done")
+  const argv = readFileSync(log, "utf8").trim().split("\n")
+  expect(argv).toHaveLength(2)
+  expect(argv[1]).toContain(`--resume ${session}`)
+  expect(argv[1]).toContain("<<< Correct the cache key.")
+  expect(argv[1]).not.toContain(`<<< ${Wrapped.continuePrompt}`)
+  workspace.dispose()
+})
+
 it("hands a Codex worker over only after its turn completes, then resumes its thread", async () => {
   const log = vendors("0.3")
   const on = host()
@@ -335,12 +380,19 @@ it("withdraws a take-over released before its hand-over, so the vendor's TUI nev
   expect(readFileSync(log, "utf8").trim().split("\n")).toHaveLength(1)
 })
 
-it("never sends a wrapped worker's task to another provider for its title", async () => {
+it("titles wrapped workers from the prompt at a word boundary without asking another provider", async () => {
   vendors("0")
   const asked: Array<string> = []
   const on: Host.Host = { ...host(), describe: async ({ seat }) => (asked.push(seat), "title") }
   const workspace = new Workspace({ host: on, workerSeat: "openai:gpt-6-sol", history: () => [], persist: () => {} })
-  workspace.request({ id: "c", title: "t", prompt: "A private task.", harness: "claude", by: "user" })
+  const prompt =
+    "Investigate the stale cache key in the worker continuation path and verify every persisted session message."
+  workspace.request({ id: "c", title: "t", prompt, harness: "claude", by: "user" })
   await until(() => workspace.snapshot().tabs[0]!.status === "done")
+  const description = workspace.snapshot().tabs[0]!.description!
+  expect(description.length).toBeLessThanOrEqual(80)
+  expect(prompt.startsWith(description)).toBe(true)
+  expect(prompt[description.length]).toBe(" ")
   expect(asked).toEqual([])
+  workspace.dispose()
 })

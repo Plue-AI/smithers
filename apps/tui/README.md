@@ -335,6 +335,10 @@ Steer. Its transcript is drawn with the chat's own cells. **j**/**k** pick a
 row and **u** undoes its changes. A worker's toast reads like its card
 (`◐ title · 42s`) with Stop and Steer.
 
+Type in a finished worker's tab to continue its conversation. Wrapped workers
+resume the same Claude Code or Codex session. Delegating a failed or stopped
+request id again starts the new request in that tab.
+
 Workers run locally. Restarting the TUI restores their transcripts and
 auto-relaunches running and waiting workers; parked workers relaunch at reset.
 `/new`, `/resume`, and `/fork`

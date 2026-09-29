@@ -80,6 +80,15 @@ test("agent titles retain both the agent and the requested work", () => {
   expect(Surfaces.tabTitle({ ...tab("Review diff"), agent: { name: "security" } })).toBe("security: Review diff")
 })
 
+test("wrapped workers show their short description while native titles keep their requested wording", () => {
+  const worker = { ...tab("Review the whole authentication system"), description: "Review authentication" }
+  expect(Surfaces.tabTitle(worker)).toBe("Review the whole authentication system")
+  expect(Surfaces.tabTitle({ ...worker, harness: { vendor: "claude" } })).toBe("Review authentication")
+  expect(Surfaces.tabTitle({ ...worker, harness: { vendor: "codex" }, description: undefined })).toBe(
+    "Review the whole authentication system"
+  )
+})
+
 test.each(
   [
     ["chat", false, "summary"],

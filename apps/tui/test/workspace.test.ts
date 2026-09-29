@@ -1,7 +1,8 @@
 /** Custom agents in worker tabs: the body is read at launch, never at request. */
 import * as Seat from "@smthrs/agent/Seat"
+import { ModelError } from "@smthrs/model/ModelError"
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync } from "node:fs"
+import { existsSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Agents from "../src/agents.ts"
@@ -10,7 +11,7 @@ import type * as Flows from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
 import * as Models from "../src/models.ts"
 import * as Session from "../src/session.ts"
-import { Workspace } from "../src/workspace.ts"
+import { seats, Workspace } from "../src/workspace.ts"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 const descriptor = (overrides: Partial<Extension.Descriptor> = {}): Extension.Descriptor => ({
@@ -329,6 +330,370 @@ describe("custom agents", () => {
     expect(() => f.workspace.request({ ...request, agent: undefined })).toThrow("another request")
     expect(() => f.workspace.request({ ...request, model: "sol" })).toThrow("another request")
     expect(f.records.filter((record) => record.type === "tab")).toHaveLength(1)
+  })
+
+  it.each(["failed", "cancelled"] as const)(
+    "relaunches a %s child on its parent's reused request id",
+    async (status) => {
+      const f = setup()
+      f.workspace.request({ id: "parent", title: "Parent", prompt: "Coordinate." })
+      await tick()
+      const parent = f.workspace.snapshot().tabs.find((tab) => tab.id === "parent")!
+      const original = { id: "fix", title: "Fix", prompt: "Try the first approach." }
+      expect(f.workspace.requestChild(parent, original)).toEqual({ id: "parent/fix", status: "requested" })
+      await tick()
+      const firstFile = f.workspace.snapshot().tabs.find((tab) => tab.id === "parent/fix")!.file
+      if (status === "failed") f.finishes[1]!({ _tag: "failed", message: "Needs another approach", detail: "" })
+      else f.workspace.cancel("parent/fix")
+      await tick()
+      expect(f.workspace.read("parent/fix").status).toBe(status)
+
+      const revised = { ...original, prompt: "Use the other approach.", title: "Fix again" }
+      expect(f.workspace.requestChild(parent, revised)).toEqual({ id: "parent/fix", status: "requested" })
+      expect(f.workspace.snapshot().tabs.filter((tab) => tab.id === "parent/fix")).toHaveLength(1)
+      const replacement = f.workspace.snapshot().tabs.find((tab) => tab.id === "parent/fix")!
+      expect(replacement).toMatchObject({ parent: "parent", depth: 1, prompt: revised.prompt, title: revised.title })
+      expect(replacement.file).not.toBe(firstFile)
+      await tick()
+      expect(f.inputs.at(-1)).toMatchObject({ prompt: revised.prompt, source: "parent/fix" })
+      expect(f.workspace.requestChild(parent, revised).status).toBe("running")
+      expect(f.inputs).toHaveLength(3)
+      f.workspace.dispose()
+    }
+  )
+
+  it("keeps completed child requests deduplicated and rejects a changed prompt", async () => {
+    const f = setup()
+    f.workspace.request({ id: "parent", title: "Parent", prompt: "Coordinate." })
+    await tick()
+    const parent = f.workspace.snapshot().tabs.find((tab) => tab.id === "parent")!
+    const child = { id: "fix", title: "Fix", prompt: "Check the result." }
+    f.workspace.requestChild(parent, child)
+    await tick()
+    f.finishes[1]!({ _tag: "done", answer: "Verified." })
+    await tick()
+    expect(f.workspace.requestChild(parent, child)).toEqual({ id: "parent/fix", status: "done" })
+    expect(() => f.workspace.requestChild(parent, { ...child, prompt: "Change the result." }))
+      .toThrow("Request id already belongs to another request")
+    expect(f.inputs).toHaveLength(2)
+    f.workspace.dispose()
+  })
+
+  it("does not let a top-level request take over a failed child's id", async () => {
+    const f = setup()
+    f.workspace.request({ id: "parent", title: "Parent", prompt: "Coordinate." })
+    await tick()
+    const parent = f.workspace.snapshot().tabs.find((tab) => tab.id === "parent")!
+    f.workspace.requestChild(parent, { id: "fix", title: "Fix", prompt: "Try it." })
+    await tick()
+    f.finishes[1]!({ _tag: "failed", message: "Needs another approach", detail: "" })
+    await tick()
+    expect(() => f.workspace.request({ id: "parent/fix", title: "Other", prompt: "Take over." }))
+      .toThrow("Request id already belongs to another request")
+    expect(f.workspace.snapshot().tabs.find((tab) => tab.id === "parent/fix")?.parent).toBe("parent")
+    expect(f.inputs).toHaveLength(2)
+    f.workspace.dispose()
+  })
+
+  it("relaunches an identical failed request but restores it if the replacement is invalid", async () => {
+    const f = setup({ delegable: ["sol"] })
+    const original = { id: "fix", title: "Fix", prompt: "Try it.", model: "sol" as const }
+    f.workspace.request(original)
+    await tick()
+    f.finishes[0]!({ _tag: "failed", message: "Provider down", detail: "" })
+    await tick()
+    const failed = f.workspace.snapshot().tabs[0]!
+    expect(() => f.workspace.request({ ...original, model: "opus" })).toThrow("Model opus is not available here")
+    expect(f.workspace.snapshot().tabs[0]).toEqual(failed)
+    expect(f.workspace.request(original)).toEqual({ id: "fix", status: "requested" })
+    await tick()
+    expect(f.inputs).toHaveLength(2)
+    expect(f.inputs[1]!.prompt).toBe(original.prompt)
+    f.workspace.dispose()
+  })
+
+  it("does not launch a cancelled request after an immediate same-id replacement", async () => {
+    const f = setup()
+    f.workspace.request({ id: "fix", title: "First", prompt: "Old prompt." })
+    f.workspace.cancel("fix")
+    expect(f.workspace.request({ id: "fix", title: "Second", prompt: "New prompt." }).status).toBe("requested")
+    await tick()
+    expect(f.inputs.map((input) => input.prompt)).toEqual(["New prompt."])
+    expect(f.workspace.snapshot().tabs[0]).toMatchObject({ prompt: "New prompt.", status: "running" })
+    f.workspace.dispose()
+  })
+
+  it("continues a finished native worker with its prior answer and the person's new prompt", async () => {
+    const f = setup()
+    f.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    f.finishes[0]!({ _tag: "done", answer: "The cache key is stale." })
+    await tick()
+    const file = f.workspace.snapshot().tabs[0]!.file
+    expect(f.workspace.continue("fix", "Correct the cache key.")).toEqual({ id: "fix", status: "requested" })
+    await tick()
+    expect(f.workspace.snapshot().tabs[0]).toMatchObject({ file, status: "running", prompt: "Correct the cache key." })
+    expect(f.inputs[1]).toMatchObject({ source: "fix", prompt: "Correct the cache key." })
+    expect(JSON.stringify(f.inputs[1]!.history)).toContain("The cache key is stale.")
+    f.workspace.dispose()
+  })
+
+  it("keeps both completed turns in a native worker's transcript after reload", async () => {
+    const first = setup()
+    first.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    first.finishes[0]!({ _tag: "done", answer: "The cache key is stale." })
+    await tick()
+    first.workspace.continue("fix", "Correct the cache key.")
+    await tick()
+    first.finishes[1]!({ _tag: "done", answer: "The cache key is corrected." })
+    await tick()
+    const restored = setup({ cwd: first.host.cwd, restored: first.workspace.snapshot() })
+    expect(restored.workspace.read("fix")).toMatchObject({ status: "done", answer: "The cache key is corrected." })
+    const transcript = restored.workspace.transcript("fix")
+    expect(transcript.items.filter((item) => item.kind === "user").map((item) => item.text)).toEqual([
+      "Find the cause.",
+      "Correct the cache key."
+    ])
+    const outcomes = Session.load(restored.workspace.snapshot().tabs[0]!.file).filter((record) =>
+      record.type === "outcome"
+    )
+    expect(outcomes.map((record) => record.outcome)).toEqual([
+      { _tag: "done", answer: "The cache key is stale." },
+      { _tag: "done", answer: "The cache key is corrected." }
+    ])
+    expect(restored.inputs).toHaveLength(0)
+    first.workspace.dispose()
+    restored.workspace.dispose()
+  })
+
+  it("refuses to continue a missing, busy or blank worker without changing its run", async () => {
+    const f = setup()
+    expect(() => f.workspace.continue("missing", "More.")).toThrow("Unknown tab")
+    f.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    const running = f.workspace.snapshot().tabs[0]!
+    expect(() => f.workspace.continue("fix", "More.")).toThrow("Only a finished worker can continue")
+    expect(f.workspace.snapshot().tabs[0]).toEqual(running)
+    f.finishes[0]!({ _tag: "done", answer: "Found it." })
+    await tick()
+    const done = f.workspace.snapshot().tabs[0]!
+    expect(() => f.workspace.continue("fix", "  \n  ")).toThrow("Enter a message to continue")
+    expect(f.workspace.snapshot().tabs[0]).toEqual(done)
+    expect(f.inputs).toHaveLength(1)
+    f.workspace.dispose()
+  })
+
+  it("restores a queued continuation and sends its follow-up when a seat opens", async () => {
+    const first = setup()
+    for (let index = 0; index < seats; index++) {
+      first.workspace.request({ id: `busy-${index}`, title: "Busy", prompt: `Work ${index}.` })
+    }
+    await tick()
+    expect(first.inputs).toHaveLength(seats)
+    first.workspace.request({ id: "waiting", title: "Waiting", prompt: "First answer." })
+    expect(first.workspace.read("waiting").status).toBe("queued")
+    first.finishes[0]!({ _tag: "done", answer: "Initial answer." })
+    await tick()
+    expect(first.workspace.read("waiting").status).toBe("running")
+    expect(first.workspace.continue("busy-0", "Follow-up after restart.")).toEqual({
+      id: "busy-0",
+      status: "queued"
+    })
+    const saved = first.workspace.snapshot()
+    first.workspace.dispose()
+
+    const restored = setup({ cwd: first.host.cwd, restored: saved })
+    await tick()
+    expect(restored.workspace.read("busy-0").status).toBe("queued")
+    expect(restored.inputs.some((input) => input.prompt === "Follow-up after restart.")).toBe(false)
+    const running = restored.workspace.snapshot().tabs.find((tab) => tab.status === "running")!
+    const run = restored.inputs.findIndex((input) => input.source === running.id)
+    restored.finishes[run]!({ _tag: "done", answer: "Seat released." })
+    await tick()
+    expect(restored.inputs.at(-1)).toMatchObject({ source: "busy-0", prompt: "Follow-up after restart." })
+    restored.workspace.dispose()
+  })
+
+  it("restarts an unfinished continuation despite an earlier completion in the same file", async () => {
+    const first = setup()
+    first.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    first.finishes[0]!({ _tag: "done", answer: "Found the cause." })
+    await tick()
+    first.workspace.continue("fix", "Apply the repair.")
+    await tick()
+    const saved = first.workspace.snapshot()
+    expect(saved.tabs[0]).toMatchObject({ status: "running", prompt: "Apply the repair." })
+    first.workspace.dispose()
+
+    const restored = setup({ cwd: first.host.cwd, restored: saved })
+    await tick()
+    expect(restored.workspace.read("fix").status).toBe("running")
+    expect(restored.inputs).toHaveLength(1)
+    expect(restored.inputs[0]).toMatchObject({ source: "fix", prompt: "Apply the repair." })
+    expect(JSON.stringify(restored.inputs[0]!.history)).toContain("Found the cause.")
+    restored.finishes[0]!({ _tag: "done", answer: "Repair applied." })
+    await tick()
+    expect(restored.workspace.read("fix")).toMatchObject({ status: "done", answer: "Repair applied." })
+    restored.workspace.dispose()
+  })
+
+  it("ignores a title callback from the earlier turn of the same worker file", async () => {
+    const f = setup()
+    f.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    f.finishes[0]!({ _tag: "done", answer: "Found it." })
+    await tick()
+    f.workspace.continue("fix", "Apply the repair.")
+    await tick()
+    expect(f.descriptions).toHaveLength(2)
+    f.descriptions[1]!.resolve("Apply the repair")
+    await tick()
+    f.descriptions[0]!.resolve("Find the cause")
+    await tick()
+    expect(f.workspace.snapshot().tabs[0]?.description).toBe("Apply the repair")
+    f.workspace.dispose()
+  })
+
+  it("does not launch a cancelled continuation after another follows it in the same file", async () => {
+    const f = setup()
+    f.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    f.finishes[0]!({ _tag: "done", answer: "Found it." })
+    await tick()
+    const file = f.workspace.snapshot().tabs[0]!.file
+    expect(f.workspace.continue("fix", "First follow-up.")).toEqual({ id: "fix", status: "requested" })
+    f.workspace.cancel("fix")
+    expect(f.workspace.continue("fix", "Second follow-up.")).toEqual({ id: "fix", status: "requested" })
+    await tick()
+    expect(f.inputs.map((input) => input.prompt)).toEqual(["Find the cause.", "Second follow-up."])
+    expect(f.workspace.snapshot().tabs[0]).toMatchObject({ file, status: "running", prompt: "Second follow-up." })
+    const userMessages = Session.load(file).filter((record) => record.type === "user").map((record) => record.text)
+    expect(userMessages).toEqual(["Find the cause.", "Second follow-up."])
+    expect(f.workspace.transcript("fix").items.filter((item) => item.kind === "user").map((item) => item.text))
+      .toEqual(userMessages)
+    f.workspace.dispose()
+  })
+
+  it("continues a worker stopped before its first session file was created", async () => {
+    const f = setup()
+    f.workspace.request({ id: "fix", title: "Fix", prompt: "Initial prompt." })
+    const file = f.workspace.snapshot().tabs[0]!.file
+    f.workspace.cancel("fix")
+    expect(existsSync(file)).toBe(false)
+    expect(f.workspace.continue("fix", "Run after the stop.")).toEqual({ id: "fix", status: "requested" })
+    await tick()
+    expect(f.inputs.map((input) => input.prompt)).toEqual(["Run after the stop."])
+    expect(Session.load(file).filter((record) => record.type === "user").map((record) => record.text))
+      .toEqual(["Run after the stop."])
+    f.workspace.dispose()
+  })
+
+  it("rebuilds an interrupted native continuation's history from its completed steps and steering", async () => {
+    const first = setup()
+    first.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    first.finishes[0]!({ _tag: "done", answer: "Cause found." })
+    await tick()
+    first.workspace.continue("fix", "Apply the fix.")
+    await tick()
+    const second = first.inputs[1]!
+    second.onEvent({ _tag: "cell-produced", cell: { text: "write corrected value" } } as never)
+    second.onEvent({ _tag: "cell-printed", text: "changed config.json" } as never)
+    expect(first.workspace.steer("fix", "Also update the regression test.")).toBe(true)
+    const saved = first.workspace.snapshot()
+    first.workspace.dispose()
+
+    const restored = setup({ cwd: first.host.cwd, restored: saved })
+    await tick()
+    expect(restored.inputs).toHaveLength(1)
+    const history = JSON.stringify(restored.inputs[0]!.history)
+    expect(history).toContain("Cause found.")
+    expect(history).toContain("write corrected value")
+    expect(history).toContain("changed config.json")
+    expect(history).toContain("Also update the regression test.")
+    restored.workspace.dispose()
+  })
+
+  it("restores a reset-relaunched continuation as running despite its old failed receipt", async () => {
+    const first = setup()
+    first.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    first.finishes[0]!({ _tag: "done", answer: "Cause found." })
+    await tick()
+    first.workspace.continue("fix", "Apply the fix.")
+    await tick()
+    first.finishes[1]!({
+      _tag: "failed",
+      message: "usage limit",
+      detail: "stack",
+      error: new ModelError({ code: "rate_limited", message: "usage limit", resetAtEpochMillis: Date.now() + 40 })
+    })
+    await tick()
+    expect(first.workspace.read("fix").status).toBe("failed")
+    first.workspace.waitForReset("fix")
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(first.workspace.read("fix").status).toBe("running")
+    expect(first.inputs).toHaveLength(3)
+    const saved = first.workspace.snapshot()
+    first.workspace.dispose()
+
+    const restored = setup({ cwd: first.host.cwd, restored: saved })
+    await tick()
+    expect(restored.workspace.read("fix").status).toBe("running")
+    expect(restored.inputs).toHaveLength(1)
+    expect(restored.inputs[0]!.prompt).toBe("Apply the fix.")
+    restored.workspace.dispose()
+  })
+
+  it("keeps the first successful answer through a failed follow-up, manual retry and next follow-up", async () => {
+    const f = setup()
+    f.workspace.request({ id: "fix", title: "Fix", prompt: "Find the cause." })
+    await tick()
+    f.finishes[0]!({ _tag: "done", answer: "The stale cache key is the cause." })
+    await tick()
+    f.workspace.continue("fix", "Correct the key.")
+    await tick()
+    f.finishes[1]!({ _tag: "failed", message: "Provider unavailable", detail: "" })
+    await tick()
+    expect(f.workspace.read("fix").status).toBe("failed")
+    f.workspace.retry("fix")
+    await tick()
+    const retryHistory = JSON.stringify(f.inputs[2]!.history)
+    expect(retryHistory).toContain("The stale cache key is the cause.")
+    f.finishes[2]!({ _tag: "done", answer: "The key is corrected." })
+    await tick()
+    f.workspace.continue("fix", "Check the result.")
+    await tick()
+    const nextHistory = JSON.stringify(f.inputs[3]!.history)
+    expect(nextHistory.split("The stale cache key is the cause.")).toHaveLength(2)
+    expect(nextHistory.split("The key is corrected.")).toHaveLength(2)
+    f.workspace.dispose()
+  })
+
+  it("keeps each completed answer once across several native continuations", async () => {
+    const f = setup()
+    const prompts = ["Find the cause.", "Apply the fix.", "Add coverage.", "Review the change."]
+    const answers = [
+      `Cause: stale cache key. ${"a".repeat(5_000)}`,
+      `Fixed the key. ${"b".repeat(5_000)}`,
+      `Added a regression test. ${"c".repeat(5_000)}`
+    ]
+    f.workspace.request({ id: "fix", title: "Fix", prompt: prompts[0]! })
+    for (let index = 0; index < answers.length; index++) {
+      await tick()
+      f.finishes[index]!({ _tag: "done", answer: answers[index]! })
+      await tick()
+      f.workspace.continue("fix", prompts[index + 1]!)
+    }
+    await tick()
+    expect(f.inputs[3]!.prompt).toBe("Review the change.")
+    const history = JSON.stringify(f.inputs[3]!.history)
+    for (const answer of answers) {
+      expect(history.split(answer)).toHaveLength(2)
+    }
+    f.workspace.dispose()
   })
 
   it("never launches a tab stopped while its body was being read", async () => {

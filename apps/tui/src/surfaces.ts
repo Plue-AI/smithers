@@ -10,7 +10,10 @@ import type { Chip } from "./tabs-view.tsx"
 import type { Snapshot, Tab } from "./workspace.ts"
 
 /** A tab's name; an agent's tab leads with the agent. */
-export const tabTitle = (tab: Tab): string => (tab.agent === undefined ? tab.title : `${tab.agent.name}: ${tab.title}`)
+export const tabTitle = (tab: Tab): string => {
+  const title = tab.harness === undefined ? tab.title : tab.description ?? tab.title
+  return tab.agent === undefined ? title : `${tab.agent.name}: ${title}`
+}
 
 export const flowGlyph = (status: Run["status"]): string =>
   status === "done"

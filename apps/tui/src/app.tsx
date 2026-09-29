@@ -670,6 +670,10 @@ export function App(props: AppProps) {
     if (surface.startsWith("flow:")) void runs.hydrate(surface.slice(5))
   }, [surface, runs])
   const workerTab = surface.startsWith("tab:") ? snapshot.tabs.find((tab) => `tab:${tab.id}` === surface) : undefined
+  const continued = workerTab !== undefined &&
+      (workerTab.status === "done" || workerTab.status === "failed" || workerTab.status === "cancelled")
+    ? workerTab
+    : undefined
   const selectedFlowActions = flowActions(surface.startsWith("flow:") ? runs.get(surface.slice(5)) : undefined)
   /** The worker the composer steers: set by `s` in its tab, and only while that tab shows and runs. */
   const steered = workerTab !== undefined && workerTab.id === steerTarget && workerTab.status === "running" &&
@@ -920,9 +924,24 @@ export function App(props: AppProps) {
     now,
     whichKey,
     steered,
-    driven
+    driven,
+    continued
   })
-  live.current = { turn, shell, undoing, followUps, seat, thinking, picker, approvals, now, whichKey, steered, driven }
+  live.current = {
+    turn,
+    shell,
+    undoing,
+    followUps,
+    seat,
+    thinking,
+    picker,
+    approvals,
+    now,
+    whichKey,
+    steered,
+    driven,
+    continued
+  }
 
   /** Sets the follow-up queue for the screen and for keys handled before the next render. */
   const setQueue = useCallback((next: ReadonlyArray<PromptQueue.Prompt>) => {
@@ -1550,8 +1569,18 @@ export function App(props: AppProps) {
     history.current.add(text)
     setText(parked ?? "")
     const steering = live.current.steered
+    const continuing = live.current.continued
     // A driven worker reads plain text as its next message; `/` and `!` stay commands and shell.
-    const route = Composer.route(text, steering !== undefined || driving !== undefined)
+    const route = Composer.route(text, steering !== undefined || driving !== undefined || continuing !== undefined)
+    if (route._tag === "steer" && continuing !== undefined) {
+      try {
+        workspace.continue(continuing.id, text)
+      } catch (error) {
+        setText(text)
+        setStatus(Failures.line("worker", error), "warning")
+      }
+      return
+    }
     if (route._tag === "steer" && driving !== undefined) {
       if (!workspace.drive(driving.id, text)) setStatus(`${driving.title} is not running`, "warning")
       return
@@ -2516,7 +2545,9 @@ export function App(props: AppProps) {
                   ref={composer}
                   selectionOccupancy="boundary"
                   focused={picker === undefined && !panelFocus && form === undefined}
-                  placeholder={steered !== undefined || driven !== undefined
+                  placeholder={continued !== undefined
+                    ? `Continue ${tabTitle(continued)}`
+                    : steered !== undefined || driven !== undefined
                     ? ""
                     : working
                     ? "Steer, or alt+enter to queue"

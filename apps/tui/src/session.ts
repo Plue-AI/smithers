@@ -227,7 +227,12 @@ export interface Writer {
 export const create = (
   cwd: string,
   kind: "chat" | "worker" = "chat",
-  options: { readonly parent?: string; readonly seed?: ReadonlyArray<Record> } = {}
+  options: {
+    readonly parent?: string
+    readonly seed?: ReadonlyArray<Record>
+    /** A persisted worker request whose lazy file has not been written yet. */
+    readonly file?: string
+  } = {}
 ): Writer => {
   const id = randomUUID()
   const folder = kind === "worker" ? join(directory(cwd), "workers") : directory(cwd)
@@ -235,7 +240,7 @@ export const create = (
     privateFolder(directory(cwd))
     privateFolder(folder)
   }
-  const file = join(folder, `${new Date().toISOString().replace(/[:.]/g, "-")}_${id}.jsonl`)
+  const file = options.file ?? join(folder, `${new Date().toISOString().replace(/[:.]/g, "-")}_${id}.jsonl`)
   const header = (): Record => ({
     type: "session",
     version: 1,

@@ -46,6 +46,10 @@ export interface Tab {
   /** The answers `panel`'s members gave; a relaunch runs only the members without one. */
   readonly answered?: ReadonlyArray<readonly [seat: string, answer: string]>
   readonly file: string
+  /** First record of a continuation in this worker session. */
+  readonly continuedFrom?: number
+  /** Distinguishes accepted follow-ups even before either writes its first worker record. */
+  readonly continuationId?: string
   readonly status: "queued" | "requested" | "running" | "waiting" | "parked" | "done" | "failed" | "cancelled"
   readonly wakeAt?: number
   /** Capacity parks since the last settled model answer; at `QuotaPolicy.defaultMaxParks` the next refusal fails the tab. */
@@ -77,6 +81,8 @@ export interface Tab {
   readonly harness?: {
     readonly vendor: Wrapped.Vendor
     readonly session?: string
+    /** Submitted follow-up to deliver when the resumed vendor launches. */
+    readonly prompt?: string
     /** The file holding the session's brief: every launch on the session passes these bytes. */
     readonly brief?: string
   }
@@ -247,9 +253,9 @@ export class Workspace {
             )
           ? header.createdAt :
           undefined
-        const receipt = records.filter((record) => record.type === "outcome").findLast((record) =>
-          boundary === undefined || record.at >= boundary
-        )
+        const receipt = records.slice(tab.continuedFrom ?? 0).filter((record) => record.type === "outcome").findLast((
+          record
+        ) => boundary === undefined || record.at >= boundary)
         const outcome = receipt?.type === "outcome" ? receipt.outcome : undefined
         settled = receipt === undefined || outcome === undefined
           ? tab
@@ -448,15 +454,28 @@ export class Workspace {
     if (this.closed) throw new Error("Session closed")
     const existing = this.tabs.get(request.id)
     if (existing !== undefined) {
-      const same = existing.prompt === request.prompt && existing.agent?.name === request.agent && (
-        existing.agent === undefined && existing.model === undefined
-          // A tab saved before `model` was recorded is compared by seat.
-          ? request.model === undefined
-            ? existing.seat === this.options.workerSeat ||
-              (this.routes && !Object.values<string>(delegateModels).includes(existing.seat))
-            : existing.seat === delegateSeat(request.model)
-          : existing.model === request.model
-      )
+      if (existing.parent !== parent) throw new Error("Request id already belongs to another request")
+      if (existing.status === "failed" || existing.status === "cancelled") {
+        this.tabs.forget(existing.id)
+        try {
+          const receipt = this.open(request, kept, parent, depth, prior, parks)
+          this.transcripts.delete(existing.id)
+          return receipt
+        } catch (error) {
+          this.tabs.adopt(existing)
+          throw error
+        }
+      }
+      const same = existing.prompt === request.prompt && existing.agent?.name === request.agent &&
+        existing.harness?.vendor === request.harness && (
+          existing.agent === undefined && existing.model === undefined
+            // A tab saved before `model` was recorded is compared by seat.
+            ? request.model === undefined
+              ? existing.seat === this.options.workerSeat ||
+                (this.routes && !Object.values<string>(delegateModels).includes(existing.seat))
+              : existing.seat === delegateSeat(request.model)
+            : existing.model === request.model
+        )
       if (!same) throw new Error("Request id already belongs to another request")
       return { id: existing.id, status: existing.status }
     }
@@ -487,18 +506,18 @@ export class Workspace {
       : Agents.find(listed, request.agent, request.by ?? "agent")
     const declared = agent?.seat === undefined ? undefined : this.options.seatOf?.(agent.seat)
     const records = prior === undefined ? [] : this.priorRecords(prior)
+    const seed = records.filter((record) => record.type !== "session" && record.type !== "outcome")
     const writer = Session.create(
       this.options.host.cwd,
       "worker",
       prior === undefined ? {} : {
         parent: prior.file,
-        seed: records.filter((record) => record.type !== "outcome")
+        seed
       }
     )
-    const history = this.boundedHistory([
-      ...this.options.history(),
-      ...(prior === undefined ? [] : this.continuation(prior, records, prior.message))
-    ])
+    const history = prior === undefined
+      ? this.boundedHistory(this.options.history())
+      : this.workerHistory(prior, records)
     // Persist FIRST; a receipt here acknowledges only the request, not the launch.
     const tab = this.tabs.create({
       id: request.id,
@@ -513,6 +532,7 @@ export class Workspace {
       ...(kept?.answered === undefined ? {} : { answered: kept.answered }),
       history,
       file: writer.file,
+      ...(prior === undefined ? {} : { continuedFrom: seed.length === 0 ? 0 : seed.length + 1 }),
       startedAt: prior?.startedAt ?? Date.now(),
       ...(parks === undefined || parks === 0 ? {} : { parks }),
       ...(request.model === undefined ? {} : { model: request.model }),
@@ -537,13 +557,33 @@ export class Workspace {
   private unchosen(): string {
     return this.routes ? Seat.auto : this.options.workerSeat
   }
+  private workerSession(tab: Tab): { records: ReadonlyArray<Session.Record>; writer: Session.Writer } {
+    if (!existsSync(tab.file)) {
+      return { records: [], writer: Session.create(this.options.host.cwd, "worker", { file: tab.file }) }
+    }
+    return { records: Session.load(tab.file), writer: Session.reopen(tab.file) }
+  }
   private priorRecords(tab: Tab): ReadonlyArray<Session.Record> {
     try {
-      return Session.load(tab.file).filter((record) => record.type !== "session")
+      return Session.load(tab.file)
     } catch (error) {
       Log.write("worker.history", error)
       return []
     }
+  }
+  /** Adds only this execution's receipts to the context captured before it began. */
+  private workerHistory(tab: Tab, records: ReadonlyArray<Session.Record>): ReadonlyArray<Context.Entry> {
+    const progress = records.slice(tab.continuedFrom ?? 0)
+    const entries = Session.restore(progress).entries
+    if (progress.length > 0) {
+      const summary = this.continuation(tab, progress, tab.message)
+      const completed = entries.findLastIndex((entry) => entry.kind === "exchange" && entry.user === tab.prompt)
+      const entry = entries[completed]
+      if (entry?.kind === "exchange") {
+        entries[completed] = { ...entry, answer: `${summary.answer}\n${entry.answer}` }
+      } else entries.push(summary)
+    }
+    return this.boundedHistory([...(tab.history ?? this.options.history()), ...entries])
   }
   private boundedHistory(entries: ReadonlyArray<Context.Entry>): ReadonlyArray<Context.Entry> {
     const kept: Array<Context.Entry> = []
@@ -565,7 +605,7 @@ export class Workspace {
     tab: Tab,
     records: ReadonlyArray<Session.Record>,
     lastError?: string
-  ): ReadonlyArray<Context.Entry> {
+  ): Extract<Context.Entry, { kind: "exchange" }> {
     const transcript = records.length === 0 ? this.transcript(tab.id) : Session.restore(records).transcript
     const cells = transcript.items.filter((item) => item.kind === "cell")
     const output = cells.map((item) =>
@@ -575,7 +615,7 @@ export class Workspace {
     ).join("\n")
     const sources = cells.slice(-6).map((item) => `Step ${item.index} source: ${item.source.slice(-1_000)}`).join("\n")
     const notes = transcript.items.flatMap((item) =>
-      item.kind === "user" ?
+      item.kind === "user" && item.queued !== undefined ?
         [`User: ${item.text}`] :
         item.kind === "error"
         ? [`Error: ${item.text}`]
@@ -586,7 +626,7 @@ export class Workspace {
       cells.some((item) =>
         item.source.length > 1_000 || item.printed.length > 4_000 || (item.error?.length ?? 0) > 1_000
       )
-    return [{
+    return {
       kind: "exchange",
       user: tab.prompt,
       answer: `Continue the same worker task from this prior run. Do not repeat completed steps.\n${
@@ -594,12 +634,33 @@ export class Workspace {
       }\n${sources.slice(-5_000)}\n${notes.slice(-1_000)}${
         lastError === undefined ? "" : `\nLast error: ${lastError.slice(-1_000)}`
       }${truncated ? "\nPrior transcript truncated." : ""}`
-    }]
+    }
   }
   private relaunch(tab: Tab): void {
     if (this.closed) return
     this.tabs.forget(tab.id)
     try {
+      if (tab.continuedFrom !== undefined) {
+        const { records, writer } = this.workerSession(tab)
+        const history = this.workerHistory(tab, records)
+        const next = this.tabs.create({
+          ...tab,
+          history,
+          endedAt: undefined,
+          launchedAt: undefined,
+          answer: undefined,
+          message: undefined,
+          detail: undefined,
+          failure: undefined,
+          code: undefined,
+          wakeAt: undefined,
+          continuedFrom: records.length,
+          continuationId: randomUUID()
+        })
+        if (next.status === "queued") this.tabs.enqueue(next.id, { writer, history, by: "user" })
+        else queueMicrotask(() => this.start(next, writer, history, "user"))
+        return
+      }
       this.open(
         { id: tab.id, title: tab.title, prompt: tab.prompt, model: tab.model, agent: tab.agent?.name, by: "user" },
         tab,
@@ -631,6 +692,7 @@ export class Workspace {
     const resume = () => {
       if (
         !this.closed && this.tabs.get(tab.id)?.file === tab.file &&
+        this.tabs.get(tab.id)?.continuationId === tab.continuationId &&
         (this.tabs.get(tab.id)?.status === "parked" || this.tabs.get(tab.id)?.status === "running" ||
           this.tabs.get(tab.id)?.status === "requested" || this.tabs.get(tab.id)?.status === "waiting")
       ) this.relaunch(tab)
@@ -655,7 +717,10 @@ export class Workspace {
   private async prepare(tab: Tab, writer: Session.Writer, history: ReadonlyArray<Context.Entry>, by: "user" | "agent") {
     const current = () => {
       const now = this.tabs.get(tab.id)
-      return !this.closed && now?.status === "requested" && now.file === tab.file ? now : undefined
+      return !this.closed && now?.status === "requested" && now.file === tab.file &&
+          now.continuationId === tab.continuationId ?
+        now :
+        undefined
     }
     if (current() === undefined) return
     let profile: Agents.Profile
@@ -716,7 +781,15 @@ export class Workspace {
     this.launch(ready, writer, history, profile)
   }
   private async describe(tab: Tab): Promise<void> {
-    let description = tab.title.replace(/\s+/g, " ").trim().slice(0, 80)
+    const short = (text: string) => {
+      const clean = text.replace(/\s+/g, " ").trim()
+      if (clean.length <= 80) return clean
+      const boundary = clean.lastIndexOf(" ", 80)
+      return boundary > 0 ? clean.slice(0, boundary) : clean.slice(0, 80)
+    }
+    let description = tab.harness === undefined
+      ? tab.title.replace(/\s+/g, " ").trim().slice(0, 80)
+      : short(tab.prompt)
     // The worker's own seat: the task never goes to a provider the user did not pick for it. A wrapped
     // worker's provider is its vendor, which is never asked for a title.
     if (!tab.seat.startsWith("replay:") && tab.seat !== Seat.auto && tab.harness === undefined) {
@@ -728,11 +801,17 @@ export class Workspace {
       }
     }
     const current = this.tabs.get(tab.id)
-    if (current === undefined || current.file !== tab.file || this.closed) return
+    if (
+      current === undefined || current.file !== tab.file || current.continuationId !== tab.continuationId || this.closed
+    ) return
     this.tabs.put({ ...current, description })
   }
   private launch(tab: Tab, writer: Session.Writer, history: ReadonlyArray<Context.Entry>, agent?: Agents.Profile) {
-    if (this.closed || this.tabs.get(tab.id)?.status !== "requested") return
+    const current = this.tabs.get(tab.id)
+    if (
+      this.closed || current?.status !== "requested" || current.file !== tab.file ||
+      current.continuationId !== tab.continuationId
+    ) return
     this.cancelRequested.delete(tab.id)
     const at = Date.now()
     this.transcripts.set(
@@ -759,7 +838,7 @@ export class Workspace {
         ...(tab.answered === undefined ? {} : { answered: tab.answered }),
         onAnswered: (seat, answer) => {
           const current = this.tabs.get(tab.id)
-          if (current?.file !== writer.file) return
+          if (current?.file !== writer.file || current.continuationId !== tab.continuationId) return
           this.tabs.put({ ...current, answered: [...(current.answered ?? []), [seat, answer]] })
         },
         onMembers: (running) => {
@@ -804,7 +883,7 @@ export class Workspace {
         },
         onSeat: ({ backups, panel, seat, variant }) => {
           const current = this.tabs.get(tab.id)
-          if (current?.file !== writer.file) return
+          if (current?.file !== writer.file || current.continuationId !== tab.continuationId) return
           // Retry and resume keep the route, so the tab is never routed twice.
           const routed: Tab = {
             ...current,
@@ -827,7 +906,9 @@ export class Workspace {
           this.changed()
         },
         onEvent: (event) => {
-          if (this.tabs.get(tab.id)?.file !== writer.file) return
+          if (
+            this.tabs.get(tab.id)?.file !== writer.file || this.tabs.get(tab.id)?.continuationId !== tab.continuationId
+          ) return
           const at = Date.now()
           if (event._tag !== "model-delta" && event._tag !== "aborted") writer.append({ type: "event", at, event })
           if (event._tag !== "aborted") {
@@ -871,7 +952,10 @@ export class Workspace {
       this.tabs.move({ ...(this.tabs.get(tab.id) ?? tab), launchedAt: at }, "launch")
       void handle.done.then((outcome) => {
         // A parked retry can replace this execution before its cancellation settles.
-        if (this.closed || this.tabs.get(tab.id)?.file !== writer.file) return
+        if (
+          this.closed || this.tabs.get(tab.id)?.file !== writer.file ||
+          this.tabs.get(tab.id)?.continuationId !== tab.continuationId
+        ) return
         this.handles.delete(tab.id)
         this.steering.delete(tab.id)
         const requestedCancel = this.cancelRequested.delete(tab.id)
@@ -932,7 +1016,8 @@ export class Workspace {
   private runWrapped(tab: Tab, writer: Session.Writer): Host.Turn {
     const vendor = tab.harness!.vendor
     // A retried or restarted worker has a new file; nothing from an older run writes into it.
-    const own = () => this.tabs.get(tab.id)?.file === writer.file
+    const own = () =>
+      this.tabs.get(tab.id)?.file === writer.file && this.tabs.get(tab.id)?.continuationId === tab.continuationId
     const note = (text: string) => {
       if (!own()) return
       const at = Date.now()
@@ -947,6 +1032,16 @@ export class Workspace {
       const restored = this.tabs.get(tab.id)
       if (restored?.driver !== undefined) this.tabs.put(ended(restored, Date.now()))
       let resume = tab.harness!.session !== undefined
+      let prompt = tab.harness!.prompt ?? (resume ? Wrapped.continuePrompt : tab.prompt)
+      const accepted = () => {
+        if (!own()) return
+        prompt = Wrapped.continuePrompt
+        const launched = this.tabs.get(tab.id)!
+        if (launched.harness?.prompt !== undefined) {
+          const { prompt: _delivered, ...harness } = launched.harness
+          this.tabs.put({ ...launched, harness })
+        }
+      }
       const file = tab.harness!.brief ?? `${tab.file}.brief.md`
       let brief: string
       if (existsSync(file)) brief = readFileSync(file, "utf8")
@@ -981,7 +1076,7 @@ export class Workspace {
           const session = this.tabs.get(tab.id)?.harness?.session ?? chosen
           const handle = Wrapped.run({
             vendor,
-            prompt: resume ? Wrapped.continuePrompt : tab.prompt,
+            prompt,
             cwd: this.options.host.cwd,
             brief,
             ...(session === undefined ? {} : { session }),
@@ -989,6 +1084,7 @@ export class Workspace {
             approve: this.options.host.approvals?.mode ?? "all"
           }, (folded) => {
             if (!own()) return
+            if (folded.error === undefined && (folded.settled === true || folded.answer !== undefined)) accepted()
             if (folded.announce !== undefined) this.announced.set(tab.id, folded.announce)
             const at = this.tabs.get(tab.id)!
             if (folded.session !== undefined && at.harness?.session !== folded.session) {
@@ -1014,6 +1110,7 @@ export class Workspace {
           current = handle
           this.vendorRuns.set(tab.id, handle)
           const outcome = await handle.done
+          if (outcome._tag === "done") accepted()
           this.vendorRuns.delete(tab.id)
           const handover = this.handovers.get(tab.id)
           if (handover?.withdrawn === true && !cancelled) {
@@ -1060,7 +1157,10 @@ export class Workspace {
   }
   /** Settles the tab, its timeline and its worker file as failed. */
   private fail(tab: Tab, writer: Session.Writer, error: unknown) {
-    if (this.closed || this.tabs.get(tab.id)?.file !== writer.file) return
+    if (
+      this.closed || this.tabs.get(tab.id)?.file !== writer.file ||
+      this.tabs.get(tab.id)?.continuationId !== tab.continuationId
+    ) return
     this.handles.delete(tab.id)
     this.steering.delete(tab.id)
     this.cancelRequested.delete(tab.id)
@@ -1376,6 +1476,45 @@ export class Workspace {
     }
     removed?.resume?.()
   }
+  /** Starts the person's next message in the finished worker's own session. */
+  continue = (id: string, text: string): { id: string; status: Tab["status"] } => {
+    if (this.closed) throw new TabError("closed", "Session closed", id)
+    const tab = this.tabs.get(id)
+    if (tab === undefined) throw new TabError("unknown_tab", "Unknown tab", id)
+    if (!settled(tab)) throw new Error(`Only a finished worker can continue; ${id} is ${tab.status}`)
+    const prompt = text.trim()
+    if (prompt === "") throw new Error("Enter a message to continue")
+    const { records, writer } = this.workerSession(tab)
+    const history = this.workerHistory(tab, records)
+    const {
+      status: _status,
+      endedAt: _endedAt,
+      launchedAt: _launchedAt,
+      answer: _answer,
+      message: _message,
+      detail: _detail,
+      failure: _failure,
+      code: _code,
+      wakeAt: _wakeAt,
+      parks: _parks,
+      answered: _answered,
+      driver: _driver,
+      ...rest
+    } = tab
+    const next = this.tabs.create({
+      ...rest,
+      prompt,
+      history,
+      continuedFrom: records.length,
+      continuationId: randomUUID(),
+      startedAt: Date.now(),
+      ...(tab.harness === undefined ? {} : { harness: { ...tab.harness, prompt } })
+    })
+    void this.describe(next)
+    if (next.status === "queued") this.tabs.enqueue(id, { writer, history, by: "user" })
+    else queueMicrotask(() => this.start(next, writer, history, "user"))
+    return { id, status: next.status }
+  }
   /** Runs a failed or stopped tab's task again, on the seat it asked for. */
   retry = (id: string, seat?: string): { id: string; status: Tab["status"] } => {
     const tab = this.tabs.get(id)
@@ -1429,7 +1568,10 @@ export class Workspace {
     // The user chose this wait, so the resumed run gets a fresh park budget.
     const waiting = this.tabs.move({ ...tab, wakeAt, endedAt: undefined, parks: undefined }, "sleep")!
     setTimeout(() => {
-      if (this.tabs.get(id)?.status === "parked" && this.tabs.get(id)?.file === tab.file) this.relaunch(waiting)
+      const current = this.tabs.get(id)
+      if (
+        current?.status === "parked" && current.file === tab.file && current.continuationId === tab.continuationId
+      ) this.relaunch(waiting)
     }, wakeAt - Date.now())
   }
   dispose = (): void => {
