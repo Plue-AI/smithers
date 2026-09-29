@@ -47,6 +47,7 @@ export const createStepCacheCli = () =>
   Cli.create("steps", { description: "Inspect and maintain durable flow step results" })
     .command("ls", {
       description: "List recent step cache heads",
+      mcp: { annotations: { readOnlyHint: true } },
       options: z.object({ root: z.string().optional() }),
       run: (c) =>
         files(rootOf(c.options)).flatMap((file) =>
@@ -60,6 +61,7 @@ export const createStepCacheCli = () =>
     })
     .command("show", {
       description: "Inspect a recorded step result",
+      mcp: { annotations: { readOnlyHint: true } },
       args: z.object({ key: z.string() }),
       options: z.object({ root: z.string().optional() }),
       run: (c) => {
@@ -83,6 +85,7 @@ export const createStepCacheCli = () =>
     })
     .command("evict", {
       description: "Remove a step result only if its provenance matches",
+      mcp: { annotations: { readOnlyHint: false } },
       args: z.object({ key: z.string() }),
       options: z.object({ root: z.string().optional(), ifRecordedBy: z.string() }),
       run: (c) => {
@@ -101,6 +104,7 @@ export const createStepCacheCli = () =>
     })
     .command("sweep", {
       description: "Remove old step cache heads; recorded replay evidence is preserved",
+      mcp: { annotations: { readOnlyHint: false } },
       options: z.object({ root: z.string().optional(), olderThan: z.string() }),
       run: (c) => {
         const match = /^(\d+)(s|m|h|d|w)$/.exec(c.options.olderThan)

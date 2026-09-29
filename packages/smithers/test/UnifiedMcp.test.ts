@@ -158,12 +158,33 @@ it(
       expect(unclassified.map((tool) => tool.name)).toEqual([])
 
       const readOnly = new Set(tools.filter((tool) => tool.annotations?.readOnlyHint === true).map((tool) => tool.name))
-      for (const name of ["flow_list", "flow_show", "runs_list", "runs_show", "runs_logs", "approvals_list"]) {
+      for (
+        const name of [
+          "flow_list",
+          "flow_show",
+          "runs_list",
+          "runs_show",
+          "runs_logs",
+          "approvals_list",
+          "cache_steps_ls",
+          "cache_steps_show"
+        ]
+      ) {
         expect(readOnly.has(name), name).toBe(true)
       }
       // `flow plan` commits the plan card and its approval token and journals
       // `control.plan.created`; it is a write even though nothing executes.
-      for (const name of ["flow_plan", "flow_execute", "runs_cancel", "runs_rewind", "memory_set"]) {
+      for (
+        const name of [
+          "flow_plan",
+          "flow_execute",
+          "runs_cancel",
+          "runs_rewind",
+          "memory_set",
+          "cache_steps_evict",
+          "cache_steps_sweep"
+        ]
+      ) {
         expect(readOnly.has(name), name).toBe(false)
       }
       for (const name of readOnly) {
