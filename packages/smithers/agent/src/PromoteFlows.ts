@@ -62,19 +62,21 @@ export const bestPractices = [
  */
 export const flowTemplate = `"use server"
 
-import { Flow } from "@smthrs/core"
+import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
 import * as Schema from "effect/Schema"
 
-export default Flow.make({
-  name: "<the flow id, the same as its directory name>",
+// Save as flows/<id>/flow.ts; the tag must match the directory name.
+export default Flow.make("<id>", {
   description: "<one line naming what this flow produces>",
-  input: Schema.Struct({ /* every value this script read from the conversation */ }),
-  output: Schema.Struct({ /* typed fields, no prose blobs */ }),
-  capabilities: [/* the narrowest patterns the calls below need */],
-  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }
+  capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+  payload: { value: Schema.String },
+  success: Schema.String,
+  // Replace this body with the saved work; declare its inputs in payload and its result in success.
+  body: Node.capture({}, (payload) => Node.succeed(payload.value))
 })
 `
-
 /**
  * Input for `flows/show-script`.
  *
