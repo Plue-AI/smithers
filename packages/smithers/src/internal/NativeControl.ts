@@ -314,8 +314,8 @@ export const make = (
    *
    * This is the *unguarded* half of the composition. It is what
    * {@link layerGuardedPlatform} is built on, and it is what host equipment that
-   * carries its own confinement argument runs on, today only the workspace
-   * observer, whose module documents why (`@smthrs/agent/WorkspaceObservation`).
+   * carries its own read boundary runs on: the workspace observer and the
+   * metadata-only registry scan of the operator's configured sources.
    * Agent-reachable equipment never gets this layer: a flow, a tool, or anything
    * a model can steer takes {@link layerGuardedPlatform} so the kernel decides
    * what it may touch.
@@ -416,21 +416,21 @@ export const make = (
   /**
    * Provides the native flow registry the local CLI discovers flows with.
    *
-   * `Registry.layerNoop()` was the previous local composition, so the CLI found
-   * no flows at all. Discovery runs under an allow-all grant store because the
-   * local CLI is the operator's own process; a hosted composition supplies a real
-   * `GrantStore`. A source root that does not exist scans empty, so this is not a
-   * startup failure. An unreadable one is, and dies rather than silently
+   * Discovery is read-only host equipment over the
+   * operator's configured sources; discovery never imports a flow module.
+   * Use the host filesystem so a scan does not spawn a guarded helper for every
+   * probe. Body loading and executable flows still receive the guarded
+   * platform. The layer exports only the registry. A source root that
+   * does not exist scans empty. An unreadable one dies rather than silently
    * discovering nothing.
    *
    * @category layers
    * @since 0.1.0
    */
   const layerRegistry = (root: string): Layer.Layer<Registry.Registry> => {
-    const platform = layerGuardedPlatform(root)
-    const discovery = Discovery.layer.pipe(Layer.provide(platform))
+    const discovery = Discovery.layer.pipe(Layer.provide(layerHostPlatform))
     return Registry.layer({ sources: projectSources(root) }).pipe(
-      Layer.provide([discovery, platform]),
+      Layer.provide([discovery, layerGuardedPlatform(root)]),
       // A project with no `flows/` directory simply has no flows (`optionalRoot`),
       // and a refresh finds them once it appears. Every other discovery failure,
       // such as an unreadable root or malformed entry, is a startup defect rather

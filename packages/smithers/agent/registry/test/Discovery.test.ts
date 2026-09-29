@@ -236,6 +236,44 @@ describe("Discovery", () => {
     expect(second).toEqual(first)
   })
 
+  it("keeps shared module receipts per flow and refreshes them on the next scan", async () => {
+    await withTemporaryRoot(async (root) => {
+      for (const name of ["one", "two"]) {
+        const directory = join(root, name)
+        mkdirSync(directory)
+        writeFileSync(
+          join(directory, "flow.ts"),
+          [
+            `import "../shared.ts"`,
+            `export default Flow.make("${name}", { description: "${name} flow" })`
+          ].join("\n")
+        )
+      }
+      writeFileSync(join(root, "shared.ts"), `import "./missing.ts"\nexport const shared = 1`)
+      const source: Source = { source: "shared", root, naming: "path" }
+      const first = await scan(source)
+      const second = await scan(source)
+
+      expect(second).toEqual(first)
+      expect(first.entries.map(({ name }) => name)).toEqual(["one", "two"])
+      const receipts = first.entries.map((entry) => entry.body._tag === "Module" ? entry.body.imports : undefined)
+      expect(receipts[0]).toEqual(receipts[1])
+      expect(receipts[0]?.map(({ path }) => path)).toEqual([
+        `"../shared.ts" imports "./missing.ts", which resolves to no file`,
+        "../shared.ts"
+      ])
+
+      writeFileSync(join(root, "shared.ts"), `import "./missing.ts"\nexport const shared = 2`)
+      writeFileSync(join(root, "missing.ts"), "export const missing = 1")
+      const refreshed = await scan(source)
+      const updated = refreshed.entries.map((entry) => entry.body._tag === "Module" ? entry.body.imports : undefined)
+      expect(updated[0]).toEqual(updated[1])
+      expect(updated[0]?.map(({ path }) => path)).toEqual(["../missing.ts", "../shared.ts"])
+      expect(updated[0]?.find(({ path }) => path === "../shared.ts")?.contentDigest)
+        .not.toBe(receipts[0]?.find(({ path }) => path === "../shared.ts")?.contentDigest)
+    })
+  })
+
   it("stops an ancestor symlink after the first physical directory visit", async () => {
     await withTemporaryRoot(async (root) => {
       const directory = join(root, "a", "b")

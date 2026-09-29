@@ -10,6 +10,7 @@ import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
 import * as Digest from "@smthrs/core/Digest"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
@@ -242,6 +243,35 @@ describe("resolving a specifier to a file", () => {
       expect((yield* walk(root, "flow.ts")).map((entry) => entry.path)).toEqual(["both.js"])
     }).pipe(Effect.scoped, Effect.provide(platform)))
 
+  it.effect("keeps counterpart precedence when a later candidate answers first", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* tree({
+        "flow.ts": `import "./both.js"`,
+        "both.ts": "export const chosen = 1",
+        "both.tsx": "export const later = 2"
+      })
+      const laterCompleted = yield* Deferred.make<void>()
+      const completed: Array<string> = []
+      const racing = FileSystem.make({
+        ...fs,
+        stat: (requested) =>
+          Effect.gen(function*() {
+            if (requested === `${root}/both.ts`) yield* Deferred.await(laterCompleted)
+            const result = yield* fs.stat(requested)
+            if (requested === `${root}/both.ts` || requested === `${root}/both.tsx`) {
+              completed.push(requested)
+            }
+            if (requested === `${root}/both.tsx`) yield* Deferred.succeed(laterCompleted, undefined)
+            return result
+          })
+      })
+
+      const found = yield* Effect.provideService(walk(root, "flow.ts"), FileSystem.FileSystem, racing)
+      expect(completed).toEqual([`${root}/both.tsx`, `${root}/both.ts`])
+      expect(found.map(({ path }) => path)).toEqual(["both.ts"])
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
   it.effect("records a specifier nothing answers to, naming the file that asked", () =>
     Effect.gen(function*() {
       const root = yield* tree({
@@ -446,6 +476,147 @@ describe("the walk", () => {
       // cache; without it a project's flows re-read their common imports once
       // per flow.
       expect(reads - after).toBe(1)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("shares positive and missing resolution probes while preserving each entry's closure", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* tree({
+        "one.ts": `import "./shared.ts"\nimport "./missing.ts"`,
+        "two.ts": `import "./shared.ts"\nimport "./missing.ts"`,
+        "shared.ts": `import "./leaf.ts"\nexport const shared = 1`,
+        "leaf.ts": "export const leaf = 1"
+      })
+      const probes = new Map<string, number>()
+      const counting = FileSystem.make({
+        ...fs,
+        stat: (requested) => {
+          probes.set(requested, (probes.get(requested) ?? 0) + 1)
+          return fs.stat(requested)
+        }
+      })
+      const memo = ModuleClosure.cache()
+      const first = yield* Effect.provideService(walk(root, "one.ts", memo), FileSystem.FileSystem, counting)
+      const second = yield* Effect.provideService(walk(root, "two.ts", memo), FileSystem.FileSystem, counting)
+
+      expect(first).toEqual(yield* walk(root, "one.ts"))
+      expect(second).toEqual(yield* walk(root, "two.ts"))
+      expect(first.map(({ path }) => path)).toEqual([
+        "leaf.ts",
+        "shared.ts",
+        `the entry imports "./missing.ts", which resolves to no file`
+      ])
+      expect(probes.get(`${root}/shared.ts`)).toBe(1)
+      expect(probes.get(`${root}/leaf.ts`)).toBe(1)
+      expect(probes.get(`${root}/missing.ts`)).toBe(1)
+      expect([...probes.values()].every((count) => count === 1)).toBe(true)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("stats one absolute file once when imports reach it from different directories", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* tree({
+        "one/flow.ts": `import "../shared.ts"`,
+        "two/flow.ts": `import "../shared.ts"`,
+        "shared.ts": "export const shared = 1"
+      })
+      const probes = new Map<string, number>()
+      const counting = FileSystem.make({
+        ...fs,
+        stat: (requested) => {
+          probes.set(requested, (probes.get(requested) ?? 0) + 1)
+          return fs.stat(requested)
+        }
+      })
+      const memo = ModuleClosure.cache()
+      const first = yield* Effect.provideService(walk(root, "one/flow.ts", memo), FileSystem.FileSystem, counting)
+      const second = yield* Effect.provideService(walk(root, "two/flow.ts", memo), FileSystem.FileSystem, counting)
+
+      expect(first).toEqual(yield* walk(root, "one/flow.ts"))
+      expect(second).toEqual(yield* walk(root, "two/flow.ts"))
+      expect(first.map(({ path }) => path)).toEqual(["../shared.ts"])
+      expect(second.map(({ path }) => path)).toEqual(["../shared.ts"])
+      expect(probes.get(`${root}/shared.ts`)).toBe(1)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("probes wildcard path aliases once across importer directories", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* tree({
+        "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { "*": ["./*"] } } }),
+        "one/flow.ts": [
+          `import "effect/Effect"`,
+          `import "@smthrs/flow"`,
+          `import "../shared.ts"`
+        ].join("\n"),
+        "two/flow.ts": [
+          `import "effect/Effect"`,
+          `import "@smthrs/flow"`,
+          `import "../shared.ts"`
+        ].join("\n"),
+        "shared.ts": "export const shared = 1"
+      })
+      const probes = new Map<string, number>()
+      const counting = FileSystem.make({
+        ...fs,
+        stat: (requested) => {
+          probes.set(requested, (probes.get(requested) ?? 0) + 1)
+          return fs.stat(requested)
+        }
+      })
+      const memo = ModuleClosure.cache()
+      const first = yield* Effect.provideService(walk(root, "one/flow.ts", memo), FileSystem.FileSystem, counting)
+      const second = yield* Effect.provideService(walk(root, "two/flow.ts", memo), FileSystem.FileSystem, counting)
+
+      expect(first).toEqual(yield* walk(root, "one/flow.ts"))
+      expect(second).toEqual(yield* walk(root, "two/flow.ts"))
+      expect(first.map(({ path }) => path)).toEqual(["../shared.ts"])
+      expect(second.map(({ path }) => path)).toEqual(["../shared.ts"])
+      expect(probes.get(`${root}/effect/Effect`)).toBe(1)
+      expect(probes.get(`${root}/@smthrs/flow`)).toBe(1)
+      expect(probes.get(`${root}/shared.ts`)).toBe(1)
+      expect([...probes.values()].every((count) => count === 1)).toBe(true)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("sees a newly created missing import and an edited module in a fresh scan", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* tree({
+        "one.ts": `import "./shared.ts"\nimport "./missing.ts"`,
+        "two.ts": `import "./shared.ts"\nimport "./missing.ts"`,
+        "shared.ts": "export const shared = 1"
+      })
+      const firstScan = ModuleClosure.cache()
+      yield* walk(root, "one.ts", firstScan)
+      const before = yield* walk(root, "two.ts", firstScan)
+      expect(before.some(({ path }) => path.includes("missing.ts") && path.includes("no file"))).toBe(true)
+
+      yield* fs.writeFileString(`${root}/missing.ts`, "export const added = 1")
+      yield* fs.writeFileString(`${root}/shared.ts`, "export const shared = 2")
+      const after = yield* walk(root, "two.ts", ModuleClosure.cache())
+      expect(after.map(({ path }) => path)).toEqual(["missing.ts", "shared.ts"])
+      expect(after.find(({ path }) => path === "shared.ts")?.contentDigest)
+        .not.toBe(before.find(({ path }) => path === "shared.ts")?.contentDigest)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("enforces the same byte bound for cached and freshly read modules", () =>
+    Effect.gen(function*() {
+      const sibling = "export const shared = 12345"
+      const root = yield* tree({
+        "one.ts": `import "./shared.ts"`,
+        "two.ts": `import "./shared.ts"`,
+        "shared.ts": sibling
+      })
+      const size = new TextEncoder().encode(sibling).length
+      for (const bytes of [size - 1, size, size + 1]) {
+        const bounds = { files: 100, bytes }
+        const memo = ModuleClosure.cache()
+        yield* walk(root, "one.ts", memo, { files: 100, bytes: size + 1 })
+        const warm = yield* walk(root, "two.ts", memo, bounds)
+        const cold = yield* walk(root, "two.ts", ModuleClosure.cache(), bounds)
+        expect(warm, `byte bound ${bytes}`).toEqual(cold)
+        expect(warm.some(({ path }) => path.includes(`more than ${bytes} bytes`))).toBe(bytes < size)
+      }
     }).pipe(Effect.scoped, Effect.provide(platform)))
 
   it.effect("stops at its file bound and says so instead of pinning a partial closure", () =>

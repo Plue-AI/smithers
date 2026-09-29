@@ -1,6 +1,7 @@
 /** Flow runs over a controllable fake Port: persistence, receipts, and settlement only from the watch. */
 import { describe, expect, it } from "bun:test"
 import { Schema } from "effect"
+import * as Agents from "../src/agents.ts"
 import {
   actions,
   type Card,
@@ -679,6 +680,130 @@ it("reports a typed discovery failure and clears it after recovery", async () =>
   await runs.listing()
   expect(runs.failure()).toBeUndefined()
   expect(runs.listed()).toHaveLength(1)
+})
+
+describe("discovery reuse", () => {
+  it("refuses an unknown agent from a warm listing without another discovery or body read", async () => {
+    const f = setup()
+    await f.runs.listing()
+    expect(f.calls).toEqual(["discover"])
+    const agents = Agents.port(f.runs, f.port)
+    await expect(agents.load("missing")).rejects.toMatchObject({ code: "unknown_agent" })
+    expect(f.calls).toEqual(["discover"])
+    await f.runs.dispose()
+  })
+
+  it("joins a pending listing and keeps its completion time as the cache age", async () => {
+    const f = setup()
+    const first = pending<ReadonlyArray<Listed>>()
+    Object.assign(f.port, {
+      discover: () => {
+        f.calls.push("discover")
+        return first.promise
+      }
+    })
+    const one = f.runs.listing({ maxAgeMs: 1000 })
+    const two = f.runs.listing({ maxAgeMs: 1000 })
+    expect(f.calls).toEqual(["discover"])
+    first.resolve([flow("review", "Current")])
+    expect(await one).toEqual(await two)
+    expect(await f.runs.listing({ maxAgeMs: 1000 })).toEqual([flow("review", "Current")])
+    expect(f.calls).toEqual(["discover"])
+    await f.runs.dispose()
+  })
+
+  it("uses a fresh scan by default and expires an opted-in listing", async () => {
+    const f = setup()
+    await f.runs.listing({ maxAgeMs: 1 })
+    expect(f.calls).toEqual(["discover"])
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    await f.runs.listing({ maxAgeMs: 1 })
+    await f.runs.listing()
+    expect(f.calls).toEqual(["discover", "discover", "discover"])
+    await f.runs.dispose()
+  })
+
+  it("refresh detects edited descriptors while preserving the last listing until completion", async () => {
+    const f = setup()
+    const old = [flow("review", "Before edit")]
+    const edited = [flow("review", "After edit")]
+    const next = pending<ReadonlyArray<Listed>>()
+    let scans = 0
+    Object.assign(f.port, {
+      discover: () => {
+        scans++
+        return scans === 1 ? Promise.resolve(old) : next.promise
+      }
+    })
+    expect(await f.runs.listing({ maxAgeMs: 1000 })).toEqual(old)
+    f.runs.refresh()
+    expect(f.runs.known()).toEqual(old)
+    next.resolve(edited)
+    await tick()
+    expect(f.runs.known()).toEqual(edited)
+    expect(await f.runs.listing({ maxAgeMs: 1000 })).toEqual(edited)
+    expect(scans).toBe(2)
+    await f.runs.dispose()
+  })
+
+  it("joins a refresh in progress before considering the previous listing", async () => {
+    const f = setup()
+    const next = pending<ReadonlyArray<Listed>>()
+    let scans = 0
+    Object.assign(f.port, {
+      discover: () => {
+        scans++
+        return scans === 1 ? Promise.resolve([flow("review", "Old")]) : next.promise
+      }
+    })
+    await f.runs.listing({ maxAgeMs: 1000 })
+    f.runs.refresh()
+    const during = f.runs.listing({ maxAgeMs: 1000 })
+    expect(scans).toBe(2)
+    next.resolve([flow("review", "Edited")])
+    expect(await during).toEqual([flow("review", "Edited")])
+    expect(f.runs.known()).toEqual([flow("review", "Edited")])
+    await f.runs.dispose()
+  })
+
+  it("retries after a failed discovery without caching the failure", async () => {
+    const f = setup()
+    let scans = 0
+    Object.assign(f.port, {
+      discover: async () => {
+        scans++
+        if (scans === 1) throw new Error("temporarily unavailable")
+        return [flow("review", "Recovered")]
+      }
+    })
+    await expect(f.runs.listing({ maxAgeMs: 1000 })).rejects.toThrow("temporarily unavailable")
+    expect(f.runs.failure()).toMatchObject({ _tag: "FlowDiscoveryFailed" })
+    expect(await f.runs.listing({ maxAgeMs: 1000 })).toEqual([flow("review", "Recovered")])
+    expect(f.runs.failure()).toBeUndefined()
+    expect(scans).toBe(2)
+    await f.runs.dispose()
+  })
+
+  it("keeps the display listing after a failed refresh and retries on the next load", async () => {
+    const f = setup()
+    let scans = 0
+    Object.assign(f.port, {
+      discover: async () => {
+        scans++
+        if (scans === 2) throw new Error("refresh failed")
+        return [flow("review", scans === 1 ? "Before edit" : "After recovery")]
+      }
+    })
+    expect(await f.runs.listing({ maxAgeMs: 1000 })).toEqual([flow("review", "Before edit")])
+    f.runs.refresh()
+    await tick()
+    expect(f.runs.known()).toEqual([flow("review", "Before edit")])
+    expect(f.runs.failure()).toMatchObject({ _tag: "FlowDiscoveryFailed" })
+    expect(await f.runs.listing({ maxAgeMs: 1000 })).toEqual([flow("review", "After recovery")])
+    expect(scans).toBe(3)
+    expect(f.runs.failure()).toBeUndefined()
+    await f.runs.dispose()
+  })
 })
 
 it("opens the host once in the background and exposes opening until ready", async () => {

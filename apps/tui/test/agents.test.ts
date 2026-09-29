@@ -16,7 +16,12 @@ const agent = (overrides: Partial<Extension.Descriptor> = {}): Extension.Descrip
   ...overrides
 })
 const listed = [agent(), agent({ name: "echo", kind: "module" }), agent({ name: "manual", modelInvocable: false })]
-const body = { text: "Review the change.", baseDirectory: "/repo/flows/review", digest: "d".repeat(64) }
+const body = {
+  descriptor: agent(),
+  text: "Review the change.",
+  baseDirectory: "/repo/flows/review",
+  digest: "d".repeat(64)
+}
 const seatOf = (declared: string) => Models.seatOf(declared, [])
 const code = (run: () => unknown) => {
   try {
@@ -104,5 +109,53 @@ describe("context", () => {
     const many = Array.from({ length: 30 }, (_, index) => agent({ name: `a${index}` }))
     expect(JSON.parse(Agents.context(listed))).toEqual([{ name: "review", description: "Reviews the change." }])
     expect(JSON.parse(Agents.context(many))).toHaveLength(20)
+  })
+})
+
+describe("port.load", () => {
+  test("takes launch settings from the descriptor verified with the fresh body", async () => {
+    const warm = agent({ flows: ["read", "bash"], capabilities: ["*"] })
+    const edited = agent({
+      description: "Checks the edited change.",
+      seat: "opus",
+      effort: "low",
+      modelInvocable: false,
+      flows: ["read"],
+      capabilities: ["fs:read:**"]
+    })
+    const freshBody = { ...body, descriptor: edited, text: "Check the edited change.", capabilities: ["fs:read:**"] }
+    const port = Agents.port({ known: () => [warm], listing: async () => [warm] }, { body: async () => freshBody })
+    const loaded = await port.load("review")
+    expect(loaded).toEqual({ descriptor: edited, body: freshBody })
+    expect(code(() => Agents.find([loaded.descriptor], "review", "agent"))).toBe("not_invocable")
+    expect(Agents.profile(loaded.descriptor, loaded.body, seatOf)).toMatchObject({
+      seat: "opus",
+      thinking: "low",
+      flows: ["read"],
+      envelope: ["fs:read:**"]
+    })
+  })
+
+  test("reuses a recent listing and refuses an unknown agent before reading a body", async () => {
+    const options: Array<unknown> = []
+    const reads: Array<string> = []
+    const port = Agents.port({
+      known: () => listed,
+      listing: async (option) => {
+        options.push(option)
+        return listed
+      }
+    }, {
+      body: async (name) => {
+        reads.push(name)
+        return body
+      }
+    })
+
+    await expect(port.load("missing")).rejects.toMatchObject({ code: "unknown_agent" })
+    expect(options).toEqual([{ maxAgeMs: 1000 }])
+    expect(reads).toEqual([])
+    expect(await port.load("review")).toEqual({ descriptor: listed[0]!, body })
+    expect(reads).toEqual(["review"])
   })
 })

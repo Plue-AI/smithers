@@ -1,0 +1,226 @@
+{
+  "issue": 2837,
+  "measuredAt": "2026-09-29",
+  "baseRevision": "1e21e9b37f37a5b7dec723f2296586a43227736f",
+  "corpus": "flows/ from base revision, unchanged throughout measurement",
+  "machine": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpus": 14
+  },
+  "runtime": {
+    "bun": "1.4.2"
+  },
+  "equalCompleteDescriptorsAndWarnings": true,
+  "runs": [
+    {
+      "implementation": "baseline",
+      "samples": [
+        {
+          "phase": "cold",
+          "elapsedMs": 546757.0815000001,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm",
+          "elapsedMs": 472339.10720800003,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        }
+      ],
+      "counted": {
+        "elapsedMs": 7410.224042000016,
+        "stat": 15622,
+        "uniqueStat": 1388,
+        "readFile": 308,
+        "readDirectory": 63
+      },
+      "descriptorCount": 47,
+      "warningCount": 3,
+      "descriptorSha256": "b15fc67fcbea689229707e9c5e4692459cd6e57a8b5bcf1873aad1e6161b6926",
+      "warningSha256": "b0c3d4efe04f16af9ca0b51c6f109f7d272553f97824fb476f9b3e58a81c6cb7"
+    },
+    {
+      "implementation": "cache_and_host_scan",
+      "samples": [
+        {
+          "phase": "cold",
+          "elapsedMs": 7247.576083,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm",
+          "elapsedMs": 3404.1932500000003,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        }
+      ],
+      "counted": {
+        "elapsedMs": 4038.443749999995,
+        "stat": 1464,
+        "uniqueStat": 1388,
+        "readFile": 308,
+        "readDirectory": 63
+      },
+      "descriptorCount": 47,
+      "warningCount": 3,
+      "descriptorSha256": "b15fc67fcbea689229707e9c5e4692459cd6e57a8b5bcf1873aad1e6161b6926",
+      "warningSha256": "b0c3d4efe04f16af9ca0b51c6f109f7d272553f97824fb476f9b3e58a81c6cb7"
+    },
+    {
+      "implementation": "cache_and_host_scan_profiled",
+      "samples": [
+        {
+          "phase": "cold",
+          "elapsedMs": 4777.073959000001,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm",
+          "elapsedMs": 2585.5554169999996,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        }
+      ],
+      "counted": {
+        "elapsedMs": 1227.1707079999978,
+        "stat": 1464,
+        "uniqueStat": 1388,
+        "readFile": 308,
+        "readDirectory": 63
+      },
+      "descriptorCount": 47,
+      "warningCount": 3,
+      "descriptorSha256": "b15fc67fcbea689229707e9c5e4692459cd6e57a8b5bcf1873aad1e6161b6926",
+      "warningSha256": "b0c3d4efe04f16af9ca0b51c6f109f7d272553f97824fb476f9b3e58a81c6cb7"
+    },
+    {
+      "implementation": "concurrent_fallback_probes",
+      "samples": [
+        {
+          "phase": "cold",
+          "elapsedMs": 7131.163292000001,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm",
+          "elapsedMs": 1077.6910000000025,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        }
+      ],
+      "counted": {
+        "elapsedMs": 925.1125830000019,
+        "stat": 1464,
+        "uniqueStat": 1388,
+        "readFile": 308,
+        "readDirectory": 63
+      },
+      "descriptorCount": 47,
+      "warningCount": 3,
+      "descriptorSha256": "b15fc67fcbea689229707e9c5e4692459cd6e57a8b5bcf1873aad1e6161b6926",
+      "warningSha256": "b0c3d4efe04f16af9ca0b51c6f109f7d272553f97824fb476f9b3e58a81c6cb7"
+    },
+    {
+      "implementation": "concurrent_fallback_repetitions",
+      "samples": [
+        {
+          "phase": "cold",
+          "elapsedMs": 2055.5841660000006,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm-1",
+          "elapsedMs": 1015.2268330000006,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm-2",
+          "elapsedMs": 743.8364999999994,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm-3",
+          "elapsedMs": 387.21037500000057,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        }
+      ],
+      "counted": {
+        "elapsedMs": 864.1662909999995,
+        "stat": 1464,
+        "uniqueStat": 1388,
+        "readFile": 308,
+        "readDirectory": 63
+      },
+      "descriptorCount": 47,
+      "warningCount": 3,
+      "descriptorSha256": "b15fc67fcbea689229707e9c5e4692459cd6e57a8b5bcf1873aad1e6161b6926",
+      "warningSha256": "b0c3d4efe04f16af9ca0b51c6f109f7d272553f97824fb476f9b3e58a81c6cb7"
+    },
+    {
+      "implementation": "final_guarded_body_loading",
+      "samples": [
+        {
+          "phase": "cold",
+          "elapsedMs": 2445.839250000001,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm-1",
+          "elapsedMs": 1212.1632500000014,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm-2",
+          "elapsedMs": 459.1281250000011,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        },
+        {
+          "phase": "warm-3",
+          "elapsedMs": 853.3138749999998,
+          "count": 47,
+          "sha256": "6f65f33c68975000a3eb6b4c42dddc9f7a98bc94a6e6f64b3a7afdabdbb1d452"
+        }
+      ],
+      "counted": {
+        "elapsedMs": 1759.6656669999993,
+        "stat": 1464,
+        "uniqueStat": 1388,
+        "readFile": 308,
+        "readDirectory": 63
+      },
+      "descriptorCount": 47,
+      "warningCount": 3,
+      "descriptorSha256": "b15fc67fcbea689229707e9c5e4692459cd6e57a8b5bcf1873aad1e6161b6926",
+      "warningSha256": "b0c3d4efe04f16af9ca0b51c6f109f7d272553f97824fb476f9b3e58a81c6cb7"
+    }
+  ],
+  "validation": {
+    "registry": "143 passed: ModuleClosure, Discovery, Executable",
+    "tui": "83 passed: agents, flows, workspace",
+    "native": "8 passed: NodeRegistry, BunControl",
+    "flowControl": "5 passed: discovery, markdown-body and edited-agent integration; 17 unrelated cases filtered",
+    "types": "CLI source build, CLI test types, registry test types, TUI types passed",
+    "lint": "changed production files passed",
+    "coverage": "Focused runs; coverage disabled, configured package thresholds unchanged",
+    "review": "Fable unavailable: account usage credits exhausted. Two Astra review rounds found unguarded body loading and cached settings paired with fresh prompts. Both findings fixed with behavioral regression tests; see #2837 for commands and final validation receipts."
+  },
+  "measuredSourceSha256": {
+    "apps/tui/src/agents.ts": "19e92fa315ba45a5b26da2a836a7d72ed71a9180860c53f1c7a91e18cd6d6250",
+    "apps/tui/src/flows.ts": "c9235cb00c6960712cd4ef42fa509719fc4f2adae83ce14ef39ab8e6e177d6be",
+    "apps/tui/src/app.tsx": "756bbaba7b144a930db1bd5c0e0f11c904b1f2b09f9f29e961549e6b27dcd691",
+    "packages/smithers/agent/registry/src/internal/ModuleClosure.ts": "f8c98e1d7b43c39643c598e4e046c35e622d983f34641123a7f89d0bbf128ede",
+    "packages/smithers/src/internal/NativeControl.ts": "ef2fe914e041ffe75929cb9b6313ca1dc42860fef42f1c4f8bf794669302eeac"
+  }
+}

@@ -25,6 +25,8 @@ type ControlEvent = ControlSchema.ControlEvent
 export type Listed = Extension.Descriptor
 /** An agent's prompt, read on demand; `digest` names the executable the tab ran. */
 export interface Body {
+  /** Settings from the same registry snapshot that verified these prompt bytes. */
+  readonly descriptor: Listed
   readonly text: string
   readonly baseDirectory: string
   readonly digest: string
@@ -187,6 +189,8 @@ export class FlowRuns {
   /** Payload schemas read by a run's preparation, by flow; describing never imports a module. */
   private inputs = new Map<string, Schema.Top | undefined>()
   private discovery = 0
+  private discovering: Promise<ReadonlyArray<Listed>> | undefined
+  private discoveredAt = -Infinity
   private warming: Promise<void> | undefined
   private opened = false
   private isOpening = false
@@ -250,32 +254,42 @@ export class FlowRuns {
   listed = (): ReadonlyArray<Listed> => this.cache
   /** Why the newest discovery failed; cleared by the next one that succeeds. */
   failure = (): FlowDiscoveryFailed | undefined => this.discoveryFailure
-  private async discover() {
+  private discover(): Promise<ReadonlyArray<Listed>> {
     const version = ++this.discovery
-    let listed: ReadonlyArray<Listed>
-    try {
-      listed = await this.options.port!.discover()
-    } catch (error) {
+    this.discoveredAt = -Infinity
+    const pending = (async () => {
+      let listed: ReadonlyArray<Listed>
+      try {
+        listed = await this.options.port!.discover()
+      } catch (error) {
+        if (version === this.discovery && !this.closed) {
+          this.discoveryFailure = new FlowDiscoveryFailed(error)
+          Log.write("flow.discovery", error)
+          this.changed()
+        }
+        throw error
+      }
       if (version === this.discovery && !this.closed) {
-        this.discoveryFailure = new FlowDiscoveryFailed(error)
-        Log.write("flow.discovery", error)
+        this.cache = listed
+        this.discoveryFailure = undefined
+        this.discovered = true
+        this.discoveredAt = Date.now()
         this.changed()
       }
-      throw error
-    }
-    if (version === this.discovery && !this.closed) {
-      this.cache = listed
-      this.discoveryFailure = undefined
-      this.discovered = true
-      this.changed()
-    }
-    return listed
+      return listed
+    })().finally(() => {
+      if (this.discovering === pending) this.discovering = undefined
+    })
+    this.discovering = pending
+    return pending
   }
   /** The last discovery, or undefined before the first one settled. */
   known = (): ReadonlyArray<Listed> | undefined => (this.discovered ? this.cache : undefined)
-  /** A fresh discovery. */
-  listing = (): Promise<ReadonlyArray<Listed>> => {
+  /** Join an active scan, or reuse a successful listing within the caller's age bound. */
+  listing = (options: { readonly maxAgeMs?: number } = {}): Promise<ReadonlyArray<Listed>> => {
     if (this.options.port === undefined || this.closed) return Promise.reject(new Error("Flows unavailable"))
+    if (this.discovering !== undefined) return this.discovering
+    if (Date.now() - this.discoveredAt < (options.maxAgeMs ?? 0)) return Promise.resolve(this.cache)
     return this.discover()
   }
   /**

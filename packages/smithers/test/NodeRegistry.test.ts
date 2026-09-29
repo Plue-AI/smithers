@@ -10,7 +10,7 @@ import { Effect } from "effect"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import * as NodeControl from "../src/NodeControl.ts"
 
 let root = ""
@@ -46,6 +46,31 @@ describe("NodeControl.projectSources", () => {
 })
 
 describe("NodeControl.layerRegistry", () => {
+  it("discovers real descriptors without the helper while keeping body access guarded", async () => {
+    vi.stubEnv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", join(root, "missing-helper"))
+    try {
+      const result = await Effect.runPromise(
+        Effect.gen(function*() {
+          const registry = yield* Registry.Registry
+          const entries = yield* registry.list()
+          const bodyFailure = yield* Effect.flip(registry.loadBody("review"))
+          return { entries, bodyFailure }
+        }).pipe(Effect.provide(NodeControl.layerRegistry(root)), Effect.scoped)
+      )
+      expect(result.entries).toEqual([
+        expect.objectContaining({
+          name: "review",
+          description: "Reviews a proposed change and reports concrete risks.",
+          body: expect.objectContaining({ _tag: "Markdown" }),
+          path: join(root, "flows", "review", "SKILL.md")
+        })
+      ])
+      expect(result.bodyFailure).toMatchObject({ code: "body_unavailable", method: "loadBody" })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("discovers a project flow from disk", async () => {
     const names = await Effect.runPromise(
       Effect.gen(function*() {

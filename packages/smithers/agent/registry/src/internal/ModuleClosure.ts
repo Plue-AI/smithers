@@ -70,11 +70,10 @@ export const closureByteLimit = 16 * 1024 * 1024
 /**
  * The suffixes a specifier is resolved through, in order.
  *
- * The empty suffix is first because the repository writes most specifiers with
- * their extension; the rest are what an extensionless specifier such as
+ * The exact path is checked first; these are what an extensionless specifier such as
  * `"../coding/schema"` means under this project's loaders.
  */
-const suffixes = ["", ".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".json"]
+const suffixes = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".json"]
 
 /**
  * The TypeScript sources a JavaScript specifier stands for.
@@ -218,31 +217,41 @@ const resolve = (
   fs: FileSystem.FileSystem,
   path: Path.Path,
   fromDirectory: string,
-  specifier: string
+  specifier: string,
+  memo: Cache
 ): Effect.Effect<string | undefined> =>
   Effect.gen(function*() {
+    const key = `${fromDirectory}\0${specifier}`
+    if (memo.resolutions.has(key)) return memo.resolutions.get(key)
+    // Different importers and aliases can probe the same absolute candidate.
+    // Cache misses too: wildcard paths usually leave bare imports to packages.
+    const isFile = (candidate: string) =>
+      Effect.gen(function*() {
+        if (memo.isFile.has(candidate)) return memo.isFile.get(candidate)!
+        const stat = yield* Effect.result(fs.stat(candidate))
+        const found = stat._tag === "Success" && stat.success.type === "File"
+        memo.isFile.set(candidate, found)
+        return found
+      })
     const base = path.resolve(fromDirectory, specifier)
-    const exact = yield* Effect.result(fs.stat(base))
-    if (exact._tag === "Success" && exact.success.type === "File") return base
+    if (yield* isFile(base)) {
+      memo.resolutions.set(key, base)
+      return base
+    }
+    const candidates: Array<string> = []
     for (const [extension, sources] of typeScriptCounterparts) {
       if (!base.endsWith(extension)) continue
       for (const source of sources) {
-        const candidate = `${base.slice(0, -extension.length)}${source}`
-        const stat = yield* Effect.result(fs.stat(candidate))
-        if (stat._tag === "Success" && stat.success.type === "File") return candidate
+        candidates.push(`${base.slice(0, -extension.length)}${source}`)
       }
     }
-    for (const suffix of suffixes) {
-      const candidate = `${base}${suffix}`
-      const stat = yield* Effect.result(fs.stat(candidate))
-      if (stat._tag === "Success" && stat.success.type === "File") return candidate
-    }
-    for (const name of indexNames) {
-      const candidate = path.join(base, name)
-      const stat = yield* Effect.result(fs.stat(candidate))
-      if (stat._tag === "Success" && stat.success.type === "File") return candidate
-    }
-    return undefined
+    candidates.push(...suffixes.map((suffix) => `${base}${suffix}`), ...indexNames.map((name) => path.join(base, name)))
+    // Most fallbacks are missing wildcard aliases. Overlap their host reads,
+    // then select in loader order regardless of which probe finished first.
+    const matches = yield* Effect.forEach(candidates, isFile, { concurrency: 16 })
+    const resolved = candidates[matches.findIndex(Boolean)]
+    memo.resolutions.set(key, resolved)
+    return resolved
   })
 
 /**
@@ -468,6 +477,7 @@ const bareTargets = (
 export interface Cache {
   readonly files: Map<string, {
     readonly contentDigest: string
+    readonly size: number
     readonly specifiers: ReadonlyArray<string>
     readonly opaque: number
     readonly absolute: ReadonlyArray<string>
@@ -477,6 +487,10 @@ export interface Cache {
   readonly configs: Map<string, Record<string, unknown> | undefined>
   /** What each bare specifier came to, keyed by importer directory and specifier. */
   readonly bare: Map<string, BareTargets>
+  /** Relative/alias resolution, including misses, by importer directory and specifier. */
+  readonly resolutions: Map<string, string | undefined>
+  /** File probes shared even when different specifiers name the same candidate. */
+  readonly isFile: Map<string, boolean>
 }
 
 /**
@@ -486,7 +500,13 @@ export interface Cache {
  * @since 1.0.0-rc.0
  * @private
  */
-export const cache = (): Cache => ({ files: new Map(), configs: new Map(), bare: new Map() })
+export const cache = (): Cache => ({
+  files: new Map(),
+  configs: new Map(),
+  bare: new Map(),
+  resolutions: new Map(),
+  isFile: new Map()
+})
 
 /** The record for a specifier nothing could be pinned for. */
 const unpinnable = (description: string): ModuleImport => ({ path: description })
@@ -557,7 +577,7 @@ export const collect = (
             found.set(description, unpinnable(description))
           }
           for (const file of targets.files) {
-            if ((yield* resolve(fs, path, directory, file)) !== undefined) {
+            if ((yield* resolve(fs, path, directory, file, memo)) !== undefined) {
               pending.push({ from, directory, specifier: file })
             }
           }
@@ -576,7 +596,7 @@ export const collect = (
 
     while (pending.length > 0) {
       const { directory, from, specifier } = pending.shift()!
-      const resolved = yield* resolve(fs, path, directory, specifier)
+      const resolved = yield* resolve(fs, path, directory, specifier, memo)
       const importer = from === normalizedEntryPath ? "the entry" : `"${relativePath(path, entryDirectory, from)}"`
       if (resolved === undefined) {
         const description = `${importer} imports "${specifier}", which resolves to no file`
@@ -595,6 +615,12 @@ export const collect = (
       const recorded = relativePath(path, entryDirectory, resolved)
       const cached = memo.files.get(resolved)
       if (cached !== undefined) {
+        bytes += cached.size
+        if (bytes > bounds.bytes) {
+          const description = `the closure totals more than ${bounds.bytes} bytes`
+          found.set(description, unpinnable(description))
+          break
+        }
         found.set(recorded, { path: recorded, contentDigest: cached.contentDigest })
         reportOpaque(`"${recorded}"`, cached.opaque)
         reportAbsolute(`"${recorded}"`, cached.absolute)
@@ -620,6 +646,7 @@ export const collect = (
       reportAbsolute(`"${recorded}"`, specifiers.absolute)
       memo.files.set(resolved, {
         contentDigest,
+        size: read.success.length,
         specifiers: specifiers.relative,
         opaque: specifiers.opaque,
         absolute: specifiers.absolute,

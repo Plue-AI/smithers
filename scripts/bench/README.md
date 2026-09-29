@@ -1,5 +1,10 @@
 # Deterministic performance gates
 
+The manual [flow discovery measurement](flow-discovery/README.md) retains
+before/after timings, filesystem operation counts, and descriptor equality
+receipts for #2837. Its deterministic regression tests count resolution probes;
+wall times on a shared developer machine are observations, not CI thresholds.
+
 `node scripts/bench/gate.mjs` is the required PR target
 `//scripts:benchmarkGate`. It executes 18 fixtures: scheduler chain, wide and
 shared-write conflict graphs of 8, 32 and 64 nodes, and journal append, reopen

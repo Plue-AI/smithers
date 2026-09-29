@@ -124,11 +124,11 @@ export const context = (listed: ReadonlyArray<Extension.Descriptor>): string =>
     }))
   )
 
-/** Where a workspace finds agents: the last listing, and a fresh listing plus body at launch. */
+/** Where a workspace finds agents: a recent listing and a fresh body at launch. */
 export interface Port {
   /** The last discovery; undefined before the first one. */
   readonly listed: () => ReadonlyArray<Extension.Descriptor> | undefined
-  /** Re-lists, so edits apply, then reads the body. */
+  /** Reuses a recent listing, then reads the current body. */
   readonly load: (name: string) => Promise<{ readonly descriptor: Extension.Descriptor; readonly body: Flows.Body }>
 }
 
@@ -136,13 +136,16 @@ export interface Port {
 export const port = (
   runs: {
     readonly known: () => ReadonlyArray<Extension.Descriptor> | undefined
-    readonly listing: () => Promise<ReadonlyArray<Extension.Descriptor>>
+    readonly listing: (options?: { readonly maxAgeMs?: number }) => Promise<ReadonlyArray<Extension.Descriptor>>
   },
   flows: Pick<Flows.Port, "body">
 ): Port => ({
   listed: runs.known,
   load: async (name) => {
-    const descriptor = find(await runs.listing(), name, "user")
-    return { descriptor, body: await flows.body(name) }
+    find(await runs.listing({ maxAgeMs: 1_000 }), name, "user")
+    const body = await flows.body(name)
+    // The listing is only an early refusal. Launch settings must describe the
+    // same bytes as the fresh prompt, including edits made within the cache age.
+    return { descriptor: find([body.descriptor], name, "user"), body }
   }
 })

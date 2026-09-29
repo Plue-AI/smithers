@@ -30,6 +30,7 @@ const listed: ReadonlyArray<Extension.Descriptor> = [
   descriptor({ name: "manual", modelInvocable: false, seat: undefined })
 ]
 const body = (text = "Review the change."): Flows.Body => ({
+  descriptor: descriptor(),
   text,
   baseDirectory: "/repo/flows/review",
   digest: "a".repeat(64)

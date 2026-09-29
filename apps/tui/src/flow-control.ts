@@ -146,6 +146,7 @@ export const make = (options: {
           }
           const declared = descriptor.value.frontmatter["capabilities"]
           return {
+            descriptor: Extension.project(descriptor.value),
             text: body.text,
             baseDirectory: body.baseDirectory,
             digest: executionDigest(descriptor.value) ?? "",

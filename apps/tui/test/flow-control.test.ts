@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import * as Agents from "../src/agents.ts"
 import * as FlowControl from "../src/flow-control.ts"
 import { FlowError } from "../src/flows.ts"
 import { FlowRuns } from "../src/flows.ts"
@@ -56,6 +57,57 @@ it("reads an agent's body and refuses a module's", async () => {
   const missing = await port.body("missing").catch((error: unknown) => error)
   expect((missing as FlowError).code).toBe("unknown_flow")
 }, 30_000)
+
+it("loads an edited agent's body and settings together from the real registry", async () => {
+  const project = mkdtempSync(join(tmpdir(), "tui-agent-edit-"))
+  const directory = join(project, "flows", "review")
+  const file = join(directory, "flow.mdx")
+  mkdirSync(directory, { recursive: true })
+  const markdown = (settings: string, prompt: string) => `---\ndescription: Review\n${settings}\n---\n\n${prompt}\n`
+  writeFileSync(file, markdown("model: sol\neffort: high\nflows: [read, bash]\ncapabilities: ['*']", "Old prompt."))
+  const local = FlowControl.make({ cwd: project, environment: {}, approvals: host.approvals! })
+  let discoveries = 0
+  const tracked = {
+    ...local,
+    discover: async () => {
+      discoveries++
+      return local.discover()
+    }
+  }
+  const runs = new FlowRuns({ port: tracked, persist: () => {} })
+  try {
+    const warm = await runs.listing({ maxAgeMs: 1000 })
+    expect(warm[0]).toMatchObject({ flows: ["read", "bash"], seat: "sol", effort: "high" })
+    writeFileSync(
+      file,
+      markdown(
+        "model: opus\neffort: low\nflows: [read]\ncapabilities: ['fs:read:**']\ndisable-model-invocation: true",
+        "Edited prompt."
+      )
+    )
+    const loaded = await Agents.port(runs, tracked).load("review")
+    expect(discoveries).toBe(1)
+    expect(loaded.body.text.trim()).toBe("Edited prompt.")
+    expect(loaded.body.descriptor).toEqual(loaded.descriptor)
+    expect(loaded.descriptor).toMatchObject({
+      flows: ["read"],
+      seat: "opus",
+      effort: "low",
+      modelInvocable: false,
+      capabilities: ["fs:read:**"]
+    })
+    expect(Agents.profile(loaded.descriptor, loaded.body, (seat) => seat)).toMatchObject({
+      flows: ["read"],
+      seat: "opus",
+      thinking: "low",
+      envelope: ["fs:read:**"]
+    })
+  } finally {
+    await runs.dispose()
+    await local.dispose()
+    rmSync(project, { recursive: true, force: true })
+  }
+}, 60_000)
 
 it("keeps an agent's declared capabilities when it also declares flows", async () => {
   // The registry keeps the declaration as the ceiling of a delegate grant.

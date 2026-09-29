@@ -185,7 +185,7 @@ export function App(props: AppProps) {
     contributions.runtime(owner, contribution)
     if (contribution.kind !== "panel") writer.current.append({ type: "contribution", owner, contribution })
   }, [contributions])
-  // Agents read the current session's flow runs: their listing, and a fresh one at launch.
+  // Agents share the session's recent listing and read the current body at launch.
   const runsRef = useRef<FlowRuns | undefined>(undefined)
   const workspaceRef = useRef<Workspace | undefined>(undefined)
   const makeWorkspace = (restoredTabs?: Snapshot) =>
@@ -199,7 +199,7 @@ export function App(props: AppProps) {
       ...(props.flows === undefined ? {} : {
         agents: Agents.port({
           known: () => runsRef.current?.known(),
-          listing: () => runsRef.current?.listing() ?? Promise.reject(new Error("Flows unavailable"))
+          listing: (options) => runsRef.current?.listing(options) ?? Promise.reject(new Error("Flows unavailable"))
         }, props.flows)
       }),
       seatOf: props.seatOf ?? ((declared) => Models.seatOf(declared, props.models)),
