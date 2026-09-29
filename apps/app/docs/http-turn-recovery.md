@@ -20,6 +20,8 @@ The server persists output batches. A live socket delivers `accepted`, `batch`
 and `caught-up` observations; it does not own a second transcript. `WebAgent`
 awaits its journal subscriber before processing the next delivery. A socket
 ending without a terminal batch does not synthesize a model `done` fact.
+Terminal delivery ends at the first terminal item, even when later NDJSON lines
+share its HTTP chunk.
 The production `createAgentSeat` forwards that journal interface and its awaited
 receipts. It retains the recording backend for replay, cancellation and later
 legs even if the in-page chain is subsequently bound.

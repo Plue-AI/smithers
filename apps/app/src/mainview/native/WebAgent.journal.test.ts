@@ -35,6 +35,33 @@ test("journal delivery waits for its commit subscriber and a disconnected socket
   expect(calls).toEqual([{ url: TURN_PATH, body: request }])
 })
 
+test.each(["batch", "caught-up"] as const)("terminal %s ends journal delivery independent of HTTP chunking", async terminalType => {
+  const terminalBody = { ...body, frames: [{ type: "done" as const, runId: "turn" }] }
+  const terminalBatch = { ...terminalBody, hash: digest(agentTurnJournalDigestInput("batch", terminalBody)) }
+  const terminalCursor = { ...next, hash: terminalBatch.hash }
+  const terminal = terminalType === "batch"
+    ? { type: "batch", batch: terminalBatch, cursor: terminalCursor }
+    : { type: "caught-up", cursor, terminal: true }
+  const lines = [{ type: "accepted", cursor }, terminal, { type: "accepted", cursor }]
+  for (const coalesced of [true, false]) {
+    const delivered: AgentTurnJournalDelivery[] = []
+    let cancelled!: () => void
+    const cancellation = new Promise<void>(resolve => { cancelled = resolve })
+    const agent = createWebAgent({ fetchImpl: async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder()
+        const chunks = coalesced ? [lines.map(line => JSON.stringify(line)).join("\n") + "\n"] : lines.map(line => JSON.stringify(line) + "\n")
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+      },
+      cancel() { cancelled() }
+    }), { headers: { "x-smithers-turn-journal": "1" } }) })
+    agent.journal!.subscribe(async delivery => { delivered.push(delivery) })
+    expect(await agent.startTurn(request)).toEqual({ status: "started" })
+    await cancellation
+    expect(delivered).toEqual(lines.slice(0, 2))
+  }
+})
+
 test("an existing server head is never advertised as applied; replay and retirement keep capability out of URLs", async () => {
   const calls: Array<{ url: string; body: unknown }> = [], delivered: unknown[] = []
   const agent = createWebAgent({ fetchImpl: async (url, init) => {

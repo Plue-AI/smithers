@@ -57,6 +57,30 @@ describe("createWebAgent", () => {
     ])
   })
 
+  test.each([true, false])("a terminal frame ends delivery with coalesced chunks: %s", async coalesced => {
+    const frames: AgentTurnFrame[] = []
+    const lines = [
+      { runId: "run-1", type: "delta", kind: "text", text: "before" },
+      { runId: "run-1", type: "done" },
+      { runId: "run-1", type: "delta", kind: "text", text: "after" },
+      { runId: "run-1", type: "done" }
+    ]
+    let cancelled!: () => void
+    const cancellation = new Promise<void>(resolve => { cancelled = resolve })
+    const agent = createWebAgent({ fetchImpl: async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder()
+        const chunks = coalesced ? [lines.map(line => JSON.stringify(line)).join("\n") + "\n"] : lines.map(line => JSON.stringify(line) + "\n")
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+      },
+      cancel() { cancelled() }
+    })) })
+    agent.subscribe(frame => { frames.push(frame) })
+    expect(await agent.startTurn(request)).toEqual({ status: "started" })
+    await cancellation
+    expect(frames).toEqual(lines.slice(0, 2))
+  })
+
   test("drops frames for other runs and malformed lines without failing the turn", async () => {
     const agent = createWebAgent({
       fetchImpl: async () =>

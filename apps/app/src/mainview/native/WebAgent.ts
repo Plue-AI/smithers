@@ -146,6 +146,7 @@ const streamFrames = async (
         onTerminal?.()
       }
       publish(frame)
+      if (settled) break
     }
     if (done || settled) break
   }
@@ -187,6 +188,7 @@ const streamJournal = async (body: ReadableStream<Uint8Array>, runId: string, le
           done = true; terminal()
         }
         await publish(delivery)
+        if (done) break
       }
       if (chunk.done) break
     }
