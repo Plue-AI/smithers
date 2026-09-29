@@ -1628,6 +1628,65 @@ describe("a durable latency clock", () => {
     })
   })
 
+  it("recovers the same verdict as live for a run that parked before its first decision", async () => {
+    // A module flow can wait on a person before its agent makes any call.
+    const ledger = budgetLedger()
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const live = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        yield* live.suspend
+        yield* TestClock.adjust("10 seconds")
+        const first = yield* live.check("step-a")
+        yield* TestClock.adjust("6 seconds")
+        const liveVerdict = yield* live.check("step-b")
+        const recovered = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        const recoveredVerdict = yield* recovered.check("step-b")
+        return { first, liveVerdict, recoveredVerdict }
+      }).pipe(
+        Effect.provideService(Journal.Journal, ledger.journal),
+        Effect.provideService(FlowRuntime.FlowInstance, instanceFor("latency-parked-first")),
+        Effect.provide(TestClock.layer())
+      )
+    )
+
+    expect(observed.first._tag).toBe("proceed")
+    const refused = { _tag: "refuse", exceeded: { scope: "latency", used: 6_000, max: 5_000 } }
+    expect(observed.liveVerdict).toMatchObject(refused)
+    // The ten parked seconds before the zero are not handed back on recovery.
+    expect(observed.recoveredVerdict).toMatchObject(refused)
+  })
+
+  it("starts the clock at the run's first decision, not at a resume that precedes it", async () => {
+    // A port records a resume when it is built, before the run asks anything.
+    const ledger = budgetLedger()
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        yield* budget.resume()
+        yield* TestClock.adjust("6 seconds")
+        const first = yield* budget.check("step-a")
+        yield* TestClock.adjust("6 seconds")
+        const overrun = yield* budget.check("step-b")
+        return { first, overrun }
+      }).pipe(
+        Effect.provideService(Journal.Journal, ledger.journal),
+        Effect.provideService(FlowRuntime.FlowInstance, instanceFor("latency-first-decision")),
+        Effect.provide(TestClock.layer())
+      )
+    )
+
+    expect(observed.first._tag).toBe("proceed")
+    expect(observed.overrun).toMatchObject({
+      _tag: "refuse",
+      exceeded: { scope: "latency", used: 6_000, max: 5_000 }
+    })
+    expect(
+      ledger.recorded
+        .filter((entry) => entry.eventType === Budget.budgetStartedEvent)
+        .map((entry) => entry.payload)
+    ).toEqual([{ startedAt: 6_000 }])
+  })
+
   it("charges active time only, and a fresh instance recovers the suspended spans", async () => {
     const ledger = budgetLedger()
     const observed = await Effect.runPromise(
@@ -1697,6 +1756,43 @@ describe("a durable latency clock", () => {
 
     expect(exit._tag).toBe("Failure")
     expect(JSON.stringify(exit)).toContain(Budget.budgetSuspendedEvent)
+  })
+
+  it("fails the first decision closed when its zero cannot be written, then writes it on retry", async () => {
+    const { journal, recorded } = budgetLedger()
+    let refuse = true
+    const refusing = Journal.make({
+      ...journal,
+      emitDurableUnfenced: (input) =>
+        refuse && input.eventType === Budget.budgetStartedEvent
+          ? Effect.fail(new Journal.JournalError({ code: "journal_closed", message: "zero write refused" }))
+          : journal.emitDurableUnfenced(input)
+    })
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        const refused = yield* Effect.exit(budget.check("step-a"))
+        refuse = false
+        yield* TestClock.adjust("2 seconds")
+        const retried = yield* budget.check("step-a")
+        return { refused, retried }
+      }).pipe(
+        Effect.provideService(Journal.Journal, refusing),
+        Effect.provideService(FlowRuntime.FlowInstance, instanceFor("latency-zero-refused")),
+        Effect.provide(TestClock.layer())
+      )
+    )
+
+    expect(failureOf(observed.refused)).toMatchObject({
+      _tag: "flows/agent/BudgetAccountingUnavailable",
+      phase: "record",
+      runId: "latency-zero-refused"
+    })
+    expect(observed.retried._tag).toBe("proceed")
+    // The zero is the decision that recorded it, not the one that was refused.
+    expect(
+      recorded.filter((entry) => entry.eventType === Budget.budgetStartedEvent).map((entry) => entry.payload)
+    ).toEqual([{ startedAt: 2_000 }])
   })
 
   it("writes its durable zero at most once per run", async () => {
@@ -1816,6 +1912,111 @@ describe("a durable latency clock", () => {
     })
     expect(failure.message).toContain("its latency clock zero does not encode")
     expect(failure.cause).toBeDefined()
+  })
+
+  it("fails closed, and stays unsuspended, when a suspension instant has no durable form", async () => {
+    const ledger = budgetLedger()
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ latency: { maxMillis: 1_000 } })
+        // The clock zero is written with an ordinary reading.
+        yield* budget.check("step-a")
+        const clock = yield* Clock.Clock
+        const unwritable: Clock.Clock = {
+          ...clock,
+          currentTimeMillisUnsafe: () => Number.POSITIVE_INFINITY,
+          currentTimeMillis: Effect.succeed(Number.POSITIVE_INFINITY)
+        }
+        // A suspension span the journal cannot carry is one a restarted host
+        // would not subtract, so it must not open in memory either.
+        const suspended = yield* Effect.exit(budget.suspend.pipe(Effect.provideService(Clock.Clock, unwritable)))
+        yield* TestClock.adjust("2 seconds")
+        const after = yield* budget.check("step-b")
+        return { suspended, after }
+      }).pipe(
+        Effect.provideService(Journal.Journal, ledger.journal),
+        Effect.provideService(FlowRuntime.FlowInstance, instanceFor("suspend-encode")),
+        Effect.provide(TestClock.layer())
+      )
+    )
+
+    const failure = failureOf(observed.suspended) as Budget.AccountingUnavailable
+    expect(failure).toMatchObject({
+      _tag: "flows/agent/BudgetAccountingUnavailable",
+      phase: "record",
+      runId: "suspend-encode"
+    })
+    expect(failure.message).toContain("its suspension record does not encode")
+    expect(ledger.recorded.some((entry) => entry.eventType === Budget.budgetSuspendedEvent)).toBe(false)
+    // The failed suspension did not stop the clock: the 2 s count as active.
+    expect(observed.after).toMatchObject({ _tag: "refuse", exceeded: { scope: "latency", used: 2_000 } })
+  })
+
+  it("charges a call made outside any run active time only, and journals none of it", async () => {
+    const ledger = budgetLedger()
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        // No flow instance: the loose account, which no successor recovers.
+        const budget = yield* Budget.make({ latency: { maxMillis: 1_000 } })
+        yield* budget.check(undefined)
+        yield* TestClock.adjust("500 millis")
+        yield* budget.suspend
+        yield* TestClock.adjust("5 seconds")
+        yield* budget.resume()
+        yield* TestClock.adjust("400 millis")
+        const within = yield* budget.check(undefined)
+        yield* TestClock.adjust("200 millis")
+        const past = yield* budget.check(undefined)
+        return { within, past }
+      }).pipe(
+        Effect.provideService(Journal.Journal, ledger.journal),
+        Effect.provide(TestClock.layer())
+      )
+    )
+
+    expect(observed.within._tag).toBe("proceed")
+    expect(observed.past).toMatchObject({ _tag: "refuse", exceeded: { scope: "latency", used: 1_100 } })
+    expect(ledger.recorded).toEqual([])
+  })
+
+  it("recovers one suspended span when two hosts each recorded its resume", async () => {
+    const ledger = budgetLedger()
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const first = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        yield* first.check("step-a")
+        yield* TestClock.adjust("1 second")
+        yield* first.suspend
+        yield* TestClock.adjust("10 seconds")
+        // A second host recovers the open span and closes it...
+        const second = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        yield* second.resume()
+        yield* TestClock.adjust("2 seconds")
+        // ...and the first host, still holding the span open, closes it again.
+        yield* first.resume()
+        const third = yield* Budget.make({ latency: { maxMillis: 3_000 } })
+        yield* TestClock.adjust("1 second")
+        return yield* third.check("step-b")
+      }).pipe(
+        Effect.provideService(Journal.Journal, ledger.journal),
+        Effect.provideService(FlowRuntime.FlowInstance, instanceFor("latency-double-resume")),
+        Effect.provide(TestClock.layer())
+      )
+    )
+
+    const transitions = ledger.recorded
+      .filter((entry) =>
+        entry.eventType === Budget.budgetSuspendedEvent || entry.eventType === Budget.budgetResumedEvent
+      )
+      .map((entry) => [entry.eventType === Budget.budgetSuspendedEvent ? "suspend" : "resume", entry.payload])
+    expect(transitions).toEqual([
+      ["suspend", { at: 1_000 }],
+      ["resume", { at: 11_000 }],
+      ["resume", { at: 13_000 }]
+    ])
+    // The span is 1 s to 11 s; the stray later resume closes nothing, so the
+    // 1 s before it and the 3 s after it are active.
+    expect(observed).toMatchObject({ _tag: "refuse", exceeded: { scope: "latency", used: 4_000 } })
   })
 })
 
@@ -2392,5 +2593,42 @@ describe("a per-day cap across runs", () => {
     expect(failureOf(exit)).toMatchObject({ _tag: "flows/agent/BudgetAccountingUnavailable", phase: "record" })
     const missing = await Effect.runPromiseExit(Budget.make({ daily: { max: 1_000 } }))
     expect(failureOf(missing)).toMatchObject({ _tag: "flows/agent/BudgetConfigurationError" })
+  })
+
+  it("keeps the first spend a ledger records for one step", async () => {
+    const ledger = Budget.memoryLedger()
+    const day = "2026-09-29"
+    await Effect.runPromise(ledger.record({ day, runId: "run-a", stepKey: "a1", spent: 400 }))
+    // A retried write of the same step, with a different figure, is the same charge.
+    await Effect.runPromise(ledger.record({ day, runId: "run-a", stepKey: "a1", spent: 900 }))
+    expect(await Effect.runPromise(ledger.total(day))).toBe(400)
+    expect(await Effect.runPromise(ledger.run("run-a"))).toEqual(new Map([["a1", 400]]))
+  })
+
+  it("fails closed when a run's own spend cannot be recovered from the ledger", async () => {
+    // A run the ledger cannot answer for has an UNKNOWN spend, not a zero one.
+    const broken: Budget.Ledger = { ...Budget.memoryLedger(), run: () => Effect.fail(new Error("ledger offline")) }
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ tokens: { max: 1_000 } }, { ledger: broken })
+        return yield* inRun("run-a", budget.check("a1"))
+      })
+    )
+    const failure = failureOf(exit) as Budget.AccountingUnavailable
+    expect(failure).toMatchObject({ _tag: "flows/agent/BudgetAccountingUnavailable", phase: "recover", runId: "run-a" })
+    expect(failure.message).toContain("ledger offline")
+  })
+
+  it("fails closed when the day's total cannot be read, instead of admitting the call", async () => {
+    const broken: Budget.Ledger = { ...Budget.memoryLedger(), total: () => Effect.fail(new Error("day unreadable")) }
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ daily: { max: 1_000 } }, { ledger: broken })
+        return yield* inRun("run-a", budget.check("a1"))
+      })
+    )
+    const failure = failureOf(exit) as Budget.AccountingUnavailable
+    expect(failure).toMatchObject({ _tag: "flows/agent/BudgetAccountingUnavailable", phase: "recover", runId: "run-a" })
+    expect(failure.message).toContain("day unreadable")
   })
 })

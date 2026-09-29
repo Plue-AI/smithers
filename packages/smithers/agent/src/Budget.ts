@@ -643,8 +643,9 @@ export const UsageRecord = Schema.Struct({
  *
  * Like {@link usageEvent}, this record is READ BACK on resume. A run whose
  * zero is not recovered re-arms its whole latency allowance on every park,
- * reclaim, or process restart, so the first recovery writes it durably and
- * later recoveries keep the earliest value they find.
+ * reclaim, or process restart, so the run's first budget decision writes it
+ * durably and later recoveries keep the earliest value they find. Suspended
+ * spans closed before it are not subtracted from the latency clock.
  *
  * @category records
  * @since 1.0.0-rc.0
@@ -1005,6 +1006,9 @@ const recoverUsage = (
           const payload = yield* Schema.decodeUnknownEffect(BudgetStartedRecord)(entry.payload).pipe(
             Effect.mapError(() => undecodable(entry, "budget-started"))
           )
+          // Spans closed before the zero are outside the allowance, as they
+          // are on the live path that wrote it.
+          if (startedAt === Number.POSITIVE_INFINITY) suspendedMillis = 0
           startedAt = Math.min(startedAt, payload.startedAt)
         } else if (entry.eventType === budgetLatchedEvent) {
           const payload = yield* Schema.decodeUnknownEffect(BudgetExceeded)(entry.payload).pipe(
@@ -1062,6 +1066,12 @@ const recoverUsage = (
 interface RunAccount {
   /** The latency zero, replaced once when recovery finds its earlier durable value. */
   startedAt: number
+  /**
+   * Whether `startedAt` is the run's zero: recovered, or written by its first
+   * decision. A resume or suspend that reaches a run before any decision does
+   * not start its clock.
+   */
+  zeroed: boolean
   /** Closed suspension spans, summed; subtracted from the latency clock. */
   suspendedMillis: number
   /** The start of the open suspension, if the run is suspended. */
@@ -1202,6 +1212,7 @@ export const make = (
       const admission = yield* Semaphore.make(1)
       return {
         startedAt,
+        zeroed: false,
         suspendedMillis: 0,
         suspendedSince: undefined,
         state,
@@ -1219,7 +1230,8 @@ export const make = (
     // a unit test, a composition that accounts before it executes anything —
     // starts its latency clock where the budget was built. It is held apart
     // from the run map so it is never the entry a bound evicts.
-    const loose = yield* newAccount
+    const loose: RunAccount = yield* newAccount
+    loose.zeroed = true
 
     /**
      * This run's accounting, created on the run's first question.
@@ -1313,17 +1325,12 @@ export const make = (
           return recoverUsage(runId, recoveryEntries).pipe(
             Effect.flatMap((ledger) =>
               Effect.gen(function*() {
-                if (ledger.startedAt === undefined) {
-                  const payload = yield* Schema.encodeEffect(BudgetStartedRecord)({
-                    startedAt: run.startedAt
-                  }).pipe(
-                    Effect.mapError((cause) =>
-                      unavailable("record", runId, "its latency clock zero does not encode", cause)
-                    )
-                  )
-                  yield* journalBudgetStarted(runId, payload)
-                } else {
+                // A run with no recorded zero gets one at its first decision
+                // (`checkAccount`), not here: a resume recovers the account
+                // when the port is built, before the run has decided anything.
+                if (ledger.startedAt !== undefined) {
                   run.startedAt = ledger.startedAt
+                  run.zeroed = true
                 }
                 run.suspendedMillis = ledger.suspendedMillis
                 run.suspendedSince = ledger.suspendedSince
@@ -1448,7 +1455,8 @@ export const make = (
       at: number
     ): Effect.Effect<void, AccountingUnavailable> =>
       Effect.gen(function*() {
-        if ((to === "suspend") === (run.suspendedSince !== undefined)) return
+        const open = run.suspendedSince
+        if ((to === "suspend") === (open !== undefined)) return
         if (runId !== looseRunId) {
           const payload = yield* Schema.encodeEffect(BudgetClockRecord)({ at }).pipe(
             Effect.mapError((cause) => unavailable("record", runId, "its suspension record does not encode", cause))
@@ -1459,10 +1467,11 @@ export const make = (
             payload
           ).pipe(Effect.mapError((cause) => unavailable("record", runId, String(cause), cause)))
         }
-        if (to === "suspend") {
+        // Past the guard, a suspend finds no open span and a resume finds one.
+        if (open === undefined) {
           run.suspendedSince = at
-        } else if (run.suspendedSince !== undefined) {
-          run.suspendedMillis += Math.max(0, at - run.suspendedSince)
+        } else {
+          run.suspendedMillis += Math.max(0, at - open)
           run.suspendedSince = undefined
         }
       }).pipe(Effect.uninterruptible)
@@ -1492,6 +1501,23 @@ export const make = (
         if (current.latched !== undefined) return verdictFor(current.latched)
         // A run asking to call a model is executing, whatever it recorded.
         yield* transition(run, runId, "resume", now)
+        if (!run.zeroed) {
+          // The run's first decision is its latency clock zero. Time before
+          // it, parked or not, is outside the allowance.
+          const payload = yield* Schema.encodeEffect(BudgetStartedRecord)({ startedAt: now }).pipe(
+            Effect.mapError((cause) => unavailable("record", runId, "its latency clock zero does not encode", cause))
+          )
+          // Written and applied together, like a transition: an interrupt
+          // between the two would leave a durable zero this account ignores.
+          yield* Effect.uninterruptible(Effect.andThen(
+            journalBudgetStarted(runId, payload),
+            Effect.sync(() => {
+              run.startedAt = now
+              run.suspendedMillis = 0
+              run.zeroed = true
+            })
+          ))
+        }
         const latency = policy.latency
         const active = now - run.startedAt - run.suspendedMillis
         if (latency !== undefined && active > latency.maxMillis) {

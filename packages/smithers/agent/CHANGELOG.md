@@ -41,8 +41,15 @@
 - The sealed model step key moved to `key1_674672c5…` because
   `ModelEvent.Settle` gained `sessionId`, which `RecordedModelStep` embeds.
   Runs recorded under the old key re-dispatch their model calls.
+- The sealed model step key moved to `key1_15a4c259…` because
+  `ModelErrorCode` gained `out_of_credit`, which the step's error schema
+  embeds. Runs recorded under the old key re-dispatch their model calls.
 
 ### Fixed
+
+- A latency budget's clock starts at the run's first budget decision again.
+  The resume an engine port records when it is built had started it, so setup
+  before the first model call was charged to the allowance.
 
 - Workspace observation can omit exact host-owned paths without hiding other
   files with the same basename. The TUI excludes its session subtree and log
