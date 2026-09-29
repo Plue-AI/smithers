@@ -40190,6 +40190,22 @@
     }
   },
   {
+    "label": "//packages/smithers/flows/database:adapterPostgresDatabase",
+    "package": "packages/smithers/flows/database",
+    "name": "adapterPostgresDatabase",
+    "rule": "Docker.Service",
+    "kinds": [
+      "run"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/flows/database/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/smithers/flows/database:check",
     "package": "packages/smithers/flows/database",
     "name": "check",
@@ -40568,7 +40584,7 @@
     "label": "//packages/smithers/flows/database:test",
     "package": "packages/smithers/flows/database",
     "name": "test",
-    "rule": "NodeTest",
+    "rule": "Shell.Test",
     "kinds": [
       "test"
     ],
@@ -40604,7 +40620,11 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers/flows/database:adapterPostgresDatabase",
       "//packages/smithers/flows/database:lib"
+    ],
+    "hosts": [
+      "linux"
     ],
     "source": {
       "file": "packages/smithers/flows/database/PACKAGE.ts"
@@ -50014,6 +50034,22 @@
     }
   },
   {
+    "label": "//packages/smithers:historyPostgresDatabase",
+    "package": "packages/smithers",
+    "name": "historyPostgresDatabase",
+    "rule": "Docker.Service",
+    "kinds": [
+      "run"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/smithers:lib",
     "package": "packages/smithers",
     "name": "lib",
@@ -50186,12 +50222,17 @@
     "label": "//packages/smithers:test",
     "package": "packages/smithers",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "Shell.Test",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/src/**/*.ts",
+        "exclude": []
+      },
       {
         "kind": "glob",
         "pattern": "packages/smithers/test/**/*.test.ts",
@@ -50200,23 +50241,22 @@
         ]
       },
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/src/**/*.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/vitest.config.ts"
       },
       {
         "kind": "glob",
         "pattern": "packages/repo-targets/test-utils/effect-property.*",
         "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/vitest.config.ts"
       }
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers:historyPostgresDatabase",
       "//packages/smithers:lib"
+    ],
+    "hosts": [
+      "linux"
     ],
     "source": {
       "file": "packages/smithers/PACKAGE.ts"

@@ -7,7 +7,7 @@ import { ReviewTagsMigrationsAndKeys } from "@smthrs/repo-targets"
  */
 import { Smithers } from "@smthrs/targets"
 
-const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
+const { check, circular, docs, docsFiles, fmt, lib, lint } = BuildAndCheckTypeScriptPackage({
   testProgram: Smithers.file("//packages/smithers/flows/database/scripts/test-matrix.mjs"),
   deps: [],
   cwd: "packages/smithers/flows/database",
@@ -20,6 +20,36 @@ const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheck
     Smithers.file("//eslint.jsdoc.js"),
     Smithers.file("//eslint.invariants.js")
   ]
+})
+
+/** Run the database matrix against a declared PostgreSQL service in CI. */
+const adapterPostgresDatabase = Smithers.Docker.Service({
+  image: "postgres@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94",
+  env: { POSTGRES_PASSWORD: "smithers-adapter-test", POSTGRES_DB: "smithers_adapter_test" },
+  ports: { "5432": 55436 },
+  readiness: {
+    exec: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "smithers_adapter_test"],
+    timeout: "120s"
+  },
+  stop: { signal: "SIGTERM", grace: "10s" }
+})
+
+const test = Smithers.Shell.Test({
+  shell: "cd packages/smithers/flows/database && node scripts/test-matrix.mjs",
+  data: [
+    lib,
+    Smithers.file("scripts/test-matrix.mjs"),
+    Smithers.glob("src/**/*.ts"),
+    Smithers.glob("test/**/*.ts"),
+    Smithers.file("package.json"),
+    Smithers.file("vitest.config.ts"),
+    Smithers.glob("//packages/repo-targets/test-utils/effect-property.*")
+  ],
+  timeout: "20m",
+  hosts: ["linux"],
+  env: { SMITHERS_TEST_PG_URL: "postgres://postgres:smithers-adapter-test@127.0.0.1:55436/smithers_adapter_test" },
+  services: [adapterPostgresDatabase],
+  sandbox: { network: "loopback" }
 })
 
 /**
@@ -153,6 +183,7 @@ export const Package = Smithers.Package({
     lib,
     lint,
     test,
+    adapterPostgresDatabase,
     ...securityReview
   }
 })

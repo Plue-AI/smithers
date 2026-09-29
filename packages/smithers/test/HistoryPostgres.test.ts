@@ -15,7 +15,7 @@ import * as History from "../src/history/History.ts"
 import * as Workspace from "../src/history/Workspace.ts"
 import * as ControlDatabaseMigrations from "../src/internal/ControlDatabaseMigrations.ts"
 
-it.skipIf(!process.env.SMITHERS_TEST_PG_URL)(
+it(
   "reads and reconciles PostgreSQL history without SQLite files",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "postgres-history-"))

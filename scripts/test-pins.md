@@ -161,17 +161,12 @@ only.
 | `smithers/build/build-cli` | `answers the envelope contract through a real codex session` | `it.skipIf(SMTHRS_CODEX_SMOKE !== "1")` |
 | `smithers/agent/std` | `streams a file larger than available memory (skipped: a hermetic test cannot exhaust its runner)` | `it.skip` |
 | `testing` | `registers a skipped layered Effect body` | `test.skip` |
-| `smithers` | `reads and reconciles PostgreSQL history without SQLite files` | `it.skipIf(SMITHERS_TEST_PG_URL absent)` |
 | `smithers` | `runs a prompt on the Codex subscription with no provider keys` | `it.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1")` |
 | `smithers` | `ClaudeCode against the installed Claude Code` | `describe.runIf(SMITHERS_CLAUDE_CODE_SMOKE === "1")` |
 
-**PostgreSQL storage.** The `smithers` history case runs against a real
-database named by `SMITHERS_TEST_PG_URL`. No target supplies one, so it skips
-everywhere; giving it a declared Postgres service is
-[#2154](https://github.com/smithersai/smithers/issues/2154). It is not the
-only PostgreSQL case: `//packages/smithers/flows/database:test` runs
-`scripts/test-matrix.mjs`, whose PostgreSQL lane starts a server and sets the
-variable, so `PostgresDatabase.test.ts` runs there and is not a pin.
+**PostgreSQL storage.** The `smithers` history and database adapter tests
+run with declared PostgreSQL services and `SMITHERS_TEST_PG_URL` in their
+Linux test targets.
 
 **`migrate`: apply against a real model.** The three cases in
 `packages/smithers/migrate/test/flow/MigrateFlow.live.e2e.test.ts` drive the migration

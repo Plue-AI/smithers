@@ -2,7 +2,7 @@ import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 /** Standard package targets plus package-owned documentation generation. */
 import { Smithers } from "@smthrs/targets"
 
-const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
+const { check, circular, docs, docsFiles, fmt, lib, lint } = BuildAndCheckTypeScriptPackage({
   deps: [],
   cwd: "packages/smithers",
   // On the Node 22 CI hosts this complete process-boundary suite took
@@ -13,6 +13,34 @@ const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheck
   // `scripts/build.mjs` bundles the TUI that `smthrs tui` runs.
   buildInputs: [Smithers.glob("//apps/tui/src/**/*.ts"), Smithers.glob("//apps/tui/src/**/*.tsx")],
   tests: Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**"] })
+})
+
+/** The history suite needs a real PostgreSQL server on the Linux CI runner. */
+const historyPostgresDatabase = Smithers.Docker.Service({
+  image: "postgres@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94",
+  env: { POSTGRES_PASSWORD: "smithers-history-test", POSTGRES_DB: "smithers_history_test" },
+  ports: { "5432": 55435 },
+  readiness: {
+    exec: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "smithers_history_test"],
+    timeout: "120s"
+  },
+  stop: { signal: "SIGTERM", grace: "10s" }
+})
+
+const test = Smithers.Shell.Test({
+  shell: "cd packages/smithers && pnpm exec vitest run --config vitest.config.ts --environment node",
+  data: [
+    lib,
+    Smithers.glob("src/**/*.ts"),
+    Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**"] }),
+    Smithers.file("vitest.config.ts"),
+    Smithers.glob("//packages/repo-targets/test-utils/effect-property.*")
+  ],
+  timeout: "40m",
+  hosts: ["linux"],
+  env: { SMITHERS_TEST_PG_URL: "postgres://postgres:smithers-history-test@127.0.0.1:55435/smithers_history_test" },
+  services: [historyPostgresDatabase],
+  sandbox: { network: "loopback" }
 })
 
 /**
@@ -196,6 +224,7 @@ export const Package = Smithers.Package({
     lib,
     lint,
     test,
+    historyPostgresDatabase,
     docsSources,
     ...securityReview
   }
