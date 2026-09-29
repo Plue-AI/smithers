@@ -579,14 +579,18 @@ export const compactMarked = (
     }
     if (replacedSegments.length === 0) return self
     const replaced = digest(replacedSegments.map((segment) => segment.digest))
-    const first = self.segments.findIndex((segment) => replacedSegments.includes(segment))
+    const positions = self.segments.flatMap((segment, index) =>
+      compactable([segment]).length === 0 ? [] : [index]
+    ).slice(0, prefixLength)
+    const first = positions[0]!
+    const selected = new Set(positions)
     const segments = [
       ...self.segments.slice(0, first),
       ...(summary === undefined ? [] : [
         makeSegment({ kind: "summary", zone: "tail", content: summaryMessages(summary) })
       ]),
       ...replacedSegments.filter((_, index) => marks[index] === "keep"),
-      ...self.segments.slice(first).filter((segment) => !replacedSegments.includes(segment))
+      ...self.segments.slice(first).filter((_, index) => !selected.has(first + index))
     ]
     return construct({ modelId: self.modelId, segments, activeTools: self.activeTools, replaced })
   })

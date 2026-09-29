@@ -623,6 +623,23 @@ describe("ContextWindow", () => {
       expect(texts(ContextWindow.render(compacted))).toEqual(["summary", "second"])
     })
 
+    it("keeps a reused segment in the suffix when compacting a prefix", () => {
+      const shared = ContextWindow.makeSegment({
+        kind: "transcript",
+        zone: "tail",
+        content: [Request.Message.user("repeat")]
+      })
+      const value = ContextWindow.make({ modelId: "test-model", segments: [shared, shared] })
+      const summary = Request.Message.user("summary of first occurrence")
+      expect(texts(ContextWindow.render(value))).toEqual(["repeat", "repeat"])
+
+      const compacted = Result.getOrThrow(ContextWindow.compactPrefix(value, 1, summary))
+      expect(compacted.segments).toHaveLength(2)
+      expect(compacted.segments[0]?.content).toEqual([summary])
+      expect(compacted.segments[1]).toBe(shared)
+      expect(texts(ContextWindow.render(compacted))).toEqual(["summary of first occurrence", "repeat"])
+    })
+
     it("replaces the whole compactable set when the prefix covers it", () => {
       const compacted = Result.getOrThrow(ContextWindow.compactPrefix(base(), 2, Request.Message.user("all of it")))
       expect(compacted.segments.filter((segment) => segment.kind === "transcript")).toEqual([])
@@ -715,6 +732,23 @@ describe("ContextWindow", () => {
       expect(texts(ContextWindow.render(compacted))).toEqual(["summary", "two", "four"])
       expect(compacted.segments[2]).toBe(value.segments[2])
       expect(compacted.segments[2]?.digest).toBe(value.segments[2]?.digest)
+      expect(compacted.replaced).toBe(Result.getOrThrow(ContextWindow.prefixDigest(value, 3)))
+    })
+
+    it("applies keep, squash, and remove marks to occurrences, not shared identities", () => {
+      const shared = ContextWindow.makeSegment(turn("repeat"))
+      const value = ContextWindow.make({
+        modelId: "test-model",
+        segments: [shared, shared, shared, shared]
+      })
+      const summary = Request.Message.user("summary")
+      const compacted = Result.getOrThrow(
+        ContextWindow.compactMarked(value, 3, ["keep", "squash", "remove"], summary)
+      )
+      expect(compacted.segments).toHaveLength(3)
+      expect(compacted.segments[1]).toBe(shared)
+      expect(compacted.segments[2]).toBe(shared)
+      expect(texts(ContextWindow.render(compacted))).toEqual(["summary", "repeat", "repeat"])
       expect(compacted.replaced).toBe(Result.getOrThrow(ContextWindow.prefixDigest(value, 3)))
     })
 
