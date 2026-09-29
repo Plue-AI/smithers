@@ -16,6 +16,22 @@ const check: SecurityReview.Check = {
   paths: ["src/upload/**"]
 }
 
+const boundary: SecurityReview.Boundary = {
+  id: "upload-to-storage",
+  actors: ["Authenticated tenant member"],
+  assets: ["Tenant uploads"],
+  entryPoints: ["HTTP upload request"],
+  identityTransformations: ["Session token becomes a tenant identity"],
+  enforcementPoints: ["The upload handler verifies tenant ownership"],
+  deploymentAssumptions: ["The storage adapter uses the configured tenant bucket"],
+  path: {
+    caller: ["src/client/**"],
+    authorization: ["//shared/auth/**"],
+    service: ["src/upload/**"],
+    storageOrEgress: ["//shared/storage/**"]
+  }
+}
+
 const attrsOf = (target: Target.AnyTarget): LlmLint.Attrs => Target.metadata(target).attrs as LlmLint.Attrs
 
 describe("SecurityReview declaration", () => {
@@ -146,6 +162,126 @@ describe("SecurityReview rubric", () => {
   })
 })
 
+describe("SecurityReview trust boundaries", () => {
+  const declare = (boundaries: ReadonlyArray<SecurityReview.Boundary>, options: Partial<SecurityReview.Options> = {}) =>
+    Smithers.SecurityReview({ cwd: "packages/example", checks: [check], boundaries, ...options })
+
+  it("requires a generated check for each boundary in both review targets", () => {
+    const targets = declare([boundary])
+    for (const target of [targets.security, targets.securityAudit]) {
+      const attrs = attrsOf(target)
+      expect(attrs.securityChecks).toEqual(["upload-path-traversal", "boundary-upload-to-storage", "general"])
+      expect(attrs.rubric).toContain("[boundary-upload-to-storage]")
+      expect(attrs.rubric).toContain("Authenticated tenant member")
+      expect(attrs.rubric).toContain("Session token becomes a tenant identity")
+      expect(attrs.rubric).toContain("packages/example/src/client/**")
+      expect(attrs.rubric).toContain("shared/storage/**")
+    }
+  })
+
+  it("rejects an explicit check that collides with a generated boundary check", () => {
+    expect(() => declare([boundary], { checks: [{ ...check, id: "boundary-upload-to-storage" }] }))
+      .toThrow(/declared twice: boundary-upload-to-storage/)
+  })
+
+  it("adds every boundary path to both reviews' include, context, and change triggers", () => {
+    const targets = declare([boundary], {
+      include: ["src/upload/**"],
+      context: ["README.md"]
+    })
+    const expected = [
+      "packages/example/src/upload/**",
+      "packages/example/src/client/**",
+      "shared/auth/**",
+      "shared/storage/**"
+    ]
+    for (const target of [targets.security, targets.securityAudit]) {
+      const attrs = attrsOf(target)
+      expect(attrs.include.map((glob) => glob.pattern)).toHaveLength(expected.length)
+      expect(attrs.include.map((glob) => glob.pattern)).toEqual(
+        expect.arrayContaining(expected.map((path) => `//${path}`))
+      )
+      expect(attrs.context.map((glob) => glob.pattern)).toHaveLength(5)
+      expect(attrs.context.map((glob) => glob.pattern)).toEqual(expect.arrayContaining([
+        "//packages/example/README.md",
+        "//packages/example/src/client/**",
+        "//shared/auth/**",
+        "//packages/example/src/upload/**",
+        "//shared/storage/**"
+      ]))
+      expect(attrs.changes.paths).toHaveLength(expected.length)
+      expect(attrs.changes.paths).toEqual(expect.arrayContaining(expected))
+    }
+  })
+
+  it("renders boundary metadata and the path from caller through storage in order", () => {
+    const rubric = attrsOf(declare([boundary]).security).rubric
+    for (
+      const value of [
+        "upload-to-storage",
+        "Authenticated tenant member",
+        "Tenant uploads",
+        "HTTP upload request",
+        "Session token becomes a tenant identity",
+        "The upload handler verifies tenant ownership",
+        "The storage adapter uses the configured tenant bucket",
+        "packages/example/src/client/**",
+        "shared/auth/**",
+        "packages/example/src/upload/**",
+        "shared/storage/**"
+      ]
+    ) expect(rubric).toContain(value)
+    const boundaryRubric = rubric.slice(rubric.indexOf("upload-to-storage"))
+    const stages = ["Caller", "Authorization", "Service", "Storage/egress"]
+    const offsets = stages.map((stage) => boundaryRubric.indexOf(stage))
+    expect(offsets.every((offset) => offset >= 0)).toBe(true)
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b))
+    expect(attrsOf(declare([boundary]).securityAudit).rubric).toBe(rubric)
+  })
+
+  it("rejects empty, duplicate, and invalid boundary ids", () => {
+    expect(() => declare([])).toThrow(/boundaries.*at least one boundary/)
+    expect(() => declare([{ ...boundary, id: "" }])).toThrow(/boundary.*id.*one nonempty line/)
+    expect(() => declare([{ ...boundary, id: "Upload_Path" }])).toThrow(/boundary.*id.*kebab-case/)
+    expect(() => declare([boundary, boundary])).toThrow(/boundary.*id.*declared twice|duplicate boundary/)
+    expect(() => declare([{ ...boundary, actors: [] }])).toThrow(/boundary.*actors.*at least one/)
+  })
+
+  it("requires every metadata and path list to contain one-line values", () => {
+    for (
+      const field of [
+        "actors",
+        "assets",
+        "entryPoints",
+        "identityTransformations",
+        "enforcementPoints",
+        "deploymentAssumptions"
+      ] as const
+    ) {
+      expect(() => declare([{ ...boundary, [field]: [] }])).toThrow(new RegExp(`boundary.*${field}.*at least one`))
+      expect(() => declare([{ ...boundary, [field]: undefined } as unknown as SecurityReview.Boundary]))
+        .toThrow(new RegExp(`boundary.*${field}.*at least one`))
+      expect(() => declare([{ ...boundary, [field]: ["two\nlines"] }])).toThrow(
+        new RegExp(`boundary.*${field}.*one nonempty line`)
+      )
+    }
+    expect(() => declare([{ ...boundary, path: undefined } as unknown as SecurityReview.Boundary]))
+      .toThrow(/boundary.*caller.*at least one/)
+    for (const stage of ["caller", "authorization", "service", "storageOrEgress"] as const) {
+      expect(() => declare([{ ...boundary, path: { ...boundary.path, [stage]: [] } }]))
+        .toThrow(new RegExp(`boundary.*${stage}.*at least one`))
+      expect(() =>
+        declare([{ ...boundary, path: { ...boundary.path, [stage]: undefined } } as unknown as SecurityReview.Boundary])
+      )
+        .toThrow(new RegExp(`boundary.*${stage}.*at least one`))
+      expect(() => declare([{ ...boundary, path: { ...boundary.path, [stage]: [" "] } }]))
+        .toThrow(new RegExp(`boundary.*${stage}.*one nonempty line`))
+      expect(() => declare([{ ...boundary, path: { ...boundary.path, [stage]: ["../../../escape/**"] } }]))
+        .toThrow(/escapes the workspace/)
+    }
+  })
+})
+
 describe("SecurityReview check validation", () => {
   const declare = (overrides: Partial<SecurityReview.Check>, extra: ReadonlyArray<SecurityReview.Check> = []) =>
     SecurityReview.SecurityReview({ cwd: "p", checks: [{ ...check, ...overrides }, ...extra] })
@@ -222,6 +358,35 @@ describe("SecurityReview path validation", () => {
       /path "pkg\/docs\/\*\.md" matches no file the review reads/
     )
     expect(() => declare({ context: ["docs/**"], checks: [{ ...check, paths: ["docs/*.md"] }] })).not.toThrow()
+  })
+
+  it("checks every boundary stage against real workspace files across packages", () => {
+    const crossPackage = workspace([
+      "pkg/src/client/request.ts",
+      "pkg/src/upload/save.ts",
+      "shared/auth/authorize.ts",
+      "shared/storage/write.ts"
+    ])
+    const boundaryInWorkspace: SecurityReview.Boundary = {
+      ...boundary,
+      path: {
+        caller: ["src/client/**"],
+        authorization: ["//shared/auth/**"],
+        service: ["src/upload/**"],
+        storageOrEgress: ["//shared/storage/**"]
+      }
+    }
+    const review = (declared: SecurityReview.Boundary) =>
+      Smithers.SecurityReview({ cwd: "pkg", checks: [], workspaceRoot: crossPackage, boundaries: [declared] })
+    expect(() => review(boundaryInWorkspace)).not.toThrow()
+    for (const stage of ["caller", "authorization", "service", "storageOrEgress"] as const) {
+      expect(() =>
+        review({
+          ...boundaryInWorkspace,
+          path: { ...boundaryInWorkspace.path, [stage]: ["//shared/missing/**"] }
+        })
+      ).toThrow(new RegExp(`boundary.*${stage}.*shared/missing/`))
+    }
   })
 
   it("derives the root from the declaring PACKAGE.ts and checks its paths", async () => {

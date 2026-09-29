@@ -31,6 +31,21 @@ const bunTest = Smithers.BunSuite({ cwd: "packages/smithers/flows/sandbox" })
 const securityReview = Smithers.SecurityReview({
   cwd: "packages/smithers/flows/sandbox",
   include: ["src/**"],
+  boundaries: [{
+    id: "flow-microvm-execution",
+    actors: ["Flow author", "Trusted engine host", "Untrusted guest process"],
+    assets: ["Host filesystem", "Guest workspace", "Provider credentials", "Guest environment"],
+    entryPoints: ["SandboxedFlow execution and sandbox session acquisition"],
+    identityTransformations: ["Host-selected provider acquires an owned guest session; execution nonce binds guest results to the caller"],
+    enforcementPoints: ["Provider network and resource policy; rooted guest paths; environment validation; result nonce and schema checks"],
+    deploymentAssumptions: ["The operator supplies a trusted Microsandbox SDK and isolated microVM service; hosted credentials and service transport need private composition review"],
+    path: {
+      caller: ["//packages/smithers/flows/src/SandboxedFlow.ts"],
+      authorization: ["src/Sandbox/NetworkPolicy.ts", "src/Sandbox/ResourceLimits.ts", "src/internal/rootedPath.ts", "src/internal/environmentNames.ts"],
+      service: ["src/MicrosandboxSandbox/make.ts", "src/Sandbox/layerHost.ts"],
+      storageOrEgress: ["src/internal/microsandboxProcess.ts", "src/MicrosandboxSandbox/Sdk.ts", "//packages/smithers/flows/src/internal/SandboxedFlowGuest.ts"]
+    }
+  }],
   checks: [
     {
       id: "guest-shell-quoting",

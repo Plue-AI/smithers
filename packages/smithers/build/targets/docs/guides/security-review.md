@@ -49,6 +49,50 @@ authorization gaps, secrets, path traversal, SSRF, unsafe deserialization,
 command execution, crypto misuse, prompt injection, supply chain, denial of
 service, and information leaks. The id `general` is reserved.
 
+## Trust boundaries
+
+Declare `boundaries` when a security decision crosses packages. `cwd` records
+ownership; it does not limit the execution path. Each boundary requires a
+unique kebab-case `id`, nonempty `actors`, `assets`, `entryPoints`,
+`identityTransformations`, `enforcementPoints`, and `deploymentAssumptions`.
+These are one-line descriptions, not file patterns. Each boundary adds a required
+`boundary-<id>` check: a completed response must report its coverage as well
+as the named checks and general sweep. An explicit check cannot reuse that id.
+
+The boundary's `path` has four required nonempty lists of file globs:
+`caller`, `authorization`, `service`, and `storageOrEgress`. Paths are relative
+to `cwd`, or workspace-rooted with `//`. Every path is added to both `include`
+and `context`: a backend-only change triggers its caller's boundary review,
+and every batch sees the complete declared path even when only one file changed.
+Missing paths fail declaration validation when the workspace root is known.
+Declared deployment assumptions are outside the source review scope; they
+are not missing context or proof of hosted enforcement. Missing evidence for
+the declared source path must still make the review incomplete.
+The existing file, context and prompt size limits still apply; declare focused
+paths rather than whole package trees.
+
+The server declaration traces browser session and bearer attachment through
+backend authentication, repository authorization, workflow admission and
+storage. The gateway traces control authentication into control operations
+and execution. The sandbox traces flow execution into microVM policy,
+provider operations and guest results. Named checks and the general sweep
+apply across these paths; a package-local check is not proof of boundary
+completeness.
+
+### Hosted composition receipt
+
+Public reviews run using this repository alone. They do not establish hosted
+routing, credential injection, TLS or microVM deployment isolation.
+In the private deployment repository, review the composition with the public
+backend checked out at an exact full commit SHA. Record both repository
+SHAs, the boundary declaration, reviewed files, review command and result,
+and controlled tests for identity propagation, tenant authorization,
+credential destinations and guest isolation. Include private ingress,
+service wiring and deployment enforcement with the public caller-to-egress
+path in that review. A floating branch, accepted launch or public-only review
+is not hosted evidence. Keep the receipt and private paths in the private
+repository; public checks must never require them.
+
 ## Findings
 
 Each finding includes `file`, `line`, `message`, and structured `security`

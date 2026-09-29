@@ -12809,7 +12809,7 @@
     "kinds": [
       "review"
     ],
-    "summary": "Security review of changed apps/server sources against 13 package checks plus a general sweep.",
+    "summary": "Security review of changed apps/server sources against 15 package checks plus a general sweep.",
     "cacheable": false,
     "inputs": [
       {
@@ -12819,7 +12819,25 @@
           "apps/server/src/**",
           "apps/server/scripts/**",
           "apps/server/wrangler.jsonc",
-          "apps/server/wrangler.edge.jsonc"
+          "apps/server/wrangler.edge.jsonc",
+          "apps/server/src/index.ts",
+          "apps/server/src/proxies.ts",
+          "apps/server/src/cloudToken.ts",
+          "apps/server/src/identity.ts",
+          "packages/backend/internal/compose/router.go",
+          "packages/backend/internal/middleware/auth.go",
+          "packages/backend/internal/middleware/repo_context.go",
+          "packages/backend/internal/routes/workflow_invoke.go",
+          "packages/backend/internal/services/workflow_invoke.go",
+          "packages/backend/internal/services/workflow_invoke_flow.go",
+          "packages/backend/internal/db/workflows.sql.go",
+          "packages/backend/flowdispatch/service.go",
+          "apps/server/src/workflows.ts",
+          "packages/backend/internal/compose/main.go",
+          "packages/backend/internal/compose/browser_flow.go",
+          "packages/backend/internal/compose/browser_flow_target.go",
+          "packages/backend/flowhost/resolver.go",
+          "packages/backend/flowhost/store.go"
         ]
       },
       {
@@ -12840,6 +12858,186 @@
       {
         "kind": "glob",
         "pattern": "apps/server/wrangler.edge.jsonc",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/index.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/proxies.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/cloudToken.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/identity.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/router.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/auth.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/repo_context.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/routes/workflow_invoke.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/workflow_invoke.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/workflow_invoke_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/db/workflows.sql.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowdispatch/service.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/workflows.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/main.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/browser_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/browser_flow_target.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowhost/resolver.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowhost/store.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/index.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/proxies.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/cloudToken.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/identity.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/router.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/auth.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/repo_context.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/routes/workflow_invoke.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/workflow_invoke.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/workflow_invoke_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/db/workflows.sql.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowdispatch/service.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/workflows.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/main.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/browser_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/browser_flow_target.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowhost/resolver.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowhost/store.go",
         "exclude": []
       }
     ],
@@ -12857,7 +13055,7 @@
     "kinds": [
       "review"
     ],
-    "summary": "Full security audit of every included apps/server source against 13 package checks plus a general sweep.",
+    "summary": "Full security audit of every included apps/server source against 15 package checks plus a general sweep.",
     "cacheable": false,
     "inputs": [
       {
@@ -12867,7 +13065,25 @@
           "apps/server/src/**",
           "apps/server/scripts/**",
           "apps/server/wrangler.jsonc",
-          "apps/server/wrangler.edge.jsonc"
+          "apps/server/wrangler.edge.jsonc",
+          "apps/server/src/index.ts",
+          "apps/server/src/proxies.ts",
+          "apps/server/src/cloudToken.ts",
+          "apps/server/src/identity.ts",
+          "packages/backend/internal/compose/router.go",
+          "packages/backend/internal/middleware/auth.go",
+          "packages/backend/internal/middleware/repo_context.go",
+          "packages/backend/internal/routes/workflow_invoke.go",
+          "packages/backend/internal/services/workflow_invoke.go",
+          "packages/backend/internal/services/workflow_invoke_flow.go",
+          "packages/backend/internal/db/workflows.sql.go",
+          "packages/backend/flowdispatch/service.go",
+          "apps/server/src/workflows.ts",
+          "packages/backend/internal/compose/main.go",
+          "packages/backend/internal/compose/browser_flow.go",
+          "packages/backend/internal/compose/browser_flow_target.go",
+          "packages/backend/flowhost/resolver.go",
+          "packages/backend/flowhost/store.go"
         ]
       },
       {
@@ -12888,6 +13104,186 @@
       {
         "kind": "glob",
         "pattern": "apps/server/wrangler.edge.jsonc",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/index.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/proxies.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/cloudToken.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/identity.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/router.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/auth.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/repo_context.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/routes/workflow_invoke.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/workflow_invoke.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/workflow_invoke_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/db/workflows.sql.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowdispatch/service.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/workflows.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/main.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/browser_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/browser_flow_target.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowhost/resolver.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowhost/store.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/index.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/proxies.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/cloudToken.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/identity.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/router.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/auth.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/repo_context.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/routes/workflow_invoke.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/workflow_invoke.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/workflow_invoke_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/db/workflows.sql.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowdispatch/service.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/server/src/workflows.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/main.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/browser_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/browser_flow_target.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowhost/resolver.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/flowhost/store.go",
         "exclude": []
       }
     ],
@@ -46491,19 +46887,129 @@
     "kinds": [
       "review"
     ],
-    "summary": "Security review of changed packages/smithers/flows/sandbox sources against 9 package checks plus a general sweep.",
+    "summary": "Security review of changed packages/smithers/flows/sandbox sources against 10 package checks plus a general sweep.",
     "cacheable": false,
     "inputs": [
       {
         "kind": "git-diff",
         "base": "origin/main",
         "paths": [
-          "packages/smithers/flows/sandbox/src/**"
+          "packages/smithers/flows/sandbox/src/**",
+          "packages/smithers/flows/src/SandboxedFlow.ts",
+          "packages/smithers/flows/sandbox/src/Sandbox/NetworkPolicy.ts",
+          "packages/smithers/flows/sandbox/src/Sandbox/ResourceLimits.ts",
+          "packages/smithers/flows/sandbox/src/internal/rootedPath.ts",
+          "packages/smithers/flows/sandbox/src/internal/environmentNames.ts",
+          "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/make.ts",
+          "packages/smithers/flows/sandbox/src/Sandbox/layerHost.ts",
+          "packages/smithers/flows/sandbox/src/internal/microsandboxProcess.ts",
+          "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/Sdk.ts",
+          "packages/smithers/flows/src/internal/SandboxedFlowGuest.ts"
         ]
       },
       {
         "kind": "glob",
         "pattern": "packages/smithers/flows/sandbox/src/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/src/SandboxedFlow.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/NetworkPolicy.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/ResourceLimits.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/rootedPath.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/environmentNames.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/make.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/layerHost.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/microsandboxProcess.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/Sdk.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/src/internal/SandboxedFlowGuest.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/src/SandboxedFlow.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/NetworkPolicy.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/ResourceLimits.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/rootedPath.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/environmentNames.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/make.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/layerHost.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/microsandboxProcess.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/Sdk.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/src/internal/SandboxedFlowGuest.ts",
         "exclude": []
       }
     ],
@@ -46521,19 +47027,129 @@
     "kinds": [
       "review"
     ],
-    "summary": "Full security audit of every included packages/smithers/flows/sandbox source against 9 package checks plus a general sweep.",
+    "summary": "Full security audit of every included packages/smithers/flows/sandbox source against 10 package checks plus a general sweep.",
     "cacheable": false,
     "inputs": [
       {
         "kind": "git-diff",
         "base": "HEAD",
         "paths": [
-          "packages/smithers/flows/sandbox/src/**"
+          "packages/smithers/flows/sandbox/src/**",
+          "packages/smithers/flows/src/SandboxedFlow.ts",
+          "packages/smithers/flows/sandbox/src/Sandbox/NetworkPolicy.ts",
+          "packages/smithers/flows/sandbox/src/Sandbox/ResourceLimits.ts",
+          "packages/smithers/flows/sandbox/src/internal/rootedPath.ts",
+          "packages/smithers/flows/sandbox/src/internal/environmentNames.ts",
+          "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/make.ts",
+          "packages/smithers/flows/sandbox/src/Sandbox/layerHost.ts",
+          "packages/smithers/flows/sandbox/src/internal/microsandboxProcess.ts",
+          "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/Sdk.ts",
+          "packages/smithers/flows/src/internal/SandboxedFlowGuest.ts"
         ]
       },
       {
         "kind": "glob",
         "pattern": "packages/smithers/flows/sandbox/src/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/src/SandboxedFlow.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/NetworkPolicy.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/ResourceLimits.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/rootedPath.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/environmentNames.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/make.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/layerHost.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/microsandboxProcess.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/Sdk.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/src/internal/SandboxedFlowGuest.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/src/SandboxedFlow.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/NetworkPolicy.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/ResourceLimits.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/rootedPath.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/environmentNames.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/make.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/Sandbox/layerHost.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/internal/microsandboxProcess.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/src/MicrosandboxSandbox/Sdk.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/src/internal/SandboxedFlowGuest.ts",
         "exclude": []
       }
     ],
@@ -48240,7 +48856,7 @@
     "kinds": [
       "review"
     ],
-    "summary": "Security review of changed packages/smithers/gateway sources against 12 package checks plus a general sweep.",
+    "summary": "Security review of changed packages/smithers/gateway sources against 13 package checks plus a general sweep.",
     "cacheable": false,
     "inputs": [
       {
@@ -48248,7 +48864,17 @@
         "base": "origin/main",
         "paths": [
           "packages/smithers/gateway/src/**",
-          "packages/smithers/gateway/scripts/**"
+          "packages/smithers/gateway/scripts/**",
+          "packages/smithers/gateway/src/GatewayServer.ts",
+          "packages/smithers/gateway/src/RuntimeBridge.ts",
+          "packages/smithers/gateway/src/internal/NativeGateway.ts",
+          "packages/smithers/control/src/ControlRpcs.ts",
+          "packages/smithers/control/src/ApprovalAuthority.ts",
+          "packages/smithers/control/src/ControlServer.ts",
+          "packages/smithers/control/src/ControlLive.ts",
+          "packages/smithers/control/src/ControlExecutor.ts",
+          "packages/smithers/control/src/ControlRuntime.ts",
+          "packages/smithers/control/src/SqlControlRuntime.ts"
         ]
       },
       {
@@ -48259,6 +48885,106 @@
       {
         "kind": "glob",
         "pattern": "packages/smithers/gateway/scripts/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/GatewayServer.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/RuntimeBridge.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/internal/NativeGateway.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlRpcs.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ApprovalAuthority.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlServer.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlLive.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlExecutor.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlRuntime.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/SqlControlRuntime.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/GatewayServer.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/RuntimeBridge.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/internal/NativeGateway.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlRpcs.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ApprovalAuthority.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlServer.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlLive.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlExecutor.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlRuntime.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/SqlControlRuntime.ts",
         "exclude": []
       }
     ],
@@ -48276,7 +49002,7 @@
     "kinds": [
       "review"
     ],
-    "summary": "Full security audit of every included packages/smithers/gateway source against 12 package checks plus a general sweep.",
+    "summary": "Full security audit of every included packages/smithers/gateway source against 13 package checks plus a general sweep.",
     "cacheable": false,
     "inputs": [
       {
@@ -48284,7 +49010,17 @@
         "base": "HEAD",
         "paths": [
           "packages/smithers/gateway/src/**",
-          "packages/smithers/gateway/scripts/**"
+          "packages/smithers/gateway/scripts/**",
+          "packages/smithers/gateway/src/GatewayServer.ts",
+          "packages/smithers/gateway/src/RuntimeBridge.ts",
+          "packages/smithers/gateway/src/internal/NativeGateway.ts",
+          "packages/smithers/control/src/ControlRpcs.ts",
+          "packages/smithers/control/src/ApprovalAuthority.ts",
+          "packages/smithers/control/src/ControlServer.ts",
+          "packages/smithers/control/src/ControlLive.ts",
+          "packages/smithers/control/src/ControlExecutor.ts",
+          "packages/smithers/control/src/ControlRuntime.ts",
+          "packages/smithers/control/src/SqlControlRuntime.ts"
         ]
       },
       {
@@ -48295,6 +49031,106 @@
       {
         "kind": "glob",
         "pattern": "packages/smithers/gateway/scripts/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/GatewayServer.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/RuntimeBridge.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/internal/NativeGateway.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlRpcs.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ApprovalAuthority.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlServer.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlLive.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlExecutor.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlRuntime.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/SqlControlRuntime.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/GatewayServer.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/RuntimeBridge.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/src/internal/NativeGateway.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlRpcs.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ApprovalAuthority.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlServer.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlLive.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlExecutor.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/ControlRuntime.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/src/SqlControlRuntime.ts",
         "exclude": []
       }
     ],

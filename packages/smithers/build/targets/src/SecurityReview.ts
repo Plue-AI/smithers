@@ -68,6 +68,30 @@ export interface Check {
 }
 
 /**
+ * A trust boundary's actors, assumptions and ordered cross-package execution path.
+ * Path entries use the same file glob syntax as include. Every path is reviewed
+ * and supplied as context in every batch; cwd records ownership, not scope.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface Boundary {
+  readonly id: string
+  readonly actors: ReadonlyArray<string>
+  readonly assets: ReadonlyArray<string>
+  readonly entryPoints: ReadonlyArray<string>
+  readonly identityTransformations: ReadonlyArray<string>
+  readonly enforcementPoints: ReadonlyArray<string>
+  readonly deploymentAssumptions: ReadonlyArray<string>
+  readonly path: {
+    readonly caller: ReadonlyArray<string>
+    readonly authorization: ReadonlyArray<string>
+    readonly service: ReadonlyArray<string>
+    readonly storageOrEgress: ReadonlyArray<string>
+  }
+}
+
+/**
  * The built-in check every security review ends with.
  *
  * @category constants
@@ -202,6 +226,7 @@ export const renderRubric = (checks: ReadonlyArray<Check>): string =>
 export interface Options {
   readonly cwd: string
   readonly checks: ReadonlyArray<Check>
+  readonly boundaries?: ReadonlyArray<Boundary> | undefined
   readonly include?: ReadonlyArray<Input.Glob | string> | undefined
   readonly context?: ReadonlyArray<Input.Glob | string> | undefined
   readonly deps?: ReadonlyArray<Target.AnyTarget> | undefined
@@ -232,6 +257,83 @@ const anchor = (cwd: string, declaration: Input.Glob | string): Input.Glob => {
     pattern: `//${Input.resolvePath(cwd, glob.pattern)}`,
     exclude: glob.exclude.map((entry) => `//${Input.resolvePath(cwd, entry)}`)
   })
+}
+
+const boundaryFields = [
+  ["actors", "Actors"],
+  ["assets", "Assets"],
+  ["entryPoints", "Entry points"],
+  ["identityTransformations", "Identity transformations"],
+  ["enforcementPoints", "Enforcement points"],
+  ["deploymentAssumptions", "Deployment assumptions"]
+] as const
+
+const boundaryStages = [
+  ["caller", "Caller"],
+  ["authorization", "Authorization"],
+  ["service", "Service"],
+  ["storageOrEgress", "Storage/egress"]
+] as const
+
+const assembleBoundaries = (cwd: string, boundaries: ReadonlyArray<Boundary> | undefined, root: string | undefined) => {
+  if (boundaries !== undefined && boundaries.length === 0) {
+    throw new TypeError("security boundaries must contain at least one boundary")
+  }
+  const ids = new Set<string>()
+  const paths = new Map<string, Input.Glob>()
+  const checks: Array<Check> = []
+  const rubric: Array<string> = []
+  for (const boundary of boundaries ?? []) {
+    const id = oneLine(boundary.id, "security boundary id")
+    if (!checkId.test(id)) throw new TypeError(`security boundary id must be kebab-case: ${id}`)
+    if (ids.has(id)) throw new TypeError(`security boundary id is declared twice: ${id}`)
+    ids.add(id)
+    const lines = (values: ReadonlyArray<string>, field: string) => {
+      if (!Array.isArray(values) || values.length === 0) {
+        throw new TypeError(`security boundary ${id} ${field} must contain at least one item`)
+      }
+      return values.map((value) => oneLine(value, `security boundary ${id} ${field}`))
+    }
+    const boundaryPaths: Array<string> = []
+    rubric.push(`Boundary [${id}] (owner: ${cwd})`)
+    for (const [field, label] of boundaryFields) {
+      rubric.push(`${label}: ${lines(boundary[field], field).join("; ")}`)
+    }
+    rubric.push("Path: Caller -> Authorization -> Service -> Storage/egress")
+    for (const [field, label] of boundaryStages) {
+      const stage = lines(boundary.path?.[field], field).map((path) => anchor(cwd, path))
+      for (const glob of stage) {
+        const path = glob.pattern.slice(2)
+        if (root !== undefined && !probe(root, matcherOf(glob), () => true).matched) {
+          throw new TypeError(`security boundary ${id} (${cwd}) ${field} path ${JSON.stringify(path)} matches no file`)
+        }
+        paths.set(glob.pattern, glob)
+        boundaryPaths.push(glob.pattern)
+      }
+      rubric.push(`${label}: ${stage.map((glob) => glob.pattern.slice(2)).join(", ")}`)
+    }
+    checks.push({
+      id: `boundary-${id}`,
+      title: `Trace the ${id} trust boundary end to end`,
+      threat: "A caller crosses the declared boundary to access assets or exercise authority without authorization.",
+      lookFor: [
+        "Trace the declared caller, authorization, service and storage/egress path together, using every stage supplied as context.",
+        "Verify the declared actors, assets, entry points, identity transformations and enforcement points at each transition.",
+        "Report missing evidence needed for this declared path as incomplete coverage; deployment assumptions are outside this source review scope."
+      ],
+      paths: [...new Set(boundaryPaths)]
+    })
+    rubric.push("")
+  }
+  if (rubric.length > 0) {
+    rubric.push(
+      "Trace each boundary end to end across all supplied files, including context; package ownership is not a trust boundary.",
+      "Check identity propagation, authorization before effects, credential attachment and isolation at every transition.",
+      "Deployment assumptions are explicitly outside this declared source review scope, not evidence of hosted enforcement. Do not put those declared assumptions in missingContext; report missing files or evidence needed to trace the declared paths there.",
+      "Report coverage for every boundary-<id> check as well as the named checks and general; use the matching boundary check id for boundary findings."
+    )
+  }
+  return { paths: [...paths.values()], checks, rubric: rubric.join("\n") }
 }
 
 /** Directories a plan-time path check never descends into. */
@@ -385,14 +487,18 @@ const validatePaths = (
  */
 export const SecurityReview = (options: Options): SecurityTargets => {
   const cwd = options.cwd
-  const checks = withGeneral(cwd, options.checks)
-  const include = (options.include ?? ["src/**"]).map((entry) => anchor(cwd, entry))
-  const context = (options.context ?? []).map((entry) => anchor(cwd, entry))
   const root = options.workspaceRoot ?? declaredRoot(cwd)
+  const boundaries = assembleBoundaries(cwd, options.boundaries, root)
+  const checks = withGeneral(cwd, [...options.checks, ...boundaries.checks])
+  const unique = (
+    globs: ReadonlyArray<Input.Glob>
+  ) => [...new Map(globs.map((glob) => [JSON.stringify(glob), glob])).values()]
+  const include = unique([...(options.include ?? ["src/**"]).map((entry) => anchor(cwd, entry)), ...boundaries.paths])
+  const context = unique([...(options.context ?? []).map((entry) => anchor(cwd, entry)), ...boundaries.paths])
   if (root !== undefined) validatePaths(root, checks, include, context)
   const engine = options.engine ?? "claude"
   const model = options.model ?? (engine === "claude" ? defaultClaudeModel : defaultCodexModel)
-  const rubric = renderRubric(checks)
+  const rubric = [boundaries.rubric, renderRubric(checks)].filter(Boolean).join("\n\n")
   const paths = include.map((entry) => entry.pattern.slice(2))
   const named = checks.length - 1
   const shared = {
