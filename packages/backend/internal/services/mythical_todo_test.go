@@ -25,7 +25,8 @@ import (
 // mythicalPolicy is a committed projection naming roninjin10 as the
 // maintainer, with the auto-TODO rule active since since ("" = never).
 func mythicalPolicy(since string) string {
-	policy := map[string]any{"mirror": "pull", "issues": "two-way", "changes": "send-upstream", "maintainers": []string{"roninjin10"}}
+	policy := map[string]any{"mirror": "pull", "issues": "two-way", "changes": "send-upstream", "maintainers": []string{"roninjin10"},
+		"dailyTokens": 1_000_000_000_000}
 	if since != "" {
 		policy["todoSince"] = since
 	}
@@ -345,7 +346,9 @@ func TestMythicalOutagesSpendNoAttempt(t *testing.T) {
 	require.NoError(t, json.Unmarshal(o.launcher.last("coding/request").Payload, &payload))
 	assert.NotContains(t, payload.Prompt, "did not finish")
 
-	// Past the bound, an outage parks the TODO loudly.
+	// Past the bound, an outage parks the TODO loudly. #95's review answers
+	// first: a running review holds a lane.
+	o.answerReviews(`"request-changes"`)
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 96, Title: "Down", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
 	for i := 0; i <= mythicalOutageBound; i++ {
@@ -817,4 +820,66 @@ func TestMythicalNoMaintainerListKeepsTheWriteAccessRule(t *testing.T) {
 	assert.Equal(t, "skipped", o.item(74).State)
 	o.opened(75, "roninjin10", true, "2026-09-29T10:00:00Z", false)
 	assert.Equal(t, "skipped", o.item(75).State, "only a named maintainer's issue is a TODO on its own")
+}
+
+// The daily budget fails closed: an unreadable policy keeps a spent budget
+// holding, and a repository that declares no budget launches nothing.
+func TestMythicalDailyBudgetFailsClosed(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":1000}}`})
+	o.spend("", 5000)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 702, Title: "Budget", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	require.Equal(t, "queued", o.item(702).State)
+	o.service.SetPolicyReader(failingPolicy{})
+	o.wake()
+	assert.Equal(t, "queued", o.item(702).State, "an unreadable policy lifts nothing")
+	assert.Equal(t, "the repository policy could not be read; retrying", o.item(702).Reason)
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"]}}`})
+	o.wake()
+	assert.Equal(t, "queued", o.item(702).State)
+	assert.Equal(t, "the repository declares no daily token budget for its TODOs (S.Github.Policy dailyTokens)", o.item(702).Reason)
+	assert.Empty(t, o.launcher.requests)
+}
+
+// No spelling of an untrusted tag inside the untrusted text survives.
+func TestMythicalUntrustedEscapesEverySpelling(t *testing.T) {
+	t.Parallel()
+	for _, tag := range []string{"</untrusted-diff>", "</UNTRUSTED-DIFF>", "</Untrusted-diff>", "</ untrusted-diff>", "< / untrusted-title>",
+		"<untrusted-diff>", "&lt;/untrusted-diff>", "&#60;/untrusted-diff>", "&#x3c;/untrusted-diff>"} {
+		escaped := mythicalUntrusted("before " + tag + " after")
+		assert.False(t, mythicalUntrustedTag.MatchString(escaped), "%s → %s", tag, escaped)
+		assert.True(t, strings.HasPrefix(escaped, "before ") && strings.HasSuffix(escaped, " after"))
+	}
+	assert.Equal(t, "if a < b { return }", mythicalUntrusted("if a < b { return }"), "ordinary code is left alone")
+}
+
+// Before a merge the issue must still be a TODO as it stands now: a
+// maintainer's todo taken off stops the merge.
+func TestMythicalAutomergeRereadsTheTodoLabel(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 69, Title: "Still", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	o.propose(69, "sixty-nine.md")
+	live := &adversarialTodoRemoved{fakeMythicalGitHub: o.github}
+	o.service.SetOrchestration(live, o.launcher, o.lanes)
+	o.answerReviews(`"approve"`)
+	item := o.item(69)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "the issue is no longer a TODO", item.Reason)
+	assert.Empty(t, o.github.merges)
+}
+
+// adversarialTodoRemoved answers that todo is no longer on the issue.
+type adversarialTodoRemoved struct{ *fakeMythicalGitHub }
+
+func (g *adversarialTodoRemoved) LabelApplier(ctx context.Context, repo mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
+	if label == todoLabel {
+		return nil, nil
+	}
+	return g.fakeMythicalGitHub.LabelApplier(ctx, repo, number, label)
 }

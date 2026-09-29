@@ -75,8 +75,7 @@ type MythicalService struct {
 	backfills        map[int64]time.Time
 	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
 	// policy reads the default bookmark's committed factory policy
-	// (todoAuthors, agentIssueSources); without it no issue is a TODO
-	// automatically.
+	// (maintainers, todoSince, dailyTokens); stackPolicy.
 	policy repositoryPolicyHost
 }
 

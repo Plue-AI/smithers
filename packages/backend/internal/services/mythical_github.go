@@ -459,11 +459,34 @@ func (g *mythicalGitHubAPI) HeadChecks(ctx context.Context, gh mythicalGitHubRep
 			break
 		}
 	}
+	// A workflow whose later jobs have no check run yet still has a suite
+	// that has not completed: CI is green only once every suite finished.
+	var suites struct {
+		CheckSuites []struct {
+			Status     string  `json:"status"`
+			Conclusion *string `json:"conclusion"`
+		} `json:"check_suites"`
+	}
+	status, err := g.api.request(ctx, token, http.MethodGet, commit+"/check-suites?per_page=100", nil, &suites)
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK {
+		return "", landingGitHubStatusError(status, gh.Owner, gh.Name, "read check suites")
+	}
+	for _, suite := range suites.CheckSuites {
+		switch {
+		case suite.Status != "completed" || suite.Conclusion == nil:
+			pending = true
+		case *suite.Conclusion != "success" && *suite.Conclusion != "neutral" && *suite.Conclusion != "skipped":
+			return mythicalCIRed, nil
+		}
+	}
 	var combined struct {
 		State      string `json:"state"`
 		TotalCount int    `json:"total_count"`
 	}
-	status, err := g.api.request(ctx, token, http.MethodGet, commit+"/status", nil, &combined)
+	status, err = g.api.request(ctx, token, http.MethodGet, commit+"/status", nil, &combined)
 	if err != nil {
 		return "", err
 	}

@@ -520,10 +520,15 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.Equal(t, o.git(o.github.dir, "rev-parse", "refs/heads/main"), o.git(o.github.dir, "rev-parse", branchHead+"^"))
 	assert.Contains(t, o.git(o.github.dir, "log", "-1", "--format=%B", branchHead), "Closes #7")
 
-	// change.opened: the review reads the pull request's diff on the item's
-	// lane, which stays bound until it answers.
+	// change.opened: the review reads the pull request's diff on a fresh
+	// lane of the stack's own bookmark, never the box the coding agent wrote
+	// to, which is retired first; the review lane stays bound until it
+	// answers.
 	review := o.launcher.last(mythicalReviewFlow)
-	assert.Equal(t, workspace, review.Target.WorkspaceID)
+	assert.NotEqual(t, workspace, review.Target.WorkspaceID)
+	assert.Contains(t, o.lanes.deleted, workspace)
+	reviewLane := review.Target.WorkspaceID
+	assert.Contains(t, o.lanes.created, reviewLane)
 	var args struct {
 		Args string `json:"args"`
 	}
@@ -531,11 +536,11 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.Contains(t, args.Args, "Pull request #"+strconv.FormatInt(item.PRNumber.Int64, 10)+".\n\n<untrusted-title>\nAdd docs\n</untrusted-title>")
 	assert.Contains(t, args.Args, "<untrusted-diff>\n")
 	assert.Contains(t, args.Args, "+++ b/docs.md")
-	assert.NotContains(t, o.lanes.deleted, workspace)
+	assert.NotContains(t, o.lanes.deleted, reviewLane)
 	o.answerReviews(`"approve\n- docs.md reads well"`)
 	item = o.item(7)
 	assert.Equal(t, mythicalReview{Head: item.PRHead, RunID: "run-review-2", Verdict: "approve"}, *mythicalChecksOf(item).Review)
-	assert.Contains(t, o.lanes.deleted, workspace, "the lane is retired once the review answers")
+	assert.Contains(t, o.lanes.deleted, reviewLane, "the review lane is retired once it answers")
 	assert.Empty(t, o.github.merges, "an approved TODO without automerge waits for a person")
 	assert.Equal(t, "proposed", item.State)
 
@@ -672,9 +677,11 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	assert.Equal(t, "blocked", twelve.State)
 	payload := string(o.launcher.last("coding/request").Payload)
 	assert.Contains(t, payload, "Append new changes at the head only", "the last attempt appends only")
-	// An agent's run may retry a blocked item, but not re-open one the
-	// planner declined: that is a person's decision.
-	view, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(twelve.ID))
+	// A block the very hard stop typed is a person's to lift, like a
+	// planner's decline: an agent's run can re-open neither.
+	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(twelve.ID))
+	requireRunCredentialRefused(t, err)
+	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(twelve.ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", view.State)
 	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(13).ID))

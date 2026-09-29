@@ -793,7 +793,10 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 		Inserts []insert          `json:"inserts"`
 		Appends int               `json:"appends"`
 		Checks  []json.RawMessage `json:"checks"`
-	}{Title: result.Plan.Changes[0].Title, Amends: []string{}, Inserts: []insert{}}
+		// Steps are the plan's atoms in order, so a continuation can pick up
+		// the plan it continues.
+		Steps []string `json:"steps"`
+	}{Title: result.Plan.Changes[0].Title, Amends: []string{}, Inserts: []insert{}, Steps: []string{}}
 	seen := map[string]bool{}
 	var atoms []struct {
 		ChangeID *string
@@ -801,6 +804,7 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 	}
 	for _, change := range result.Plan.Changes {
 		for _, atom := range change.Atoms {
+			summary.Steps = append(summary.Steps, atom.Message)
 			atoms = append(atoms, struct {
 				ChangeID *string
 				Message  string
@@ -873,7 +877,11 @@ func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem
 		st.policy = &policy
 	}
 	if st.policy.DailyTokens <= 0 {
-		return nil
+		// No budget declared is no launch: the factory never spends unbounded.
+		next := item
+		next.Reason = "the repository declares no daily token budget for its TODOs (S.Github.Policy dailyTokens)"
+		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+		return &next
 	}
 	day := st.now.UTC().Truncate(24 * time.Hour)
 	spent, err := st.s.queries().MythicalRepositoryTokensSince(ctx, st.r.row.RepositoryID, day)
@@ -1100,13 +1108,13 @@ func mythicalStop(item db.MythicalItem, fault mythicalFault, reason string) *db.
 const mythicalVeryHard = "very hard: "
 
 // mythicalOutage prefixes a run outcome no plan caused: the runtime, a model
-// provider or Jev failed, or the run was cancelled (mythicalRunOutcome).
+// provider or Jev failed (mythicalFailedOutcome).
 const mythicalOutage = "outage: "
 
 // mythicalOutageRetry runs the item's attempt again without spending one:
 // an outage is never the plan's failure, so the next prompt does not say the
-// work failed, and outages alone never block an item (the spend cap bounds
-// them).
+// work failed. Past mythicalOutageBound consecutive outages it parks the
+// item for a person, not the TODO's fault.
 func mythicalOutageRetry(item db.MythicalItem, outcome string, now time.Time) *db.MythicalItem {
 	checks := mythicalChecksOf(item)
 	checks.Outages++
@@ -1896,6 +1904,8 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		// Seam: Jev's needs-review tag decides here which changes are
 		// reviewed. Until it lands, every change is.
 		return st.review(ctx, item)
+	case review.Verdict == mythicalCancelled || strings.HasPrefix(review.Verdict, mythicalStopped):
+		return mythicalHold(item, "review:"+item.PRHead, "the review of this head was stopped ("+review.Verdict+"); a person decides", st.now), false, nil
 	case strings.HasPrefix(review.Verdict, "failed"):
 		return mythicalHold(item, "review:"+item.PRHead, "the review of this head failed ("+strings.TrimPrefix(review.Verdict, "failed: ")+"); a person decides", st.now), false, nil
 	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
@@ -1908,10 +1918,16 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 // alone (flows/review/change).
 const mythicalReviewFlow = "review/change"
 
-// mythicalUntrusted keeps text inside its untrusted block: no closing tag it
-// carries can end the block early.
+// mythicalUntrustedTag finds anything that could read as an untrusted
+// block's tag: any case, spaces, a slash, or an entity for "<".
+var mythicalUntrustedTag = regexp.MustCompile(`(?i)(<|&lt;|&#0*60;|&#x0*3c;)\s*/?\s*untrusted`)
+
+// mythicalUntrusted keeps text inside its untrusted block: no tag it
+// carries, in any spelling, can end the block early or open another.
 func mythicalUntrusted(text string) string {
-	return strings.ReplaceAll(text, "</untrusted", "<\\/untrusted")
+	return mythicalUntrustedTag.ReplaceAllStringFunc(text, func(tag string) string {
+		return "[" + strings.TrimLeft(tag, "<&#;ltxX0123456789c") + "]"
+	})
 }
 
 // mythicalReviewBytes bounds the diff a review reads; a larger change is not
@@ -1941,15 +1957,24 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 		next.Checks = checks.encode()
 		return &next, false, nil
 	}
-	if next.WorkspaceID == "" {
-		workspaceID, err := st.lane(ctx, item, fmt.Sprintf("mythical #%d review %d", item.IssueNumber.Int64, item.Generation+1))
-		if err != nil {
-			return mythicalLater(item, "no lane workspace to review on: "+err.Error(), st.now), false, nil
+	// The review never runs in the box the coding agent wrote to: a run loads
+	// its workspace's instruction files (AGENTS.md, via RoleProfile.forRun),
+	// so a file the agent left there would reach the reviewer unframed. It
+	// runs on a fresh lane of the stack's own bookmark, which holds only
+	// landed code; the change arrives only as the framed diff.
+	if next.WorkspaceID != "" {
+		if err := s.retireLane(ctx, r, next.WorkspaceID); err != nil {
+			return mythicalLater(item, "the coding lane could not be retired before the review: "+err.Error(), st.now), false, nil
 		}
-		next.WorkspaceID = workspaceID
-		next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
-		next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
+		next.WorkspaceID, next.Lane, next.LaneStartedAt = "", pgtype.Int4{}, pgtype.Timestamptz{}
 	}
+	workspaceID, err := st.lane(ctx, next, fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation+1))
+	if err != nil {
+		return mythicalLater(item, "no lane workspace to review on: "+err.Error(), st.now), false, nil
+	}
+	next.WorkspaceID = workspaceID
+	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
+	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
 	next.Generation++
 	next.Checks = checks.encode()
 	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n",
@@ -2025,6 +2050,20 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		checks.Automerge = false
 		next.Checks = checks.encode()
 		return mythicalHold(next, "automerge:"+item.PRHead, "a maintainer's automerge label is no longer on the issue", st.now)
+	}
+	// The issue must still be a TODO: the factory's own decision, or a
+	// maintainer's todo label as it stands now.
+	if checks := mythicalChecksOf(item); checks.AutoTodo == "" {
+		todo, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, todoLabel)
+		if err != nil {
+			return mythicalLater(item, "GitHub did not answer for the issue's labels; retrying", st.now)
+		}
+		if todo == nil || todo.ViaApp || !policy.maintains(todo.Actor.Login) {
+			next := item
+			checks.Todo = false
+			next.Checks = checks.encode()
+			return mythicalHold(next, "todo:"+item.PRHead, "the issue is no longer a TODO", st.now)
+		}
 	}
 	commit, err := s.github.Merge(ctx, gh, item.PRNumber.Int64, item.PRHead)
 	if err != nil {
@@ -2219,7 +2258,9 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 			return MythicalItemView{}, pkgerrors.Conflict("only a blocked, rejected or declined item is retried")
 		}
 		// A person, never a run, retries past a bound.
-		if item.State != "blocked" || mythicalChecksOf(item).bounded() || mythicalChecksOf(item).personal() {
+		// A typed stop (a bound, a cancel, very hard, a defect) is a person's
+		// to lift; a run may retry only a block no fault names.
+		if item.State != "blocked" || mythicalChecksOf(item).Fault != nil {
 			if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {
 				return MythicalItemView{}, err
 			}
@@ -2526,12 +2567,6 @@ type mythicalFault struct {
 // bounded reports whether the item stopped at a bound a person lifts.
 func (c mythicalChecks) bounded() bool {
 	return c.Fault != nil && c.Fault.Class == "policy"
-}
-
-// personal reports whether the item stopped by a person's own act (a
-// cancelled run): only a person resumes it.
-func (c mythicalChecks) personal() bool {
-	return c.Fault != nil && c.Fault.Class == "user"
 }
 
 // resume lifts the bounds when a person resumes the item at generation.

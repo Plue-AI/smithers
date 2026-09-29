@@ -102,7 +102,9 @@ func TestMythicalGitHubHeadChecksNeedsEveryReportGreen(t *testing.T) {
 			t.Parallel()
 			github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
 				"GET /repos/o/r/commits/abc/check-runs?per_page=100&page=1": answer(http.StatusOK, map[string]any{"check_runs": tc.runs}),
-				"GET /repos/o/r/commits/abc/status":                         answer(http.StatusOK, tc.combined),
+				"GET /repos/o/r/commits/abc/check-suites?per_page=100": answer(http.StatusOK, map[string]any{
+					"check_suites": []map[string]any{{"status": "completed", "conclusion": "success"}}}),
+				"GET /repos/o/r/commits/abc/status": answer(http.StatusOK, tc.combined),
 			}}
 			verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
 			require.NoError(t, err)
@@ -198,4 +200,32 @@ func TestMythicalGitHubLabelApplierReadsTheLabelAsItStandsNow(t *testing.T) {
 	assert.True(t, applier.ViaApp, "an App's application is marked")
 	_, err = api.LabelApplier(ctx, stackRepo, 3, "automerge")
 	require.ErrorContains(t, err, "too long to read whole", "a history read in part is refused")
+}
+
+// Between a workflow's stages every run so far finished while its suite has
+// not: that is not green yet, and a failed suite is red.
+func TestMythicalGitHubHeadChecksWaitsForEverySuite(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		suite map[string]any
+		want  string
+	}{
+		{"a suite still running", map[string]any{"status": "in_progress", "conclusion": nil}, mythicalCIPending},
+		{"a failed suite", map[string]any{"status": "completed", "conclusion": "failure"}, mythicalCIRed},
+		{"a finished suite", map[string]any{"status": "completed", "conclusion": "success"}, mythicalCIGreen},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+				"GET /repos/o/r/commits/abc/check-runs?per_page=100&page=1": answer(http.StatusOK, map[string]any{
+					"check_runs": []map[string]any{{"status": "completed", "conclusion": "success"}}}),
+				"GET /repos/o/r/commits/abc/check-suites?per_page=100": answer(http.StatusOK, map[string]any{"check_suites": []map[string]any{tc.suite}}),
+				"GET /repos/o/r/commits/abc/status":                    answer(http.StatusOK, map[string]any{"state": "pending", "total_count": 0}),
+			}}
+			verdict, err := github.api(t).HeadChecks(context.Background(), stackRepo, "abc")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, verdict)
+		})
+	}
 }
