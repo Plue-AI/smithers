@@ -8,6 +8,7 @@ import * as Log from "./log.ts"
  *   -c, --continue   continue the latest session in this directory
  *   -r, --resume     pick a session to continue
  *   -p, --print      run one prompt and print the answer
+ *   --box            run worker tools in a Smithers Cloud workspace, owner/repo/id (or SMITHERS_BOX)
  */
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
@@ -16,6 +17,7 @@ import * as FailureCopy from "@smthrs/model/FailureCopy"
 import { spawnSync } from "node:child_process"
 import { resolve } from "node:path"
 import * as Approvals from "./approvals.ts"
+import * as Box from "./box.ts"
 import * as Budget from "./budget.ts"
 import * as Cli from "./cli.ts"
 import type * as Context from "./context.ts"
@@ -35,6 +37,11 @@ if ("error" in parsed) {
   process.exit(1)
 }
 const { values, cwd } = parsed
+const box = values.box ?? (process.env.SMITHERS_BOX || undefined)
+if (box !== undefined && !Cli.validBox(box)) {
+  console.error("SMITHERS_BOX needs owner/repo/workspace-id")
+  process.exit(1)
+}
 const approvals = Approvals.mode(process.env, { print: values.print !== undefined, flag: values.approve })
 if (typeof approvals === "object") {
   console.error(approvals.error)
@@ -76,6 +83,7 @@ const host = Host.make({
   approvals,
   // Replay is an explicit offline fixture; its claims still receive evidence checks.
   ...(seat.startsWith("replay:") ? { judge: ScriptedJudge.layerAll } : {}),
+  ...(box === undefined ? {} : { box: Box.workspace(process.env, box) }),
   ...spending
 })
 

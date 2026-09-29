@@ -12,7 +12,11 @@ export const usage = `Usage: smithers-tui [directory] [options]
       --approve <mode>       all (default), ask, or deny
       --budget-tokens <n>    Token cap per turn and worker (default 200M; 0 or none disables)
       --budget-daily-tokens <n>  Token cap per UTC day on this machine (default 2B; 0 or none disables)
+      --box <owner/repo/id>  Run worker tools in this Smithers Cloud workspace (or SMITHERS_BOX)
   -h, --help                 Show help`
+
+/** Whether `reference` names a Smithers Cloud workspace: `OWNER/REPO/WORKSPACE_ID`. */
+export const validBox = (reference: string): boolean => /^[\w.-]+\/[\w.-]+\/[\w-]+$/.test(reference)
 
 export const parse = (args: ReadonlyArray<string>, cwd: string) => {
   try {
@@ -26,6 +30,7 @@ export const parse = (args: ReadonlyArray<string>, cwd: string) => {
         approve: { type: "string" },
         "budget-tokens": { type: "string" },
         "budget-daily-tokens": { type: "string" },
+        box: { type: "string" },
         help: { type: "boolean", short: "h" }
       },
       allowPositionals: true
@@ -38,6 +43,9 @@ export const parse = (args: ReadonlyArray<string>, cwd: string) => {
     }
     if (values.model !== undefined && values.model.trim() === "") return { error: "--model needs a model" } as const
     if (values.print !== undefined && values.print.trim() === "") return { error: "--print needs a prompt" } as const
+    if (values.box !== undefined && !validBox(values.box)) {
+      return { error: "--box needs owner/repo/workspace-id" } as const
+    }
     const directory = resolve(cwd, positionals[0] ?? ".")
     try {
       if (!statSync(directory).isDirectory()) return { error: `Not a directory: ${directory}` } as const

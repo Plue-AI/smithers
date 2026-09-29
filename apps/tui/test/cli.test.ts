@@ -106,3 +106,9 @@ it("disables both caps with 0 or none and still answers", () => {
   expect(result.status, result.stderr).toBe(0)
   expect(result.stdout.trim()).toBe("pong")
 })
+
+it("takes a Smithers Cloud workspace for worker tools and refuses a malformed one", () => {
+  expect(Cli.parse(["--box", "acme/app/ws_01"], "/")).toMatchObject({ values: { box: "acme/app/ws_01" } })
+  expect(Cli.parse(["--box", "acme/app"], "/")).toEqual({ error: "--box needs owner/repo/workspace-id" })
+  expect(Cli.parse(["--box", "acme/app/ws;rm"], "/")).toEqual({ error: "--box needs owner/repo/workspace-id" })
+})

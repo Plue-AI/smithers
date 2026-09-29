@@ -69,6 +69,12 @@ Edits, shell commands, and network calls run without asking. `--approve ask`
 (or `SMITHERS_TUI_APPROVE=ask`) makes each wait for **y**/**n**; `deny` refuses
 them. The flag wins over the variable, and `-p` cannot `ask`.
 
+`--box owner/repo/workspace-id` (or `SMITHERS_BOX`) runs every worker's
+filesystem and shell flows in that Smithers Cloud workspace, over its SSH
+endpoint, in `/home/developer/workspace`. The chat, the model and the journal
+stay on this machine. A placed worker's edits land on the box, so they carry
+no undo receipt here.
+
 Spend caps are tripwires for runaway loops, not cost control. Each chat turn
 and each worker stops before a model call's estimated total would pass **200M
 tokens** (`--budget-tokens <n>` or `SMITHERS_TUI_BUDGET_TOKENS`). All runs on
