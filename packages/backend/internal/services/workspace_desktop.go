@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
@@ -372,7 +373,7 @@ type WorkspaceDesktopRelayTarget struct {
 // relayed to the desktop. The token is the credential: no user session is
 // involved (the viewer runs in an iframe / WebSocket without headers).
 func (s *WorkspaceService) AuthorizeDesktopRelay(ctx context.Context, workspaceID, token string) (WorkspaceDesktopRelayTarget, error) {
-	if s.q == nil {
+	if s == nil || s.q == nil {
 		return WorkspaceDesktopRelayTarget{}, pkgerrors.Internal("workspace store unavailable")
 	}
 	workspaceID = strings.TrimSpace(workspaceID)
@@ -400,7 +401,7 @@ func (s *WorkspaceService) AuthorizeDesktopRelay(ctx context.Context, workspaceI
 	if !valid {
 		return WorkspaceDesktopRelayTarget{}, pkgerrors.Unauthorized("invalid desktop session")
 	}
-	if err := s.requireWorkspaceAccess(ctx, workspace.ID, workspace.UserID, creatorID, WorkspaceAccessWrite); err != nil {
+	if err := s.requireDesktopRelayAccess(ctx, workspace, creatorID); err != nil {
 		return WorkspaceDesktopRelayTarget{}, err
 	}
 	if normalizeWorkspaceKind(workspace.Kind) != "desktop" || workspace.Status != "running" || strings.TrimSpace(workspace.VmID) == "" {
@@ -414,4 +415,63 @@ func (s *WorkspaceService) AuthorizeDesktopRelay(ctx context.Context, workspaceI
 		OwnerUserID:  workspace.UserID,
 		RepositoryID: workspace.RepositoryID,
 	}, nil
+}
+
+// Bearer requests have no user middleware, so recheck both accounts and their
+// repository grants before accepting ownership or a workspace share.
+func (s *WorkspaceService) requireDesktopRelayAccess(ctx context.Context, workspace db.Workspace, creatorID int64) error {
+	store, ok := s.q.(workspacePreviewAuthorizationQuerier)
+	if !ok {
+		return pkgerrors.Internal("desktop authorization unavailable")
+	}
+	owner, err := store.GetUserByID(ctx, workspace.UserID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pkgerrors.Forbidden("access denied")
+		}
+		return pkgerrors.Internal("load desktop owner: " + err.Error())
+	}
+	if !owner.IsActive || owner.ProhibitLogin || owner.DeletedAt.Valid {
+		return pkgerrors.Forbidden("access denied")
+	}
+	creator := owner
+	if creatorID != workspace.UserID {
+		creator, err = store.GetUserByID(ctx, creatorID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return pkgerrors.Forbidden("access denied")
+			}
+			return pkgerrors.Internal("load desktop creator: " + err.Error())
+		}
+		if !creator.IsActive || creator.ProhibitLogin || creator.DeletedAt.Valid {
+			return pkgerrors.Forbidden("access denied")
+		}
+	}
+	repository, err := store.GetRepoByID(ctx, workspace.RepositoryID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pkgerrors.Forbidden("access denied")
+		}
+		return pkgerrors.Internal("load desktop repository: " + err.Error())
+	}
+	// The creator must retain the repository write grant required to mint the
+	// desktop bearer. A distinct workspace owner must still be able to read the
+	// repository, matching the supporting owner check for workspace previews.
+	permission, permissionErr := middleware.ResolveRepoPermission(ctx, store, repository, &creator)
+	if permissionErr != nil {
+		return permissionErr
+	}
+	if !permission.Satisfies(middleware.PermissionWrite) {
+		return pkgerrors.Forbidden("access denied")
+	}
+	if creatorID != workspace.UserID {
+		ownerPermission, ownerPermissionErr := middleware.ResolveRepoPermission(ctx, store, repository, &owner)
+		if ownerPermissionErr != nil {
+			return ownerPermissionErr
+		}
+		if !ownerPermission.Satisfies(middleware.PermissionRead) {
+			return pkgerrors.Forbidden("access denied")
+		}
+	}
+	return s.requireWorkspaceAccess(ctx, workspace.ID, workspace.UserID, creatorID, WorkspaceAccessWrite)
 }

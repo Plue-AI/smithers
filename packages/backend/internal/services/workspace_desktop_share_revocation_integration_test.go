@@ -23,6 +23,9 @@ func TestDesktopSessionFollowsCreatorShareInProductDatabase(t *testing.T) {
 			fx := newPairFixture(t)
 			owner := mkPairUser(t, fx.pool, "desktop-owner")
 			editor := mkPairUser(t, fx.pool, "desktop-editor")
+			_, err := fx.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission)
+				VALUES($1,$2,'write'),($1,$3,'write')`, fx.repoID, owner, editor)
+			require.NoError(t, err)
 			source := mkPairWorkspace(t, fx.pool, owner, fx.repoID)
 			pairs := newPairService(fx, map[int64]bool{owner: true, editor: true}, false, nil)
 			session, err := pairs.CreateSession(ctx, owner, fx.repoID, source)
@@ -87,9 +90,12 @@ func TestDesktopSessionCreatorDeletionInvalidatesCredential(t *testing.T) {
 	fx := newPairFixture(t)
 	owner := mkPairUser(t, fx.pool, "desktop-erasure-owner")
 	member := mkPairUser(t, fx.pool, "desktop-erasure-member")
+	_, err := fx.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission)
+		VALUES($1,$2,'write'),($1,$3,'write')`, fx.repoID, owner, member)
+	require.NoError(t, err)
 	workspaceID := uuid.NewString()
 	token, hash := generateDesktopSessionToken(member)
-	_, err := fx.pool.Exec(ctx, `INSERT INTO workspaces(id, repository_id, user_id, kind, status, vm_id,
+	_, err = fx.pool.Exec(ctx, `INSERT INTO workspaces(id, repository_id, user_id, kind, status, vm_id,
 		desktop_session_token_hash, desktop_session_expires_at)
 		VALUES($1::uuid,$2,$3,'desktop','running','vm-desktop-erasure',$4,$5)`,
 		workspaceID, fx.repoID, owner, hash, time.Now().Add(time.Hour))

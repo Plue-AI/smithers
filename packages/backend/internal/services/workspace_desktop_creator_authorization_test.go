@@ -84,7 +84,7 @@ func TestAuthorizeDesktopRelayRequiresCurrentCreatorWriteAccess(t *testing.T) {
 				},
 				touchWorkspaceActivityFn: func(context.Context, string) error { touches++; return nil },
 			}
-			target, err := NewWorkspaceService(q).AuthorizeDesktopRelay(context.Background(), workspace.ID, token)
+			target, err := NewWorkspaceService(&relayAuthorizationQuerier{mockWorkspaceQuerier: q}).AuthorizeDesktopRelay(context.Background(), workspace.ID, token)
 			if tc.wantStatus != 0 {
 				assertAPIStatus(t, err, tc.wantStatus)
 			} else {
@@ -138,7 +138,7 @@ func TestAuthorizeDesktopRelayRejectsMalformedAndTamperedCreatorTokens(t *testin
 			workspace.Kind = "desktop"
 			workspace.DesktopSessionTokenHash = hash
 			workspace.DesktopSessionExpiresAt = pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
-			shareCalls, touches := 0, 0
+			shareCalls, touches, accountCalls := 0, 0, 0
 			q := &mockWorkspaceQuerier{
 				getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return workspace, nil },
 				getWorkspaceShareFn: func(context.Context, db.GetWorkspaceShareParams) (db.WorkspaceShare, error) {
@@ -147,8 +147,14 @@ func TestAuthorizeDesktopRelayRejectsMalformedAndTamperedCreatorTokens(t *testin
 				},
 				touchWorkspaceActivityFn: func(context.Context, string) error { touches++; return nil },
 			}
-			_, err := NewWorkspaceService(q).AuthorizeDesktopRelay(context.Background(), workspace.ID, token)
+			authQ := &relayAuthorizationQuerier{mockWorkspaceQuerier: q}
+			authQ.userFn = func(id int64) (db.User, error) {
+				accountCalls++
+				return db.User{ID: id, IsActive: true}, nil
+			}
+			_, err := NewWorkspaceService(authQ).AuthorizeDesktopRelay(context.Background(), workspace.ID, token)
 			assertAPIStatus(t, err, 401)
+			require.Zero(t, accountCalls, "invalid token must not query account state")
 			require.Zero(t, shareCalls, "invalid token must not resolve a share")
 			require.Zero(t, touches)
 		})

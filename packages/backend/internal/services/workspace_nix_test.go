@@ -296,7 +296,7 @@ func TestAuthorizeDesktopRelay(t *testing.T) {
 		},
 		touchWorkspaceActivityFn: func(context.Context, string) error { touched++; return nil },
 	}
-	svc := NewWorkspaceService(q)
+	svc := NewWorkspaceService(&relayAuthorizationQuerier{mockWorkspaceQuerier: q})
 
 	target, err := svc.AuthorizeDesktopRelay(context.Background(), workspace.ID, token)
 	require.NoError(t, err)
@@ -389,7 +389,7 @@ func TestCreateDesktopSessionRotatesPasswordAndPublishesPort(t *testing.T) {
 	workspace.DesktopSessionTokenHash = q.set.DesktopSessionTokenHash
 	workspace.DesktopSessionExpiresAt = q.set.DesktopSessionExpiresAt
 	q.getWorkspaceFn = func(context.Context, string) (db.Workspace, error) { return workspace, nil }
-	target, err := svc.AuthorizeDesktopRelay(context.Background(), workspace.ID, resp.Token)
+	target, err := NewWorkspaceService(&relayAuthorizationQuerier{mockWorkspaceQuerier: q.mockWorkspaceQuerier}).AuthorizeDesktopRelay(context.Background(), workspace.ID, resp.Token)
 	require.NoError(t, err)
 	assert.Equal(t, workspaceDesktopDomain(workspace.VmID), target.Domain)
 }
