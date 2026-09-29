@@ -9,7 +9,11 @@ import { Check, checkInputDigest, CodingError, Implementation, Receipt } from ".
 const Command = Schema.Struct({
   argv: Schema.NonEmptyArray(Schema.NonEmptyString),
   cwd: Schema.String,
-  timeoutMs: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(3_600_000))
+  timeoutMs: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(3_600_000)),
+  // Pinned command metadata, never a guess from output or an agent's verdict.
+  infraExitCodes: Schema.optionalKey(Schema.Array(
+    Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(255))
+  ))
 })
 const Input = Schema.Struct({ implementation: Implementation, check: Check })
 
@@ -78,6 +82,7 @@ export const checkLayers = (options: CheckHostOptions) => {
             const environment = { ...options.environment, SMITHERS_CHECK_FILES: implementation.writes.join("\n") }
             const result = yield* runSourceProcess({ ...options, environment }, command.argv, cwd, command.timeoutMs)
             const passed = result.exitCode === 0
+            const fault = command.infraExitCodes?.includes(result.exitCode) ? "infra" as const : "factory" as const
             return {
               checkId: check.id,
               target: check.target,
@@ -87,6 +92,7 @@ export const checkLayers = (options: CheckHostOptions) => {
               treeId: tree.treeId,
               inputDigest: checkInputDigest(implementation, check),
               status: passed ? "passed" as const : "failed" as const,
+              ...(passed ? {} : { fault }),
               evidence: JSON.stringify({
                 argv: command.argv,
                 cwd: command.cwd,
@@ -96,7 +102,7 @@ export const checkLayers = (options: CheckHostOptions) => {
                 truncated: result.stdout.truncated || result.stderr.truncated,
                 fileCount: tree.fileCount
               }),
-              findings: passed ?
+              findings: passed || fault === "infra" ?
                 [] :
                 [{
                   owner: implementation.change,

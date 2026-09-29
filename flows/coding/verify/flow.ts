@@ -1,6 +1,7 @@
 /** Required checks on one retained commit of the mythical stack. */
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
+import type * as Planned from "@smthrs/plan/Planned"
 import { CodingError, type Receipt, type Revision } from "../schema.ts"
 import { AdmitVerifySource, verifyImplementation, VerifyInput, VerifyResult, verifySummary } from "../verify-schema.ts"
 import { RunCheck } from "../workflow.ts"
@@ -47,7 +48,15 @@ export default Flow.make("coding/Verify", {
         }).pipe(
           Node.map((
             { head, receipts }: { head: typeof Revision.Type; receipts: Readonly<Record<string, typeof Receipt.Type>> }
-          ) => verifySummary(input.checks, verifyImplementation(head), Object.values(receipts)))
+          ) => {
+            const result = verifySummary(input.checks, verifyImplementation(head), Object.values(receipts))
+            return result instanceof CodingError ? { outage: result, result: null } : { outage: null, result }
+          }),
+          Node.branch({
+            if: (summary) => summary.outage !== null,
+            then: (summary) => Node.fail(summary.outage as Planned.Planned<CodingError>),
+            else: (summary) => Node.succeed(summary.result as Planned.Planned<typeof VerifyResult.Type>)
+          })
         )
       )
     )

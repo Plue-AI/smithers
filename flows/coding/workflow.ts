@@ -9,6 +9,7 @@ import {
   Plan,
   Receipt,
   receiptMatches,
+  receiptOutage,
   Result,
   Revision,
   sameRevision,
@@ -80,6 +81,8 @@ export const receiptFindings = (
       })
     }
   }
+  const outage = receiptOutage(receipt)
+  if (outage) throw outage
   return check.required && receipt.status !== "passed" && receipt.findings.length === 0
     ? [{ owner: group.id, sourceCommitId: implementation.head.commitId, message: `${check.target}: ${receipt.status}` }]
     : receipt.findings
@@ -137,7 +140,8 @@ export const policyLayers = Layer.mergeAll(
           )
         }
       }
-      for (const check of change.checks.filter((check) => check.tier === "fast")) {
+      const fastChecks = change.checks.filter((check) => check.tier === "fast")
+      for (const check of fastChecks) {
         const receipt = receipts[check.id]
         if (!receipt || !receiptMatches(implementation, check, receipt)) {
           return yield* Effect.fail(
@@ -147,7 +151,15 @@ export const policyLayers = Layer.mergeAll(
             })
           )
         }
-        if (check.required && receipt.status !== "passed") {
+      }
+      // Validate all evidence first, then prefer outages to plan failures,
+      // independently of the order the checks were declared in.
+      for (const check of fastChecks) {
+        const outage = receiptOutage(receipts[check.id]!)
+        if (outage) return yield* Effect.fail(outage)
+      }
+      for (const check of fastChecks) {
+        if (check.required && receipts[check.id]!.status !== "passed") {
           return yield* Effect.fail(
             new CodingError({
               code: "fast_gate",

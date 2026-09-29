@@ -8,8 +8,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
+import * as MemoryStore from "../../packages/smithers/agent/memory/src/MemoryStore.ts"
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
+import { correctionLayers, CorrectPlan } from "../coding/correction.ts"
 import { EarlyFeedback, feedbackLayers, ObservePlan } from "../coding/feedback.ts"
+import { NativeCoding } from "../coding/native.ts"
 import {
   checkInputDigest,
   CodingError,
@@ -51,6 +54,78 @@ const plan: Plan = {
 const implementation = (index: number, parent: Revision): Implementation => {
   const change = plan.changes[index]!, head = revision(change.id, index === 0 ? "base" : plan.changes[index - 1]!.id)
   return { change: change.id, parent, atoms: [head], head, reads: [], writes: [`${change.id}.txt`] }
+}
+
+for (const mode of ["fast-infra", "slow-infra", "real-red"] as const) {
+  test(`correction preserves ${mode} outcome at the flow boundary`, { timeout: 60_000 }, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "coding-correction-fault-"))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    execFileSync("jj", ["git", "init", root], { stdio: "pipe" })
+    await writeFile(join(root, ".gitignore"), ".flows/\n")
+    const runPlan = { ...plan, changes: [plan.changes[0]!] }
+    const runtime = NodeRuntime.layerHost(
+      {
+        filename: join(root, ".flows", "engine.db"),
+        workspaceRoot: root,
+        owner: { hostId: "correction-fault-test" },
+        signals: []
+      },
+      Layer.mergeAll(
+        policyLayers,
+        correctionLayers,
+        Implement.toLayer(({ parent }) => Effect.succeed(implementation(0, parent))),
+        RunCheck.toLayer(({ implementation: impl, check }) =>
+          Effect.succeed({
+            change: impl.change,
+            checkId: check.id,
+            target: check.target,
+            tier: check.tier,
+            commitId: impl.head.commitId,
+            treeId: impl.head.treeId,
+            inputDigest: checkInputDigest(impl, check),
+            status: mode === "slow-infra"
+              ? check.tier === "slow" ? "failed" as const : "passed" as const
+              : check.tier === "fast"
+              ? "failed" as const
+              : "passed" as const,
+            ...(mode !== "real-red" && (mode === "fast-infra" ? check.tier === "fast" : check.tier === "slow")
+              ? { fault: "infra" as const }
+              : {}),
+            evidence: "scripted check",
+            findings: []
+          })
+        )
+      ).pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provide(Layer.succeed(NativeCoding, {
+          sourcePublication: "local-only",
+          read: () => Effect.die("a first round never reads native history"),
+          apply: () => Effect.die("a first round never edits native history"),
+          publishOriginalSource: () => Effect.die("verification never publishes source")
+        }))
+      )
+    ).pipe(
+      Layer.provide(Layer.succeed(NodeJj.StartupTimeoutMs, 30_000)),
+      Layer.provideMerge(MemoryStore.layerNoop())
+    )
+    const result = await Effect.runPromise(
+      CorrectPlan.execute({ plan: runPlan, maxRounds: 1 }, { executionId: `correction-${mode}` }).pipe(
+        Effect.exit,
+        Effect.scoped,
+        Effect.provide(runtime)
+      )
+    )
+    if (mode === "real-red") {
+      assert.ok(Exit.isSuccess(result))
+      assert.equal(result.value.status, "blocked")
+      assert.match(result.value.blocked?.message ?? "", /did not pass/)
+    } else {
+      assert.ok(Exit.isFailure(result))
+      const reason = result.cause.reasons.find(Cause.isFailReason)
+      assert.ok(reason?.error instanceof CodingError, Cause.pretty(result.cause))
+      assert.equal(reason.error.code, "check_infra")
+    }
+  })
 }
 
 for (const mode of ["owner", "source", "digest"] as const) {

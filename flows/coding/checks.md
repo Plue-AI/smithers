@@ -82,7 +82,18 @@ that need HOME, a package cache or other build settings receive those explicitly
 ## Retain measured receipts
 
 Actual process exit zero produces a passing receipt. A nonzero exit produces a
-failed receipt and finding for its current owning Change. Invalid exports,
+failed receipt with `fault: "factory"` and a finding for its current owning Change.
+Commands that distinguish unavailable dependencies from a real red declare their
+infrastructure exit codes in the pinned command body, for example
+`"infraExitCodes":[75]`. These must be integers from 1 through 255; an omitted
+list means every nonzero exit is a real red. A declared infrastructure exit
+produces `fault: "infra"` without repair findings. Fast gates, slow feedback and
+post-rebase verification propagate it as `coding/Error/check_infra`, registered
+as infrastructure: the stack retries without spending a TODO attempt or blaming
+its plan. Output text never determines the fault class. Older persisted receipts
+without `fault` keep their original real-red behavior.
+
+Invalid exports,
 missing executables, timeouts and unavailable cleanup fail execution instead of
 inventing validation evidence. Output is drained and a bounded prefix is stored
 in the existing receipt, with truncation disclosed.
@@ -104,7 +115,7 @@ it into the editing checkout. Process evidence is nondeterministic for cache
 purposes; a completed execution still replays its own recorded result.
 
 New private structures are the JSON command declaration (`argv`, `cwd`,
-`timeoutMs`) and `CheckHostOptions` (`repositoryPath`, existing host `fs`, optional `exporterPath`
+`timeoutMs`, optional `infraExitCodes`) and `CheckHostOptions` (`repositoryPath`, existing host `fs`, optional `exporterPath`
 and optional `environment`). The process result is converted into the existing
 `Receipt` schema. No public package API or persisted table is added.
 

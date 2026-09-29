@@ -684,10 +684,15 @@ func mythicalRunOutcome(phase string, update flowdispatch.ProjectionUpdate) stri
 				Status string `json:"status"`
 			} `json:"outcome"`
 		}
-		if json.Unmarshal([]byte(output), &result) != nil || result.Outcome.Status == "" {
-			return "failed: the request finished without a result"
+		if json.Unmarshal([]byte(output), &result) == nil {
+			switch result.Outcome.Status {
+			case "validated", "changes-requested", "blocked":
+				return result.Outcome.Status
+			}
 		}
-		return result.Outcome.Status
+		// A completed run without its domain outcome is a factory contract
+		// fault, not evidence that the plan failed. Retry the same attempt.
+		return mythicalOutage + "factory: coding/request/outcome_unreadable"
 	case "vibe":
 		var result struct {
 			Lane *struct {

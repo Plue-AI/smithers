@@ -55,14 +55,15 @@ test("native command checks read immutable source during edits and replay exact 
   await writeFile(join(root, ".gitignore"), ".flows/\n")
   const definition = join(root, "flows", "checks", "schema", "flow.mdx")
   await mkdir(join(root, "flows", "checks", "schema"), { recursive: true })
-  const declare = (mode: string) =>
+  const declare = (mode: string, infraExitCodes?: unknown) =>
     writeFile(
       definition,
       "---\ndescription: Verify immutable source.\nflows: [coding/CommandCheck]\ncapabilities: ['*']\n---\n" +
         JSON.stringify({
           argv: [mode === "pass" ? process.execPath : basename(process.execPath), "verify.mjs", started, release, mode],
           cwd: ".",
-          timeoutMs: 60_000
+          timeoutMs: 60_000,
+          ...(infraExitCodes === undefined ? {} : { infraExitCodes })
         }) + "\n"
     )
   await declare("pass")
@@ -193,6 +194,7 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   await writeFile(release, "continue")
   const passed = await first
   assert.equal(passed.status, "passed")
+  assert.equal(passed.fault, undefined)
   assert.ok(receiptMatches(implementation, check, passed))
   assert.equal(
     JSON.parse(passed.evidence).stdout.trim(),
@@ -215,6 +217,7 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   assert.equal(await readFile(started, "utf8"), "started\n", "reopening must reuse the recorded process evidence")
   const failed = await run({ ...check, flowDigest: nextDigest }, "check-new-definition")
   assert.equal(failed.status, "failed")
+  assert.equal(failed.fault, "factory", "an unconfigured nonzero exit is a real check failure")
   assert.equal(JSON.parse(failed.evidence).exitCode, 7)
   assert.equal(
     JSON.parse(failed.evidence).argv[0],
@@ -223,11 +226,54 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   )
   assert.equal(failed.findings[0]?.sourceCommitId, revision.commitId)
   assert.equal(await readFile(started, "utf8"), "started\nstarted\n")
+  await host.dispose()
+  await declare("fail", [7])
+  executable = await loadExecutable()
+  host = ManagedRuntime.make(runtime())
+  const infraCheck = { ...check, flowDigest: Descriptor.executionDigest(executable.descriptor)! }
+  const unavailable = await run(infraCheck, "check-configured-infra-exit")
+  assert.equal(unavailable.status, "failed")
+  assert.equal(unavailable.fault, "infra")
+  assert.equal(JSON.parse(unavailable.evidence).exitCode, 7)
+  assert.equal(await readFile(started, "utf8"), "started\nstarted\nstarted\n")
+  await host.dispose()
+  await declare("pass", [7])
+  executable = await loadExecutable()
+  host = ManagedRuntime.make(runtime())
+  const recovered = await run(
+    { ...check, flowDigest: Descriptor.executionDigest(executable.descriptor)! },
+    "check-zero-with-infra-policy"
+  )
+  assert.equal(recovered.status, "passed")
+  assert.equal(recovered.fault, undefined, "zero remains a pass even when other exits are classified as infra")
+  assert.equal(await readFile(started, "utf8"), "started\nstarted\nstarted\nstarted\n")
+  for (const [index, invalidCodes] of [[0], [-1], [256], [1.5], ["7"], null].entries()) {
+    await host.dispose()
+    await declare("fail", invalidCodes)
+    executable = await loadExecutable()
+    host = ManagedRuntime.make(runtime())
+    await assert.rejects(
+      run(
+        { ...check, flowDigest: Descriptor.executionDigest(executable.descriptor)! },
+        `check-invalid-infra-exit-${index}`
+      ),
+      /registered check body needs argv, relative cwd and a bounded timeoutMs/
+    )
+    assert.equal(
+      await readFile(started, "utf8"),
+      "started\nstarted\nstarted\nstarted\n",
+      "an invalid exit-code policy must refuse before starting the process"
+    )
+  }
   assert.equal(
     directories.length,
-    2,
-    "both actual checks must acquire distinct host-owned exports; replay acquires none"
+    4,
+    "actual checks acquire distinct host-owned exports; replay and invalid declarations acquire none"
   )
+  await host.dispose()
+  await declare("pass")
+  executable = await loadExecutable()
+  host = ManagedRuntime.make(runtime())
   await symlink(join(root, "value.txt"), join(root, "live-source-link"))
   jj("status")
   const linkedCommit = JSON.parse(jj("log", "--ignore-working-copy", "-r", "@", "--no-graph", "-T", "json(self)"))
@@ -244,7 +290,7 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
     treeId: linked.treeId
   }
   await assert.rejects(
-    run({ ...check, flowDigest: nextDigest }, "check-external-link", {
+    run({ ...check, flowDigest: Descriptor.executionDigest(executable.descriptor)! }, "check-external-link", {
       ...implementation,
       head: linkedRevision,
       atoms: [linkedRevision]
@@ -253,10 +299,10 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   )
   assert.equal(
     await readFile(started, "utf8"),
-    "started\nstarted\n",
+    "started\nstarted\nstarted\nstarted\n",
     "an external source link must refuse before the check process starts"
   )
-  assert.equal(directories.length, 3)
+  assert.equal(directories.length, 5)
   for (const directory of directories) {
     await assert.rejects(access(directory), "temporary exports must be cleaned after process release")
   }

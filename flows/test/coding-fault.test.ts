@@ -49,6 +49,10 @@ test("a decline closes the TODO and a stalled plan is replanned", () => {
   assert.equal(stalled.class, "factory")
   assert.equal(Fault.respond(stalled, state), "replan")
   assert.equal(Fault.respond(stalled, { ...state, replans: 2 }), "very_hard")
+  const checkInfra = Fault.of(new CodingError({ code: "check_infra", message: "checker unavailable" }))
+  assert.deepEqual(checkInfra, { class: "infra", tag: "coding/Error/check_infra" })
+  assert.equal(Fault.respond(checkInfra, state), "retry")
+  assert.equal(Fault.of(new CodingError({ code: "fast_gate", message: "test failed" })).class, "factory")
   assert.equal(Fault.of(new CodingError({ code: "unavailable", message: "down" })).class, "dependency")
 })
 

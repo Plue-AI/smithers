@@ -521,6 +521,14 @@ export const correctionLayers = Layer.mergeAll(
         Effect.map((result): Pass => ({ result, blocked: null })),
         Effect.catchCause((cause) => {
           if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
+          // A checker outage never becomes a blocked plan result: the stack
+          // must receive the typed fault so it can retry the same attempt.
+          for (const reason of cause.reasons) {
+            if (
+              Cause.isFailReason(reason) && reason.error instanceof CodingError &&
+              reason.error.code === "check_infra"
+            ) return Effect.fail(reason.error)
+          }
           const early = cause.reasons.find((reason) =>
             Cause.isFailReason(reason) && reason.error instanceof EarlyFeedback
           )

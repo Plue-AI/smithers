@@ -6,7 +6,16 @@
 import { Action } from "@smthrs/flow"
 import { Effect, Schema } from "effect"
 import { NativeCoding, NativeCodingError, requestIdFor } from "./native.ts"
-import { Check, CodingError, type Implementation, Receipt, receiptMatches, Revision, StackBase } from "./schema.ts"
+import {
+  Check,
+  CodingError,
+  type Implementation,
+  Receipt,
+  receiptMatches,
+  receiptOutage,
+  Revision,
+  StackBase
+} from "./schema.ts"
 export const VerifyInput = Schema.Struct({
   source: StackBase,
   checks: Schema.Array(Check).check(Schema.isMinLength(1), Schema.isMaxLength(64))
@@ -62,7 +71,12 @@ export const verifySummary = (
   checks: ReadonlyArray<typeof Check.Type>,
   implementation: typeof Implementation.Type,
   receipts: ReadonlyArray<typeof Receipt.Type>
-): VerifyResult => {
+): VerifyResult | CodingError => {
+  for (const check of checks) {
+    const receipt = receipts.find((receipt) => receiptMatches(implementation, check, receipt))
+    const outage = receipt && receiptOutage(receipt)
+    if (outage) return outage
+  }
   const failed = checks.filter((check) =>
     check.required && !receipts.some((receipt) =>
       receipt.checkId === check.id &&

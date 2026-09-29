@@ -476,6 +476,80 @@ func TestMythicalOutagesSpendNoAttempt(t *testing.T) {
 	assert.Contains(t, item.Reason, "not the TODO's fault")
 }
 
+// A check can fail because its dependency is down. That fault is an outage
+// even though coding/request itself failed; a genuine red check still spends
+// the plan attempt and tells the next planner what failed.
+func TestMythicalCheckInfraFaultPreservesPlanAttempt(t *testing.T) {
+	for _, tc := range []struct {
+		name, fault, tag   string
+		wantAttempt        int32
+		wantFault          mythicalFault
+		wantEarlierAttempt bool
+	}{
+		{"check infrastructure", "infra", "coding/Error/check_infra", 0, mythicalFault{Class: "infra", Tag: "coding/Error/check_infra"}, false},
+		{"real red check", "factory", "coding/Error/fast_gate", 1, mythicalFault{Class: "factory", Tag: "coding/Error/fast_gate"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := newMythicalOrchestration(t)
+			ctx := context.Background()
+			require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 279, Title: "Check", State: "open",
+				TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+			o.wake()
+			require.Equal(t, "running", o.item(279).State)
+			o.fail(o.launcher.last("coding/request"), "run-check", tc.fault, tc.tag, "")
+			o.wake()
+			item := o.item(279)
+			require.Equal(t, "retrying", item.State, item.Reason)
+			assert.Equal(t, tc.wantAttempt, item.Attempt)
+			assert.Equal(t, &tc.wantFault, mythicalChecksOf(item).Fault)
+			assert.Equal(t, 1-int(tc.wantAttempt), mythicalChecksOf(item).Outages)
+			assert.Equal(t, int(tc.wantAttempt), mythicalChecksOf(item).Replans)
+			o.wake()
+			resumed := o.item(279)
+			require.Equal(t, "running", resumed.State)
+			assert.EqualValues(t, tc.wantAttempt+1, resumed.Attempt, "the next launch uses the expected plan attempt")
+			var payload struct {
+				Prompt string `json:"prompt"`
+			}
+			require.NoError(t, json.Unmarshal(o.launcher.last("coding/request").Payload, &payload))
+			assert.Equal(t, tc.wantEarlierAttempt, strings.Contains(payload.Prompt, "An earlier attempt did not finish"), payload.Prompt)
+		})
+	}
+}
+
+// A completed request with no readable outcome is a factory contract fault.
+// It backs off and resumes the same plan attempt without telling the planner
+// that the plan failed.
+func TestMythicalUnreadableRequestPreservesPlanAttempt(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 280, Title: "Unreadable", State: "open",
+		TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	require.Equal(t, "running", o.item(280).State)
+	for i := range 3 {
+		o.project(o.launcher.last("coding/request"), jobs.StateCompleted, fmt.Sprintf("run-unreadable-%d", i), `{"outcome":{}}`)
+		o.wake()
+		item := o.item(280)
+		require.Equal(t, "retrying", item.State, item.Reason)
+		assert.Zero(t, item.Attempt)
+		assert.Equal(t, i+1, mythicalChecksOf(item).Outages)
+		assert.Zero(t, mythicalChecksOf(item).Replans)
+		assert.False(t, mythicalChecksOf(item).VeryHard)
+		assert.Equal(t, &mythicalFault{Class: "factory", Tag: "coding/request/outcome_unreadable"}, mythicalChecksOf(item).Fault)
+		assert.Equal(t, "the lane's request ended outage: factory: coding/request/outcome_unreadable; this is not the TODO's fault, Smithers retries it", item.Reason)
+		o.wake()
+		resumed := o.item(280)
+		require.Equal(t, "running", resumed.State)
+		assert.EqualValues(t, 1, resumed.Attempt, "every retry reruns the first plan attempt")
+	}
+	var payload struct {
+		Prompt string `json:"prompt"`
+	}
+	require.NoError(t, json.Unmarshal(o.launcher.last("coding/request").Payload, &payload))
+	assert.NotContains(t, payload.Prompt, "An earlier attempt did not finish")
+}
+
 // A person cancelling a run stops the TODO; it never relaunches on its own.
 func TestMythicalCancelledRunStopsTheTodo(t *testing.T) {
 	o := newMythicalOrchestration(t)
@@ -552,6 +626,39 @@ func TestMythicalRunOutcomeReadsTheTypedFault(t *testing.T) {
 	} {
 		assert.Equal(t, tc.want, mythicalRunOutcome("request", tc.update))
 	}
+}
+
+// A completed coding/request only supplies a plan result when its outcome
+// conforms to the request contract. Every unreadable form is a typed factory
+// outage, including an unknown status that is syntactically valid JSON.
+func TestMythicalCompletedRequestRequiresReadableOutcome(t *testing.T) {
+	t.Parallel()
+	const unreadable = "outage: factory: coding/request/outcome_unreadable"
+	for _, tc := range []struct {
+		name, output, want string
+	}{
+		{"empty", "", unreadable},
+		{"malformed", `{not json`, unreadable},
+		{"missing outcome", `{}`, unreadable},
+		{"missing status", `{"outcome":{}}`, unreadable},
+		{"null status", `{"outcome":{"status":null}}`, unreadable},
+		{"wrong status type", `{"outcome":{"status":42}}`, unreadable},
+		{"null outcome", `{"outcome":null}`, unreadable},
+		{"unknown status", `{"outcome":{"status":"surprise"}}`, unreadable},
+		{"validated", `{"outcome":{"status":"validated"}}`, "validated"},
+		{"changes requested", `{"outcome":{"status":"changes-requested"}}`, "changes-requested"},
+		{"blocked", `{"outcome":{"status":"blocked"}}`, "blocked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			update := flowdispatch.ProjectionUpdate{State: jobs.StateCompleted, Checkpoint: flowdispatch.RuntimeCheckpoint{
+				Run: &flowruntime.FlowRuntimeRun{FinalOutput: &tc.output},
+			}}
+			assert.Equal(t, tc.want, mythicalRunOutcome("request", update))
+		})
+	}
+	assert.Equal(t, unreadable, mythicalRunOutcome("request", flowdispatch.ProjectionUpdate{State: jobs.StateCompleted}))
+	assert.Equal(t, unreadable, mythicalRunOutcome("request", flowdispatch.ProjectionUpdate{State: jobs.StateCompleted,
+		Checkpoint: flowdispatch.RuntimeCheckpoint{Run: &flowruntime.FlowRuntimeRun{}}}))
 }
 
 // policyHost serves one committed factory projection on main.

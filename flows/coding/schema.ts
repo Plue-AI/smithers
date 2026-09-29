@@ -125,6 +125,8 @@ export const Receipt = Schema.Struct({
   treeId: Text,
   inputDigest: Text,
   status: Schema.Literals(["passed", "failed", "superseded"]),
+  // Older durable receipts omit this and retain their real-red semantics.
+  fault: Schema.optionalKey(Schema.Literals(["infra", "factory"])),
   evidence: Schema.String,
   findings: Schema.Array(Finding)
 })
@@ -159,6 +161,7 @@ export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error
     "invalid_plan",
     "invalid_request",
     "fast_gate",
+    "check_infra",
     "stale_revision",
     "invalid_receipt",
     "unavailable",
@@ -189,11 +192,18 @@ Fault.register(
     // Catch-alls: an exporter exit, a decode failure, a deadline, an execution
     // that died under the plan. None is the plan's, so none spends a replan.
     invalid_receipt: "infra",
+    check_infra: "infra",
     execution: "infra",
     unavailable: "dependency",
     source_unavailable: "dependency"
   } satisfies Fault.Rows<CodingError["code"]>
 )
+
+/** A check that could not measure the revision must never become repair feedback. */
+export const receiptOutage = (receipt: Receipt): CodingError | undefined =>
+  receipt.status !== "passed" && receipt.fault === "infra"
+    ? new CodingError({ code: "check_infra", message: `${receipt.target}: check infrastructure unavailable` })
+    : undefined
 
 /** Validate invariants before any implementation or check is scheduled. */
 export const validatePlan = (plan: Plan): void => {

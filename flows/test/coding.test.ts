@@ -5,7 +5,7 @@ import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import { RunStore } from "@smthrs/run-store/RunStore"
-import { Effect, Layer, Schema } from "effect"
+import { Cause, Effect, Exit, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -14,9 +14,14 @@ import { join } from "node:path"
 import { test, type TestContext } from "node:test"
 import { catalogLayers } from "../coding/catalog.ts"
 import ImplementPlan from "../coding/flow.ts"
-import { checkInputDigest, Implementation as ImplementationSchema, Receipt as ReceiptSchema } from "../coding/schema.ts"
-import type { Check, CodingError, Implementation, Plan, Receipt, Revision } from "../coding/schema.ts"
-import { Implement, policyLayers, RunCheck } from "../coding/workflow.ts"
+import {
+  checkInputDigest,
+  CodingError,
+  Implementation as ImplementationSchema,
+  Receipt as ReceiptSchema
+} from "../coding/schema.ts"
+import type { Check, Implementation, Plan, Receipt, Revision } from "../coding/schema.ts"
+import { Implement, policyLayers, receiptFindings, RunCheck } from "../coding/workflow.ts"
 
 const revision = (name: string, parent?: string): Revision => ({
   changeId: `jj-${name}`,
@@ -161,6 +166,102 @@ test("a required fast failure blocks the next Change", { timeout: 60_000 }, asyn
     /did not pass/
   )
   assert.deepEqual(implemented, ["database"])
+})
+
+for (const mode of ["red-first", "infra-first", "optional-infra", "real-red", "stale-infra"] as const) {
+  test(`fast gate classifies ${mode} before advancing the stack`, { timeout: 60_000 }, async (t) => {
+    const repo = await fixture(t), implemented: string[] = []
+    const original = plan.changes[0]!
+    const build = original.checks[0]!
+    const outage: Check = {
+      ...build,
+      id: "service",
+      target: "//:service",
+      required: mode !== "optional-infra"
+    }
+    const change = {
+      ...original,
+      checks: [
+        ...(mode === "infra-first" ? [outage, build] : [build, outage]),
+        original.checks[1]!
+      ]
+    }
+    const chosen = { ...plan, changes: [change, plan.changes[1]!] }
+    const runtime = wiring(
+      repo,
+      ({ change }) =>
+        Effect.sync(() => {
+          implemented.push(change.id)
+          return implementation(change.id)
+        }),
+      ({ implementation: impl, check }) =>
+        Effect.succeed({
+          ...receipt(impl, check),
+          status: check.tier === "fast" ? "failed" as const : "passed" as const,
+          ...(check.id === "service" && mode !== "real-red" ? { fault: "infra" as const } : {}),
+          ...(check.id === "service" && mode === "stale-infra" ? { commitId: "stale" } : {})
+        })
+    )
+    const result = await Effect.runPromise(
+      Effect.scoped(ImplementPlan.execute({ plan: chosen }).pipe(Effect.provide(runtime), Effect.exit))
+    )
+    assert.ok(Exit.isFailure(result))
+    const reason = result.cause.reasons.find(Cause.isFailReason)
+    assert.ok(reason?.error instanceof CodingError, Cause.pretty(result.cause))
+    assert.equal(
+      reason.error.code,
+      mode === "stale-infra" ? "invalid_receipt" : mode === "real-red" ? "fast_gate" : "check_infra"
+    )
+    assert.deepEqual(implemented, ["database"])
+  })
+}
+
+test("slow infrastructure receipts refuse correction findings after exact validation", () => {
+  const impl = implementation("database"), check = plan.changes[0]!.checks[1]!
+  const failed: Receipt = { ...receipt(impl, check), status: "failed", fault: "infra" }
+  const expected = (code: string) => (error: unknown) => error instanceof CodingError && error.code === code
+  assert.throws(() => receiptFindings(plan, 0, impl, check, failed), expected("check_infra"))
+  assert.throws(
+    () =>
+      receiptFindings(plan, 0, impl, check, {
+        ...failed,
+        findings: [{
+          owner: "database",
+          sourceCommitId: impl.head.commitId,
+          message: "unavailable"
+        }]
+      }),
+    expected("check_infra"),
+    "an infrastructure message cannot become a code correction"
+  )
+  assert.throws(
+    () => receiptFindings(plan, 0, impl, check, { ...failed, commitId: "old-commit" }),
+    expected("invalid_receipt")
+  )
+  assert.throws(
+    () =>
+      receiptFindings(plan, 0, impl, check, {
+        ...failed,
+        findings: [{
+          owner: "server",
+          sourceCommitId: impl.head.commitId,
+          message: "invalid owner"
+        }]
+      }),
+    expected("invalid_receipt")
+  )
+  assert.deepEqual(
+    receiptFindings(plan, 0, impl, check, {
+      ...failed,
+      fault: "factory"
+    }),
+    [{ owner: "database", sourceCommitId: impl.head.commitId, message: "//:review: failed" }]
+  )
+  const legacy = { ...failed }
+  delete legacy.fault
+  assert.deepEqual(receiptFindings(plan, 0, impl, check, legacy), [
+    { owner: "database", sourceCommitId: impl.head.commitId, message: "//:review: failed" }
+  ])
 })
 
 test("a receipt from a previous commit cannot unlock the next Change", { timeout: 60_000 }, async (t) => {

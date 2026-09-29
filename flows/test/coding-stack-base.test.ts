@@ -149,6 +149,7 @@ test(
     ]
     const ran: string[] = []
     let failing = ["slow"]
+    let outages: string[] = []
     const layer = Layer.mergeAll(
       Interpreter.layer(Verify),
       AdmitVerifySource.toLayer(({ checks }) => {
@@ -175,6 +176,7 @@ test(
             treeId: implementation.head.treeId,
             inputDigest: checkInputDigest(implementation, check),
             status: failing.includes(check.id) ? "failed" as const : "passed" as const,
+            ...(outages.includes(check.id) ? { fault: "infra" as const } : {}),
             evidence: "",
             findings: []
           }
@@ -197,6 +199,24 @@ test(
       (await host.runPromise(Verify.execute({ source: base, checks }, { executionId: "verify-2" }))).status,
       "passed"
     )
+    outages = ["lint"]
+    const optionalOutage = await host.runPromise(
+      Effect.flip(Verify.execute({ source: base, checks }, { executionId: "verify-infra-optional" }))
+    )
+    assert.ok(optionalOutage instanceof CodingError)
+    assert.equal(optionalOutage.code, "check_infra", "an optional check outage is not a passing verification")
+    failing = ["slow", "lint"]
+    const mixedOutage = await host.runPromise(
+      Effect.flip(Verify.execute({ source: base, checks }, { executionId: "verify-infra-after-red" }))
+    )
+    assert.ok(mixedOutage instanceof CodingError)
+    assert.equal(mixedOutage.code, "check_infra", "infrastructure outranks a real red earlier in the check list")
+    outages = []
+    const realRed = await host.runPromise(
+      Verify.execute({ source: base, checks }, { executionId: "verify-real-red" })
+    )
+    assert.equal(realRed.status, "failed")
+    assert.deepEqual(realRed.failed, ["slow"])
     // Repeated ids, or no required slow check, are refused before any check runs.
     const before = ran.length
     const repeated = await host.runPromise(
