@@ -12,6 +12,7 @@ import (
 
 // Querier is the canonical product ledger and usage surface consumed by billing.
 type Querier interface {
+	GetActiveBillingPlanGrant(context.Context, db.GetActiveBillingPlanGrantParams) (db.BillingPlanGrant, error)
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 	GetOrgByID(ctx context.Context, id int64) (db.Organization, error)
 	GetOrgByLowerName(ctx context.Context, lowerName string) (db.Organization, error)

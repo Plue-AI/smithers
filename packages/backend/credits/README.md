@@ -28,11 +28,50 @@ former integer-cent balances into it.
   forfeits. Every ledger that can create a payer's account (commerce via
   `commerce.Config.SignupCreditGrantCents`, and any model proxy resolving the
   payer) must carry the same amount.
-- A self-hosted operator funds platform-model calls with
-  `smithers-backend credits grant -owner user:NAME -usd AMOUNT -key KEY`
-  (`Ledger.OperatorCommand`); a grant is applied once per key.
 - `credit_events` is append-only. Per grant, its deltas sum to the available
   amount. Per account, they sum to the debt.
+
+## Operator grants
+
+Hosted and self-hosted binaries compose `operator.Dispatch` before server
+configuration. Only an operator with access to the executable and database
+credentials can run these commands; there is no public HTTP grant endpoint.
+`OpenDatabase` runs after syntax and attribution validation. Hosted composition
+supplies `Config.CreditLedger` with its commerce signup-credit policy so an
+operator-created account receives the same one-time signup grant.
+
+```bash
+smithers-backend credits grant -owner user:alice -usd 25 -key support-123 \
+  -actor will -reason "Support case 123" -expires 2027-01-01T00:00:00Z
+smithers-backend credits balance -owner user:alice
+smithers-backend credits list -owner user:alice
+smithers-backend plans grant -owner user:alice -plan pro -key support-123 \
+  -expires 2027-01-01T00:00:00Z -actor will -reason "Support case 123"
+```
+
+Credit grants require `-actor` and `-reason` before database access.
+`credit_grants` stores both with the exact amount, source key (`operator:KEY`)
+and optional expiry. `credits list` returns a JSON array in creation order,
+including expired and spent grants: `id`, `key`, `amount_usd`,
+`available_nanos`, `expires_at`, `actor`, `reason`, `created_at`. Historical,
+imported and automated grants can have empty attribution. Listing never
+creates an account. Credit owners may be users or organizations. Replaying a
+historical operator key with newly supplied attribution fails as a metadata
+conflict; its original receipt remains unchanged. Credit command expiries
+must still be in the future, including on replay.
+
+Plan grants support user-owned Pro and Max with a required end date.
+`billing_plan_grants` is both the plan and its single audit receipt, storing
+owner, key, plan, end date, actor, reason and creation time atomically.
+Each owner/key applies once; changing plan, amount, expiry, actor or reason
+on a replay fails. Plan replays remain no-ops after expiry. A new grant's end
+date must be in the future. Timestamps use PostgreSQL microsecond precision.
+
+The latest still-active comp applies until its end date. A live Stripe
+subscription takes precedence, including its dunning and payment reversal
+policy. Once no live Stripe subscription exists, an unexpired comp can apply.
+Comps create no Stripe customer, subscription, invoice or credit; use a
+separate audited credit grant when credit is also intended.
 
 ## Legacy archive
 

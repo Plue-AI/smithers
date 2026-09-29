@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -143,7 +144,7 @@ func (l Ledger) EnsureAccount(ctx context.Context, ownerType string, ownerID int
 		if e != nil {
 			return e
 		}
-		_, e = insertGrant(ctx, tx, a, SignupGrantKey, l.SignupGrantNanos, nil, "grant")
+		_, e = insertGrant(ctx, tx, a, SignupGrantKey, l.SignupGrantNanos, nil, "grant", GrantAudit{})
 		return e
 	})
 	return id, err
@@ -199,12 +200,33 @@ func lockAccount(ctx context.Context, tx pgx.Tx, id int64) (lockedAccount, error
 	return a, err
 }
 
+// GrantAudit attributes an operator grant. Automated grants may omit it.
+type GrantAudit struct {
+	Actor  string `json:"actor"`
+	Reason string `json:"reason"`
+}
+
 // Grant adds one immutable source grant to an owned account. Replaying the
-// same key with the same amount and expiry is a no-op. New credit repays any
+// same key with the same amount, expiry and attribution is a no-op. New credit repays any
 // debt first.
-func (l Ledger) Grant(ctx context.Context, accountID int64, key string, nanos int64, expiresAt *time.Time) error {
+func (l Ledger) Grant(ctx context.Context, accountID int64, key string, nanos int64, expiresAt *time.Time, audit ...GrantAudit) error {
 	if key == "" || nanos < 0 {
 		return errors.New("credits: grant key and a non-negative amount required")
+	}
+	if len(audit) > 1 {
+		return errors.New("credits: one audit attribution required")
+	}
+	var attribution GrantAudit
+	if len(audit) == 1 {
+		attribution = GrantAudit{Actor: strings.TrimSpace(audit[0].Actor), Reason: strings.TrimSpace(audit[0].Reason)}
+	}
+	if strings.HasPrefix(key, "operator:") || len(audit) == 1 {
+		if attribution.Actor == "" {
+			return errors.New("credits: -actor is required")
+		}
+		if attribution.Reason == "" {
+			return errors.New("credits: -reason is required")
+		}
 	}
 	expiresAt = storedTime(expiresAt)
 	return l.transaction(ctx, func(tx pgx.Tx) error {
@@ -215,7 +237,7 @@ func (l Ledger) Grant(ctx context.Context, accountID int64, key string, nanos in
 		if a.disposition != "owned" {
 			return ErrSealed
 		}
-		inserted, err := insertGrant(ctx, tx, a, key, nanos, expiresAt, "grant")
+		inserted, err := insertGrant(ctx, tx, a, key, nanos, expiresAt, "grant", attribution)
 		if err != nil || !inserted {
 			return err
 		}
@@ -264,13 +286,14 @@ func (l Ledger) Forfeit(ctx context.Context, ownerType string, ownerID int64, pr
 }
 
 // insertGrant inserts a grant or proves an identical one exists.
-func insertGrant(ctx context.Context, tx pgx.Tx, a lockedAccount, key string, nanos int64, expiresAt *time.Time, kind string) (bool, error) {
+func insertGrant(ctx context.Context, tx pgx.Tx, a lockedAccount, key string, nanos int64, expiresAt *time.Time, kind string, audit GrantAudit) (bool, error) {
 	var existing int64
 	var existingExpiry *time.Time
-	err := tx.QueryRow(ctx, `SELECT original_nanos, expires_at FROM credit_grants WHERE account_id = $1 AND source_key = $2`, a.id, key).
-		Scan(&existing, &existingExpiry)
+	var existingActor, existingReason string
+	err := tx.QueryRow(ctx, `SELECT original_nanos, expires_at, actor, reason FROM credit_grants WHERE account_id = $1 AND source_key = $2`, a.id, key).
+		Scan(&existing, &existingExpiry, &existingActor, &existingReason)
 	if err == nil {
-		if existing != nanos || !sameTime(existingExpiry, expiresAt) {
+		if existing != nanos || !sameTime(existingExpiry, expiresAt) || existingActor != audit.Actor || existingReason != audit.Reason {
 			return false, ErrConflict
 		}
 		return false, nil
@@ -279,8 +302,8 @@ func insertGrant(ctx context.Context, tx pgx.Tx, a lockedAccount, key string, na
 		return false, err
 	}
 	var id int64
-	if err = tx.QueryRow(ctx, `INSERT INTO credit_grants (account_id, source_key, original_nanos, available_nanos, expires_at)
-		VALUES ($1, $2, $3, $3, $4) RETURNING id`, a.id, key, nanos, expiresAt).Scan(&id); err != nil {
+	if err = tx.QueryRow(ctx, `INSERT INTO credit_grants (account_id, source_key, original_nanos, available_nanos, expires_at, actor, reason)
+		VALUES ($1, $2, $3, $3, $4, $5, $6) RETURNING id`, a.id, key, nanos, expiresAt, audit.Actor, audit.Reason).Scan(&id); err != nil {
 		return false, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO credit_events (account_id, grant_id, kind, available_delta_nanos) VALUES ($1, $2, $3, $4)`,

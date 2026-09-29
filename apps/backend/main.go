@@ -15,12 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/app"
-	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/localbootstrap"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/native"
+	"github.com/smithersai/smithers/packages/backend/operator"
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/postgres"
 )
@@ -46,9 +46,17 @@ func run(ctx context.Context, args []string) (runErr error) {
 		}
 		return app.Run(ctx, app.Config{Args: args})
 	}
-	// `credits grant|balance` funds platform-model calls; server-free.
-	if len(args) > 0 && args[0] == "credits" {
-		return runCredits(ctx, args[1:])
+	if handled, err := operator.Dispatch(ctx, args, operator.Config{
+		OpenDatabase: func(ctx context.Context) (*pgxpool.Pool, error) {
+			databaseURL, err := externalDatabaseURL()
+			if err != nil {
+				return nil, err
+			}
+			return pgxpool.New(ctx, databaseURL)
+		},
+		Stdout: os.Stdout, Stderr: os.Stderr,
+	}); handled {
+		return err
 	}
 	// `microvm doctor` inspects microVM isolation read-only; server-free.
 	if len(args) > 0 && args[0] == "microvm" {
@@ -229,17 +237,4 @@ func platformModelKeys() (*modelproxy.FileKeys, error) {
 		return nil, fmt.Errorf("set the AI Gateway key as \"vercel\" in %s instead of AI_GATEWAY_API_KEY", modelproxy.KeysFileEnv)
 	}
 	return modelproxy.OpenKeysFile(path)
-}
-
-func runCredits(ctx context.Context, args []string) error {
-	databaseURL, err := externalDatabaseURL()
-	if err != nil {
-		return err
-	}
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		return fmt.Errorf("credits: PostgreSQL pool: %w", err)
-	}
-	defer pool.Close()
-	return credits.Ledger{DB: pool}.OperatorCommand(ctx, args, os.Stdout, os.Stderr)
 }

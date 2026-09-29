@@ -241,6 +241,18 @@ type BillingEntitlement struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
+type BillingPlanGrant struct {
+	ID        int64     `json:"id"`
+	OwnerType string    `json:"owner_type"`
+	OwnerID   int64     `json:"owner_id"`
+	SourceKey string    `json:"source_key"`
+	PlanKey   string    `json:"plan_key"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Actor     string    `json:"actor"`
+	Reason    string    `json:"reason"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type BillingSubscription struct {
 	ID                   int64              `json:"id"`
 	BillingAccountID     int64              `json:"billing_account_id"`
@@ -577,6 +589,8 @@ type CreditGrant struct {
 	AvailableNanos int64              `json:"available_nanos"`
 	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt      time.Time          `json:"created_at"`
+	Actor          string             `json:"actor"`
+	Reason         string             `json:"reason"`
 }
 
 type CreditLegacyImport struct {

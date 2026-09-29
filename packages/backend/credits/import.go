@@ -344,7 +344,7 @@ func importOne(ctx context.Context, tx pgx.Tx, a normalized) (Disposition, error
 		return "", err
 	}
 	for _, g := range a.grants {
-		inserted, err := insertGrant(ctx, tx, locked, grantKey(a.SourceID, g.SourceKey), g.RemainingNanos, g.ExpiresAt, "import")
+		inserted, err := insertGrant(ctx, tx, locked, grantKey(a.SourceID, g.SourceKey), g.RemainingNanos, g.ExpiresAt, "import", GrantAudit{})
 		if err != nil {
 			return "", err
 		}

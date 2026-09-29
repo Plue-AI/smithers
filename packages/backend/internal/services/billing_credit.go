@@ -262,21 +262,10 @@ func (s *BillingService) eventTime(occurred time.Time) time.Time {
 	return occurred
 }
 
-// OwnerHasPaidPlan reports whether an owner's latest live subscription grants
-// paid entitlements.
+// OwnerHasPaidPlan reports whether a subscription or active comp grants paid entitlements.
 func (s *BillingService) OwnerHasPaidPlan(ctx context.Context, ownerType string, ownerID int64) (bool, error) {
-	account, err := s.findBillingAccountByOwner(ctx, ownerType, ownerID)
-	if err != nil || account == nil {
-		return false, err
-	}
-	row, err := s.queries.GetLatestLiveBillingSubscriptionByAccount(ctx, account.ID)
-	if stdErrors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, pkgerrors.Internal("failed to load billing subscription").WithCause(err)
-	}
-	return s.subscriptionGrantsPaidAccess(&row), nil
+	plan, err := s.resolvePlan(ctx, billingOwnerRef{OwnerType: ownerType, OwnerID: ownerID})
+	return err == nil && plan.Key != BillingPlanFree, err
 }
 
 // grantInvoiceCredit grants the plan credit one paid invoice bought.

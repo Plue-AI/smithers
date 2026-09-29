@@ -53,6 +53,7 @@ type billingQuerierMock struct {
 	countOrgMembersFn                   func(context.Context, int64) (int64, error)
 	getLatestSubscriptionFn             func(context.Context, int64) (db.BillingSubscription, error)
 	getLatestLiveSubscriptionFn         func(context.Context, int64) (db.BillingSubscription, error)
+	getActiveBillingPlanGrantFn         func(context.Context, db.GetActiveBillingPlanGrantParams) (db.BillingPlanGrant, error)
 }
 
 func newBillingQuerierMock() *billingQuerierMock {
@@ -111,6 +112,13 @@ func (m *billingQuerierMock) GetBillingAccountByOwner(ctx context.Context, arg d
 		return db.BillingAccount{}, pgx.ErrNoRows
 	}
 	return account, nil
+}
+
+func (m *billingQuerierMock) GetActiveBillingPlanGrant(ctx context.Context, arg db.GetActiveBillingPlanGrantParams) (db.BillingPlanGrant, error) {
+	if m.getActiveBillingPlanGrantFn != nil {
+		return m.getActiveBillingPlanGrantFn(ctx, arg)
+	}
+	return db.BillingPlanGrant{}, pgx.ErrNoRows
 }
 
 func (m *billingQuerierMock) GetBillingAccountByStripeCustomerID(ctx context.Context, stripeCustomerID string) (db.BillingAccount, error) {
@@ -1614,7 +1622,7 @@ func (f *fakeCreditLedger) EnsureAccount(_ context.Context, ownerType string, ow
 	return id, nil
 }
 
-func (f *fakeCreditLedger) Grant(_ context.Context, accountID int64, key string, nanos int64, _ *time.Time) error {
+func (f *fakeCreditLedger) Grant(_ context.Context, accountID int64, key string, nanos int64, _ *time.Time, _ ...credits.GrantAudit) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if existing, ok := f.grants[accountID][key]; ok && existing != nanos {

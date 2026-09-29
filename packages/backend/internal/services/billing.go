@@ -236,7 +236,7 @@ type BillingServiceOption func(*BillingService)
 // one, accounts carry no platform credit and no grant is issued.
 type BillingCreditLedger interface {
 	EnsureAccount(ctx context.Context, ownerType string, ownerID int64) (int64, error)
-	Grant(ctx context.Context, accountID int64, key string, nanos int64, expiresAt *time.Time) error
+	Grant(ctx context.Context, accountID int64, key string, nanos int64, expiresAt *time.Time, audit ...credits.GrantAudit) error
 	OwnerBalance(ctx context.Context, ownerType string, ownerID int64) (int64, error)
 	OwnerSummary(ctx context.Context, ownerType string, ownerID int64) (balance, chargedNanos, chargeCount int64, err error)
 	Forfeit(ctx context.Context, ownerType string, ownerID int64, prefix string) (int64, error)
@@ -1009,20 +1009,18 @@ func (s *BillingService) AuthorizeBranchLockJoin(ctx context.Context, userID int
 // (e.g. pairing) that need the tier but not the usage counters, so a transient
 // usage-write failure cannot deny a paid user.
 func (s *BillingService) resolvePlan(ctx context.Context, owner billingOwnerRef) (billingPlanDefinition, error) {
-	plan := s.defaultPlan(owner.OwnerType)
-
 	account, err := s.findBillingAccountByOwner(ctx, owner.OwnerType, owner.OwnerID)
 	if err != nil {
 		return billingPlanDefinition{}, err
 	}
 	if account == nil {
-		return plan, nil
+		return s.compedPlan(ctx, owner)
 	}
 
 	row, err := s.queries.GetLatestLiveBillingSubscriptionByAccount(ctx, account.ID)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return plan, nil
+			return s.compedPlan(ctx, owner)
 		}
 		return billingPlanDefinition{}, pkgerrors.Internal("failed to load billing subscription").WithCause(err)
 	}
@@ -1652,6 +1650,13 @@ func (s *BillingService) resolveLocalState(ctx context.Context, owner billingOwn
 		if err == nil {
 			subscription = &row
 			plan = s.planForSubscription(owner.OwnerType, &row)
+		}
+	}
+
+	if subscription == nil {
+		plan, err = s.compedPlan(ctx, owner)
+		if err != nil {
+			return billingPlanDefinition{}, nil, nil, nil, err
 		}
 	}
 

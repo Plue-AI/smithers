@@ -113,6 +113,7 @@ var migrationRegistry = []migrationSpec{
 	{75, "migrations/0075_model_usage_1h_cache_writes.sql"},
 	{76, "migrations/0076_sandbox_egress_usage.sql"},
 	{77, "migrations/0077_repository_transfer_requests.sql"},
+	{78, "migrations/0078_operator_grants.sql"},
 }
 
 type migration struct {
