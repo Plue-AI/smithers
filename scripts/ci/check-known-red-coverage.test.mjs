@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { test } from "node:test"
-import { describe, fingerprint } from "../../packages/smithers/build/build-cli/src/KnownRed.ts"
+import { describe, fingerprint } from "@smthrs/build-cli/KnownRed"
 import { failedTargets, uncovered } from "./check-known-red-coverage.mjs"
 
 const script = resolve(import.meta.dirname, "check-known-red-coverage.mjs")

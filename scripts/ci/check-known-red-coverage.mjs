@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { pathToFileURL } from "node:url"
-import { parse } from "../../packages/smithers/build/build-cli/src/KnownRed.ts"
+import { parse } from "@smthrs/build-cli/KnownRed"
 
 const verdictLine = /(?:newly red, no matching failure in [^:]+|known red \([^)]*\)): (\/\/\S+)\s*$/
 const labelCharacter = /[\w./@+:-]/

@@ -68,6 +68,7 @@
     "./GithubRender": "./src/GithubRender.ts",
     "./GoExec": "./src/GoExec.ts",
     "./GraphOutput": "./src/GraphOutput.ts",
+    "./KnownRed": "./src/KnownRed.ts",
     "./Label": "./src/Label.ts",
     "./MarkdownCodeBlocks": "./src/MarkdownCodeBlocks.ts",
     "./MemoryBackend": "./src/MemoryBackend.ts",
@@ -369,6 +370,16 @@
         "require": {
           "types": "./dist/cjs/GraphOutput.d.ts",
           "default": "./dist/cjs/GraphOutput.js"
+        }
+      },
+      "./KnownRed": {
+        "import": {
+          "types": "./dist/esm/KnownRed.d.ts",
+          "default": "./dist/esm/KnownRed.js"
+        },
+        "require": {
+          "types": "./dist/cjs/KnownRed.d.ts",
+          "default": "./dist/cjs/KnownRed.js"
         }
       },
       "./Label": {
