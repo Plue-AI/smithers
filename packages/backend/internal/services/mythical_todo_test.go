@@ -661,3 +661,30 @@ func TestMythicalReviewLanesCountTowardTheLaneCap(t *testing.T) {
 	o.wake()
 	assert.Equal(t, "running", o.item(86).State, "the lane is free once the review answers")
 }
+
+// A decline is the planner's close: its evidence is said once on the issue.
+// A deferred TODO opens no lane until the label comes off.
+func TestMythicalDeclineSaysWhyAndDeferredWaits(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 87, Title: "Done", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	o.fail(o.launcher.last("coding/request"), "run-87", "user", "coding/Error/declined",
+		`{"_tag":"coding/Error","code":"declined","message":"Already done: README.md has it."}`)
+	o.wake()
+	o.wake()
+	assert.Equal(t, "declined", o.item(87).State)
+	assert.Equal(t, []string{"#87 Smithers did not plan this TODO: Already done: README.md has it."}, o.github.comments)
+	o.wake()
+	assert.Len(t, o.github.comments, 1)
+
+	deferred := mythicalIssue{Number: 88, Title: "Later", State: "open", TextByMaintainer: true, Labels: []string{"todo", "deferred"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, deferred, maintainerTodo))
+	o.wake()
+	assert.Equal(t, "skipped", o.item(88).State)
+	assert.Equal(t, "labeled deferred", o.item(88).Reason)
+	deferred.Labels = []string{"todo"}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, deferred, gitHubLabelApplication{}))
+	assert.Equal(t, "queued", o.item(88).State, "taking deferred off wakes it")
+}

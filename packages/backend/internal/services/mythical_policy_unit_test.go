@@ -41,7 +41,7 @@ func TestMythicalPolicy_AdmissionPrecedence(t *testing.T) {
 
 func TestMythicalPolicy_OpenIssueAdmission(t *testing.T) {
 	t.Parallel()
-	for _, label := range []string{"question", "duplicate", "invalid", "wontfix", "epic", "umbrella", "tracking"} {
+	for _, label := range []string{"question", "duplicate", "invalid", "wontfix", "epic", "umbrella", "tracking", "deferred"} {
 		for _, approved := range []bool{false, true} {
 			labels := []string{"bug", " \t" + strings.ToUpper(label) + "\n", "todo"}
 			original := slices.Clone(labels)

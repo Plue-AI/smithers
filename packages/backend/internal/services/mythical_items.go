@@ -71,7 +71,7 @@ const (
 )
 
 var (
-	mythicalSkipLabels    = map[string]bool{"question": true, "duplicate": true, "invalid": true, "wontfix": true, "epic": true, "umbrella": true, "tracking": true}
+	mythicalSkipLabels    = map[string]bool{"question": true, "duplicate": true, "invalid": true, "wontfix": true, "epic": true, "umbrella": true, "tracking": true, "deferred": true}
 	mythicalSettledStates = map[string]bool{"skipped": true, "declined": true, "cancelled": true, "landed": true, "rejected": true, "blocked": true}
 	mythicalLaneStates    = map[string]bool{"running": true, "delivering": true, "verifying": true}
 	mythicalWorkspaceID   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -1137,8 +1137,14 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		case outcome == "validated":
 			return st.deliver(ctx, item)
 		case strings.HasPrefix(outcome, "declined: "):
+			// The planner's close, with its evidence (or a feature's
+			// questions) said once on the issue. Its author's edit and a
+			// maintainer re-applying todo bring it back.
 			next := item
 			next.State, next.Reason = "declined", strings.TrimPrefix(outcome, "declined: ")
+			checks := mythicalChecksOf(next)
+			checks.notice("declined:"+item.IssueDigest, "Smithers did not plan this TODO: "+next.Reason)
+			next.Checks = checks.encode()
 			return &next, false, nil
 		default:
 			return mythicalFailure(item, "the lane's request ended", outcome, st.now), false, nil
