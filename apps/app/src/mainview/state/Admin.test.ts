@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLead } from "@smthrs/rpc/RefusalCopy"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import type { Card } from "./AppState"
@@ -248,17 +250,20 @@ describe("the admin plugin (admin session)", () => {
 
   test("an admin route failure is an honest line, never a dead end", async () => {
     const store = await adminStore()
+    const refused = {
+      status: "error",
+      message: "The identity admin surface is not configured on this deployment (IDENTITY_ADMIN_TOKEN is unset)."
+    }
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/admin/requests": json(501, {
-          status: "error",
-          message: "The identity admin surface is not configured on this deployment (IDENTITY_ADMIN_TOKEN is unset)."
-        })
+        "/api/admin/requests": json(501, refused)
       })
     })
     await controller.commands.run("admin.requests")
-    const line = [...store.collections.messages.values()].find((m) => m.text.includes("IDENTITY_ADMIN_TOKEN"))
-    expect(line).toBeDefined()
+    const expected = `The request queue didn't answer. ${refusalLead(refusalOf({ body: refused, status: 501, message: refused.message }))}`
+    const texts = [...store.collections.messages.values()].map((m) => m.text)
+    expect(texts).toContain(expected)
+    expect(texts.join("\n")).not.toContain("IDENTITY_ADMIN_TOKEN")
     expect(store.collections.cards.get("admin-requests")).toBeUndefined()
   })
 })

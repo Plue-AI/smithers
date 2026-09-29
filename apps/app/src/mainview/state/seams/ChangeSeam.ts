@@ -1244,7 +1244,9 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
         const error = await read()
         if (typeof error === "string") warnings.push(`${label}: ${error}`)
       } catch (error) {
-        warnings.push(`${label}: ${error instanceof Error ? error.message : String(error)}`)
+        /* The refresh threw rather than refused: its text is for diagnostics, the warning says what did not refresh. */
+        ctx.report?.(`change.refresh ${label}`, error)
+        warnings.push(`${label}: the refresh failed`)
       }
     }
     for (const changeId of typeof changeIds === "string" ? [changeIds] : changeIds) {
@@ -1255,7 +1257,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     if (current() && workspaceId !== null && viewWorkspace !== undefined) {
       await refresh(`computer ${workspaceId}`, () => viewWorkspace(workspaceId))
     }
-    return { value: warnings.length === 0 ? value : `${value} Refresh warning: ${warnings.join("; ")}. Refresh the cards to reconcile the result; the mutation already succeeded.` }
+    return { value: warnings.length === 0 ? value : `${value} Refresh warning: ${warnings.map(warning => warning.replace(/[.!?]$/u, "")).join("; ")}. Refresh the cards to reconcile the result; the mutation already succeeded.` }
   }
 
   /**

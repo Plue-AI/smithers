@@ -13,18 +13,29 @@ import { browserWriteRefusal } from "../BrowserWriteFailure"
 import { canonicalStoredJsonValue } from "../EventValue"
 import { resolveTargetRepo } from "../RepoContext"
 import { setupTrialPr } from "../RepositorySetupTrial"
-import { setupFailureSentence } from "../RunFailure"
+import { setupFailureSentence, setupVerdict } from "../RunFailure"
 import { presentAppFailure } from "./AppFailure"
 import type { ControllerContext } from "./context"
 import { TOAST_SUPERSEDED } from "./failures"
 import { defaultSetupQuestion, repositorySetupGuide, setupGuideQuestions } from "./repositorySetupGuide"
+import { failureDetail } from "@smthrs/rpc/UserFailure"
 
 type SetupCard = Extract<Card, { kind: "repository-setup" }>
 /** A setup failure this app or the host already worded for a person. */
-class SetupRefusal extends Data.TaggedError("SetupRefusal")<{ readonly message: string }> {
-  constructor(message: string) { super({ message }) }
+class SetupRefusal extends Data.TaggedError("SetupRefusal")<{ readonly sentence: string }> {
+  constructor(sentence: string) { super({ sentence }) }
+  /** The sentence is also the error's message, for diagnostics and thrown-value checks. */
+  override get message(): string { return this.sentence }
 }
 type Operation = NonNullable<RepositorySetup["request"]>["operation"]
+/*
+ * A settled receipt's error is a verdict line (`<phase> — <code>: <sentence>`)
+ * the card and the toast read through setupVerdict. Anything else is the host's
+ * own text; it stays on the stored receipt, behind the card's Details, and the
+ * request carries a sentence instead.
+ */
+const UNREADABLE_RECEIPT = "The setup host's answer couldn't be read. Not your fault."
+const receiptErrorLine = (error: string): string => setupVerdict(error) === undefined ? UNREADABLE_RECEIPT : error
 type Result = Promise<string | { value: string } | void>
 
 export interface RepositorySetupController {
@@ -195,7 +206,7 @@ export function projectRecoveredSetup(current: RepositorySetup, recovered: Setup
     }
     next = { ...next, request: { id: input.requestId, operation: input.operation, revision: input.revision, digest: input.digest,
       state: terminal(receipt.phase) ? receipt.phase === "completed" ? "completed" : "failed" : "running",
-      observeOnly: true, ...(input.manual ? { manual: input.manual } : {}), ...(receipt.error ? { error: receipt.error } : {}) } }
+      observeOnly: true, ...(input.manual ? { manual: input.manual } : {}), ...(receipt.error ? { error: receiptErrorLine(receipt.error) } : {}) } }
     if (input.operation === "evaluate") next.evaluation = receipt
     if (input.operation === "trial") next.trial = receipt
     if (!terminal(receipt.phase) && !receipt.runId) next.request = { ...next.request!, state: "failed",
@@ -432,8 +443,8 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
               await ctx.store.settled?.()
               if (!guidanceCurrent(card.id, intent.id, login, accountEpoch)) break
               if (attempt === 0) continue
-              const message = error instanceof Error ? error.message : String(error)
-              const shown = error instanceof SetupRefusal ? error.message : presentAppFailure(error,
+              const message = failureDetail(error)
+              const shown = error instanceof SetupRefusal ? error.sentence : presentAppFailure(error,
                 failure => ctx.failures.report("setup.guidance", failure, intent.id),
                 { fault: "bug", sentence: "The setup question could not be opened. Not your fault.", actions: ["retry"] }).sentence
               shared.guidanceFailures.add(intent.id)
@@ -554,7 +565,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
           if (receipt.phase === "completed" && !receipt.runId) throw new SetupRefusal("The host did not provide the completed setup run.")
           if (intent.operation === "run" && receipt.phase === "completed" && !receipt.jobRunId) throw new SetupRefusal("The host did not provide the completed job run.")
           const terminal = ["completed", "failed", "stopped"].includes(receipt.phase)
-          let next: RepositorySetup = { ...latest.payload, ...scope, request: { ...intent, ...(observing() ? { observeOnly: true } : {}), state: terminal ? receipt.phase === "completed" ? "completed" : "failed" : "running", ...(receipt.error ? { error: receipt.error } : {}) } }
+          let next: RepositorySetup = { ...latest.payload, ...scope, request: { ...intent, ...(observing() ? { observeOnly: true } : {}), state: terminal ? receipt.phase === "completed" ? "completed" : "failed" : "running", ...(receipt.error ? { error: receiptErrorLine(receipt.error) } : {}) } }
           if (intent.operation === "evaluate") next = { ...next, evaluation: receipt }
           if (intent.operation === "trial") next = { ...next, trial: receipt }
           if (terminal && receipt.phase !== "completed") next = { ...next,
@@ -589,7 +600,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
             // the host's words, and every other fault in that fault's line —
             // never the run phase and the engine's code. The receipt keeps the
             // verdict line as the evidence.
-            return receipt.phase === "completed" ? { value: `${intent.operation} completed.` } : setupFailureSentence(receipt.error) ?? receipt.error ?? `Setup ${receipt.phase}.`
+            return receipt.phase === "completed" ? { value: `${intent.operation} completed.` } : setupFailureSentence(receipt.error) ?? (receipt.error ? receiptErrorLine(receipt.error) : `Setup ${receipt.phase}.`)
           }
           await delay()
           if (!current(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
@@ -600,7 +611,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
       } catch (error) {
         if (!current(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
         const latest = get(id)!
-        const message = error instanceof SetupRefusal ? error.message : presentAppFailure(error,
+        const message = error instanceof SetupRefusal ? error.sentence : presentAppFailure(error,
           failure => ctx.failures.report("toast.work", failure, intent.id),
           { fault: "bug", sentence: "The setup could not be completed. Not your fault.", actions: ["retry"] }).sentence
         // A forgotten request is no longer observe-only, so its Retry asks again.
@@ -653,7 +664,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
         return { value: "Setup recovered." }
       } catch (error) {
         if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
-        const message = error instanceof SetupRefusal ? error.message : presentAppFailure(error,
+        const message = error instanceof SetupRefusal ? error.sentence : presentAppFailure(error,
           failure => ctx.failures.report("toast.work", failure, intent.id),
           { fault: "bug", sentence: "Setup recovery is unavailable. Not your fault.", actions: ["retry"] }).sentence
         await edit(id, async () => {

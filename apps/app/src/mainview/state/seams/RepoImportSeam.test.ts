@@ -274,7 +274,8 @@ describe("repo import — honest failures", () => {
     const card = importCard(store)
     expect(card?.payload.phase).toBe("failed")
     expect(card?.status).toBe("error")
-    expect(card?.payload.detail).toBe("the mirror pool is full")
+    expect(card?.payload.detail).toBe("The import couldn't start (HTTP 500). That's a bug in Smithers, not something you did.")
+    expect(JSON.stringify(card)).not.toContain("the mirror pool is full")
   })
 
   test("a network throw on start answers an honest string, never a throw", async () => {
@@ -309,7 +310,7 @@ describe("repo import — honest failures", () => {
     expect(card?.payload.detail).toBe("clone timed out")
   })
 
-  test("a poll the server refuses reads its message verbatim with Retry — never the lost-stream detail", async () => {
+  test("a poll the server refuses says what failed and whose fault it was, with Retry — never the lost-stream detail", async () => {
     /* Review finding 6: any non-OK poll counted as a drop and, after three, read as a lost stream. */
     const { store, controller } = await readyStore(
       importBackend(
@@ -322,13 +323,15 @@ describe("repo import — honest failures", () => {
     await until(() => importCard(store)?.payload.phase === "failed", "the failed phase")
     const card = importCard(store)
     expect(card?.status).toBe("error")
-    expect(card?.payload.detail).toBe("the mirror pool is full")
-    expect(card?.payload.error).toBe("the mirror pool is full")
+    const line = "Reading the import job failed (HTTP 500). That's a bug in Smithers, not something you did."
+    expect(card?.payload.detail).toBe(line)
+    expect(card?.payload.error).toBe(line)
+    expect(JSON.stringify(card)).not.toContain("the mirror pool is full")
     expect(card?.payload.jobId).toBe("job-1")
     expect(importUpserts(store).some((entry) => entry.payload.detail === REPO_IMPORT_LOST_STREAM_DETAIL)).toBe(false)
   })
 
-  test("a structured 429 during polling lands the rate-limit facts and the message on the card", async () => {
+  test("a structured 429 during polling lands the rate-limit facts and whose fault it was on the card", async () => {
     const { store, controller } = await readyStore(
       importBackend(
         () => json(202, jobBody("cloning", "resolving")),
@@ -345,7 +348,8 @@ describe("repo import — honest failures", () => {
     await controller.commands.run("repos.import", "will/flows")
     await until(() => importCard(store)?.payload.phase === "failed", "the failed phase")
     const card = importCard(store)
-    expect(card?.payload.detail).toBe("GitHub rate limit exhausted")
+    expect(card?.payload.detail).toBe("Reading the import job failed (HTTP 429). Something Smithers depends on failed. Not your doing.")
+    expect(JSON.stringify(card)).not.toContain("GitHub rate limit exhausted")
     expect(card?.payload.rateLimit).toEqual({ limit: 5000, remaining: 0, resetAt: "2026-09-02T13:00:00Z" })
   })
 
@@ -423,7 +427,8 @@ describe("repo import — lane sync", () => {
     expect(outcome.status).toBe("executed")
     await until(() => importCard(store)?.payload.phase === "failed", "the rate-limited launch")
     const card = importCard(store)
-    expect(card?.payload.detail).toBe("GitHub rate limit exhausted")
+    expect(card?.payload.detail).toBe("The import couldn't start (HTTP 429). Something Smithers depends on failed. Not your doing.")
+    expect(JSON.stringify(card)).not.toContain("GitHub rate limit exhausted")
     expect(card?.payload.rateLimit).toEqual({ limit: 5000, remaining: 0, resetAt: "2026-09-02T13:00:00Z" })
   })
 
@@ -587,7 +592,8 @@ describe("repo import — instant background lifecycle", () => {
       return json(404, {})
     } })
     await until(() => importCard(store)?.payload.phase === "failed", "the failed retry observation")
-    expect(importCard(store)?.payload.detail).toBe("job lookup unavailable")
+    expect(importCard(store)?.payload.detail).toBe("The import couldn't start (HTTP 500). That's a bug in Smithers, not something you did.")
+    expect(JSON.stringify(importCard(store))).not.toContain("job lookup unavailable")
     expect(retries).toBe(0)
   })
 

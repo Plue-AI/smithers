@@ -80,18 +80,22 @@ export const CloudWikiIndex = z.object({
 })
 export type CloudWikiIndex = z.infer<typeof CloudWikiIndex>
 
+/** A Wiki failure: one sentence in product words (authored here, or a `refusalLine`), never a server's raw text. */
 export class CloudWikiError extends Data.TaggedError("CloudWikiError")<{
-  readonly message: string
+  readonly sentence: string
   readonly status?: number
-}> {}
+}> {
+  /** The sentence is also the error's message, for diagnostics and thrown-value checks. */
+  override get message(): string { return this.sentence }
+}
 
 export const wikiPagePath = (repo: string, slug: string): string => {
   const parts = repo.split("/")
   if (parts.length !== 2 || parts.some((part) => !/^[\w.-]+$/.test(part) || part === "." || part === "..")) {
-    throw new CloudWikiError({ message: "Choose a repository as owner/repo." })
+    throw new CloudWikiError({ sentence: "Choose a repository as owner/repo." })
   }
   if (!slug || slug === "." || slug === ".." || /[\s/\\]/.test(slug)) {
-    throw new CloudWikiError({ message: "Choose a Wiki page slug without spaces or slashes." })
+    throw new CloudWikiError({ sentence: "Choose a Wiki page slug without spaces or slashes." })
   }
   return `/repos/${parts.map(encodeURIComponent).join("/")}/wiki/${encodeURIComponent(slug)}`
 }
@@ -149,7 +153,7 @@ export const wikiStateContains = (state: string, update: string): boolean =>
 export const editWikiState = (state: string, body: string, clientId?: number): { state: string; update: string } =>
   withDocument([state], (document) => {
     if (new TextEncoder().encode(body).length > 1024 * 1024) {
-      throw new CloudWikiError({ message: "A Wiki page cannot exceed 1 MiB of Markdown." })
+      throw new CloudWikiError({ sentence: "A Wiki page cannot exceed 1 MiB of Markdown." })
     }
     if (clientId !== undefined) document.clientID = clientId
     const text = document.getText("markdown")
@@ -171,11 +175,11 @@ export const editWikiState = (state: string, body: string, clientId?: number): {
     })
     const update = Y.encodeStateAsUpdate(document, vector)
     if (update.length > 1024 * 1024) {
-      throw new CloudWikiError({ message: "This Wiki edit exceeds the 1 MiB update limit." })
+      throw new CloudWikiError({ sentence: "This Wiki edit exceeds the 1 MiB update limit." })
     }
     const encoded = Y.encodeStateAsUpdate(document)
     if (encoded.length > 8 * 1024 * 1024) {
-      throw new CloudWikiError({ message: "This Wiki page exceeds the 8 MiB collaborative state limit." })
+      throw new CloudWikiError({ sentence: "This Wiki page exceeds the 8 MiB collaborative state limit." })
     }
     return { state: encodeWikiState(encoded), update: encodeWikiState(update) }
   })
@@ -226,19 +230,19 @@ export const makeCloudWikiTransport = (
         const value = await config.http(url(path), { ...init, signal })
         if (!value.ok) {
           const failure = await cloudFailure(value, `Reading or saving this Wiki page failed (${value.status}).`)
-          throw new CloudWikiError({ message: failure.error, status: value.status })
+          throw new CloudWikiError({ sentence: failure.error, status: value.status })
         }
         return value
       },
       catch: (error) =>
         error instanceof CloudWikiError ?
           error :
-          new CloudWikiError({ message: "Could not reach the Wiki. Your pending edits are saved locally." })
+          new CloudWikiError({ sentence: "Could not reach the Wiki. Your pending edits are saved locally." })
     }).pipe(Effect.timeoutOrElse({
       duration: "20 seconds",
       orElse: () =>
         Effect.fail(
-          new CloudWikiError({ message: "The Wiki request timed out. Pending edits are still saved locally." })
+          new CloudWikiError({ sentence: "The Wiki request timed out. Pending edits are still saved locally." })
         )
     }))
   const json = <A>(path: string, schema: z.ZodType<A>, init?: RequestInit) =>
@@ -246,7 +250,7 @@ export const makeCloudWikiTransport = (
       Effect.tryPromise({
         try: async () => schema.parse(await value.json()),
         catch: () =>
-          new CloudWikiError({ message: "The Wiki returned an invalid document. Local edits were retained." })
+          new CloudWikiError({ sentence: "The Wiki returned an invalid document. Local edits were retained." })
       }))
   const jsonBody = (body: unknown, method = "POST"): RequestInit => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
   return {
@@ -285,17 +289,17 @@ export const makeCloudWikiTransport = (
         }),
         (value) =>
           value.body === null || !value.headers.get("content-type")?.includes("text/event-stream")
-            ? Stream.fail(new CloudWikiError({ message: "The Wiki revision stream could not be opened." }))
+            ? Stream.fail(new CloudWikiError({ sentence: "The Wiki revision stream could not be opened." }))
             : Stream.fromReadableStream({
               evaluate: () => value.body!,
-              onError: () => new CloudWikiError({ message: "The Wiki revision stream disconnected." })
+              onError: () => new CloudWikiError({ sentence: "The Wiki revision stream disconnected." })
             }).pipe(
               Stream.decodeText(),
               Stream.pipeThroughChannel(Sse.decode({ maxEventSize: 16 * 1024 })),
               Stream.filter((event) => event.event === "wiki.update" || event.event === "revoked"),
               Stream.mapEffect((event) =>
                 event.event === "revoked"
-                  ? Effect.fail(new CloudWikiError({ message: "Access to this Wiki was revoked.", status: 403 }))
+                  ? Effect.fail(new CloudWikiError({ sentence: "Access to this Wiki was revoked.", status: 403 }))
                   : Effect.try({
                     try: () => {
                       const revision = CloudWikiRevision.parse(JSON.parse(event.data))
@@ -307,13 +311,13 @@ export const makeCloudWikiTransport = (
                       }
                       return revision
                     },
-                    catch: () => new CloudWikiError({ message: "The Wiki returned an invalid revision event." })
+                    catch: () => new CloudWikiError({ sentence: "The Wiki returned an invalid revision event." })
                   })
               ),
               Stream.mapError((error) =>
                 error instanceof CloudWikiError ?
                   error :
-                  new CloudWikiError({ message: "The Wiki revision stream disconnected." })
+                  new CloudWikiError({ sentence: "The Wiki revision stream disconnected." })
               )
             )
       ))

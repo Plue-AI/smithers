@@ -5,6 +5,8 @@ import { StorageWriteFailedError } from "../StorageRecoveryContract"
 import { presentAppFailure } from "./AppFailure"
 import { scopedControllers } from "../ControllerTestScope"
 import { json, loadBox, memoryStorage, silentAgent, waitFor } from "../TestFixtures"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLead } from "@smthrs/rpc/RefusalCopy"
 
 /*
  * A plan card is scoped to the repository and the account OWNER that asked
@@ -115,7 +117,7 @@ test("a storage failure while saving the plan answers its registry sentence", as
   expect(await t.controller.suggestTutorialChange(repo)).toBe(presentAppFailure(new StorageWriteFailedError(), () => {}).sentence)
 })
 
-test("an untagged start failure puts the start sentence on the plan card, and a service refusal keeps its words", async () => {
+test("an untagged start failure puts the start sentence on the plan card, and a 503 says what failed and whose fault it was", async () => {
   const t = await fixture()
   await t.controller.suggestTutorialChange(repo)
   const [card] = t.plans()
@@ -124,5 +126,6 @@ test("an untagged start failure puts the start sentence on the plan card, and a 
   const saved = t.store.collections.cards.get(card!.id)
   expect(saved?.kind === "run-trace" && saved.payload.error).toBe("The change could not be started. Not your fault.")
   t.preflight(async () => json(503, { message: "The change service is unavailable." }))
-  expect(await t.controller.startTutorialChange(card!.id)).toBe("The change service is unavailable.")
+  /* A 503's words are not the reader's to act on: what failed, then whose fault it was. */
+  expect(await t.controller.startTutorialChange(card!.id)).toBe(`The change service is unavailable. ${refusalLead(refusalOf({ body: null, status: 503, message: "" }))}`)
 })

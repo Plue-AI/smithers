@@ -294,7 +294,7 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
       if (refusal !== null) {
         /*
          * The server refused the read (a 401, a 500, a structured 429): its
-         * words land on the card verbatim — with the rate-limit line when it
+         * line (refusalLine) lands on the card — with the rate-limit line when it
          * carried one — and Try again reconnects to the same job. Only a dropped
          * connection or an unreadable answer counts against the drop budget
          * (review finding 6: every non-OK poll used to read as a lost stream).
@@ -302,13 +302,13 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
         await upsert(repo, ordinal, createdAt, {
           jobId,
           phase: "failed",
-          detail: refusal.message,
+          detail: refusal.line,
           retryMode: "reconnect",
-          error: refusal.message,
+          error: refusal.line,
           ...(refusal.rateLimit !== undefined ? { rateLimit: refusal.rateLimit } : {})
         })
         settleEpoch()
-        return refusal.message
+        return refusal.line
       }
       if (job === null) {
         failures += 1
@@ -419,13 +419,13 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
       if (!current()) return TOAST_SUPERSEDED
       await upsert(repo, ordinal, createdAt, {
         phase: "failed",
-        detail: refusal.message,
+        detail: refusal.line,
         retryMode: priorJobId === null ? "restart" : "reconnect",
-        error: refusal.message,
+        error: refusal.line,
         ...(refusal.rateLimit !== undefined ? { rateLimit: refusal.rateLimit } : {})
       })
       settleEpoch()
-      return refusal.message
+      return refusal.line
     }
     const job = parseImportJob(await response.json().catch(() => undefined))
     if (!current()) return TOAST_SUPERSEDED

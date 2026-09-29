@@ -18,8 +18,10 @@ export interface TutorialChangeController {
 
 type RunCard = Extract<Card, { kind: "run-trace" }>
 /** A refusal this app or the change service already worded for a person. */
-class ChangeRefusal extends Data.TaggedError("ChangeRefusal")<{ readonly message: string }> {
-  constructor(message: string) { super({ message }) }
+class ChangeRefusal extends Data.TaggedError("ChangeRefusal")<{ readonly sentence: string }> {
+  constructor(sentence: string) { super({ sentence }) }
+  /** The sentence is also the error's message, for diagnostics and thrown-value checks. */
+  override get message(): string { return this.sentence }
 }
 /** What an already-started plan answers: the run it became and where that run stands, never a refusal. */
 const startedPlanState = (card: RunCard): string => {
@@ -28,7 +30,7 @@ const startedPlanState = (card: RunCard): string => {
 }
 export const createTutorialChangeController = (ctx: ControllerContext, flows: WorkflowController, nextOrdinal: () => number, renderFlowForm: FormsController["renderFlowForm"]): TutorialChangeController => {
   /** What a person reads: a worded refusal, else the tagged or site sentence, never a raw message. */
-  const shown = (error: unknown, subject: string, sentence: string): string => error instanceof ChangeRefusal ? error.message
+  const shown = (error: unknown, subject: string, sentence: string): string => error instanceof ChangeRefusal ? error.sentence
     : presentAppFailure(error, failure => ctx.failures.report("command.boundary", failure, subject), { fault: "bug", sentence, actions: ["retry"] }).sentence
   const post = async (verb: string, input: object) => {
     const response = await ctx.boundedFetch(`${ctx.baseUrl}/api/tutorial/change/${verb}`, {

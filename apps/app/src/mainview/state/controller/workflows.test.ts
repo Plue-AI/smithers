@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import type { RunSummaryRow } from "./gateway"
+import { GATEWAY_REFUSED } from "./GatewayFailureCopy"
 import { scopedControllers } from "../ControllerTestScope"
 import { createAppStore } from "../AppStore"
 import { json, loadBox, memoryStorage, scriptedToolAgent, settle, waitFor } from "../TestFixtures"
@@ -188,7 +189,9 @@ test("a refused launch stays visible and the existing retry flow retries the sam
   await t.controller.commands.run("flow.run", `review ${repo} {"args":"inspect"}`)
   await waitFor(() => t.cards()[0]?.status === "error")
   const id = t.cards()[0]!.id
-  expect(t.cards()[0]!.payload.error).toContain("Provider unavailable")
+  // provider_unavailable is no control code, so the card reads the generic refusal, never the gateway's words.
+  expect(t.cards()[0]!.payload.error).toBe(GATEWAY_REFUSED)
+  expect(t.cards()[0]!.payload.error).not.toContain("Provider unavailable")
   t.run(async () => json(200, { ok: true, payload: { runId: "run-1" } }))
   await t.controller.commands.run("flow.run.retry", id)
   await waitFor(() => t.cards()[0]?.payload.runId === "run-1")

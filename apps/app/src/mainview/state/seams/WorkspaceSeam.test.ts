@@ -605,8 +605,9 @@ describe("workspace seam acts", () => {
     })
     await seedWorkspace(store)
     const refusal = await seam.suspendWorkspace("ws-1")
-    expect(refusal).toBe("driver exploded. That's a bug in Smithers, not something you did.")
-    expect(payloadOf(store)?.error).toBe("driver exploded")
+    expect(refusal).toBe("The POST to /repos/will/smithers/workspaces/ws-1/suspend failed (500). That's a bug in Smithers, not something you did.")
+    expect(refusal).not.toContain("driver exploded")
+    expect(payloadOf(store)?.error).toBe("The POST to /repos/will/smithers/workspaces/ws-1/suspend failed (500). That's a bug in Smithers, not something you did.")
     expect(workspacesOf(store)[0]?.status).toBe("running")
   })
 
@@ -758,7 +759,7 @@ describe("workspace seam terminal", () => {
     }
   })
 
-  test("a guest_not_ready that never clears gives up at the bound, with plue's words and code on the terminal facet", async () => {
+  test("a guest_not_ready that never clears gives up at the bound, with plue's code and whose fault it is on the terminal facet", async () => {
     const previous = { ...terminalSessionRetry }
     /* The default is deliberately NOT used here: the wait must come from the header. */
     terminalSessionRetry.defaultDelayMs = 0
@@ -779,10 +780,11 @@ describe("workspace seam terminal", () => {
       expect(posts).toBe(2)
       /* One retry, and it waited the second the header asked for — not the app's own default. */
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900)
-      expect(refusal).toBe("guest_not_ready — service unavailable. Not ready yet — nothing is wrong.")
+      expect(refusal).toBe("guest_not_ready — The POST to /repos/will/smithers/workspace/sessions failed (503). Not ready yet — nothing is wrong.")
+      expect(refusal).not.toContain("service unavailable")
       expect(payloadOf(store)?.terminalRefusal).toEqual({
         status: 503,
-        message: "service unavailable",
+        message: "The POST to /repos/will/smithers/workspace/sessions failed (503)",
         code: "guest_not_ready",
         retryAfterSeconds: 1,
         fault: "wait",
@@ -1356,7 +1358,8 @@ describe("workspace seam egress_proxy_unavailable", () => {
       })
     })
     const refusal = await seam.openWorkspace("main", "will/smithers")
-    expect(refusal).toContain("egress_proxy_unavailable — service unavailable.")
+    expect(refusal).toContain("egress_proxy_unavailable — The POST to /repos/will/smithers/workspaces failed (503).")
+    expect(refusal).not.toContain("service unavailable")
     /*
      * And says what actually went wrong. This is `infra`, and it used to
      * inherit the capacity line — "Smithers ran out of infra, yell at @fucory
@@ -1365,10 +1368,10 @@ describe("workspace seam egress_proxy_unavailable", () => {
     expect(refusal).toContain("no outbound network")
     expect(refusal).toContain("Not your fault")
     expect(refusal).not.toContain("@fucory")
-    expect(refusal).not.toBe("egress_proxy_unavailable — service unavailable. " + INFRA_NOT_YOUR_FAULT)
+    expect(refusal).not.toContain(INFRA_NOT_YOUR_FAULT)
   })
 
-  test("the same refusal on an act with a card puts the code on the card beside the server's words", async () => {
+  test("the same refusal on an act with a card puts the code on the card, never the server's 5xx words", async () => {
     const { store, seam } = await harness({
       "POST api/repos/will/smithers/workspaces/ws-1/resume": json(503, {
         code: "egress_proxy_unavailable",
@@ -1377,19 +1380,23 @@ describe("workspace seam egress_proxy_unavailable", () => {
     })
     await seedWorkspace(store, { ...wsRow, status: "suspended" })
     const refusal = await seam.resumeWorkspace("ws-1")
-    expect(refusal).toContain("egress_proxy_unavailable — service unavailable.")
+    expect(refusal).toContain("egress_proxy_unavailable — The POST to /repos/will/smithers/workspaces/ws-1/resume failed (503).")
+    expect(refusal).not.toContain("service unavailable")
     expect(refusal).toContain("no outbound network")
     expect(refusal).not.toContain("@fucory")
     expect(payloadOf(store)?.egressProxyUnavailable).toBe(true)
-    expect(payloadOf(store)?.error).toBe("service unavailable")
+    expect(payloadOf(store)?.error).toBe("The POST to /repos/will/smithers/workspaces/ws-1/resume failed (503). Your box would have had no outbound network, so Smithers stopped instead of running it half-connected. Not your fault; worth trying again.")
   })
 
-  test("a refusal with any other code stays the server's message alone", async () => {
+  test("a refusal with any other code carries no egress facet and says whose fault it is", async () => {
     const { store, seam } = await harness({
       "POST api/repos/will/smithers/workspaces/ws-1/resume": json(409, { code: "operation_in_progress", message: "already resuming" })
     })
     await seedWorkspace(store, { ...wsRow, status: "suspended" })
-    expect(await seam.resumeWorkspace("ws-1")).toBe("operation_in_progress — already resuming. Not ready yet — nothing is wrong.")
+    const refusal = await seam.resumeWorkspace("ws-1")
+    expect(refusal).toBe("operation_in_progress — The POST to /repos/will/smithers/workspaces/ws-1/resume failed (409). Not ready yet — nothing is wrong.")
+    /* A `wait` refusal is not one the person acts on, so plue's words stay hidden. */
+    expect(refusal).not.toContain("already resuming")
     expect(payloadOf(store)?.egressProxyUnavailable).toBeUndefined()
   })
 })
@@ -1617,7 +1624,7 @@ describe("workspace seam desktop session", () => {
     }
   })
 
-  test("a desktop_not_ready that never clears gives up at the bound, with plue's words and code on the card", async () => {
+  test("a desktop_not_ready that never clears gives up at the bound, with plue's code and whose fault it is on the card", async () => {
     dropDesktopStream()
     const previous = { ...desktopSessionRetry }
     /* The default is deliberately NOT used here: the wait must come from the header. */
@@ -1640,10 +1647,11 @@ describe("workspace seam desktop session", () => {
       expect(mints).toBe(2)
       /* One retry, and it waited the second the header asked for — not the app's own default. */
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900)
-      expect(refusal).toBe("desktop_not_ready — service unavailable. Not ready yet — nothing is wrong.")
+      expect(refusal).toBe("desktop_not_ready — The desktop session on ws-1 was refused (503). Not ready yet — nothing is wrong.")
+      expect(refusal).not.toContain("service unavailable")
       expect(payloadOf(store)?.desktopRefusal).toEqual({
         status: 503,
-        message: "service unavailable",
+        message: "The desktop session on ws-1 was refused (503).",
         code: "desktop_not_ready",
         retryAfterSeconds: 1,
         fault: "wait",
@@ -1680,10 +1688,11 @@ describe("workspace seam desktop session", () => {
     const refusal = await seam.openDesktop("ws-1")
 
     expect(mints).toBe(1)
-    expect(refusal).toBe(`no_capacity — no sandbox slots are free. ${INFRA_NOT_YOUR_FAULT}`)
+    expect(refusal).toBe(`no_capacity — The desktop session on ws-1 was refused (503). ${INFRA_NOT_YOUR_FAULT}`)
+    expect(refusal).not.toContain("no sandbox slots are free")
     expect(payloadOf(store)?.desktopRefusal).toEqual({
       status: 503,
-      message: "no sandbox slots are free",
+      message: "The desktop session on ws-1 was refused (503).",
       code: "no_capacity",
       retryAfterSeconds: 30,
       fault: "infra",
@@ -1727,10 +1736,11 @@ describe("workspace seam desktop session", () => {
     const refusal = await seam.openDesktop("ws-1")
 
     expect(mints).toBe(1)
-    expect(refusal).toBe("internal server error. That's a bug in Smithers, not something you did.")
+    expect(refusal).toBe("The desktop session on ws-1 was refused (500). That's a bug in Smithers, not something you did.")
+    expect(refusal).not.toContain("internal server error")
     expect(payloadOf(store)?.desktopRefusal).toEqual({
       status: 500,
-      message: "internal server error",
+      message: "The desktop session on ws-1 was refused (500).",
       code: null,
       retryAfterSeconds: null,
       fault: "bug",

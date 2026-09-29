@@ -289,7 +289,7 @@ describe("the workspace card", () => {
       })
     )
     expect(host.querySelector("details pre")?.textContent).toBe("guest_not_ready — service unavailable")
-    expect(host.textContent).toContain("the server asked for 3s")
+    expect(host.textContent).toContain("Try again in 3s.")
     click(host, "Try the terminal again")
     expect(commands[0]).toEqual({ name: "box.terminal", args: "ws-1" })
     host.remove()
@@ -300,7 +300,7 @@ describe("the workspace card", () => {
       workspaceCard({ terminalRefusal: { status: 409, message: "workspace is not running", code: null, retryAfterSeconds: null } })
     )
     expect(host.textContent).toContain("workspace is not running")
-    expect(host.textContent).not.toContain("the server asked for")
+    expect(host.textContent).not.toContain("Try again in")
     /* No code on the wire, so none is printed — and no separator is invented for one. */
     expect(host.textContent).not.toContain(" — workspace is not running")
     click(host, "Try the terminal again")
@@ -728,7 +728,7 @@ describe("the workspace card's desktop facet", () => {
     /* Verbatim, underneath — never replaced by the lead line. */
     expect(host.querySelector("details pre")?.textContent).toBe("no_capacity — no sandbox slots are free")
     /* An infra refusal is not a wait: no clock is offered, because no clock will empty the fleet. */
-    expect(host.textContent).not.toContain("the server asked for 30s")
+    expect(host.textContent).not.toContain("Try again in 30s.")
     expect(host.querySelector("[data-fault=\"infra\"]")).not.toBeNull()
     host.remove()
   })
@@ -908,7 +908,7 @@ describe("the workspace card's desktop facet", () => {
       })
     )
     expect(host.textContent).toContain("desktop_not_ready — service unavailable")
-    expect(host.textContent).toContain("the server asked for 2s")
+    expect(host.textContent).toContain("Try again in 2s.")
     /* Never a spinner in place of the server's answer. */
     expect(host.querySelector("iframe")).toBeNull()
     click(host, "Try the desktop session again")

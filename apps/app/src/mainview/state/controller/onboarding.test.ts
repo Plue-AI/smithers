@@ -145,7 +145,10 @@ const relayStubs = (options: { readonly refuseRun?: string; readonly flows?: Rea
       case "Run":
         return options.refuseRun === undefined
           ? json(200, { ok: true, payload: { _tag: "Accepted", receiptId: "r", runId: "run-1" } })
-          : json(200, { ok: false, error: { message: options.refuseRun } })
+          : json(200, {
+            ok: false,
+            error: { message: options.refuseRun, detail: [{ _tag: "Fail", error: { _tag: "/control/Unavailable", code: "unavailable" } }] }
+          })
       case "Projection.Snapshot":
         return json(200, {
           ok: true,
@@ -340,14 +343,17 @@ describe("feature.prototype", () => {
     expect(relay.procedures.map((call) => call.procedure)).toContain("Run")
   })
 
-  test("any other launch refusal is surfaced as the workspace said it", async () => {
-    const relay = relayStubs({ flows: ["prototype"], refuseRun: "The workspace is out of capacity." })
+  test("any other launch refusal is surfaced as its control code's sentence, never the control plane's words", async () => {
+    const relay = relayStubs({ flows: ["prototype"], refuseRun: "run driver pool exhausted (0/32 slots)" })
     const { store, controller } = await fixture(relay.routes)
     identity(store, "signed-in")
     await settled()
     const outcome = await controller.commands.run("feature.prototype", "a dark mode toggle")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("The workspace is out of capacity.")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("The workspace isn't answering right now. Not your fault; try again in a moment.")
+      expect(outcome.error).not.toContain("run driver pool exhausted")
+    }
     expect(relay.procedures.map((call) => call.procedure)).toEqual(["List", "Plan", "Approval.Submit", "Run"])
     expect(runCards(store)).toEqual([])
   })

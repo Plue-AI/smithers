@@ -39,17 +39,21 @@ import {
 import type { LspDiagnostic, LspHover, LspLanguageId, LspLocation } from "@smthrs/rpc/LocalLsp"
 import { hoverContents, LSP_CLIENT_CAPABILITIES, redactHostPaths, relativeToRoot, toDiagnostic, toWireRange } from "@smthrs/rpc/LspWire"
 import type { LspDiagnosticWire, LspHoverWire, LspLocationLinkWire, LspLocationWire } from "@smthrs/rpc/LspWire"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
+import { refusalWords } from "./seams/SeamContext"
 
 /**
- * Why a language-server request could not be answered, in the answering
- * host's own words. `code` is the machine-readable name (plue's, or
- * `close_<code>` for a socket that ended), `message` the sentence shown
- * verbatim, and `install` the install line a `language_server_missing`
+ * Why a language-server request could not be answered. `code` is the
+ * machine-readable name (plue's, or `close_<code>` for a socket that ended),
+ * `sentence` the product sentence the card and the model read (a server's
+ * raw words ride only on the thrown error), and `install` the install line a `language_server_missing`
  * carries — printed, never run.
  */
 export interface LspRefusal {
   readonly code: string
-  readonly message: string
+  /** One sentence in product words: the card's note and the model's text. */
+  readonly sentence: string
   readonly install?: string
 }
 
@@ -200,18 +204,21 @@ export const documentLanguageId = (language: LspLanguageId, path: string): strin
 
 /** A refusal thrown through the client's own promises; every act catches it into `{ refusal }`. */
 class Refused extends Data.TaggedError("CloudLspRefused")<{ readonly refusal: LspRefusal; readonly message: string }> {
-  constructor(refusal: LspRefusal) {
-    super({ refusal, message: refusal.message })
+  /** `detail` is the raw text behind the refusal, for diagnostics; the refusal carries only product words. */
+  constructor(refusal: LspRefusal, detail?: string) {
+    super({ refusal, message: detail ?? refusal.code })
   }
 }
 
-/** A close as the model and the card read it: the reason verbatim, the code beside it. */
+/** A close as the model and the card read it: the missing server's install line, else one sentence. */
 const closeRefusal = (code: number, reason: string): LspRefusal => {
   const text = reason.trim()
   if (text.startsWith(`${LSP_LANGUAGE_SERVER_MISSING}:`)) {
-    return { code: LSP_LANGUAGE_SERVER_MISSING, message: text, install: text.slice(LSP_LANGUAGE_SERVER_MISSING.length + 1).trim() }
+    return { code: LSP_LANGUAGE_SERVER_MISSING, sentence: text, install: text.slice(LSP_LANGUAGE_SERVER_MISSING.length + 1).trim() }
   }
-  return { code: `close_${code}`, message: text === "" ? `the workspace language server closed (${code})` : `${text} (${code})` }
+  /* Code 0 is this client's own close, worded here; any other reason is the relay's text. */
+  if (code === 0 && text !== "") return { code: "close_0", sentence: `${text.charAt(0).toUpperCase()}${text.slice(1)}${/[.!?]$/u.test(text) ? "" : "."}` }
+  return { code: `close_${code}`, sentence: "The workspace language server closed." }
 }
 
 interface Pending {
@@ -265,7 +272,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
   const listeners = new Set<(event: CloudLspEvent) => void>()
   let disposed = false
   const lifetime = new AbortController()
-  const closing: LspRefusal = { code: "disposed", message: "The app is closing." }
+  const closing: LspRefusal = { code: "disposed", sentence: "The app is closing." }
   const assertActive = (): void => {
     if (disposed) throw new Refused(closing)
   }
@@ -351,20 +358,19 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
       } catch {
         assertActive()
         // A thrown request's text is not copy; the tapped fetch recorded it.
-        throw new Refused({ code: "unreachable", message: "Could not reach Smithers Cloud." })
+        throw new Refused({ code: "unreachable", sentence: "Could not reach Smithers Cloud." })
       }
       const body: unknown = await whileActive(response.json().catch(() => null))
       assertActive()
       if (response.ok) {
         const session = CloudLspSessionSchema.safeParse(body)
-        if (!session.success) throw new Refused({ code: "unreadable", message: "Smithers Cloud's answer for the language-server session was malformed." })
+        if (!session.success) throw new Refused({ code: "unreadable", sentence: "Smithers Cloud's answer for the language-server session was malformed." })
         return session.data.id
       }
       const code = isRecord(body) && typeof body.code === "string" && body.code !== "" ? body.code : null
-      const message = isRecord(body) && typeof body.message === "string" && body.message !== ""
-        ? body.message
-        : `The language-server session POST answered ${response.status}.`
-      const text = code === null ? message : `${code}: ${message}`
+      const fallback = "The workspace language server didn't start."
+      /* plue's words only when the reader can act on them (an install line); otherwise what failed and whose fault it was. */
+      const text = refusalLine(refusalOf({ body, status: response.status, message: refusalWords(body, fallback, response.status) }), fallback)
       const retryAfter = Number(response.headers.get("retry-after")?.trim())
       if (code === GUEST_NOT_READY && attempt.count < retry.maxAttempts && !disposed) {
         attempt.count += 1
@@ -372,7 +378,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
         await sleep(Number.isInteger(retryAfter) && retryAfter >= 0 ? retryAfter * 1_000 : retry.defaultDelayMs)
         continue
       }
-      throw new Refused({ code: code ?? `http_${response.status}`, message: text })
+      throw new Refused({ code: code ?? `http_${response.status}`, sentence: text })
     }
   }
 
@@ -392,7 +398,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     const answer = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         conn.pending.delete(entry.id)
-        reject(new Refused({ code: "language_server_timeout", message: `The workspace language server did not answer ${method} within ${requestTimeoutMs / 1000} s.` }))
+        reject(new Refused({ code: "language_server_timeout", sentence: `The workspace language server did not answer ${method} within ${requestTimeoutMs / 1000} s.` }))
       }, requestTimeoutMs)
       ;(timer as { unref?: () => void }).unref?.()
       const entry: Pending = { id, method, params, resolve, reject, timer }
@@ -474,7 +480,11 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     conn.pending.delete(id)
     clearTimeout(entry.timer)
     if ("error" in message && isRecord(message.error)) {
-      entry.reject(new Refused({ code: "language_server_error", message: redact(String(message.error.message ?? "the language server refused the request")) }))
+      const answered = message.error
+      entry.reject(new Refused(
+        { code: "language_server_error", sentence: "The language server couldn't answer that request." },
+        redact(String(answered.message ?? "the language server refused the request"))
+      ))
       return
     }
     entry.resolve(message.result)
@@ -605,7 +615,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
         releaseSocket(conn, socket)
         reject(new Refused({
           code: "language_server_timeout",
-          message: `The workspace language server did not open within ${requestTimeoutMs / 1000} s.`
+          sentence: `The workspace language server did not open within ${requestTimeoutMs / 1000} s.`
         }))
       }, requestTimeoutMs)
       ;(openingTimer as { unref?: () => void }).unref?.()
@@ -690,7 +700,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
         void ensureReady(conn).then(
           () => reissue(conn),
           (error: unknown) => {
-            const refusal = error instanceof Refused ? error.refusal : { code: "unreachable", message: "the workspace language server could not restart" }
+            const refusal = error instanceof Refused ? error.refusal : { code: "unreachable", sentence: "the workspace language server could not restart" }
             rejectPending(conn, refusal)
             emit({ ...scopeOf(conn), type: "closed", code, reason, paths: [...conn.documents.keys()] })
           }
@@ -742,7 +752,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
           conn.retried1011 = true
           continue
         }
-        if (RETRY_CODES.has(code)) throw new Refused({ code: `close_${code}`, message: `${lastNote || reason} — still not ready after ${retry.maxAttempts} tries (${code})` })
+        if (RETRY_CODES.has(code)) throw new Refused({ code: `close_${code}`, sentence: `The workspace language server still wasn't ready after ${retry.maxAttempts} tries.` }, `${lastNote || reason} (${code})`)
         // The act that dialed carries this refusal to the card and the model; no second telling.
         throw new Refused(closeRefusal(code, reason))
       }
@@ -789,7 +799,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     try {
       return { ok: await work() }
     } catch (error) {
-      return { refusal: error instanceof Refused ? error.refusal : { code: "failed", message: "Code intelligence hit an unexpected error." } }
+      return { refusal: error instanceof Refused ? error.refusal : { code: "failed", sentence: "Code intelligence hit an unexpected error." } }
     }
   }
 
@@ -856,7 +866,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
     for (const conn of connections.values()) {
       if (conn.reconnect !== undefined) clearTimeout(conn.reconnect)
       conn.reconnect = undefined
-      conn.failDial?.(0, closing.message)
+      conn.failDial?.(0, closing.sentence)
       rejectPending(conn, closing)
       if (conn.socket !== undefined) releaseSocket(conn, conn.socket)
       conn.sessionId = undefined

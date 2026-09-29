@@ -105,7 +105,8 @@ export interface ClientErrorReporter {
  * an Error at all; String() keeps those values legible. Throwing field getters
  * cost only their field, and hostile conversions fall back to a safe label.
  */
-export const errorMessage = (error: unknown): string => {
+/** The raw text of a thrown value for a diagnostic report. Never rendered: a person reads `presentUserFailure`'s sentence. */
+export const diagnosticText = (error: unknown): string => {
   try {
     if (!(error instanceof Error)) return String(error)
     const { type, message, stack } = errorDetail(error)

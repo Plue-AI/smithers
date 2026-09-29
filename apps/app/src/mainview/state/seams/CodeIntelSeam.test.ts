@@ -163,7 +163,7 @@ test("an old starting timer and refusal cannot patch the next owner's file", asy
   await untilCalled("hover"); await retire(fixture, "account")
   const before = await store.eventHistory()
   await new Promise(resolve => setTimeout(resolve, 60))
-  reply.resolve({ refusal: { code: "closed", message: "Previous account private failure" } })
+  reply.resolve({ refusal: { code: "closed", sentence: "Previous account private failure" } })
   expect(await pending).toBe(SIGN_OUT_REFUSAL)
   expect((await store.eventHistory()).head).toEqual(before.head)
 })
@@ -197,7 +197,7 @@ for (const first of ["user", "smithers"] as const) {
         answers.hover = async () => ({ ok: { hover: { contents: "Newer hover", truncated: false } } })
         await (second === "user" ? seam : agent()).hover("index.ts", 1, 2, "owner/repo")
         const before = await store.eventHistory()
-        reply.resolve(outcome === "refusal" ? { refusal: { code: "closed", message: "Older refusal" } }
+        reply.resolve(outcome === "refusal" ? { refusal: { code: "closed", sentence: "Older refusal" } }
           : { ok: { hover: outcome === "empty" ? null : { contents: "Older hover", truncated: false } } })
         const result = await old
         expect(JSON.stringify(result)).toContain(outcome === "refusal" ? "Older refusal" : outcome === "empty" ? "nothing at" : "Older hover")
@@ -242,7 +242,7 @@ for (const outcome of ["empty", "refusal"] as const) {
     answers.hover = () => reply.promise
     const old = seam.hover("index.ts", 1, 1, "owner/repo")
     await untilCalled("hover")
-    answers.hover = async () => outcome === "empty" ? { ok: { hover: null } } : { refusal: { code: "closed", message: "Latest refusal" } }
+    answers.hover = async () => outcome === "empty" ? { ok: { hover: null } } : { refusal: { code: "closed", sentence: "Latest refusal" } }
     await seam.hover("index.ts", 1, 2, "owner/repo")
     const before = await store.eventHistory()
     await new Promise(resolve => setTimeout(resolve, 40))
@@ -334,17 +334,17 @@ for (const method of ["hover", "definition", "diagnostics"] as const) {
         await useWorkspace(store, "ws-new")
         // Use a different action so hover ordering alone cannot hide the workspace bug.
         if (method === "hover") {
-          answers.diagnostics = async () => ({ refusal: { code: "closed", message: "Current workspace refusal" } })
+          answers.diagnostics = async () => ({ refusal: { code: "closed", sentence: "Current workspace refusal" } })
           await newDoor.diagnostics("index.ts", "owner/repo")
         } else {
-          answers.hover = async () => ({ refusal: { code: "closed", message: "Current workspace refusal" } })
+          answers.hover = async () => ({ refusal: { code: "closed", sentence: "Current workspace refusal" } })
           await newDoor.hover("index.ts", 1, 2, "owner/repo")
         }
         expect(documents.map(doc => doc.workspaceId)).toEqual(["ws-lsp", "ws-new"])
         const before = await store.eventHistory()
         await new Promise(resolve => setTimeout(resolve, 25))
         expect((await store.eventHistory()).head).toEqual(before.head)
-        if (outcome === "refusal") reply.resolve({ refusal: { code: "closed", message: "Old workspace refusal" } })
+        if (outcome === "refusal") reply.resolve({ refusal: { code: "closed", sentence: "Old workspace refusal" } })
         else if (method === "hover") reply.resolve({ ok: { hover: outcome === "empty" ? null : { contents: "Old workspace hover", truncated: false } } })
         else if (method === "definition") reply.resolve({ ok: { locations: outcome === "empty" ? [] : [{ path: "old.ts", line: 1, character: 1, endLine: 1, endCharacter: 2 }], total: outcome === "empty" ? 0 : 1, omitted: 0 } })
         else reply.resolve({ ok: { items: outcome === "empty" ? null : [diagnostic], total: outcome === "empty" ? null : 1 } })

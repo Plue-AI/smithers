@@ -1,6 +1,7 @@
 import { clientRefusal, refusalOf, retryAfterHeader } from "@smthrs/rpc/Refusal"
 import type { Refusal } from "@smthrs/rpc/Refusal"
-import { errorMessage } from "./SeamContext"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
+import { refusalWords } from "./SeamContext"
 import type { SeamContext } from "./SeamContext"
 
 /**
@@ -41,11 +42,11 @@ export const cloudFailure = async (response: Response, fallback: string): Promis
   const refusal = refusalOf({
     body,
     status: response.status,
-    message: errorMessage(body, fallback),
+    message: refusalWords(body, fallback, response.status),
     retryAfterSeconds: retryAfterHeader(response.headers)
   })
   return {
-    error: refusal.message,
+    error: refusalLine(refusal, fallback),
     code: refusal.rawCode,
     status: refusal.status,
     retryAfterSeconds: refusal.retryAfter,
@@ -59,7 +60,7 @@ export const cloudFailure = async (response: Response, fallback: string): Promis
  */
 export const cloudUnreachable = (error: unknown): CloudFailure => {
   const refusal = clientRefusal(error, "Could not reach Smithers Cloud.")
-  return { error: refusal.message, code: null, status: null, retryAfterSeconds: null, refusal }
+  return { error: refusalLine(refusal, "Could not reach Smithers Cloud."), code: null, status: null, retryAfterSeconds: null, refusal }
 }
 
 /** Domain seams share transport; authorization, DTOs, and retry decisions remain in the seam. */

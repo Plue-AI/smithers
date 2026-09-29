@@ -1,5 +1,6 @@
 import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { describe, expect, test } from "bun:test"
+import { presentAppFailure } from "../state/controller/AppFailure"
 import { ApplicationClientError, createApplicationClient } from "./ApplicationClient"
 
 const pageOrigin = "https://app.example.test"
@@ -107,6 +108,14 @@ describe("application client", () => {
       retryAfterSeconds: 7,
       refusal: { rawCode: "limited", fault: "dependency", retryAfter: 7 }
     })
+
+    /* A fetch that threw: the refusal says nothing answered; the thrown text rides only on the cause. */
+    const thrown = new TypeError("getaddrinfo ENOTFOUND app.example.test")
+    const offline = createApplicationClient(session, { fetchImpl: async () => { throw thrown } })
+    const transport = await offline.request("/api/user").catch((error: unknown) => error)
+    expect(transport).toMatchObject({ code: "transport", cause: thrown, refusal: { origin: "client", status: null } })
+    expect(JSON.stringify((transport as ApplicationClientError).refusal)).not.toContain("ENOTFOUND")
+    expect(presentAppFailure(transport, () => {}).sentence).not.toContain("ENOTFOUND")
 
     const invalid = createApplicationClient(session, { fetchImpl: async () => new Response("not json") })
     await expect(invalid.request("/api/user")).rejects.toBeInstanceOf(ApplicationClientError)

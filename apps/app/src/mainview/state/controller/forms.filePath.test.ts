@@ -143,6 +143,11 @@ describe("the path a file flow asks for", () => {
     expect(app.reads).toEqual(["docs/UNLISTED.md"])
     expect(app.card(cardId).status).toBe("error")
     expect(app.card(cardId).payload.error).toBe(`Path not found: docs/UNLISTED.md in ${REPO}`)
+    /* The flow's words are the run's detail, never the form's own sentence. */
+    expect(app.card(cardId).payload.errorKind).toBe("run")
+    await app.forms.setFormField(cardId, "path", "README.md")
+    expect(app.card(cardId).payload.error).toBeUndefined()
+    expect(app.card(cardId).payload.errorKind).toBeUndefined()
   })
 
   test("files.list asks for its path as a text field too", () => {

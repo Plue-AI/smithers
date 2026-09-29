@@ -18,6 +18,7 @@ import { engineProjectionPending } from "../../cards/EngineTrace"
 type RunCard = Extract<Card, { kind: "run-trace" }>
 /** A request that names its box: the only kind a new request card records. */
 type BoxLaunch = WorkflowLaunch & { readonly workspaceId: string }
+/** A launch refusal: one sentence in product words, and its code. */
 type Refusal = { readonly message: string; readonly code?: string; readonly retryAfterSeconds?: number }
 const terminal = new Set(["completed", "failed", "cancelled"])
 /** Polls a completed request waits for its journal before judging whether it validated. */
@@ -102,11 +103,12 @@ export const createWorkflowLaunchController = (
     const box = request.workspaceId
     const work = ctx.withToast(toastKey, title, doneTitle, async () => {
       let stage: NonNullable<WorkflowLaunch["error"]>["stage"] = "preparation"
-      const fail = async (failure: Refusal) => {
+      /* Every refusal here is already a sentence: authored above, or a gateway result's (GatewayFailureCopy). */
+      const fail = async (refused: Refusal) => {
         if (!current()) return TOAST_SUPERSEDED
-        const error = { stage, code: failure.code ?? "launch_unavailable", message: failure.message }
-        await publish({ ...request, error }, { phase: "failed", error: error.message })
-        return error.message
+        const record = { stage, code: refused.code ?? "launch_unavailable", message: refused.message }
+        await publish({ ...request, error: record }, { phase: "failed", error: record.message })
+        return record.message
       }
       /*
        * A change request lands only through coding/vibe, and coding/vibe

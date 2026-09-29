@@ -1,6 +1,8 @@
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { CLOUD_AUTH_SESSION_PATH } from "@smthrs/rpc/CloudTunnel"
 import { describe, expect, test } from "bun:test"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLead } from "@smthrs/rpc/RefusalCopy"
 import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
@@ -158,7 +160,9 @@ describe("identity session record", () => {
     await controller.requestAccess()
     const identity = store.collections.identitySessions.get("identity")
     expect(identity?.accessRequested).toBe(false)
-    expect(identity?.accessError).toBe("queue unavailable")
+    const lead = refusalLead(refusalOf({ body: { status: "error", message: "queue unavailable" }, status: 500, message: "queue unavailable" }))
+    expect(identity?.accessError).toBe(`The access request did not go through. Try again. ${lead}`)
+    expect(identity?.accessError).not.toContain("queue unavailable")
   })
 
   test("sign out posts to the seam and clears the record", async () => {
@@ -426,7 +430,9 @@ describe("approval round trip", () => {
     await settled()
     let card = cardOf(store, "approval-1", "approval")
     expect(card.status).toBe("error")
-    expect(card.payload.error).toBe("gateway unreachable")
+    const lead = refusalLead(refusalOf({ body: { status: "error", message: "gateway unreachable" }, status: 502, message: "gateway unreachable" }))
+    expect(card.payload.error).toBe(`The workspace didn't answer. ${lead}`)
+    expect(card.payload.error).not.toContain("gateway unreachable")
     expect(card.payload.pending).toBe(false)
     expect(card.payload.decision).toBeUndefined()
     // Retry from the error state succeeds.

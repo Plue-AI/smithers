@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { NOTHING_ANSWERED } from "@smthrs/rpc/RefusalCopy"
 import { cloudFailure, createCloudClient } from "./CloudClient"
 
 describe("cloud transport", () => {
@@ -31,7 +32,16 @@ describe("cloud transport", () => {
     ])
   })
 
-  test("preserves a refusal's message, code, status, and retry instruction together", async () => {
+  test("preserves a refusal's code, status, and retry instruction together; its words reach the person only when they can act on them", async () => {
+    const starting = await cloudFailure(
+      Response.json({ code: "guest_not_ready", message: "Guest is starting" }, {
+        status: 503,
+        headers: { "retry-after": "3" }
+      }),
+      "fallback"
+    )
+    /* A wait-class refusal: the person reads the context and the verdict, never the server's words. */
+    expect(starting.error).not.toContain("Guest is starting")
     expect(
       await cloudFailure(
         Response.json({ code: "guest_not_ready", message: "Guest is starting" }, {
@@ -41,7 +51,7 @@ describe("cloud transport", () => {
         "fallback"
       )
     ).toEqual({
-      error: "Guest is starting",
+      error: "fallback. Not ready yet — nothing is wrong.",
       code: "guest_not_ready",
       status: 503,
       retryAfterSeconds: 3,
@@ -50,7 +60,7 @@ describe("cloud transport", () => {
         code: "guest_not_ready",
         rawCode: "guest_not_ready",
         fault: "wait",
-        message: "Guest is starting",
+        message: "fallback",
         retryAfter: 3,
         status: 503,
         origin: "plue"
@@ -98,7 +108,7 @@ describe("cloud transport", () => {
     /* The thrown text never becomes the sentence a person reads. */
     expect(JSON.stringify(await client.get("/repos"))).not.toContain("secret-socket-detail")
     expect(await client.get("/repos")).toEqual({
-      error: "Could not reach Smithers Cloud.",
+      error: `Could not reach Smithers Cloud. ${NOTHING_ANSWERED}`,
       status: null,
       code: null,
       retryAfterSeconds: null,
@@ -126,10 +136,10 @@ describe("cloud transport", () => {
       http: async () => new Response("<html>broken</html>", { status: 502 })
     })
     expect(await client.get("/repos?page=2", "/repos")).toMatchObject({
-      error: "Reading /repos failed (502)",
+      error: "Reading /repos failed (502). Something Smithers depends on failed. Not your doing.",
       status: 502
     })
-    expect(await client.send("POST", "/repos")).toMatchObject({ error: "The POST to /repos failed (502)" })
+    expect(await client.send("POST", "/repos")).toMatchObject({ error: "The POST to /repos failed (502). Something Smithers depends on failed. Not your doing." })
     const empty = createCloudClient({ baseUrl: "", http: async () => new Response(null, { status: 204 }) })
     expect(await empty.send("DELETE", "/repos/1")).toMatchObject({ body: null, status: 204 })
   })

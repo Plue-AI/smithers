@@ -136,13 +136,13 @@ describe("billing seam — the honest failure paths", () => {
     if (outcome.status === "failed") expect(outcome.error).toBe("Payment required — top up your balance first.")
   })
 
-  test("a bodyless 500 falls back to the honest fallback message", async () => {
+  test("a bodyless 500 answers the fallback and whose fault it was", async () => {
     const { controller } = await freshController(
       billingBackend({ "/api/billing/checkout": () => new Response("", { status: 500 }) })
     )
     const outcome = await controller.commands.run("billing.upgrade", "pro")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("Checkout couldn't start right now.")
+    if (outcome.status === "failed") expect(outcome.error).toBe("Checkout couldn't start right now. That's a bug in Smithers, not something you did.")
   })
 
   test("a network throw never escapes: it comes back as an honest string", async () => {

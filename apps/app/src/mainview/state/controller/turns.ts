@@ -134,8 +134,9 @@ export const createTurnController = (
       ctx.services.bootstrap?.capabilities.includes("billing.checkout") ?? true, "system")
   }
 
-  const refuseAnonymousTurn = (turnId: string, refusal: TurnRefusal): boolean => {
-    if (refusal.code !== "turn_rate_limited") return false
+  /* The Worker's own ceiling sentence (TurnRefusal's contract: written for a person, per code), never a raw body. */
+  const refuseAnonymousTurn = (turnId: string, ceiling: TurnRefusal): boolean => {
+    if (ceiling.code !== "turn_rate_limited") return false
     if (store.collections.identitySessions.get("identity")?.state !== "signed-out") return false
     const card: Card = {
       id: `anonymous-ceiling-${turnId}`,
@@ -144,7 +145,7 @@ export const createTurnController = (
       status: "active",
       createdAt: Date.now(),
       ordinal: nextOrdinal(),
-      payload: { message: refusal.message, retryAt: refusal.retryAt }
+      payload: { message: ceiling.message, retryAt: ceiling.retryAt }
     }
     store.dispatch({ type: "card.upsert", actor: "system", card, turnId })
     store.dispatch({ type: "message.response.completed", actor: "smithers", turnId })

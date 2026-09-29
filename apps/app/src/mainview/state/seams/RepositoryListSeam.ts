@@ -1,4 +1,5 @@
 import type { FormsController } from "../controller/forms"
+import { presentAppFailure } from "../controller/AppFailure"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
 import { readErrorMessage,readResult,RepositorySignInRequired } from "./SeamContext"
@@ -39,7 +40,8 @@ export async function repositoryListRead(
     return await read(repo)
   } catch (error) {
     if (!(error instanceof RepositorySignInRequired)) throw error
-    if (ctx.promptSignIn === undefined) return error.message
+    /* No sign-in door on this host: the registry's sentence, never the 401's words. */
+    if (ctx.promptSignIn === undefined) return presentAppFailure(error, () => {}).sentence
     ctx.promptSignIn(`read ${kind === "issues" ? "issues" : "pull requests"} on ${repo}`)
     return readResult("The sign-in step is rendered in the chat.")
   }

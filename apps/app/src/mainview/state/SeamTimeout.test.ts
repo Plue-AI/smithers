@@ -3,6 +3,8 @@ import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
 import { createControllerContext } from "./controller/context"
 import { json, loadBox, memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLead } from "@smthrs/rpc/RefusalCopy"
 
 const createAppController = scopedControllers()
 
@@ -201,7 +203,10 @@ test("buffered responses retain JSON, error text, headers, and empty-body semant
     expect(response.statusText).toBe("Created")
     expect(response.headers.get("x-test")).toBe("yes")
     expect(await response.json()).toEqual({ message: "ready ✓" })
-    expect(await ctx.errorMessageOf(await ctx.boundedFetch("https://app.test/api/test"), "failed")).toBe("failed (offline)")
+    /* A non-JSON 503 body is plumbing: the reader gets what failed and whose fault it was, never the body. */
+    const line = await ctx.errorMessageOf(await ctx.boundedFetch("https://app.test/api/test"), "failed")
+    expect(line).toBe(`failed. ${refusalLead(refusalOf({ body: null, status: 503, message: "" }))}`)
+    expect(line).not.toContain("offline")
     const empty = await ctx.boundedFetch("https://app.test/api/test")
     expect(empty.status).toBe(204)
     expect(empty.body).toBeNull()

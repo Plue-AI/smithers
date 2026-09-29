@@ -10,6 +10,8 @@ import { createAppStore } from "./state/AppStore"
 import { createCloudWikiController } from "./state/controller/cloud-wiki"
 import { createControllerContext } from "./state/controller/context"
 import { memoryStorage, silentAgent, waitFor } from "./state/TestFixtures"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLead } from "@smthrs/rpc/RefusalCopy"
 
 GlobalRegistrator.register()
 afterAll(async () => { await GlobalRegistrator.unregister() })
@@ -234,7 +236,9 @@ test("a transient 500 preserves the same owner's index, while a 403 clears its m
     await f.controller.loadWikiIndex(repo, "private")
     await waitFor(() => f.host.textContent?.includes("ALICE PRIVATE INCIDENT") === true)
     f.answer(async () => Response.json({ message: "Temporary failure" }, { status: 500 }))
-    expect(await f.controller.loadWikiIndex(repo, "private")).toContain("Temporary failure")
+    const transient = await f.controller.loadWikiIndex(repo, "private")
+    expect(transient).toBe(`Reading or saving this Wiki page failed (500). ${refusalLead(refusalOf({ body: { message: "Temporary failure" }, status: 500, message: "" }))}`)
+    expect(transient).not.toContain("Temporary failure")
     expect(f.controller.wikiIndexes.get(repo, "private")?.pages.map(page => page.title)).toEqual(["ALICE PRIVATE INCIDENT"])
     expect(f.controller.wikiIndexes.get(repo, "private")?.folders).toEqual(["Private"])
     expect(f.controller.wikiIndexes.get(repo, "private")?.tags).toEqual(["ALICE-SECRET-TAG"])

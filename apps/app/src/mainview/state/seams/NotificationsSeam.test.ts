@@ -239,7 +239,7 @@ describe("notifications.list", () => {
     expect(notificationsCard(store)?.payload.items).toEqual([])
   })
 
-  test("a 500 answers the server's honest message and keeps the failed view visible", async () => {
+  test("a 500 answers what failed and whose fault it was, never the server's words, and keeps the failed view visible", async () => {
     const { store, controller } = await freshController(
       backend({ "/api/notifications/list": json(500, { message: "the notifications backfill is rebuilding" }) })
     )
@@ -247,7 +247,10 @@ describe("notifications.list", () => {
 
     const outcome = await controller.commands.run("notifications.list")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("the notifications backfill is rebuilding")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("Your notifications couldn't be loaded right now. That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("the notifications backfill is rebuilding")
+    }
     await settled()
     expect(store.collections.cards.get("notifications")).toMatchObject({ status: "error", loading: false })
   })
@@ -313,7 +316,7 @@ describe("notifications.read", () => {
     ])
   })
 
-  test("a failed mark-read answers the honest message and leaves the card untouched", async () => {
+  test("a failed mark-read answers what failed and whose fault it was and leaves the card untouched", async () => {
     const recorded: RecordedRequest[] = []
     const { store, controller } = await freshController(
       backend(
@@ -331,7 +334,10 @@ describe("notifications.read", () => {
 
     const outcome = await controller.commands.run("notifications.read")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("mark-read is down")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("Your notifications couldn't be marked read right now. That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("mark-read is down")
+    }
     await settled()
 
     // Still the pre-mark-read card, and no re-fetch happened after the failure.

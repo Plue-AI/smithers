@@ -106,8 +106,10 @@ test("a refused provision reaches the person as its registered refusal, with its
     expect(said(await controller.commands.run("flow.create", `summarise my issues ${REPO}`))).toBe(`flow-requested repo=${REPO}`)
     /* The refusal stays where the person is looking after the toast goes: the durable card. */
     await waitFor(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
-    expect(authoringCard(store)?.payload.authoring?.launchError)
-      .toBe("upstream_refused — internal server error. Something Smithers depends on refused that. Not your doing.")
+    const launchError = authoringCard(store)?.payload.authoring?.launchError
+    expect(launchError)
+      .toContain("upstream_refused — The workspace couldn't be prepared. Something Smithers depends on refused that. Not your doing.")
+    expect(launchError).not.toContain("internal server error")
     expect(authoringCard(store)?.status).toBe("error")
   } finally { await controller.dispose(); await store.dispose?.() }
 })

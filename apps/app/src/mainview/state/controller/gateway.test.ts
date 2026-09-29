@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from "bun:test"
 import { createGatewaySeam, INVALID_PLAN_CODE, INVALID_PROJECTION_CODE } from "./gateway"
+import { GATEWAY_REFUSED, gatewayRefusalSentence } from "./GatewayFailureCopy"
 
 interface RecordedCall {
   readonly repo: string
@@ -136,10 +137,26 @@ describe("the run lifecycle operations", () => {
     }
   })
 
-  test("a refusal crosses as the seam's error, message first", async () => {
+  test("a refusal crosses as a sentence; the control plane's words ride as detail", async () => {
     const { seam } = relay({ Signal: { ok: false, error: { message: "NoMatchingWait: no wait named deploy-done" } } })
     const result = await seam.signal("o/r", "run-1", "deploy-done", {})
-    expect(result).toEqual({ status: "error", message: "NoMatchingWait: no wait named deploy-done" })
+    expect(result).toEqual({ status: "error", message: GATEWAY_REFUSED, detail: "NoMatchingWait: no wait named deploy-done" })
+  })
+
+  test("every control code and tag reads as its registry sentence", async () => {
+    const coded = relay({ Signal: { ok: false, error: { message: "no wait named deploy-done", detail: { code: "no_matching_wait" } } } })
+    expect(await coded.seam.signal("o/r", "run-1", "deploy-done", {})).toEqual({
+      status: "error", message: "Nothing in that run is waiting for this.", code: "no_matching_wait", detail: "no wait named deploy-done"
+    })
+    const tagged = relay({ Signal: { ok: false, error: { message: "flow x", detail: [{ _tag: "Fail", error: { _tag: "/control/FlowNotFound" } }] } } })
+    const answer = await tagged.seam.signal("o/r", "run-1", "deploy-done", {})
+    expect(answer.status === "error" && answer.message).toBe("That flow isn't in this workspace.")
+    for (const [code, tag] of [["persistence_failed", "/control/PersistenceError"], ["notification_full", "/notifications/NotificationError"]] as const) {
+      expect(gatewayRefusalSentence(code)).toBe(gatewayRefusalSentence(tag))
+      expect(gatewayRefusalSentence(code)).not.toBe(GATEWAY_REFUSED)
+    }
+    expect(gatewayRefusalSentence("some_future_code")).toBe(GATEWAY_REFUSED)
+    expect(gatewayRefusalSentence(undefined)).toBe(GATEWAY_REFUSED)
   })
 })
 
@@ -403,7 +420,9 @@ test("a consequential gateway call does not retry a provisioning response", asyn
     fetch: async () => { calls++; return Response.json({ status: "provisioning", message: "resuming" }) },
     errorMessageOf: async (_response, fallback) => fallback
   })
-  expect(await seam.call("o/r", "Run", {})).toEqual({ status: "error", message: "resuming" })
+  expect(await seam.call("o/r", "Run", {})).toEqual({
+    status: "error", message: "The workspace is still starting. Try again in a moment.", detail: "resuming"
+  })
   expect(calls).toBe(1)
 })
 
@@ -562,7 +581,8 @@ describe("a flow's measured durations", () => {
     })
     const durations = await seam.flowDurations("o/r", "review")
     expect(durations.status).toBe("error")
-    expect(durations.status === "error" && durations.message).toBe("Unknown selector")
+    expect(durations.status === "error" && durations.message).toBe(GATEWAY_REFUSED)
+    expect(durations.status === "error" && durations.detail).toBe("Unknown selector")
   })
 })
 

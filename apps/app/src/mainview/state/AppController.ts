@@ -887,6 +887,7 @@ export const createAppController = (
     nextOrdinal: store.nextOrdinal,
     promptSignIn: (summary) => promptSignIn(true, { summary }),
     promptCloudSignIn: () => promptCloudSignIn(true),
+    report: (subject, error) => ctx.failures.report("seam.failure", error, subject),
     checkout: services.bootstrap?.capabilities.includes("billing.checkout") ?? true
   }
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {

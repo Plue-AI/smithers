@@ -95,7 +95,7 @@ const commentDto = (id: number, body: string, extra: Record<string, unknown>) =>
   ({ id, issue_id: 700, user_id: 1, commenter: "will", body, type: "issue_comment", created_at: at, updated_at: at, ...extra })
 
 describe("a conversation on the chat = issues contract", () => {
-  test("reads kind and visibility, persona comments, the sync mapping and reactions off the backend's DTOs; a message posts with its request id as the key and a refusal stays retryable in the server's words", async () => {
+  test("reads kind and visibility, persona comments, the sync mapping and reactions off the backend's DTOs; a message posts with its request id as the key and a refusal stays retryable and says what failed and whose fault it was", async () => {
     const calls: Array<{ line: string; body?: unknown }> = []
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, unavailableAgent, backend({
@@ -124,7 +124,7 @@ describe("a conversation on the chat = issues contract", () => {
       { id: 32, author: "U0HUMAN", commentBody: "from Slack", createdAt: at, reactions: [] }
     ])
     expect(card.payload.sync).toEqual({ provider: "slack", connectionId: "slack-main", scopeId: "T0123", conversationId: "C0123", threadId: "1700000000.000100", state: "synced", error: "" })
-    // A message: acknowledged at once, posted with its request id as the idempotency key; the refusal keeps the row failed in the server's words.
+    // A message: acknowledged at once, posted with its request id as the idempotency key; the refusal keeps the row failed with what failed and whose fault it was, never the server's words.
     expect(await controller.commentOnIssue(7, "Ship it.", REPO)).toEqual({ value: "Requested" })
     await settled()
     for (let attempt = 0; attempt < 40 && !calls.some((call) => call.line === "POST /api/repos/will/flows/issues/7/comments"); attempt++) await settled()
@@ -139,7 +139,8 @@ describe("a conversation on the chat = issues contract", () => {
     }
     const live = store.collections.cards.get(`issue-${REPO}-7`)
     if (live?.kind !== "issue") throw new Error("the conversation card is absent")
-    expect(live.payload.pendingComments).toMatchObject([{ id: key, text: "Ship it.", status: "failed", error: expect.stringContaining("the mirror is down") }])
+    expect(live.payload.pendingComments).toMatchObject([{ id: key, text: "Ship it.", status: "failed", error: "Posting the message failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." }])
+    expect(live.payload.pendingComments?.[0]?.error).not.toContain("the mirror is down")
     await controller.dispose()
   })
 })

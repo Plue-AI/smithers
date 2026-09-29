@@ -378,10 +378,13 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
     expect(sharedRequests).toHaveLength(3)
   })
 
-  test("a refusal writes the failed row with the mirror's message verbatim; a file path names the read that answers it", async () => {
+  const BOOM_LINE = "Listing boom in smithersai/smithers failed (500). That's a bug in Smithers, not something you did."
+
+  test("a refusal writes the failed row with what failed and whose fault it was, never the mirror's words; a file path names the read that answers it", async () => {
     const { store, controller, sharedRequests } = await loadShared()
     expect((await controller.commands.run("repo.tree", `${SHARED}#boom`)).status).toBe("executed")
-    expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))).toMatchObject({ state: "failed", expanded: true, entries: [], error: "the mirror is resyncing smithersai/smithers" })
+    expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))).toMatchObject({ state: "failed", expanded: true, entries: [], error: BOOM_LINE })
+    expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))?.error).not.toContain("the mirror is resyncing")
     expect((await controller.commands.run("repo.tree", `${SHARED}#missing`)).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "missing"))?.error).toBe("smithersai/smithers has no missing")
     expect((await controller.commands.run("repo.tree", `${SHARED}#README.md`)).status).toBe("executed")
@@ -393,7 +396,7 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
     expect(sharedRequests).toHaveLength(before)
     expect((await controller.commands.run("repo.tree", `${SHARED}#boom`)).status).toBe("executed")
     expect(sharedRequests).toHaveLength(before + 1)
-    expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))).toMatchObject({ expanded: true, state: "failed", error: "the mirror is resyncing smithersai/smithers" })
+    expect(store.collections.repoTree.get(repoTreeRowId(SHARED, "boom"))).toMatchObject({ expanded: true, state: "failed", error: BOOM_LINE })
   })
 
   /*

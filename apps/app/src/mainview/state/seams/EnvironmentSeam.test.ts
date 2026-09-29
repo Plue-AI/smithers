@@ -282,12 +282,15 @@ describe("environment seam — env.set", () => {
 })
 
 describe("environment seam — honest failures", () => {
-  test("a 500 on the read answers the platform's message, never a throw", async () => {
+  test("a 500 on the read answers what failed and whose fault it was, never a throw", async () => {
     const { store, controller } = await freshController("get-500")
     await ready(store)
     const outcome = await controller.commands.run("env.view")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("the platform fell over")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("The agent environment for will/flows couldn't be read (HTTP 500). That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("the platform fell over")
+    }
     expect(envCard(store)).toBeUndefined()
   })
 
@@ -303,12 +306,15 @@ describe("environment seam — honest failures", () => {
     }
   })
 
-  test("a 500 on the write answers the platform's message and surfaces no card", async () => {
+  test("a 500 on the write answers what failed and whose fault it was and surfaces no card", async () => {
     const { store, controller, requests } = await freshController("put-500")
     await ready(store)
     const outcome = await controller.commands.run("env.set", "NODE_ENV=production")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("the platform refused the write")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("NODE_ENV couldn't be saved to will/flows (HTTP 500). That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("the platform refused the write")
+    }
     expect(requests.map((request) => request.method)).toEqual(["GET", "PUT"])
     expect(envCard(store)).toBeUndefined()
   })

@@ -573,7 +573,8 @@ describe("createChangeSeam", () => {
     const down = await harness({ ...viewRoutes, [`${CHANGE_ROUTE}/walkthrough?rev=2`]: json(500, { message: "artifact store down" }) })
     await down.seam.viewChange("qupxosqw")
     expect(payloadOf(down.store)?.walkthrough).toBeNull()
-    expect(payloadOf(down.store)?.unread?.walkthrough).toBe("artifact store down")
+    expect(payloadOf(down.store)?.unread?.walkthrough).toBe("Reading /repos/will/smithers/changes/qupxosqw/walkthrough?rev=2 failed (500). That's a bug in Smithers, not something you did.")
+    expect(JSON.stringify(payloadOf(down.store))).not.toContain("artifact store down")
   })
 
   test("landed provenance rides the change GET (plue#464)", async () => {
@@ -838,20 +839,22 @@ describe("createChangeSeam", () => {
     expect(payload?.checks).toBeNull()
     expect(payload?.findings).toBeNull()
     expect(payload?.walkthrough).toBeNull()
+    const landings = "Reading /repos/will/smithers/landings?limit=100 failed (500). That's a bug in Smithers, not something you did."
     expect(payload?.unread).toEqual({
-      diff: "upstream down",
-      checks: "upstream down",
-      findings: "upstream down",
-      reviewRequests: "the landing list wasn't read: upstream down",
-      threads: "the landing list wasn't read: upstream down",
-      stack: "upstream down",
-      walkthrough: "upstream down"
+      diff: "Reading /repos/will/smithers/changes/qupxosqw/diff failed (500). That's a bug in Smithers, not something you did.",
+      checks: "Reading /repos/will/smithers/commits/a03f5f/statuses?limit=100 failed (500). That's a bug in Smithers, not something you did.",
+      findings: "Reading /repos/will/smithers/changes/qupxosqw/findings failed (500). That's a bug in Smithers, not something you did.",
+      reviewRequests: `the landing list wasn't read: ${landings}`,
+      threads: `the landing list wasn't read: ${landings}`,
+      stack: landings,
+      walkthrough: "Reading /repos/will/smithers/changes/qupxosqw/walkthrough?rev=2 failed (500). That's a bug in Smithers, not something you did."
     })
+    expect(JSON.stringify(payload?.unread)).not.toContain("upstream down")
 
     /* A facet switch reads nothing, so it keeps that honest state rather than resurrecting the first read. */
     await seam.setFacet("qupxosqw", "checks")
     expect(payloadOf(store)?.stack).toBeNull()
-    expect(payloadOf(store)?.unread?.stack).toBe("upstream down")
+    expect(payloadOf(store)?.unread?.stack).toBe(landings)
   })
 
   test("a changeset attaches only when its superproject or a member is THIS repository's change", async () => {
@@ -1057,7 +1060,7 @@ describe("createChangeSeam", () => {
       { ownerKind: "org" }
     )
     expect(textOf(await seam.landChange("qupxosqw"))).toBe(
-      "The changesets qupxosqw might belong to weren't read (changesets down) — nothing was landed."
+      "The changesets qupxosqw might belong to weren't read (Reading /orgs/will/changesets failed (500). That's a bug in Smithers, not something you did.) — nothing was landed."
     )
     expect(requests.some((request) => request.startsWith("PUT ") || request.startsWith("POST "))).toBe(false)
   })
@@ -1088,7 +1091,8 @@ describe("createChangeSeam", () => {
 
     const unread = await harness({ [`${REPO}/landings?limit=100`]: json(500, { message: "landings down" }) })
     await unread.seam.landChange("qupxosqw")
-    expect(said(unread.store)).toEqual(["The landing requests of will/smithers weren't read (landings down) — nothing was landed."])
+    expect(said(unread.store)).toEqual([`The landing requests of will/smithers weren't read (Reading /repos/will/smithers/landings?limit=100 failed (500). That's a bug in Smithers, not something you did.) — nothing was landed.`])
+    expect(said(unread.store).join(" ")).not.toContain("landings down")
 
     const signedOut = await harness({}, { signedIn: false })
     await signedOut.seam.landChange("qupxosqw")
@@ -1630,6 +1634,14 @@ describe("createChangeSeam", () => {
 
 describe("committed change mutations", () => {
   const refreshFailure = json(503, { message: "refresh unavailable" })
+  /* A 5xx refresh says what failed and whose fault it was; the server's words never reach the reader. */
+  const refreshWarning = (id: string) =>
+    `change ${id} on will/smithers: Reading /repos/will/smithers/changes/${id} failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed`
+  const expectRefreshWarning = (text: string | undefined, ids: ReadonlyArray<string> = ["qupxosqw"]) => {
+    expect(text).toContain(`Refresh warning: ${ids.map(refreshWarning).join("; ")}. Refresh the cards`)
+    expect(text).not.toContain("refresh unavailable")
+    expect(text).not.toContain("..")
+  }
 
   test("a confirmed mutation keeps its acknowledgment after retirement without refreshing a card", async () => {
     const entered = deferred<void>()
@@ -1691,8 +1703,7 @@ describe("committed change mutations", () => {
     expect(result).toEqual({ value: expect.stringContaining("session session-created") })
     expect(textOf(result)).toContain("finding 11 of qupxosqw")
     expect(textOf(result)).toContain("ws-created")
-    expect(textOf(result)).toContain("Refresh warning")
-    expect(textOf(result)).toContain("refresh unavailable")
+    expectRefreshWarning(textOf(result))
     expect(shownWorkspaces).toEqual(["ws-created"])
     expect(requests.filter((request) => request.startsWith("POST "))).toHaveLength(1)
   })
@@ -1705,8 +1716,8 @@ describe("committed change mutations", () => {
     }, { workspaceError: "workspace unavailable" })
     const result = await seam.pleaseFix("qupxosqw", 11)
     expect(result).toEqual({ value: expect.stringContaining("session session-created") })
-    expect(textOf(result)).toContain("refresh unavailable")
-    expect(textOf(result)).toContain("workspace unavailable")
+    expect(textOf(result)).toContain(`Refresh warning: ${refreshWarning("qupxosqw")}; computer ws-created: workspace unavailable. Refresh the cards`)
+    expect(textOf(result)).not.toContain("refresh unavailable")
     expect(shownWorkspaces).toEqual(["ws-created"])
   })
 
@@ -1719,8 +1730,7 @@ describe("committed change mutations", () => {
     const result = await seam.resolveConflict("qupxosqw", "src/app.ts")
     expect(result).toEqual({ value: expect.stringContaining("session session-created") })
     expect(textOf(result)).toContain("src/app.ts in qupxosqw")
-    expect(textOf(result)).toContain("Refresh warning")
-    expect(textOf(result)).toContain("refresh unavailable")
+    expectRefreshWarning(textOf(result))
   })
 
   for (const failed of ["original", "created", "both"]) {
@@ -1735,8 +1745,7 @@ describe("committed change mutations", () => {
       const result = await seam.splitChange("qupxosqw", ["docs/guide.md"])
       expect(result).toEqual({ value: expect.stringContaining("new-change") })
       expect(textOf(result)).toContain("docs/guide.md moved out of qupxosqw")
-      expect(textOf(result)).toContain("Refresh warning")
-      expect(textOf(result)).toContain("refresh unavailable")
+      expectRefreshWarning(textOf(result), failed === "both" ? ["qupxosqw", "new-change"] : [failed === "created" ? "new-change" : "qupxosqw"])
       expect(requests).toContain(`GET ${CHANGE_ROUTE}`)
       expect(requests).toContain(`GET ${createdRoute}`)
       expect(requests.filter((request) => request.startsWith("POST "))).toHaveLength(1)
@@ -1756,8 +1765,7 @@ describe("committed change mutations", () => {
     const result = await seam.landChange("qupxosqw")
     expect(result).toEqual({ value: expect.stringContaining("Landing request #42 is queued") })
     expect(textOf(result)).toContain("mzxvbnmk, qupxosqw")
-    expect(textOf(result)).toContain("Refresh warning")
-    expect(textOf(result)).toContain("refresh unavailable")
+    expectRefreshWarning(textOf(result))
     expect(requests.filter((request) => request.startsWith("PUT "))).toHaveLength(1)
   })
 
@@ -1771,8 +1779,7 @@ describe("committed change mutations", () => {
     }, { ownerKind: "org" })
     const result = await seam.landChange("qupxosqw")
     expect(result).toEqual({ value: expect.stringContaining("Changeset 7 landed") })
-    expect(textOf(result)).toContain("Refresh warning")
-    expect(textOf(result)).toContain("refresh unavailable")
+    expectRefreshWarning(textOf(result))
   })
 
   const reviewCases = [
@@ -1790,8 +1797,7 @@ describe("committed change mutations", () => {
         ? await seam.requestReview("qupxosqw", entry.arg)
         : await seam[entry.act]("qupxosqw", entry.arg)
       expect(result).toEqual({ value: expect.stringContaining(entry.success) })
-      expect(textOf(result)).toContain("Refresh warning")
-      expect(textOf(result)).toContain("refresh unavailable")
+      expectRefreshWarning(textOf(result))
     })
   }
 })

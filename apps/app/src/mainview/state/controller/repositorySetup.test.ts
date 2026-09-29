@@ -13,6 +13,7 @@ import { applySetupEdit, createRepositorySetupController, projectRecoveredSetup,
 import { cardContainsRun, runScopeFromCard } from "../RunReference"
 import { REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 import { RECEIPT_CODES, setupFailureSentence } from "../RunFailure"
+import { failureDetail } from "@smthrs/rpc/UserFailure"
 
 type Body = { requestId: string; repo: string; job: string; revision: number; digest: string; draft: SetupDraft; workspaceId?: string; manual?: SetupManualRequest }
 const workspaceId = "de29f26b-e593-4ec2-99fc-583d4711f20a"
@@ -357,12 +358,15 @@ test("a setup question that cannot open stays visibly retryable and reports the 
     guidanceFailed: (error, admitted) => { reported.push({ error, admitted }) }
   }))
   let attempts = 0
-  Object.assign(t.ctx.commands, { runAsAgent: async () => { attempts++; throw Error("Form unavailable") } })
+  const thrown: Error[] = []
+  Object.assign(t.ctx.commands, { runAsAgent: async () => { attempts++; const error = Error("Form unavailable"); thrown.push(error); throw error } })
   try {
     expect(await t.setup.guideRepositorySetup("setup")).toEqual({ value: "Setup guidance requested." })
     await until(() => t.state().guidance?.state === "failed")
     expect(attempts).toBe(2)
-    expect(t.state().guidance?.error).toBe("Form unavailable")
+    // The card keeps the second attempt's full detail for diagnostics, never shown as the sentence.
+    expect(t.state().guidance?.error).toBe(failureDetail(thrown[1]))
+    expect(t.state().guidance?.error).toStartWith("Error: Form unavailable")
     // The person reads the sentence; the raw message goes only to diagnostics.
     expect(reported).toEqual([{ error: "The setup question could not be opened. Not your fault.", admitted: false }])
     expect(t.ctx.failures.recent().some(entry => entry.seam === "setup.guidance" && entry.message.includes("Form unavailable"))).toBe(true)
@@ -1573,6 +1577,8 @@ test("a changed server session cannot adopt another account's recovery before th
  */
 const replacement = "33333333-3333-4333-8333-333333333333"
 const WORKSPACE_GONE = "workspace_gone — The workspace behind this setup is gone. Not your fault; retry creates a new one."
+/* WORKSPACE_GONE is not a `<phase> — <code>: <sentence>` verdict, so the card shows this in its place and keeps the raw text on the receipt. */
+const UNREADABLE_RECEIPT = "The setup host's answer couldn't be read. Not your fault."
 
 const pinned = async (t: Awaited<ReturnType<typeof fixture>>, payload: Partial<RepositorySetup>) => {
   const card = t.store.collections.cards.get("setup")!
@@ -1643,7 +1649,9 @@ test("retrying a settled failure recovered after a reload starts a new request i
     await t.setup.openRepositorySetup("issues", "example/repo"); await Promise.all(t.background)
     const card = setupCard(t)
     expect(card.payload.revision).toBe(5)
-    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: WORKSPACE_GONE })
+    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: UNREADABLE_RECEIPT })
+    expect(card.payload.request?.error).not.toContain("workspace_gone")
+    expect(card.payload.receipt?.error).toBe(WORKSPACE_GONE)
     expect(t.calls).toEqual([])
     await t.setup.retryRepositorySetup(card.id); await Promise.all(t.background)
     expect(t.calls.map(call => call.method)).toEqual(["POST"])
@@ -1669,7 +1677,9 @@ test("a browser pinned to the deleted workspace adopts the registration's live o
     expect(card.payload.recovery).toMatchObject({ state: "completed", registrationState: "known" })
     expect(card.payload.recovery?.error).toBeUndefined()
     expect(card.payload.workspaceId).toBe(replacement)
-    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: WORKSPACE_GONE })
+    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: UNREADABLE_RECEIPT })
+    expect(card.payload.request?.error).not.toContain("workspace_gone")
+    expect(card.payload.receipt?.error).toBe(WORKSPACE_GONE)
     expect(t.calls).toEqual([])
     await t.setup.retryRepositorySetup(card.id); await Promise.all(t.background)
     expect(t.calls.map(call => call.method)).toEqual(["POST"])
@@ -1726,7 +1736,9 @@ test("a recovered result naming the replacement of the pin its own request carri
     expect(card.payload.recovery).toMatchObject({ state: "completed", registrationState: "known" })
     expect(card.payload.recovery?.error).toBeUndefined()
     expect(card.payload.workspaceId).toBe(replacement)
-    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: WORKSPACE_GONE })
+    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: UNREADABLE_RECEIPT })
+    expect(card.payload.request?.error).not.toContain("workspace_gone")
+    expect(card.payload.receipt?.error).toBe(WORKSPACE_GONE)
     await t.setup.retryRepositorySetup(card.id); await Promise.all(t.background)
     expect(t.calls.map(call => call.method)).toEqual(["POST"])
     expect(t.calls[0]?.body.workspaceId).toBe(replacement)
@@ -2318,7 +2330,9 @@ test("recovered failed receipt replaces its earlier observation without duplicat
     recovery: { id: "recover", baseRevision: base.revision, baseDigest: setupCandidate(base), state: "requested", registrationState: "unknown" } }
   recovered.setup = { ...recovered.setup, result: { ...recovered.setup.result, inspection: undefined, receipt: failed } }
   const projected = projectRecoveredSetup(current, recovered)
-  expect(projected.request).toMatchObject({ id: failed.requestId, state: "failed", error: "Model unavailable" })
+  // "Model unavailable" is not a verdict line: the request reads the unreadable-answer sentence, the receipt keeps the raw words.
+  expect(projected.request).toMatchObject({ id: failed.requestId, state: "failed", error: "The setup host's answer couldn't be read. Not your fault." })
+  expect(projected.request?.error).not.toContain("Model unavailable")
   expect(projected.receipt).toEqual(failed)
   expect(projected.previousReceipts.map(receipt => [receipt.requestId, receipt.phase])).toEqual([
     [older.requestId, "completed"], [failed.requestId, "failed"]

@@ -17,6 +17,7 @@ import type { CommandLifecycle, PendingCommandInput, PendingFieldInput, PendingF
 import { Authorize } from "@smthrs/chain"
 import { canonicalCommandName } from "@smthrs/ui/command-line"
 import { FlowCancellation } from "./FlowCancellation"
+import { commandFailureSentence } from "./CommandFailureCopy"
 import type { AgentInvocation } from "./AgentInvocation"
 import { formFlows } from "./entries/form"
 import * as Cell from "@smthrs/harness/Cell"
@@ -377,7 +378,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     if (settled._tag === "Failure") {
       // A permission park or an assembly failure is not the human's business
       // to catch; surfaced honestly, it is still a failed invocation.
-      return { status: "failed", error: unframe(name, settled.failure.message) }
+      return { status: "failed", error: commandFailureSentence(name, settled.failure) }
     }
     const result = settled.success
     if (result.outcome === "failure") {
@@ -749,7 +750,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
         const decision = await Effect.runPromise(Effect.result(authorization), { signal: invocation.signal })
         if (decision._tag === "Failure") {
           invocation.refused(decision.failure)
-          return { status: "failed", error: decision.failure.message }
+          return { status: "failed", error: commandFailureSentence(nameOf(target), decision.failure) }
         }
       }
       // Bind this continuation explicitly. No shared mutable actor or authority

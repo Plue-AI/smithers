@@ -368,8 +368,10 @@ export interface RepositoryRanking {
 }
 
 /** A ranking read this module refused in its own words; any other throw is not copy. */
-class RankingRefused extends Data.TaggedError("RankingRefused")<{ readonly message: string }> {
-  constructor(message: string) { super({ message }) }
+class RankingRefused extends Data.TaggedError("RankingRefused")<{ readonly sentence: string }> {
+  constructor(sentence: string) { super({ sentence }) }
+  /** The sentence is also the error's message, for diagnostics and thrown-value checks. */
+  override get message(): string { return this.sentence }
 }
 
 /** Pages stay on the supplied same-origin route; untrusted Link URLs never receive credentials. */
@@ -400,7 +402,7 @@ export async function rankTutorialRepositories(
   try { inventory = await githubPages(http, `${baseUrl}/api/user/github-repos?sort=pushed&direction=desc`) }
   catch (error) {
     // A dropped request or an unreadable body is recorded by the fetch tap; only authored refusals are copy.
-    return { cutoff, repositories: [], partial: true, error: error instanceof RankingRefused ? error.message : "Could not read your GitHub repositories." }
+    return { cutoff, repositories: [], partial: true, error: error instanceof RankingRefused ? error.sentence : "Could not read your GitHub repositories." }
   }
   const seen = new Set<string>()
   const repositories: RankedRepository[] = []

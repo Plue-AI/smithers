@@ -20,6 +20,7 @@ import { SubmitApprovalOutput } from "@smthrs/gateway/GatewayRpcs"
 import { WORKFLOW_RPC_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { Option, Schema } from "effect"
 import { cloudFailure } from "../seams/CloudClient"
+import { errorCodeOf, gatewayRefusalSentence, workspaceAnswerSentence } from "./GatewayFailureCopy"
 
 /**
  * What one relayed call answered. A refusal carries the sentence the relay
@@ -29,7 +30,15 @@ import { cloudFailure } from "../seams/CloudClient"
  */
 export type GatewayResult<A> =
   | { readonly status: "ok"; readonly value: A; readonly cursor?: ProjectionCursor }
-  | { readonly status: "error"; readonly message: string; readonly code?: string; readonly retryAfterSeconds?: number }
+  | {
+    readonly status: "error"
+    /** One sentence in product words. */
+    readonly message: string
+    readonly code?: string
+    readonly retryAfterSeconds?: number
+    /** The workspace's own words, for Details and diagnostics only. */
+    readonly detail?: string
+  }
 
 /** ControlError.FlowNotFound on the wire: its `code` and its tag. */
 export const FLOW_NOT_FOUND_CODE = "flow_not_found"
@@ -161,26 +170,6 @@ const decodeTranscriptRows = rowsDecoder(Schema.decodeUnknownOption(snapshotOf(T
 const decodeControlEventRows = rowsDecoder(Schema.decodeUnknownOption(snapshotOf(ControlEvent)))
 const decodeFlowDurationRows = rowsDecoder(Schema.decodeUnknownOption(snapshotOf(FlowDurationRow)))
 
-/**
- * The typed error's code in a relayed failure's `detail` (the gateway's
- * cause, carried whole by the relay). Effect's RPC protocol encodes a failure
- * cause as an array of reasons, `[{ _tag: "Fail", error }]`, so the first
- * `Fail` reason's error is the typed refusal; a bare record is the error
- * itself when it carries a code or a `/control/...` tag, else the `error` it
- * wraps. The `code` field wins; a tag in the `/control/...` form is the
- * fallback; anything else names no code.
- */
-const errorCodeOf = (detail: unknown): string | undefined => {
-  const isTyped = (record: Record<string, unknown>): boolean =>
-    typeof record.code === "string" || (typeof record._tag === "string" && record._tag.startsWith("/"))
-  const typed = Array.isArray(detail)
-    ? asRecord(detail.map(asRecord).find((reason) => reason._tag === "Fail")?.error)
-    : isTyped(asRecord(detail))
-    ? asRecord(detail)
-    : asRecord(asRecord(detail).error)
-  if (typeof typed.code === "string" && typed.code !== "") return typed.code
-  return typeof typed._tag === "string" && typed._tag.startsWith("/") ? typed._tag : undefined
-}
 
 /**
  * The Plue floor, as this app's own seam: list flows and runs, launch, read a
@@ -235,16 +224,17 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
     if (!stillOwned()) return { status: "error", message: "This workspace response belongs to a previous session." }
     if (body?.ok === true) return { status: "ok", value: body.payload }
     if (body?.ok === false) {
-      const error = asRecord(body.error)
-      const message = error.message
-      const code = errorCodeOf(error.detail)
+      const refused = asRecord(body.error)
+      const words = refused.message
+      const code = errorCodeOf(refused.detail)
       return {
         status: "error",
-        message: typeof message === "string" && message !== "" ? message : "The workspace refused the call.",
-        ...(code === undefined ? {} : { code })
+        message: gatewayRefusalSentence(code),
+        ...(code === undefined ? {} : { code }),
+        ...(typeof words === "string" && words !== "" ? { detail: words } : {})
       }
     }
-    if (typeof body?.message === "string") return { status: "error", message: body.message }
+    if (typeof body?.message === "string") return { status: "error", message: workspaceAnswerSentence(body), detail: body.message }
     return { status: "error", message: "The workspace answered in a shape I didn't understand." }
   }
 

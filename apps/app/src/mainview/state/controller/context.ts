@@ -1,6 +1,8 @@
 import { WORK_NOTICE_DELAY_MS, NOTICE_SETTLE_MS } from "@smthrs/ui/notification-policy"
 import { createOperationalFailureReporter, type OperationalFailureReporter } from "../OperationalFailures"
 import { Effect } from "effect"
+import { failureDetail } from "@smthrs/rpc/UserFailure"
+import { readErrorMessage } from "../seams/SeamContext"
 import type { AgentChatMessage, FetchLike } from "@smthrs/rpc/NativeAgent"
 import { accountOwnerOf, accountProviderChanged } from "../AccountOwner"
 import { gatewayBindingFor } from "../RepoContext"
@@ -397,7 +399,7 @@ export const createControllerContext = (
             reader.releaseLock()
           }
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error)))
+        catch: (error) => (error instanceof Error ? error : new Error(failureDetail(error), { cause: error }))
       }).pipe(
         Effect.timeoutOrElse({
           duration: seamTimeoutMs,
@@ -406,23 +408,8 @@ export const createControllerContext = (
       ),
       { signal: init?.signal ?? undefined }
     )
-  ctx.errorMessageOf = async (response: Response, fallback: string): Promise<string> => {
-    const body = (await response.text().catch(() => "")).trim()
-    try {
-      const parsed: unknown = JSON.parse(body)
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "message" in parsed &&
-        typeof parsed.message === "string"
-      ) {
-        return parsed.message
-      }
-    } catch {
-      // A non-JSON error body carries no better message than the fallback.
-    }
-    return body === "" ? fallback : `${fallback} (${body.slice(0, 200)})`
-  }
+  /* A body's words reach the reader only through refusalLine: a non-JSON body, a 5xx and a Worker code never do. */
+  ctx.errorMessageOf = readErrorMessage
   /*
    * The gateway seam rides the same bounded transport every other controller
    * call does, so a workspace that stops answering becomes the seam's own

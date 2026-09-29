@@ -18,6 +18,8 @@ import { unavailableAgent } from "./TestFixtures"
 import * as Y from "yjs"
 import { encodeWikiState, wikiDocumentId } from "../wiki/CloudWiki"
 import { createCloudWikiController } from "./controller/cloud-wiki"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLead } from "@smthrs/rpc/RefusalCopy"
 
 // Accepted commands remain immutable facts. Idle transport reads must never
 // manufacture those facts; diagnostic truncation cannot bound the event stream.
@@ -451,7 +453,9 @@ test.each(["eof", "unavailable"] as const)("Wiki reconnects after %s retain thei
     expect((await store.eventHistory()).head).toEqual(before.head)
     expect(fixture.footprint()).toEqual(physical)
     expect(store.collections.worldDocuments.get(id)?.cloud).toMatchObject({ phase: "offline",
-      error: failure === "eof" ? "Reconnecting to Wiki revisions…" : "Wiki maintenance" })
+      error: failure === "eof" ? "Reconnecting to Wiki revisions…"
+        : `Reading or saving this Wiki page failed (503). ${refusalLead(refusalOf({ body: { message: "Wiki maintenance" }, status: 503, message: "" }))}` })
+    expect(store.collections.worldDocuments.get(id)?.cloud?.error).not.toContain("Wiki maintenance")
     let channel!: ReadableStreamDefaultController<Uint8Array>
     streams[3]!.resolve(new Response(new ReadableStream({ start(value) { channel = value } }), { headers: { "content-type": "text/event-stream" } }))
     doc.getText("markdown").insert(6, "\n\nRecovered")

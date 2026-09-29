@@ -559,12 +559,15 @@ describe("files seam — files.read", () => {
 })
 
 describe("files seam — honest failures", () => {
-  test("a 500 answers the platform's message, never a throw", async () => {
+  test("a 500 answers what failed and whose fault it was, never a throw", async () => {
     const { store, controller } = await freshController()
     await ready(store)
     const outcome = await controller.commands.run("files.read", "boom.txt")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("the platform fell over")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("Reading boom.txt in will/flows failed (500). That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("the platform fell over")
+    }
     expect(fileCard(store, "file-will/flows-boom.txt")).toBeUndefined()
   })
 

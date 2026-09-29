@@ -96,8 +96,7 @@ const plural = (count: number, word: string): string => `${count} ${word}${count
  * The cloud relay's refusal, in the workspace's terms: plue's 409
  * `language_server_missing` carries the install line verbatim, and the card
  * says which workspace lacks the server (the native card's "on this machine"
- * would be false here); every other refusal — a close reason, a POST's
- * words — is shown as it came.
+ * would be false here); every other refusal shows its sentence.
  */
 const refusedCloud = (refusal: LspRefusal, document: CloudLspDocument, workspace: { readonly id: string; readonly name: string }): { readonly intel: Intel; readonly text: string } =>
   refusal.code === LSP_LANGUAGE_SERVER_MISSING && refusal.install !== undefined
@@ -105,7 +104,7 @@ const refusedCloud = (refusal: LspRefusal, document: CloudLspDocument, workspace
       intel: { state: "unavailable", note: `no ${document.language} language server in box "${workspace.name}" (${workspace.id}) — install: ${refusal.install}` },
       text: `Box "${workspace.name}" (${workspace.id}) has no ${document.language} language server. Install: ${refusal.install}`
     }
-    : { intel: { state: "unavailable", note: refusal.message }, text: refusal.message }
+    : { intel: { state: "unavailable", note: refusal.sentence }, text: refusal.sentence }
 
 interface Prepared {
   readonly client: CloudLspClient

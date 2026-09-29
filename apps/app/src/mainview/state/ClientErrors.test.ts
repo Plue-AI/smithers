@@ -13,7 +13,7 @@ import {
   CLIENT_ERRORS_PATH,
   clientErrorBody,
   createClientErrorReporter,
-  errorMessage
+  diagnosticText
 } from "./ClientErrors"
 
 /*
@@ -235,10 +235,10 @@ describe("the client-error reporter", () => {
     expect(body.error.stack).toContain("ClientErrors.test")
   })
 
-  test("errorMessage keeps the stack, not just the error's name", () => {
-    // Red if errorMessage degrades to String(error): the startup panel
+  test("diagnosticText keeps the stack, not just the error's name", () => {
+    // Red if diagnosticText degrades to String(error): the startup panel
     // would read "Error: boom" for every crash and name no line of code.
-    const message = errorMessage(new Error("boom"))
+    const message = diagnosticText(new Error("boom"))
     expect(message).toContain("ClientErrors.test")
   })
 
@@ -249,42 +249,42 @@ describe("the client-error reporter", () => {
     ["heading without frames", "StorageError: another database may exist", "StorageError: another database may exist"],
     ["empty stack", "", "StorageError: another database may exist"],
     ["missing stack", undefined, "StorageError: another database may exist"]
-  ] as const)("errorMessage preserves the readable reason with %s", (_label, stack, expected) => {
+  ] as const)("diagnosticText preserves the readable reason with %s", (_label, stack, expected) => {
     const error = new Error("another database may exist")
     error.name = "StorageError"
     error.stack = stack
-    expect(errorMessage(error)).toBe(expected)
+    expect(diagnosticText(error)).toBe(expected)
   })
 
-  test("errorMessage keeps the full multiline reason before WebKit frames", () => {
+  test("diagnosticText keeps the full multiline reason before WebKit frames", () => {
     const error = new Error("The app-events store exceeds the limit.\nDownload a recovery file.")
     error.stack = "boot@https://smithers.sh/app.js:1:2"
-    expect(errorMessage(error)).toBe(`Error: ${error.message}\n${error.stack}`)
+    expect(diagnosticText(error)).toBe(`Error: ${error.message}\n${error.stack}`)
     error.stack = `Error: ${error.message}\n    at boot (app.js:1:2)`
-    expect(errorMessage(error)).toBe(error.stack)
+    expect(diagnosticText(error)).toBe(error.stack)
   })
 
-  test("errorMessage preserves readable fields when the stack getter throws", () => {
+  test("diagnosticText preserves readable fields when the stack getter throws", () => {
     const error = new Error("Could not open the database")
     Object.defineProperty(error, "stack", { get() { throw new Error("cannot read stack") } })
-    expect(errorMessage(error)).toBe("Error: Could not open the database")
+    expect(diagnosticText(error)).toBe("Error: Could not open the database")
   })
 
-  test("errorMessage preserves the stack when the message getter throws", () => {
+  test("diagnosticText preserves the stack when the message getter throws", () => {
     const error = new Error("old message")
     error.stack = "boot@https://smithers.sh/app.js:1:2"
     Object.defineProperty(error, "message", { get() { throw new Error("cannot read message") } })
-    expect(errorMessage(error)).toBe("Error\nboot@https://smithers.sh/app.js:1:2")
+    expect(diagnosticText(error)).toBe("Error\nboot@https://smithers.sh/app.js:1:2")
   })
 
-  test("errorMessage contains hostile non-Error conversions", () => {
-    expect(errorMessage(Object.create(null))).toBe("[object Object]")
-    expect(errorMessage({
+  test("diagnosticText contains hostile non-Error conversions", () => {
+    expect(diagnosticText(Object.create(null))).toBe("[object Object]")
+    expect(diagnosticText({
       [Symbol.toPrimitive]() { throw new Error("cannot stringify") },
       get [Symbol.toStringTag]() { throw new Error("cannot label") }
     })).toBe("Unknown error")
-    expect(errorMessage("plain rejection")).toBe("plain rejection")
-    expect(errorMessage(undefined)).toBe("undefined")
+    expect(diagnosticText("plain rejection")).toBe("plain rejection")
+    expect(diagnosticText(undefined)).toBe("undefined")
   })
 
   test("reports a rejection reason that is not an Error at all", () => {

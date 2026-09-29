@@ -42,6 +42,7 @@ import { TOAST_SUPERSEDED } from "./failures"
 import type { FormsController } from "./forms"
 import type { ApprovalRow, RunSummaryRow } from "./gateway"
 import type { WorkflowController } from "./workflows"
+import { failureDetail } from "@smthrs/rpc/UserFailure"
 
 /**
  * Which of the run card's three views is showing.
@@ -115,8 +116,11 @@ const waitingWord = (row: RunSummaryRow): string | undefined =>
     : undefined
 
 /** A read failure this controller or the gateway already worded for a person. */
-class RunReadRefusal extends Data.TaggedError("RunReadRefusal")<{ readonly message: string }> {
-  constructor(message: string) { super({ message }) }
+class RunReadRefusal extends Data.TaggedError("RunReadRefusal")<{ readonly sentence: string; readonly detail?: string }> {
+  /** `detail` is the refusing party's raw words (a gateway result's `detail`), for Details and diagnostics only. */
+  constructor(sentence: string, detail?: string) { super({ sentence, ...(detail === undefined ? {} : { detail }) }) }
+  /** The sentence, with the raw words after it, is the error's diagnostic message. */
+  override get message(): string { return this.detail === undefined ? this.sentence : `${this.sentence} (${this.detail})` }
 }
 
 export const createRunsController = (
@@ -128,7 +132,7 @@ export const createRunsController = (
   const { store, gateway } = ctx
   /** What a person reads when a read fails: its worded refusal, else the tagged or site sentence, never a raw message. */
   const readFailure = (error: unknown, key: string, sentence: string): string =>
-    error instanceof RunReadRefusal ? error.message
+    error instanceof RunReadRefusal ? error.sentence
       : presentAppFailure(error, failure => ctx.failures.report("toast.work", failure, key), { fault: "bug", sentence, actions: ["retry"] }).sentence
 
   // A named trace is the reader's exact view; ancillary cards identify only a run scope.
@@ -234,7 +238,7 @@ export const createRunsController = (
           gateway.workspaceRuns(repo, binding), attention ? gateway.approvalsInbox(repo, binding) : undefined
         ])
         if (!current()) return TOAST_SUPERSEDED
-        if (listed.status !== "ok" && !attention) throw new RunReadRefusal(listed.message)
+        if (listed.status !== "ok" && !attention) throw new RunReadRefusal(listed.message, listed.detail)
         const observed = listed.status === "ok" ? listed.value : []
         for (const summary of observed) {
           if (!current()) return TOAST_SUPERSEDED
@@ -268,7 +272,7 @@ export const createRunsController = (
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
         // The card keeps the raw words behind Details; the toast says the sentence.
-        const message = error instanceof Error ? error.message : String(error)
+        const message = failureDetail(error)
         const shown = readFailure(error, key, "The run list could not be loaded. Not your fault.")
         const card = listCard(cardId, request)!
         try {
@@ -372,8 +376,11 @@ export const createRunsController = (
     ctx.unref(timer)
   }
 
-  class OpenReadRefusal extends Data.TaggedError("OpenReadRefusal")<{ readonly message: string }> {
-    constructor(message: string) { super({ message }) }
+  class OpenReadRefusal extends Data.TaggedError("OpenReadRefusal")<{ readonly sentence: string; readonly detail?: string }> {
+    /** `detail` is the refusing party's raw words (a gateway result's `detail`), for Details and diagnostics only. */
+    constructor(sentence: string, detail?: string) { super({ sentence, ...(detail === undefined ? {} : { detail }) }) }
+    /** The sentence, with the raw words after it, is the error's diagnostic message. */
+    override get message(): string { return this.detail === undefined ? this.sentence : `${this.sentence} (${this.detail})` }
   }
   const openReads = actorSharedState(ctx, "run-open-reads", () => ({
     inFlight: new Map<string, { request: RunOpenRequest; epoch: number; work: Promise<unknown> }>(),
@@ -407,7 +414,7 @@ export const createRunsController = (
         if (provisioned !== true) throw new OpenReadRefusal(provisioned)
         const summary = await gateway.run(request.repo, request.runId, binding)
         if (!current()) return TOAST_SUPERSEDED
-        if (summary.status !== "ok") throw new OpenReadRefusal(summary.message)
+        if (summary.status !== "ok") throw new OpenReadRefusal(summary.message, summary.detail)
         if (summary.value === undefined) throw new OpenReadRefusal(`There's no run ${request.runId} on ${request.repo}.`)
         const checkSource = (required = request.requireExisting): void => {
           const source = store.collections.cards.get(request.cardId)
@@ -437,7 +444,7 @@ export const createRunsController = (
         return ownsAccount() ? true : TOAST_SUPERSEDED
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
-        const message = error instanceof OpenReadRefusal ? error.message : lostActRefusal(error)
+        const message = error instanceof OpenReadRefusal ? error.sentence : lostActRefusal(error)
         // Background completion has no command failure surface to speak for a refused write.
         if (spokenLostAct(message)) {
           try { await store.dispatch({ type: "message.appended", actor: "system", text: message }).isPersisted.promise } catch { /* The failed toast remains visible if storage still refuses. */ }
@@ -647,7 +654,7 @@ export const createRunsController = (
           ? { facet: "transcript" as const, answer: await gateway.transcript(request.repo, request.runId, binding) }
           : { facet: "events" as const, answer: await gateway.runEvents(request.repo, request.runId, binding) }
         if (!current()) return TOAST_SUPERSEDED
-        if (result.answer.status !== "ok") throw new RunReadRefusal(result.answer.message)
+        if (result.answer.status !== "ok") throw new RunReadRefusal(result.answer.message, result.answer.detail)
         // The shared observation is run data; the reader's choice remains on its exact card.
         if (result.facet === "transcript") {
           await store.dispatch({ type: "gateway.run.observed", actor: "system", observation: {
@@ -678,7 +685,7 @@ export const createRunsController = (
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
         // The card keeps the raw words behind Details; the toast says the sentence.
-        const message = error instanceof Error ? error.message : String(error)
+        const message = failureDetail(error)
         const shown = readFailure(error, key, `This run's ${title.toLowerCase()} could not be loaded. Not your fault.`)
         const card = facetCard(cardId, request)!
         try {

@@ -329,9 +329,11 @@ describe("createGitHubSeam", () => {
 
     const result = await seam.app()
 
-    expect(textOf(result)).toBe("GitHub rate limit exhausted")
+    const line = "The GitHub App status for will/smithers couldn't be read (429). Something Smithers depends on failed. Not your doing."
+    expect(textOf(result)).toBe(line)
+    expect(textOf(result)).not.toContain("GitHub rate limit exhausted")
     const payload = payloadOf(store)
-    expect(payload?.error).toBe("GitHub rate limit exhausted")
+    expect(payload?.error).toBe(line)
     expect(payload?.rateLimit).toEqual({ limit: 5000, remaining: 0, resetAt: "2026-09-02T13:00:00Z" })
     expect(cardOf(store)?.status).toBe("error")
     /* No row: nothing was READ, only refused. */
@@ -466,9 +468,11 @@ describe("createGitHubSeam", () => {
 
       const result = await seam.reconcile()
 
-      /* The refused read is answered in the server's own words, on its own card. */
-      expect(textOf(result)).toBe("github is unreachable")
-      expect(payloadOf(store)?.error).toBe("github is unreachable")
+      /* The refused read says what failed and whose fault it was, on its own card; a 5xx body's words stay hidden. */
+      const line = "The GitHub App status for will/smithers couldn't be read (502). Something Smithers depends on failed. Not your doing."
+      expect(textOf(result)).toBe(line)
+      expect(textOf(result)).not.toContain("github is unreachable")
+      expect(payloadOf(store)?.error).toBe(line)
       /* The run the platform started is not dropped with it. */
       expect(mirrorPayloadOf(store)?.runId).toBe("91")
       await waitUntil(() => mirrorPayloadOf(store)?.runState === "succeeded", "the reconcile run to settle")
@@ -724,7 +728,8 @@ describe("createGitHubSeam", () => {
 
     const result = await seam.mirrorSync()
 
-    expect(textOf(result)).toBe("GitHub rate limit exhausted")
+    expect(textOf(result)).toBe("The mirror sync failed (429). Something Smithers depends on failed. Not your doing.")
+    expect(textOf(result)).not.toContain("GitHub rate limit exhausted")
     expect(mirrorPayloadOf(store)?.rateLimit).toEqual({ limit: 5000, remaining: 0, resetAt: "2026-09-02T13:00:00Z" })
   })
 })

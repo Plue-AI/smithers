@@ -16,6 +16,7 @@ import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { json, loadBox, memoryStorage, scriptedToolAgent, settle, silentAgent, waitFor } from "./TestFixtures"
+import { GATEWAY_REFUSED } from "./controller/GatewayFailureCopy"
 
 const createAppController = scopedControllers()
 
@@ -530,11 +531,13 @@ describe("wave 11 — the run card never silently stalls", () => {
     const resumed = createAppController(store, silentAgent, double.services)
     // Session reconciliation invokes this after the account is authenticated.
     resumed.resumeWorkflowRuns()
-    await waitFor(() => runCard(store)?.payload.observationError?.includes("engine evidence unavailable") === true)
+    const readRefused = `The run has settled, but its recorded engine evidence could not be read: ${GATEWAY_REFUSED}`
+    await waitFor(() => runCard(store)?.payload.observationError === readRefused)
     expect(runCard(store)?.payload.phase).toBe("failed")
     expect(runCard(store)?.payload.error).toBe(double.state.verdict)
     expect(runCard(store)?.payload.steps).toEqual(stepsBeforeReload)
-    expect(runCard(store)?.payload.observationError).toContain("engine evidence unavailable")
+    expect(runCard(store)?.payload.observationError).toBe(readRefused)
+    expect(runCard(store)?.payload.observationError).not.toContain("engine evidence unavailable")
     const reads = double.calls.length
     await settle(15)
     expect(double.calls.length).toBe(reads)

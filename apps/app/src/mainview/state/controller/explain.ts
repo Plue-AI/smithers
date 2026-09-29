@@ -7,6 +7,7 @@ import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AgentTurnCursor, AgentTurnJournalDelivery, AgentTurnJournalRequest } from "@smthrs/rpc/AgentTurnJournal"
 import type { ControllerContext } from "./context"
 import { assignedModel } from "./modelSeats"
+import { presentAppFailure } from "./AppFailure"
 
 /*
  * The explainer (AgentRoles.ts "explainer"): `explain <what>` runs ONE side
@@ -309,8 +310,11 @@ export const createExplainController = (ctx: ControllerContext, config: ExplainC
         await retire()
         return
       }
-      if (journal === undefined) finish("failed", error instanceof Error ? error.message : String(error))
-      else launchFailure = error instanceof Error ? error.message : String(error)
+      /* A thrown launch is reported; the card reads its tagged sentence or the explain line, never the text. */
+      const sentence = presentAppFailure(error, failure => ctx.failures.report("explain.launch", failure, runId),
+        { fault: "bug", sentence: "The explanation couldn't start. Not your fault.", actions: ["retry"] }).sentence
+      if (journal === undefined) finish("failed", sentence)
+      else launchFailure = sentence
     }
   }
 

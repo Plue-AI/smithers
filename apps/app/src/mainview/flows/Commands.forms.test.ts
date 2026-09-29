@@ -290,6 +290,8 @@ describe("THE FORM LAW — filling and submitting", () => {
     const id = "form-runs.resume"
     expect(await execute(controller, "form.submit", id)).toBe("failed: The form still needs: Run id.")
     expect(formOf(store, "runs.resume")?.payload.error).toBe("The form still needs: Run id.")
+    /* The form's own sentence about its input carries no kind: it is shown as is. */
+    expect(formOf(store, "runs.resume")?.payload.errorKind).toBeUndefined()
     expect(formOf(store, "runs.resume")?.status).toBe("error")
     await execute(controller, "form.set", `${id} runId run-9`)
     // A field commit clears the refusal.

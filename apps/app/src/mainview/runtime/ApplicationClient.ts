@@ -58,7 +58,10 @@ export class ApplicationClientError extends Data.TaggedError("ApplicationClientE
   ) {
     super({
       code, message, status, apiCode, retryAfterSeconds,
-      refusal: refusal ?? clientRefusal(options?.cause, message),
+      /* An error with a status was answered by a server; only one without a status is "nothing answered". */
+      refusal: refusal ?? (status === null
+        ? clientRefusal(options?.cause, message)
+        : refusalOf({ body: apiCode === null ? null : { code: apiCode }, status, message, retryAfterSeconds })),
       ...(options !== undefined && "cause" in options ? { cause: options.cause } : {})
     })
   }
@@ -137,7 +140,7 @@ const apiFailure = async (response: Response, signal?: AbortSignal | null): Prom
     : "api"
   return new ApplicationClientError(
     code,
-    refusal.message,
+    message,
     response.status,
     refusal.rawCode,
     refusal.retryAfter,
@@ -244,9 +247,10 @@ export const createApplicationClient = (
       if (isAbort(error, init?.signal)) {
         throw new ApplicationClientError("cancelled", "Request cancelled.", null, null, null, { cause: error })
       }
+      /* The thrown text stays on the cause, for Details and the reporter; the refusal says nothing answered. */
       throw new ApplicationClientError(
         "transport",
-        error instanceof Error ? error.message : String(error),
+        "Could not reach Smithers.",
         null,
         null,
         null,

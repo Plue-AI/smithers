@@ -297,7 +297,7 @@ test("the recorded transcript: session POST, initialize with the guest root, ini
 test("a thrown session request or socket answers a product sentence, never the thrown text", async () => {
   const server = serve()
   const dropped = client(server, { http: async () => { throw new TypeError("ECONNRESET secret-socket-detail") } })
-  expect(await dropped.lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "unreachable", message: "Could not reach Smithers Cloud." } })
+  expect(await dropped.lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "unreachable", sentence: "Could not reach Smithers Cloud." } })
   const route = sessionRoute()
   for (const failure of ["authorize", "open"] as const) {
     const lsp = createCloudLspClient({
@@ -314,7 +314,7 @@ test("a thrown session request or socket answers a product sentence, never the t
     clients.push(lsp)
     const answer = await lsp.hover(DOC, { line: 3, character: 7 })
     expect(JSON.stringify(answer)).not.toContain("secret-")
-    expect(JSON.stringify(answer)).toContain(failure === "authorize" ? "could not be authorized" : "could not open")
+    expect(answer).toEqual({ refusal: { code: "close_0", sentence: failure === "authorize" ? "The code intelligence connection could not be authorized." : "The code intelligence connection could not open." } })
   }
 })
 
@@ -404,7 +404,7 @@ test("a definition inside the checkout is a relative location; one in the store 
   })
 })
 
-test("a 503 guest_not_ready on the session POST is retried on its Retry-After, plue's words shown meanwhile", async () => {
+test("a 503 guest_not_ready on the session POST is retried on its Retry-After, what failed and whose fault shown meanwhile", async () => {
   const server = serve()
   const refusal = () =>
     new Response(JSON.stringify({ code: "guest_not_ready", message: "guest is still activating" }), {
@@ -416,13 +416,15 @@ test("a 503 guest_not_ready on the session POST is retried on its Retry-After, p
   const answer = await lsp.hover(DOC, { line: 3, character: 7 })
   expect("ok" in answer).toBe(true)
   expect(route.posts).toHaveLength(3)
-  expect(events.filter((event) => event.type === "waiting").map((event) => event.type === "waiting" ? event.note : "")).toEqual([
-    "guest_not_ready: guest is still activating",
-    "guest_not_ready: guest is still activating"
+  const notes = events.filter((event) => event.type === "waiting").map((event) => event.type === "waiting" ? event.note : "")
+  expect(notes).toEqual([
+    "The workspace language server didn't start. Not ready yet — nothing is wrong.",
+    "The workspace language server didn't start. Not ready yet — nothing is wrong."
   ])
+  expect(notes.join(" ")).not.toContain("guest is still activating")
 })
 
-test("a guest_not_ready that never clears gives up at the bound with plue's words; any other POST refusal is answered once", async () => {
+test("a guest_not_ready that never clears gives up at the bound, saying whose fault it is; any other POST refusal is answered once", async () => {
   const server = serve()
   const notReady = () =>
     new Response(JSON.stringify({ code: "guest_not_ready", message: "guest is still activating" }), {
@@ -431,7 +433,9 @@ test("a guest_not_ready that never clears gives up at the bound with plue's word
     })
   const bounded = sessionRoute([notReady(), notReady(), notReady(), notReady()])
   const { lsp } = client(server, { http: bounded.http, retry: { maxAttempts: 2, defaultDelayMs: 10 } })
-  expect(await lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "guest_not_ready", message: "guest_not_ready: guest is still activating" } })
+  const bound = await lsp.hover(DOC, { line: 3, character: 7 })
+  expect(bound).toEqual({ refusal: { code: "guest_not_ready", sentence: "The workspace language server didn't start. Not ready yet — nothing is wrong." } })
+  expect(JSON.stringify(bound)).not.toContain("guest is still activating")
   expect(bounded.posts).toHaveLength(3)
   const unknown = sessionRoute([
     new Response(JSON.stringify({ code: "invalid_request", message: "language is required for kind lsp; one of: typescript" }), {
@@ -441,7 +445,7 @@ test("a guest_not_ready that never clears gives up at the bound with plue's word
   ])
   const second = client(serve(), { http: unknown.http })
   expect(await second.lsp.hover(DOC, { line: 3, character: 7 })).toEqual({
-    refusal: { code: "invalid_request", message: "invalid_request: language is required for kind lsp; one of: typescript" }
+    refusal: { code: "invalid_request", sentence: "language is required for kind lsp; one of: typescript" }
   })
   expect(unknown.posts).toHaveLength(1)
 })
@@ -465,7 +469,7 @@ test("a pre-upgrade 4425 (session pending) is redialed after the Retry-After the
   expect(posts).toHaveLength(1)
 })
 
-test("a pre-upgrade 4503 that never clears is the refusal, in plue's words, after the bound", async () => {
+test("a pre-upgrade 4503 that never clears is the refusal, in product words, after the bound", async () => {
   const server = serve({
     onOpen: (socket) => {
       socket.close(4503, withRetryAfter("guest_not_ready: guest is activating", 0))
@@ -474,7 +478,8 @@ test("a pre-upgrade 4503 that never clears is the refusal, in plue's words, afte
   })
   const { lsp, dials } = client(server, { retry: { maxAttempts: 2, defaultDelayMs: 10 } })
   const answer = await lsp.hover(DOC, { line: 3, character: 7 })
-  expect("refusal" in answer && answer.refusal.message).toBe("guest_not_ready: guest is activating (retry after 0 s) — still not ready after 2 tries (4503)")
+  expect(answer).toEqual({ refusal: { code: "close_4503", sentence: "The workspace language server still wasn't ready after 2 tries." } })
+  expect(JSON.stringify(answer)).not.toContain("guest is activating")
   expect(dials).toHaveLength(3)
 })
 
@@ -487,18 +492,19 @@ test("a 409 language_server_missing renders the install line verbatim and never 
   })
   const { lsp, dials } = client(server)
   expect(await lsp.hover(DOC, { line: 3, character: 7 })).toEqual({
-    refusal: { code: LSP_LANGUAGE_SERVER_MISSING, message: `${LSP_LANGUAGE_SERVER_MISSING}: ${INSTALL}`, install: INSTALL }
+    refusal: { code: LSP_LANGUAGE_SERVER_MISSING, sentence: `${LSP_LANGUAGE_SERVER_MISSING}: ${INSTALL}`, install: INSTALL }
   })
   await Bun.sleep(50)
   expect(dials).toHaveLength(1)
 })
 
-test("a 1011 is retried once with a fresh initialize; the second is the answer, verbatim, and the listeners hear it", async () => {
+test("a 1011 is retried once with a fresh initialize; the second is the answer, in product words, and the listeners hear the reason", async () => {
   const server = serve({ closeOnHover: { code: 1011, reason: "language_server_exited: 137", generations: [1, 2] } })
   const { lsp, events, dials } = client(server)
   const first = lsp.hover(DOC, { line: 3, character: 7 })
   const answer = await first
-  expect(answer).toEqual({ refusal: { code: "close_1011", message: "language_server_exited: 137 (1011)" } })
+  expect(answer).toEqual({ refusal: { code: "close_1011", sentence: "The workspace language server closed." } })
+  expect(JSON.stringify(answer)).not.toContain("language_server_exited")
   expect(server.initializes()).toBe(2)
   expect(dials).toHaveLength(2)
   expect(events.filter((event) => event.type === "closed")).toEqual([
@@ -535,10 +541,12 @@ test.each([
   [1002, "protocol error"],
   [1003, "binary frames are not accepted"],
   [1009, "message too big"]
-])("close %i is final: the waiting request reads the reason verbatim, the listeners hear it, nothing redials", async (code, reason) => {
+])("close %i is final: the waiting request reads a product sentence, the listeners hear the reason, nothing redials", async (code, reason) => {
   const server = serve({ closeOnHover: { code, reason, generations: [1, 2, 3] } })
   const { lsp, events, dials } = client(server)
-  expect(await lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: `close_${code}`, message: `${reason} (${code})` } })
+  const answer = await lsp.hover(DOC, { line: 3, character: 7 })
+  expect(answer).toEqual({ refusal: { code: `close_${code}`, sentence: "The workspace language server closed." } })
+  expect(JSON.stringify(answer)).not.toContain(reason)
   await Bun.sleep(60)
   expect(dials).toHaveLength(1)
   expect(events.filter((event) => event.type === "closed")).toEqual([
@@ -570,10 +578,10 @@ test("dispose closes every socket and answers nothing after", async () => {
   await until(() => server.live() === 1)
   lsp.dispose()
   await until(() => server.live() === 0)
-  expect(await lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "disposed", message: "The app is closing." } })
+  expect(await lsp.hover(DOC, { line: 3, character: 7 })).toEqual({ refusal: { code: "disposed", sentence: "The app is closing." } })
 })
 
-const closing = { refusal: { code: "disposed", message: "The app is closing." } }
+const closing = { refusal: { code: "disposed", sentence: "The app is closing." } }
 
 /** Bound settlement checks without leaving a timer behind on success. */
 const promptly = async <T>(promise: Promise<T>): Promise<T | "still pending"> => {
@@ -649,9 +657,8 @@ test("each unanswered initialize releases its socket before the next attempt", a
   const { lsp } = client(server, { requestTimeoutMs: 100 })
   const liveAfterFailure: Array<number> = []
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    expect(await lsp.hover(DOC, { line: 1, character: 1 })).toEqual({
-      refusal: { code: "close_0", message: "the workspace language server did not answer initialize (0)" }
-    })
+    const answer = await lsp.hover(DOC, { line: 1, character: 1 })
+    expect(answer).toEqual({ refusal: { code: "close_0", sentence: "The workspace language server did not answer initialize." } })
     await Bun.sleep(30)
     liveAfterFailure.push(server.live())
   }
@@ -722,8 +729,8 @@ test("a silent socket upgrade times out both callers, ignores a late open, and t
   const definition = lsp.definition(DOC, { line: 1, character: 1 })
   const results = await promptly(Promise.all([hover, definition]))
   expect(results).toEqual([
-    { refusal: { code: "language_server_timeout", message: "The workspace language server did not open within 0.05 s." } },
-    { refusal: { code: "language_server_timeout", message: "The workspace language server did not open within 0.05 s." } }
+    { refusal: { code: "language_server_timeout", sentence: "The workspace language server did not open within 0.05 s." } },
+    { refusal: { code: "language_server_timeout", sentence: "The workspace language server did not open within 0.05 s." } }
   ])
   expect(route.posts).toHaveLength(1)
   expect(dials).toBe(1)

@@ -29,8 +29,9 @@ import { repositoryJobBinding, resolveTargetRepo, type GatewayBinding } from "..
 import type { TriggerRegistration } from "../WorkflowLaunch"
 import { actorSharedState } from "../ActorBindings"
 import { accountOwnerOf } from "../AccountOwner"
-import { captureCloudOwner, errorMessage, unreachableSentence } from "./SeamContext"
+import { captureCloudOwner, refusalWords, unreachableSentence } from "./SeamContext"
 import type { SeamContext } from "./SeamContext"
+import { errorCodeOf, gatewayRefusalSentence, workspaceAnswerSentence } from "../controller/GatewayFailureCopy"
 
 type TriggerListCard = Extract<Card, { kind: "trigger-list" }>
 export type TriggerRow = TriggerListCard["payload"]["triggers"][number]
@@ -360,15 +361,14 @@ const relayTo = async (
   }
   const body: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
-    return { ok: false, message: refusalSentence(refusalOf({ body, status: response.status, message: errorMessage(body, "The workspace didn't answer.") })) }
+    return { ok: false, message: refusalSentence(refusalOf({ body, status: response.status, message: refusalWords(body, "The workspace refused the request.", response.status) })) }
   }
   if (!isRecord(body)) return { ok: false, message: SHAPELESS }
   if (body.ok === true) return { ok: true, value: isRecord(body.payload) ? body.payload : {} }
-  const error = isRecord(body.error) ? body.error : {}
-  if (typeof error.message === "string" && error.message !== "") return { ok: false, message: error.message }
-  /* A box that is resuming, at capacity or over a quota answers 200 with that state and its own sentence (apps/server workflows.ts). */
-  if (typeof body.message === "string" && body.message !== "") return { ok: false, message: body.message }
-  return { ok: false, message: "The workspace refused the call." }
+  /* The gateway's refusal speaks through its control code; its own words are not the sentence. */
+  if (isRecord(body.error)) return { ok: false, message: gatewayRefusalSentence(errorCodeOf(body.error.detail)) }
+  /* A box that is resuming, at capacity or over a quota answers 200 with that state. */
+  return { ok: false, message: workspaceAnswerSentence(body) }
 }
 
 /** One canonical repository-job action, with its typed refusal kept whole. */
@@ -389,7 +389,7 @@ const jobCall = async (
   }
   const answer: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
-    return { ok: false, message: refusalSentence(refusalOf({ body: answer, status: response.status, message: errorMessage(answer, "Smithers Cloud didn't answer.") })) }
+    return { ok: false, message: refusalSentence(refusalOf({ body: answer, status: response.status, message: refusalWords(answer, "Smithers Cloud refused the request.", response.status) })) }
   }
   return { ok: true, value: answer }
 }

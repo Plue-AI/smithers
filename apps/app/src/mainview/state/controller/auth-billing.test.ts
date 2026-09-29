@@ -7,7 +7,12 @@ import { createAuthBillingController } from "./auth-billing"
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
 import { settle, waitFor } from "../TestFixtures"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLead } from "@smthrs/rpc/RefusalCopy"
 import { ADMIN_ALLOWLIST_PATH, ADMIN_GRANT_PATH, ADMIN_HEALTH_PATH, ADMIN_REQUESTS_PATH, IDENTITY_REQUEST_ACCESS_PATH } from "@smthrs/rpc/AgentApiRoutes"
+
+/** The lead an uncoded HTTP refusal of `status` carries once its raw body is withheld. */
+const uncodedLead = (status: number) => refusalLead(refusalOf({ body: null, status, message: "" }))
 
 const memoryStorage = (): StorageApi => {
   const data = new Map<string, string>()
@@ -449,7 +454,7 @@ describe("native sign-in handoff ownership", () => {
   })
 
   test.each([
-    { name: "refused", response: new Response("no", { status: 503 }), detail: "Sign-in couldn't start. Try again. (no)" },
+    { name: "refused", response: new Response("no", { status: 503 }), detail: `Sign-in couldn't start. Try again. ${uncodedLead(503)}` },
     { name: "malformed", response: json({ handoffId: 5, pollSecret: null }),
       detail: "Sign-in couldn't start — the identity service answered in an unexpected shape." }
   ])("a $name native handoff start leaves one visible failure and opens no browser", async ({ response, detail }) => {
@@ -461,6 +466,7 @@ describe("native sign-in handoff ownership", () => {
       await starting
       await waitFor(() => h.store.collections.toasts.get("toast-auth.sign-in.handoff")?.status === "failed")
       expect(h.store.collections.toasts.get("toast-auth.sign-in.handoff")?.detail).toBe(detail)
+      expect(h.store.collections.toasts.get("toast-auth.sign-in.handoff")?.detail).not.toContain("(no)")
       expect(h.opened).toEqual([])
       expect(h.requests).toEqual(["/api/auth/native/start"])
     } finally { await h.ctx.dispose(); await h.store.dispose?.() }
@@ -1060,10 +1066,12 @@ test("a refused grant keeps its exact confirmation card and does not claim credi
     expect(await controller.adminGrantConfirm(card.id)).toBeUndefined()
     expect(store.collections.cards.get(card.id)).toMatchObject({ status: "error",
       payload: { login: "recipient", amountUsd: 25, phase: "failed",
-        error: "The grant didn't go through. (Host denied)" } })
+        error: `The grant didn't go through. ${uncodedLead(503)}` } })
+    expect(JSON.stringify(store.collections.cards.get(card.id))).not.toContain("Host denied")
     expect(posted).toEqual([{ login: "recipient", amountUsd: 25, operationKey: card.id }])
     expect(store.collections.toasts.get("toast-admin.grant")).toMatchObject({ status: "failed",
-      detail: "The grant didn't go through. (Host denied)" })
+      detail: `The grant didn't go through. ${uncodedLead(503)}` })
+    expect(store.collections.toasts.get("toast-admin.grant")?.detail).not.toContain("Host denied")
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
@@ -1151,8 +1159,9 @@ test.each(["http", "throw"] as const)("queue approval %s refusal stays on its ca
       payload: { requests: [{ login: "recipient", note: "Please" }] } })
     await controller.adminQueueApprove("recipient")
     expect(store.collections.cards.get("admin-requests")).toMatchObject({ status: "error",
-      payload: { approving: null, error: refusal === "http" ? "Host refused approval" :
+      payload: { approving: null, error: refusal === "http" ? `Approving recipient didn't go through. ${uncodedLead(500)}` :
         "Approving recipient didn't go through — the admin route didn't answer." } })
+    expect(JSON.stringify(store.collections.cards.get("admin-requests"))).not.toContain("Host refused approval")
     expect(waiting).toBe(true)
     refuse = false
     await controller.adminQueueApprove("recipient")
@@ -1323,7 +1332,7 @@ test("three refused native claims end sign-in with the host's error", async () =
 
 test.each([
   { name: "HTTP refusal", answer: () => new Response("denied", { status: 503 }),
-    message: "The allowlist change didn't go through. (denied)" },
+    message: `The allowlist change didn't go through. ${uncodedLead(503)}` },
   { name: "network error", answer: () => { throw Error("offline") },
     message: "The allowlist change didn't go through — the admin route didn't answer." }
 ])("an allowlist $name records one refusal without claiming an update", async ({ answer, message }) => {
@@ -1341,6 +1350,7 @@ test.each([
     expect(await controller.adminAllowlist("add", "recipient")).toBeUndefined()
     expect([...store.collections.messages.values()].map(row => row.text)).toEqual([message])
     expect(store.collections.toasts.get("toast-admin.allowlist")).toMatchObject({ status: "failed", detail: message })
+    expect(store.collections.toasts.get("toast-admin.allowlist")?.detail).not.toContain("(denied)")
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 

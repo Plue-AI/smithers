@@ -249,13 +249,13 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     try {
       response = await ctx.http(cloud(repoPath(repo, "github-app-status")))
     } catch (error) {
-      return { refusal: { message: unreachableSentence("Smithers Cloud", error) } }
+      return { refusal: { line: unreachableSentence("Smithers Cloud", error) } }
     }
     if (!response.ok) {
       return { refusal: await readGitHubRefusal(response, `The GitHub App status for ${repo} couldn't be read (${response.status})`) }
     }
     const parsed = parseStatus(await response.json().catch(() => null))
-    if (parsed === null) return { refusal: { message: `The GitHub App status answer for ${repo} was malformed.` } }
+    if (parsed === null) return { refusal: { line: `The GitHub App status answer for ${repo} was malformed.` } }
     return { status: parsed }
   }
 
@@ -325,7 +325,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         ? answer.status.rateLimit
         : null
       : answer.refusal.rateLimit ?? null)
-    const message = error?.message ?? ("status" in answer ? undefined : answer.refusal.message)
+    const message = error?.line ?? ("status" in answer ? undefined : answer.refusal.line)
     const card: Card = {
       id,
       kind: "connector-setup",
@@ -366,7 +366,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     if (!current()) return SIGN_OUT_REFUSAL
     if ("status" in answer) dispatchStatus(target.repo, answer.status)
     renderCard(target.repo, answer)
-    if ("refusal" in answer) return answer.refusal.message
+    if ("refusal" in answer) return answer.refusal.line
     return {
       value: answer.status.installed && answer.status.configured
         ? `The Smithers GitHub App is installed on ${target.repo} — the card tracks it.`
@@ -417,7 +417,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         ? "GitHub sent you back, but this Smithers server can't confirm installs yet, so I won't guess which repository you chose. Try again later, or choose Later."
         : `GitHub sent you back, but Smithers couldn't confirm the install (${response.status}). Try again?`
       const refusal = await readGitHubRefusal(response, fallback)
-      if (stillCurrent()) return notice(refusal.message)
+      if (stillCurrent()) return notice(refusal.line)
       return
     }
     const body: unknown = await response.json().catch(() => null)
@@ -562,7 +562,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       if (!current()) return SIGN_OUT_REFUSAL
       if ("status" in answer) dispatchStatus(target.repo, answer.status)
       renderCard(target.repo, answer, refusal2)
-      return refusal2.message
+      return refusal2.line
     }
     const body = await response.json().catch(() => null)
     if (!current()) return SIGN_OUT_REFUSAL
@@ -582,7 +582,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       if (!current()) return SIGN_OUT_REFUSAL
       beginRun(target.repo, id, body, mirror, `reconcile started · run ${id}`, current)
     }
-    if ("refusal" in answer) return answer.refusal.message
+    if ("refusal" in answer) return answer.refusal.line
     /* A server that names no run id reconciled all the same; nothing more is claimed for it. */
     if (id === null) return { value: `Reconciled — the GitHub card for ${target.repo} re-read the App status.` }
     return {
@@ -678,7 +678,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         const refusal = await readGitHubRefusal(response, `Reading the mirror run failed (${response.status})`)
         if (!current()) return
         upsertMirrorCard(repo, {
-          error: refusal.message,
+          error: refusal.line,
           ...(refusal.rateLimit !== undefined ? { rateLimit: refusal.rateLimit } : {})
         })
         settle()
@@ -772,11 +772,11 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       const refusal = await readGitHubRefusal(response, `${words.failed} (${response.status})`)
       if (!current()) return SIGN_OUT_REFUSAL
       upsertMirrorCard(repo, {
-        error: refusal.message,
+        error: refusal.line,
         ...mirror,
         ...(refusal.rateLimit !== undefined ? { rateLimit: refusal.rateLimit } : {})
       })
-      return refusal.message
+      return refusal.line
     }
     const body = await response.json().catch(() => null)
     if (!current()) return SIGN_OUT_REFUSAL

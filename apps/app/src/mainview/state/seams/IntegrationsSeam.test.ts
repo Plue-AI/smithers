@@ -48,7 +48,7 @@ test("no admissions and no Linear row for this repository read not-connected", a
   } finally { await store.dispose?.() }
 })
 
-test("a route this server does not register is unavailable, not a disconnected account; a refusal wears the server's words", async () => {
+test("a route this server does not register is unavailable, not a disconnected account; a 502 refusal says what failed and whose fault it was", async () => {
   const { seam, rows, store } = await setup(url => url === CHANNELS
     ? Response.json({ status: "error", code: "route_not_found", message: "Not found." }, { status: 404 })
     : Response.json({ status: "error", message: "token revoked" }, { status: 502 }))
@@ -56,8 +56,9 @@ test("a route this server does not register is unavailable, not a disconnected a
     await seam.listIntegrations("Owner/Repo")
     expect(rows()).toEqual([
       { id: "slack", state: "unavailable" },
-      { id: "linear", state: "error", error: "token revoked" }
+      { id: "linear", state: "error", error: "Reading the Linear integrations failed (502). Something Smithers depends on failed. Not your doing." }
     ])
+    expect(rows()?.[1]?.error).not.toContain("token revoked")
   } finally { await store.dispose?.() }
 })
 

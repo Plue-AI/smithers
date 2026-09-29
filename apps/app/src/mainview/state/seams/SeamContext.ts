@@ -11,9 +11,9 @@
  */
 import { Data } from "effect"
 import { isRecord } from "@smthrs/canonical/Record"
-import { clientRefusal } from "@smthrs/rpc/Refusal"
+import { clientRefusal, refusalOf } from "@smthrs/rpc/Refusal"
 import type { Refusal } from "@smthrs/rpc/Refusal"
-import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
+import { refusalLine, refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import type { FailureController } from "../controller/failures"
 import type { AppStore } from "../AppStore"
 
@@ -46,6 +46,11 @@ export interface SeamContext {
   readonly promptSignIn?: (summary?: string) => void
   /** Offer the Cloud sign-in button this host actually registers, including reauthentication. */
   readonly promptCloudSignIn?: () => void
+  /**
+   * Report a failure no seam designed a sentence for. The seam shows its own
+   * product sentence; the raw error goes here and never onto the screen.
+   */
+  readonly report?: (subject: string, error: unknown) => void
 }
 
 /**
@@ -87,19 +92,19 @@ export const captureCloudOwner = (ctx: SeamContext, requireCloudSignIn = true): 
 }
 
 /**
- * The honest message out of a failed seam response, bounded and fallback-safe.
+ * The one sentence for a failed seam response, bounded and fallback-safe.
  *
- * ONLY a message the upstream addressed to a person is surfaced: the `message`
- * or `error` field of a JSON body. Anything else is transport plumbing with no
- * contract with this product — a router's `404 page not found`, an HTML error
- * page, a stack trace — and reads to the user as a debug string leaking through
- * the UI (§28.5). The caller's fallback already names what failed in the
- * product's own voice, so that is what a plumbing body gets.
+ * A message the upstream addressed to a person (the `message` or `error`
+ * field of a JSON body) is shown only on a refusal the person can act on
+ * (`refusalLine`). A Worker or desktop-host code speaks through its written
+ * lead; a 5xx body, a router's `404 page not found`, an HTML error page or a
+ * stack is plumbing with no contract with this product (§28.5), so the
+ * caller's fallback names what failed and the lead says whose fault it was.
  */
 export const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
-  return errorMessage(await response.json().catch(() => null), fallback)
+  const body: unknown = await response.json().catch(() => null)
+  return refusalLine(refusalOf({ body, status: response.status, message: refusalWords(body, fallback, response.status) }), fallback)
 }
-
 
 /**
  * A request that threw before anything answered it: offline, DNS, TLS, a
@@ -120,16 +125,27 @@ export const unreachable = (what: string, error: unknown): Refusal =>
 /** The one sentence a thrown request earns, with the verdict on the end of it. */
 export const unreachableSentence = (what: string, error: unknown): string => refusalSentence(unreachable(what, error))
 
-/** The human-facing message in an already decoded response. */
-export const errorMessage = (body: unknown, fallback: string): string => {
-  if (!isRecord(body)) return fallback
+/** The words a JSON error body wrote, bounded; undefined when it wrote none. */
+const bodyWords = (body: unknown): string | undefined => {
+  if (!isRecord(body)) return undefined
   if (typeof body.message === "string" && body.message !== "") return body.message.slice(0, 240)
   if (typeof body.error === "string" && body.error !== "") return body.error.slice(0, 240)
   // Native routes use { error: { code, message } }.
-  if (isRecord(body.error) && typeof body.error.message === "string" && body.error.message !== "") {
-    return body.error.message.slice(0, 240)
-  }
-  return fallback
+  const native = isRecord(body.error) ? body.error : {}
+  return typeof native.message === "string" && native.message !== "" ? native.message.slice(0, 240) : undefined
+}
+
+/**
+ * The words an already decoded error body may put in front of a person: the
+ * upstream's own message when `refusalLine` would show it (a refusal of
+ * `status` the person can act on), otherwise `fallback`. It is the `message`
+ * a seam hands `refusalOf`, so a refusal built from it never carries a 5xx
+ * body or a Worker's words as its text.
+ */
+export const refusalWords = (body: unknown, fallback: string, status: number | null): string => {
+  const words = bodyWords(body)
+  if (words === undefined) return fallback
+  return refusalLine(refusalOf({ body, status, message: words }), "") === words ? words : fallback
 }
 
 
@@ -149,50 +165,36 @@ export const trustedHttpsUrl = (value: string, host: string): string | null => {
  * "github_rate_limited", message, limit, remaining, reset_at, retry_after }`;
  * when the body carries it the caller gets the rate-limit facts for the
  * card's line (`… · 0 of 5 000 · resets 12:40 · Retry after`) beside the
- * honest message. Any other refusal is the verbatim message alone — no reset
- * is ever invented for a plain 429.
+ * refusal's line (`refusalLine`). No reset is ever invented for a plain 429.
  */
 export interface GitHubRefusal {
-  readonly message: string
+  /** One sentence in product words (`refusalLine`), never the body's own words for a failure that is not the reader's. */
+  readonly line: string
   readonly rateLimit?: { readonly limit: number; readonly remaining: number; readonly resetAt: string | null }
 }
 
 export const readGitHubRefusal = async (response: Response, fallback: string): Promise<GitHubRefusal> => {
   const text = (await response.text().catch(() => "")).trim()
-  if (text !== "") {
-    try {
-      const body = JSON.parse(text) as {
-        code?: unknown
-        message?: unknown
-        error?: unknown
-        limit?: unknown
-        remaining?: unknown
-        reset_at?: unknown
+  let body: unknown = null
+  try {
+    body = text === "" ? null : JSON.parse(text)
+  } catch {
+    // Not JSON at all: plumbing, never copy.
+  }
+  const line = refusalLine(refusalOf({ body, status: response.status, message: refusalWords(body, fallback, response.status) }), fallback)
+  if (
+    isRecord(body) && body.code === "github_rate_limited" &&
+    typeof body.limit === "number" && Number.isInteger(body.limit) &&
+    typeof body.remaining === "number" && Number.isInteger(body.remaining)
+  ) {
+    return {
+      line,
+      rateLimit: {
+        limit: body.limit,
+        remaining: body.remaining,
+        resetAt: typeof body.reset_at === "string" && body.reset_at !== "" ? body.reset_at : null
       }
-      const message = typeof body.message === "string" && body.message !== ""
-        ? body.message.slice(0, 240)
-        : typeof body.error === "string" && body.error !== ""
-        ? body.error.slice(0, 240)
-        : fallback
-      if (
-        body.code === "github_rate_limited" &&
-        typeof body.limit === "number" && Number.isInteger(body.limit) &&
-        typeof body.remaining === "number" && Number.isInteger(body.remaining)
-      ) {
-        return {
-          message,
-          rateLimit: {
-            limit: body.limit,
-            remaining: body.remaining,
-            resetAt: typeof body.reset_at === "string" && body.reset_at !== "" ? body.reset_at : null
-          }
-        }
-      }
-      return { message }
-    } catch {
-      // Not JSON at all: plumbing, never copy.
-      return { message: fallback }
     }
   }
-  return { message: fallback }
+  return { line }
 }

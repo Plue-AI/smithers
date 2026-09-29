@@ -19,6 +19,7 @@ import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { claimsRunState, renderedRunTurnText, runLaunchCommandOf, toolResultLaunchedRun } from "./RunClaims"
 import { json, loadBox, memoryStorage, scriptedToolAgent, settle, silentAgent, waitFor } from "./TestFixtures"
+import { GATEWAY_REFUSED } from "./controller/GatewayFailureCopy"
 
 const createAppController = scopedControllers()
 
@@ -65,7 +66,9 @@ const relay = (options: {
       case "Plan": {
         const flowId = String(payload.flowId)
         if (!flows.some((entry) => entry.flowId === flowId)) {
-          return json(200, { ok: false, error: { message: `Unknown workflow: ${flowId}` } })
+          // The gateway relays the typed control error as an Effect RPC cause.
+          return json(200, { ok: false, error: { message: `Unknown workflow: ${flowId}`,
+            detail: [{ _tag: "Fail", error: { _tag: "/control/FlowNotFound", code: "flow_not_found", flowId } }] } })
         }
         planned = { flowId, input: payload.input }
         return json(200, {
@@ -356,7 +359,9 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     expect(transcript(store)).toContain("Smithers requested a nope run")
     expect(transcript(store)).toContain("Run requested.")
     expect(transcript(store)).not.toContain("Smithers started")
-    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "run-trace" && card.payload.error === "Unknown workflow: nope"))
+    const refusal = `There's no flow called nope on ${REPO}. The workspace has: create-flow, review-pr.`
+    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "run-trace" && card.payload.error === refusal))
+    expect(transcript(store)).not.toContain("Unknown workflow: nope")
   })
 
   test("held-back whitespace still settles the turn — the composer never locks (review)", async () => {
@@ -692,7 +697,8 @@ describe("reopening a run whose watch went quiet or stopped re-reads its history
     await waitFor(() => runCard(store)?.payload.phase === "quiet")
     await controller.commands.run("flow.run.stop", runCard(store)!.id)
     await waitFor(() => runCard(store)?.payload.phase === "stopped")
-    expect(runCard(store)?.payload.observationError).toBe("Cancel failed.")
+    expect(runCard(store)?.payload.observationError).toBe(GATEWAY_REFUSED)
+    expect(runCard(store)?.payload.observationError).not.toContain("Cancel failed.")
     const before = historyReads(double)
 
     expect((await controller.commands.run("runs.open", "run-w12")).status).toBe("executed")

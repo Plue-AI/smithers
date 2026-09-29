@@ -538,9 +538,10 @@ describe("issues seam — mutations re-fetch so the card states the new truth", 
     expect(store.collections.toasts.get("toast-issue.comment.refresh:will/flows:7")).toMatchObject({
       title: "Comment posted",
       status: "failed",
-      detail: "Refresh failed: Detail unavailable",
+      detail: "Refresh failed: Loading issue #7 in will/flows failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed.",
       action: { label: "Retry", flow: "issues.view", args: "7 will/flows" }
     })
+    expect(store.collections.toasts.get("toast-issue.comment.refresh:will/flows:7")?.detail).not.toContain("Detail unavailable")
     expect([...store.collections.toasts.values()].some(toast => toast.title.includes("didn't run"))).toBe(false)
     expect(calls.filter(call => call.startsWith("POST "))).toHaveLength(1)
 
@@ -564,8 +565,9 @@ describe("issues seam — mutations re-fetch so the card states the new truth", 
     expect(store.collections.toasts.get("toast-command.failed.issues.comment")).toMatchObject({
       title: "Comment on an issue didn't run",
       status: "failed",
-      detail: "Write refused"
+      detail: "Commenting on issue #7 in will/flows failed (500). That's a bug in Smithers, not something you did."
     })
+    expect(store.collections.toasts.get("toast-command.failed.issues.comment")?.detail).not.toContain("Write refused")
     expect([...store.collections.toasts.values()].some(toast =>
       toast.title.includes("posted") || toast.detail.includes("posted")
     )).toBe(false)
@@ -595,7 +597,7 @@ describe("issues seam — mutations re-fetch so the card states the new truth", 
 })
 
 describe("issues seam — honest failures, never throws", () => {
-  test("a 500 answers the backend's message as a failed outcome and keeps the failed view visible", async () => {
+  test("a 500 answers what failed and whose fault it was, never the backend's words, as a failed outcome and keeps the failed view visible", async () => {
     const { store, controller } = await issuesController(
       backend({
         "GET /api/repos/will/flows/issues": json(500, { message: "the platform exploded" })
@@ -603,7 +605,10 @@ describe("issues seam — honest failures, never throws", () => {
     )
     const outcome = await controller.commands.run("issues.list")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("the platform exploded")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("Listing issues for will/flows failed (500). That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("the platform exploded")
+    }
     await settled()
     expect(store.collections.cards.get("issues-will/flows")).toMatchObject({ status: "error", loading: false })
   })
@@ -839,13 +844,16 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
     expect(calls.filter((call) => call.includes("/issues"))).toEqual(["PATCH /api/repos/will/flows/issues/999"])
   })
 
-  test("a 404 carrying another code keeps the platform's own message", async () => {
+  test("a 404 carrying a Worker code answers the act's own sentence and the verdict, not the Worker's words", async () => {
     const { controller } = await issuesController(backend({
       "PATCH /api/repos/will/flows/issues/7": json(404, { status: "error", code: "route_not_found", message: "Not found." })
     }))
     const outcome = await controller.commands.run("issues.close", "7")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("Not found.")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("Issue #7 in will/flows was not found. There's nothing at that address.")
+      expect(outcome.error).not.toContain("Not found.")
+    }
   })
 
   /* The one cause local state does name: a checkout the sidebar pins that Cloud has never taken. */
@@ -883,13 +891,16 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
     if (outcome.status === "failed") expect(outcome.error).toBe("Issue #999 in will/flows was not found")
   })
 
-  test("a 404 with another code keeps the platform's message", async () => {
+  test("a 404 with a Worker code answers the act's own sentence and the verdict", async () => {
     const { controller } = await issuesController(backend({
       "POST /api/repos/will/flows/issues": json(404, { status: "error", code: "route_not_found", message: "Not found." })
     }))
     const outcome = await controller.commands.run("issues.create", "A brand new idea")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("Not found.")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("will/flows was not found. There's nothing at that address.")
+      expect(outcome.error).not.toContain("Not found.")
+    }
   })
 
   test("a 404 with no code keeps the platform's message, and an unreadable 404 answers the act's own sentence", async () => {
@@ -1210,7 +1221,8 @@ test("failed chat messages remain retryable with the same durable idempotency ke
     await controller.commentOnIssue(8, "retry me", "will/flows")
     await new Promise(resolve => setTimeout(resolve, 50))
     const pending = (store.collections.cards.get(card.id) as typeof card).payload.pendingComments![0]!
-    expect(pending).toMatchObject({ status: "failed", error: "Try again" })
+    expect(pending).toMatchObject({ status: "failed", error: "Posting the message failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
+    expect(pending.error).not.toContain("Try again")
     await controller.retryIssueComment(card.id, pending.id)
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(requests).toEqual([pending.id, pending.id])

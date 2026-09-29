@@ -164,13 +164,16 @@ describe("bookmarks seam — branches.list", () => {
     expect(card.payload.repo).toBe("acme/site")
   })
 
-  test("a 500 answers the platform's message as the honest error, and keeps the failed view visible", async () => {
+  test("a 500 answers what failed and whose fault it was, never the platform's words, and keeps the failed view visible", async () => {
     const { store, controller } = await ready(
       backend({ [BOOKMARKS]: json(500, { message: "the bookmark store fell over" }) })
     )
     const outcome = await controller.commands.run("branches.list")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("the bookmark store fell over")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("Branches for will/flows couldn't be listed. That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("the bookmark store fell over")
+    }
     expect(store.collections.cards.get("branches-will/flows")).toMatchObject({ status: "error", loading: false })
   })
 

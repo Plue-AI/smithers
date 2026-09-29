@@ -2,6 +2,7 @@ import { Data } from "effect"
 import type { LocalIdentityStatus } from "@smthrs/rpc/ApplicationAuth"
 import { ApplicationClientError, type LocalIdentityClient } from "../runtime/ApplicationClient"
 import { presentAppFailure } from "./controller/AppFailure"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 
 export interface LocalAuthSnapshot {
   readonly open: boolean
@@ -25,18 +26,20 @@ export interface LocalAuthController {
 }
 
 /** Thrown when the owner submits setup without a bootstrap token; its message is authored copy. */
-class BootstrapTokenMissing extends Data.TaggedError("BootstrapTokenMissing")<{ readonly message: string }> {
-  constructor(message: string) { super({ message }) }
+class BootstrapTokenMissing extends Data.TaggedError("BootstrapTokenMissing")<{ readonly sentence: string }> {
+  constructor(sentence: string) { super({ sentence }) }
+  /** The sentence is also the error's message, for diagnostics and thrown-value checks. */
+  override get message(): string { return this.sentence }
 }
 
 /*
- * A refusal the local server answered keeps its own words (a wrong password
- * says so). Anything else, including a request that never reached the server,
+ * A refusal the local server answered keeps its own words when the person
+ * can act on them (a wrong password says so; `refusalLine`). Anything else, including a request that never reached the server,
  * gets a product sentence; its raw text is never shown.
  */
 const messageOf = (error: unknown): string =>
-  error instanceof BootstrapTokenMissing || (error instanceof ApplicationClientError && error.status !== null)
-    ? error.message
+  error instanceof BootstrapTokenMissing ? error.sentence
+    : error instanceof ApplicationClientError && error.status !== null ? refusalLine(error.refusal, "Local sign-in could not finish.")
     : presentAppFailure(error, () => {}, { fault: "bug", sentence: "Local sign-in could not finish. Try again.", actions: ["retry"] }).sentence
 
 /** Ephemeral credential UI state. Usernames may be reflected; secrets never enter the app store. */

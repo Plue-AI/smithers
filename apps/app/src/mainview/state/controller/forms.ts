@@ -19,6 +19,7 @@ import { MODELS_CARD_ID, credentialOptions } from "./models"
 import { setupQuestionCardId } from "./repositorySetup"
 import { setupGuideQuestions } from "./repositorySetupGuide"
 import { claimedSpokenLines,claimSpokenLine, forgetVanishedClaims,latestOrdinal } from "./spokenLines"
+import { presentAppFailure } from "./AppFailure"
 
 /*
  * THE FORM LAW (apps/app/AGENTS.md; docs/workbench-lanes/flow-forms.md), the
@@ -136,9 +137,11 @@ export const decideFormFieldInput = (
     if ("error" in coerced) return { error: coerced.error }
     draft = { ...rest, [name]: coerced.value }
   }
-  const { error: _dropped, ...payload } = card.payload
-  return { card: { ...card, status: "active", payload: { ...payload, draft } } }
+  return { card: { ...card, status: "active", payload: { ...withoutError(card.payload), draft } } }
 }
+
+/** The payload without its last error: the sentence and where it came from leave together. */
+const withoutError = ({ error: _error, errorKind: _kind, ...payload }: FlowFormCard["payload"]): FlowFormCard["payload"] => payload
 
 export const createFormsController = (ctx: ControllerContext, deps: FormsControllerDependencies): FormsController => {
   const { store } = ctx
@@ -305,11 +308,11 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       current.status !== "active" || current.payload.submitting ||
       (current.payload.draft["repo"] ?? current.payload.given["repo"]) !== repo ||
       store.session().activeRepoKey !== selection) return
-    const { error: _previous, ...payload } = current.payload
+    const payload = withoutError(current.payload)
     await patch(current, {
       ...payload,
       fields: payload.fields.map(field => field.optionsFrom === "files" ? { ...field, options: answer.options } : field),
-      ...(answer.error === undefined ? {} : { error: answer.error })
+      ...(answer.error === undefined ? {} : { error: answer.error, errorKind: "read" as const })
     }, current.status)
   }
 
@@ -336,14 +339,14 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       current.status !== "active" || current.payload.submitting || store.session().activeRepoKey !== selection) return
     const read = new Map(answers)
     const error = answers.map(([, answer]) => answer.error).find((message) => message !== undefined)
-    const { error: _previous, ...payload } = current.payload
+    const payload = withoutError(current.payload)
     await patch(current, {
       ...payload,
       fields: payload.fields.map(field => {
         const answer = field.optionsFrom === undefined ? undefined : read.get(field.optionsFrom as "issues" | "pull-requests")
         return answer === undefined ? field : { ...field, options: [...answer.options] }
       }),
-      ...(error === undefined ? {} : { error })
+      ...(error === undefined ? {} : { error, errorKind: "read" as const })
     }, current.status)
   }
 
@@ -548,7 +551,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     if (missing.length > 0) {
       const labels = card.payload.fields.filter((field) => missing.includes(field.name)).map((field) => field.label)
       const error = `The form still needs: ${labels.join(", ")}.`
-      await patch(card, { ...card.payload, error }, "error")
+      await patch(card, { ...withoutError(card.payload), error }, "error")
       return error
     }
     const { flow, via } = card.payload
@@ -568,12 +571,12 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     const submission = submissionPayload(input, card.payload.fields,
       nestedGiven !== null && typeof nestedGiven === "object" ? nestedGiven as Record<string, unknown> : {}, card.payload.draft, nestedField === undefined ? "words" : "json")
     if ("error" in submission) {
-      await patch(card, { ...card.payload, error: submission.error }, "error")
+      await patch(card, { ...withoutError(card.payload), error: submission.error }, "error")
       return submission.error
     }
     if (nestedField !== undefined && !Schema.is(input)(submission.payload)) {
       const error = "These inputs do not match the flow's declaration. Check the field values before running."
-      await patch(card, { ...card.payload, error }, "error")
+      await patch(card, { ...withoutError(card.payload), error }, "error")
       return error
     }
     const represented = new Set(card.payload.fields.map((field) => field.name))
@@ -625,7 +628,10 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
         ...(asAgent && continuation !== undefined ? { invocation: continuation } : {})
       })
     } catch (cause) {
-      outcome = { status: "failed", error: card.payload.fields.some(field => field.kind === "write-only") ? "Submission failed." : cause instanceof Error ? cause.message : String(cause) }
+      /* A thrown submit is reported; a person reads its tagged sentence, or the form's own. */
+      outcome = { status: "failed", error: card.payload.fields.some(field => field.kind === "write-only") ? "Submission failed."
+        : presentAppFailure(cause, error => ctx.failures.report("command.boundary", error, flow),
+          { fault: "bug", sentence: "The form couldn't be submitted. Not your fault.", actions: ["retry"] }).sentence }
     }
     if (accountEnded()) continuations.delete(cardId)
     const reopen = reopens.get(cardId)
@@ -636,15 +642,14 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     if (outcome.status === "executed") {
       continuations.delete(cardId)
       if (current !== undefined) {
-        const { error: _dropped, ...payload } = current.payload
-        await patch(current, { ...payload, submitting: false }, "acted")
+        await patch(current, { ...withoutError(current.payload), submitting: false }, "acted")
       }
       reopen?.()
       return { value: outcome.value ?? `submitted /${flow}${echo === "" ? "" : ` ${echo}`}` }
     }
     const error = describe(outcome)
     if (current === undefined) return error
-    const { error: _repeated, ...settledPayload } = current.payload
+    const settledPayload = withoutError(current.payload)
     /*
      * The row yields to a door's line by TAKING it, never by matching the
      * sentence (controller/spokenLines.ts). The sentences are a closed table,
@@ -655,7 +660,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
      */
     const yielded = claimSpokenLine(collections, error, saidBefore, claimedLines)
     forgetVanishedClaims(collections, claimedLines)
-    await patch(current, yielded ? { ...settledPayload, submitting: false } : { ...current.payload, submitting: false, error }, "error")
+    await patch(current, yielded ? { ...settledPayload, submitting: false } : { ...settledPayload, submitting: false, error, errorKind: "run" }, "error")
     // The card carries the refusal for the human; the agent reads it as its result.
     return actor === "smithers" ? error : undefined
   }

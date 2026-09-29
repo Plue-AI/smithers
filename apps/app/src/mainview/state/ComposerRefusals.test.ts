@@ -164,8 +164,8 @@ describe("a flow typed into the composer states its refusal", () => {
    * workspace's own sentence was returned, toasted for four seconds and lost.
    *
    * The refusal here is UNTYPED — no `detail` naming a control error — which
-   * is the case the door cannot translate, so the workspace's own words are
-   * what a person gets. The typed miss it CAN translate (FlowNotFound on the
+   * is the case the door cannot translate, so a person gets the generic
+   * gateway sentence, never the workspace's raw words (#2813). The typed miss it CAN translate (FlowNotFound on the
    * authoring flow) is pinned in `FlowCreateEntry.test.ts`.
    *
    * The door SAVES the request and answers, so the sentence lands on the
@@ -198,7 +198,7 @@ describe("a flow typed into the composer states its refusal", () => {
     for (let tick = 0; tick < 200 && refused() === undefined; tick += 1) await settled()
     /* One rpc: the launch stopped at its plan, so no run was ever started. */
     expect(rpc).toEqual(["Plan"])
-    expect(refused()).toBe("The workspace gateway refused this plan.")
+    expect(refused()).toContain("The workspace refused the call.")
   })
 
   /*

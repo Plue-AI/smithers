@@ -239,12 +239,15 @@ describe("secrets seam — honest failures", () => {
     expect(secretsCard(store)).toBeUndefined()
   })
 
-  test("a 500 answers the platform's message, never a throw", async () => {
+  test("a 500 answers what failed and whose fault it was, never a throw", async () => {
     const { store, controller } = await freshController("get-500")
     await ready(store)
     const outcome = await controller.commands.run("secrets.list")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("the platform fell over")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("The agent environment for will/flows couldn't be read (HTTP 500). That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("the platform fell over")
+    }
     expect(secretsCard(store)).toBeUndefined()
   })
 

@@ -9,8 +9,9 @@ import type { FieldOption } from "@smthrs/ui/flow-form"
 import { repositoryCiConfigured } from "../RepositoryJobs"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
-import { captureCloudOwner,errorMessage,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
+import { captureCloudOwner,refusalWords,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
 import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 
 import type { PersonaRef } from "@smthrs/rpc/Threads"
 
@@ -330,8 +331,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
    */
   const explain404 = async (response: Response, fallback: string, whenNotFound?: string): Promise<string> => {
     const body: unknown = await response.json().catch(() => null)
-    const refusal = refusalOf({ body, status: response.status, message: errorMessage(body, fallback) })
-    return refusal.code === "not_found" ? whenNotFound ?? fallback : refusal.message
+    const refusal = refusalOf({ body, status: response.status, message: refusalWords(body, fallback, response.status) })
+    return refusal.code === "not_found" ? whenNotFound ?? fallback : refusalLine(refusal, fallback)
   }
 
   const unreachable = (what: string, error: unknown): string => unreachableSentence(`the backend to ${what}`, error)

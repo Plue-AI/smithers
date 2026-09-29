@@ -137,7 +137,7 @@ test("failed authoring stays visible and the same request is retryable", async (
   const { store, controller } = await ready(relay)
   await controller.createWorkflow("make a review flow", REPO)
   await waitFor(() => runs(store)[0]?.payload.observationError !== undefined)
-  expect(runs(store)[0]?.payload.observationError).toBe("authoring unavailable")
+  expect(runs(store)[0]?.payload.observationError).toContain("The workspace refused the call.")
   relay.state.fail = false
   await controller.createWorkflow("make a review flow", REPO)
   await waitFor(() => runs(store)[0]?.payload.runId === "author-1")
@@ -154,7 +154,8 @@ test("a source that cannot be planned stays failed and does not strand or repeat
   await waitFor(() => runs(store)[0]?.payload.runId === "author-1")
   relay.state.events = [{ sequence: 1, occurredAt: 1, kind: "control.agent.cell-call-settled", payload: { callId: "write-1", flowName: "write", outcome: "success", value: { path: "flows/review/flow.ts" } } }]
   await waitFor(() => plans(store)[0]?.payload.status === "failed")
-  expect(plans(store)[0]?.payload.error).toBe("source cannot compile")
+  expect(plans(store)[0]?.payload.error).toBe("The workspace refused the call.")
+  expect(plans(store)[0]?.payload.error).not.toContain("source cannot compile")
   expect(plans(store)[0]?.payload.sourceReceipt?.runCardId).toBe(runs(store)[0]!.id)
   relay.state.terminal = true
   await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Authoring finished" && toast.status === "ok"))
@@ -336,15 +337,17 @@ test("an untagged authoring failure toasts its sentence and keeps the raw words 
   await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Creating a flow" && toast.status === "failed"))
   const toast = [...store.collections.toasts.values()].find(toast => toast.title === "Creating a flow")!
   expect(toast.detail).toBe("The flow could not be created. Not your fault.")
-  expect(runs(store)[0]?.payload.observationError).toBe(RAW)
+  expect(runs(store)[0]?.payload.observationError).toContain(RAW)
 })
 
-test("a gateway refusal keeps its words on the authoring toast", async () => {
+test("a gateway refusal toasts the registry sentence, never its raw words", async () => {
   const relay = fixture()
   relay.state.fail = true
   relay.release()
   const { store, controller } = await ready(relay)
   await controller.createWorkflow("make a review flow", REPO)
   await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Creating a flow" && toast.status === "failed"))
-  expect([...store.collections.toasts.values()].find(toast => toast.title === "Creating a flow")?.detail).toBe("authoring unavailable")
+  const detail = [...store.collections.toasts.values()].find(toast => toast.title === "Creating a flow")?.detail
+  expect(detail).toBe("The workspace refused the call.")
+  expect(detail).not.toContain("authoring unavailable")
 })

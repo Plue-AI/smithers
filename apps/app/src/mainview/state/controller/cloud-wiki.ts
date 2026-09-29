@@ -108,7 +108,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         try: () =>
           ctx.store.dispatch({ type: "world.document.upserted", actor, document, select: false }).isPersisted.promise,
         catch: () =>
-          new CloudWikiError({ message: "The Wiki edit could not be saved locally. Check storage before retrying." })
+          new CloudWikiError({ sentence: "The Wiki edit could not be saved locally. Check storage before retrying." })
       })
     const read = (id: string) => {
       const document = ctx.store.collections.worldDocuments.get(id)
@@ -123,16 +123,16 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
             Effect.tryPromise({
               try: () =>
                 ctx.store.dispatch({ type: "world.document.removed", actor: "system", id }).isPersisted.promise,
-              catch: () => new CloudWikiError({ message: "Could not clear the revoked Wiki page from local storage." })
+              catch: () => new CloudWikiError({ sentence: "Could not clear the revoked Wiki page from local storage." })
             }).pipe(Effect.tap(() => Effect.sync(() => watches.get(id)?.stop())))
           )
         }
         const saved = ctx.store.committedWorldDocument(id)?.cloud
         // An optimistic failure alone is not evidence that it survived storage.
-        if (document.cloud.phase === "offline" && document.cloud.error === error.message &&
-          saved?.phase === "offline" && saved.error === error.message &&
+        if (document.cloud.phase === "offline" && document.cloud.error === error.sentence &&
+          saved?.phase === "offline" && saved.error === error.sentence &&
           saved.accountLogin === document.cloud.accountLogin && saved.branchId === document.cloud.branchId) return Effect.void
-        return persist({ ...document, cloud: { ...document.cloud, phase: "offline", error: error.message } })
+        return persist({ ...document, cloud: { ...document.cloud, phase: "offline", error: error.sentence } })
       })
 
     const accept = (
@@ -161,7 +161,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           },
           catch: () =>
             new CloudWikiError({
-              message: "The Wiki text and collaborative state disagree. Local edits were retained."
+              sentence: "The Wiki text and collaborative state disagree. Local edits were retained."
             })
         })
         const slug = newer ? previousCloud.slug : incoming.page.slug
@@ -219,7 +219,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           ) {
             return yield* Effect.fail(
               new CloudWikiError({
-                message: "The Wiki returned an acknowledgement for another edit. Your edit is still pending."
+                sentence: "The Wiki returned an acknowledgement for another edit. Your edit is still pending."
               })
             )
           }
@@ -227,13 +227,13 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
             try: () => wikiStateContains(answer.document.state, pending.update),
             catch: () =>
               new CloudWikiError({
-                message: "The Wiki returned invalid collaborative state. Your edit is still pending."
+                sentence: "The Wiki returned invalid collaborative state. Your edit is still pending."
               })
           })
           if (!contains) {
             return yield* Effect.fail(
               new CloudWikiError({
-                message: "The Wiki acknowledgement does not contain this edit. Your edit is still pending."
+                sentence: "The Wiki acknowledgement does not contain this edit. Your edit is still pending."
               })
             )
           }
@@ -242,7 +242,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       }).pipe(Effect.catch((error: CloudWikiError) =>
         Effect.as(
           watches.get(id) === operationWatch && operationWatch?.valid() === true ? setFailure(id, error) : Effect.void,
-          error.message
+          error.sentence
         )
       ))
       const promise = run(operation).catch(() => "The Wiki edit could not be saved locally.")
@@ -308,7 +308,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
                 if (incoming.page.id !== row.cloud.pageId) {
                   return yield* Effect.fail(
                     new CloudWikiError({
-                      message: "The Wiki slug now belongs to another page. Local edits were retained.",
+                      sentence: "The Wiki slug now belongs to another page. Local edits were retained.",
                       status: 409
                     })
                   )
@@ -322,7 +322,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
             Effect.catch((error) => (handle.valid() ? setFailure(id, error) : Effect.void).pipe(Effect.as(false)))
           )
           if (!handle.valid()) return
-          if (ended) yield* setFailure(id, new CloudWikiError({ message: "Reconnecting to Wiki revisions…" }))
+          if (ended) yield* setFailure(id, new CloudWikiError({ sentence: "Reconnecting to Wiki revisions…" }))
           yield* Effect.sleep("2 seconds")
         }
       }).pipe(Effect.catch(() => Effect.void))
@@ -408,7 +408,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     const target = resolveTargetRepo(ctx.store, repo)
     return "error" in target ? { error: target.error } : target.repo
   }
-  const refusal = (error: unknown): string => error instanceof CloudWikiError ? error.message : `The ${WIKI_DISPLAY_NAME} request failed.`
+  const refusal = (error: unknown): string => error instanceof CloudWikiError ? error.sentence : `The ${WIKI_DISPLAY_NAME} request failed.`
 
   const indexFailure = (error: unknown) => ({
     error: refusal(error),
@@ -510,14 +510,14 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         }
         yield* Effect.tryPromise({
           try: () => ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise,
-          catch: () => new CloudWikiError({ message: "The Wiki index could not be saved locally." })
+          catch: () => new CloudWikiError({ sentence: "The Wiki index could not be saved locally." })
         })
         return {
           value: `Embedded ${space} Wiki pages for ${repo}: ${
             pages.map((item) => `${item.slug} (revision ${item.revision})`).join(", ") || "none"
           }.`
         }
-      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.message)))
+      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.sentence)))
     )
   }
 
@@ -533,7 +533,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     try {
       wikiPagePath(repo, slug)
     } catch (error) {
-      return error instanceof CloudWikiError ? error.message : "Invalid Wiki page."
+      return error instanceof CloudWikiError ? error.sentence : "Invalid Wiki page."
     }
     const originBranch = shared.branch()
     const actor = ctx.commandActor
@@ -582,12 +582,12 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         }
         yield* Effect.tryPromise({
           try: () => ctx.store.dispatch({ type: "card.upsert", actor, card }).isPersisted.promise,
-          catch: () => new CloudWikiError({ message: "The Wiki card could not be saved locally." })
+          catch: () => new CloudWikiError({ sentence: "The Wiki card could not be saved locally." })
         })
         // Only this explicit open resumes pending writes, and only in their original account/branch.
         void shared.flush(id)
         return { value: `Embedded ${document.path} at page revision ${incoming.page.revision}.\n\n${document.body}` }
-      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.message)))
+      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.sentence)))
     )
   }
 
@@ -644,7 +644,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           }
           return await shared.flush(id)
         } catch (error) {
-          return error instanceof CloudWikiError ? error.message : "The Wiki edit could not be saved locally."
+          return error instanceof CloudWikiError ? error.sentence : "The Wiki edit could not be saved locally."
         }
       }
     }
@@ -666,7 +666,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       const edit = stageEdit(id, body, false)
       return typeof edit === "string" ? edit : await edit.complete()
     } catch (error) {
-      return error instanceof CloudWikiError ? error.message : "The Wiki edit could not be saved locally."
+      return error instanceof CloudWikiError ? error.sentence : "The Wiki edit could not be saved locally."
     }
   }
 
@@ -688,7 +688,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       } }, ctx.commandActor))
       return await shared.flush(id) ?? result
     } catch (error) {
-      return error instanceof CloudWikiError ? error.message : "The Wiki edit could not be saved locally."
+      return error instanceof CloudWikiError ? error.sentence : "The Wiki edit could not be saved locally."
     }
   }
 
@@ -726,7 +726,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       const answer = await shared.run(Effect.gen(function*() {
         const api = yield* CloudWikiTransport
         return yield* api.history(repo, space, found.pageId, page)
-      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.message)))).catch(refusal)
+      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.sentence)))).catch(refusal)
       if (typeof answer === "string") return answer
       if (shared.disposed()) return "The app closed while the history was loading."
       const cardId = `wiki-history-${repo}-${space}-${found.pageId}`
@@ -761,7 +761,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       const answer = await shared.run(Effect.gen(function*() {
         const api = yield* CloudWikiTransport
         return yield* api.create(repo, space, { title: name, body: `# ${name}\n\n` })
-      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.message)))).catch(refusal)
+      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.sentence)))).catch(refusal)
       if (typeof answer === "string") return answer
       if (shared.disposed()) return "The app closed while the page was being created."
       void loadWikiIndex(repo, space)
@@ -787,7 +787,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         const api = yield* CloudWikiTransport
         return yield* api.patch(repo, space, slug, { path: next, expected_revision: found.revision })
       }).pipe(Effect.catch((error: CloudWikiError) =>
-        Effect.succeed(error.status === 409 ? `${found.path} changed since you opened it (revision ${found.revision}). Refresh the page and rename it again.` : error.message)))).catch(refusal)
+        Effect.succeed(error.status === 409 ? `${found.path} changed since you opened it (revision ${found.revision}). Refresh the page and rename it again.` : error.sentence)))).catch(refusal)
       if (typeof answer === "string") return answer
       if (shared.disposed()) return "The app closed while the page was being renamed."
       void loadWikiIndex(repo, space)
@@ -812,7 +812,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         const api = yield* CloudWikiTransport
         yield* api.remove(repo, space, slug)
         return true as const
-      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.message)))).catch(refusal)
+      }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.sentence)))).catch(refusal)
       if (typeof answer === "string") return answer
       if (shared.disposed()) return "The app closed while the page was being deleted."
       void loadWikiIndex(repo, space)
@@ -850,12 +850,12 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       const answer = await shared.run(Effect.gen(function*() {
         const bytes = yield* Effect.tryPromise({
           try: async () => new Uint8Array(await file.arrayBuffer()),
-          catch: () => new CloudWikiError({ message: "The attachment could not be read. Choose the file again." })
+          catch: () => new CloudWikiError({ sentence: "The attachment could not be read. Choose the file again." })
         })
         const api = yield* CloudWikiTransport
         return yield* api.attach(repo, space, slug, { path: target, mediaType, expectedRevision, bytes })
       }).pipe(Effect.catch((error: CloudWikiError) =>
-        Effect.succeed(error.status === 409 ? `${target} changed since you opened it (revision ${expectedRevision}). Refresh and attach it again.` : error.message)))).catch(refusal)
+        Effect.succeed(error.status === 409 ? `${target} changed since you opened it (revision ${expectedRevision}). Refresh and attach it again.` : error.sentence)))).catch(refusal)
       if (typeof answer === "string") return answer
       if (shared.disposed()) return "The app closed while the file was uploading."
       void loadWikiIndex(repo, space)

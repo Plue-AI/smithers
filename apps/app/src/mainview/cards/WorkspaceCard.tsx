@@ -212,17 +212,13 @@ const WorkspaceDesktopBody = ({
     const stage = payload.desktopStage ?? null
     if (refusal === null && stage === null) return null
     /*
-     * The lead line, then plue's own words verbatim underneath — never a
-     * spinner in their place, and never a rewrite of them. The lead is chosen
-     * by FAULT from the one copy table (`@smthrs/rpc/RefusalCopy`), because
-     * "service unavailable" reads identically whether the caller asked for
-     * something they may not have, whether the box simply is not up yet, or
-     * whether the whole fleet is full — and only the last of those is the one
-     * where a person needs to be told, plainly, that it is not their fault.
-     *
-     * plue sanitizes a 5xx message to the status text but keeps `code`, so
-     * the code is printed beside the message: without it "service
-     * unavailable" would be the whole of what a person is told.
+     * The lead line, chosen by FAULT from the one copy table
+     * (`@smthrs/rpc/RefusalCopy`), because "service unavailable" reads
+     * identically whether the caller asked for something they may not have,
+     * whether the box simply is not up yet, or whether the whole fleet is
+     * full — and only the last of those is the one where a person needs to be
+     * told, plainly, that it is not their fault. plue's code and words stay
+     * behind Details (`refusalUserFailure`).
      */
     const doors = refusal === null ? [] : refusalDoors(refusal)
     return (
@@ -231,7 +227,7 @@ const WorkspaceDesktopBody = ({
         {stage === null ? null : <p className="world-card-path" role="status"><Spinner size="sm" aria-label="Starting desktop" />{payload.desktopProgress ?? DESKTOP_STAGE_LINE[stage]}</p>}
         {refusal === null ? null : <FailureNotice failure={refusalUserFailure(refusal)} role="status" className="world-card-empty" />}
         {refusal !== null && refusal.fault === "wait" && refusal.retryAfter != null ?
-          <p className="world-card-path">{`the server asked for ${refusal.retryAfter}s`}</p> :
+          <p className="world-card-path">{`Try again in ${refusal.retryAfter}s.`}</p> :
           null}
         {stage === null ? null : (
           <Button
@@ -444,11 +440,9 @@ const WorkspaceFacetBody = ({
         ) :
         <p className="world-card-empty">No terminal attached.</p>}
       {/*
-       * The lead line for this fault, then plue's own words for a refused
-       * session POST, verbatim (plue#504). plue sanitizes a 5xx message to the
-       * status text but keeps `code`, so the code is printed beside it:
-       * without it "service unavailable" would be the whole of what a person
-       * is told. A `wait` fault — `guest_not_ready` is one — is ALSO retried
+       * The lead line for this fault; plue's code and words for a refused
+       * session POST (plue#504) stay behind Details. A `wait` fault —
+       * `guest_not_ready` is one — is ALSO retried
        * by the seam on the server's own pacing, so the button is the human's
        * way to stop waiting for that clock, not the only way forward. (The
        * `report` door for an infra refusal has no control yet; see the desktop
@@ -460,7 +454,7 @@ const WorkspaceFacetBody = ({
             <UpgradeDoor refusal={terminalRefusal} onRunCommand={onRunCommand} />
             <FailureNotice failure={refusalUserFailure(terminalRefusal)} role="status" className="world-card-empty" />
             {terminalRefusal.fault === "wait" && terminalRefusal.retryAfter != null ?
-              <p className="world-card-path">{`the server asked for ${terminalRefusal.retryAfter}s`}</p> :
+              <p className="world-card-path">{`Try again in ${terminalRefusal.retryAfter}s.`}</p> :
               null}
           </>
         ) :

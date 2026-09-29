@@ -173,13 +173,16 @@ describe("landings seam — prs.list", () => {
     expect(outcome.status === "executed" ? outcome.value : undefined).toBe("No pull requests in will/flows.")
   })
 
-  test("a 500 answers the platform's message as the honest error, and keeps the failed view visible", async () => {
+  test("a 500 answers what failed and whose fault it was, never the platform's words, and keeps the failed view visible", async () => {
     const { store, controller } = await ready(
       backend({ [LANDINGS]: json(500, { message: "the platform fell over" }) })
     )
     const outcome = await controller.commands.run("prs.list")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("the platform fell over")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("Pull requests for will/flows couldn't be listed. That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("the platform fell over")
+    }
     expect(store.collections.cards.get("prs-will/flows")).toMatchObject({ status: "error", loading: false })
   })
 
@@ -314,7 +317,8 @@ describe("landings seam — prs.view", () => {
     await settled()
     let card = store.collections.cards.get("pr-will/flows-3")
     if (card?.kind !== "pr") throw new Error("expected the pr card")
-    expect(card.payload.readErrors).toEqual({ commits: "Commits unavailable (change not found)", files: "Files unavailable (repo host unavailable)" })
+    expect(card.payload.readErrors).toEqual({ commits: "Commits unavailable (change not found)", files: "Files unavailable (Read failed. Something on Smithers' side failed. Not your fault, and nothing your request could have changed.)" })
+    expect(card.payload.readErrors?.files).not.toContain("repo host unavailable")
     expect(card.payload.commits).toBeUndefined()
     expect(card.payload.files).toBeUndefined()
 
@@ -410,7 +414,10 @@ describe("landings seam — prs.land (queues, never a terminal claim)", () => {
     )
     const outcome = await controller.commands.run("prs.land", "3")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("repo host down")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("The tip change chg-b of #3 couldn't be read. That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("repo host down")
+    }
     expect(landCalls).toBe(0)
   })
 })
@@ -471,7 +478,10 @@ describe("landings seam — prs.review", () => {
     }))
     const outcome = await controller.commands.run("prs.review", "3 comment needs work")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe("tip unavailable")
+    if (outcome.status === "failed") {
+      expect(outcome.error).toBe("The tip change chg-b of #3 couldn't be read. Something on Smithers' side failed. Not your fault, and nothing your request could have changed.")
+      expect(outcome.error).not.toContain("tip unavailable")
+    }
     expect(posts).toBe(0)
   })
 
@@ -685,7 +695,8 @@ describe("landings seam — prs.create", () => {
     const outcome = await controller.commands.run("prs.create", "Fix the parser from:feature-x")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toBe("Pull request #7 was opened, but couldn't be re-read: re-read exploded")
+      expect(outcome.error).toBe("Pull request #7 was opened, but couldn't be re-read: Pull request #7 on will/flows couldn't be read. That's a bug in Smithers, not something you did.")
+      expect(outcome.error).not.toContain("re-read exploded")
     }
   })
 })

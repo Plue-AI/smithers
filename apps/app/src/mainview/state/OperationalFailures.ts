@@ -1,11 +1,12 @@
 import type { PlueFault } from "@smthrs/rpc/Refusal"
 import { lostActFault, lostActFaultClass, type LostActFault } from "./BrowserWriteFailure"
-import { errorMessage, type ClientErrorReporter } from "./ClientErrors"
+import { diagnosticText, type ClientErrorReporter } from "./ClientErrors"
 
 export type OperationalSeam = "journal.compaction" | "http.turn.driver" | "approval.forward" | "approval.reconcile" |
   "run.pump" | "run.cancel" | "setup.schedule" | "setup.guidance" | "setup.open-run" | "form.file-list" |
   "recommend.outcome" | "archive.notice" | "turn.cancel" | "turn.sign-in" | "explain.cancel" | "explain.retire" | "explain.disconnect" |
-  "account.revoke" | "wiki.index.listener" | "command.boundary" | "toast.work" | "prompt.queue"
+  "account.revoke" | "wiki.index.listener" | "command.boundary" | "toast.work" | "prompt.queue" |
+  "seam.failure" | "explain.launch"
 
 export interface OperationalFailure {
   readonly seam: OperationalSeam
@@ -40,7 +41,7 @@ export const createOperationalFailureReporter = (options: {
           return
         }
         const record: OperationalFailure = { seam, lost, fault: lostActFaultClass(error),
-          message: errorMessage(error).slice(0, 1024), subject, at, count: 1 }
+          message: diagnosticText(error).slice(0, 1024), subject, at, count: 1 }
         ring.push({ key, record })
         if (ring.length > size) ring.shift()
         options.clientErrors?.report("operational", JSON.stringify(record))

@@ -259,7 +259,8 @@ describe("the plan door returns before the workspace answers", () => {
   })
 
   test("a refusal stays on the card with the door that asks again, and never claims a plan", async () => {
-    const relay = scriptedRelay(() => ({ ok: false, error: { message: "the workspace has no flow called review" } }))
+    const relay = scriptedRelay(() => ({ ok: false, error: { message: "the workspace has no flow called review",
+      detail: [{ _tag: "Fail", error: { _tag: "/control/FlowNotFound", code: "flow_not_found", flowId: FLOW } }] } }))
     const { store, controller } = await readyController(relay)
 
     await controller.planFlow(FLOW, REPO)
@@ -269,7 +270,8 @@ describe("the plan door returns before the workspace answers", () => {
 
     const card = held(store)
     expect(card?.payload.status).toBe("failed")
-    expect(card?.payload.error).toBe("the workspace has no flow called review")
+    expect(card?.payload.error).toBe("That flow isn't in this workspace.")
+    expect(card?.payload.error).not.toContain("the workspace has no flow called review")
     expect(card?.payload.nodes).toBeUndefined()
     expect(card?.payload.planId).toBeUndefined()
     expect(store.collections.toasts.get(TOAST)?.status).toBe("failed")

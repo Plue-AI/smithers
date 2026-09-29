@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import type { Card } from "@smthrs/rpc/Cards"
 import type { AgentTurnFrame, StartAgentTurnRequest, StartAgentTurnResult } from "@smthrs/rpc/NativeAgent"
 import { createWebAgent } from "./WebAgent"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLead } from "@smthrs/rpc/RefusalCopy"
 
 const request: StartAgentTurnRequest = {
   runId: "run-1",
@@ -133,16 +135,22 @@ describe("createWebAgent", () => {
     expect(JSON.stringify(frames)).not.toContain("secret-socket-detail")
   })
 
-  test("returns an honest error when the boundary responds with an HTTP failure", async () => {
+  test("an HTTP failure is classified by its status; the upstream's text never reaches the chat", async () => {
     const agent = createWebAgent({
       fetchImpl: async () => new Response("upstream exploded", { status: 502 })
     })
     const result = await agent.startTurn(request)
-    expect(result.status).toBe("error")
-    if (result.status === "error") {
-      expect(result.message).toContain("HTTP 502")
-      expect(result.message).toContain("upstream exploded")
-    }
+    expect(result).toEqual({ status: "error", message: "Smithers Cloud is unreachable right now. Try again in a moment." })
+  })
+
+  test("a Worker code reads as its written lead, not the Worker's words", async () => {
+    const agent = createWebAgent({
+      fetchImpl: async () => Response.json({ status: "error", code: "request_body_too_large", message: "body 9000000 > 8388608" }, { status: 413 })
+    })
+    const result = await agent.startTurn(request)
+    const message = result.status === "error" ? result.message : ""
+    expect(message).toBe(`The Smithers web agent didn't run that turn. ${refusalLead(refusalOf({ body: { code: "request_body_too_large" }, status: 413, message: "" }))}`)
+    expect(message).not.toContain("8388608")
   })
 
   test("returns an error when the boundary is unreachable", async () => {
@@ -197,7 +205,7 @@ describe("createWebAgent", () => {
     expect((await started).status).toBe("started")
   })
 
-  test("surfaces the boundary's JSON error message rather than a raw JSON body", async () => {
+  test("an uncoded refusal the person can act on keeps its sentence, never the raw JSON body", async () => {
     const agent = createWebAgent({
       fetchImpl: async () =>
         new Response(JSON.stringify({ status: "error", message: "That turn is already running." }), {
@@ -208,7 +216,7 @@ describe("createWebAgent", () => {
     const result = await agent.startTurn(request)
     expect(result).toEqual({
       status: "error",
-      message: "Smithers web agent failed (HTTP 409): That turn is already running."
+      message: "That turn is already running."
     })
   })
 
@@ -233,8 +241,7 @@ describe("createWebAgent", () => {
     })
     const result = await agent.startTurn(request)
     const message = result.status === "error" ? result.message : ""
-    expect(message).toContain("rate-limiting")
-    expect(message).toContain("429")
+    expect(message).toBe("The model provider is rate-limiting this account. Try again in a minute.")
     expect(message).not.toContain("rate_limit_error")
     expect(message).not.toContain("{")
   })
@@ -249,7 +256,7 @@ describe("createWebAgent", () => {
     })
     const result = await agent.startTurn(request)
     const message = result.status === "error" ? result.message : ""
-    expect(message).toContain("500")
+    expect(message).toBe("Smithers Cloud hit an error on that turn.")
     expect(message).not.toContain("<")
     expect(message).not.toContain("1101")
   })
@@ -320,7 +327,8 @@ describe("createWebAgent", () => {
     expect(provider.status === "error" ? provider.refusal : "started").toBeUndefined()
     const prose = await refused("Too many requests", { "content-type": "text/plain" })
     expect(prose.status === "error" ? prose.refusal : "started").toBeUndefined()
-    expect(prose.status === "error" ? prose.message : "").toContain("Too many requests")
+    /* A plain-text 429 is classified; its body is plumbing. */
+    expect(prose.status === "error" ? prose.message : "").toBe("The model provider is rate-limiting this account. Try again in a minute.")
   })
 
   test("only a coded sign-in 401 becomes a sign-in refusal", async () => {

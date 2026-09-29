@@ -28,6 +28,13 @@ import { createAppStore } from "./AppStore"
 import { presentAppFailure } from "./controller/AppFailure"
 import { StorageWriteFailedError } from "./StorageRecoveryContract"
 import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX, waitFor } from "./TestFixtures"
+import { GATEWAY_REFUSED } from "./controller/GatewayFailureCopy"
+
+/** A gateway refusal: bare words, or words with the control-plane code the gateway names in its detail. */
+type Refusal = string | { readonly message: string; readonly code: string }
+const refusalAnswer = (refusal: Refusal): Response => json(200, typeof refusal === "string"
+  ? { ok: false, error: { message: refusal } }
+  : { ok: false, error: { message: refusal.message, detail: { code: refusal.code } } })
 
 const createAppController = scopedControllers()
 
@@ -116,8 +123,8 @@ const relay = (options: {
     { runId: string; sequence: number; turn: number; at: number; kind: string; text: string }
   >
   readonly events?: ReadonlyArray<Record<string, unknown>>
-  readonly refusals?: Readonly<Record<string, string>>
-  readonly projectionRefusals?: Readonly<Record<string, string>>
+  readonly refusals?: Readonly<Record<string, Refusal>>
+  readonly projectionRefusals?: Readonly<Record<string, Refusal>>
 } = {}) => {
   const calls: Array<{ path: string; method: string; body: unknown }> = []
   const state = {
@@ -136,7 +143,7 @@ const relay = (options: {
 
   const procedure = (repo: string, name: string, payload: Record<string, unknown>): Response => {
     const refusal = options.refusals?.[name]
-    if (refusal !== undefined) return json(200, { ok: false, error: { message: refusal } })
+    if (refusal !== undefined) return refusalAnswer(refusal)
     switch (name) {
       case "List":
         return json(200, {
@@ -183,7 +190,7 @@ const relay = (options: {
       case "Projection.Snapshot": {
         const selector = (payload.selector ?? {}) as { _tag?: string; runId?: string }
         const refusal = options.projectionRefusals?.[selector._tag ?? ""]
-        if (refusal !== undefined) return json(200, { ok: false, error: { message: refusal } })
+        if (refusal !== undefined) return refusalAnswer(refusal)
         switch (selector._tag) {
           case "workspace-runs":
             return rowsAnswer("workspace-runs", (options.runs ?? []).map(summaryRow))
@@ -344,22 +351,23 @@ test("attention combines explicit blockers and pending gates, and refresh remove
 
 test("attention reports unreadable observations instead of claiming the inbox is clear", async () => {
   const store = await webStore()
-  const double = relay({ refusals: { "Projection.Snapshot": "Gateway unreachable" } })
+  const double = relay({ refusals: { "Projection.Snapshot": { message: "Gateway unreachable", code: "transport_error" } } })
   const controller = createAppController(store, silentAgent, double.services)
   await signIn(store)
   await listInventory(controller, store, "runs.attention")
-  expect(runListCard(store)?.payload.observationError).toContain("Gateway unreachable")
+  // The card reports the unreadable observation with the coded refusal's sentence.
+  expect(runListCard(store)?.payload.observationError).toContain("The workspace couldn't be reached. Not your fault; try again.")
 })
 
 test("attention retains pending approvals when the run inventory cannot be read", async () => {
   const store = await webStore()
   const double = relay({ approvals: [approvalRow("uncarded", "gate", "Review deployment")],
-    projectionRefusals: { "workspace-runs": "Run inventory unavailable" } })
+    projectionRefusals: { "workspace-runs": { message: "Run inventory unavailable", code: "unavailable" } } })
   const controller = createAppController(store, silentAgent, double.services)
   await signIn(store)
   await listInventory(controller, store, "runs.attention")
   expect(runListCard(store)?.payload.approvals?.[0]?.requestId).toBe("gate")
-  expect(runListCard(store)?.payload.observationError).toContain("Run inventory unavailable")
+  expect(runListCard(store)?.payload.observationError).toContain("The workspace isn't answering right now. Not your fault; try again in a moment.")
   await controller.commands.run("approvals.open", `sourceCard=run-list-${REPO}-${TEST_BOX} uncarded`)
   expect([...store.collections.cards.values()].some(card => card.kind === "approval" && card.payload.runId === "uncarded")).toBe(true)
 })
@@ -589,7 +597,9 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
     await signIn(store)
     const resumed = await controller.commands.run("runs.resume", "run-2")
     expect(resumed.status).toBe("failed")
-    expect(said(resumed)).toContain("Terminal: the run is completed")
+    // An uncoded refusal speaks the generic gateway line, never the control plane's words.
+    expect(said(resumed)).toContain(GATEWAY_REFUSED)
+    expect(said(resumed)).not.toContain("Terminal: the run is completed")
   })
 
   test("runs.signal parses the JSON payload; invalid JSON refuses without a call", async () => {
@@ -666,13 +676,14 @@ describe("source-bound durable reruns", () => {
   })
 
   test("a refused rerun launch remains retryable with the same saved input", async () => {
-    const refusals: Record<string, string> = { Plan: "Launch unavailable" }
+    const refusals: Record<string, Refusal> = { Plan: { message: "Launch unavailable", code: "launch_failed" } }
     const double = relay({ refusals })
     const { store, controller } = await ready(double.services)
     await controller.commands.run("runs.rerun", "sourceCard=b original")
     await waitFor(() => requests(store)[0]?.error !== undefined)
     const request = requests(store)[0]!
-    expect(request.error?.message).toContain("Launch unavailable")
+    expect(request.error?.message).toBe("The flow couldn't start. Check its model and approval, then try again.")
+    expect(request.error?.message).not.toContain("Launch unavailable")
     expect(double.state.launched).toHaveLength(0)
     delete refusals.Plan
     await controller.commands.run("flow.run.retry", `flow-request-${request.id}`)
@@ -1290,7 +1301,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const store = await webStore()
     const double = relay({
       approvals: [approvalRow("run-a", "req-1", "Run the deploy script?")],
-      refusals: { "Approval.Submit": "Stale: the gate was already decided" }
+      refusals: { "Approval.Submit": { message: "Stale: the gate was already decided", code: "already_resolved" } }
     })
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
@@ -1299,7 +1310,8 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     await settle(4)
     const card = inboxCard(store)
     expect(card?.payload.approvals[0]?.decision).toBeUndefined()
-    expect(card?.payload.approvals[0]?.decisionError).toContain("Stale")
+    expect(card?.payload.approvals[0]?.decisionError).toBe("That was already answered.")
+    expect(card?.payload.approvals[0]?.decisionError).not.toContain("Stale")
   })
 
   test("approvals.open materializes a run's pending gates as ordinary approval cards", async () => {
@@ -1614,7 +1626,7 @@ describe("the approvals inbox — list, open, and the row decision", () => {
 
   test("a refused read stays a visible, retryable failure and publishes no card", async () => {
     const store = await webStore()
-    const refusals: Record<string, string> = { approvals: "The workspace is still waking up" }
+    const refusals: Record<string, Refusal> = { approvals: { message: "The workspace is still waking up", code: "unavailable" } }
     const { double, services, started } = heldRelay({ approvals: [approvalRow("run-a", "req-1", "Run the deploy script?")], projectionRefusals: refusals })
     const controller = createAppController(store, silentAgent, services)
     await signIn(store)
@@ -1622,10 +1634,12 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
     await waitFor(() => inboxRequests(store)[0]?.error !== undefined)
     const failed = inboxRequests(store)[0]!
-    expect(failed.error).toContain("still waking up")
+    const unavailable = "The workspace isn't answering right now. Not your fault; try again in a moment."
+    expect(failed.error).toBe(unavailable)
+    expect(failed.error).not.toContain("still waking up")
     expect(inboxCard(store)).toBeUndefined()
     await waitFor(() => store.collections.toasts.get(inboxToastId)?.status === "failed")
-    expect(store.collections.toasts.get(inboxToastId)?.detail).toContain("still waking up")
+    expect(store.collections.toasts.get(inboxToastId)?.detail).toBe(unavailable)
 
     // A recorded failure never restarts by itself; the identity answer that resumes owed reads skips it.
     await signIn(store)
@@ -2648,8 +2662,12 @@ describe("durable run facet requests", () => {
       fixture.refuse("Facet unavailable")
       await fixture.controller.commands.run(flow, "sourceCard=b run-facet")
       await waitFor(() => current(fixture.store)?.payload.facetRequest?.state === "failed")
+      // Details carry failureDetail(error): the uncoded refusal's generic line plus the workspace's raw words.
+      expect(current(fixture.store)?.payload.facetRequest?.error).toContain(GATEWAY_REFUSED)
       expect(current(fixture.store)?.payload.facetRequest?.error).toContain("Facet unavailable")
       await waitFor(() => [...fixture.store.collections.toasts.values()].some(toast => toast.status === "failed" && toast.key.startsWith("runs.facet.")))
+      const failedToast = [...fixture.store.collections.toasts.values()].find(toast => toast.status === "failed" && toast.key.startsWith("runs.facet."))
+      expect(failedToast?.detail).not.toContain("Facet unavailable")
       fixture.refuse()
       await fixture.controller.commands.run(flow, "sourceCard=b run-facet")
       await waitForFacet(fixture.store, "b")
@@ -3318,7 +3336,7 @@ describe("run read failures speak a sentence, never a raw message", () => {
       const toast = await failedToast(store, "runs.list.")
       expect(toast.detail).toBe(sentence)
       expect(toast.detail).not.toContain("TypeError")
-      if (name === "an untagged error") expect(runListCard(store)?.payload.observationError).toBe(RAW)
+      if (name === "an untagged error") expect(runListCard(store)?.payload.observationError).toContain(RAW)
     })
   }
 
@@ -3336,7 +3354,7 @@ describe("run read failures speak a sentence, never a raw message", () => {
     const toast = await failedToast(store, "runs.facet.")
     expect(toast.detail).toBe("This run's transcript could not be loaded. Not your fault.")
     const card = store.collections.cards.get("b")
-    expect(card?.kind === "run-trace" && card.payload.facetRequest?.error).toBe(RAW)
+    expect(card?.kind === "run-trace" ? card.payload.facetRequest?.error : undefined).toContain(RAW)
   })
 
   test("approvals.list shows an untagged error as its sentence, not the raw message", async () => {

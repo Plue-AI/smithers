@@ -12,12 +12,13 @@ import { preparedView,type ViewAction,type ViewResult } from "../PreparedView"
  * payload out, malformed rows drop; failures are honest strings, never throws.
  */
 import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 import type { Card } from "../AppState"
 import type { AppStore } from "../AppStore"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
 import { readContentsPages } from "./ContentsPages"
-import { errorMessage,readErrorMessage,unreachableSentence } from "./SeamContext"
+import { refusalWords,readErrorMessage,unreachableSentence } from "./SeamContext"
 
 /*
  * Both commands answer a `value` beside the card: the card is what the human
@@ -231,8 +232,8 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
   // A missing repository and a missing path share a code; never infer an import.
   const explain404 = async (response: Response, fallback: string): Promise<string> => {
     const body: unknown = await response.json().catch(() => null)
-    const refusal = refusalOf({ body, status: response.status, message: errorMessage(body, fallback) })
-    return refusal.code === "not_found" ? fallback : refusal.message
+    const refusal = refusalOf({ body, status: response.status, message: refusalWords(body, fallback, response.status) })
+    return refusal.code === "not_found" ? fallback : refusalLine(refusal, fallback)
   }
 
   const readers: { listFiles: (path: string, repo?: string) => Promise<ViewResult>; readFile: (path: string, repo?: string, anchor?: FileAnchor, ref?: string) => Promise<ViewResult> } = {

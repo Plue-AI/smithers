@@ -3,6 +3,8 @@ import { AgentTurnJournalDeliverySchema, AgentTurnJournalReplySchema } from "@sm
 import type { AgentTurnJournalDelivery } from "@smthrs/rpc/AgentTurnJournal"
 import { decodeAgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnResult, TurnRefusal } from "@smthrs/rpc/NativeAgent"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 import type { AgentPort } from "../runtime/AgentPort"
 import { AgentJournalIntegrityError } from "../runtime/AgentPort"
 
@@ -39,41 +41,30 @@ const statusSentence = (status: number): string | undefined => {
   return undefined
 }
 
-/** Body text that was written for a person, not transport plumbing. */
-const readableDetail = (body: string): string | undefined => {
-  if (body === "") return undefined
-  try {
-    const parsed: unknown = JSON.parse(body)
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "message" in parsed &&
-      typeof parsed.message === "string" &&
-      parsed.message !== ""
-    ) {
-      return parsed.message.slice(0, MAX_ERROR_BYTES)
-    }
-    // Any other JSON shape — a provider's nested error object included — is a
-    // wire payload. Pasting it into the chat is how the raw 429 body shipped.
-    return undefined
-  } catch {
-    // Not JSON. An HTML error page is plumbing; a plain sentence is not.
-    if (/^\s*<|<\/[a-z]+>/i.test(body)) return undefined
-    return body.slice(0, MAX_ERROR_BYTES)
-  }
-}
+/** The words a JSON error body wrote; `refusalLine` decides whether a person reads them. */
+const bodyWords = (body: unknown): string =>
+  typeof body === "object" && body !== null && "message" in body && typeof body.message === "string"
+    ? body.message.slice(0, MAX_ERROR_BYTES)
+    : ""
 
-/** The boundary answers failures as `{ status, message }`; surface that, not raw JSON. */
-const errorDetail = (status: number, body: string): string => {
-  const detail = readableDetail(body)
-  const classified = statusSentence(status)
-  if (detail !== undefined) {
-    // The upstream wrote for a person: that sentence leads, and the status
-    // stays available for a bug report.
-    return `Smithers web agent failed (HTTP ${status}): ${detail}`
+/**
+ * The one sentence for a refused turn. A turn refusal the Worker coded for a
+ * person (TurnRefusal's contract) is its own sentence; an uncoded status is
+ * classified; anything else speaks through `refusalLine`, so a Worker code
+ * reads as its written lead and an upstream's prose, an HTML page or a
+ * provider's wire error never reaches the chat.
+ */
+const errorDetail = (status: number, body: string, turn: TurnRefusal | undefined): string => {
+  if (turn !== undefined) return turn.message
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    // Not JSON: plumbing, never copy.
   }
-  if (classified !== undefined) return `${classified} (HTTP ${status})`
-  return `Smithers web agent failed (HTTP ${status}).`
+  const answer = refusalOf({ body: parsed, status, message: bodyWords(parsed) })
+  const classified = answer.rawCode === null ? statusSentence(status) : undefined
+  return classified ?? refusalLine(answer, "The Smithers web agent didn't run that turn.")
 }
 
 /*
@@ -285,7 +276,7 @@ export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
         const refusal = turnRefusal(response.status, body)
         return {
           status: "error",
-          message: errorDetail(response.status, body),
+          message: errorDetail(response.status, body, refusal),
           ...(refusal === undefined ? {} : { refusal })
         }
       }

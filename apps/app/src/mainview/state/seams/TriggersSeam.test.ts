@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises"
 import { flowArgs } from "../../flows/FlowArgs"
 import { LIMIT_SHAPE, limitsRefusal, NO_RULES_SENTENCE, otherLimitSentence, overBoundFlowSentence, registerUnavailableSentence, unboundedFlowSentence } from "./TriggersSeam"
 import type { TriggerWrite } from "./TriggersSeam"
+import { GATEWAY_REFUSED } from "../controller/GatewayFailureCopy"
 
 const createAppController = scopedControllers()
 const controllerStores = new WeakMap<AppController, AppStore>()
@@ -1239,12 +1240,14 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
    * addresses the repository-jobs box, this is the ordinary first press after
    * the box has been idle.
    */
-  test("a box that is still resuming answers with its own sentence, not with a refusal it never made", async () => {
+  test("a box that is still resuming answers that it is still starting, not with a refusal it never made", async () => {
     const resuming = "The workspace is resuming; ask again in a moment."
     const { controller } = await readyToRegister(
       backend({ [PROJECTION]: projectionDocument(DAY_ONE), [RPC]: json(200, { status: "provisioning", message: resuming }) })
     )
-    expect(await registrationResult(controller, REQUEST)).toBe(resuming)
+    const answer = await registrationResult(controller, REQUEST)
+    expect(answer).toBe("The workspace is still starting. Try again in a moment.")
+    expect(answer).not.toContain(resuming)
   })
 
   test("a workspace that cannot register schedules says so before it plans anything", async () => {
@@ -1331,7 +1334,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
    * answers at once and the registration runs behind it, so a refusal on the
    * way to the run reaches the human on the notice that named the work.
    */
-  test("the host's own refusal and Smithers Cloud's own refusal each reach the human as themselves", async () => {
+  test("an uncoded host refusal reads as the workspace's refusal, and Smithers Cloud's coded refusal reaches the human as its code and verdict", async () => {
     const moduleRefusal = '"nightly-lint" is a flow.ts. Schedules run flow.mdx.'
     const hosted = await readyToRegister(
       watched(backend({
@@ -1347,7 +1350,8 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     const hostId = preparedId(hosted.store)
     expect((await hosted.controller.commands.run("triggers.approve", hostArgs)).status).toBe("executed")
     await waitFor(() => registrationRun(hosted.store, hostId)?.payload.phase === "failed")
-    expect(registrationRun(hosted.store, hostId)?.payload.error).toBe(moduleRefusal)
+    expect(registrationRun(hosted.store, hostId)?.payload.error).toBe(GATEWAY_REFUSED)
+    expect(registrationRun(hosted.store, hostId)?.payload.error).not.toContain(moduleRefusal)
 
     const cloudRefusal = "register only the plan a person approved; approve the preview, then apply"
     const clouded = await readyToRegister(
@@ -1362,8 +1366,8 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     const cloudId = preparedId(clouded.store)
     expect((await clouded.controller.commands.run("triggers.approve", cloudArgs)).status).toBe("executed")
     await waitFor(() => registrationRun(clouded.store, cloudId)?.payload.phase === "failed")
-    expect(registrationRun(clouded.store, cloudId)?.payload.error).toContain("trigger_approval_missing")
-    expect(registrationRun(clouded.store, cloudId)?.payload.error).toContain(cloudRefusal)
+    expect(registrationRun(clouded.store, cloudId)?.payload.error).toBe("trigger_approval_missing — Smithers Cloud refused the request. Smithers Cloud has no record of anyone approving that plan.")
+    expect(registrationRun(clouded.store, cloudId)?.payload.error).not.toContain(cloudRefusal)
   })
 
   /* The legacy Worker's `{status:"ok"}` receipt names no approver; the backend's names who and when. */
@@ -1806,7 +1810,7 @@ describe("triggers seam: listing and pausing a schedule", () => {
     expect(triggerCard(store).payload).toEqual({ repo: "will/flows", declared: DAY_ONE.on, live: false, triggers: [] })
   })
 
-  test("pause stops the schedule through the backend's job route and re-reads the listing; a refusal stays the refusing party's", async () => {
+  test("pause stops the schedule through the backend's job route and re-reads the listing; a Worker-coded refusal keeps its code and hides its words", async () => {
     const seen: Array<string> = []
     const paused: Array<unknown> = []
     const { controller } = await ready(
@@ -1833,7 +1837,8 @@ describe("triggers seam: listing and pausing a schedule", () => {
     const answer = await refused.controller.registerTrigger({ operation: "pause", repo: "will/flows", slug: "nightly" })
     expect(answer).toEqual({ value: "Pause requested for nightly on will/flows." })
     await waitFor(() => triggerCard(refused.store).payload.pauseRequests?.[0]?.phase === "failed")
-    expect(triggerCard(refused.store).payload.pauseRequests?.[0]?.error).toContain("unknown repository job")
+    expect(triggerCard(refused.store).payload.pauseRequests?.[0]?.error).toBe("upstream_refused — Smithers Cloud refused the request. Something Smithers depends on refused that. Not your doing.")
+    expect(triggerCard(refused.store).payload.pauseRequests?.[0]?.error).not.toContain("unknown repository job")
   })
 
   test("a pause that stopped nothing says so instead of saying paused", async () => {
@@ -2293,7 +2298,8 @@ describe("triggers seam: running a registered schedule now", () => {
     await controller.commands.run("triggers.run", "nightly will/flows")
     await waitFor(() => dispatchCards(store)[0]?.payload.phase === "failed")
     const card = dispatchCards(store)[0]!
-    expect(card.payload.error).toBe("Workspace unavailable")
+    expect(card.payload.error).toBe(GATEWAY_REFUSED)
+    expect(card.payload.error).not.toContain("Workspace unavailable")
     refused = false
     await controller.commands.run("flow.run.retry", card.id)
     await waitFor(() => dispatchCards(store)[0]?.payload.runId === REGISTRAR_RUN)
@@ -2389,8 +2395,8 @@ describe("triggers seam: running a registered schedule now", () => {
     expect(calls).toEqual([])
   })
 
-  /* The box the relay reaches decides whether a registrar answers at all (defect D-1); its refusal is its own sentence. */
-  test("a box that holds no registrar refuses the dispatch in its own words, on this press's card", async () => {
+  /* The box the relay reaches decides whether a registrar answers at all (defect D-1); an uncoded refusal reads as the workspace's refusal, never its raw words. */
+  test("a box that holds no registrar refuses the dispatch as the workspace's refusal, on this press's card", async () => {
     const refusal = 'No flow "repository/trigger" is registered on this workspace.'
     const calls: Array<RelayCall> = []
     const { store, controller } = await readyToRegister(watched(backend({
@@ -2400,7 +2406,8 @@ describe("triggers seam: running a registered schedule now", () => {
     })))
     expect((await controller.commands.run("triggers.run", "nightly will/flows")).status).toBe("executed")
     await waitFor(() => dispatchCards(store)[0]?.payload.phase === "failed")
-    expect(dispatchCards(store)[0]?.payload.error).toBe(refusal)
+    expect(dispatchCards(store)[0]?.payload.error).toBe(GATEWAY_REFUSED)
+    expect(dispatchCards(store)[0]?.payload.error).not.toContain(refusal)
     expect(calls.map((call) => call.procedure)).toEqual(["Plan"])
   })
 

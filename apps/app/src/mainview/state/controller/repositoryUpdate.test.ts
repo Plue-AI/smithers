@@ -112,12 +112,15 @@ test("failed detail reads do not consume a matching repository notification", as
   })
   await actions.showRepoOverview("org/repo")
   const overview = [...store.collections.cards.values()].find(card => card.kind === "repo-update")!
-  expect(await createIssuesSeam(ctx).viewIssue(3, "org/repo")).toBe("Unavailable")
+  const line = "Loading issue #3 in org/repo failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed."
+  const error = await createIssuesSeam(ctx).viewIssue(3, "org/repo")
+  expect(error).toBe(line)
+  expect(error).not.toContain("Unavailable")
   const row = [...store.collections.repositoryNotifications.values()][0]!
   expect(row.readVersion).toBeUndefined()
   expect([...store.collections.notificationReceipts.values()]).toEqual([])
   // The attempted view owns its honest error location; Back retains the unread overview.
-  expect(store.collections.cards.get(overview.id)).toMatchObject({ kind: "status", status: "error", loading: false, body: "Unavailable" })
+  expect(store.collections.cards.get(overview.id)).toMatchObject({ kind: "status", status: "error", loading: false, body: line })
   const history = store.collections.cardHistories.get(overview.id)!
   expect(history.entries.find(card => card.kind === "repo-update")).toMatchObject(CardSchema.parse(overview))
   await store.dispatch({ type: "card.history.moved", actor: "user", id: overview.id, delta: -1 }).isPersisted.promise
