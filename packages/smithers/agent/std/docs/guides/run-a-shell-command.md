@@ -156,13 +156,11 @@ if (result.invalidProbe !== undefined) {
 }
 ```
 
-`bash` fills it from one thing only: the two exit codes POSIX reserves for the
-shell's own refusal to start the command, 127 for a program it could not find
-and 126 for one it could not execute. That is a fact the exit code carries, and
-`Probe.posix` is exported so a host that runs commands another way can read it
-too. Telling the other four apart means reading what a runner printed, which is
-a judgment rather than a fact; the `test` flow asks Jev for it, because its
-caller is asking about a suite. See
+`bash` does not infer a launch failure from exit code 126 or 127: a launched
+runner can return either status after running a check. It returns the captured
+command result without `invalidProbe` when launch cannot be established. The
+`test` flow asks the attribution judge whether a non-zero exit describes the
+code under test or an unresolved name. See
 [Run the test suite](./run-the-test-suite.md#who-the-failure-belongs-to).
 
 ## The Codex-shaped alternative

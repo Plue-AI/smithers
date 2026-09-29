@@ -1,13 +1,11 @@
 /**
- * Telling an invalid probe from a failing check.
- *
- * The cases fix three properties. The two facts are decided without a judge: a
- * command that exited zero, and the exit codes POSIX reserves for the shell's
- * own refusal. Everything else is Jev's answer, taken only when it is decisive
- * — an answer below the floor is the tree's failure, which is the reading that
- * leaves a genuine reproduction intact. And a judge that does not answer is a
- * typed failure, never a reason and never a silent pass.
+ * Telling an invalid probe from a failing check. A zero exit needs no judge;
+ * every non-zero exit needs attribution, including shell-reserved codes.
  */
+import { spawnSync } from "node:child_process"
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, Result } from "effect"
 import { describe, expect, it } from "vitest"
@@ -75,22 +73,16 @@ describe("Probe.classify", () => {
     expect(asked).toEqual([])
   })
 
-  it.each([127, 126])("reads exit %i as the shell's own refusal, without asking", async (exitCode) => {
+  it.each([127, 126])("asks the judge about exit %i rather than treating it as a launch failure", async (exitCode) => {
     const asked: Array<unknown> = []
     const recording = Evaluator.layerScripted((request) => {
       asked.push(request.state)
       return { attribution: { choice: "tree" }, executed: { probability: 0.9 } }
     })
-    const attribution = success(await classify({ exitCode, output: "412 passed in 3.20s" }, recording))
-    expect(attribution.to).toBe("unknown-command")
-    expect(attribution.invalidProbe).toMatchObject({
-      reason: "unknown-command",
-      evidence: `the command exited ${exitCode}`
-    })
-    // 126 and 127 are the shell's verdict on the command it was handed. A
-    // compound command whose check ran and whose next program is missing still
-    // ran a broken invocation, and no judgment changes what the shell said.
-    expect(asked).toEqual([])
+    const attribution = success(await classify({ exitCode, output: "not ok 1 - actual assertion" }, recording))
+    expect(attribution.to).toBe("tree")
+    expect(attribution.invalidProbe).toBeUndefined()
+    expect(asked).toHaveLength(1)
   })
 
   it.each(
@@ -118,6 +110,7 @@ describe("Probe.classify", () => {
       )
     )
     expect(attribution).toEqual({ to: "tree", executed: true })
+
   })
 
   it("leaves the failure with the tree when the judge is not sure, and reports what it read", async () => {
@@ -191,17 +184,6 @@ describe("Probe.classify", () => {
   })
 })
 
-describe("Probe.posix", () => {
-  it("reads only the two codes POSIX reserves for the shell's refusal", () => {
-    expect(Probe.posix(127)?.reason).toBe("unknown-command")
-    expect(Probe.posix(126)?.reason).toBe("unknown-command")
-    expect(Probe.posix(0)).toBeUndefined()
-    expect(Probe.posix(1)).toBeUndefined()
-    expect(Probe.posix(125)).toBeUndefined()
-    expect(Probe.posix(128)).toBeUndefined()
-  })
-})
-
 describe("the probe/attribution classifier", () => {
   it("offers the tree beside every reason, and asks whether tests ran", () => {
     expect(Probe.probeAttribution.id).toBe("probe/attribution")
@@ -216,3 +198,62 @@ describe("the probe/attribution classifier", () => {
     }
   })
 })
+describe("real shell exit attribution", () => {
+  it.each([126, 127])("keeps a launched failing check exiting %i as executed evidence", async (code) => {
+    const dir = mkdtempSync(join(tmpdir(), "probe-exit-"))
+    try {
+      const file = join(dir, "example.test.mjs")
+      writeFileSync(file, 'import { test } from "node:test"; import { strict as assert } from "node:assert"; test("actual assertion", () => assert.equal(1, 2));')
+      const command = `node --test --test-reporter=tap "${file}" || exit ${code}`
+      const run = spawnSync("sh", ["-c", command], { encoding: "utf8" })
+      expect(run.status).toBe(code)
+      expect(run.stdout).toContain("not ok 1 - actual assertion")
+      const observed: Array<unknown> = []
+      const judge = Evaluator.layerScripted((request) => {
+        observed.push(request.state)
+        return { attribution: { choice: "tree" }, executed: { probability: 0.95 } }
+      })
+      const attribution = success(await classify({
+        command, exitCode: run.status!, output: run.stdout + run.stderr
+      }, judge))
+      expect(attribution).toMatchObject({ to: "tree", executed: true })
+      expect(attribution.invalidProbe).toBeUndefined()
+      expect(observed).toHaveLength(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ["missing", 127],
+    ["non-executable", 126]
+  ])("asks for attribution on a real %s program", async (kind, code) => {
+    const dir = mkdtempSync(join(tmpdir(), "probe-exit-"))
+    try {
+      const file = join(dir, "command")
+      if (kind === "non-executable") {
+        writeFileSync(file, "#!/bin/sh\nexit 0\n")
+        chmodSync(file, 0o644)
+      }
+      const command = `"${file}"`
+      const run = spawnSync("sh", ["-c", command], { encoding: "utf8" })
+      expect(run.status).toBe(code)
+      expect(run.stderr).toMatch(/not found|No such file or directory|Permission denied/)
+      const observed: Array<unknown> = []
+      const judge = Evaluator.layerScripted((request) => {
+        observed.push(request.state)
+        return { attribution: { choice: "unknown-command" }, executed: { probability: 0.05 } }
+      })
+      const attribution = success(await classify({
+        command, exitCode: run.status!, output: run.stdout + run.stderr
+      }, judge))
+      expect(attribution.to).toBe("unknown-command")
+      expect(attribution.invalidProbe?.reason).toBe("unknown-command")
+      expect(observed).toHaveLength(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+

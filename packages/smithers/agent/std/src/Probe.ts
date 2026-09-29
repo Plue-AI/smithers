@@ -21,12 +21,10 @@
  * a bug that *is* an import error, a test that asserts on a shell message — so
  * precision cost recall and both cost maintenance.
  *
- * Two things are still decided here, because they are facts rather than
- * readings. A zero exit is never classified: a command that ran is a command
- * that ran, whatever it printed. And {@link posix} reads the two exit codes
- * POSIX reserves for the shell's own refusal to start the command — 127 not
- * found, 126 found and not executable — which no runner reaches its own tests
- * and then reports. Neither costs a call.
+ * A zero exit needs no judgment: it belongs to the tree, whatever it printed.
+ * A non-zero exit, including 126 or 127, needs attribution. A runner can
+ * execute its tests and return either status, so neither proves that the shell
+ * refused to launch the check.
  *
  * There is no third path. When the judge does not answer, {@link unjudged}
  * turns its failure into the caller's typed failure: a guess about whether a
@@ -168,19 +166,6 @@ const invalid = (reason: Reason, evidence: string): InvalidProbe => ({
   message: explain(reason)
 })
 
-/**
- * The shell's own refusal to start the command, read from its exit code.
- *
- * POSIX reserves 127 for "not found" and 126 for "found and not executable".
- * No runner reaches its own tests and then reports either one, so this needs
- * no judgment and asks for none.
- *
- * @category classification
- * @since 1.0.0
- */
-export const posix = (exitCode: number): InvalidProbe | undefined =>
-  exitCode === 127 || exitCode === 126 ? invalid("unknown-command", `the command exited ${exitCode}`) : undefined
-
 /** How the judge's own reading is quoted back to the caller. */
 const judged = (reason: Reason, confidence: number, executed: boolean): string =>
   `the judge read this output as ${reason} at confidence ${confidence.toFixed(2)}${
@@ -264,11 +249,9 @@ export const probeAttribution = Classifier.make("probe/attribution", {
  * Attributes one command result to the tree, or to a name the command could
  * not resolve.
  *
- * A zero exit and the two reserved exit codes are settled here, from facts.
- * Everything else is Jev's: the `probe/attribution` classifier reads the
- * command, its exit code, and the newest {@link MAX_OUTPUT_BYTES} of its
- * output, and answers which of the six this exit describes and whether a
- * runner ran anything. An answer under {@link CONFIDENCE_FLOOR} is the tree's
+ * A zero exit needs no judgment. Every non-zero exit, including 126 and 127,
+ * goes through the attribution classifier: a runner may choose either code
+ * after executing tests. An answer under {@link CONFIDENCE_FLOOR} is the tree's
  * failure, reported with the `executed` reading beside it.
  *
  * Pass the text the caller will actually return, so the judgment is made on
@@ -283,8 +266,6 @@ export const classify = Effect.fn("Probe.classify")(function*(result: {
   readonly output: string
 }): Effect.fn.Return<Attribution, Classifier.ClassifierError, Evaluator.Evaluator> {
   if (result.exitCode === 0) return { to: "tree" }
-  const shell = posix(result.exitCode)
-  if (shell !== undefined) return { to: shell.reason, invalidProbe: shell }
   const answers = yield* probeAttribution.evaluate({
     command: result.command,
     exitCode: result.exitCode,

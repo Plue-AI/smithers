@@ -188,12 +188,12 @@ describe("TestRun", () => {
     expect(result.invalidProbe?.message).toContain("not a reproduction")
   })
 
-  it("keeps the shell's reserved exit codes out of the judge's hands", async () => {
+  it("asks the judge about a shell failure with exit 127", async () => {
     const spawns: Array<ReadonlyArray<string>> = []
     const asked: Array<unknown> = []
     const recording = Evaluator.layerScripted((request) => {
       asked.push(request.state)
-      return { attribution: { choice: "tree" }, executed: { probability: 0.9 } }
+      return { attribution: { choice: "unknown-command" }, executed: { probability: 0.05 } }
     })
     const result = await execute(Effect.provide(
       TestRun.run({}),
@@ -203,8 +203,8 @@ describe("TestRun", () => {
         recording
       )
     ))
-    expect(result.invalidProbe).toMatchObject({ reason: "unknown-command", evidence: "the command exited 127" })
-    expect(asked).toEqual([])
+    expect(result.invalidProbe).toMatchObject({ reason: "unknown-command" })
+    expect(asked).toHaveLength(1)
   })
 
   it("fails the call when the judge does not answer, rather than reporting an unjudged run", async () => {

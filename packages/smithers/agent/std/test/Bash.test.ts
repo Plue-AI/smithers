@@ -1070,35 +1070,16 @@ describe("Bash", () => {
     })
   })
 
-  it("separates the shell's refusal to start a command from a check that failed", async () => {
-    // 127 is the shell saying it never found the program, which is a fact its
-    // exit code carries. Reading a runner's wording is a judgment, and the
-    // `test` flow is where Jev is asked for it; a shell call takes no judge.
-    const broken = await execute(Effect.provide(
-      Bash.run({ mode: "unhermetic", command: "pytest tests/admin_views" }),
+  it.each([126, 127])("does not mistake exit %i for proof of launch failure", async (exitCode) => {
+    const result = await execute(Effect.provide(
+      Bash.run({ mode: "unhermetic", command: "node --test example.test.mjs" }),
       layer({
-        commands: { "pytest tests/admin_views": { stderr: "bash: pytest: command not found", exitCode: 127 } }
+        commands: { "node --test example.test.mjs": { stdout: "not ok 1 - actual assertion", exitCode } }
       })
     ))
-    expect(broken.exitCode).toBe(127)
-    expect(broken.invalidProbe).toMatchObject({
-      reason: "unknown-command",
-      evidence: "the command exited 127"
-    })
-    expect(broken.invalidProbe?.message).toContain("not a reproduction")
-
-    // The same failure to find a name, reported by the runner rather than by
-    // the shell, is an ordinary non-zero exit here.
-    const ran = await execute(Effect.provide(
-      Bash.run({ mode: "unhermetic", command: "python -m pytest tests/admin_views" }),
-      layer({
-        commands: {
-          "python -m pytest tests/admin_views": { stdout: "1 failed, 412 passed", exitCode: 1 }
-        }
-      })
-    ))
-    expect(ran.exitCode).toBe(1)
-    expect(ran.invalidProbe).toBeUndefined()
+    expect(result.exitCode).toBe(exitCode)
+    expect(result.stdout).toContain("not ok 1")
+    expect(result.invalidProbe).toBeUndefined()
   })
 
   it("omits the invalid-probe key entirely from an ordinary result", async () => {

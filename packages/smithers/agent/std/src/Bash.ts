@@ -191,7 +191,7 @@ export const Output = Schema.Struct({
   invalidProbe: Schema.optional(
     Probe.InvalidProbe.annotate({
       description:
-        "Present when the shell refused to start the command at all, so the non-zero exit is about the command and not about the code under test"
+        "Reserved for a confirmed launch failure; an exit code alone does not establish one"
     })
   ),
   mutated: Schema.optional(
@@ -498,10 +498,8 @@ export const run = Effect.fn("Bash.run")(function*(
   const mutated = TreeFingerprint.moved(before, yield* fingerprint(input, transport))
   const stdout = truncateBytes(result.stdout, MAX_SHELL_OUTPUT_BYTES, { keep: "tail" })
   const stderr = truncateBytes(result.stderr, MAX_SHELL_OUTPUT_BYTES, { keep: "tail" })
-  // The shell's own verdict on the command it was handed, which is a fact its
-  // exit code carries. What a runner printed is a judgment, and the `test`
-  // flow is where it is asked for.
-  const probe = Probe.posix(result.exitCode)
+  // Exit codes alone cannot establish whether the shell refused to launch a
+  // command or a launched runner chose that status after executing tests.
   return {
     exitCode: result.exitCode,
     stdout: stdout.text,
@@ -510,7 +508,6 @@ export const run = Effect.fn("Bash.run")(function*(
     stderrTruncated: result.stderrDroppedBytes > 0 || stderr.truncated,
     stdoutDroppedBytes: result.stdoutDroppedBytes + stdout.droppedBytes,
     stderrDroppedBytes: result.stderrDroppedBytes + stderr.droppedBytes,
-    ...(probe === undefined ? {} : { invalidProbe: probe }),
     ...(mutated === undefined ? {} : { mutated })
   }
 })

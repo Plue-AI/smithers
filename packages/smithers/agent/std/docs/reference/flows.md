@@ -234,7 +234,7 @@ envelope `bash` declares for every call.
 | `stdout`, `stderr`                         | string                         | Captured streams, tail kept when truncated.                           |
 | `stdoutTruncated`, `stderrTruncated`       | boolean                        | Whether that stream is a fragment.                                    |
 | `stdoutDroppedBytes`, `stderrDroppedBytes` | number                         | Bytes omitted from the start.                                         |
-| `invalidProbe`                             | `Probe.InvalidProbe`, optional | Present when the shell refused to start the command: exit 126 or 127. |
+| `invalidProbe`                             | `Probe.InvalidProbe`, optional | Reserved for independently confirmed launch failures; not inferred from exit code. |
 
 `Bash.Input` and `Bash.Output` are also exported as TypeScript types alongside
 the schemas. Fails with `invalid_input`, `outside_declared_reads`,
