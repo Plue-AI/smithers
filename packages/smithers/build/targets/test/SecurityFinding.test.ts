@@ -18,14 +18,36 @@ const git = (...args: string[]): void => {
 }
 
 // A deterministic model fixture exercises real git, filesystem, and process IO without live model credentials.
-const model = async (findings: ReadonlyArray<unknown>): Promise<string> => {
+const model = async (findings: ReadonlyArray<unknown>, securityChecks?: ReadonlyArray<string>): Promise<string> => {
   const path = Path.join(root, `model-${Math.random().toString(36).slice(2)}.mjs`)
-  const envelope = JSON.stringify({ type: "result", result: JSON.stringify(findings) })
+  const answer = JSON.stringify(
+    securityChecks === undefined ? findings : {
+      status: "completed",
+      coverage: securityChecks.map((checkId) => ({
+        checkId,
+        status: "completed",
+        evidence: "Inspected the declared check against the changed file."
+      })),
+      missingContext: [],
+      findings
+    }
+  )
+  const claude = JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    stop_reason: "end_turn",
+    result: answer
+  })
+  const codex = [
+    JSON.stringify({ type: "item.completed", item: { id: "m1", type: "agent_message", text: answer } }),
+    JSON.stringify({ type: "turn.completed" })
+  ].join("\n") + "\n"
   await Fs.writeFile(
     path,
-    `#!/usr/bin/env node\nfor await (const chunk of process.stdin) {}\nprocess.stdout.write(${
-      JSON.stringify(envelope)
-    })\n`
+    `#!/usr/bin/env node\nfor await (const chunk of process.stdin) {}\nprocess.stdout.write(${`process.argv.includes('exec') ? ${
+      JSON.stringify(codex)
+    } : ${JSON.stringify(claude)}`})\n`
   )
   await Fs.chmod(path, 0o755)
   return path
@@ -66,11 +88,14 @@ const finding = (overrides: Record<string, unknown> = {}) => ({
 } as const)
 
 const review = async (findings: ReadonlyArray<unknown>, overrides: Partial<LlmLint.Payload> = {}) =>
-  Effect.runPromise(LlmLint.review({ workspaceRoot: root, executable: await model(findings) }, payload(overrides)))
+  Effect.runPromise(LlmLint.review(
+    { workspaceRoot: root, executable: await model(findings, payload(overrides).securityChecks) },
+    payload(overrides)
+  ))
 
 const failure = async (findings: ReadonlyArray<unknown>, overrides: Partial<LlmLint.Payload> = {}) =>
   Effect.runPromise(Effect.flip(LlmLint.review(
-    { workspaceRoot: root, executable: await model(findings) },
+    { workspaceRoot: root, executable: await model(findings, payload(overrides).securityChecks) },
     payload(overrides)
   )))
 

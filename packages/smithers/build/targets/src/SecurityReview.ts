@@ -197,7 +197,7 @@ export const renderRubric = (checks: ReadonlyArray<Check>): string =>
     "- file and line point at the vulnerable operation (the sink or the missing check), not an import.",
     "- Report each distinct flaw once; name at most three call sites of the same flaw.",
     "- Style, correctness bugs without a security consequence, and missing tests are not findings.",
-    "- Respond with [] when nothing qualifies."
+    "- Return the completion envelope requested by the review host, including coverage for every declared check."
   ].join("\n")
 
 /**
