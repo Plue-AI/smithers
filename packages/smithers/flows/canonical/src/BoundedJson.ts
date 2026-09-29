@@ -121,6 +121,8 @@ export interface StrictOptions {
   /** Preflight text lengths and identify rejected keys by position. */
   readonly boundedText?: boolean
   readonly onContainer?: (value: ReadonlyArray<Json> | { readonly [key: string]: Json }) => void
+  /** Detach an explicitly supported non-ordinary leaf with its encoded byte size. */
+  readonly native?: (value: object) => { readonly value: unknown; readonly bytes: number } | undefined
 }
 
 type Segment = string | number | { readonly key: number }
@@ -266,6 +268,11 @@ const walk = (
       }
       const recordPrototype = strict ? prototype : Object.getPrototypeOf(value)
       if (recordPrototype !== Object.prototype && recordPrototype !== null) {
+        const native = strict?.native?.(value)
+        if (native !== undefined) {
+          if (!Number.isSafeInteger(native.bytes) || native.bytes < 0) return refuse("bytes", "has an invalid native size")
+          return add(native.bytes) ? { ok: true, value: native.value as Json, bytes } : byteFailure()
+        }
         return refuse("object", strict ? "must be an ordinary record" : "contains a non-plain object")
       }
       const ownKeys = keys ?? Reflect.ownKeys(value)

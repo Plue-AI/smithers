@@ -92,6 +92,21 @@ export const admitJson = (
 ): Admission<Json> => BoundedJson.admitStrict(input, limits)
 
 /**
+ * Strict decoded-value admission with detached native Date leaves.
+ *
+ * @private
+ * @since 0.1.0
+ */
+export const admitDecoded = (input: unknown): Admission<unknown> =>
+  BoundedJson.admitStrict(input, defaultJsonLimits, {
+    native: (value) => {
+      if (Object.getPrototypeOf(value) !== Date.prototype || Reflect.ownKeys(value).length !== 0) return undefined
+      const time = Date.prototype.getTime.call(value)
+      return Number.isFinite(time) ? { value: new Date(time), bytes: 26 } : undefined
+    }
+  })
+
+/**
  * Reads a fixed set of own enumerable data fields without invoking accessors.
  *
  * @private

@@ -275,6 +275,87 @@ describe("Command.call decoded boundary", () => {
     expect(await Effect.runPromise(surface.execute("scalar --input 1").pipe(Effect.provide(invoker)))).toBe("42")
   })
 
+  it("refuses unsafe decoded input before loading or invoking", async () => {
+    const surface = await Effect.runPromise(Command.make([makeRoute("review")]))
+    const invoke = vi.fn(({ input }: FlowInvoker.Invocation) => Effect.succeed(input))
+    const invoker = FlowInvoker.layerNoop({ invoke })
+    let getterCalls = 0
+    const accessor = Object.defineProperty({}, "number", {
+      enumerable: true,
+      get: () => ++getterCalls
+    })
+    for (const input of [accessor, { number: NaN }, { number: 1, tags: ["x".repeat(65_537)] }]) {
+      const exit = await Effect.runPromise(Effect.exit(
+        surface.call("review", input as never).pipe(Effect.provide(invoker))
+      ))
+      expect(exit._tag).toBe("Failure")
+      if (exit._tag === "Failure") {
+        expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+          code: "decode_failed",
+          method: "Command.call"
+        })
+      }
+    }
+    expect(getterCalls).toBe(0)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("refuses unsafe decoded output after invocation", async () => {
+    const surface = await surfaceFor(Schema.Number, Schema.Number)
+    for (const output of [NaN, Infinity]) {
+      const exit = await Effect.runPromise(Effect.exit(surface.call("scalar", 1).pipe(
+        Effect.provide(FlowInvoker.layerNoop({ invoke: () => Effect.succeed(output) }))
+      )))
+      expect(exit._tag).toBe("Failure")
+      if (exit._tag === "Failure") {
+        expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+          code: "decode_failed",
+          method: "Command.call"
+        })
+      }
+    }
+  })
+
+  it("refuses oversized and accessor output without reading its getter", async () => {
+    const surface = await surfaceFor(Schema.Struct({ value: Schema.String }), Schema.Struct({ value: Schema.String }))
+    let getterCalls = 0
+    const accessor = Object.defineProperty({}, "value", {
+      enumerable: true,
+      get: () => { getterCalls++; return "secret" }
+    })
+    for (const output of [accessor, { value: "x".repeat(65_537) }]) {
+      const exit = await Effect.runPromise(Effect.exit(surface.call("scalar", { value: "ok" }).pipe(
+        Effect.provide(FlowInvoker.layerNoop({ invoke: () => Effect.succeed(output) }))
+      )))
+      expect(exit._tag).toBe("Failure")
+    }
+    expect(getterCalls).toBe(0)
+  })
+
+  it("detaches input before pending route loading", async () => {
+    const flow = Flow.make({
+      name: "scalar",
+      input: Schema.Struct({ number: Schema.Number }),
+      output: Schema.Number
+    })
+    let release: (() => void) | undefined
+    vi.spyOn(Route, "load").mockImplementation(() => Effect.promise(() =>
+      new Promise<typeof flow>((resolve) => { release = () => resolve(flow) })
+    ))
+    const surface = await Effect.runPromise(Command.make([makeRoute("scalar")]))
+    const invoke = vi.fn(({ input }: FlowInvoker.Invocation) =>
+      Effect.succeed((input as { number: number }).number))
+    const input = { number: 1 }
+    const pending = Effect.runPromise(surface.call("scalar", input).pipe(
+      Effect.provide(FlowInvoker.layerNoop({ invoke }))
+    ))
+    await vi.waitFor(() => expect(release).toBeDefined())
+    input.number = 2
+    release!()
+    expect(await pending).toBe(1)
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ input: { number: 1 } }))
+  })
+
   it("preserves native decoded values on both sides of call", async () => {
     const surface = await surfaceFor(Schema.DateFromString, Schema.DateFromString)
     const date = new Date("2026-01-01T00:00:00.000Z")

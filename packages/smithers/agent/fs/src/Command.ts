@@ -66,11 +66,16 @@ interface Prepared {
   readonly input: unknown
 }
 
-// Native decoded values cannot be copied as JSON without changing their type.
-const snapshotDecoded = (value: unknown): unknown => {
-  const admitted = Boundary.admitJson(value)
-  return admitted.ok ? admitted.value : value
-}
+// Admit and detach even when the typed value contains native Date leaves.
+const snapshotDecoded = (value: unknown): Effect.Effect<unknown, FsError> =>
+  Effect.suspend(() => {
+    const admitted = Boundary.admitDecoded(value)
+    return admitted.ok ? Effect.succeed(admitted.value) : Effect.fail(new FsError({
+      code: "decode_failed",
+      method: "Command.call",
+      description: "The decoded flow value did not satisfy the boundary"
+    }))
+  })
 
 const validateDecoded = (
   schema: Schema.Top,
@@ -78,7 +83,7 @@ const validateDecoded = (
   field: "input" | "output"
 ): Effect.Effect<unknown, FsError> =>
   Effect.matchCauseEffect(
-    Effect.suspend(() => Schema.decodeUnknownEffect(Schema.toType(schema))(value)),
+    Effect.flatMap(snapshotDecoded(value), (input) => Schema.decodeUnknownEffect(Schema.toType(schema))(input)),
     {
       onFailure: () =>
         Effect.fail(
@@ -88,7 +93,7 @@ const validateDecoded = (
             description: `The decoded flow ${field} did not satisfy its schema`
           })
         ),
-      onSuccess: (decoded) => Effect.succeed(snapshotDecoded(decoded))
+      onSuccess: snapshotDecoded
     }
   )
 
@@ -152,7 +157,7 @@ export const make = (routes: ReadonlyArray<Route.Route>): Effect.Effect<CommandS
         FlowInvoker.FlowInvoker
       > =>
         Effect.gen(function*() {
-          const input = snapshotDecoded(candidate)
+          const input = yield* snapshotDecoded(candidate)
           const segments = typeof name === "string" ? name.split("/") : []
           const route = yield* CommandTree.resolveExact(tree, segments)
           const flow = yield* Route.load(route)
