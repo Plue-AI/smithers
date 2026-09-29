@@ -60,6 +60,10 @@ test("admission then final fence preserve secrets and object identity, hand off 
   expect(fake.workers.get("plue-ts")!.subdomain.previews_enabled).toBe(false)
   expect((await applyPhase(root, planSHA256, "admission")).every(x => x.skipped)).toBe(true) // idempotent re-run
   await applyPhase(root, planSHA256, "fence")
+  const fencedMutations = fake.mutations.length, fencedAuthorizations = readFileSync(calls, "utf8")
+  expect((await applyPhase(root, planSHA256, "fence")).every(x => x.skipped)).toBe(true)
+  expect(fake.mutations).toHaveLength(fencedMutations)
+  expect(readFileSync(calls, "utf8")).toBe(fencedAuthorizations)
   for (const w of CLOUDFLARE_PRODUCERS) {
     const live = fake.live(w)
     expect(live.entry).toBe("cutover-fence-entry.js")
@@ -98,6 +102,116 @@ test("admission then final fence preserve secrets and object identity, hand off 
   expect(readFileSync(calls, "utf8").trim().split("\n")).toHaveLength(plan.sequence.length + 14 + plan.sequence.filter(s => s.action === "previews-off").length)
 })
 
+test("a completed admission and restore closes both apply phases for that plan", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const calls = hook(root)
+  await applyPhase(root, planSHA256, "admission")
+  expect((await restoreAll(root, planSHA256)).every(r => r.outcome === "restored" || r.outcome === "already-original")).toBe(true)
+  const worker = "smithers-cloud-identity"
+  fake.workers.get(worker)!.subdomain.previews_enabled = false // independent change after restoration
+  const mutations = [...fake.mutations], authorizations = readFileSync(calls, "utf8")
+  const journal = readJournal(root, planSHA256)
+  for (const phase of ["admission", "fence"] as const) {
+    await expect(applyPhase(root, planSHA256, phase)).rejects.toThrow("CF_INSTALL_RECOVERY_STARTED")
+    expect(fake.mutations).toEqual(mutations)
+    expect(readFileSync(calls, "utf8")).toBe(authorizations)
+    expect(readJournal(root, planSHA256)).toEqual(journal)
+  }
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+})
+
+test("a restored partial admission cannot reuse a preview receipt after an independent disable", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const worker = "smithers-cloud-identity"
+  const firstAdmission = "smithers-cloud-chat-canary"
+  const calls = hook(root)
+  fake.failPut.add(firstAdmission)
+  await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow("CF_INSTALL_UPLOAD_FAILED")
+  expect(readJournal(root, planSHA256).filter(e => e.action === "previews-off" && e.event === "verified")).toHaveLength(5)
+  fake.failPut.delete(firstAdmission)
+  await restoreAll(root, planSHA256)
+  fake.workers.get(worker)!.subdomain.previews_enabled = false // a new actor disabled previews after recovery
+  const mutations = [...fake.mutations], authorizations = readFileSync(calls, "utf8"), journal = readJournal(root, planSHA256)
+  await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow("CF_INSTALL_RECOVERY_STARTED")
+  expect(fake.mutations).toEqual(mutations)
+  expect(readFileSync(calls, "utf8")).toBe(authorizations)
+  expect(readJournal(root, planSHA256)).toEqual(journal)
+  expect(fake.workers.get(worker)!.subdomain.previews_enabled).toBe(false)
+})
+
+test("failed admission retries within its active cycle without disabling previews twice", async () => {
+  const { root, planSHA256, fake } = await setup()
+  const calls = hook(root)
+  const firstAdmission = "smithers-cloud-chat-canary"
+  fake.failPut.add(firstAdmission)
+  await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow("CF_INSTALL_UPLOAD_FAILED")
+  const previewMutations = fake.mutations.filter(m => m.startsWith("subdomain "))
+  expect(previewMutations).toHaveLength(5)
+  fake.failPut.delete(firstAdmission)
+  const retried = await applyPhase(root, planSHA256, "admission")
+  expect(retried.filter(r => r.action === "previews-off").every(r => r.skipped)).toBe(true)
+  expect(retried.filter(r => r.action === "admission").every(r => !r.skipped)).toBe(true)
+  expect(fake.mutations.filter(m => m.startsWith("subdomain "))).toEqual(previewMutations)
+  expect(readFileSync(calls, "utf8").trim().split("\n").filter(line => line.endsWith(" previews-off"))).toHaveLength(5)
+})
+
+test("a crash after preview restore intent closes apply even without an overall restore receipt", async () => {
+  const { root, fake } = await setup()
+  const worker = "smithers-cutover-rehearsal-recovery"
+  fake.addRehearsal(worker)
+  const { planSHA256 } = await prepareInstall(root, { rehearsalWorker: worker })
+  const calls = hook(root)
+  fake.failPut.add(worker)
+  await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow("CF_INSTALL_UPLOAD_FAILED")
+  fake.failPut.delete(worker)
+  const providerFetch = globalThis.fetch
+  let crashPrefix: string | undefined
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (request.method === "POST" && new URL(request.url).pathname.endsWith(`/workers/scripts/${worker}/subdomain`)) {
+      crashPrefix = readFileSync(join(root, "install-journal.jsonl"), "utf8")
+    }
+    return providerFetch(input, init)
+  }) as typeof fetch
+  expect((await restoreAll(root, planSHA256)).map(r => r.outcome)).toEqual(["restored"])
+  expect(crashPrefix).toBeDefined()
+  writeFileSync(join(root, "install-journal.jsonl"), crashPrefix!) // model a process lost after fsynced intent and before its final receipt
+  const journal = readJournal(root, planSHA256)
+  expect(journal.filter(e => e.action === "restore-previews").map(e => e.event)).toEqual(["authorized", "intent"])
+  expect(journal.some(e => e.action === "restore")).toBe(false)
+  const mutations = [...fake.mutations], authorizations = readFileSync(calls, "utf8")
+  for (const phase of ["admission", "fence"] as const) {
+    await expect(applyPhase(root, planSHA256, phase)).rejects.toThrow("CF_INSTALL_RECOVERY_STARTED")
+    expect(fake.mutations).toEqual(mutations)
+    expect(readFileSync(calls, "utf8")).toBe(authorizations)
+    expect(readJournal(root, planSHA256)).toEqual(journal)
+  }
+})
+
+test("a refused recovery closes apply without any successful restore receipt", async () => {
+  const { root, fake } = await setup()
+  const worker = "smithers-cutover-rehearsal-refused"
+  fake.addRehearsal(worker)
+  const { planSHA256 } = await prepareInstall(root, { rehearsalWorker: worker })
+  hook(root)
+  fake.failPut.add(worker)
+  await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow("CF_INSTALL_UPLOAD_FAILED")
+  fake.failPut.delete(worker)
+  hook(root, "refuse")
+  expect(await restoreAll(root, planSHA256)).toEqual([{ worker, outcome: "refused", code: "CF_INSTALL_PHASE_UNAUTHORIZED" }])
+  const journal = readJournal(root, planSHA256)
+  expect(journal.filter(e => e.action === "restore").map(e => e.event)).toEqual(["refused"])
+  expect(journal.some(e => e.action === "restore-previews" || e.event === "restored")).toBe(false)
+  const calls = hook(root)
+  const mutations = [...fake.mutations], authorizations = readFileSync(calls, "utf8")
+  for (const phase of ["admission", "fence"] as const) {
+    await expect(applyPhase(root, planSHA256, phase)).rejects.toThrow("CF_INSTALL_RECOVERY_STARTED")
+    expect(fake.mutations).toEqual(mutations)
+    expect(readFileSync(calls, "utf8")).toBe(authorizations)
+    expect(readJournal(root, planSHA256)).toEqual(journal)
+  }
+})
+
 test("original drift before apply refuses before any mutation of that worker", async () => {
   const { root, planSHA256, fake } = await setup()
   hook(root)
@@ -132,6 +246,9 @@ test("prepare-only restore preserves a foreign preview disable with absent or re
     expect(results.find(r => r.worker === worker)?.outcome).toBe("already-original")
   }
   expect(readJournal(root, planSHA256).filter(e => e.worker === worker && e.action === "restore-previews")).toEqual([])
+  hook(root)
+  await expect(applyPhase(root, planSHA256, "admission")).rejects.toThrow("CF_INSTALL_RECOVERY_STARTED")
+  expect(fake.mutations).toEqual([])
 })
 
 test("owned previews need a separate restore authorization and durable intent even when the original version is live", async () => {
@@ -382,6 +499,10 @@ test("partial fence is journaled and restore rolls back only owned versions, nev
   expect(results.find(r => r.worker === fences[4])!.outcome).toBe("restored") // preview-only rollback
   for (const w of [fences[0]!, fences[2]!, fences[3]!, "smithers-cloud-billing", "smithers-cloud-chat-canary"]) expect(fake.live(w).id).toBe(originals[w]!)
   expect(fake.mutations.filter(m => m === `rollback ${fences[1]}`)).toEqual([])
+  const mutations = [...fake.mutations], journal = readJournal(root, planSHA256)
+  await expect(applyPhase(root, planSHA256, "fence")).rejects.toThrow("CF_INSTALL_RECOVERY_STARTED")
+  expect(fake.mutations).toEqual(mutations)
+  expect(readJournal(root, planSHA256)).toEqual(journal)
 })
 
 test("a lost upload response adopts only the version carrying this execution's annotation", async () => {

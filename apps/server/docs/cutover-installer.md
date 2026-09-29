@@ -23,6 +23,18 @@ Completed restoration retires preview ownership. Later calls preserve foreign
 preview changes. If previews are already enabled, pending ownership is retired
 without a provider write.
 
+## Apply retries
+
+Admission and fence retries reuse verified steps only before recovery begins.
+Any journaled restore or preview-restore action closes the plan to further
+`apply` calls with `CF_INSTALL_RECOVERY_STARTED`, including partial or refused
+recovery. `restore` and `status` remain available. To begin another execution,
+use a new execution ID and private directory. After a version rollback, the
+newest upload can still be a maintenance version. If so, use the authorized
+deployment workflow to deploy a clean application version without maintenance
+bindings; the newest upload must also be live. Then prepare and authorize a
+fresh plan against that provider state.
+
 ## Refusals and recovery
 
 `CF_RESTORE_PREVIEWS_DRIFT` preserves a changed workers.dev setting.

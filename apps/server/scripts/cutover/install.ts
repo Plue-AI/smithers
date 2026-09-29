@@ -307,6 +307,8 @@ export const applyPhase = async (directory: string, planSHA256: string, phase: P
   const root = privateRoot(directory), plan = loadPlan(root, planSHA256)
   return withLock(root, plan.executionID, async () => {
     const journal = () => readJournal(root, planSHA256)
+    // Recovery closes this plan, including refused or partial restores; applying needs a fresh plan.
+    if (journal().some(e => e.action === "restore" || e.action === "restore-previews")) fail("CF_INSTALL_RECOVERY_STARTED")
     if (phase === "fence") for (const s of plan.sequence.filter(s => s.phase === "admission"))
       if (s.action === "previews-off" ? !journal().some(e => e.step === s.index && e.event === "verified") : !verifiedVersion(journal(), s.worker, s.action)) fail("CF_INSTALL_ADMISSION_NOT_VERIFIED")
     // Whole-phase preflight: any drifted authority refuses the phase before its first mutation.
