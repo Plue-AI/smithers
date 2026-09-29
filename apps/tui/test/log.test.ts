@@ -30,6 +30,28 @@ it("appends private redacted diagnostics without losing earlier failures", () =>
   }
 })
 
+it("records a plain failure record by its fields, never as [object Object]", () => {
+  const previous = process.env.SMITHERS_TUI_SESSION_DIR
+  const root = mkdtempSync(join(tmpdir(), "tui-log-record-"))
+  process.env.SMITHERS_TUI_SESSION_DIR = root
+  try {
+    const cyclic: Record<string, unknown> = { reason: "cyclic" }
+    cyclic.self = cyclic
+    Log.write("host.memory", { reason: "unreachable", detail: "Jev was unavailable" })
+    Log.write("host.memory", cyclic)
+    Log.write("worker.retry", { message: "bad key:\nsk-live-0123456789abcdefghij", apiKey: "plain" })
+    const [record, loop, secret] = readFileSync(Log.path(), "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    expect(record.detail).toBe(`{"reason":"unreachable","detail":"Jev was unavailable"}`)
+    expect(loop.detail).toBe(`{"reason":"cyclic","self":"[Circular]"}`)
+    expect(secret.detail).not.toContain("sk-live-0123456789abcdefghij")
+    expect(secret.detail).not.toContain("plain")
+  } finally {
+    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 it("records renderer errors while retaining the renderer console sink", () => {
   const previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
   const previousError = console.error

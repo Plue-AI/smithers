@@ -19,12 +19,23 @@ export const alert = (tag: string, message: string): void => {
   write(tag, message)
   for (const listener of listeners) listener(message)
 }
+/**
+ * A plain failure record, such as an `Unjudged`, by its fields: redacted by
+ * value and key name before it is text, cycles named, and bounded.
+ */
+const fields = (value: object): string => {
+  try {
+    return JSON.stringify(Redaction.redact(value, { onTooDeep: "name" })).slice(0, 64_000)
+  } catch {
+    return String(value)
+  }
+}
 /** Error.stack omits Error.cause; retain its chain without looping on cycles. */
 const describe = (error: unknown, seen = new Set<unknown>()): string => {
   if (seen.has(error)) return "[circular cause]"
   if (seen.size >= 16) return "[cause chain truncated]"
   seen.add(error)
-  if (!(error instanceof Error)) return String(error)
+  if (!(error instanceof Error)) return typeof error === "object" && error !== null ? fields(error) : String(error)
   const own = error.stack ?? error.message
   return error.cause === undefined ? own : `${own}\nCaused by: ${describe(error.cause, seen)}`
 }
