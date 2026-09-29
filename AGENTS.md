@@ -48,10 +48,14 @@ check|claim|release|comment <repo>#<n> --by <agent/session>`.
   landed commit or the reason. If you post a receipt or failure comment, fold
   the release into it with `comment --body-file <f> --release --note <commit |
   reason> [--close]`, one comment. Otherwise use `release --note`.
-- All agents share one GitHub account. Post issue comments, closes, and label
-  changes through this tool: it throttles writes machine-wide and backs off
-  on rate limits. Exit 75 means rate limited: nothing was lost; retry after
-  `retry_at` and do not count it as a failed attempt.
+- Post issue comments, closes, and label changes through this tool: it
+  throttles writes machine-wide and backs off on rate limits. Exit 75 means
+  rate limited: nothing was lost; retry after `retry_at` and do not count it
+  as a failed attempt.
+- The tool runs as a GitHub App, not a person, when one is configured in
+  `~/.config/issue-claim/app.json` (`{"app_id", "private_key_path"}`); each
+  output line's `identity` says which. Without it, writes spend the `gh`
+  user's rate limits.
 
 ## Zero tech debt; one backend (Will, 2026-09-25)
 

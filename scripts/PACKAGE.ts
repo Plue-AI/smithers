@@ -531,6 +531,9 @@ const githubTriage = Smithers.NodeTest({
  * claim blocks other agents, a stale one can be taken over, racing claimants
  * agree on the first, retries never re-post, a receipt carries the release, and
  * every write passes one machine-wide throttle that exits 75 on rate limits.
+ * Against a stub GitHub API it proves calls run as a configured GitHub App's
+ * cached installation token, refreshed before expiry, fall back to the `gh`
+ * user without one, and never print the key, the JWT or the token.
  *
  * @since 1.0.0
  * @category test

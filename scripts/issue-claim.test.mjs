@@ -1,25 +1,31 @@
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync, spawn } from "node:child_process"
+import { generateKeyPairSync, verify } from "node:crypto"
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 
-import { claimBody, holder, LABEL, parseRef, releaseBody, run, splitResponse, throttle, TRANSIENT, Transient } from "./issue-claim.mjs"
+import { appAuth, claimBody, holder, LABEL, parseRef, releaseBody, run, splitResponse, throttle, TOKEN_MARGIN, TRANSIENT, Transient } from "./issue-claim.mjs"
 
 const T0 = new Date("2026-09-29T00:00:00Z")
 const hours = (n) => new Date(T0.getTime() + n * 3600_000)
 const HOST = hostname()
+// No test may pick up this machine's real GitHub App configuration.
+const NO_APP = "/nonexistent/issue-claim-app.json"
+process.env.ISSUE_CLAIM_APP_CONFIG = NO_APP
 
 // An unthrottled cache dir per fake, so command tests never wait; throttle tests set their own limits.
 const cacheEnv = (extra = {}) => ({ ISSUE_CLAIM_CACHE: mkdtempSync(join(tmpdir(), "issue-claim-cache-")),
-  ISSUE_CLAIM_SPACING_MS: "0", ISSUE_CLAIM_PER_MINUTE: "100000", ...extra })
+  ISSUE_CLAIM_SPACING_MS: "0", ISSUE_CLAIM_PER_MINUTE: "100000", ISSUE_CLAIM_APP_CONFIG: NO_APP, ...extra })
 
 // An in-memory GitHub issue behind the `gh api` calls the CLI makes.
 const fakeGitHub = (issue = {}) => {
   const state = { labels: [], comments: [], events: [], calls: [], clock: T0, open: true, env: cacheEnv(), ...issue }
-  const gh = (args) => {
+  const gh = (args, auth = {}) => {
     state.calls.push(args.join(" "))
+    ;(state.tokens ??= []).push(auth.GH_TOKEN)
     const path = args.find((arg) => arg.startsWith("repos/"))
     const field = (name) => args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1)
     if (args.includes("PATCH")) {
@@ -491,5 +497,140 @@ else console.log(JSON.stringify({ state: "open", labels: [] }))
       assert.equal(blocked.status, 75)
       assert.equal(readFileSync(join(dir, "writes"), "utf8").split("\n").length, writes.split("\n").length + 1, "only the limited write reached gh")
     } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe("issue-claim GitHub App identity", () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  const KEY = privateKey.export({ type: "pkcs1", format: "pem" })
+  const TOKEN = "ghs_installationTokenForTests"
+  const SLUG = "smitherspreviewrelease"
+
+  // A stub GitHub REST API for the two App calls: installation lookup and token mint.
+  const stubApi = ({ installed = true, expiresIn = 3600_000, clock = () => T0 } = {}) => {
+    const calls = []
+    const request = ({ url, method, jwt }) => {
+      calls.push({ url, method, jwt })
+      if (url.endsWith("/installation")) return installed ? { status: 200, body: JSON.stringify({ id: 42, app_slug: SLUG }) } : { status: 404, body: "{\"message\":\"Not Found\"}" }
+      if (url.endsWith("/app/installations/42/access_tokens") && method === "POST") {
+        return { status: 201, body: JSON.stringify({ token: `${TOKEN}${calls.length}`, expires_at: new Date(clock().getTime() + expiresIn).toISOString() }) }
+      }
+      return { status: 500, body: "{}" }
+    }
+    return { calls, request }
+  }
+  const appEnv = () => {
+    const dir = mkdtempSync(join(tmpdir(), "issue-claim-app-"))
+    writeFileSync(join(dir, "key.pem"), KEY, { mode: 0o600 })
+    return cacheEnv({ ISSUE_CLAIM_APP_ID: "4163546", ISSUE_CLAIM_APP_KEY_FILE: join(dir, "key.pem") })
+  }
+
+  it("mints an installation token with an App JWT, caches it 0600 and runs every call as the App", () => {
+    const github = fakeGitHub()
+    github.state.env = appEnv()
+    const api = stubApi()
+    const { code, out } = run(["claim", "plue#7", "--by", "lane-1"], { gh: github.gh, now: () => T0, env: github.state.env, request: api.request })
+    assert.equal(code, 0)
+    assert.equal(out.identity, `app:${SLUG}`)
+    assert.deepEqual(api.calls.map((call) => `${call.method} ${new URL(call.url).pathname}`),
+      ["GET /repos/smithersai/plue/installation", "POST /app/installations/42/access_tokens"])
+    const [header, payload, signature] = api.calls[0].jwt.split(".")
+    assert.deepEqual(JSON.parse(Buffer.from(header, "base64url")), { alg: "RS256", typ: "JWT" })
+    const claims = JSON.parse(Buffer.from(payload, "base64url"))
+    assert.equal(claims.iss, "4163546")
+    assert.ok(claims.exp - claims.iat <= 600)
+    assert.ok(verify("RSA-SHA256", Buffer.from(`${header}.${payload}`), publicKey, Buffer.from(signature, "base64url")))
+    assert.ok(github.state.tokens.length > 0 && github.state.tokens.every((token) => token === `${TOKEN}2`), "every gh call carries the App token")
+    const cache = join(github.state.env.ISSUE_CLAIM_CACHE, "app-4163546-smithersai.json")
+    assert.equal(statSync(cache).mode & 0o777, 0o600)
+    assert.ok(!JSON.stringify(out).includes(TOKEN))
+  })
+
+  it("reuses the cached token until five minutes before expiry, then mints a new one", () => {
+    const env = appEnv()
+    let at = T0
+    const api = stubApi({ clock: () => at })
+    const auth = () => appAuth("smithersai/smithers", { env, now: () => at, request: api.request })
+    assert.equal(auth().token, `${TOKEN}2`)
+    at = new Date(T0.getTime() + 3600_000 - TOKEN_MARGIN - 1000)
+    assert.equal(auth().token, `${TOKEN}2`)
+    assert.equal(api.calls.length, 2, "a token with more than 5 minutes left is reused")
+    at = new Date(T0.getTime() + 3600_000 - TOKEN_MARGIN + 1000)
+    assert.equal(auth().token, `${TOKEN}4`)
+    assert.equal(api.calls.length, 4)
+  })
+
+  it("runs as the gh user when no App is configured or the App is not installed for the owner", () => {
+    const github = fakeGitHub()
+    const api = stubApi()
+    const none = run(["claim", "plue#7", "--by", "lane-1"], { gh: github.gh, now: () => T0, env: github.state.env, request: api.request })
+    assert.equal(none.out.identity, "gh-user")
+    assert.equal(api.calls.length, 0)
+    assert.ok(github.state.tokens.every((token) => token === undefined))
+    const elsewhere = fakeGitHub()
+    elsewhere.state.env = appEnv()
+    const missing = stubApi({ installed: false })
+    const { out } = run(["check", "acme/tool#3"], { gh: elsewhere.gh, now: () => T0, env: elsewhere.state.env, request: missing.request })
+    assert.equal(out.identity, "gh-user")
+    assert.match(out.identity_reason, /not installed for acme\/tool/)
+    assert.ok(elsewhere.state.tokens.every((token) => token === undefined))
+  })
+
+  it("never prints the key, the JWT or the token, through the real CLI against a stub API", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "issue-claim-app-cli-"))
+    const seen = []
+    const server = createServer((req, res) => {
+      seen.push({ path: req.url, auth: req.headers.authorization })
+      res.setHeader("content-type", "application/json")
+      if (req.url === "/repos/smithersai/plue/installation") return res.end(JSON.stringify({ id: 42, app_slug: SLUG }))
+      if (req.url === "/app/installations/42/access_tokens" && process.env.FAKE_MINT_FAIL !== "1") {
+        res.statusCode = 201
+        return res.end(JSON.stringify({ token: TOKEN, expires_at: new Date(Date.now() + 3600_000).toISOString() }))
+      }
+      res.statusCode = 500
+      res.end(JSON.stringify({ message: "boom" }))
+    })
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+    try {
+      writeFileSync(join(dir, "key.pem"), KEY, { mode: 0o600 })
+      writeFileSync(join(dir, "app.json"), JSON.stringify({ app_id: 4163546, private_key_path: join(dir, "key.pem") }))
+      const gh = join(dir, "gh")
+      writeFileSync(gh, `#!/usr/bin/env node
+const args = process.argv.slice(2)
+require("node:fs").appendFileSync(${JSON.stringify(join(dir, "gh-calls"))}, (process.env.GH_TOKEN === ${JSON.stringify(TOKEN)} ? "app " : "user ") + args.join(" ") + "\\n")
+const path = args.find((a) => a.startsWith("repos/"))
+if (args.includes("-f")) console.log("HTTP/2.0 201 Created\\n\\n{}")
+else if (path.endsWith("/comments?per_page=100")) console.log("[[]]")
+else console.log(JSON.stringify({ state: "open", labels: [] }))
+`, { mode: 0o755 })
+      const env = { ...process.env, ISSUE_CLAIM_GH: gh, ISSUE_CLAIM_CACHE: join(dir, "cache"), ISSUE_CLAIM_SPACING_MS: "0",
+        ISSUE_CLAIM_APP_CONFIG: join(dir, "app.json"), ISSUE_CLAIM_API_URL: `http://127.0.0.1:${server.address().port}` }
+      const cli = (argv) => new Promise((resolve) => {
+        const child = spawn(process.execPath, [new URL("./issue-claim.mjs", import.meta.url).pathname, ...argv], { env })
+        let output = ""
+        child.stdout.on("data", (chunk) => { output += chunk })
+        child.stderr.on("data", (chunk) => { output += chunk })
+        child.on("exit", (code) => resolve({ code, output }))
+      })
+      const ok = await cli(["comment", "plue#9", "--body", "receipt"])
+      assert.equal(ok.code, 0, ok.output)
+      assert.equal(JSON.parse(ok.output).identity, `app:${SLUG}`)
+      assert.match(readFileSync(join(dir, "gh-calls"), "utf8"), /^app api -i repos\/smithersai\/plue\/issues\/9\/comments -f body=receipt$/m)
+      const jwt = seen[0].auth.slice("Bearer ".length)
+      rmSync(join(dir, "cache", "app-4163546-smithersai.json"))
+      process.env.FAKE_MINT_FAIL = "1"
+      const failed = await cli(["comment", "plue#9", "--body", "again"])
+      delete process.env.FAKE_MINT_FAIL
+      assert.equal(failed.code, 1)
+      assert.match(failed.output, /HTTP 500 boom/)
+      const keyBody = KEY.split("\n")[1]
+      const artifacts = readdirSync(join(dir, "cache")).filter((name) => !name.startsWith("app-")).map((name) => readFileSync(join(dir, "cache", name), "utf8")).join("\n")
+      for (const text of [ok.output, failed.output, artifacts, readFileSync(join(dir, "gh-calls"), "utf8")]) {
+        for (const secret of [TOKEN, jwt, keyBody]) assert.ok(!text.includes(secret), "no secret in output, logs or throttle state")
+      }
+    } finally {
+      server.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

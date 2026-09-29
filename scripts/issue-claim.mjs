@@ -27,8 +27,19 @@
 // limited, retry after `retry_at` (not a failed attempt, nothing to undo); 1: error.
 // Environment: ISSUE_CLAIM_GH replaces the `gh` binary (tests); ISSUE_CLAIM_SPACING_MS,
 // ISSUE_CLAIM_PER_MINUTE and ISSUE_CLAIM_MAX_WAIT_MS tune the throttle.
+//
+// GitHub identity: when a GitHub App is configured, every call runs as that App's
+// installation on the issue's owner, so agents never spend a person's rate limits.
+// Configure ISSUE_CLAIM_APP_ID and ISSUE_CLAIM_APP_KEY_FILE, or the file ISSUE_CLAIM_APP_CONFIG
+// (default ~/.config/issue-claim/app.json) as {"app_id": 123, "private_key_path": "~/key.pem"}.
+// The installation token is cached in the cache directory with mode 0600 until 5 minutes
+// before it expires and reaches `gh` only through GH_TOKEN; the key, the JWT and the token
+// are never printed. Without a configured App, or when the App is not installed for the
+// owner, calls run as the `gh` user. Every output line names the identity that ran it.
+// ISSUE_CLAIM_API_URL replaces https://api.github.com for token minting (tests).
 
 import { execFileSync } from "node:child_process"
+import { sign } from "node:crypto"
 import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { homedir, hostname, userInfo } from "node:os"
 import { join } from "node:path"
@@ -203,9 +214,74 @@ export const throttle = ({ env = process.env, now = () => new Date(), sleep = sl
   }
 }
 
-const defaultGh = (args) => {
+const defaultGh = (args, auth = {}) => {
   const binary = process.env.ISSUE_CLAIM_GH || "gh"
-  return execFileSync(binary, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20 })
+  return execFileSync(binary, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20, env: { ...process.env, ...auth } })
+}
+
+export const TOKEN_MARGIN = 5 * 60_000
+
+/** The configured GitHub App as `{ id, keyFile }`, or null when none is configured. */
+export const appConfig = (env = process.env) => {
+  const home = (path) => path.replace(/^~(?=\/)/, homedir())
+  if (env.ISSUE_CLAIM_APP_ID && env.ISSUE_CLAIM_APP_KEY_FILE) return { id: env.ISSUE_CLAIM_APP_ID, keyFile: home(env.ISSUE_CLAIM_APP_KEY_FILE) }
+  let config
+  try { config = JSON.parse(readFileSync(env.ISSUE_CLAIM_APP_CONFIG || join(homedir(), ".config", "issue-claim", "app.json"), "utf8")) } catch { return null }
+  return config.app_id && config.private_key_path ? { id: String(config.app_id), keyFile: home(config.private_key_path) } : null
+}
+
+/** A 9-minute RS256 JWT that authenticates as the App itself; GitHub allows at most 10. */
+export const appJwt = (id, key, nowMs) => {
+  const part = (value) => Buffer.from(JSON.stringify(value)).toString("base64url")
+  const at = Math.floor(nowMs / 1000)
+  const unsigned = `${part({ alg: "RS256", typ: "JWT" })}.${part({ iat: at - 60, exp: at + 540, iss: id })}`
+  return `${unsigned}.${sign("RSA-SHA256", Buffer.from(unsigned), key).toString("base64url")}`
+}
+
+/** One synchronous GitHub API call authenticated by `jwt`, sent to a child process on stdin, never in argv. */
+const requestSync = ({ url, method, jwt }) => JSON.parse(execFileSync(process.execPath, ["-e", `
+const { url, method, jwt } = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
+fetch(url, { method, headers: { authorization: "Bearer " + jwt, accept: "application/vnd.github+json", "user-agent": "issue-claim", "x-github-api-version": "2022-11-28" } })
+  .then(async (r) => ({ status: r.status, retryAfter: r.headers.get("retry-after"), body: await r.text() }), (e) => ({ status: 0, body: String(e.message) }))
+  .then((out) => process.stdout.write(JSON.stringify(out)))`], { input: JSON.stringify({ url, method, jwt }), encoding: "utf8", timeout: 30_000 }))
+
+/**
+ * The GitHub identity for calls on `repo`: `{ identity, token }` for the configured App's
+ * installation on the repo's owner, `{ identity: "gh-user" }` otherwise. Reuses the cached
+ * token until TOKEN_MARGIN before its expiry, then mints a new one.
+ */
+export const appAuth = (repo, { env = process.env, now = () => new Date(), request = requestSync } = {}) => {
+  const config = appConfig(env)
+  if (!config) return { identity: "gh-user" }
+  const dir = env.ISSUE_CLAIM_CACHE || join(homedir(), ".cache", "issue-claim")
+  const file = join(dir, `app-${config.id}-${repo.split("/")[0]}.json`)
+  try {
+    const cached = JSON.parse(readFileSync(file, "utf8"))
+    if (Date.parse(cached.expires_at) - now().getTime() > TOKEN_MARGIN) return { identity: `app:${cached.slug}`, token: cached.token }
+  } catch { /* none cached yet */ }
+  const jwt = appJwt(config.id, readFileSync(config.keyFile, "utf8"), now().getTime())
+  const call = (method, path, ok) => {
+    const response = request({ url: `${env.ISSUE_CLAIM_API_URL || "https://api.github.com"}${path}`, method, jwt })
+    if (response.status === ok) return JSON.parse(response.body)
+    let message = response.body
+    try { message = JSON.parse(response.body).message } catch { /* not JSON */ }
+    const failure = `GitHub App ${config.id} ${method} ${path}: HTTP ${response.status} ${String(message).slice(0, 200)}`
+    if (response.status === 429 || (response.status === 403 && LIMITED.test(message))) {
+      throw new Transient(failure, now().getTime() + Math.max(Number(response.retryAfter) * 1000 || 0, 60_000))
+    }
+    throw Object.assign(new Error(failure), { status: response.status })
+  }
+  let installation
+  try { installation = call("GET", `/repos/${repo}/installation`, 200) } catch (error) {
+    if (error.status === 404) return { identity: "gh-user", reason: `GitHub App ${config.id} is not installed for ${repo}` }
+    throw error
+  }
+  const { token, expires_at } = call("POST", `/app/installations/${installation.id}/access_tokens`, 201)
+  mkdirSync(dir, { recursive: true })
+  rmSync(`${file}.tmp`, { force: true })
+  writeFileSync(`${file}.tmp`, JSON.stringify({ installation: installation.id, slug: installation.app_slug, token, expires_at }), { mode: 0o600 })
+  renameSync(`${file}.tmp`, file)
+  return { identity: `app:${installation.app_slug}`, token }
 }
 
 const pages = (text) => JSON.parse(text || "[]").flat()
@@ -226,7 +302,21 @@ export const read = ({ repo, number }, gh = defaultGh) => {
 
 const mine = (claim, me) => claim && claim.by === me.by && claim.host === me.host
 
-export const run = (argv, { gh = defaultGh, now = () => new Date(), env = process.env, sleep } = {}) => {
+/** Runs a command as the configured App when there is one; see `appAuth`. `out.identity` names who ran it. */
+export const run = (argv, { gh = defaultGh, now = () => new Date(), env = process.env, sleep, request } = {}) => {
+  const [command, ref] = argv
+  if (!["check", "claim", "release", "comment"].includes(command)) return runAs(argv, { gh, now, env, sleep })
+  const issue = parseRef(ref)
+  let auth
+  try { auth = appAuth(issue.repo, { env, now, request }) } catch (error) {
+    if (!(error instanceof Transient)) throw error
+    return { code: TRANSIENT, out: { issue: `${issue.repo}#${issue.number}`, action: "deferred", retry_at: new Date(error.retryAt).toISOString(), error: error.message } }
+  }
+  const result = runAs(argv, { gh: auth.token ? (args) => gh(args, { GH_TOKEN: auth.token }) : gh, now, env, sleep })
+  return { ...result, out: { ...result.out, identity: auth.identity, ...(auth.reason ? { identity_reason: auth.reason } : {}) } }
+}
+
+const runAs = (argv, { gh, now, env, sleep }) => {
   const [command, ref, ...rest] = argv
   const option = (name) => { const at = rest.indexOf(name); return at < 0 ? undefined : rest[at + 1] }
   const flag = (name) => rest.includes(name)
