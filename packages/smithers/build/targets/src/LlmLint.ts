@@ -826,8 +826,8 @@ const renderPrompt = (
   ]
   if (context.length > 0) {
     sections.push(
-      "=== CONTEXT FILES (unchanged reference material) ===\n\n" +
-        "These files did not change in this diff. They are provided so the rubric can be judged " +
+      "=== CONTEXT FILES (shared reference material) ===\n\n" +
+        "These files are supplied in every batch whether or not they changed, so the rubric can be judged " +
         "against them, and a finding may name one of them.\n\n" +
         renderFiles("CONTEXT FILE", context)
     )
