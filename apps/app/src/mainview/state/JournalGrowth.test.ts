@@ -851,11 +851,12 @@ test.each(["commit", "reject"] as const)("identical quiet issue-poll failures do
   const ctx = createControllerContext(store, unavailableAgent, {})
   contexts.push(ctx)
   const failures = createFailureController(ctx)
-  let message = "Issues unavailable", reads = 0
+  // A 5xx body never reaches the toast, so the status is what distinguishes one failure from the next.
+  let status = 503, reads = 0
   const releases: Array<() => void> = []
   const seam = createIssuesSeam({ store, dispatch: store.dispatch, baseUrl: "", actor: () => "user", nextOrdinal: () => 2,
     withToast: failures.withToast, isDisposed: () => ctx.disposed,
-    http: async () => { reads++; return Response.json({ message }, { status: 503 }) } })
+    http: async () => { reads++; return Response.json({ message: "Issues unavailable" }, { status }) } })
   const waitFor = async (predicate: () => boolean) => {
     const deadline = Date.now() + 2_000
     while (!predicate()) {
@@ -878,20 +879,21 @@ test.each(["commit", "reject"] as const)("identical quiet issue-poll failures do
     await store.settled?.()
     const first = store.committedToast(toastId)
     expect(first).toMatchObject({ status: "failed", title: "Syncing messages" })
-    expect(first?.detail).toContain("Issues unavailable")
+    expect(first?.detail).toContain("failed (503)")
+    expect(first?.detail).not.toContain("Issues unavailable")
     const before = await store.eventHistory(), physical = fixture.footprint()
     for (let index = 0; index < 10; index++) await poll()
     await store.settled?.()
     expect((await store.eventHistory()).head).toEqual(before.head)
     expect(fixture.footprint()).toEqual(physical)
     // A changed failure is a new fact; identical reads during its held write add nothing.
-    message = "Issues maintenance"
+    status = 502
     const held = fixture.pauseNextWrite()
     await poll()
     await held.entered
     for (let index = 0; index < 3; index++) await poll()
-    expect(store.committedToast(toastId)?.detail).toContain("Issues unavailable")
-    expect(store.collections.toasts.get(toastId)?.detail).toContain("Issues maintenance")
+    expect(store.committedToast(toastId)?.detail).toContain("failed (503)")
+    expect(store.collections.toasts.get(toastId)?.detail).toContain("failed (502)")
     if (outcome === "reject") {
       held.fail(new Error("Toast write refused"))
       await waitFor(() => storageFailures.length === 1)
@@ -916,7 +918,7 @@ test.each(["commit", "reject"] as const)("identical quiet issue-poll failures do
     await poll()
     await store.settled?.()
     expect(store.committedToast(toastId)).toMatchObject({ status: "failed" })
-    expect(store.committedToast(toastId)?.detail).toContain("Issues maintenance")
+    expect(store.committedToast(toastId)?.detail).toContain("failed (502)")
     expect((await store.eventHistory()).head.sequence).toBe(changed.head.sequence + 3)
     const reopened = await open(fixture.path)
     expect((await reopened.store.verifyState()).valid).toBe(true)

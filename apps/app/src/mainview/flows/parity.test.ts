@@ -79,13 +79,27 @@ interface HandlerRef {
   readonly context: string
 }
 
-/** Inspect the complete JSX handler; focus handoffs can precede the command. */
+/**
+ * Inspect the complete JSX handler; focus handoffs can precede the command.
+ * A handler passed as a property of an `actions` object (FailureNotice's
+ * `actions={{ retry: { onClick } }}`) is a button too.
+ */
 const handlers = (source: string): Array<HandlerRef> => {
   const tree = ts.createSourceFile("surface.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const lines = source.split("\n")
   const found: Array<HandlerRef> = []
+  const isAction = (name: string) => ACTION_PROPS.includes(name as typeof ACTION_PROPS[number])
+  const insideActions = (node: ts.Node): boolean => {
+    for (let parent = node.parent; parent !== undefined; parent = parent.parent) {
+      if (ts.isJsxAttribute(parent)) return parent.name.getText(tree) === "actions"
+    }
+    return false
+  }
   const visit = (node: ts.Node) => {
-    if (ts.isJsxAttribute(node) && ACTION_PROPS.includes(node.name.getText(tree) as typeof ACTION_PROPS[number])) {
+    const named = ts.isJsxAttribute(node) ||
+      ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node) || ts.isMethodDeclaration(node)) &&
+        insideActions(node))
+    if (named && isAction(node.name.getText(tree))) {
       const line = tree.getLineAndCharacterOfPosition(node.getStart(tree)).line
       found.push({ prop: node.name.getText(tree), line: lines[line]!, context: node.getText(tree) })
     }
@@ -172,11 +186,11 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   // Choosing this document's writer is a human tab gesture, not an app command.
   // The human credential continuation opened by auth.sign-in. Passwords stay
   // in the form and its auth controller, outside the command journal.
-  "../LocalAuthPanel.tsx": ["onSubmit={submit}", "close(event.currentTarget.ownerDocument)"],
+  "../LocalAuthPanel.tsx": ["onSubmit={submit}", "close(event.currentTarget.ownerDocument)", "onClick: () => auth.open()"],
   // Bootstrap recovery runs before a controller exists. Backend selection
   // stays in the boot adapter; its credential must never enter a command journal.
   "../StartupError.tsx": [
-    "onClick={useSmithersHere}", "onClick={() => window.location.reload()}",
+    "onClick={useSmithersHere}", "onClick={() => window.location.reload()}", "onClick: () => window.location.reload()",
     "onClick={() => setChoosing(true)}", "await switchBackend(origin, token)"
   ],
   "../ToastAction.tsx": ["onAction(action)"], // ToastStack/App bind the typed action to runCommand(action.flow, action.args)
@@ -232,7 +246,7 @@ describe("launch-law parity: every affordance is a command", () => {
   test("the focused guide and run-card indirections retain their bindings", () => {
     const startup = files["../StartupError.tsx"]!
     expect(startup).toContain("await nativeSwitchBackendTarget(origin, token)")
-    expect(startup).toContain("switchBackendTarget(origin, token, window.location.origin)")
+    expect(startup).toContain("switchBackendTarget(target, token, window.location.origin)")
     expect(files["../LocalAuthPanel.tsx"]).toContain("void auth.submit({")
     expect(files["../LocalAuthPanel.tsx"]).toContain("auth.close()")
     expect(files["../HelpBubble.tsx"]).toContain("onDismiss()")
@@ -281,9 +295,9 @@ describe("launch-law parity: every affordance is a command", () => {
       "../ChatFilterMenu.tsx": 2,
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
       "../TranscriptMessage.tsx": 4,
-      "../LocalAuthPanel.tsx": 3,
+      "../LocalAuthPanel.tsx": 4, // Includes the failed read's Retry, a FailureNotice action.
     "../RegistrationStatus.tsx": 1,
-      "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, bootstrap Retry, backend chooser, and credential submission.
+      "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, backend chooser, credential submission, and the bootstrap Retry (a FailureNotice action).
       "../StorageRecoveryButton.tsx": 1,
     "../SubagentGrid.tsx": 4,
       "../FlowsSurface.tsx": 2,
@@ -322,7 +336,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * Restore and Maximize. Every card body lives in its family file under
        * cards/ and is pinned there.
        */
-      "../ChatCards.tsx": 10,
+      "../ChatCards.tsx": 10, // Includes the card error boundary's Reload app, a FailureNotice action (chat.reload).
       "../ChatRunTimeline.tsx": 1,
       /* The turn's approval card: approve and deny. */
       "../cards/ApprovalCard.tsx": 2,
@@ -334,8 +348,8 @@ describe("launch-law parity: every affordance is a command", () => {
        * onAnswer prop rather than runCommand.
        */
       "../cards/ApprovalAnswer.tsx": 4,
-      /* The admin grant confirm: Post the grant and Cancel. */
-      "../cards/BillingCards.tsx": 3,
+      /* The admin grant confirm: Post the grant and Cancel, and the failed grant's Cancel beside its FailureNotice (Try again is the notice's retry action). */
+      "../cards/BillingCards.tsx": 5, // Includes FailureNotice actions.
       /* The access-request queue's Approve. */
       "../cards/AdminCards.tsx": 1,
       /*
@@ -344,7 +358,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * watching, launch Retry, Stop, Run again, the steer row's send, the
        * repository chooser's row and the workflow list's Run.
        */
-      "../cards/WorkflowCards.tsx": 16,
+      "../cards/WorkflowCards.tsx": 16, // Includes a failed launch's Retry, a FailureNotice action (flow.run.retry).
       "../DevtoolsPanel.tsx": 1,
       "../SearchPalette.tsx": 6, // + Ask Smithers, the first row of an empty ⌘K
       "../SurfaceChrome.tsx": 3,
@@ -364,7 +378,7 @@ describe("launch-law parity: every affordance is a command", () => {
     "../cards/RegistrationCard.tsx": 2,
       "../cards/EnvCard.tsx": 3,
       /* The account card's Sign out door (auth.sign-out through onRunCommand). */
-      "../cards/AccountCard.tsx": 2,
+      "../cards/AccountCard.tsx": 1, // The permissions read's Retry (account.show) is a FailureNotice action.
       /* 2 = Try again + the done state's Open the workspace (lane sync). */
       "../cards/RepoImportCard.tsx": 2,
       // The tutorial's ranked chooser: one row button plus Skip.
@@ -395,7 +409,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */
-      "../cards/RunTraceCard.tsx": 12, // Includes the graph view door and the Steps view door.
+      "../cards/RunTraceCard.tsx": 13, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
       "../cards/RunTraceSteps.tsx": 1, // Each step row selects its span.
       "../cards/RunTracePhaseStrip.tsx": 3,
       "../cards/RunTraceSummary.tsx": 3, // + Take over / Release (runs.takeover, runs.release).
@@ -409,8 +423,8 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/RunsCards.tsx": 11, // + the inbox rows' run reference.
       "../cards/SearchResultsCard.tsx": 2,
       "../cards/SecretsCard.tsx": 9,
-      /* 9 = the Stack card's Backfill, fewer/more lanes, a row's Retry, a failure's Retry, Bootstrap, the Wiki row's pages (wiki.cloud) and Retry (wiki.create), and the Issues/Metrics switch (history.view; card only, not the homepage). */
-      "../cards/StackCard.tsx": 9,
+      /* 7 = the Stack card's Backfill, fewer/more lanes, a row's Retry, Bootstrap, the Wiki row's pages (wiki.cloud), and the Issues/Metrics switch (history.view; card only, not the homepage). A failure's Retry and the Wiki row's Retry (wiki.create) are FailureNotice actions. */
+      "../cards/StackCard.tsx": 7,
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
       "../cards/AgentCards.tsx": 5, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
@@ -486,7 +500,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * registered schedule's Run now and Pause, the button doors of
        * triggers.run and triggers.pause.
        */
-      "../cards/TriggersCard.tsx": 5,
+      "../cards/TriggersCard.tsx": 4, // -1: a failed pause's Retry (triggers.pause) is a FailureNotice action.
       /* Librarian L5: the rail card's Open and note rows (wiki.open) and the graph card's Refresh (wiki.graph). */
       "../cards/WikiCards.tsx": 5, // + the history card's Previous/Next page (wiki.history).
       /* The wiki navigation (#1922): the space switch (wiki.space), the tree rows (wiki.select / wiki.cloud.open), the tag filter. */
