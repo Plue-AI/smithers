@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 import * as Binding from "../agent/scorers/src/Binding.ts"
 import * as Scorer from "../agent/scorers/src/Scorer.ts"
@@ -61,7 +62,9 @@ const result = async (score: number): Promise<Evaluation.RunArtifact> => {
 
 describe("evaluation CLI", () => {
   it("lists the repo\u0027s shipped fixed suites from its root", async () => {
-    const listed = await serve(process.cwd(), ["list"])
+    // The shipped suites live under the repository root's `evals/`; vitest
+    // runs from `packages/smithers`, so the root is named from this file.
+    const listed = await serve(fileURLToPath(new URL("../../..", import.meta.url)), ["list"])
     expect(listed.code, listed.output).toBe(0)
     expect(listed.json.suites.map((entry: { name: string }) => entry.name)).toEqual([
       "agent/agent",

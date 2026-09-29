@@ -20,7 +20,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "postgres-history-"))
     const prefix = `test_history_${randomUUID().replaceAll("-", "")}`
-    vi.stubEnv("SMITHERS_POSTGRES_URL", process.env.SMITHERS_TEST_PG_URL!)
+    vi.stubEnv("SMITHERS_POSTGRES_URL", process.env.SMITHERS_HISTORY_TEST_PG_URL!)
     vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", prefix)
     vi.stubEnv("SMITHERS_BACKEND", "postgres")
     const database = (kind: string) => NodeDatabase.layer({ filename: join(root, ".flows", `${kind}.db`) })

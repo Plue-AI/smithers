@@ -34,11 +34,19 @@ const test = Smithers.Shell.Test({
     Smithers.glob("src/**/*.ts"),
     Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**"] }),
     Smithers.file("vitest.config.ts"),
-    Smithers.glob("//packages/repo-targets/test-utils/effect-property.*")
+    Smithers.glob("//packages/repo-targets/test-utils/effect-property.*"),
+    // `EvaluationCli.test.ts` lists the repository's shipped suites.
+    Smithers.glob("//evals/**/*.eval.ts")
   ],
   timeout: "40m",
   hosts: ["linux"],
-  env: { SMITHERS_TEST_PG_URL: "postgres://postgres:smithers-history-test@127.0.0.1:55435/smithers_history_test" },
+  // Only `HistoryPostgres.test.ts` reads this URL. It is deliberately not
+  // `SMITHERS_TEST_PG_URL`: that name switches every `TestDatabase` case into
+  // the PostgreSQL matrix, and the CLI announces it as an ignored 0.x setting
+  // on stderr, so exporting it here changed every spawned command's output.
+  env: {
+    SMITHERS_HISTORY_TEST_PG_URL: "postgres://postgres:smithers-history-test@127.0.0.1:55435/smithers_history_test"
+  },
   services: [historyPostgresDatabase],
   sandbox: { network: "loopback" }
 })

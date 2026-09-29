@@ -165,8 +165,11 @@ only.
 | `smithers` | `ClaudeCode against the installed Claude Code` | `describe.runIf(SMITHERS_CLAUDE_CODE_SMOKE === "1")` |
 
 **PostgreSQL storage.** The `smithers` history and database adapter tests
-run with declared PostgreSQL services and `SMITHERS_TEST_PG_URL` in their
-Linux test targets.
+run with declared PostgreSQL services in their Linux test targets. The
+database target sets `SMITHERS_TEST_PG_URL`, which moves every `TestDatabase`
+case onto PostgreSQL. The `smithers` target sets only
+`SMITHERS_HISTORY_TEST_PG_URL`, read by the history case alone, because the CLI
+announces `SMITHERS_TEST_PG_URL` as an ignored 0.x setting on stderr.
 
 **`migrate`: apply against a real model.** The three cases in
 `packages/smithers/migrate/test/flow/MigrateFlow.live.e2e.test.ts` drive the migration
