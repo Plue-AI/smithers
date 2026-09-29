@@ -52,7 +52,9 @@ async function handlePostBug(request: Request, env: BugWorkerEnv, now: number): 
   }
   const result = bugReportSchema.safeParse(parsed);
   if (!result.success) {
-    return json(400, { error: "invalid bug report", issues: result.error.issues });
+    // Field paths only: a schema library's own messages are jargon, never a reply.
+    const fields = [...new Set(result.error.issues.map((issue) => issue.path.map(String).join(".") || "(body)"))];
+    return json(400, { error: "invalid bug report", fields });
   }
 
   // The budgets count valid reports only, so rejected requests never spend a

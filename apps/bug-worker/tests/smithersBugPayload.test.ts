@@ -140,7 +140,22 @@ describe("the smithers bug payload contract", () => {
 
     const rejected = await createBugWorker().fetch(post({ ...payload, summary: overCap }), env);
     expect(rejected.status).toBe(400);
-    expect((await rejected.json()) as { error: string }).toMatchObject({ error: "invalid bug report" });
+    const body = (await rejected.json()) as Record<string, unknown>;
+    // The reply names the field, never the schema library's own message.
+    expect(body).toEqual({ error: "invalid bug report", fields: ["summary"] });
+  });
+
+  test("an invalid report names every bad field once, and a non-object body as the body", async () => {
+    const env = makeEnv();
+    const nested = await createBugWorker().fetch(post({ ...payload, summary: 7, environment: { os: 1 } }), env);
+    expect(nested.status).toBe(400);
+    const body = (await nested.json()) as { fields: string[] };
+    expect(body.fields).toContain("summary");
+    expect(new Set(body.fields).size).toBe(body.fields.length);
+    expect(JSON.stringify(body)).not.toMatch(/expected|received|invalid_type/i);
+    const scalar = await createBugWorker().fetch(post(5 as never), env);
+    expect(scalar.status).toBe(400);
+    expect(await scalar.json()).toEqual({ error: "invalid bug report", fields: ["(body)"] });
   });
 
   test("requires a non-empty headline", () => {
