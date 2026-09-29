@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -19,9 +20,21 @@ import (
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
+// mythicalPolicy is a committed projection naming roninjin10 as the
+// maintainer, with the auto-TODO rule active since since ("" = never).
+func mythicalPolicy(since string) string {
+	policy := map[string]any{"mirror": "pull", "issues": "two-way", "changes": "send-upstream", "maintainers": []string{"roninjin10"}}
+	if since != "" {
+		policy["todoSince"] = since
+	}
+	raw, _ := json.Marshal(map[string]any{"on": []any{}, "github": policy})
+	return string(raw)
+}
+
 // labeled delivers a GitHub "labeled" issues event through the stack's
-// webhook entry, stamped as GitHubTextStamper stamps it.
-func (o *mythicalOrchestration) labeled(number int64, labels []string, label string, byMaintainer bool) {
+// webhook entry, from sender, stamped as GitHubTextStamper stamps it
+// (person: a person with write access, not an App, applied it).
+func (o *mythicalOrchestration) labeled(number int64, labels []string, label, sender string, person bool) {
 	o.t.Helper()
 	names := []map[string]string{}
 	for _, name := range labels {
@@ -31,8 +44,10 @@ func (o *mythicalOrchestration) labeled(number int64, labels []string, label str
 		"action": "labeled",
 		"issue": map[string]any{"number": number, "title": fmt.Sprintf("TODO %d", number), "body": "add the file",
 			"html_url": fmt.Sprintf("https://github.com/smithersai/smithers/issues/%d", number), "state": "open",
-			"user": map[string]any{"login": "fucory"}, "labels": names, issueTextByMaintainerField: true},
-		"label":      map[string]any{"name": label, labelAppliedByMaintainerField: byMaintainer},
+			"user": map[string]any{"login": "fucory"}, "labels": names, issueTextByMaintainerField: true,
+			"created_at": "2026-01-01T00:00:00Z"},
+		"label":      map[string]any{"name": label, labelAppliedByMaintainerField: person},
+		"sender":     map[string]any{"login": sender},
 		"repository": map[string]any{"name": "smithers", "owner": map[string]any{"login": "smithersai"}},
 	})
 	require.NoError(o.t, err)
@@ -71,25 +86,29 @@ func TestMythicalTodoIsReviewedAndAutomerged(t *testing.T) {
 	require.NoError(t, err)
 
 	// An issue is a proposal: a maintainer's own text waits for the label.
-	o.labeled(60, []string{"bug"}, "bug", true)
+	o.labeled(60, []string{"bug"}, "bug", "roninjin10", true)
 	assert.Equal(t, "skipped", o.item(60).State)
 	assert.Equal(t, "waiting for a maintainer to add the todo label", o.item(60).Reason)
 
-	// Someone else's todo label is ignored and reverted.
-	o.labeled(60, []string{"bug", "todo"}, "todo", false)
+	// Someone else's todo label is ignored and reverted, even from another
+	// person with write access: only the policy's maintainers count.
+	o.labeled(60, []string{"bug", "todo"}, "todo", "stranger", false)
 	assert.Equal(t, "skipped", o.item(60).State)
-	assert.Equal(t, []string{"#60 todo"}, o.github.removed)
+	o.labeled(60, []string{"bug", "todo"}, "todo", "other-writer", true)
+	assert.Equal(t, "skipped", o.item(60).State)
+	assert.Equal(t, []string{"#60 todo", "#60 todo"}, o.github.removed)
 
-	// A maintainer person's todo label makes it a TODO.
-	o.labeled(60, []string{"bug", "todo"}, "todo", true)
+	// The maintainer's todo label makes it a TODO.
+	o.labeled(60, []string{"bug", "todo"}, "todo", "roninjin10", true)
 	assert.Equal(t, "queued", o.item(60).State)
 	assert.True(t, mythicalChecksOf(o.item(60)).Todo)
 
-	// The same holds for automerge.
-	o.labeled(60, []string{"bug", "todo", "automerge"}, "automerge", false)
+	// Anyone else's automerge counts for nothing and is left alone: reverting
+	// todo is the one label write before landing.
+	o.labeled(60, []string{"bug", "todo", "automerge"}, "automerge", "other-writer", true)
 	assert.False(t, mythicalChecksOf(o.item(60)).Automerge)
-	assert.Equal(t, []string{"#60 todo", "#60 automerge"}, o.github.removed)
-	o.labeled(60, []string{"bug", "todo", "automerge"}, "automerge", true)
+	assert.Equal(t, []string{"#60 todo", "#60 todo"}, o.github.removed)
+	o.labeled(60, []string{"bug", "todo", "automerge"}, "automerge", "roninjin10", true)
 	assert.True(t, mythicalChecksOf(o.item(60)).Automerge)
 	assert.Equal(t, "queued", o.item(60).State)
 
@@ -106,8 +125,8 @@ func TestMythicalTodoIsReviewedAndAutomerged(t *testing.T) {
 
 	// A second TODO: its review approves and it is merged at the reviewed
 	// head, then lands.
-	o.labeled(61, []string{"todo", "automerge"}, "todo", true)
-	o.labeled(61, []string{"todo", "automerge"}, "automerge", true)
+	o.labeled(61, []string{"todo", "automerge"}, "todo", "roninjin10", true)
+	o.labeled(61, []string{"todo", "automerge"}, "automerge", "roninjin10", true)
 	o.propose(61, "sixty-one.md")
 	o.answerReviews(`"Looks right.\n\n**approve**"`)
 	item = o.item(61)
@@ -148,11 +167,16 @@ func TestMythicalBackfillReadsWhoAppliedTheTodoLabel(t *testing.T) {
 		{Number: 80, Title: "Missed", Body: "a", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}},
 		{Number: 81, Title: "Triaged", Body: "b", State: "open", TextByMaintainer: true, Labels: []string{"todo"}},
 	}
-	o.github.labelers = map[int64]string{81: "triager"}
-	o.github.readOnly = map[string]bool{"triager": true}
+	o.github.issues = append(o.github.issues,
+		mythicalIssue{Number: 82, Title: "Via an App", Body: "c", State: "open", TextByMaintainer: true, Labels: []string{"todo"}})
+	// A write collaborator the policy does not name, and an App acting for
+	// the maintainer, apply nothing.
+	o.github.labelers = map[int64]string{81: "other-writer"}
+	o.github.viaApp = map[int64]bool{82: true}
 	counts, err := o.service.Backfill(ctx, o.repoID)
 	require.NoError(t, err)
-	assert.Equal(t, MythicalBackfillCounts{Open: 2, Queued: 1, Skipped: 1}, counts)
+	assert.Equal(t, MythicalBackfillCounts{Open: 3, Queued: 1, Skipped: 2}, counts)
+	assert.Equal(t, "skipped", o.item(82).State)
 	assert.Equal(t, mythicalChecks{Todo: true, Automerge: true}, mythicalChecksOf(o.item(80)))
 	assert.Equal(t, "queued", o.item(80).State)
 	assert.Equal(t, "skipped", o.item(81).State)
@@ -330,58 +354,75 @@ func (h policyHost) GetFileAtChange(_ context.Context, _, _, _, path string) (re
 
 // opened delivers an issues "opened" event through the stack's webhook
 // entry, stamped as the ingress stamps it.
-func (o *mythicalOrchestration) opened(number int64, author string, byMaintainer bool, source string) {
+func (o *mythicalOrchestration) opened(number int64, author string, byMaintainer bool, created string, pull bool, labels ...string) {
 	o.t.Helper()
+	names := []map[string]string{}
+	for _, name := range labels {
+		names = append(names, map[string]string{"name": name})
+	}
 	issue := map[string]any{"number": number, "title": fmt.Sprintf("Issue %d", number), "body": "do it", "state": "open",
 		"html_url": fmt.Sprintf("https://github.com/smithersai/smithers/issues/%d", number), "user": map[string]any{"login": author},
-		"labels": []any{}, issueTextByMaintainerField: byMaintainer}
-	if source != "" {
-		issue["smithers_text_source"] = source
+		"labels": names, issueTextByMaintainerField: byMaintainer, "created_at": created}
+	if pull {
+		issue["pull_request"] = map[string]any{}
 	}
-	payload, err := json.Marshal(map[string]any{"action": "opened", "issue": issue,
+	payload, err := json.Marshal(map[string]any{"action": "opened", "issue": issue, "sender": map[string]any{"login": author},
 		"repository": map[string]any{"name": "smithers", "owner": map[string]any{"login": "smithersai"}}})
 	require.NoError(o.t, err)
 	require.NoError(o.t, o.service.ObserveGitHubEvent(context.Background(), "issues", payload))
 }
 
-// An issue becomes a TODO without the label only when the owner's policy
-// names its author or the source that filed it. The factory then applies
-// the label, records why, and never reverts its own label.
-func TestMythicalPolicyMakesTheMaintainersAndTheFactorysIssuesTodos(t *testing.T) {
+// An issue becomes a TODO without the label only when the maintainer the
+// policy names wrote it after the rule took effect. The factory then applies
+// the label, records why, and never reverts its own label; the item stays a
+// TODO when the label write fails. Nothing else, and never the backlog.
+func TestMythicalPolicyMakesTheMaintainersNewIssuesTodos(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	_, err := o.pool.Exec(ctx, `UPDATE repositories SET mirror_destination = 'https://github.com/smithersai/smithers' WHERE id = $1`, o.repoID)
 	require.NoError(t, err)
-	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream",` +
-		`"agentIssueSources":["run"],"todoAuthors":["roninjin10"]}}`})
+	o.service.SetPolicyReader(policyHost{mythicalPolicy("2026-09-28T00:00:00Z")})
+	after, before := "2026-09-29T10:00:00Z", "2026-09-27T10:00:00Z"
 
-	o.opened(1, "roninjin10", true, "")
+	o.opened(1, "roninjin10", true, after, false)
 	item := o.item(1)
 	assert.Equal(t, "queued", item.State, item.Reason)
-	assert.Equal(t, "written by roninjin10, a TODO author", mythicalChecksOf(item).AutoTodo)
-	o.opened(2, "other-maintainer", true, "")
-	assert.Equal(t, "skipped", o.item(2).State, "another maintainer's issue waits for the label")
-	o.opened(3, "stranger", false, "")
+	assert.Equal(t, "written by roninjin10, a maintainer", mythicalChecksOf(item).AutoTodo)
+	o.opened(2, "other-writer", true, after, false)
+	assert.Equal(t, "skipped", o.item(2).State, "another writer's issue waits for the label")
+	o.opened(3, "stranger", false, after, false)
 	assert.Equal(t, "skipped", o.item(3).State, "an outsider's issue waits for the label")
-	o.opened(4, "roninjin10", false, "")
+	o.opened(4, "roninjin10", false, after, false)
 	assert.Equal(t, "skipped", o.item(4).State, "the maintainer's issue someone else rewrote waits")
-	o.opened(5, "fucory", false, "run")
-	item = o.item(5)
-	assert.Equal(t, "queued", item.State, "an issue the factory filed is a TODO")
-	assert.Equal(t, "filed by the factory (run)", mythicalChecksOf(item).AutoTodo)
-	assert.Equal(t, []string{"#1 todo", "#5 todo"}, o.github.added, "the factory shows what it made a TODO")
+	o.opened(5, "roninjin10", true, before, false)
+	assert.Equal(t, "skipped", o.item(5).State, "the backlog from before the rule stays proposals")
+	o.opened(6, "roninjin10", true, after, true)
+	assert.Equal(t, "skipped", o.item(6).State, "a pull request is never a TODO")
+	assert.Equal(t, []string{"#1 todo"}, o.github.added, "the factory labels only the TODO it made")
 
 	// The App's own labeled event is not reverted; the item stays a TODO.
-	o.labeled(1, []string{"todo"}, "todo", false)
+	o.labeled(1, []string{"todo"}, "todo", "smithers-app[bot]", false)
 	assert.Empty(t, o.github.removed)
 	assert.Equal(t, "queued", o.item(1).State)
 
-	// Without the policy, no issue is a TODO on its own.
-	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream"}}`})
-	o.opened(6, "roninjin10", true, "")
-	assert.Equal(t, "skipped", o.item(6).State)
-	o.opened(7, "fucory", false, "run")
-	assert.Equal(t, "skipped", o.item(7).State)
+	// The decision is the item's: an edit that arrives before the label (the
+	// label write failed) keeps it a TODO, and the label is tried again.
+	o.opened(7, "roninjin10", true, after, false)
+	o.opened(7, "roninjin10", true, after, false)
+	assert.Equal(t, "queued", o.item(7).State)
+	assert.Equal(t, []string{"#1 todo", "#7 todo", "#7 todo"}, o.github.added, "each event retries the missing label")
+
+	// A sweep of the backlog makes none of it a TODO.
+	o.github.issues = []mythicalIssue{{Number: 8, Title: "Old", Body: "x", State: "open", TextByMaintainer: true,
+		Author: gitHubActor{Login: "roninjin10"}, CreatedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)}}
+	_, err = o.service.Backfill(ctx, o.repoID)
+	require.NoError(t, err)
+	assert.Equal(t, "skipped", o.item(8).State)
+
+	// Without the rule's start, no issue is a TODO on its own.
+	o.service.SetPolicyReader(policyHost{mythicalPolicy("")})
+	o.opened(9, "roninjin10", true, after, false)
+	assert.Equal(t, "skipped", o.item(9).State)
 }
 
 // Automerge also needs GitHub CI green on the exact approved head: it waits

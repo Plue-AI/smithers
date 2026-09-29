@@ -99,7 +99,9 @@ export const FactoryGithubSchema = z.object({
   protectedPaths: z.array(z.string()).optional(),
   reviewerAgents: z.array(z.string()).optional(),
   agentIssueSources: z.array(z.enum(["run", "linear", "trial"])).optional(),
-  todoAuthors: z.array(z.string()).optional()
+  maintainers: z.array(z.string()).optional(),
+  todoSince: z.string().optional(),
+  dailyTokens: z.number().int().positive().optional()
 })
 
 /**

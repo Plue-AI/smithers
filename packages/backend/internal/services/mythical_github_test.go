@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -159,9 +160,42 @@ func TestMythicalGitHubIssueWritesUseAnIssuesToken(t *testing.T) {
 	assert.Contains(t, github.calls, `POST /repos/o/r/issues/3/labels issues=write {"labels":["todo"]}`)
 	applier, err := api.LabelApplier(ctx, stackRepo, 3, "todo")
 	require.NoError(t, err)
-	assert.Equal(t, "last", applier.Login, "the latest application of the label, case-insensitive")
+	assert.Equal(t, "last", applier.Actor.Login, "the latest application of the label, case-insensitive")
 	applier, err = api.LabelApplier(ctx, stackRepo, 4, "todo")
 	require.NoError(t, err)
 	assert.Nil(t, applier)
 	assert.Contains(t, github.calls[len(github.calls)-1], " read-token ", "the applier is read with the stack's read token")
+}
+
+func TestMythicalGitHubLabelApplierReadsTheLabelAsItStandsNow(t *testing.T) {
+	t.Parallel()
+	event := func(kind, login string, viaApp bool) map[string]any {
+		out := map[string]any{"event": kind, "actor": map[string]any{"login": login}, "label": map[string]any{"name": "automerge"}}
+		if viaApp {
+			out["performed_via_github_app"] = map[string]any{"slug": "other-app"}
+		}
+		return out
+	}
+	full := make([]map[string]any, 100)
+	for i := range full {
+		full[i] = event("labeled", "roninjin10", false)
+	}
+	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+		"GET /repos/o/r/issues/1/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
+			event("labeled", "roninjin10", false), event("unlabeled", "roninjin10", false)}),
+		"GET /repos/o/r/issues/2/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{event("labeled", "roninjin10", true)}),
+	}}
+	for page := 1; page <= 10; page++ {
+		github.routes["GET /repos/o/r/issues/3/events?per_page=100&page="+strconv.Itoa(page)] = answer(http.StatusOK, full)
+	}
+	api := github.api(t)
+	ctx := context.Background()
+	applier, err := api.LabelApplier(ctx, stackRepo, 1, "automerge")
+	require.NoError(t, err)
+	assert.Nil(t, applier, "a removed label has no applier")
+	applier, err = api.LabelApplier(ctx, stackRepo, 2, "automerge")
+	require.NoError(t, err)
+	assert.True(t, applier.ViaApp, "an App's application is marked")
+	_, err = api.LabelApplier(ctx, stackRepo, 3, "automerge")
+	require.ErrorContains(t, err, "too long to read whole", "a history read in part is refused")
 }

@@ -39,6 +39,8 @@ type gitHubLabelApplication struct {
 	// AutoTodo, when set, is why the factory makes this issue a TODO without
 	// the label under the owner's committed policy (mythicalAutoTodo).
 	AutoTodo string
+	// By is the login of the account that applied the label.
+	By string
 }
 
 // gitHubLabelApplied reads the label application from a stamped issue event.

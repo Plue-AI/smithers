@@ -69,7 +69,7 @@ describe("Smithers.Github.Policy", () => {
       protectedPaths: [],
       reviewerAgents: [],
       agentIssueSources: [],
-      todoAuthors: []
+      maintainers: []
     })
     const ours = Factory.Policy({ mirror: "push", issues: "two-way", changes: "land" })
     expect(ours).toEqual({
@@ -80,7 +80,7 @@ describe("Smithers.Github.Policy", () => {
       protectedPaths: [],
       reviewerAgents: [],
       agentIssueSources: [],
-      todoAuthors: []
+      maintainers: []
     })
     expect(Object.isFrozen(ours)).toBe(true)
   })
@@ -252,19 +252,28 @@ describe("Smithers.Factory", () => {
     expect(() => Factory.Policy({ agentIssueSources: ["email" as never] })).toThrow()
   })
 
-  it("projects the authors whose own issues are TODOs, and refuses a non-login", () => {
-    const authors = Factory.Policy({ todoAuthors: ["roninjin10"] })
+  it("projects the maintainers, the auto-TODO start and the daily budget, and refuses bad values", () => {
+    const policy = Factory.Policy({
+      maintainers: ["roninjin10"],
+      todoSince: "2026-09-29T00:00:00Z",
+      dailyTokens: 2_000
+    })
     const projected = Factory.parseProjection(
-      Factory.renderProjection(Factory.Factory({ summary: "S.", on, github: authors }), [])
+      Factory.renderProjection(Factory.Factory({ summary: "S.", on, github: policy }), [])
     )
     expect(typeof projected === "string" ? projected : projected.github).toEqual({
       mirror: "pull",
       issues: "read",
       changes: "send-upstream",
-      todoAuthors: ["roninjin10"]
+      maintainers: ["roninjin10"],
+      todoSince: "2026-09-29T00:00:00Z",
+      dailyTokens: 2_000
     })
-    expect(() => Factory.Policy({ todoAuthors: [""] })).toThrow(/todoAuthors/)
-    expect(() => Factory.Policy({ todoAuthors: ["fucory "] })).toThrow(/todoAuthors/)
+    expect(() => Factory.Policy({ maintainers: [""] })).toThrow(/maintainers/)
+    expect(() => Factory.Policy({ maintainers: ["fucory "] })).toThrow(/maintainers/)
+    expect(() => Factory.Policy({ todoSince: "tomorrow" })).toThrow(/todoSince/)
+    expect(() => Factory.Policy({ todoSince: "2026-13-45T00:00:00Z" })).toThrow(/todoSince/)
+    expect(() => Factory.Policy({ dailyTokens: 0 })).toThrow(/dailyTokens/)
   })
 
   it("projects declared protected paths", () => {

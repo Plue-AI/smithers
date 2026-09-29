@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,11 +38,9 @@ type mythicalIssue struct {
 	// TextByMaintainer: the author and the last writers of the title and
 	// body are maintainer persons (issueTextByMaintainerField).
 	TextByMaintainer bool
-	// TextSource is the agent source that filed the issue and wrote all its
-	// text (authoredText.TextSource), or "".
-	TextSource  string
-	Labels      []string
-	PullRequest bool
+	Labels           []string
+	PullRequest      bool
+	CreatedAt        time.Time
 }
 
 // mythicalPull is one GitHub pull request as the stack follows it.
@@ -78,8 +77,9 @@ type mythicalGitHub interface {
 	// Merge squash-merges a pull request only while its head is head, and
 	// answers the merge commit.
 	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string) (string, error)
-	// LabelApplier answers who last applied label to an issue, or nil.
-	LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*gitHubActor, error)
+	// LabelApplier answers who applied label to an issue as it stands now:
+	// nil when the latest event for it removed it or none applied it.
+	LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error)
 	// Comment posts one comment on an issue.
 	Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error
 	// AddLabel puts label on an issue.
@@ -173,17 +173,17 @@ type mythicalGitHubIssue struct {
 	User             gitHubActor      `json:"user"`
 	ViaApp           *json.RawMessage `json:"performed_via_github_app"`
 	TextByMaintainer bool             `json:"smithers_text_by_maintainer"`
-	TextSource       string           `json:"smithers_text_source"`
 	Labels           []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
 	PullRequest *struct{} `json:"pull_request"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 func (i mythicalGitHubIssue) issue() mythicalIssue {
 	out := mythicalIssue{Number: i.Number, Title: i.Title, URL: i.HTMLURL, State: i.State,
 		Author: i.User, ViaApp: i.ViaApp != nil && string(*i.ViaApp) != "null",
-		TextByMaintainer: i.TextByMaintainer, TextSource: i.TextSource, PullRequest: i.PullRequest != nil}
+		TextByMaintainer: i.TextByMaintainer, PullRequest: i.PullRequest != nil, CreatedAt: i.CreatedAt}
 	if i.Body != nil {
 		out.Body = *i.Body
 	}
@@ -333,14 +333,26 @@ func (g *mythicalGitHubAPI) RemoveLabel(ctx context.Context, gh mythicalGitHubRe
 	return nil
 }
 
-// LabelApplier reads the issue's events, bounded to 10 pages of 100.
-func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*gitHubActor, error) {
-	var applier *gitHubActor
-	for page := 1; page <= 10; page++ {
+// mythicalLabelApplier is who applied a label, and whether a GitHub App
+// did it on their behalf.
+type mythicalLabelApplier struct {
+	Actor  gitHubActor
+	ViaApp bool
+}
+
+// LabelApplier reads the issue's whole event history (at most 10 pages of
+// 100); a longer history is refused rather than read in part.
+func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
+	var applier *mythicalLabelApplier
+	for page := 1; ; page++ {
+		if page > 10 {
+			return nil, errors.New("the issue's label history is too long to read whole")
+		}
 		var events []struct {
-			Event string      `json:"event"`
-			Actor gitHubActor `json:"actor"`
-			Label struct {
+			Event  string           `json:"event"`
+			Actor  gitHubActor      `json:"actor"`
+			ViaApp *json.RawMessage `json:"performed_via_github_app"`
+			Label  struct {
 				Name string `json:"name"`
 			} `json:"label"`
 		}
@@ -353,16 +365,20 @@ func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubR
 			return nil, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue events")
 		}
 		for _, event := range events {
-			if event.Event == "labeled" && strings.EqualFold(event.Label.Name, label) {
-				actor := event.Actor
-				applier = &actor
+			if !strings.EqualFold(event.Label.Name, label) {
+				continue
+			}
+			switch event.Event {
+			case "labeled":
+				applier = &mythicalLabelApplier{Actor: event.Actor, ViaApp: event.ViaApp != nil && string(*event.ViaApp) != "null"}
+			case "unlabeled":
+				applier = nil
 			}
 		}
 		if len(events) < 100 {
-			break
+			return applier, nil
 		}
 	}
-	return applier, nil
 }
 
 func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error {

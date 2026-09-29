@@ -49,8 +49,10 @@ type fakeMythicalGitHub struct {
 	// RemoveLabel took off, as "#<issue> <label>".
 	merges  map[int64]string
 	removed []string
-	// labelers applied an issue's labels; absent, its author did.
+	// labelers applied an issue's labels; absent, its author did; viaApp
+	// marks an application an App made.
 	labelers map[int64]string
+	viaApp   map[int64]bool
 	// comments are the issue comments Comment posted, as "#<issue> <body>";
 	// added the labels AddLabel put on, as "#<issue> <label>".
 	comments []string
@@ -80,20 +82,21 @@ func (g *fakeMythicalGitHub) Merge(_ context.Context, _ mythicalGitHubRepo, numb
 	return pull.MergeCommit, nil
 }
 
-// LabelApplier answers labelers[number], else the issue's author.
-func (g *fakeMythicalGitHub) LabelApplier(_ context.Context, _ mythicalGitHubRepo, number int64, _ string) (*gitHubActor, error) {
+// LabelApplier answers labelers[number], else the issue's author, else
+// roninjin10; viaApp marks an App's application.
+func (g *fakeMythicalGitHub) LabelApplier(_ context.Context, _ mythicalGitHubRepo, number int64, _ string) (*mythicalLabelApplier, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if login, ok := g.labelers[number]; ok {
-		return &gitHubActor{Login: login}, nil
-	}
+	login := "roninjin10"
 	for _, issue := range g.issues {
-		if issue.Number == number {
-			author := issue.Author
-			return &author, nil
+		if issue.Number == number && issue.Author.Login != "" {
+			login = issue.Author.Login
 		}
 	}
-	return nil, nil
+	if applier, ok := g.labelers[number]; ok {
+		login = applier
+	}
+	return &mythicalLabelApplier{Actor: gitHubActor{Login: login}, ViaApp: g.viaApp[number]}, nil
 }
 
 func (g *fakeMythicalGitHub) Comment(_ context.Context, _ mythicalGitHubRepo, number int64, body string) error {
@@ -340,6 +343,9 @@ func newMythicalOrchestration(t *testing.T) *mythicalOrchestration {
 	f.git(f.work, "push", "-q", github.dir, "main:refs/heads/main")
 	o := &mythicalOrchestration{mythicalServiceFixture: f, github: github, launcher: &fakeMythicalLauncher{}, lanes: &fakeMythicalLanes{}}
 	f.service.SetOrchestration(github, o.launcher, o.lanes)
+	// The owner's policy names roninjin10; no issue is a TODO on its own
+	// unless a test sets todoSince.
+	f.service.SetPolicyReader(policyHost{mythicalPolicy("")})
 	f.service.markBackfill(f.repoID) // the tests admit issues themselves
 	_, err := f.service.RequestBootstrap(context.Background(), f.repoID, f.userID, 100, false)
 	require.NoError(t, err)

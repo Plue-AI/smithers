@@ -225,7 +225,9 @@ export const GithubPolicy = Schema.TaggedStruct("GithubPolicy", {
   protectedPaths: Schema.Array(Schema.String),
   reviewerAgents: Schema.Array(Schema.String),
   agentIssueSources: Schema.Array(AgentIssueSource),
-  todoAuthors: Schema.Array(Schema.String)
+  maintainers: Schema.Array(Schema.String),
+  todoSince: Schema.optional(Schema.String),
+  dailyTokens: Schema.optional(Schema.Int)
 })
 
 /**
@@ -248,10 +250,13 @@ export type GithubPolicy = typeof GithubPolicy.Type
  * path with `/` matches from the repository root down. `reviewerAgents` names
  * the agent accounts whose LGTM counts toward `require_agent_lgtm`; no other
  * agent's does. `agentIssueSources` lets issues an agent source files start
- * credentialed work without a maintainer's trigger label; an issue a listed
- * source filed becomes a TODO without the `todo` label. `todoAuthors` names the
- * GitHub logins whose own issues become TODOs the same way: the factory
- * applies `todo` to them. Everyone else's issue waits for a maintainer's label.
+ * credentialed work without a maintainer's trigger label. `maintainers` names
+ * the GitHub logins the factory takes `todo` and `automerge` labels from;
+ * anyone else's `todo` is taken off again. An issue one of them writes on or
+ * after `todoSince` (an RFC 3339 time) becomes a TODO without the label: the
+ * factory applies it, and the backlog from before stays proposals.
+ * `dailyTokens` bounds the tokens the factory's lanes spend per UTC day; new
+ * work waits for the next day.
  *
  * @category models
  * @since 1.0.0
@@ -263,7 +268,9 @@ export interface GithubPolicyOptions {
   readonly protectedPaths?: ReadonlyArray<string> | undefined
   readonly reviewerAgents?: ReadonlyArray<string> | undefined
   readonly agentIssueSources?: ReadonlyArray<typeof AgentIssueSource.Type> | undefined
-  readonly todoAuthors?: ReadonlyArray<string> | undefined
+  readonly maintainers?: ReadonlyArray<string> | undefined
+  readonly todoSince?: string | undefined
+  readonly dailyTokens?: number | undefined
 }
 
 /**
@@ -287,7 +294,17 @@ export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
   const plain = Home.plainOptions(
     "Github.Policy",
     options,
-    new Set(["mirror", "issues", "changes", "protectedPaths", "reviewerAgents", "agentIssueSources", "todoAuthors"])
+    new Set([
+      "mirror",
+      "issues",
+      "changes",
+      "protectedPaths",
+      "reviewerAgents",
+      "agentIssueSources",
+      "maintainers",
+      "todoSince",
+      "dailyTokens"
+    ])
   )
   const policy = Home.decode("Github.Policy", GithubPolicy, {
     _tag: "GithubPolicy",
@@ -297,9 +314,23 @@ export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
     protectedPaths: plain["protectedPaths"] ?? [],
     reviewerAgents: plain["reviewerAgents"] ?? [],
     agentIssueSources: plain["agentIssueSources"] ?? [],
-    todoAuthors: plain["todoAuthors"] ?? []
+    maintainers: plain["maintainers"] ?? [],
+    ...(plain["todoSince"] === undefined ? {} : { todoSince: plain["todoSince"] }),
+    ...(plain["dailyTokens"] === undefined ? {} : { dailyTokens: plain["dailyTokens"] })
   })
-  for (const [field, logins] of [["reviewerAgents", policy.reviewerAgents], ["todoAuthors", policy.todoAuthors]] as const) {
+  if (
+    policy.todoSince !== undefined &&
+    (!/^\d{4}-\d{2}-\d{2}T[^ ]*(Z|[+-]\d{2}:\d{2})$/.test(policy.todoSince) ||
+      Number.isNaN(Date.parse(policy.todoSince)))
+  ) {
+    throw new TypeError(`Github.Policy: todoSince ${JSON.stringify(policy.todoSince)} is not an RFC 3339 time`)
+  }
+  if (policy.dailyTokens !== undefined && policy.dailyTokens <= 0) {
+    throw new TypeError("Github.Policy: dailyTokens must be positive")
+  }
+  for (
+    const [field, logins] of [["reviewerAgents", policy.reviewerAgents], ["maintainers", policy.maintainers]] as const
+  ) {
     for (const login of logins) {
       if (login.trim() !== login || login === "") {
         throw new TypeError(`Github.Policy: ${field} entry ${JSON.stringify(login)} is not a login`)
@@ -502,7 +533,9 @@ export const GithubProjection = Schema.Struct({
   protectedPaths: Schema.optionalKey(Schema.Array(Schema.String)),
   reviewerAgents: Schema.optionalKey(Schema.Array(Schema.String)),
   agentIssueSources: Schema.optionalKey(Schema.Array(AgentIssueSource)),
-  todoAuthors: Schema.optionalKey(Schema.Array(Schema.String))
+  maintainers: Schema.optionalKey(Schema.Array(Schema.String)),
+  todoSince: Schema.optionalKey(Schema.String),
+  dailyTokens: Schema.optionalKey(Schema.Int)
 })
 
 /**
@@ -557,7 +590,9 @@ export const renderProjection = (declaration: Declaration, catalog: ReadonlyArra
           ...(declaration.github.agentIssueSources.length > 0 ?
             { agentIssueSources: declaration.github.agentIssueSources }
             : {}),
-          ...(declaration.github.todoAuthors.length > 0 ? { todoAuthors: declaration.github.todoAuthors } : {})
+          ...(declaration.github.maintainers.length > 0 ? { maintainers: declaration.github.maintainers } : {}),
+          ...(declaration.github.todoSince === undefined ? {} : { todoSince: declaration.github.todoSince }),
+          ...(declaration.github.dailyTokens === undefined ? {} : { dailyTokens: declaration.github.dailyTokens })
         }
       }),
       null,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -25,9 +26,26 @@ type factoryGitHubPolicy struct {
 	// AgentIssueSources are the agent sources ("run", "linear", "trial")
 	// whose filed issues start credentialed work without a label.
 	AgentIssueSources []string `json:"agentIssueSources"`
-	// TodoAuthors are the GitHub logins whose own issues become TODOs
-	// without the todo label: the stack applies it.
-	TodoAuthors []string `json:"todoAuthors"`
+	// Maintainers are the GitHub logins the factory takes todo and
+	// automerge labels from, and whose own issues created since TodoSince
+	// become TODOs without the label (the stack applies it).
+	Maintainers []string `json:"maintainers"`
+	// TodoSince is when that rule took effect (RFC 3339); an issue created
+	// before it never becomes a TODO on its own.
+	TodoSince string `json:"todoSince"`
+	// DailyTokens bounds the tokens the factory's lanes spend per UTC day;
+	// 0 is no bound.
+	DailyTokens int64 `json:"dailyTokens"`
+}
+
+// maintains reports whether login is one of the policy's maintainers.
+func (p factoryGitHubPolicy) maintains(login string) bool {
+	for _, maintainer := range p.Maintainers {
+		if login != "" && strings.EqualFold(strings.TrimSpace(maintainer), strings.TrimSpace(login)) {
+			return true
+		}
+	}
+	return false
 }
 
 // agentIssueSources are the native sources that file issues under a person's
@@ -56,10 +74,18 @@ func parseFactoryGitHubPolicy(projection []byte) (factoryGitHubPolicy, error) {
 			return factoryGitHubPolicy{}, fmt.Errorf("%s names an unknown agent issue source %q", factoryProjectionPath, source)
 		}
 	}
-	for _, login := range policy.ReviewerAgents {
+	for _, login := range append(append([]string{}, policy.ReviewerAgents...), policy.Maintainers...) {
 		if strings.TrimSpace(login) == "" {
-			return factoryGitHubPolicy{}, errors.New(factoryProjectionPath + " names an empty reviewer agent")
+			return factoryGitHubPolicy{}, errors.New(factoryProjectionPath + " names an empty login")
 		}
+	}
+	if policy.TodoSince != "" {
+		if _, err := time.Parse(time.RFC3339, policy.TodoSince); err != nil {
+			return factoryGitHubPolicy{}, errors.New(factoryProjectionPath + " todoSince is not an RFC 3339 time")
+		}
+	}
+	if policy.DailyTokens < 0 {
+		return factoryGitHubPolicy{}, errors.New(factoryProjectionPath + " dailyTokens is negative")
 	}
 	return policy, nil
 }
