@@ -147,6 +147,8 @@ if you want the whole system rather than the runtime.
   [Suspension and cancellation](./concepts/suspension.md), and
   [Trampoline rounds](./concepts/trampoline-rounds.md): what the engine does
   when a step fails, parks, or hands off.
+- [Place a child flow on another engine](./guides/place-a-child-on-another-engine.md):
+  bind a placement to another engine's served group with `Hosts`.
 - [Serve flows over RPC or HTTP](./guides/serve-flows.md) and
   [Test flows on the in-memory engine](./guides/test-in-memory.md): the two
   things most programs do next.

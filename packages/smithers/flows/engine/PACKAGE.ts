@@ -83,13 +83,13 @@ const securityReview = Smithers.SecurityReview({
   checks: [
     {
       id: "proxy-execution-id-scope",
-      title: "A served execute, discard, or resume never reaches an execution outside the caller's namespace",
+      title: "A served execute, discard, resume, or interrupt never reaches an execution outside the caller's namespace",
       threat:
         "A remote client of a FlowProxy HTTP or RPC server joins, reads the result of, or re-drives another tenant's flow execution by guessing or reusing its execution id.",
       lookFor: [
-        "A handler in FlowProxyServer.ts that passes request.executionId to flow.execute or flow.resume without routing it through scopeExecutionId or resumeExecutionId.",
+        "A handler in FlowProxyServer.ts that passes request.executionId to flow.execute, flow.resume, or FlowRuntime.interrupt without routing it through scopeExecutionId or resumeExecutionId.",
         "resumeExecutionId falling back to the client value when a configured ExecutionIdScope returns undefined.",
-        "A new operation (beyond execute, discard, resume) added to operationAddresses or toRpcGroup that is not wired through the same scope."
+        "A new operation (beyond execute, discard, resume, interrupt) added to operationAddresses or toRpcGroup that is not wired through the same scope."
       ],
       paths: ["src/FlowProxyServer.ts", "src/FlowProxy.ts"]
     },

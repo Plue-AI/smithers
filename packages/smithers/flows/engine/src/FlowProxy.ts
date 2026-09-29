@@ -10,7 +10,7 @@
  * @since 0.1.0
  */
 
-import type { Flow } from "@smthrs/flow"
+import { type Flow, FlowRuntime } from "@smthrs/flow"
 import type { NonEmptyReadonlyArray } from "effect/Array"
 import * as Schema from "effect/Schema"
 import * as HttpApiEndpoint from "effect/unstable/httpapi/HttpApiEndpoint"
@@ -55,7 +55,7 @@ export class InvalidFlowTag extends Error {
 }
 
 /**
- * The three wire operation names one flow owns.
+ * The four wire operation names one flow owns.
  *
  * @category models
  * @since 1.0.0
@@ -64,6 +64,8 @@ export interface OperationAddresses {
   readonly execute: string
   readonly discard: string
   readonly resume: string
+  /** Requests cancellation, as `FlowRuntime.interrupt` does. */
+  readonly interrupt: string
 }
 
 /**
@@ -75,7 +77,8 @@ export interface OperationAddresses {
 export const operationAddresses = (tag: string, prefix = ""): OperationAddresses => ({
   execute: `${prefix}${tag}`,
   discard: `${prefix}${tag}Discard`,
-  resume: `${prefix}${tag}Resume`
+  resume: `${prefix}${tag}Resume`,
+  interrupt: `${prefix}${tag}Interrupt`
 })
 
 /**
@@ -196,6 +199,8 @@ export const toRpcGroup = <
         payload: executePayload(flow.payloadSchema)
       }).annotateMerge(flow.annotations),
       Rpc.make(operation.resume, { payload: ResumePayload })
+        .annotateMerge(flow.annotations),
+      Rpc.make(operation.interrupt, { payload: ResumePayload, error: CancelRequestFailed })
         .annotateMerge(flow.annotations)
     )
   }
@@ -219,6 +224,7 @@ export type ConvertRpcs<Flows extends Flow.Any, Prefix extends string> = Flows e
     | Rpc.Rpc<`${Prefix}${_Name}`, ExecutePayload<_Payload>, _Success, _Error>
     | Rpc.Rpc<`${Prefix}${_Name}Discard`, ExecutePayload<_Payload>>
     | Rpc.Rpc<`${Prefix}${_Name}Resume`, typeof ResumePayload>
+    | Rpc.Rpc<`${Prefix}${_Name}Interrupt`, typeof ResumePayload, typeof Schema.Void, typeof CancelRequestFailed>
   : never
 
 /**
@@ -301,6 +307,10 @@ export const toHttpApiGroup = <const Name extends string, const Flows extends No
       }).annotateMerge(flow.annotations),
       HttpApiEndpoint.post(operation.resume, `${path}/resume`, {
         payload: ResumePayload
+      }).annotateMerge(flow.annotations),
+      HttpApiEndpoint.post(operation.interrupt, `${path}/interrupt`, {
+        payload: ResumePayload,
+        error: CancelRequestFailed
       }).annotateMerge(flow.annotations)
     ) as any
   }
@@ -357,7 +367,20 @@ export type ConvertHttpApi<Flows extends Flow.Any> = Flows extends Flow.Flow<
       never,
       never,
       typeof ResumePayload
+    >
+    | HttpApiEndpoint.HttpApiEndpoint<
+      `${_Name}Interrupt`,
+      "POST",
+      `/${string}/interrupt`,
+      never,
+      never,
+      typeof ResumePayload,
+      never,
+      typeof Schema.Void,
+      typeof CancelRequestFailed
     > :
   never
 
 const ResumePayload = Schema.Struct({ executionId: ExecutionId })
+
+const CancelRequestFailed = FlowRuntime.CancelRequestFailed

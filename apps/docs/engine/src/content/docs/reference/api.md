@@ -180,37 +180,66 @@ the engine raises them as defects. Their `code` values are
 
 ## FlowProxy
 
-Derives RPC and HTTP definitions from flow declarations. Each flow owns three
+Derives RPC and HTTP definitions from flow declarations. Each flow owns four
 wire operations.
 
-| Export               | Signature                                                                                                        | Meaning                                                                                                                                                                  |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `operationAddresses` | `(tag: string, prefix?: string) => OperationAddresses`                                                           | The three wire names one flow owns: `<prefix><tag>`, `<prefix><tag>Discard`, `<prefix><tag>Resume`. Every group builder and server layer derives from this one function. |
-| `OperationAddresses` | `interface { execute: string; discard: string; resume: string }`                                                 | The derived names.                                                                                                                                                       |
-| `assertNoCollisions` | `(flows: ReadonlyArray<Flow.Any>, prefix?: string) => void`                                                      | Throws `FlowProxyCollision` when two derived operations share a wire name. Runs first inside every builder and server layer.                                             |
-| `toRpcGroup`         | `(flows: NonEmptyReadonlyArray<Flow.Any>, options?: { prefix?: string }) => RpcGroup.RpcGroup<ConvertRpcs<...>>` | Derives an Effect `RpcGroup`. Execute and discard take the flow payload plus a required `executionId`; resume takes an execution id alone.                               |
-| `ConvertRpcs`        | `type ConvertRpcs<Flows, Prefix>`                                                                                | Maps each flow to its three derived RPC definitions.                                                                                                                     |
-| `toHttpApiGroup`     | `(name: string, flows: NonEmptyReadonlyArray<Flow.Any>) => HttpApiGroup.HttpApiGroup<Name, ConvertHttpApi<...>>` | Derives an `HttpApiGroup` with three POST endpoints per flow: the flow path, `<path>/discard`, and `<path>/resume`.                                                      |
-| `ConvertHttpApi`     | `type ConvertHttpApi<Flows>`                                                                                     | Maps each flow to its three derived endpoints.                                                                                                                           |
-| `FlowProxyCollision` | `class FlowProxyCollision extends Error`                                                                         | Fields `code` (`"flow_proxy_collision"`) and `operation`. Thrown before construction.                                                                                    |
-| `InvalidFlowTag`     | `class InvalidFlowTag extends Error`                                                                             | Fields `code` (`"invalid_flow_tag"`) and `tag`. Thrown before HTTP construction when a tag is not well-formed UTF-16.                                                    |
+| Export               | Signature                                                                                                        | Meaning                                                                                                                                                                                           |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `operationAddresses` | `(tag: string, prefix?: string) => OperationAddresses`                                                           | The four wire names one flow owns: `<prefix><tag>`, `<prefix><tag>Discard`, `<prefix><tag>Resume`, `<prefix><tag>Interrupt`. Every group builder and server layer derives from this one function. |
+| `OperationAddresses` | `interface { execute; discard; resume; interrupt: string }`                                                      | The derived names.                                                                                                                                                                                |
+| `assertNoCollisions` | `(flows: ReadonlyArray<Flow.Any>, prefix?: string) => void`                                                      | Throws `FlowProxyCollision` when two derived operations share a wire name. Runs first inside every builder and server layer.                                                                      |
+| `toRpcGroup`         | `(flows: NonEmptyReadonlyArray<Flow.Any>, options?: { prefix?: string }) => RpcGroup.RpcGroup<ConvertRpcs<...>>` | Derives an Effect `RpcGroup`. Execute and discard take the flow payload plus a required `executionId`; resume and interrupt take an execution id alone.                                           |
+| `ConvertRpcs`        | `type ConvertRpcs<Flows, Prefix>`                                                                                | Maps each flow to its four derived RPC definitions.                                                                                                                                               |
+| `toHttpApiGroup`     | `(name: string, flows: NonEmptyReadonlyArray<Flow.Any>) => HttpApiGroup.HttpApiGroup<Name, ConvertHttpApi<...>>` | Derives an `HttpApiGroup` with four POST endpoints per flow: the flow path, `<path>/discard`, `<path>/resume`, and `<path>/interrupt`.                                                            |
+| `ConvertHttpApi`     | `type ConvertHttpApi<Flows>`                                                                                     | Maps each flow to its four derived endpoints.                                                                                                                                                     |
+| `FlowProxyCollision` | `class FlowProxyCollision extends Error`                                                                         | Fields `code` (`"flow_proxy_collision"`) and `operation`. Thrown before construction.                                                                                                             |
+| `InvalidFlowTag`     | `class InvalidFlowTag extends Error`                                                                             | Fields `code` (`"invalid_flow_tag"`) and `tag`. Thrown before HTTP construction when a tag is not well-formed UTF-16.                                                                             |
 
 HTTP routes encode a flow tag as one opaque URL-safe segment, `flow-` followed
 by the tag's UTF-16 code units in hex, which preserves case, reserved
 characters, Unicode normalization, and operation identity across routers that
 disagree about percent-decoding.
 
+## Hosts
+
+The injected table that says where a placed flow runs. A flow declares a
+serializable `Flow.Placement`; the host that composes the engine binds each
+placement `target` to a `Binding`. With no table, everything runs here.
+
+| Export    | Signature                                                                                    | Meaning                                                                                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Binding` | `{ _tag: "Here" } \| { _tag: "Proxy"; connect: (group) => Effect<RpcClient, never, Scope> }` | `Here` runs the execution on this engine. `Proxy` runs it on another engine through that engine's served `FlowProxy` group, under the caller's execution id. |
+| `Hosts`   | `Context.Reference<Service>`                                                                 | The table the engine reads when it executes, resumes, or interrupts a flow. The default runs everything here.                                                |
+| `layer`   | `(table: Record<string, Binding>, fallback?: Binding) => Layer`                              | A table keyed by placement `target`. `Local` and `Client` placements, an absent placement, and an unnamed target run `fallback`, which is `Here` by default. |
+
+The engine consults the table inside `execute`, because a flow body reaches its
+children through the engine itself. A `Proxy` child keeps one leaf in the
+parent's plan; the remote engine keeps the plan, the attempts, and the result.
+A parent interrupted while the remote child runs sends `interrupt` to the remote
+engine, which has no lineage edge to the parent; the forward is best effort, and
+a failed one is logged. A lost connection is asked again under the same id for
+about six minutes, and the remote engine joins the run it has or answers the
+result it recorded; after that it is a defect of the execution. An answer the
+client cannot read, such as a proxy's error page, is a defect at once. A serving engine's own table must run
+the flows it serves here. A re-driven
+parent derives the same child id and joins the same way. A discard answers the
+caller's own id. Provide the table to the engine's layer, never at an `execute`
+call site: a body reads the table its registration was built with.
+`agent/spawn` of a `Proxy` flow is not supported: the spawner reads the child's
+run row on this engine, and a remote child has none. See
+[Place a child flow on another engine](/guides/place-a-child-on-another-engine/).
+
 ## FlowProxyServer
 
 Binds the derived definitions to a running engine.
 
-| Export              | Signature                                                                                                                                                                                       | Meaning                                                                                                                                         |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `layerRpcHandlers`  | `(flows, options?: { prefix?: string; executionId?: ExecutionIdScope }) => Layer<RpcHandlers<...>, never, FlowRuntime \| Flow.Requirements<Flows> \| Flow.RequirementsHandler<Flows>>`          | Implements the derived RPCs. Pass the same `prefix` used to build the group.                                                                    |
-| `layerHttpApi`      | `(api, identifier, flows, options?: { executionId?: ExecutionIdScope }) => Layer<HttpApiGroup.Service<...>, never, FlowRuntime \| Flow.Requirements<Flows> \| Flow.RequirementsHandler<Flows>>` | Implements the derived HTTP group.                                                                                                              |
-| `ExecutionIdScope`  | `(input: { flow, operation, clientValue, payload }) => string \| undefined`                                                                                                                     | Rewrites the caller-supplied execution id before it reaches the engine. Pure, called once per handler, applied to execute, discard, and resume. |
-| `RpcHandlers`       | `type RpcHandlers<Flows, Prefix>`                                                                                                                                                               | The union of handler services required to serve the derived RPCs.                                                                               |
-| `FlowHandlerDefect` | `class FlowHandlerDefect`                                                                                                                                                                       | A proxy defect containing `code`, `flowName`, bounded redacted `diagnostic`, and `message`.                                                     |
+| Export              | Signature                                                                                                                                                                                       | Meaning                                                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `layerRpcHandlers`  | `(flows, options?: { prefix?: string; executionId?: ExecutionIdScope }) => Layer<RpcHandlers<...>, never, FlowRuntime \| Flow.Requirements<Flows> \| Flow.RequirementsHandler<Flows>>`          | Implements the derived RPCs. Pass the same `prefix` used to build the group.                                                       |
+| `layerHttpApi`      | `(api, identifier, flows, options?: { executionId?: ExecutionIdScope }) => Layer<HttpApiGroup.Service<...>, never, FlowRuntime \| Flow.Requirements<Flows> \| Flow.RequirementsHandler<Flows>>` | Implements the derived HTTP group.                                                                                                 |
+| `ExecutionIdScope`  | `(input: { flow, operation, clientValue, payload }) => string \| undefined`                                                                                                                     | Rewrites the caller-supplied execution id before it reaches the engine. Pure, called once per handler, applied to every operation. |
+| `RpcHandlers`       | `type RpcHandlers<Flows, Prefix>`                                                                                                                                                               | The union of handler services required to serve the derived RPCs.                                                                  |
+| `FlowHandlerDefect` | `class FlowHandlerDefect`                                                                                                                                                                       | A proxy defect containing `code`, `flowName`, bounded redacted `diagnostic`, and `message`.                                        |
 
 Both layers drive the served bodies, so both require what those bodies require:
 `Flow.Requirements` of every flow, on top of the schema services
@@ -222,7 +251,7 @@ Both layers log a defect from a served body through `Effect.logError`,
 annotated with the module and the wire operation name.
 
 Returning `undefined` from `ExecutionIdScope` means different things per
-operation: for execute and discard it selects the flow's idempotency key or ambient execution-id source; for resume it refuses the request with a
+operation: for execute and discard it selects the flow's idempotency key or ambient execution-id source; for resume and interrupt it refuses the request with a
 `Flow.ExecutionIdRequired` defect, because passing the client value through would
 let a client resume outside the namespace the scope confines it to. See
 [Namespace execution ids per tenant](/guides/namespace-execution-ids/).

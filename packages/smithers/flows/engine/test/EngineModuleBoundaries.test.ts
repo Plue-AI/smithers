@@ -61,7 +61,7 @@ describe("engine module boundaries", () => {
     // wrapper's allocation scope may be declared here.
     expect(make).not.toContain("const runRound")
     expect(make).not.toContain("ActionOrdinalScope")
-    expect(make).toContain("execute: makeExecute(options, declarations)")
+    expect(make).toContain("execute: placeExecute(makeExecute(options, declarations))")
     expect(make).toContain("actionExecute: makeActionExecute(options)")
     expect(make.split("\n").length).toBeLessThan(300)
   })

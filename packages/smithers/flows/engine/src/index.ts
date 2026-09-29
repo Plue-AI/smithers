@@ -19,6 +19,13 @@
 export * as FlowEngine from "./FlowEngine/index.ts"
 
 /**
+ * The injected table that says where a placed flow runs.
+ *
+ * @since 1.0.0
+ */
+export * as Hosts from "./Hosts.ts"
+
+/**
  * Client-side flow proxies.
  *
  * @since 0.1.0

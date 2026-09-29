@@ -91,7 +91,8 @@ The root exports these namespaces, also available from matching
 | Namespace         | What it is                                                                                                                                                                                                                 |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FlowEngine`      | The `Encoded` seam a store implements, the `makeUnsafe` adapter, in-memory `layerMemory`, per-run state `makeInstance`, journal `Lineage`, trampoline `Round`, the compensable `SnapshotBoundary`, and the coded refusals. |
-| `FlowProxy`       | Derives an Effect `RpcGroup` or `HttpApiGroup` from a list of flows: execute, discard, and resume per flow.                                                                                                                |
+| `FlowProxy`       | Derives an Effect `RpcGroup` or `HttpApiGroup` from a list of flows: execute, discard, resume, and interrupt per flow.                                                                                                     |
+| `Hosts`           | The injected table that binds a flow's placement to this engine or another engine's served group.                                                                                                                          |
 | `FlowProxyServer` | Binds those derived definitions to a running engine.                                                                                                                                                                       |
 
 Full signatures: <https://engine.smithers.sh/reference/api/>.

@@ -17,8 +17,7 @@
  * @since 0.1.0
  */
 
-import { Flow } from "@smthrs/flow"
-import type { FlowRuntime } from "@smthrs/flow"
+import { Flow, FlowRuntime } from "@smthrs/flow"
 import type { NonEmptyReadonlyArray } from "effect/Array"
 import * as Effect from "effect/Effect"
 import type * as Layer from "effect/Layer"
@@ -58,7 +57,7 @@ import { renderDiagnostic } from "./internal/Diagnostic.ts"
 export interface ExecutionIdScope {
   (input: {
     readonly flow: Flow.Any
-    readonly operation: "execute" | "discard" | "resume"
+    readonly operation: "execute" | "discard" | "resume" | "interrupt"
     readonly clientValue: string | undefined
     readonly payload: unknown
   }): string | undefined
@@ -79,11 +78,12 @@ const scopeExecutionId = (
 const resumeExecutionId = (
   scope: ExecutionIdScope | undefined,
   flow: Flow.AnyWithProps,
-  clientValue: string
+  clientValue: string,
+  operation: "resume" | "interrupt" = "resume"
 ): Effect.Effect<string> => {
   const scoped = scopeExecutionId(scope, {
     flow,
-    operation: "resume",
+    operation,
     clientValue,
     payload: undefined
   })
@@ -203,6 +203,26 @@ const handleResume = (
   )
 
 /**
+ * Builds the body one served interrupt request runs: the cancellation
+ * `FlowRuntime.interrupt` requests, for the execution the request names.
+ *
+ * @private
+ */
+const handleInterrupt = (
+  flow: Flow.AnyWithProps,
+  scope: ExecutionIdScope | undefined,
+  method: string
+) =>
+(request: ResumeRequest) =>
+  Effect.suspend(() => resumeExecutionId(scope, flow, request.executionId, "interrupt")).pipe(
+    Effect.flatMap((executionId) =>
+      Effect.flatMap(FlowRuntime.FlowRuntime, (runtime) => runtime.interrupt(flow, executionId))
+    ),
+    guardDefects(flow._tag),
+    Effect.annotateLogs({ module: "FlowProxyServer", method })
+  )
+
+/**
  * Creates handlers for a flow HTTP API group, wiring execute, discard, and
  * resume endpoints to the supplied flows.
  *
@@ -238,10 +258,12 @@ export const layerHttpApi = <
         const execute = handleExecute(flow, options?.executionId, "execute", operation.execute)
         const discard = handleExecute(flow, options?.executionId, "discard", operation.discard)
         const resume = handleResume(flow, options?.executionId, operation.resume)
+        const interrupt = handleInterrupt(flow, options?.executionId, operation.interrupt)
         handlers = handlers
           .handle(operation.execute, ({ payload }: { payload: ExecuteRequest }) => execute(payload))
           .handle(operation.discard, ({ payload }: { payload: ExecuteRequest }) => discard(payload))
           .handle(operation.resume, ({ payload }: { payload: ResumeRequest }) => resume(payload))
+          .handle(operation.interrupt, ({ payload }: { payload: ResumeRequest }) => interrupt(payload))
       }
       return handlers as HttpApiBuilder.Handlers<never>
     })
@@ -283,6 +305,7 @@ export const layerRpcHandlers = <
     handlers[operation.execute] = handleExecute(flow, options?.executionId, "execute", operation.execute)
     handlers[operation.discard] = handleExecute(flow, options?.executionId, "discard", operation.discard)
     handlers[operation.resume] = handleResume(flow, options?.executionId, operation.resume)
+    handlers[operation.interrupt] = handleInterrupt(flow, options?.executionId, operation.interrupt)
   }
   return group.toLayer(handlers as never) as any
 }
@@ -300,5 +323,9 @@ export type RpcHandlers<Flows extends Flow.Any, Prefix extends string> = Flows e
   infer _Success,
   infer _Error,
   infer _Requires
-> ? Rpc.Handler<`${Prefix}${_Name}`> | Rpc.Handler<`${Prefix}${_Name}Discard`> | Rpc.Handler<`${Prefix}${_Name}Resume`>
+> ?
+    | Rpc.Handler<`${Prefix}${_Name}`>
+    | Rpc.Handler<`${Prefix}${_Name}Discard`>
+    | Rpc.Handler<`${Prefix}${_Name}Resume`>
+    | Rpc.Handler<`${Prefix}${_Name}Interrupt`>
   : never

@@ -7,14 +7,15 @@ One process declares a flow; another runs it. `FlowProxy` derives the wire
 definitions from the flow declarations themselves, and `FlowProxyServer` binds
 those definitions to a running engine.
 
-Every flow gets three operations, and their names are derived from the flow tag
+Every flow gets four operations, and their names are derived from the flow tag
 in one place, `FlowProxy.operationAddresses`:
 
-| Operation | Name           | Request                                          |
-| --------- | -------------- | ------------------------------------------------ |
-| Execute   | `<tag>`        | The flow payload, plus a required `executionId`. |
-| Discard   | `<tag>Discard` | The same, run without waiting for a result.      |
-| Resume    | `<tag>Resume`  | An `executionId` alone.                          |
+| Operation | Name             | Request                                          |
+| --------- | ---------------- | ------------------------------------------------ |
+| Execute   | `<tag>`          | The flow payload, plus a required `executionId`. |
+| Discard   | `<tag>Discard`   | The same, run without waiting for a result.      |
+| Resume    | `<tag>Resume`    | An `executionId` alone.                          |
+| Interrupt | `<tag>Interrupt` | An `executionId` alone; requests cancellation.   |
 
 ## Start from a flow
 
@@ -86,8 +87,8 @@ class ProxyApi extends HttpApi.make("proxy").add(
 const HttpLayer = FlowProxyServer.layerHttpApi(ProxyApi, "flows", flows)
 ```
 
-Each flow gets three POST routes: one at its path, one at `<path>/discard`, and
-one at `<path>/resume`.
+Each flow gets four POST routes: one at its path, one at `<path>/discard`, one
+at `<path>/resume`, and one at `<path>/interrupt`.
 
 The path is not the flow tag. Routers disagree about whether a percent-encoded
 slash is decoded before matching, so a tag is lowered to one opaque URL-safe

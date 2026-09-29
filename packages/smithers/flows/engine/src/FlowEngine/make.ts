@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema"
 import { renderDiagnostic } from "../internal/Diagnostic.ts"
 import { toJsonExit } from "../internal/JsonExit.ts"
 import { makeActionExecute } from "./Dispatch.ts"
+import { placeExecute, placeInterrupt, placeResume } from "./Placed.ts"
 import type { Encoded } from "./Encoded.ts"
 import { type Declarations, makeExecute } from "./Trampoline.ts"
 
@@ -109,11 +110,12 @@ export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"]
           )
       )
     }),
-    execute: makeExecute(options, declarations),
+    // A placement the `Hosts` table binds elsewhere runs on that engine.
+    execute: placeExecute(makeExecute(options, declarations)),
     poll: options.poll,
-    interrupt: options.interrupt,
+    interrupt: placeInterrupt(options.interrupt),
     interruptUnsafe: options.interruptUnsafe,
-    resume: options.resume,
+    resume: placeResume(options.resume),
     actionExecute: makeActionExecute(options),
     // Untraced because the explicit span below carries deferred attributes.
     deferredResult: Effect.fnUntraced(

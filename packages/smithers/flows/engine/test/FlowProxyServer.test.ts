@@ -523,7 +523,7 @@ describe("FlowProxyServer.layerRpcHandlers", () => {
     )
   })
 
-  effect("registers execute, discard, and resume under the rpc keys the group publishes", () => {
+  effect("registers execute, discard, resume, and interrupt under the rpc keys the group publishes", () => {
     const { layer } = makeLayer((value) => Effect.succeed(value + 100))
     const group = FlowProxy.toRpcGroup(flows, { prefix: "v1/" })
     return Effect.gen(function*() {
@@ -543,9 +543,11 @@ describe("FlowProxyServer.layerRpcHandlers", () => {
         "v1/Proxy/Echo",
         "v1/Proxy/EchoDiscard",
         "v1/Proxy/EchoResume",
+        "v1/Proxy/EchoInterrupt",
         "v1/Proxy/Suspends",
         "v1/Proxy/SuspendsDiscard",
-        "v1/Proxy/SuspendsResume"
+        "v1/Proxy/SuspendsResume",
+        "v1/Proxy/SuspendsInterrupt"
       ])
       for (const found of registered) {
         expect(found.entry, found.key).toBeDefined()
@@ -671,6 +673,35 @@ describe("FlowProxyServer.layerHttpApi", () => {
       expect(result).toBe(2)
       expect(calls()).toBe(1)
     }).pipe(provide(layer))
+  })
+
+  effect("interrupts the run the execution id scope names, not the client's id", () => {
+    let interrupted = false
+    const started = Deferred.makeUnsafe<void>()
+    const { layer } = makeLayer(() =>
+      Deferred.succeed(started, undefined).pipe(
+        Effect.andThen(Effect.never),
+        Effect.onInterrupt(() => Effect.sync(() => (interrupted = true)))
+      )
+    )
+    const observed: Array<{ readonly operation: string; readonly clientValue: string | undefined }> = []
+    const scope = ((input) => {
+      observed.push({ operation: input.operation, clientValue: input.clientValue })
+      return `tenant:${input.clientValue}`
+    }) satisfies FlowProxyServer.ExecutionIdScope
+    return Effect.gen(function*() {
+      const api = yield* client
+      yield* api.flows["Proxy/EchoDiscard"]({ payload: { payload: { value: 7 }, executionId: "http-interrupt" } })
+      yield* Deferred.await(started)
+      yield* api.flows["Proxy/EchoInterrupt"]({ payload: { executionId: "http-interrupt" } })
+      expect(observed).toContainEqual({ operation: "interrupt", clientValue: "http-interrupt" })
+      yield* Effect.promise(async () => {
+        for (let attempt = 0; attempt < 200 && !interrupted; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 5))
+        }
+      })
+      expect(interrupted).toBe(true)
+    }).pipe(provide(layer, { executionId: scope }))
   })
 
   effect("matches execution id scoping over the HTTP adapter", () => {
@@ -987,15 +1018,18 @@ describe("FlowProxy.toHttpApiGroup path lowering", () => {
     expect(Object.keys(endpoints).sort()).toEqual([
       "Proxy/Collide",
       "Proxy/CollideDiscard",
+      "Proxy/CollideInterrupt",
       "Proxy/CollideResume",
       "proxy/collide",
       "proxy/collideDiscard",
+      "proxy/collideInterrupt",
       "proxy/collideResume"
     ])
     expect(endpoints["Proxy/Collide"]!.path).toMatch(/^\/flow-[0-9a-f]+$/)
     expect(endpoints["Proxy/Collide"]!.path).not.toBe(endpoints["proxy/collide"]!.path)
     expect(endpoints["Proxy/CollideDiscard"]!.path).not.toBe(endpoints["proxy/collideDiscard"]!.path)
     expect(endpoints["Proxy/CollideResume"]!.path).not.toBe(endpoints["proxy/collideResume"]!.path)
+    expect(endpoints["Proxy/CollideInterrupt"]!.path).toBe(`${endpoints["Proxy/Collide"]!.path}/interrupt`)
     expect(endpoints["Proxy/Collide"]!.path.slice(1)).not.toContain("/")
 
     const Reserved = Flow.make("Proxy/%?#/\ud83d\ude80", {

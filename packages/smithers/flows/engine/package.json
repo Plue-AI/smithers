@@ -40,6 +40,7 @@
     "./internal/*": null,
     "./*/index": null,
     "./FlowProxy": "./src/FlowProxy.ts",
+    "./Hosts": "./src/Hosts.ts",
     "./FlowProxyServer": "./src/FlowProxyServer.ts",
     "./index": "./src/index.ts"
   },
@@ -93,6 +94,16 @@
         "require": {
           "types": "./dist/cjs/FlowProxy.d.ts",
           "default": "./dist/cjs/FlowProxy.js"
+        }
+      },
+      "./Hosts": {
+        "import": {
+          "types": "./dist/esm/Hosts.d.ts",
+          "default": "./dist/esm/Hosts.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Hosts.d.ts",
+          "default": "./dist/cjs/Hosts.js"
         }
       },
       "./FlowProxyServer": {
