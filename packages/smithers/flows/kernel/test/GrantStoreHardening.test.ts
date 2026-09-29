@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Capability, CapabilityPattern, format } from "@smthrs/capability/Capability"
-import { GrantStoreError, Rule } from "@smthrs/capability/Permission"
+import { GrantStoreError, PermissionRequired, Rule } from "@smthrs/capability/Permission"
 import { Deferred, Effect, Exit, Fiber, Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { createHash } from "node:crypto"
@@ -440,6 +440,29 @@ describe("GrantStore bounded input", () => {
           code: "invalid_resolution",
           message: "metadata must be a record"
         })
+      })
+    ))
+
+  it.effect("preserves __proto__ metadata in attended and unattended requests", () =>
+    Effect.scoped(
+      Effect.gen(function*() {
+        const meta = JSON.parse('{"ordinary":"kept","__proto__":{"note":"kept-meta"},"nested":{"__proto__":{"note":"nested"},"ordinary":true}}') as Record<string, unknown>
+        const unattended = yield* make({ attended: false })
+        const failure = yield* Effect.flip(unattended.check(safe, meta))
+        expect(failure).toBeInstanceOf(PermissionRequired)
+        if (!(failure instanceof PermissionRequired)) throw new Error("expected typed permission failure")
+        expect(Object.getOwnPropertyDescriptor(failure.meta, "__proto__")?.value).toEqual({ note: "kept-meta" })
+        expect(failure.meta).toMatchObject({ ordinary: "kept" })
+        const attended = yield* make()
+        const waiting = yield* attended.check(safe, meta).pipe(Effect.forkChild({ startImmediately: true }))
+        const [pending] = yield* awaitPending(attended, 1)
+        expect(Object.getOwnPropertyDescriptor(pending!.meta, "__proto__")?.value).toEqual({ note: "kept-meta" })
+        expect(pending!.meta).toMatchObject({ ordinary: "kept" })
+        const nested = pending!.meta.nested as Record<string, unknown>
+        expect(Object.getOwnPropertyDescriptor(nested, "__proto__")?.value).toEqual({ note: "nested" })
+        expect(nested.ordinary).toBe(true)
+        yield* attended.reply(pending!.requestId, "once")
+        yield* Fiber.join(waiting)
       })
     ))
 

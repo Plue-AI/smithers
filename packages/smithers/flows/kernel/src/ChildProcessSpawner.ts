@@ -53,7 +53,7 @@ const snapshotRecord = (
   value: Readonly<Record<string, string | undefined>> | undefined
 ): Record<string, string | undefined> | undefined => {
   if (value === undefined) return undefined
-  const snapshot: Record<string, string | undefined> = {}
+  const snapshot: Record<string, string | undefined> = Object.create(null)
   for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
     if (!descriptor.enumerable) continue
     if (!("value" in descriptor) || (descriptor.value !== undefined && typeof descriptor.value !== "string")) {

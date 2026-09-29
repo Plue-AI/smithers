@@ -71,6 +71,26 @@ const waitForEsrch = async (pid: number): Promise<void> => {
 }
 
 describe("ChildProcessSpawner real Node lifecycle", () => {
+  it.effect("passes own __proto__ and ordinary environment values to a real child", () =>
+    Effect.gen(function*() {
+      const env = Object.create(null) as Record<string, string>
+      env.__proto__ = "kept-env"
+      env.ORDINARY = "kept"
+      const command = ChildProcess.make(process.execPath, [
+        "-e",
+        "console.log(JSON.stringify({ordinary:process.env.ORDINARY,special:process.env['__proto__']}))"
+      ], { env, extendEnv: false })
+      const pattern = new CapabilityPattern({ action: "proc:spawn", resource: "**" })
+      const output = yield* withGuardedSpawner({
+        attended: false,
+        rules: [new Permission.Rule({ effect: "allow", pattern })]
+      }, () => Effect.gen(function*() {
+        const spawner = yield* EffectChildProcessSpawner
+        return yield* spawner.string(command)
+      }))
+      expect(JSON.parse(output)).toEqual({ ordinary: "kept", special: "kept-env" })
+    }))
+
   it.effect("leaves no process side effect when the real store denies before spawn", () =>
     Effect.gen(function*() {
       const directory = yield* Effect.promise(() => temporaryDirectory())
