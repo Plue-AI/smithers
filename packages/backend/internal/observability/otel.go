@@ -6,6 +6,7 @@ package observability
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -21,12 +22,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
-// BuildTraceSampler creates a trace sampler based on the configured sample rate.
-// Sample rate of 0.0 = never sample, 1.0 = always sample. Values in between
-// honor an incoming W3C traceparent sampling decision (ParentBased) and fall
-// back to TraceIDRatioBased for root spans, so an operator tool that sends a
-// sampled traceparent (the Observe playground) always gets its trace exported
-// while organic traffic stays at the configured ratio.
+// BuildTraceSampler applies the configured ratio independently to remote parents.
+// Only local children inherit a sampling decision. Remote flags and trace IDs
+// are untrusted and cannot force export or suppress server diagnostics.
 func BuildTraceSampler(sampleRate float64) trace.Sampler {
 	switch {
 	case sampleRate <= 0.0:
@@ -34,8 +32,22 @@ func BuildTraceSampler(sampleRate float64) trace.Sampler {
 	case sampleRate >= 1.0:
 		return trace.AlwaysSample()
 	default:
-		return trace.ParentBased(trace.TraceIDRatioBased(sampleRate))
+		ratio := trace.TraceIDRatioBased(sampleRate)
+		remote := remoteRatioSampler{Sampler: ratio}
+		return trace.ParentBased(ratio,
+			trace.WithRemoteParentSampled(remote),
+			trace.WithRemoteParentNotSampled(remote))
 	}
+}
+
+// Use independent entropy for the decision, leaving the actual span's trace ID
+// and parent intact. Hashing the incoming ID would still let clients pick IDs
+// that always sample. crypto/rand.Read fills the buffer or terminates the process.
+type remoteRatioSampler struct{ trace.Sampler }
+
+func (s remoteRatioSampler) ShouldSample(p trace.SamplingParameters) trace.SamplingResult {
+	rand.Read(p.TraceID[:])
+	return s.Sampler.ShouldSample(p)
 }
 
 // BuildTextMapPropagator creates a composite text map propagator that supports

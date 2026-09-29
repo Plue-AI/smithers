@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 // TelemetryHandler handles POST /api/telemetry/errors.
@@ -80,16 +81,17 @@ func (h *TelemetryHandler) PostClientError(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Truncate fields to prevent log bloat.
-	if len(report.Error.Message) > maxErrorMessageLen {
-		report.Error.Message = report.Error.Message[:maxErrorMessageLen]
-	}
-	if len(report.Error.Stack) > maxErrorStackLen {
-		report.Error.Stack = report.Error.Stack[:maxErrorStackLen]
-	}
-	if len(report.Error.Type) > maxErrorTypeLen {
-		report.Error.Type = report.Error.Type[:maxErrorTypeLen]
-	}
+	// Bound every client-controlled string before it reaches the logger.
+	report.Error.Message = truncateTelemetryField(report.Error.Message, maxErrorMessageLen)
+	report.Error.Stack = truncateTelemetryField(report.Error.Stack, maxErrorStackLen)
+	report.Error.Type = truncateTelemetryField(report.Error.Type, maxErrorTypeLen)
+	report.Version = truncateTelemetryField(report.Version, 128)
+	report.Context.URL = truncateTelemetryField(report.Context.URL, 2048)
+	report.Context.UserAgent = truncateTelemetryField(report.Context.UserAgent, 512)
+	report.Context.Username = truncateTelemetryField(report.Context.Username, 128)
+	report.Context.Command = truncateTelemetryField(report.Context.Command, 512)
+	report.Context.OS = truncateTelemetryField(report.Context.OS, 64)
+	report.Context.Arch = truncateTelemetryField(report.Context.Arch, 64)
 
 	errorTypeLabel := clientErrorTypeLabel(report.Error.Type)
 
@@ -114,4 +116,16 @@ func (h *TelemetryHandler) PostClientError(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// JSON decoding supplies valid UTF-8. Keep only complete code points within the
+// byte budget so encoding a partial character cannot expand it to a replacement.
+func truncateTelemetryField(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit]
 }

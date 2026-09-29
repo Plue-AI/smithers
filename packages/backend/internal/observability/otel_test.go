@@ -38,17 +38,17 @@ func TestBuildTraceSampler_NeverSample(t *testing.T) {
 
 func TestBuildTraceSampler_RatioBased(t *testing.T) {
 	// Sample rate between 0 and 1 should use TraceIDRatioBased for root spans
-	// and defer to the parent decision otherwise.
+	// and defer only to local parent decisions otherwise.
 	sampler := BuildTraceSampler(0.5)
 	require.NotNil(t, sampler)
 	assert.Contains(t, sampler.Description(), "ParentBased")
 	assert.Contains(t, sampler.Description(), "TraceIDRatioBased")
 }
 
-// TestBuildTraceSampler_HonoursRemoteParentDecision pins the contract the
-// Observe playground relies on: a remote parent that is sampled is always
+// TestBuildTraceSampler_HonoursLocalParentDecision pins the contract the
+// in-process instrumentation relies on: a local parent that is sampled is always
 // exported, and one that is not sampled never is, regardless of the ratio.
-func TestBuildTraceSampler_HonoursRemoteParentDecision(t *testing.T) {
+func TestBuildTraceSampler_HonoursLocalParentDecision(t *testing.T) {
 	// A trace ID whose low 8 bytes are all 0xff is above every ratio bound
 	// below 1.0, so TraceIDRatioBased alone would drop it.
 	traceID := oteltrace.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
@@ -60,8 +60,8 @@ func TestBuildTraceSampler_HonoursRemoteParentDecision(t *testing.T) {
 		flags oteltrace.TraceFlags
 		want  trace.SamplingDecision
 	}{
-		{name: "sampled remote parent", flags: oteltrace.FlagsSampled, want: trace.RecordAndSample},
-		{name: "unsampled remote parent", flags: 0, want: trace.Drop},
+		{name: "sampled local parent", flags: oteltrace.FlagsSampled, want: trace.RecordAndSample},
+		{name: "unsampled local parent", flags: 0, want: trace.Drop},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,9 +69,9 @@ func TestBuildTraceSampler_HonoursRemoteParentDecision(t *testing.T) {
 				TraceID:    traceID,
 				SpanID:     spanID,
 				TraceFlags: tc.flags,
-				Remote:     true,
+				Remote:     false,
 			})
-			ctx := oteltrace.ContextWithRemoteSpanContext(context.Background(), parent)
+			ctx := oteltrace.ContextWithSpanContext(context.Background(), parent)
 			result := sampler.ShouldSample(trace.SamplingParameters{
 				ParentContext: ctx,
 				TraceID:       traceID,
