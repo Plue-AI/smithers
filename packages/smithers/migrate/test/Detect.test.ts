@@ -32,6 +32,11 @@ describe("Detect.classifyPackage", () => {
     expect(Detect.classifyPackage("@smthrs/components", "0.35.0")).toBe("deleted-package")
     expect(Detect.classifyPackage("@smthrs/cli", "0.35.0")).toBe("old-version")
     expect(Detect.classifyPackage("@smthrs/cli", "1.0.0-rc.0")).toBeUndefined()
+    expect(Detect.classifyPackage("@smthrs/ui", "0.35.0")).toBe("old-version")
+    expect(Detect.classifyPackage("@smthrs/ui", "1.0.0-rc.1")).toBeUndefined()
+    expect(Detect.isOldSpecifier("@smthrs/ui")).toBe(false)
+    expect(Detect.isOldSpecifier("@smthrs/ui/Button", { oldScoped: ["ui"] })).toBe(true)
+    expect(Detect.isOldSpecifier("@smthrs/ui/Button")).toBe(false)
     expect(Detect.classifyPackage("effect", "4.0.0-beta.105")).toBeUndefined()
   })
 

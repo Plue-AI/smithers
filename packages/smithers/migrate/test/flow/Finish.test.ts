@@ -704,6 +704,52 @@ describe("MigrateFlow.finish, after the archive has moved the tree", () => {
       expect([...hashTree(root).keys()].filter((path) => path.startsWith(".smithers-migrate/archive/"))).toEqual([])
     }))
 
+  it.effect("keeps a current UI dependency and import when finishing a mixed 0.x project", () =>
+    Effect.gen(function*() {
+      const root = copyFixture("jsx-single")
+      const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+        dependencies: Record<string, string>
+      }
+      manifest.dependencies["@smthrs/ui"] = "1.0.0-rc.1"
+      writeFileSync(join(root, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`)
+      const uiImport = "import { Button } from \"@smthrs/ui\"\nexport { Button }\n"
+      writeFileSync(join(root, "current-ui.ts"), uiImport)
+
+      const chosen = options(root)
+      const scanned = yield* MigrateFlow.scan(chosen).pipe(Effect.provide(platform))
+      expect(scanned.detection.manifests.find((entry) => entry.kind === "root")?.oldPackages.map((entry) => entry.name))
+        .toEqual(["smthrs"])
+      expect(scanned.detection.imports.some((entry) => entry.specifier === "@smthrs/ui")).toBe(false)
+      const outline = MigrateFlow.outlines(scanned, chosen).find((entry) => entry.id === "project")!
+      mkdirSync(join(root, "flows", "simple-workflow"), { recursive: true })
+      writeFileSync(join(root, "flows", "simple-workflow", "flow.ts"), golden)
+      const checkpoint = yield* Checkpoint.take({
+        root,
+        unit: outline.id,
+        files: owned(outline),
+        backupDir: join(root, ".smithers-migrate", "backup"),
+        allowNoVcs: true,
+        treeExclude: [".smithers-migrate"]
+      }).pipe(Effect.provide(platform))
+      const outcome = yield* MigrateFlow.finish({
+        options: chosen,
+        outline,
+        checkpoint,
+        runStateRoots: [],
+        result: answered(outline.id, []),
+        verification: passing,
+        repairRounds: 0
+      }).pipe(Effect.provide(platform))
+
+      expect(outcome.status).toBe("migrated")
+      const after = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+        dependencies: Record<string, string>
+      }
+      expect(after.dependencies["@smthrs/ui"]).toBe("1.0.0-rc.1")
+      expect(after.dependencies["smthrs"]).toBeUndefined()
+      expect(readFileSync(join(root, "current-ui.ts"), "utf8")).toBe(uiImport)
+    }))
+
   it.effect("removes the tsconfig paths key its own postcondition would refuse", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single")
