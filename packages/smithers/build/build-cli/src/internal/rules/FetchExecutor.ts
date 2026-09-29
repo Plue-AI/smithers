@@ -10,12 +10,13 @@ import * as Exit from "effect/Exit"
 import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import { createHash, randomBytes } from "node:crypto"
+import { createHash } from "node:crypto"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
 import * as NodeUtil from "node:util/types"
 import * as Diagnostic from "../../Diagnostic.ts"
 import type * as Rule from "../RuleContract.ts"
+import * as NativeArtifactOutput from "./NativeArtifactOutput.ts"
 
 /**
  * A typed fetch failure suitable for CLI diagnostics and direct callers.
@@ -210,13 +211,14 @@ const downloadedFile = async (
   signal: AbortSignal | undefined,
   temporary: string,
   destination: string,
-  limitBytes: number
+  limitBytes: number,
+  checkParent: () => Promise<void>
 ): Promise<DownloadedFile> => {
   const safeUrl = redactUrl(url)
   let handle: Fs.FileHandle | undefined
   const openTemporary = async (): Promise<Fs.FileHandle> => {
     if (handle !== undefined) return handle
-    await Fs.mkdir(NodePath.dirname(destination), { recursive: true })
+    await checkParent()
     handle = await Fs.open(temporary, "wx", 0o644)
     return handle
   }
@@ -315,14 +317,6 @@ const downloadedFile = async (
   }
 }
 
-const publishTemporary = async (temporary: string, destination: string): Promise<void> => {
-  try {
-    await Fs.rename(temporary, destination)
-  } catch (cause) {
-    throw writeFailure(destination, cause)
-  }
-}
-
 /**
  * The successful result logged by the package executor.
  *
@@ -369,27 +363,27 @@ export const download = async (options: {
   readonly limitBytes?: number | undefined
 }): Promise<Result> => {
   const destination = NodePath.join(options.root, ...options.outFile.split("/"))
-  const temporary = `${destination}.smthrs-fetch-${process.pid}-${randomBytes(6).toString("hex")}`
   try {
-    const downloaded = await downloadedFile(
-      options.url,
-      options.signal,
-      temporary,
-      destination,
-      options.limitBytes ?? maximumFetchBytes
-    )
-    if (downloaded.sha256 !== options.sha256) {
-      throw new FetchError(
-        "digest_mismatch",
-        `Fetch sha256 mismatch: expected ${options.sha256}, actual ${downloaded.sha256}`,
-        options.sha256,
-        downloaded.sha256
+    return await NativeArtifactOutput.publish(options.root, options.outFile, async (temporary, checkParent) => {
+      const downloaded = await downloadedFile(
+        options.url,
+        options.signal,
+        temporary,
+        destination,
+        options.limitBytes ?? maximumFetchBytes,
+        checkParent
       )
-    }
-    await publishTemporary(temporary, destination)
-    return downloaded
+      if (downloaded.sha256 !== options.sha256) {
+        throw new FetchError(
+          "digest_mismatch",
+          `Fetch sha256 mismatch: expected ${options.sha256}, actual ${downloaded.sha256}`,
+          options.sha256,
+          downloaded.sha256
+        )
+      }
+      return downloaded
+    }, options.signal)
   } catch (cause) {
-    await Fs.rm(temporary, { force: true }).catch(() => undefined)
-    throw cause
+    throw cause instanceof FetchError ? cause : writeFailure(destination, cause)
   }
 }

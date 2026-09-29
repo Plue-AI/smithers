@@ -210,25 +210,27 @@ describe("exact Fetch execution", () => {
     expect(await Fs.readdir(Path.join(root, "data")).catch(() => [])).toEqual([])
   })
 
-  it("preserves the original filesystem cause when publication cannot replace a directory", async () => {
+  it("refuses a directory destination before attempting publication", async () => {
     const node = await planned(origin + "/bytes/1", sha(body(1)))
     await Fs.mkdir(Path.join(root, "data/download.bin"), { recursive: true })
     await Fs.writeFile(Path.join(root, "data/download.bin/keep"), "previous")
     await expect(contract.execute(node, { root, signal: undefined })).rejects.toMatchObject({
       code: "write_failed",
-      cause: expect.objectContaining({ code: expect.stringMatching(/EISDIR|EPERM|EEXIST/) })
+      cause: expect.objectContaining({ message: expect.stringContaining("native output is not a regular file") })
     })
     expect(await Fs.readFile(Path.join(root, "data/download.bin/keep"), "utf8")).toBe("previous")
     expect(await Fs.readdir(Path.join(root, "data"))).toEqual(["download.bin"])
   })
 
-  it("preserves a write failure cause and cleans up when the output parent is a file", async () => {
+  it("refuses a file parent before attempting publication", async () => {
     const node = await planned(origin + "/bytes/1", sha(body(1)), "parent/a")
     await Fs.mkdir(Path.join(root, "data"))
     await Fs.writeFile(Path.join(root, "data/parent"), "previous")
     await expect(contract.execute(node, { root, signal: undefined })).rejects.toMatchObject({
       code: "write_failed",
-      cause: expect.objectContaining({ code: "EEXIST" })
+      cause: expect.objectContaining({
+        message: expect.stringContaining("native output parent is not a real directory")
+      })
     })
     expect(await Fs.readFile(Path.join(root, "data/parent"), "utf8")).toBe("previous")
     expect(await Fs.readdir(Path.join(root, "data"))).toEqual(["parent"])

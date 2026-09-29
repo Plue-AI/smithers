@@ -155,6 +155,7 @@ helps choose a verb and pattern for a task.
   [output and renderers](./concepts/output.md),
   [caching](./concepts/caching.md), and
   [target execution](./concepts/execution.md).
+- [Native file outputs](./concepts/native-file-outputs.md): output admission and publication.
 - [Rule contracts and ownership](./concepts/rule-contracts.md): the internal
   architecture and the boundary between declarations and host execution.
 - [Troubleshooting](./troubleshooting.md): the refusals this CLI reports, what

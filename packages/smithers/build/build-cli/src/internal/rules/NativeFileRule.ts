@@ -7,9 +7,11 @@
 import * as Input from "@smthrs/targets/Input"
 import type * as NodeArtifact from "@smthrs/targets/NodeArtifact"
 import * as Target from "@smthrs/targets/Target"
+import { constants } from "node:fs"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
 import type * as Rule from "../RuleContract.ts"
+import * as NativeArtifactOutput from "./NativeArtifactOutput.ts"
 
 type Selection = Extract<Rule.Selection, { readonly rule: "Copy" | "Literal" }> & {
   readonly outFiles: readonly [string]
@@ -55,11 +57,12 @@ export const contract: Rule.Contract<Selection, Request, void, Context> = {
       }
     }
   },
-  execute: async (node, { root, nodes }) => {
-    const destination = NodePath.join(root, ...node.outFiles[0].split("/"))
-    await Fs.mkdir(NodePath.dirname(destination), { recursive: true })
+  execute: async (node, { root, nodes, signal }) => {
     if (node.lane.flavor === "literal") {
-      await Fs.writeFile(destination, node.lane.text ?? "", "utf8")
+      await NativeArtifactOutput.publish(root, node.outFiles[0], async (temporary, checkParent) => {
+        await checkParent()
+        await Fs.writeFile(temporary, node.lane.text ?? "", { encoding: "utf8", flag: "wx", signal })
+      }, signal)
       return
     }
     let source = node.lane.source
@@ -72,7 +75,11 @@ export const contract: Rule.Contract<Selection, Request, void, Context> = {
       source = producer.outFiles[0]
     }
     if (source === undefined) throw new Error("copy source did not resolve to a file")
-    await Fs.copyFile(NodePath.join(root, ...source.split("/")), destination)
+    const absoluteSource = NodePath.join(root, ...source.split("/"))
+    await NativeArtifactOutput.publish(root, node.outFiles[0], async (temporary, checkParent) => {
+      await checkParent()
+      await Fs.copyFile(absoluteSource, temporary, constants.COPYFILE_EXCL)
+    }, signal)
   }
 }
 
