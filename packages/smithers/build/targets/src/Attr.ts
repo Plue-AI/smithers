@@ -79,6 +79,31 @@ export const Services = Schema.Array(Target.Target)
 export const HostPlatforms = Schema.NonEmptyArray(Schema.Literals(["linux", "darwin", "win32"]))
 
 /**
+ * Schema for the network destinations a download-performing target reaches:
+ * lowercase DNS names, one per host a connection resolves through. A domain
+ * allowlist matches the name a connection resolved through, so a CDN's CNAME
+ * target is listed beside the name that aliases it, and a redirect's target
+ * beside the name that redirects. Environment builders open exactly these
+ * hosts; an undeclared list is refused, never replaced by a default.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Destinations = Schema.Array(
+  Schema.NonEmptyString.check(
+    Schema.isPattern(/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/)
+  )
+)
+
+/**
+ * The network destinations a download-performing target reaches.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type Destinations = typeof Destinations.Type
+
+/**
  * Schema for the sandbox policy: the default confinement, a loopback-only
  * opening (`{ network: "loopback" }`: bind, accept, and connect on the
  * loopback interface, no egress; what a test suite that starts its own

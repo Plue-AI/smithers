@@ -17,6 +17,7 @@
 
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as Attr from "./Attr.ts"
 import * as Exec from "./Exec.ts"
 import * as Input from "./Input.ts"
 import * as NodeTest from "./NodeTest.ts"
@@ -28,7 +29,9 @@ import * as Target from "./Target.ts"
  *
  * `cwd` is the workspace-relative directory the program runs in and defaults to
  * the workspace root. `srcs` are the files the program reads beyond its own
- * entry point; they complete the key material.
+ * entry point; they complete the key material. `destinations` names the hosts
+ * a program that downloads on first run reaches, so an environment builder
+ * that runs it ahead of time opens exactly those hosts.
  *
  * @category schemas
  * @since 0.1.0
@@ -42,7 +45,8 @@ export const Attrs = Schema.Struct({
   env: Schema.Record(Schema.String, Schema.String).pipe(
     Schema.withConstructorDefault(Effect.succeed({}))
   ),
-  cwd: Schema.NonEmptyString.pipe(Schema.withConstructorDefault(Effect.succeed(".")))
+  cwd: Schema.NonEmptyString.pipe(Schema.withConstructorDefault(Effect.succeed("."))),
+  destinations: Schema.optional(Attr.Destinations)
 })
 
 /**

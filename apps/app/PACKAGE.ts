@@ -63,7 +63,16 @@ const devkit = Smithers.NodeBinary({
   ],
   deps: [],
   env: { HUTCH_NO_UPDATE_CHECK: "1" },
-  cwd
+  cwd,
+  // The Hutch and Electrobun release hosts, and GitHub's release asset hosts
+  // their downloads redirect to.
+  destinations: [
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "hutch.blackboard.sh",
+    "electrobun-artifacts.blackboard.sh"
+  ]
 })
 
 /**

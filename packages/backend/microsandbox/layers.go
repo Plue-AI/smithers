@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -24,8 +25,8 @@ import (
 // Environments are layered, content-addressed microVM disks:
 //
 //	L0 image        pinned OCI reference
-//	L1 toolchain    the repository's declared toolchain pins, each fetched
-//	                against a reviewed checksum
+//	L1 toolchain    the index's Environment.Toolchain row: each pinned
+//	                artifact fetched against its declared SHA-256
 //	L2 dependencies the build graph's install nodes (.smithers/target-index.json
 //	                rules Install, Go.ModDownload and the Cargo inputs) keyed by
 //	                the content of their declared inputs; caches only, outside
@@ -35,7 +36,8 @@ import (
 // Each layer's key is a SHA-256 over its parent's key and its declared
 // inputs, so a change invalidates exactly the layers whose inputs changed.
 // Layers are Microsandbox snapshots (APFS clones), built once in a prepare VM
-// with a per-layer network allowlist and verified in a fresh offline VM.
+// with a network allowlist of exactly the destinations its index rows declare,
+// and verified in a fresh offline VM.
 
 const (
 	layerSchema     = "smithers.microvm.layer/v1"
@@ -209,7 +211,11 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 		}
 		return contents, true, nil
 	}
-	toolchain, err := toolchainRecipe(e.config.Image, read)
+	targets, err := readTargetIndex(read)
+	if err != nil {
+		return Layer{}, err
+	}
+	toolchain, err := toolchainRecipe(e.config.Image, targets)
 	if err != nil {
 		return Layer{}, err
 	}
@@ -217,7 +223,7 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	if err != nil {
 		return Layer{}, err
 	}
-	dependencies, inputs, err := dependencyRecipe(toolchainLayer.Key, read)
+	dependencies, inputs, err := dependencyRecipe(toolchainLayer.Key, targets, read)
 	if err != nil {
 		return Layer{}, err
 	}
@@ -527,150 +533,206 @@ func parseInventory(output string) map[string]string {
 
 // ---- L1: toolchain ----
 
+// targetIndexPath is the committed declaration index every layer derives from.
+const targetIndexPath = ".smithers/target-index.json"
+
+// indexTarget is one row of the committed target index, as far as layers read
+// it. Destinations is nil when the declaration states none, which a
+// download-performing node is refused for; a declared empty list is kept.
+type indexTarget struct {
+	Label   string `json:"label"`
+	Package string `json:"package"`
+	Rule    string `json:"rule"`
+	Inputs  []struct {
+		Kind string `json:"kind"`
+		Path string `json:"path"`
+	} `json:"inputs"`
+	Destinations *[]string       `json:"destinations"`
+	Toolchain    *indexToolchain `json:"toolchain"`
+}
+
+// indexToolchain is an Environment.Toolchain row's pinned releases.
+type indexToolchain struct {
+	Downloads map[string]download `json:"downloads"`
+	Rust      *struct {
+		Channel    string   `json:"channel"`
+		Components []string `json:"components"`
+		Targets    []string `json:"targets"`
+	} `json:"rust"`
+	Postgres string `json:"postgres"`
+}
+
+// readTargetIndex reads the committed target index. A repository without one
+// is refused: layers are derived from the declaration graph only.
+func readTargetIndex(read func(string) ([]byte, bool, error)) ([]indexTarget, error) {
+	contents, ok, err := read(targetIndexPath)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("environment layers need a committed " + targetIndexPath)
+	}
+	var targets []indexTarget
+	if err := json.Unmarshal(contents, &targets); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", targetIndexPath, err)
+	}
+	return targets, nil
+}
+
 // download is one pinned artifact and its reviewed SHA-256 (linux/arm64).
 type download struct {
-	URL    string `json:"url"`
-	SHA256 string `json:"sha256"`
+	Version string `json:"version"`
+	URL     string `json:"url"`
+	SHA256  string `json:"sha256"`
 }
 
-// reviewedDownloads holds the checksums a human verified by download. A
-// repository pinning a version absent here is refused, never fetched blind.
-var reviewedDownloads = map[string]map[string]download{
-	"node":   {"26.5.0": {"https://nodejs.org/dist/v26.5.0/node-v26.5.0-linux-arm64.tar.xz", "036df0b49662ebb350eb56f1cac603699b1e9ed1e2603ee129fefda473479030"}},
-	"pnpm":   {"11.25.0": {"https://registry.npmjs.org/pnpm/-/pnpm-11.25.0.tgz", "33dd0748f27e7916c4f1c8b6943461983e3453b06bbda6312a6280130b4881e5"}},
-	"bun":    {"1.4.1": {"https://github.com/oven-sh/bun/releases/download/bun-v1.4.1/bun-linux-aarch64.zip", "580ce77533108dc6b10bec1721397e4f5aa44e909726da2451d483dfc5e581d6"}},
-	"go":     {"1.26.8": {"https://go.dev/dl/go1.26.8.linux-arm64.tar.gz", "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0"}},
-	"jj":     {"0.39.0": {"https://github.com/jj-vcs/jj/releases/download/v0.39.0/jj-v0.39.0-aarch64-unknown-linux-musl.tar.gz", "15bbb0199adf57929d1e3cd90ae0b47356858cbe374814769815a1fb87d5ad1d"}},
-	"rg":     {"14.1.1": {"https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz", "c827481c4ff4ea10c9dc7a4022c8de5db34a5737cb74484d62eb94a95841ab2f"}},
-	"fd":     {"10.2.0": {"https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-aarch64-unknown-linux-musl.tar.gz", "4e8e596646d047d904f2c5ca74b39dccc69978b6e1fb101094e534b0b59c1bb0"}},
-	"jq":     {"1.7.1": {"https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64", "4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5"}},
-	"rustup": {"1.28.2": {"https://static.rust-lang.org/rustup/archive/1.28.2/aarch64-unknown-linux-gnu/rustup-init", "e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c"}},
-}
-
-// Profile defaults for tools a repository does not pin as data.
-var profileVersions = map[string]string{"node": "26.5.0", "pnpm": "11.25.0", "bun": "1.4.1", "go": "1.26.8", "jj": "0.39.0",
-	"rg": "14.1.1", "fd": "10.2.0", "jq": "1.7.1", "rustup": "1.28.2"}
+// requiredTools are the tools the toolchain script installs.
+var requiredTools = []string{"node", "pnpm", "bun", "go", "jj", "rg", "fd", "jq"}
 
 // pgdgKeyFingerprint pins the PostgreSQL apt repository signing key.
 const pgdgKeyFingerprint = "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8"
 
 type toolchainLayer struct {
-	Image     string              `json:"image"`
-	Downloads map[string]download `json:"downloads"`
-	Versions  map[string]string   `json:"versions"`
-	Rust      string              `json:"rust,omitempty"`
-	RustParts []string            `json:"rustComponents,omitempty"`
-	RustTargs []string            `json:"rustTargets,omitempty"`
-	Postgres  string              `json:"postgres"`
+	Image        string              `json:"image"`
+	Label        string              `json:"label"`
+	Downloads    map[string]download `json:"downloads"`
+	Rust         string              `json:"rust,omitempty"`
+	RustParts    []string            `json:"rustComponents,omitempty"`
+	RustTargs    []string            `json:"rustTargets,omitempty"`
+	Postgres     string              `json:"postgres,omitempty"`
+	Destinations []string            `json:"destinations"`
 }
 
 var (
-	nodeVersionPattern = regexp.MustCompile(`^v?([0-9]+\.[0-9]+\.[0-9]+)$`)
-	goDirective        = regexp.MustCompile(`(?m)^go ([0-9]+\.[0-9]+(?:\.[0-9]+)?)\s*$`)
-	constantPattern    = func(name string) *regexp.Regexp {
-		return regexp.MustCompile(`(?m)export const ` + name + ` = "([0-9]+\.[0-9]+\.[0-9]+)"`)
-	}
-	tomlString = func(key string) *regexp.Regexp { return regexp.MustCompile(`(?m)^` + key + `\s*=\s*"([^"]+)"`) }
-	tomlList   = func(key string) *regexp.Regexp { return regexp.MustCompile(`(?m)^` + key + `\s*=\s*\[([^\]]*)\]`) }
+	versionPattern  = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]*$`)
+	sha256Pattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	postgresPattern = regexp.MustCompile(`^[0-9]+$`)
 )
 
-// toolchainRecipe reads the repository's declared pins at the revision.
-func toolchainRecipe(image string, read func(string) ([]byte, bool, error)) (toolchainLayer, error) {
-	versions := map[string]string{}
-	for tool, version := range profileVersions {
-		versions[tool] = version
+// toolchainRecipe reads the one Environment.Toolchain row of the index: its
+// pinned artifacts, their digests, and the hosts they are fetched from.
+func toolchainRecipe(image string, targets []indexTarget) (toolchainLayer, error) {
+	var rows []indexTarget
+	for _, target := range targets {
+		if target.Rule == "Environment.Toolchain" {
+			rows = append(rows, target)
+		}
 	}
-	if contents, ok, err := read(".node-version"); err != nil {
+	if len(rows) != 1 {
+		return toolchainLayer{}, fmt.Errorf("%s declares %d Environment.Toolchain targets; a prepared environment needs exactly one", targetIndexPath, len(rows))
+	}
+	row := rows[0]
+	if row.Toolchain == nil {
+		return toolchainLayer{}, fmt.Errorf("%s carries no toolchain pins", row.Label)
+	}
+	if row.Destinations == nil {
+		return toolchainLayer{}, fmt.Errorf("%s declares no network destinations", row.Label)
+	}
+	layer := toolchainLayer{Image: image, Label: row.Label, Downloads: map[string]download{}, Postgres: row.Toolchain.Postgres}
+	destinations, err := destinationSet(row.Label, *row.Destinations)
+	if err != nil {
 		return toolchainLayer{}, err
-	} else if ok {
-		match := nodeVersionPattern.FindStringSubmatch(strings.TrimSpace(string(contents)))
-		if match == nil {
-			return toolchainLayer{}, errors.New(".node-version does not name an exact release")
-		}
-		versions["node"] = match[1]
 	}
-	if contents, ok, err := read("package.json"); err != nil {
-		return toolchainLayer{}, err
-	} else if ok {
-		var manifest struct {
-			PackageManager string `json:"packageManager"`
+	required := append([]string(nil), requiredTools...)
+	if rust := row.Toolchain.Rust; rust != nil {
+		if strings.TrimSpace(rust.Channel) == "" {
+			return toolchainLayer{}, fmt.Errorf("%s declares a Rust toolchain with no channel", row.Label)
 		}
-		if json.Unmarshal(contents, &manifest) == nil && strings.HasPrefix(manifest.PackageManager, "pnpm@") {
-			versions["pnpm"] = strings.SplitN(strings.TrimPrefix(manifest.PackageManager, "pnpm@"), "+", 2)[0]
-		}
+		layer.Rust = rust.Channel
+		layer.RustParts = sortedCopy(rust.Components)
+		layer.RustTargs = sortedCopy(rust.Targets)
+		required = append(required, "rustup")
 	}
-	if contents, ok, err := read("go.mod"); err != nil {
-		return toolchainLayer{}, err
-	} else if ok {
-		if match := goDirective.FindSubmatch(contents); match != nil {
-			versions["go"] = string(match[1])
-		}
+	if layer.Postgres != "" && !postgresPattern.MatchString(layer.Postgres) {
+		return toolchainLayer{}, fmt.Errorf("%s declares PostgreSQL %q, not a major version", row.Label, layer.Postgres)
 	}
-	if contents, ok, err := read(".smithers/WORKSPACE.ts"); err != nil {
-		return toolchainLayer{}, err
-	} else if ok {
-		for tool, constant := range map[string]string{"bun": "bunVersion", "jj": "jjVersion"} {
-			if match := constantPattern(constant).FindSubmatch(contents); match != nil {
-				versions[tool] = string(match[1])
-			}
-		}
-	}
-	layer := toolchainLayer{Image: image, Versions: versions, Downloads: map[string]download{}, Postgres: "18"}
-	for tool, version := range versions {
-		pinned, ok := reviewedDownloads[tool][version]
+	for _, tool := range required {
+		pinned, ok := row.Toolchain.Downloads[tool]
 		if !ok {
-			return toolchainLayer{}, fmt.Errorf("%s %s has no reviewed linux/arm64 checksum; add it to microsandbox reviewedDownloads", tool, version)
+			return toolchainLayer{}, fmt.Errorf("%s pins no %s download", row.Label, tool)
+		}
+		if !versionPattern.MatchString(pinned.Version) || !sha256Pattern.MatchString(pinned.SHA256) {
+			return toolchainLayer{}, fmt.Errorf("%s pins %s without an exact version and SHA-256", row.Label, tool)
+		}
+		host, err := httpsHost(pinned.URL)
+		if err != nil {
+			return toolchainLayer{}, fmt.Errorf("%s pins %s at %q: %w", row.Label, tool, pinned.URL, err)
+		}
+		if !destinations[host] {
+			return toolchainLayer{}, fmt.Errorf("%s fetches %s from %s, which is not among its destinations", row.Label, tool, host)
 		}
 		layer.Downloads[tool] = pinned
 	}
-	if contents, ok, err := read("rust-toolchain.toml"); err != nil {
-		return toolchainLayer{}, err
-	} else if ok {
-		if match := tomlString("channel").FindSubmatch(contents); match != nil {
-			layer.Rust = string(match[1])
-		}
-		layer.RustParts = tomlItems(tomlList("components").FindSubmatch(contents))
-		layer.RustTargs = tomlItems(tomlList("targets").FindSubmatch(contents))
+	// The script reaches these hosts itself: rustup downloads the declared
+	// channel from its dist server, and PostgreSQL comes from its signed apt
+	// repository after its key.
+	var procedure []string
+	if layer.Rust != "" {
+		procedure = append(procedure, "static.rust-lang.org")
 	}
+	if layer.Postgres != "" {
+		procedure = append(procedure, "www.postgresql.org", "apt.postgresql.org")
+	}
+	for _, host := range procedure {
+		if !destinations[host] {
+			return toolchainLayer{}, fmt.Errorf("%s installs from %s, which is not among its destinations", row.Label, host)
+		}
+	}
+	layer.Destinations = sortedKeys(destinations)
 	return layer, nil
 }
 
-func tomlItems(match [][]byte) []string {
-	if match == nil {
+// destinationSet validates a node's declared hosts.
+func destinationSet(label string, hosts []string) (map[string]bool, error) {
+	set := map[string]bool{}
+	for _, host := range hosts {
+		if !dnsName.MatchString(host) {
+			return nil, fmt.Errorf("%s declares an invalid network destination %q", label, host)
+		}
+		set[host] = true
+	}
+	return set, nil
+}
+
+var dnsName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
+
+// httpsHost returns the host of an https URL.
+func httpsHost(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
+		return "", errors.New("not an https URL")
+	}
+	return strings.ToLower(parsed.Hostname()), nil
+}
+
+func sortedCopy(items []string) []string {
+	if len(items) == 0 {
 		return nil
 	}
-	var items []string
-	for _, item := range strings.Split(string(match[1]), ",") {
-		item = strings.Trim(strings.TrimSpace(item), `"'`)
-		if item != "" {
-			items = append(items, item)
-		}
+	out := append([]string(nil), items...)
+	sort.Strings(out)
+	return out
+}
+
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for key := range set {
+		out = append(out, key)
 	}
-	sort.Strings(items)
-	return items
+	sort.Strings(out)
+	return out
 }
 
 func (t toolchainLayer) kind() string   { return layerToolchain }
 func (t toolchainLayer) link() []string { return nil }
 
-// Domain rules match the DNS name a connection resolved through, so CDN
-// CNAME targets are listed beside the names that alias them (apt, for one,
-// connects by the canonical name). apt archives are signature-verified.
-var toolDownloadHosts = []string{"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com",
-	"hutch.blackboard.sh", "electrobun-artifacts.blackboard.sh"}
-
-var (
-	debianMirrors  = []string{"deb.debian.org", "debian.map.fastly.net", "debian.map.fastlydns.net"}
-	postgresMirror = []string{"www.postgresql.org", "www.mirrors.postgresql.org", "apt.postgresql.org", "dualstack.t.sni.global.fastly.net"}
-	playwrightCDN  = []string{"cdn.playwright.dev", "playwright-bkakghazbfe7grc5.z01.azurefd.net", "mr-z01.tm-azurefd.net"}
-)
-
-func (t toolchainLayer) allowlist() []string {
-	domains := []string{"nodejs.org", "registry.npmjs.org", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com",
-		"go.dev", "dl.google.com", "static.rust-lang.org", "fastly-static.rust-lang.org", "dualstack.k.sni.global.fastly.net"}
-	domains = append(domains, debianMirrors...)
-	return append(domains, postgresMirror...)
-}
+// allowlist is the toolchain row's declared destinations. Domain rules match
+// the DNS name a connection resolved through, so the declaration lists CDN
+// CNAME targets beside the names that alias them.
+func (t toolchainLayer) allowlist() []string { return t.Destinations }
 
 func (t toolchainLayer) script() string {
 	var s strings.Builder
@@ -699,15 +761,19 @@ fetch() { curl -fsSL --retry 4 --retry-all-errors -o "$3" "$1"; echo "$2  $3" | 
 		}
 		s.WriteString(" >/dev/null\n")
 	}
-	fmt.Fprintf(&s, `curl -fsSL --retry 4 -o /var/tmp/dl/pgdg.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+	pathEntries := []string{toolchainRoot + "/bin", toolchainRoot + "/node/bin", toolchainRoot + "/go/bin", "/opt/smithers/rust/cargo/bin"}
+	if t.Postgres != "" {
+		fmt.Fprintf(&s, `curl -fsSL --retry 4 -o /var/tmp/dl/pgdg.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
 gpg --batch --quiet --show-keys --with-colons /var/tmp/dl/pgdg.asc | grep -q '^fpr:::::::::%[1]s:$'
 gpg --batch --quiet --dearmor < /var/tmp/dl/pgdg.asc > /usr/share/keyrings/pgdg.gpg
 echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release; echo $VERSION_CODENAME)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
 apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-%[2]s >/dev/null
-rm -rf /var/lib/apt/lists/* /var/tmp/dl
+rm -rf /var/lib/apt/lists/*
 `, pgdgKeyFingerprint, t.Postgres)
-	pathEntries := []string{toolchainRoot + "/bin", toolchainRoot + "/node/bin", toolchainRoot + "/go/bin", "/opt/smithers/rust/cargo/bin",
-		"/usr/lib/postgresql/" + t.Postgres + "/bin", "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"}
+		pathEntries = append(pathEntries, "/usr/lib/postgresql/"+t.Postgres+"/bin")
+	}
+	s.WriteString("rm -rf /var/tmp/dl\n")
+	pathEntries = append(pathEntries, "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
 	env := map[string]string{
 		"PATH": strings.Join(pathEntries, ":"), "GOTOOLCHAIN": "local", "GOPROXY": "off", "GOFLAGS": "-mod=readonly",
 		"GOMODCACHE": cacheRoot + "/gomod", "GOCACHE": cacheRoot + "/gocache", "RUSTUP_HOME": "/opt/smithers/rust/rustup",
@@ -723,8 +789,12 @@ rm -rf /var/lib/apt/lists/* /var/tmp/dl
 echo "inventory node $(node --version)"; echo "inventory pnpm $(pnpm --version)"; echo "inventory bun $(bun --version)"
 echo "inventory go $(go version | cut -d' ' -f3)"; echo "inventory jj $(jj --version)"; echo "inventory rg $(rg --version | head -1)"
 echo "inventory fd $(fd --version)"; echo "inventory jq $(jq --version)"; echo "inventory git $(git --version)"
-echo "inventory python3 $(python3 --version)"; echo "inventory postgres $(postgres --version)"
+echo "inventory python3 $(python3 --version)"
 `)
+	if t.Postgres != "" {
+		s.WriteString(`echo "inventory postgres $(postgres --version)"
+`)
+	}
 	if t.Rust != "" {
 		s.WriteString(`echo "inventory rustc $(RUSTUP_HOME=/opt/smithers/rust/rustup /opt/smithers/rust/cargo/bin/rustc --version)"
 echo "inventory cargo $(RUSTUP_HOME=/opt/smithers/rust/rustup /opt/smithers/rust/cargo/bin/cargo --version)"
@@ -736,9 +806,10 @@ echo "inventory cargo $(RUSTUP_HOME=/opt/smithers/rust/rustup /opt/smithers/rust
 // ---- L2: dependencies ----
 
 type dependencyNode struct {
-	Label string            `json:"label"`
-	Rule  string            `json:"rule"`
-	Files map[string]string `json:"files"`
+	Label        string            `json:"label"`
+	Rule         string            `json:"rule"`
+	Files        map[string]string `json:"files"`
+	Destinations []string          `json:"destinations,omitempty"`
 }
 
 type dependencyLayer struct {
@@ -750,7 +821,6 @@ type dependencyLayer struct {
 	// node's config names; the layer fills dprint's cache with them.
 	Dprint        string   `json:"dprint,omitempty"`
 	DprintPlugins []string `json:"dprintPlugins,omitempty"`
-	Derived       bool     `json:"derived,omitempty"`
 }
 
 // toolNode is a graph node that materialises a tool from the lockfile and
@@ -762,16 +832,6 @@ type toolNode struct {
 	Label   string `json:"label"`
 	Package string `json:"package"`
 	Entry   string `json:"entry"`
-}
-
-type indexTarget struct {
-	Label   string `json:"label"`
-	Package string `json:"package"`
-	Rule    string `json:"rule"`
-	Inputs  []struct {
-		Kind string `json:"kind"`
-		Path string `json:"path"`
-	} `json:"inputs"`
 }
 
 // dprintPlugins lists the distinct plugin URLs the dprint configs name,
@@ -838,10 +898,21 @@ func lockImporters(lock []byte) []string {
 
 var playwrightPattern = regexp.MustCompile(`(?m)^\s+playwright-core@([0-9]+\.[0-9]+\.[0-9]+):\s*$`)
 
-// dependencyRecipe derives the install nodes from the committed target
-// index. A repository without one gets the same node kinds from the
-// manifests it has, marked derived.
-func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, error)) (dependencyLayer, map[string][]byte, error) {
+// declaredDestinations returns a download-performing node's declared hosts,
+// refusing a node that declares none: no node inherits hosts it did not state.
+func declaredDestinations(target indexTarget) ([]string, error) {
+	if target.Destinations == nil {
+		return nil, fmt.Errorf("%s declares no network destinations; add destinations to its declaration", target.Label)
+	}
+	set, err := destinationSet(target.Label, *target.Destinations)
+	if err != nil {
+		return nil, err
+	}
+	return sortedKeys(set), nil
+}
+
+// dependencyRecipe derives the install nodes from the committed target index.
+func dependencyRecipe(toolchainKey string, targets []indexTarget, read func(string) ([]byte, bool, error)) (dependencyLayer, map[string][]byte, error) {
 	layer := dependencyLayer{Toolchain: toolchainKey}
 	inputs := map[string][]byte{}
 	nodes := map[string]*dependencyNode{}
@@ -862,94 +933,111 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 		inputs[path] = contents
 		return nil
 	}
-	index, ok, err := read(".smithers/target-index.json")
-	if err != nil {
-		return layer, nil, err
-	}
-	if ok {
-		var targets []indexTarget
-		if err := json.Unmarshal(index, &targets); err != nil {
-			return layer, nil, fmt.Errorf("decode .smithers/target-index.json: %w", err)
-		}
-		cargo := &dependencyNode{Label: "cargo", Rule: "Cargo.Fetch", Files: map[string]string{}}
-		dprint := &dependencyNode{Label: "dprint", Rule: "Dprint.Plugins", Files: map[string]string{}}
-		for _, target := range targets {
-			switch {
-			case target.Rule == "Install" || target.Rule == "Go.ModDownload":
-				node := &dependencyNode{Label: target.Label, Rule: target.Rule, Files: map[string]string{}}
-				for _, input := range target.Inputs {
-					if input.Path != "" && (input.Kind == "file" || input.Kind == "pnpm-workspace") {
-						if err := addFile(node, input.Path); err != nil {
-							return layer, nil, err
-						}
-					}
-				}
-				nodes[node.Label] = node
-			case target.Rule == "NodeBinary" && declares(target, "pnpm-lock.yaml"):
-				node := &dependencyNode{Label: target.Label, Rule: target.Rule, Files: map[string]string{}}
-				entry := ""
-				for _, input := range target.Inputs {
-					if input.Kind != "file" || input.Path == "" {
-						continue
-					}
+	cargo := &dependencyNode{Label: "cargo", Rule: "Cargo.Fetch", Files: map[string]string{}}
+	cargoHosts := map[string]bool{}
+	cargoDeclared := false
+	var cargoLabels []string
+	dprint := &dependencyNode{Label: "dprint", Rule: "Dprint.Plugins", Files: map[string]string{}}
+	for _, target := range targets {
+		switch {
+		case target.Rule == "Install" || target.Rule == "Go.ModDownload":
+			destinations, err := declaredDestinations(target)
+			if err != nil {
+				return layer, nil, err
+			}
+			node := &dependencyNode{Label: target.Label, Rule: target.Rule, Files: map[string]string{}, Destinations: destinations}
+			for _, input := range target.Inputs {
+				if input.Path != "" && (input.Kind == "file" || input.Kind == "pnpm-workspace") {
 					if err := addFile(node, input.Path); err != nil {
 						return layer, nil, err
 					}
-					if entry == "" && (strings.HasSuffix(input.Path, ".mjs") || strings.HasSuffix(input.Path, ".cjs") || strings.HasSuffix(input.Path, ".js")) {
-						entry = input.Path
-					}
-				}
-				if entry != "" && target.Package != "" && strings.HasPrefix(entry, target.Package+"/") {
-					nodes[node.Label] = node
-					layer.Tools = append(layer.Tools, toolNode{Label: target.Label, Package: target.Package, Entry: strings.TrimPrefix(entry, target.Package+"/")})
-				}
-			case target.Rule == "Dprint":
-				for _, input := range target.Inputs {
-					if input.Kind != "file" || path.Base(input.Path) != "dprint.json" {
-						continue
-					}
-					if err := addFile(dprint, input.Path); err != nil {
-						return layer, nil, err
-					}
-					if layer.Dprint == "" && target.Package != "" {
-						layer.Dprint = target.Package
-					}
-				}
-			case strings.HasPrefix(target.Rule, "Cargo.") || target.Label == "//:nativeFfi":
-				for _, input := range target.Inputs {
-					base := path.Base(input.Path)
-					if input.Kind == "file" && (base == "Cargo.toml" || base == "Cargo.lock" || base == "rust-toolchain.toml") {
-						if err := addFile(cargo, input.Path); err != nil {
-							return layer, nil, err
-						}
-					}
 				}
 			}
-		}
-		if len(cargo.Files) > 0 {
-			nodes[cargo.Label] = cargo
-		}
-		if len(dprint.Files) > 0 {
-			nodes[dprint.Label] = dprint
-			layer.DprintPlugins = dprintPlugins(dprint, inputs)
-		}
-	} else {
-		layer.Derived = true
-		for label, manifest := range map[string][]string{
-			"derived:pnpm":  {"pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", "package.json"},
-			"derived:go":    {"go.mod", "go.sum"},
-			"derived:cargo": {"Cargo.toml", "Cargo.lock"},
-		} {
-			node := &dependencyNode{Label: label, Rule: map[string]string{"derived:pnpm": "Install", "derived:go": "Go.ModDownload", "derived:cargo": "Cargo.Fetch"}[label], Files: map[string]string{}}
-			for _, file := range manifest {
-				if err := addFile(node, file); err != nil {
+			nodes[node.Label] = node
+		case target.Rule == "NodeBinary" && declares(target, "pnpm-lock.yaml"):
+			entry := ""
+			for _, input := range target.Inputs {
+				if input.Kind == "file" && (strings.HasSuffix(input.Path, ".mjs") || strings.HasSuffix(input.Path, ".cjs") || strings.HasSuffix(input.Path, ".js")) {
+					entry = input.Path
+					break
+				}
+			}
+			if entry == "" || target.Package == "" || !strings.HasPrefix(entry, target.Package+"/") {
+				continue
+			}
+			destinations, err := declaredDestinations(target)
+			if err != nil {
+				return layer, nil, err
+			}
+			node := &dependencyNode{Label: target.Label, Rule: target.Rule, Files: map[string]string{}, Destinations: destinations}
+			for _, input := range target.Inputs {
+				if input.Kind != "file" || input.Path == "" {
+					continue
+				}
+				if err := addFile(node, input.Path); err != nil {
 					return layer, nil, err
 				}
 			}
-			if node.Files[manifest[0]] != "absent" {
-				nodes[label] = node
+			nodes[node.Label] = node
+			layer.Tools = append(layer.Tools, toolNode{Label: target.Label, Package: target.Package, Entry: strings.TrimPrefix(entry, target.Package+"/")})
+		case target.Rule == "Dprint":
+			for _, input := range target.Inputs {
+				if input.Kind != "file" || path.Base(input.Path) != "dprint.json" {
+					continue
+				}
+				if err := addFile(dprint, input.Path); err != nil {
+					return layer, nil, err
+				}
+				if layer.Dprint == "" && target.Package != "" {
+					layer.Dprint = target.Package
+				}
+			}
+		case strings.HasPrefix(target.Rule, "Cargo.") || target.Label == "//:nativeFfi":
+			contributes := false
+			for _, input := range target.Inputs {
+				base := path.Base(input.Path)
+				if input.Kind == "file" && (base == "Cargo.toml" || base == "Cargo.lock" || base == "rust-toolchain.toml") {
+					contributes = true
+					if err := addFile(cargo, input.Path); err != nil {
+						return layer, nil, err
+					}
+				}
+			}
+			if contributes {
+				cargoLabels = append(cargoLabels, target.Label)
+			}
+			if target.Destinations != nil {
+				set, err := destinationSet(target.Label, *target.Destinations)
+				if err != nil {
+					return layer, nil, err
+				}
+				cargoDeclared = true
+				for host := range set {
+					cargoHosts[host] = true
+				}
 			}
 		}
+	}
+	if len(cargo.Files) > 0 {
+		// One cargo fetch serves every Cargo node; the nodes that resolve
+		// crates declare where from.
+		if !cargoDeclared {
+			return layer, nil, fmt.Errorf("%s declare no network destinations for the cargo fetch; add destinations to a Cargo declaration", strings.Join(cargoLabels, ", "))
+		}
+		cargo.Destinations = sortedKeys(cargoHosts)
+		nodes[cargo.Label] = cargo
+	}
+	if len(dprint.Files) > 0 {
+		layer.DprintPlugins = dprintPlugins(dprint, inputs)
+		// A plugin's host is part of its declared URL.
+		hosts := map[string]bool{}
+		for _, plugin := range layer.DprintPlugins {
+			if host, err := httpsHost(strings.SplitN(plugin, "@", 2)[0]); err == nil {
+				hosts[host] = true
+			}
+		}
+		dprint.Destinations = sortedKeys(hosts)
+		nodes[dprint.Label] = dprint
 	}
 	// The pnpm-workspace input kind covers the workspace's member manifests;
 	// the lockfile's importers name them, so the install can link offline.
@@ -977,7 +1065,7 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 	for _, label := range labels {
 		layer.Nodes = append(layer.Nodes, *nodes[label])
 	}
-	if lock, ok := inputs["pnpm-lock.yaml"]; ok {
+	if lock, ok := inputs["pnpm-lock.yaml"]; ok && layer.has("Install") {
 		seen := map[string]bool{}
 		for _, match := range playwrightPattern.FindAllSubmatch(lock, -1) {
 			if version := string(match[1]); !seen[version] {
@@ -1008,28 +1096,17 @@ func (d dependencyLayer) link() []string {
 	return nil
 }
 
+// allowlist is the union of the nodes' declared destinations; the Playwright
+// browser builds install with the Install node, so its declaration names
+// their hosts.
 func (d dependencyLayer) allowlist() []string {
-	domains := []string{"registry.npmjs.org"}
-	if d.has("Go.ModDownload") {
-		domains = append(domains, "proxy.golang.org", "sum.golang.org", "storage.googleapis.com")
+	hosts := map[string]bool{}
+	for _, node := range d.Nodes {
+		for _, host := range node.Destinations {
+			hosts[host] = true
+		}
 	}
-	if d.has("Cargo.Fetch") {
-		domains = append(domains, "index.crates.io", "fastly-index.crates.io", "static.crates.io", "fastly-static.crates.io",
-			"dualstack.k.sni.global.fastly.net", "crates.io", "github.com", "codeload.github.com")
-	}
-	if len(d.Playwright) > 0 {
-		domains = append(append(domains, playwrightCDN...), debianMirrors...)
-	}
-	if len(d.DprintPlugins) > 0 {
-		domains = append(domains, "plugins.dprint.dev")
-	}
-	if len(d.Tools) > 0 {
-		// Tool nodes do not yet declare their download hosts in the target
-		// graph; these are the Hutch/Electrobun release hosts apps/app's
-		// devkit needs (tracked: declare network destinations on fetch nodes).
-		domains = append(domains, toolDownloadHosts...)
-	}
-	return domains
+	return sortedKeys(hosts)
 }
 
 func (d dependencyLayer) script() string {

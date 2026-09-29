@@ -18,6 +18,7 @@
 import { Install as InstallFlow, PackageManager as PackageManagerService } from "@smthrs/build"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as Attr from "./Attr.ts"
 import * as Input from "./Input.ts"
 import * as PackageManager from "./PackageManager.ts"
 import * as Target from "./Target.ts"
@@ -72,7 +73,12 @@ export const Attrs = Schema.Struct({
     Schema.withConstructorDefault(Effect.succeed(null))
   ),
   /** Patch files used by a pnpm workspace's patchedDependencies. */
-  patches: Schema.Array(Input.File).pipe(Schema.withConstructorDefault(Effect.succeed([])))
+  patches: Schema.Array(Input.File).pipe(Schema.withConstructorDefault(Effect.succeed([]))),
+  /**
+   * The registry hosts, and the hosts of anything the installed packages
+   * fetch ahead of use (browser builds, for one), the install reaches.
+   */
+  destinations: Schema.optional(Attr.Destinations)
 })
 
 /**

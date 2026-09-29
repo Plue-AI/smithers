@@ -18,6 +18,7 @@ import type * as Node from "@smthrs/plan/Node"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Attr from "./Attr.ts"
+import * as Environment from "./Environment.ts"
 import * as GeneratedFile from "./GeneratedFile.ts"
 import * as Input from "./Input.ts"
 import * as Target from "./Target.ts"
@@ -95,7 +96,9 @@ export type RowInput = typeof RowInput.Type
  * declared inputs as {@link RowInput} records with their paths resolved from
  * the declaring package. `mode` is present for the generator rules that
  * declare a `write` or `check` posture. `hosts` is present for a target
- * whose declaration restricts the hosts it runs on. `source` names the PACKAGE.ts that
+ * whose declaration restricts the hosts it runs on. `destinations` is present
+ * for a target that declares the network hosts it downloads from, and
+ * `toolchain` for an `Environment.Toolchain` row. `source` names the PACKAGE.ts that
  * declared the target and is absent for a synthesized target with no file.
  *
  * @category schemas
@@ -120,6 +123,10 @@ export const Row = Schema.Struct({
   dependencies: Schema.Array(Schema.String),
   /** The host platforms the target runs on, when its declaration restricts them. */
   hosts: Schema.optional(Schema.Array(Schema.String)),
+  /** The network hosts the target downloads from, when its declaration states them. */
+  destinations: Schema.optional(Attr.Destinations),
+  /** The pinned tool releases of an `Environment.Toolchain` declaration. */
+  toolchain: Schema.optional(Environment.ToolchainData),
   source: Schema.optional(Schema.Struct({ file: Schema.NonEmptyString })),
   /** Why a `Repo.Target` row resolved to nothing, when it did. */
   refusal: Schema.optional(Schema.String)

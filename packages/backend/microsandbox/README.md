@@ -56,7 +56,7 @@ A workspace with a `Source` boots from content-addressed snapshots
 
 | Layer | Key |
 | --- | --- |
-| toolchain | pinned image + the repository's declared pins, each against `reviewedDownloads` |
+| toolchain | pinned image + the index's one `Environment.Toolchain` row: each tool's version, artifact URL and SHA-256, the Rust toolchain and PostgreSQL major |
 | dependencies | toolchain key + the install nodes of `.smithers/target-index.json` (`Install`, `Go.ModDownload`, Cargo inputs, lockfile-built `NodeBinary` tools) and the content of their declared inputs, plus pnpm patches, hook and member manifests |
 
 The layer's
@@ -65,9 +65,11 @@ the agent's home by default (`~/.config/go/env`, and links for the Playwright
 browsers, the Cargo and rustup homes, the pnpm store and cache, and dprint's
 cache), so a process that keeps only `PATH` and `HOME`, such as a coding host's
 least-authority tool, works offline too. Each key also covers the build script and network allowlist. Layers are built
-in prepare VMs with per-layer domain allowlists (CDN CNAME targets included:
-domain rules match the name a connection resolved through), verified in a
-fresh offline VM, and kept as APFS clones. Caches live outside the workspace
+in prepare VMs whose domain allowlists are exactly the `destinations` the
+layer's index rows declare (CDN CNAME targets included: domain rules match the
+name a connection resolved through). A repository without a committed index,
+or a download-performing node that declares no destinations, is refused by
+name. Layers are verified in a fresh offline VM and kept as APFS clones. Caches live outside the workspace
 root; after the product checkout `LinkWorkspaceEnvironment` links `node_modules`
 offline. `collect` keeps referenced layers and the newest per family, then
 evicts the least recently used until the owner's layer bytes and the host

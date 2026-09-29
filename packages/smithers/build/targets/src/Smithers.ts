@@ -489,6 +489,9 @@ export * as Stamp from "./Stamp.ts"
 /** Nix dev-shell version authority and tools. */
 export * as Nix from "./Nix.ts"
 
+/** Prepared-environment toolchain pins, digests and destinations. */
+export * as Environment from "./Environment.ts"
+
 /**
  * npm-facing workspace declarations: `Npm.NodeModules({ packageJson })`.
  *

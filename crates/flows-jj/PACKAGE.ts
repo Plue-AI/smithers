@@ -28,6 +28,21 @@ const sources = [
 ]
 
 /**
+ * The crates.io index and download hosts (with the CDN names they resolve
+ * through) and the GitHub hosts the jj fork's git dependency is fetched from.
+ */
+const destinations = [
+  "index.crates.io",
+  "fastly-index.crates.io",
+  "static.crates.io",
+  "fastly-static.crates.io",
+  "dualstack.k.sni.global.fastly.net",
+  "crates.io",
+  "github.com",
+  "codeload.github.com"
+]
+
+/**
  * Refuses any crate source `rustfmt` would rewrite.
  *
  * @since 0.1.0
@@ -50,7 +65,8 @@ const cargoClippy = Smithers.Cargo.Clippy({
   allTargets: true,
   locked: true,
   denyWarnings: true,
-  data: sources
+  data: sources,
+  destinations
 })
 
 /**
@@ -62,7 +78,8 @@ const cargoClippy = Smithers.Cargo.Clippy({
 const cargoTest = Smithers.Cargo.Test({
   package: "flows-jj",
   locked: true,
-  data: sources
+  data: sources,
+  destinations
 })
 
 /**

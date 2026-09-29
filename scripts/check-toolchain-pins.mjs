@@ -14,6 +14,10 @@
  * the one channel, and every workflow, script and image that names a Rust
  * release must name that one. `rustFindings` is that comparison.
  *
+ * The prepared microVM environment installs the releases the
+ * `Environment.Toolchain` row of `.smithers/target-index.json` pins;
+ * `environmentFindings` holds that row to the same sources.
+ *
  * Run as `node scripts/check-toolchain-pins.mjs`; `findings` is the pure
  * comparison the test drives with fixtures.
  */
@@ -152,6 +156,38 @@ export const rustFindings = ({ toolchain, files }) => {
   return out
 }
 
+/**
+ * The disagreements between the index's one `Environment.Toolchain` row and
+ * the files that pin the same releases: `.node-version`, WORKSPACE.ts (pnpm,
+ * bun, jj), go.mod's `go` directive and rust-toolchain.toml.
+ */
+export const environmentFindings = ({ index, workspace, nodeVersion, goMod, toolchain }) => {
+  const rows = JSON.parse(index).filter((row) => row.rule === "Environment.Toolchain")
+  if (rows.length !== 1) return [`.smithers/target-index.json has ${rows.length} Environment.Toolchain rows; expected one`]
+  const { label, toolchain: pins } = rows[0]
+  const out = []
+  const expect = (tool, version, source) => {
+    const pinned = pins?.downloads?.[tool]?.version
+    if (pinned !== version) out.push(`${label} pins ${tool} ${pinned}; ${source} pins ${version}`)
+  }
+  expect("node", nodeVersion.trim(), nodeVersionFile)
+  expect("pnpm", workspace.packageManager.version, "WORKSPACE.ts")
+  expect("bun", workspace.bunVersion, "WORKSPACE.ts")
+  expect("jj", workspace.jjVersion, "WORKSPACE.ts")
+  expect("go", /^go (\S+)\s*$/m.exec(goMod)?.[1], "go.mod")
+  const channel = /^channel = "([^"]*)"/m.exec(toolchain)?.[1]
+  if (pins?.rust?.channel !== channel) out.push(`${label} pins Rust ${pins?.rust?.channel}; rust-toolchain.toml pins ${channel}`)
+  for (const key of ["components", "targets"]) {
+    const listed = new RegExp(`^${key} = \\[([^\\]]*)\\]`, "m").exec(toolchain)
+    const expected = (listed?.[1] ?? "").split(",").map((item) => item.trim().replaceAll(/["']/g, "")).filter(Boolean).sort()
+    const declared = [...(pins?.rust?.[key] ?? [])].sort()
+    if (JSON.stringify(declared) !== JSON.stringify(expected)) {
+      out.push(`${label} pins Rust ${key} ${declared.join(",")}; rust-toolchain.toml pins ${expected.join(",")}`)
+    }
+  }
+  return out
+}
+
 /** Reads the four files of the real repository and compares them. */
 export const check = async (root = repoRoot) => {
   const workspace = await import(pathToFileURL(resolve(root, ".smithers/WORKSPACE.ts")).href)
@@ -167,6 +203,12 @@ export const check = async (root = repoRoot) => {
       ...readdirSync(resolve(root, ".github/workflows")).map((name) => `.github/workflows/${name}`),
       ...rustPinFiles
     ].map((path) => [path, readFileSync(resolve(root, path), "utf8")]))
+  })).concat(environmentFindings({
+    index: readFileSync(resolve(root, ".smithers/target-index.json"), "utf8"),
+    workspace,
+    nodeVersion: readFileSync(resolve(root, nodeVersionFile), "utf8"),
+    goMod: readFileSync(resolve(root, "go.mod"), "utf8"),
+    toolchain: readFileSync(resolve(root, "rust-toolchain.toml"), "utf8")
   }))
 }
 

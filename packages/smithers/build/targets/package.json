@@ -61,6 +61,7 @@
     "./DocsParity": "./src/DocsParity.ts",
     "./Dprint": "./src/Dprint.ts",
     "./DtsBuild": "./src/DtsBuild.ts",
+    "./Environment": "./src/Environment.ts",
     "./EsLint": "./src/EsLint.ts",
     "./Exec": "./src/Exec.ts",
     "./ExecSandbox": "./src/ExecSandbox.ts",
@@ -382,6 +383,16 @@
         "require": {
           "types": "./dist/cjs/DtsBuild.d.ts",
           "default": "./dist/cjs/DtsBuild.js"
+        }
+      },
+      "./Environment": {
+        "import": {
+          "types": "./dist/esm/Environment.d.ts",
+          "default": "./dist/esm/Environment.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Environment.d.ts",
+          "default": "./dist/cjs/Environment.js"
         }
       },
       "./EsLint": {

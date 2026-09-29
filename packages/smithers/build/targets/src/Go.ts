@@ -149,7 +149,9 @@ export const ModDownloadAttrs = Schema.Struct({
   mod: Input.File,
   sum: Input.File,
   outDirs: Schema.Array(Schema.NonEmptyString),
-  sandbox: Schema.optional(Attr.Sandbox)
+  sandbox: Schema.optional(Attr.Sandbox),
+  /** The module proxy and checksum database hosts the download reaches. */
+  destinations: Schema.optional(Attr.Destinations)
 })
 const modDownloadDefinition = Target.make("Go.ModDownload", {
   attrs: ModDownloadAttrs,

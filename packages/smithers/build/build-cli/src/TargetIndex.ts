@@ -7,13 +7,15 @@
  * the file smithers.sh reads from the public mirror to show targets beside
  * files. A row carries only what a declaration states: the rule, the kinds,
  * the summary, the declared inputs and outputs, the labeled dependencies, the
- * declared hosts, and the declaring file. It carries no cache key, no
+ * declared hosts, the declared network destinations, an environment
+ * toolchain's pins, and the declaring file. It carries no cache key, no
  * content digest, no line number, and no host fact, so the committed file
  * changes only when a declaration changes.
  *
  * @since 0.1.0
  */
 
+import * as Environment from "@smthrs/targets/Environment"
 import * as Input from "@smthrs/targets/Input"
 import * as Target from "@smthrs/targets/Target"
 import type * as TargetIndexRule from "@smthrs/targets/TargetIndex"
@@ -110,6 +112,16 @@ const inputOf = (packagePath: string, declared: Input.Declared): TargetIndexRule
   }
 }
 
+/**
+ * The network hosts a declaration states in its `destinations` attr, sorted
+ * and deduplicated; undefined when it states none, so an undeclared list
+ * stays distinguishable from a declared empty one.
+ */
+const destinationsOf = (attrs: unknown): ReadonlyArray<string> | undefined => {
+  const value = attrMember(attrs, "destinations")
+  return Array.isArray(value) ? [...new Set(strings(value))].sort(byCodeUnit) : undefined
+}
+
 const sourceOf = (root: string, metadata: Target.Metadata): { readonly file: string } | undefined => {
   if (metadata.sourceFile === undefined) return undefined
   const relative = Path.containedRelative(root, metadata.sourceFile)
@@ -149,6 +161,7 @@ export const build = async (
       : undefined
     const mode = attrMember(metadata.attrs, "mode")
     const source = sourceOf(index.root, metadata)
+    const destinations = destinationsOf(metadata.attrs)
     return {
       label: row.label,
       package: row.packagePath,
@@ -164,6 +177,10 @@ export const build = async (
       outputs: outputsOf(row.packagePath, metadata),
       dependencies: [...(dependencies.get(row.label) ?? [])].sort(byCodeUnit),
       ...(metadata.hosts === undefined ? {} : { hosts: [...metadata.hosts] }),
+      ...(destinations === undefined ? {} : { destinations }),
+      ...(metadata.target === Environment.toolchainRuleId
+        ? { toolchain: Environment.toolchainData(metadata.attrs as Environment.ToolchainAttrs) }
+        : {}),
       ...(source === undefined ? {} : { source }),
       ...(resolution?.refusal === undefined ? {} : { refusal: resolution.refusal })
     }

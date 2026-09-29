@@ -86,7 +86,9 @@ const selectorFields = {
 const cargoShared = {
   data: Schema.optional(Attr.Data),
   env: Schema.optional(Attr.Env),
-  sandbox: Schema.optional(Attr.Sandbox)
+  sandbox: Schema.optional(Attr.Sandbox),
+  /** The registry and git hosts the crates this target resolves download from. */
+  destinations: Schema.optional(Attr.Destinations)
 } as const
 
 /** The dependency-resolution fields every cargo rule that resolves has. */

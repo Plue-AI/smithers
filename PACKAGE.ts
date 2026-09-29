@@ -89,6 +89,98 @@ const nodeModules = Smithers.Install({
     Smithers.file("patches/@distilled.cloud__core@1.0.0-rc.8.patch"),
     Smithers.file("patches/@distilled.cloud__fly-io@1.0.0-rc.8.patch"),
     Smithers.file("patches/@distilled.cloud__hetzner@1.0.0-rc.8.patch")
+  ],
+  // The registry, and the Playwright browser builds (with their apt
+  // dependencies) the prepared environment installs for the locked release.
+  destinations: [
+    "registry.npmjs.org",
+    "cdn.playwright.dev",
+    "playwright-bkakghazbfe7grc5.z01.azurefd.net",
+    "mr-z01.tm-azurefd.net",
+    "deb.debian.org",
+    "debian.map.fastly.net",
+    "debian.map.fastlydns.net"
+  ]
+})
+
+/**
+ * The tool releases a prepared microVM environment installs, each pinned to
+ * its linux/arm64 artifact and reviewed SHA-256. `scripts/check-toolchain-pins.mjs`
+ * fails when a version here disagrees with `.node-version`, WORKSPACE.ts,
+ * go.mod or rust-toolchain.toml. Domain rules match the name a connection
+ * resolved through, so CDN CNAME targets are listed beside their aliases.
+ *
+ * @since 1.0.0
+ * @category build
+ */
+const environmentToolchain = Smithers.Environment.Toolchain({
+  downloads: {
+    node: {
+      version: "26.5.0",
+      url: "https://nodejs.org/dist/v26.5.0/node-v26.5.0-linux-arm64.tar.xz",
+      sha256: "036df0b49662ebb350eb56f1cac603699b1e9ed1e2603ee129fefda473479030"
+    },
+    pnpm: {
+      version: "11.25.0",
+      url: "https://registry.npmjs.org/pnpm/-/pnpm-11.25.0.tgz",
+      sha256: "33dd0748f27e7916c4f1c8b6943461983e3453b06bbda6312a6280130b4881e5"
+    },
+    bun: {
+      version: "1.4.1",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.1/bun-linux-aarch64.zip",
+      sha256: "580ce77533108dc6b10bec1721397e4f5aa44e909726da2451d483dfc5e581d6"
+    },
+    go: {
+      version: "1.26.8",
+      url: "https://go.dev/dl/go1.26.8.linux-arm64.tar.gz",
+      sha256: "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0"
+    },
+    jj: {
+      version: "0.39.0",
+      url: "https://github.com/jj-vcs/jj/releases/download/v0.39.0/jj-v0.39.0-aarch64-unknown-linux-musl.tar.gz",
+      sha256: "15bbb0199adf57929d1e3cd90ae0b47356858cbe374814769815a1fb87d5ad1d"
+    },
+    rg: {
+      version: "14.1.1",
+      url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz",
+      sha256: "c827481c4ff4ea10c9dc7a4022c8de5db34a5737cb74484d62eb94a95841ab2f"
+    },
+    fd: {
+      version: "10.2.0",
+      url: "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-aarch64-unknown-linux-musl.tar.gz",
+      sha256: "4e8e596646d047d904f2c5ca74b39dccc69978b6e1fb101094e534b0b59c1bb0"
+    },
+    jq: {
+      version: "1.7.1",
+      url: "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64",
+      sha256: "4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5"
+    },
+    rustup: {
+      version: "1.28.2",
+      url: "https://static.rust-lang.org/rustup/archive/1.28.2/aarch64-unknown-linux-gnu/rustup-init",
+      sha256: "e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c"
+    }
+  },
+  rust: { channel: "1.98.0", components: ["clippy", "rustfmt"], targets: ["wasm32-wasip1"] },
+  postgres: "18",
+  destinations: [
+    "nodejs.org",
+    "registry.npmjs.org",
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "go.dev",
+    "dl.google.com",
+    "static.rust-lang.org",
+    "fastly-static.rust-lang.org",
+    "dualstack.k.sni.global.fastly.net",
+    "deb.debian.org",
+    "debian.map.fastly.net",
+    "debian.map.fastlydns.net",
+    "www.postgresql.org",
+    "www.mirrors.postgresql.org",
+    "apt.postgresql.org",
+    "dualstack.t.sni.global.fastly.net"
   ]
 })
 
@@ -251,7 +343,8 @@ const backendGoModules = Smithers.Go.ModDownload({
   mod: Smithers.file("//go.mod"),
   sum: Smithers.file("//go.sum"),
   outDirs: ["//.backend-go-modcache"],
-  sandbox: { network: true }
+  sandbox: { network: true },
+  destinations: ["proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
 })
 
 // sqlc owns product row models; the backend suite regenerates and compiles them.
@@ -1094,6 +1187,7 @@ export const Package = Smithers.Package({
     changelog,
     ci,
     driftCi,
+    environmentToolchain,
     factoryHarness,
     factoryProjection,
     reviewDocsAgainstCode,

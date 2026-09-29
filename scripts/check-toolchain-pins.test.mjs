@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import test from "node:test"
-import { check, findings, rustFindings, satisfies } from "./check-toolchain-pins.mjs"
+import { check, environmentFindings, findings, rustFindings, satisfies } from "./check-toolchain-pins.mjs"
 import { compare, floorOf, toolchainRefusal } from "./require-toolchain.mjs"
 
 const workspace = {
@@ -129,6 +129,52 @@ test("every Rust toolchain a build file names is the rust-toolchain.toml channel
   ])
   assert.deepEqual(rustFindings({ toolchain: 'channel = "stable"', files: {} }), [
     "rust-toolchain.toml must pin one exact release as x.y.z; it pins \"stable\""
+  ])
+})
+
+const environmentIndex = (toolchain) =>
+  JSON.stringify([{ label: "//:docs", rule: "Generate" }, { label: "//:environmentToolchain", rule: "Environment.Toolchain", toolchain }])
+const environmentPins = {
+  downloads: {
+    node: { version: "26.4.0" },
+    pnpm: { version: "11.21.0" },
+    bun: { version: "1.3.14" },
+    jj: { version: "0.39.0" },
+    go: { version: "1.26.8" }
+  },
+  rust: { channel: "1.98.0", components: ["rustfmt", "clippy"], targets: ["wasm32-wasip1"] }
+}
+const environmentSources = {
+  workspace,
+  nodeVersion,
+  goMod: "module x\n\ngo 1.26.8\n",
+  toolchain: "[toolchain]\nchannel = \"1.98.0\"\ncomponents = [\"clippy\", \"rustfmt\"]\ntargets = [\"wasm32-wasip1\"]\n"
+}
+
+test("the environment toolchain row agrees with every file that pins the same release", () => {
+  assert.deepEqual(environmentFindings({ ...environmentSources, index: environmentIndex(environmentPins) }), [])
+  const drifted = {
+    downloads: { ...environmentPins.downloads, node: { version: "26.5.0" }, go: { version: "1.26.0" } },
+    rust: { channel: "1.97.0", components: ["clippy"], targets: ["wasm32-wasip1"] }
+  }
+  assert.deepEqual(environmentFindings({ ...environmentSources, index: environmentIndex(drifted) }), [
+    "//:environmentToolchain pins node 26.5.0; .node-version pins 26.4.0",
+    "//:environmentToolchain pins go 1.26.0; go.mod pins 1.26.8",
+    "//:environmentToolchain pins Rust 1.97.0; rust-toolchain.toml pins 1.98.0",
+    "//:environmentToolchain pins Rust components clippy; rust-toolchain.toml pins clippy,rustfmt"
+  ])
+  const missing = { downloads: { node: { version: "26.4.0" } } }
+  assert.deepEqual(environmentFindings({ ...environmentSources, index: environmentIndex(missing) }), [
+    "//:environmentToolchain pins pnpm undefined; WORKSPACE.ts pins 11.21.0",
+    "//:environmentToolchain pins bun undefined; WORKSPACE.ts pins 1.3.14",
+    "//:environmentToolchain pins jj undefined; WORKSPACE.ts pins 0.39.0",
+    "//:environmentToolchain pins go undefined; go.mod pins 1.26.8",
+    "//:environmentToolchain pins Rust undefined; rust-toolchain.toml pins 1.98.0",
+    "//:environmentToolchain pins Rust components ; rust-toolchain.toml pins clippy,rustfmt",
+    "//:environmentToolchain pins Rust targets ; rust-toolchain.toml pins wasm32-wasip1"
+  ])
+  assert.deepEqual(environmentFindings({ ...environmentSources, index: "[]" }), [
+    ".smithers/target-index.json has 0 Environment.Toolchain rows; expected one"
   ])
 })
 
