@@ -48,7 +48,8 @@ type RefCaseCollisionReport struct {
 // PlanRefCaseCollisions groups refs whose names are one ref (RefKey) and
 // decides each group. A reserved name keeps its canonical spelling: every
 // other spelling is removed, or renamed to the canonical one when that is
-// missing and the name is the default bookmark or a protected bookmark. A
+// missing and the name is the default bookmark. A protected pattern selects
+// only an existing canonical spelling. A
 // missing mythical ref is never filled from a variant, whose content no stack
 // service wrote. Every other group is reported.
 func PlanRefCaseCollisions(refs []string, defaultBookmark string, protectedPatterns []string) []RefCaseCollision {
@@ -100,9 +101,18 @@ func PlanRefCaseCollisions(refs []string, defaultBookmark string, protectedPatte
 		canonical, isReserved := reserved[key]
 		if !isReserved {
 			// A ref inside a variant of a reserved name, like
-			// refs/heads/Mythical/x, blocks the missing reserved ref; beside
-			// an existing one it is only reported.
-			if prefix := reservedDirectoryVariant(spellings[0], reserved); prefix != "" {
+			// refs/heads/Mythical/x, blocks the missing reserved ref. Remove
+			// a group only when every spelling is a variant of the same
+			// missing prefix; canonical directories and ambiguous groups
+			// are left to the owner.
+			prefix := reservedDirectoryVariant(spellings[0], reserved)
+			for _, ref := range spellings[1:] {
+				if reservedDirectoryVariant(ref, reserved) != prefix {
+					prefix = ""
+					break
+				}
+			}
+			if prefix != "" {
 				collision := RefCaseCollision{Refs: spellings, Canonical: prefix, Action: RefCaseCollisionRemoved, Variants: spellings}
 				if present[prefix] {
 					collision.Action, collision.Variants = RefCaseCollisionReported, nil

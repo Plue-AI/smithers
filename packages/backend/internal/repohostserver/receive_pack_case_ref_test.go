@@ -2,6 +2,7 @@ package repohostserver
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +19,39 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 )
+
+// The existing fixture mocks only the jj FFI: this regression exercises the
+// HTTP planner and real packed Git refs, and must perform no repair/import.
+func TestRepairCaseCollisionsPreservesCanonicalDirectory(t *testing.T) {
+	for _, name := range []string{"Main", "main"} {
+		for _, present := range []bool{false, true} {
+			t.Run(fmt.Sprintf("default=%s/present=%t", name, present), func(t *testing.T) {
+				f := newLaneHTTPFixture(t, nil)
+				git := func(args ...string) {
+					out, err := exec.Command("git", append([]string{"--git-dir", f.repo.gitDir}, args...)...).CombinedOutput()
+					require.NoError(t, err, string(out))
+				}
+				git("update-ref", "-d", "refs/heads/main")
+				git("symbolic-ref", "HEAD", "refs/heads/"+name)
+				packed := map[string]string{"refs/heads/Main/x": f.base, "refs/heads/main/x": f.base}
+				if present {
+					packed["refs/heads/"+name] = f.base
+				}
+				(&caseRepo{t: t, gitDir: f.repo.gitDir}).write(nil, packed)
+				before := f.repo.refs()
+				for i := 0; i < 2; i++ {
+					rec := serveCaseRef(t, f, http.MethodPost, "/ref-case-collisions/repair", `{}`)
+					require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+					var report repohost.RefCaseCollisionReport
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &report))
+					require.Equal(t, []repohost.RefCaseCollision{{Refs: []string{"refs/heads/Main/x", "refs/heads/main/x"}, Action: repohost.RefCaseCollisionReported}}, report.Collisions)
+					require.Equal(t, before, f.repo.refs(), "both directory refs and all other refs remain")
+					require.Empty(t, f.imports, "a reported collision performs no repair")
+				}
+			})
+		}
+	}
+}
 
 // Git stores loose refs as files, so on a case-insensitive filesystem
 // (macOS, Windows) refs/heads/Mythical is the file refs/heads/mythical.

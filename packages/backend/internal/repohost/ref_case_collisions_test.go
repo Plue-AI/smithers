@@ -1,6 +1,8 @@
 package repohost
 
 import (
+	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -36,4 +38,44 @@ func TestPlanRefCaseCollisions(t *testing.T) {
 	require.Equal(t, []RefCaseCollision{{Refs: []string{"refs/heads/Main/x"}, Canonical: "refs/heads/main", Action: RefCaseCollisionReported}},
 		PlanRefCaseCollisions([]string{"refs/heads/main", "refs/heads/Main/x"}, "main", nil))
 	require.Equal(t, "refs/smithers/case-collision/20260927T000000Z/0/heads/MAIN", RefCaseCollisionBackup("20260927T000000Z", 0, "refs/heads/MAIN"))
+}
+
+func TestPlanRefCaseCollisionsDirectoryVariants(t *testing.T) {
+	for _, name := range []string{"Main", "main"} {
+		for _, present := range []bool{false, true} {
+			for _, reverse := range []bool{false, true} {
+				canonical := "refs/heads/" + name
+				variant := "refs/heads/Main/x"
+				if name == "Main" {
+					variant = "refs/heads/main/x"
+				}
+				refs := []string{canonical + "/x", variant}
+				sort.Strings(refs)
+				want := RefCaseCollision{Refs: append([]string(nil), refs...), Action: RefCaseCollisionReported}
+				if present {
+					refs = append(refs, canonical)
+				}
+				if reverse {
+					for i, j := 0, len(refs)-1; i < j; i, j = i+1, j-1 {
+						refs[i], refs[j] = refs[j], refs[i]
+					}
+				}
+				t.Run(name+"/present="+fmt.Sprint(present)+"/reverse="+fmt.Sprint(reverse), func(t *testing.T) {
+					require.Equal(t, []RefCaseCollision{want}, PlanRefCaseCollisions(refs, name, nil))
+				})
+			}
+		}
+	}
+	require.Equal(t, []RefCaseCollision{{Refs: []string{"refs/heads/MAIN/x", "refs/heads/Main/x"}, Canonical: "refs/heads/main",
+		Action: RefCaseCollisionRemoved, Variants: []string{"refs/heads/MAIN/x", "refs/heads/Main/x"}}},
+		PlanRefCaseCollisions([]string{"refs/heads/Main/x", "refs/heads/MAIN/x"}, "main", nil))
+	// Ordinary names remain the owner's decision; a canonical directory alone
+	// is never removed to make room for a reserved ref.
+	require.Equal(t, []RefCaseCollision{{Refs: []string{"refs/heads/Feature/x", "refs/heads/feature/x"}, Action: RefCaseCollisionReported}},
+		PlanRefCaseCollisions([]string{"refs/heads/feature/x", "refs/heads/Feature/x"}, "main", nil))
+	require.Empty(t, PlanRefCaseCollisions([]string{"refs/heads/main/x"}, "main", nil))
+	// Nested reserved names can make different spellings variants of different
+	// refs. Leave those ambiguous groups to the owner.
+	require.Equal(t, []RefCaseCollision{{Refs: []string{"refs/heads/Mythical/x/y", "refs/heads/mythical/X/y"}, Action: RefCaseCollisionReported}},
+		PlanRefCaseCollisions([]string{"refs/heads/Mythical/x/y", "refs/heads/mythical/X/y"}, "mythical/x", nil))
 }
