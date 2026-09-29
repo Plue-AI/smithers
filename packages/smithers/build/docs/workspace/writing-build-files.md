@@ -261,6 +261,8 @@ targets resolve their runtime and package manager from at plan time. See
 - Do not put one target value under two keys of the map. Discovery refuses it.
 - Give every tool-running target a `cwd` when it belongs to a package. The
   default is the workspace root.
+- Keep `SecurityReview` check paths pointed at files in the current checkout.
+  A missing path fails workspace discovery, including unrelated targets.
 - Keep `PACKAGE.ts` imports to `@smthrs/targets`, other `PACKAGE.ts` files, and
   standard TypeScript. Anything else runs at discovery time on every command.
 
