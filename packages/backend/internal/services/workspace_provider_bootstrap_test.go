@@ -22,6 +22,15 @@ func bootstrapModel(env AgentEnvironmentProvisioningConfig) string {
 	return ""
 }
 
+func bootstrapFallbackModel(env AgentEnvironmentProvisioningConfig) string {
+	for _, variable := range env.Env {
+		if variable.Name == "SMITHERS_CODING_FALLBACK_MODEL" {
+			return variable.Value
+		}
+	}
+	return ""
+}
+
 func seatsFor(t *testing.T, providers ...string) []modelproxy.Seat {
 	t.Helper()
 	var seats []modelproxy.Seat
@@ -54,7 +63,7 @@ func TestWorkspaceProviderBootstrapPrecedenceAndRedaction(t *testing.T) {
 			s := newWorkspaceServiceForTests(q, options...)
 			binding, err := s.resolveWorkspaceProviderBindings(context.Background(), sampleDBWorkspace("boot"))
 			require.NoError(t, err)
-			if source == "platform" {
+			if source == "platform" || source == "subscription" {
 				require.Equal(t, "cerebras:gpt-oss-120b", bootstrapModel(binding.environment))
 			} else {
 				require.Equal(t, "anthropic:claude-sonnet-4-6", bootstrapModel(binding.environment))
@@ -178,4 +187,63 @@ func TestWorkspaceProviderBootstrapPreservesSetupOnlySecret(t *testing.T) {
 	require.Empty(t, binding.egress.Secrets)
 	require.Empty(t, bootstrapModel(binding.environment))
 	require.NotContains(t, resolver.calls, ProviderConnectionProviderCodex)
+}
+
+func TestWorkspaceProviderBootstrapDoesNotPinPoolOnlyAccounts(t *testing.T) {
+	for _, tc := range []struct {
+		name, provider, pin, want string
+	}{
+		{"codex", ProviderConnectionProviderCodex, "", ""},
+		{"claude", ProviderConnectionProviderClaude, "", ""},
+		{"explicit codex model", ProviderConnectionProviderCodex, "openai:gpt-6-sol", "openai:gpt-6-sol"},
+		{"unavailable explicit pin", ProviderConnectionProviderClaude, "openai:gpt-6-sol", "openai:gpt-6-sol"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := &workspaceProviderPool{pools: map[string]bool{tc.provider: true}}
+			service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceGitBaseURL(poolTestBaseURL),
+				WithWorkspaceProviderConnections(pool), WithWorkspaceProviderBootstrap(nil, tc.pin))
+			binding, err := service.resolveWorkspaceProviderBindings(context.Background(), sampleDBWorkspace("pool-only"))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, bootstrapModel(binding.environment))
+			profile, err := renderWorkspaceAgentEnvironmentProfile(binding.environment.Env, binding.environment.ProxyBound)
+			require.NoError(t, err)
+			require.Contains(t, profile, ProviderPoolURLEnvName)
+			if tc.pin == "" {
+				require.NotContains(t, profile, "SMITHERS_CODING_IMPLEMENT_MODEL", "the next host must ask the live pool")
+			}
+		})
+	}
+}
+
+func TestWorkspaceProviderBootstrapPoolKeepsPlatformModelAsFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name, poolProvider, platformProvider, fallback string
+	}{
+		{"codex pool with anthropic platform", ProviderConnectionProviderCodex, "anthropic", "anthropic:claude-sonnet-4-6"},
+		{"claude pool with openai platform", ProviderConnectionProviderClaude, "openai", "openai:gpt-6-luna"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := &workspaceProviderPool{pools: map[string]bool{tc.poolProvider: true}}
+			service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceGitBaseURL(poolTestBaseURL),
+				WithWorkspaceProviderConnections(pool), WithWorkspaceProviderBootstrap(seatsFor(t, tc.platformProvider), ""))
+			binding, err := service.resolveWorkspaceProviderBindings(context.Background(), sampleDBWorkspace("pool-platform"))
+			require.NoError(t, err)
+			require.Empty(t, bootstrapModel(binding.environment))
+			require.Equal(t, tc.fallback, bootstrapFallbackModel(binding.environment))
+			profile, err := renderWorkspaceAgentEnvironmentProfile(binding.environment.Env, binding.environment.ProxyBound)
+			require.NoError(t, err)
+			require.NotContains(t, profile, "SMITHERS_CODING_IMPLEMENT_MODEL")
+			require.Contains(t, profile, "export SMITHERS_CODING_FALLBACK_MODEL='"+tc.fallback+"'")
+			require.Contains(t, profile, ProviderPoolURLEnvName)
+		})
+	}
+}
+
+func TestWorkspaceProviderBootstrapPlatformWithoutPoolPreservesModel(t *testing.T) {
+	service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceGitBaseURL(poolTestBaseURL),
+		WithWorkspaceProviderBootstrap(seatsFor(t, "anthropic"), ""))
+	binding, err := service.resolveWorkspaceProviderBindings(context.Background(), sampleDBWorkspace("platform-only"))
+	require.NoError(t, err)
+	require.Equal(t, "anthropic:claude-sonnet-4-6", bootstrapModel(binding.environment))
+	require.Empty(t, bootstrapFallbackModel(binding.environment))
 }

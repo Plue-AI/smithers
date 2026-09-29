@@ -13,7 +13,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
-	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -40,13 +39,13 @@ const (
 )
 
 // providerPoolSeat is one guest seat a pool can serve.
-type providerPoolSeat struct{ seat, provider, route, modelProvider string }
+type providerPoolSeat struct{ seat, route string }
 
 // providerPoolSeats are the guest seats a pool serves: the Anthropic seat
 // for Claude accounts, the OpenAI seat in ChatGPT mode for Codex accounts.
 var providerPoolSeats = []providerPoolSeat{
-	{"ANTHROPIC_API_KEY", ProviderConnectionProviderClaude, "anthropic", modelproxy.ProviderAnthropic},
-	{"OPENAI_API_KEY", ProviderConnectionProviderCodex, "chatgpt", modelproxy.ProviderOpenAI},
+	{"ANTHROPIC_API_KEY", "anthropic"},
+	{"OPENAI_API_KEY", "chatgpt"},
 }
 
 // providerPoolGuestRoutes lists the pool routes whose seat the repository
@@ -65,7 +64,6 @@ func providerPoolGuestRoutes(declares func(providerPoolSeat) bool) []string {
 // (services.ProviderConnectionService).
 type ProviderPoolOffer interface {
 	ServesPool(ctx context.Context, userID, repositoryID int64) (bool, error)
-	HasPool(ctx context.Context, userID, repositoryID int64, provider string) (bool, error)
 }
 
 // ProviderPoolTokenScopes binds a pool credential to one repository and one
@@ -114,19 +112,8 @@ func (s *WorkspaceService) bindWorkspaceProviderPool(ctx context.Context, worksp
 	if !serves {
 		return nil
 	}
-	// The coding model defaults from the providers that can serve right now.
-	for _, pool := range providerPoolSeats {
-		if !slices.Contains(routes, pool.route) {
-			continue
-		}
-		has, err := s.providerConnections.HasPool(ctx, workspace.UserID, workspace.RepositoryID, pool.provider)
-		if err != nil {
-			return pkgerrors.Internal("resolve workspace provider accounts").WithCause(err)
-		}
-		if has {
-			binding.pooled = append(binding.pooled, pool.seat)
-		}
-	}
+	// The coding host chooses a pool-only default from live routes at startup.
+	// Persisting a boot-time choice would turn a removed account into a pin.
 	s.revokeProviderPoolTokens(ctx, workspace)
 	token, err := issueTemporaryRepoTokenWithTTL(ctx, s.q, workspace.UserID, providerPoolTokenPrefix+workspace.ID,
 		ProviderPoolTokenScopes(workspace.RepositoryID, workspace.ID), providerPoolTokenTTL)

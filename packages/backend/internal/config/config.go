@@ -313,8 +313,8 @@ type SandboxConfig struct {
 	WorkspaceSSHHost     string `mapstructure:"workspace_ssh_host"`
 	WorkspaceSSHDialHost string `mapstructure:"workspace_ssh_dial_host"`
 
-	// Optional public model pin for platform-backed workspace coding. Repository
-	// model settings and authorized personal subscriptions keep precedence.
+	// Optional public model pin for workspace coding. Repository model settings
+	// and runtime credentials keep precedence; pool-only defaults resolve at host start.
 	WorkspaceCodingDefaultModel string `mapstructure:"workspace_coding_default_model"`
 
 	// PreviewRelayToken is the shared credential the preview gateway demands

@@ -5,6 +5,7 @@ import project from "./apps/site/src/data/project.json" with { type: "json" }
 import { Package as modelHostPackage } from "./packages/smithers/agent/model-host/PACKAGE.ts"
 import { Package as integrationsPackage } from "./packages/smithers/agent/integrations/PACKAGE.ts"
 import { Package as flowsPackage } from "./packages/smithers/flows/PACKAGE.ts"
+import { Package as codingFlowsPackage } from "./flows/PACKAGE.ts"
 
 export const cacheToken = Smithers.Secret("SMITHERS_CACHE_READ_TOKEN")
 export const cacheWriteToken = Smithers.Secret("SMITHERS_CACHE_WRITE_TOKEN")
@@ -280,6 +281,10 @@ const backendGo = Smithers.Shell.Test({
     modelHostPackage.lib,
     integrationsPackage.lib,
     flowsPackage.lib,
+    // The bootstrap regression starts the production coding-host seat layers.
+    codingFlowsPackage.codingHostInputs,
+    workspace,
+    Smithers.file("//pnpm-lock.yaml"),
     Smithers.glob("//apps/model-host/src/**/*.ts"),
     Smithers.file("//apps/model-host/build.mjs"),
     Smithers.file("//apps/model-host/package.json"),

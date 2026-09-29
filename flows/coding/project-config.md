@@ -79,7 +79,8 @@ smithers-coding-host serve --root /home/developer/workspace
 
 `SMITHERS_CODING_IMPLEMENT_MODEL` pins the implementation model. When it is unset,
 the host picks a default from the connected account pool at startup (see
-[host.md](host.md)); without a pool, startup is refused.
+[host.md](host.md)), then uses the provisioned platform fallback, if present.
+Without either, startup is refused.
 
 The optional plan, POC and wiki
 variables select the existing logical seats `coding/plan`, `coding/poc` and

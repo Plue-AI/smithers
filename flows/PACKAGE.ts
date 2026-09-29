@@ -137,15 +137,19 @@ const codingBackend = codingPackages.map((cwd) =>
   })
 )
 const codingScripts = Smithers.Filegroup({ cwd: "scripts", srcs: [Smithers.glob("*.mjs")] })
-const codingSources = [
+const codingFiles = [
   sources,
   Smithers.glob("//flows/**/*.mjs"),
   Smithers.glob("//flows/coding/**/*.md"),
-  Smithers.pnpmWorkspace("//pnpm-workspace.yaml"),
-  Smithers.file("//pnpm-lock.yaml"),
   Smithers.file("//flows/tsconfig.json")
 ]
+const codingSources = [
+  ...codingFiles,
+  Smithers.pnpmWorkspace("//pnpm-workspace.yaml"),
+  Smithers.file("//pnpm-lock.yaml")
+]
 const codingDependencies = [...codingBackend, codingScripts]
+const codingHostInputs = Smithers.Filegroup({ srcs: [...codingFiles, ...codingDependencies] })
 // The repository config test reads every wiki page's document and inputs too.
 // Declare them so both runtime targets track changes outside their TS sources.
 const codingProjectSources = [
@@ -557,6 +561,7 @@ const securityReview = Smithers.SecurityReview({
 
 export const Package = Smithers.Package({
   targets: {
+    codingHostInputs,
     coding,
     codingPolicy,
     codingRuntime,

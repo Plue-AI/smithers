@@ -96,6 +96,107 @@ test("keeps an explicit coding model pin without asking the pool", async (t) => 
   assert.deepEqual(connected.requests, [])
 })
 
+test("chooses a live pool route before a platform fallback in either provider direction", async (t) => {
+  const connected = await pool(t)
+  for (
+    const { routes, fallback, expected } of [
+      { routes: "[\"chatgpt\"]", fallback: "anthropic:claude-sonnet-4-6", expected: "openai:gpt-6-luna" },
+      { routes: "[\"anthropic\"]", fallback: "openai:gpt-6-luna", expected: "anthropic:claude-sonnet-4-6" }
+    ]
+  ) {
+    connected.answer({ status: 200, body: `{"routes":${routes}}` })
+    const options = await optionsFromEnv({
+      ...connected.environment,
+      SMITHERS_CODING_FALLBACK_MODEL: fallback
+    })
+    assert.equal(options.implementationModel, expected)
+  }
+  assert.deepEqual(connected.requests.map((request) => request.url), ["/provider-pool/routes", "/provider-pool/routes"])
+})
+
+test("uses the platform fallback after pool accounts disappear or lookup fails", async (t) => {
+  const connected = await pool(t, { status: 200, body: "{\"routes\":[]}" })
+  const environment = {
+    ...connected.environment,
+    SMITHERS_CODING_FALLBACK_MODEL: "anthropic:claude-sonnet-4-6"
+  }
+  assert.equal((await optionsFromEnv(environment)).implementationModel, "anthropic:claude-sonnet-4-6")
+  const beforeFailure = connected.requests.length
+  assert.equal(beforeFailure, 1)
+  connected.answer({ status: 503, body: "unavailable" })
+  assert.equal((await optionsFromEnv(environment)).implementationModel, "anthropic:claude-sonnet-4-6")
+  assert.ok(connected.requests.length > beforeFailure, "failed routes must still be queried")
+  assert.ok(connected.requests.every((request) => request.url === "/provider-pool/routes"))
+})
+
+test("resolves only the named platform fallback when the offered pool has no accounts", async (t) => {
+  const connected = await pool(t, { status: 200, body: JSON.stringify({ routes: [] }) })
+  for (
+    const [provider, model, key, path] of [
+      ["anthropic", "claude-sonnet-4-6", "ANTHROPIC_API_KEY", "/v1/messages"],
+      ["openai", "gpt-6-luna", "OPENAI_API_KEY", "/v1/responses"]
+    ] as const
+  ) {
+    const environment = {
+      ...connected.environment,
+      SMITHERS_CODING_FALLBACK_MODEL: `${provider}:${model}`,
+      SMITHERS_MODEL_PROXY_URL: "http://127.0.0.1:9911/model-proxy",
+      SMITHERS_MODEL_PROXY_PROVIDERS: provider,
+      [key]: "platform-fixture-key"
+    }
+    const options = await optionsFromEnv(environment)
+    assert.equal(options.implementationModel, `${provider}:${model}`)
+    const resolve = (environment: Environment) =>
+      Effect.runPromise(
+        Effect.gen(function*() {
+          const seats = yield* SeatResolver.SeatResolver
+          const seat = yield* seats.resolve("coding/implement")
+          return yield* seat.route.prepare({
+            modelId: seat.modelId,
+            system: [],
+            messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+            tools: [],
+            params: {}
+          } as never)
+        }).pipe(Effect.provide(
+          Host.roleSeats(hostOptions(options.implementationModel))(environment).pipe(
+            Layer.provide(platform.requestExecutor)
+          )
+        ))
+      )
+    assert.equal((await resolve(environment)).url, `http://127.0.0.1:9911/model-proxy/${provider}${path}`)
+    for (
+      const override of [
+        { SMITHERS_MODEL_PROXY_URL: undefined },
+        { SMITHERS_MODEL_PROXY_PROVIDERS: "cerebras" },
+        { SMITHERS_CODING_FALLBACK_MODEL: `${provider}:different-model` }
+      ]
+    ) {
+      await assert.rejects(resolve({ ...environment, ...override }), {
+        _tag: "@smthrs/agent/Seat/SeatUnresolved"
+      })
+    }
+  }
+})
+
+test("explicit pins, including blank, outrank the pool and platform fallback", async (t) => {
+  const connected = await pool(t)
+  for (const pin of ["openai:gpt-6-sol", ""]) {
+    const options = await optionsFromEnv({
+      ...connected.environment,
+      SMITHERS_CODING_IMPLEMENT_MODEL: pin,
+      SMITHERS_CODING_FALLBACK_MODEL: "anthropic:claude-sonnet-4-6"
+    })
+    assert.equal(options.implementationModel, pin)
+  }
+  assert.deepEqual(connected.requests, [])
+})
+
+test("uses the platform fallback when no pool is configured", async () => {
+  const options = await optionsFromEnv({ SMITHERS_CODING_FALLBACK_MODEL: "openai:gpt-6-luna" })
+  assert.equal(options.implementationModel, "openai:gpt-6-luna")
+})
+
 test("asks again on the next host start after an account is connected", async (t) => {
   const connected = await pool(t, { status: 200, body: "{\"routes\":[]}" })
   const before = await optionsFromEnv(connected.environment)

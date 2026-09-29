@@ -136,7 +136,8 @@ export const optionsFromEnv = (environment: Readonly<Record<string, string | und
     // A blank pin also stays blank: provisioning uses it to refuse an unavailable explicit model.
     const pinned = environment.SMITHERS_CODING_IMPLEMENT_MODEL
     return {
-      implementationModel: pinned ?? (yield* NativeEquipment.accountPoolDefaultModel(environment)) ?? ""
+      implementationModel: pinned ?? (yield* NativeEquipment.accountPoolDefaultModel(environment)) ??
+        environment.SMITHERS_CODING_FALLBACK_MODEL ?? ""
     }
   })
 

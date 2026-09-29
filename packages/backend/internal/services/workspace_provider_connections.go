@@ -16,9 +16,6 @@ import (
 type workspaceProviderBinding struct {
 	environment AgentEnvironmentProvisioningConfig
 	egress      *sandbox.EgressProxyPolicy
-	// pooled are the seats connected accounts serve at boot; they count as
-	// available when the coding model is chosen.
-	pooled []string
 }
 
 func (s *WorkspaceService) resolveWorkspaceProviderBindings(ctx context.Context, workspace db.Workspace) (*workspaceProviderBinding, error) {
@@ -50,25 +47,40 @@ func (s *WorkspaceService) resolveWorkspaceProviderBindings(ctx context.Context,
 		if err := s.bindWorkspaceProviderPool(ctx, workspace, binding); err != nil {
 			return nil, err
 		}
-		if model == "" {
-			model = workspaceCodingModel(binding.availableProviderNames(), "")
-		}
 	}
 	if s.providerBootstrap && workspace.RepositoryID > 0 && workspace.UserID > 0 && workspace.Kind != "agent" {
-		if model == "" {
-			model = workspaceCodingModel(binding.availableProviderNames(), "")
+		modelEnv := "SMITHERS_CODING_IMPLEMENT_MODEL"
+		if model == "" && s.codingDefaultModel == "" && slices.Contains(binding.environment.ProxyBound, ProviderPoolKeyEnvName) {
+			// Platform defaults remain available after the live pool is checked;
+			// they must not pin a host away from newly connected accounts.
+			modelEnv = "SMITHERS_CODING_FALLBACK_MODEL"
 		}
 		if err := s.bindWorkspaceModelProxy(ctx, workspace, binding); err != nil {
 			return nil, err
 		}
 		if model == "" {
-			model = workspaceCodingModel(binding.availableProviderNames(), s.codingDefaultModel)
+			available := binding.availableProviderNames()
+			// An explicit deployment pin may use an offered pool route. Its
+			// current accounts are resolved by the host, never frozen at boot.
+			// Only explicit pins count these routes as model candidates.
+			if s.codingDefaultModel != "" {
+				for _, env := range binding.environment.Env {
+					if env.Name == ProviderPoolProvidersEnvName {
+						for _, pool := range providerPoolSeats {
+							if slices.Contains(strings.Split(env.Value, ","), pool.route) {
+								available[pool.seat] = true
+							}
+						}
+					}
+				}
+			}
+			model = workspaceCodingModel(available, s.codingDefaultModel)
 		}
 		present := slices.ContainsFunc(binding.environment.Env, func(v AgentEnvironmentVariable) bool { return v.Name == "SMITHERS_CODING_IMPLEMENT_MODEL" })
 		// Preserve an unavailable explicit deployment pin as a blank model, so
 		// old-box fallback cannot silently switch to a different provider.
 		if !present && (model != "" || s.codingDefaultModel != "") {
-			binding.setEnv("SMITHERS_CODING_IMPLEMENT_MODEL", model)
+			binding.setEnv(modelEnv, model)
 		}
 	}
 	if err := binding.egress.Validate(); err != nil {
@@ -102,9 +114,6 @@ func workspaceDeclaresProvider(config AgentEnvironmentProvisioningConfig, key st
 
 func (b *workspaceProviderBinding) availableProviderNames() map[string]bool {
 	names := map[string]bool{}
-	for _, name := range b.pooled {
-		names[name] = true
-	}
 	for _, secret := range b.egress.Secrets {
 		if secret.Value != sandbox.EgressProxyPlaceholder(secret.Name) && secret.Value != "[redacted]" && IsUsableProviderCredential(secret.Value) && slices.Contains(b.environment.ProxyBound, secret.Name) {
 			names[secret.Name] = true

@@ -22,6 +22,14 @@
         "path": "scripts/test_check_go_boundaries.py"
       },
       {
+        "kind": "pnpm-workspace",
+        "path": "pnpm-workspace.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
         "kind": "glob",
         "pattern": "apps/model-host/src/**/*.ts",
         "exclude": []
@@ -68,6 +76,7 @@
       "//:backendGoModules",
       "//:backendSQLC",
       "//:nativeFfi",
+      "//flows:codingHostInputs",
       "//packages/smithers/agent/integrations:lib",
       "//packages/smithers/agent/model-host:lib",
       "//packages/smithers/flows:lib"
@@ -27106,16 +27115,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       }
     ],
     "outputs": [],
@@ -27150,16 +27159,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       }
     ],
     "outputs": [],
@@ -27194,16 +27203,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       }
     ],
     "outputs": [],
@@ -27278,16 +27287,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       },
       {
         "kind": "file",
@@ -27683,6 +27692,40 @@
     }
   },
   {
+    "label": "//flows:codingHostInputs",
+    "package": "flows",
+    "name": "codingHostInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/coding/**/*.md",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//flows:codingNative",
     "package": "flows",
     "name": "codingNative",
@@ -27708,16 +27751,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       }
     ],
     "outputs": [],
@@ -27752,16 +27795,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       }
     ],
     "outputs": [],
@@ -27812,16 +27855,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       },
       {
         "kind": "file",
@@ -28330,16 +28373,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       },
       {
         "kind": "file",
@@ -28768,16 +28811,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       }
     ],
     "outputs": [],
@@ -28844,16 +28887,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       },
       {
         "kind": "file",
@@ -29179,16 +29222,16 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/tsconfig.json"
+      },
+      {
         "kind": "pnpm-workspace",
         "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
         "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
       }
     ],
     "outputs": [],

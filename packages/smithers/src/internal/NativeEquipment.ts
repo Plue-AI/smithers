@@ -218,7 +218,8 @@ const providerSeats = (
   const pool = accountPoolOf(environment)
   let served: { readonly until: number; readonly routes: ReadonlyArray<string> } | undefined
   // A configured pool owns this route. An empty or unavailable pool refuses
-  // resolution; it never falls through to an ambient provider key.
+  // resolution unless provisioning names a platform fallback. It never falls
+  // through to an ambient provider key.
   const pooled = (route: AccountPoolRoute, modelId: string) =>
     Effect.gen(function*() {
       if (pool === undefined || !pool.routes.includes(route)) return undefined
@@ -278,7 +279,9 @@ const providerSeats = (
               modelId
             )
         }
-        if (pool !== undefined && poolRoute !== undefined) {
+        const platformFallback = environment.SMITHERS_CODING_FALLBACK_MODEL === seat &&
+          Endpoint.proxyOrigin(provider, environment) !== undefined
+        if (pool !== undefined && poolRoute !== undefined && !platformFallback) {
           return yield* new Seat.SeatUnresolved({
             seat,
             message: "The configured subscription pool has no available account for this seat."

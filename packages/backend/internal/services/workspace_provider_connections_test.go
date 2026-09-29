@@ -113,7 +113,7 @@ func TestWorkspaceProviderPoolProvisioning(t *testing.T) {
 						_, err = service.resumeWorkspaceVM(ctx, workspace)
 					}
 					require.NoError(t, err)
-					assert.Equal(t, []string{ProviderConnectionProviderClaude, ProviderConnectionProviderCodex}, pool.calls)
+					assert.Empty(t, pool.calls, "boot offers routes without choosing from current accounts")
 					assert.Equal(t, workspace.UserID, pool.userID, "accounts belong to the workspace owner, not the caller")
 					assert.Equal(t, workspace.RepositoryID, pool.repositoryID)
 					require.NotNil(t, policy)
@@ -187,7 +187,8 @@ func TestWorkspaceProviderPoolKeepsPlatformSeats(t *testing.T) {
 		names = append(names, strings.SplitN(token.Name, "-workspace-", 2)[0])
 	}
 	assert.ElementsMatch(t, []string{"provider-pool", "model-proxy"}, names)
-	assert.Equal(t, "anthropic:claude-sonnet-4-6", bootstrapModel(binding.environment), "connected accounts count for the default model")
+	assert.Empty(t, bootstrapModel(binding.environment), "the platform seat must not pin the offered pool")
+	assert.Equal(t, "anthropic:claude-sonnet-4-6", bootstrapFallbackModel(binding.environment), "the platform seat remains available when the pool is empty")
 	profile, err := renderWorkspaceAgentEnvironmentProfile(binding.environment.Env, binding.environment.ProxyBound)
 	require.NoError(t, err)
 	assert.NotContains(t, profile, "private")
@@ -243,10 +244,10 @@ func TestWorkspaceProviderPoolPrecedenceIsPerProvider(t *testing.T) {
 				vars[variable.Name] = variable.Value
 			}
 			if key == "OPENAI_API_KEY" {
-				assert.Equal(t, []string{ProviderConnectionProviderClaude}, pool.calls)
+				assert.Empty(t, pool.calls)
 				assert.Equal(t, "anthropic", vars[ProviderPoolProvidersEnvName])
 			} else {
-				assert.Equal(t, []string{ProviderConnectionProviderCodex}, pool.calls)
+				assert.Empty(t, pool.calls)
 				assert.Equal(t, "chatgpt", vars[ProviderPoolProvidersEnvName])
 			}
 		})

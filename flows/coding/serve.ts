@@ -48,7 +48,7 @@ if (parsed.values.version) {
     "smithers-coding-host serve --root <workspace> --host <host> --port <port> --listen [--state-dir <path>]\n" +
       `--state-dir, or ${CodingState.directoryVariable}, holds control.db and engine.db; it defaults to a sibling of the root and may never be inside it.\n` +
       `Set ${CodingState.inRootVariable}=1 only for a local single-repository run that wants the old <root>/.flows layout.\n` +
-      "Requires SMITHERS_GATEWAY_ID; set SMITHERS_CODING_IMPLEMENT_MODEL or connect an account pool. SMITHERS_API_KEY authenticates the existing gateway.\n" +
+      "Requires SMITHERS_GATEWAY_ID; set SMITHERS_CODING_IMPLEMENT_MODEL or use a provisioned pool/platform default. SMITHERS_API_KEY authenticates the existing gateway.\n" +
       "Loads <root>/.smithers/coding-project.json when present; SMITHERS_CODING_PROJECT overrides it.\n" +
       "SMITHERS_FLOW_ARTIFACT_SHA256, SMITHERS_SOURCE_REVISION and SMITHERS_OWNER_GENERATION bind the runtime bridge.\n" +
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY selects the packaged native workspace helper.\n" +
