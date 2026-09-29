@@ -80,7 +80,7 @@ export const SETUP_REFUSAL_COPY: ReadonlyMap<string, string> = new Map([
  * {@link receiptFault} fails to compile until it is.
  */
 export const RECEIPT_CODES = [
-  "invalid_plan", "invalid_request", "fast_gate", "stale_revision", "invalid_receipt", "unavailable",
+  "invalid_plan", "invalid_request", "fast_gate", "check_infra", "stale_revision", "invalid_receipt", "unavailable",
   "execution", "source_missing", "source_changed", "source_refused", "source_unavailable", "declined",
   "stalled"
 ] as const
@@ -118,6 +118,8 @@ const receiptFault = (code: ReceiptCode, sentence: string): PlueFault => {
     case "source_unavailable": return "dependency"
     /* A plan this app's own flow built, and an execution that died under it. */
     case "invalid_plan": return "bug"
+    /* A check whose infrastructure could not measure the revision; never repair feedback. */
+    case "check_infra":
     case "execution": return "infra"
     default: { const unhandled: never = code; return unhandled }
   }
