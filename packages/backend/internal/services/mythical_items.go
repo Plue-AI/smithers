@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -885,7 +886,7 @@ func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem
 	if st.policy == nil {
 		policy, err := st.s.stackPolicy(ctx, st.r.row.RepositoryID)
 		if err != nil {
-			return mythicalLaunchOutage(item, "the repository policy could not be read", st.now)
+			return mythicalInfraOutage(item, "launch", "the repository policy could not be read", st.now)
 		}
 		st.policy = &policy
 	}
@@ -899,7 +900,7 @@ func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem
 	day := st.now.UTC().Truncate(24 * time.Hour)
 	spent, err := st.s.queries().MythicalRepositoryTokensSince(ctx, st.r.row.RepositoryID, day)
 	if err != nil {
-		return mythicalLaunchOutage(item, "the factory's spend today could not be read", st.now)
+		return mythicalInfraOutage(item, "launch", "the factory's spend today could not be read", st.now)
 	}
 	if spent < st.policy.DailyTokens {
 		return nil
@@ -910,11 +911,31 @@ func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem
 	return &next
 }
 
-// slot reports whether item may launch a run on a new lane now: within the
+// mythicalHoldsLane reports whether item occupies a lane workspace: a run
+// in flight, a running review, or a coding workspace retained between
+// delivery and its proposal (integrating, proposing, waiting).
+func mythicalHoldsLane(item db.MythicalItem) bool {
+	switch item.State {
+	case "integrating", "proposing", "waiting":
+		return item.WorkspaceID != ""
+	case "proposed":
+		return mythicalChecksOf(item).reviewing(item)
+	}
+	return mythicalLaneStates[item.State]
+}
+
+// slot reports whether item may launch a run on a new lane now, trading in
+// any lane it already holds: within the
 // stack's lane cap, with one lane kept for chat work (mythicalLaunchSlot),
 // and within this pass's launch budget.
 func (st *mythicalItemStep) slot(item db.MythicalItem) bool {
-	return mythicalLaunchSlot(item.Source, st.busy, st.maxParallel) && st.launches < mythicalLaunchesPerRun
+	busy := st.busy
+	if mythicalHoldsLane(item) || item.State == "proposed" && item.WorkspaceID != "" {
+		// The item gives up the workspace it holds (its coding workspace,
+		// counted while it was proposed) for the new one.
+		busy--
+	}
+	return mythicalLaunchSlot(item.Source, busy, st.maxParallel) && st.launches < mythicalLaunchesPerRun
 }
 
 // freeLane answers the lowest lane index no other unsettled item holds, so
@@ -956,9 +977,9 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		}
 	}
 	for _, item := range items {
-		// A running review holds a lane too, so reviews and new requests
-		// together stay within the stack's lane cap.
-		if mythicalLaneStates[item.State] || item.State == "proposed" && mythicalChecksOf(item).reviewing(item) {
+		// Every workspace a phase occupies counts, so reviews, retained
+		// coding workspaces and new requests together stay within the cap.
+		if mythicalHoldsLane(item) {
 			step.busy++
 		}
 	}
@@ -1002,7 +1023,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if next == nil {
 			continue
 		}
-		if !mythicalLaneStates[item.State] && mythicalLaneStates[next.State] {
+		if !mythicalHoldsLane(item) && mythicalHoldsLane(*next) {
 			step.busy++
 		}
 		result := *next
@@ -1177,30 +1198,38 @@ func mythicalLater(item db.MythicalItem, reason string, now time.Time) *db.Mythi
 	return &next
 }
 
-// mythicalLaunchOutage is a launch that failed before its run was admitted:
-// the lane could not be provisioned or retired, the tip or candidate could
-// not reach it, or the admission failed. It is an infra outage, never the
-// TODO's fault: it spends no attempt, counts toward mythicalOutageBound with
-// the run outages, backs off like them and parks loudly past the bound. A
-// proposed item holds for a person instead, its pull request left open.
-func mythicalLaunchOutage(item db.MythicalItem, reason string, now time.Time) *db.MythicalItem {
+// mythicalInfraOutage is a step that failed on infrastructure outside any
+// run: a launch before its run was admitted (the lane could not be
+// provisioned or retired, the tip or candidate could not reach it, the
+// admission failed; tag "launch"), or GitHub not answering while the change
+// is proposed or followed (tag "github"). It is never the TODO's fault: it
+// spends no attempt, counts toward mythicalOutageBound with the run
+// outages, backs off like them and parks loudly past the bound. A proposed
+// item holds for a person instead, its pull request left open.
+func mythicalInfraOutage(item db.MythicalItem, tag, reason string, now time.Time) *db.MythicalItem {
 	checks := mythicalChecksOf(item)
-	checks.Outages++
+	// GitHub's outages count apart: following a pull request through one
+	// never uses up the allowance its review runs and launches share.
+	count := &checks.Outages
+	if tag == "github" {
+		count = &checks.GitHubOutages
+	}
+	*count++
 	outcome := mythicalOutage + "infra: " + reason
-	if checks.Outages > mythicalOutageBound {
+	if *count > mythicalOutageBound {
 		parked := item
 		parked.Checks = checks.encode()
+		stopped := fmt.Sprintf("Smithers could not go on after %d tries (%s); not the TODO's fault", *count, outcome)
 		if item.State == "proposed" {
-			return mythicalHold(parked, "review-outages:"+item.PRHead, "the review could not run after repeated tries ("+outcome+"); not the TODO's fault", now)
+			return mythicalHold(parked, "outages:"+item.PRHead, stopped, now)
 		}
-		return mythicalStop(parked, mythicalFault{Class: "policy", Tag: "outages"},
-			fmt.Sprintf("Smithers could not run it after %d tries (%s); not the TODO's fault", checks.Outages, outcome))
+		return mythicalStop(parked, mythicalFault{Class: "policy", Tag: "outages"}, stopped)
 	}
 	next := item
 	next.Reason = outcome + "; this is not the TODO's fault, Smithers retries it"
-	checks.Fault = &mythicalFault{Class: "infra", Tag: "launch"}
+	checks.Fault = &mythicalFault{Class: "infra", Tag: tag}
 	next.Checks = checks.encode()
-	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(min(time.Duration(1<<checks.Outages)*time.Minute, time.Hour)), Valid: true}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(min(time.Duration(1<<*count)*time.Minute, time.Hour)), Valid: true}
 	return &next
 }
 
@@ -1441,7 +1470,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	if item.WorkspaceID != "" {
 		// The previous attempt's lane is retired before a new one opens.
 		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
-			return mythicalLaunchOutage(item, "the previous lane could not be retired: "+err.Error(), st.now), false, nil
+			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
 		}
 	}
 	next := item
@@ -1451,7 +1480,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
 	workspaceID, err := st.lane(ctx, item, fmt.Sprintf("mythical #%d attempt %d g%d", item.IssueNumber.Int64, next.Attempt, next.Generation))
 	if err != nil {
-		return mythicalLaunchOutage(item, "no lane workspace: "+err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
 	}
 	next.WorkspaceID, next.BaseCommit = workspaceID, r.row.TipCommit
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
@@ -1459,7 +1488,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
 	ref, err := s.retainFor(ctx, r, workspaceID, r.row.TipCommit)
 	if err != nil {
-		return mythicalLaunchOutage(item, "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
 	}
 	request := map[string]any{"prompt": st.prompt(item, next.Attempt), "maxRounds": 3,
 		"base": map[string]string{"commitId": r.row.TipCommit, "ref": ref}}
@@ -1477,7 +1506,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		// The lane stays bound; the sweep retires it once the item provably
 		// does not reference it, so a lost COMMIT acknowledgment never
 		// deletes an admitted lane.
-		return mythicalLaunchOutage(item, "the request could not be launched: "+err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", "the request could not be launched: "+err.Error(), st.now), false, nil
 	}
 	return &saved, true, nil
 }
@@ -1535,7 +1564,7 @@ func (st *mythicalItemStep) deliver(ctx context.Context, item db.MythicalItem) (
 	next.State = "delivering"
 	saved, err := st.commit(ctx, next, "vibe", "coding/vibe", payload)
 	if err != nil {
-		return mythicalLaunchOutage(item, "delivery could not be launched: "+err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", "delivery could not be launched: "+err.Error(), st.now), false, nil
 	}
 	return &saved, true, nil
 }
@@ -1576,17 +1605,16 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		return nil, false, nil
 	}
 	if err := st.fetchCandidate(ctx, item); err != nil {
-		return mythicalLaunchOutage(item, err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
 	if refused, err := st.protectedChanges(ctx, item); err != nil {
-		return mythicalLaunchOutage(item, err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	} else if len(refused) > 0 {
-		next := item
-		next.State, next.Reason = "blocked", "a maintainer changes protected paths: "+strings.Join(refused, ", ")
-		return &next, false, nil
+		return mythicalStop(item, mythicalFault{Class: "policy", Tag: "protected_paths"},
+			"a maintainer changes protected paths: "+strings.Join(refused, ", ")), false, nil
 	}
 	if err := s.pin(ctx, r, item.CandidateHead); err != nil {
-		return mythicalLaunchOutage(item, err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
 	next := item
 	if item.CandidateBase == r.row.TipCommit {
@@ -1622,7 +1650,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		return mythicalRetry(item, "the rebased result has no checks to run; re-planning on the new tip", st.now), false, nil
 	}
 	if err := s.pin(ctx, r, rebased); err != nil {
-		return mythicalLaunchOutage(item, err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
 	if hold := st.launchable(ctx, item); hold != nil {
 		return hold, false, nil
@@ -1635,14 +1663,14 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	if workspaceID == "" {
 		// A proposal refreshed after its lane was retired verifies on a fresh one.
 		if workspaceID, err = st.lane(ctx, item, fmt.Sprintf("mythical #%d verify %d", item.IssueNumber.Int64, item.Generation+1)); err != nil {
-			return mythicalLaunchOutage(item, "no lane workspace to verify on: "+err.Error(), st.now), false, nil
+			return mythicalInfraOutage(item, "launch", "no lane workspace to verify on: "+err.Error(), st.now), false, nil
 		}
 		next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 		next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
 	}
 	ref, err := s.retainFor(ctx, r, workspaceID, rebased)
 	if err != nil {
-		return mythicalLaunchOutage(item, err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
 	next.Generation++
 	next.WorkspaceID = workspaceID
@@ -1652,7 +1680,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks})
 	saved, err := st.commit(ctx, next, "verify", "coding/verify", payload)
 	if err != nil {
-		return mythicalLaunchOutage(item, "verification could not be launched: "+err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", "verification could not be launched: "+err.Error(), st.now), false, nil
 	}
 	if saved.Lane.Valid {
 		st.held[saved.Lane.Int32] = saved.ID
@@ -1715,7 +1743,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	}
 	if st.ghErr != nil {
 		if item.State == "waiting" && item.Reason == st.ghErr.Error() {
-			return mythicalLater(item, item.Reason, st.now), nil
+			return mythicalInfraOutage(item, "github", item.Reason, st.now), nil
 		}
 		next.State, next.Reason = "waiting", st.ghErr.Error()
 		return &next, nil
@@ -1730,7 +1758,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		}
 		remote, err := r.g.lsRemote(ctx, gh.GitURL)
 		if err != nil {
-			return mythicalLater(item, "GitHub did not answer; retrying the proposal", st.now), nil
+			return mythicalInfraOutage(item, "github", "GitHub did not answer; retrying the proposal", st.now), nil
 		}
 		switch remote["refs/heads/"+op.Branch] {
 		case op.Head:
@@ -1738,7 +1766,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 			return st.openPull(ctx, next, gh, op.Branch)
 		case op.Expected:
 			if err := st.pushProposal(ctx, gh, op); err != nil {
-				return mythicalLater(item, err.Error(), st.now), nil
+				return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
 			}
 			next.PRHead, next.PendingOp = op.Head, nil
 			return st.openPull(ctx, next, gh, op.Branch)
@@ -1761,7 +1789,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	candidate, err := r.g.readCommit(ctx, item.CandidateHead)
 	if err != nil {
 		if fetchErr := st.fetchCandidate(ctx, item); fetchErr != nil {
-			return mythicalLater(item, fetchErr.Error(), st.now), nil
+			return mythicalInfraOutage(item, "github", fetchErr.Error(), st.now), nil
 		}
 		if candidate, err = r.g.readCommit(ctx, item.CandidateHead); err != nil {
 			return nil, err
@@ -1784,7 +1812,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	// Pin, then record the intended head, then push: a crash anywhere after
 	// is settled from the branch on the next claim.
 	if err := s.pin(ctx, r, commit); err != nil {
-		return mythicalLater(item, err.Error(), st.now), nil
+		return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
 	}
 	op := mythicalProposalOp{Branch: branch, Expected: item.PRHead, Head: commit}
 	pending, _ := json.Marshal(op)
@@ -1799,7 +1827,7 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		current := remote["refs/heads/"+branch]
 		switch {
 		case lsErr != nil, current == op.Expected:
-			return mythicalLater(next, "the proposal push did not finish; retrying", st.now), nil
+			return mythicalInfraOutage(next, "github", "the proposal push did not finish; retrying", st.now), nil
 		case current != op.Head:
 			next.State, next.Reason = "blocked", "the pull request branch "+branch+" moved outside Smithers"
 			return &next, nil
@@ -1830,7 +1858,7 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 	next := item
 	pull, err := s.github.FindPull(ctx, gh, branch)
 	if err != nil {
-		return mythicalLater(item, "GitHub did not answer; retrying the proposal", st.now), nil
+		return mythicalInfraOutage(item, "github", "GitHub did not answer; retrying the proposal", st.now), nil
 	}
 	if pull == nil || (pull.State == "closed" && !pull.Merged) {
 		repository, _, err := s.repository(ctx, r.row.RepositoryID)
@@ -1844,7 +1872,7 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 		title, body := st.proposal(item)
 		created, err := s.github.CreatePull(ctx, gh, title, branch, base, body)
 		if err != nil {
-			return mythicalLater(item, "the pull request could not be opened: "+err.Error(), st.now), nil
+			return mythicalInfraOutage(item, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
 		}
 		pull = &created
 	}
@@ -1853,7 +1881,7 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 	next.State, next.Reason = "proposed", ""
 	// The change is proposed: the outages on the way here are behind it.
 	proposed := mythicalChecksOf(next)
-	proposed.Outages = 0
+	proposed.Outages, proposed.GitHubOutages = 0, 0
 	next.Checks = proposed.encode()
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
 	return &next, nil
@@ -1908,14 +1936,18 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		st.gh, st.ghErr = &gh, err
 	}
 	if st.ghErr != nil {
-		return mythicalLater(item, st.ghErr.Error(), st.now), nil
+		return mythicalInfraOutage(item, "github", st.ghErr.Error(), st.now), nil
 	}
 	pull, err := s.github.Pull(ctx, *st.gh, item.PRNumber.Int64)
 	if err != nil {
-		return mythicalLater(item, "GitHub did not answer; following the pull request later", st.now), nil
+		return mythicalInfraOutage(item, "github", "GitHub did not answer; following the pull request later", st.now), nil
 	}
 	next := item
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
+	if answered := mythicalChecksOf(next); answered.GitHubOutages > 0 {
+		answered.GitHubOutages = 0
+		next.Checks = answered.encode()
+	}
 	switch {
 	case pull.Merged:
 		next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", pull.MergeCommit, "landed", ""
@@ -1995,26 +2027,28 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 const mythicalReviewFlow = "review/change"
 
 // mythicalUntrustedTag finds anything that could read as an untrusted
-// block's tag once folded (mythicalUntrusted): any case, spaces, a slash,
-// and a "<" as an angle quote, an entity with or without its semicolon, or
-// a JSON, hex or URL escape.
+// block's tag (mythicalUntrusted): any case, spaces, a slash, and a "<" as
+// an angle quote, an entity with or without its semicolon, or a JSON, hex or
+// URL escape.
 var mythicalUntrustedTag = regexp.MustCompile(`(?i)(?:<|\x{2039}|\x{2329}|\x{27E8}|\x{3008}|&lt;?|&#0*60;?|&#x0*3c;?|\\u0*3c|\\x3c|%3c)(\s*/?\s*untrusted)`)
 
 // mythicalUntrusted keeps text inside its untrusted block: no tag it
 // carries, in any spelling, can end the block early or open another. The
-// text is folded first: compatibility forms (a fullwidth "<") become what a
-// model reads them as, and an invisible format character (a zero-width
-// space, a bidi control) is written out visibly, so none hides a tag.
+// text is never rewritten into what it resembles: a character that reads as
+// another (a fullwidth letter or "<", a ligature, a superscript: anything
+// NFKC would fold) or that is invisible (a zero-width space, a bidi
+// control) is written out as [U+XXXX], so the reader sees the change as it
+// is and no such character spells a tag.
 func mythicalUntrusted(text string) string {
-	var folded strings.Builder
-	for _, r := range norm.NFKC.String(text) {
-		if unicode.Is(unicode.Cf, r) {
-			fmt.Fprintf(&folded, "[U+%04X]", r)
+	var shown strings.Builder
+	for _, r := range text {
+		if unicode.Is(unicode.Cf, r) || r != utf8.RuneError && norm.NFKC.String(string(r)) != string(r) {
+			fmt.Fprintf(&shown, "[U+%04X]", r)
 			continue
 		}
-		folded.WriteRune(r)
+		shown.WriteRune(r)
 	}
-	return mythicalUntrustedTag.ReplaceAllString(folded.String(), "[$1]")
+	return mythicalUntrustedTag.ReplaceAllString(shown.String(), "[$1]")
 }
 
 // mythicalReviewBytes bounds the diff a review reads; a larger change is not
@@ -2029,16 +2063,23 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	if s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
 		return &item, false, nil
 	}
+	if mythicalChecksOf(item).Outages > mythicalOutageBound {
+		// This head's review used up its outages: nothing is admitted for it
+		// again. A new head (a refresh, a person's push) starts over.
+		return mythicalHold(item, "outages:"+item.PRHead, "the review of this head could not run after repeated tries; not the TODO's fault", st.now), false, nil
+	}
 	if !st.slot(item) {
-		// A review takes a lane like any launch: it waits for one.
-		return &item, false, nil
+		// A review takes a lane like any launch: it waits for one, visibly.
+		waiting := item
+		waiting.Reason = "waiting for a free lane to review this change"
+		return &waiting, false, nil
 	}
 	if hold := st.launchable(ctx, item); hold != nil {
 		return hold, false, nil
 	}
 	diff, err := st.proposalDiff(ctx, item)
 	if err != nil {
-		return mythicalLaunchOutage(item, err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
 	next := item
 	checks := mythicalChecksOf(item)
@@ -2055,13 +2096,13 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	// landed code; the change arrives only as the framed diff.
 	if next.WorkspaceID != "" {
 		if err := s.retireLane(ctx, r, next.WorkspaceID); err != nil {
-			return mythicalLaunchOutage(item, "the coding lane could not be retired before the review: "+err.Error(), st.now), false, nil
+			return mythicalInfraOutage(item, "launch", "the coding lane could not be retired before the review: "+err.Error(), st.now), false, nil
 		}
 		next.WorkspaceID, next.Lane, next.LaneStartedAt = "", pgtype.Int4{}, pgtype.Timestamptz{}
 	}
 	workspaceID, err := st.lane(ctx, next, fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation+1))
 	if err != nil {
-		return mythicalLaunchOutage(item, "no lane workspace to review on: "+err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", "no lane workspace to review on: "+err.Error(), st.now), false, nil
 	}
 	next.WorkspaceID = workspaceID
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
@@ -2073,9 +2114,8 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	payload, _ := json.Marshal(map[string]string{"args": args})
 	saved, err := st.commit(ctx, next, "review", mythicalReviewFlow, payload)
 	if err != nil {
-		return mythicalLaunchOutage(item, "the review could not be launched: "+err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", "the review could not be launched: "+err.Error(), st.now), false, nil
 	}
-	st.busy++
 	if saved.Lane.Valid {
 		st.held[saved.Lane.Int32] = saved.ID
 	}
@@ -2131,7 +2171,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 	}
 	applier, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, automergeLabel)
 	if err != nil {
-		return mythicalLater(item, "GitHub did not answer for the issue's labels; retrying", st.now)
+		return mythicalLater(item, "the issue's labels could not be read as they stand ("+err.Error()+"); retrying", st.now)
 	}
 	policy, err := s.stackPolicy(ctx, st.r.row.RepositoryID)
 	if err != nil {
@@ -2158,7 +2198,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		checks := mythicalChecksOf(item)
 		todo, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, todoLabel)
 		if err != nil {
-			return mythicalLater(item, "GitHub did not answer for the issue's labels; retrying", st.now)
+			return mythicalLater(item, "the issue's labels could not be read as they stand ("+err.Error()+"); retrying", st.now)
 		}
 		isTodo := todo.present()
 		if isTodo && checks.AutoTodo == "" {
@@ -2399,8 +2439,9 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 			retried.Outages, retried.VeryHard, retried.Fault = 0, false, nil
 		}
 		next.Checks = retried.encode()
-		if item.PRNumber.Valid {
+		if item.PRNumber.Valid && item.PRState != "open" {
 			// The closed proposal stays closed: the retried item proposes anew.
+			// An open one is kept: the retry pushes its branch again.
 			next.ProposalRound++
 			next.PRNumber, next.PRURL, next.PRState, next.PRHead, next.PRMergeCommit = pgtype.Int8{}, "", "", "", ""
 		}
@@ -2747,6 +2788,9 @@ type mythicalChecks struct {
 	// Replans counts the plans that failed since the item was last queued
 	// fresh: the item runs plan Replans+1 of mythicalAttempts.
 	Replans int `json:"replans,omitempty"`
+	// GitHubOutages counts consecutive failures to reach GitHub while the
+	// change is proposed or followed; a pull request read resets it.
+	GitHubOutages int `json:"githubOutages,omitempty"`
 	// Drivers are the people who took over the item's run
 	// (mythicalDrivers); kept here so no other write drops them.
 	Drivers []mythicalDriver `json:"drivers,omitempty"`

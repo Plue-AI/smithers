@@ -906,6 +906,13 @@ func TestMythicalUntrustedEscapesEverySpelling(t *testing.T) {
 	assert.Equal(t, "if a < b { return }", mythicalUntrusted("if a < b { return }"), "ordinary code is left alone")
 	assert.Equal(t, "a[U+200B]b", mythicalUntrusted("a\u200bb"), "an invisible character is shown, never hidden")
 	assert.NotContains(t, mythicalUntrusted("\uff1c/untrusted-diff\uff1e"), "untrusted-diff>", "a fullwidth tag cannot close the block")
+	// Nothing is folded into what it resembles: a change spelled only in
+	// compatibility characters stays a visible change (Opus r4 N1).
+	diff := "-\tif role == \"admin\" {\n+\tif role == \"\uff41\uff44\uff4d\uff49\uff4e\" {\n"
+	assert.Equal(t, "-\tif role == \"admin\" {\n+\tif role == \"[U+FF41][U+FF44][U+FF4D][U+FF49][U+FF4E]\" {\n", mythicalUntrusted(diff))
+	for raw, shown := range map[string]string{"x\u00b2": "x[U+00B2]", "\u212a": "[U+212A]", "\ufb01le": "[U+FB01]le", "evil\uff0ecom": "evil[U+FF0E]com", "caf\u00e9 \u65e5\u672c": "caf\u00e9 \u65e5\u672c"} {
+		assert.Equal(t, shown, mythicalUntrusted(raw), "%q", raw)
+	}
 }
 
 // Before a merge the issue must still be a TODO as it stands now: a
@@ -1001,7 +1008,7 @@ func TestMythicalPreAdmissionOutageParks(t *testing.T) {
 	assert.Equal(t, "blocked", item.State)
 	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "outages"}, mythicalChecksOf(item).Fault)
 	o.wake()
-	assert.Equal(t, []string{"#321 Smithers stopped this TODO: Smithers could not run it after 7 tries (outage: infra: no lane workspace: provisioning is down); not the TODO's fault."}, o.github.comments)
+	assert.Equal(t, []string{"#321 Smithers stopped this TODO: Smithers could not go on after 7 tries (outage: infra: no lane workspace: provisioning is down); not the TODO's fault."}, o.github.comments)
 	assert.Empty(t, o.launcher.requests)
 }
 
@@ -1035,6 +1042,7 @@ func TestMythicalReviewWaitsForALane(t *testing.T) {
 	require.NoError(t, err)
 	o.wake()
 	assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews, "no review takes the chat lane")
+	assert.Equal(t, "waiting for a free lane to review this change", o.item(311).Reason, "the wait is visible")
 	assert.Equal(t, "running", o.item(312).State)
 }
 
@@ -1188,7 +1196,7 @@ func TestMythicalMergeReadsTheIssuesLabelsNotOnlyTheirHistory(t *testing.T) {
 	o.answerReviews(`"approve"`)
 	item := o.item(371)
 	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "GitHub did not answer for the issue's labels; retrying", item.Reason)
+	assert.Equal(t, "the issue's labels could not be read as they stand (GitHub's label history trails the issue's labels; read again later); retrying", item.Reason)
 	assert.Empty(t, o.github.merges, "a label gone from the issue never merges on its history")
 }
 
@@ -1216,4 +1224,138 @@ func TestMythicalSnapshotShowsATodosProgressOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(encoded), `"todo":{"replans":1,"fault":{"class":"factory","tag":"coding/Error/stalled"}}`)
 	assert.NotContains(t, string(encoded), `"checks"`, "the bookkeeping never leaves the service")
+}
+
+// pullsDown answers no pull request: GitHub is down for the follow.
+type pullsDown struct{ *fakeMythicalGitHub }
+
+func (pullsDown) Pull(context.Context, mythicalGitHubRepo, int64) (mythicalPull, error) {
+	return mythicalPull{}, errors.New("GitHub is down")
+}
+
+// Following a proposed change through a GitHub outage backs off and holds
+// visibly past the outage bound, never polling every minute forever (Opus
+// r4 L2).
+func TestMythicalFollowOutageHolds(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 391, Title: "Follow", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.propose(391, "three-ninety-one.md")
+	o.answerReviews(`"request-changes"`)
+	o.service.SetOrchestration(pullsDown{o.github}, o.launcher, o.lanes)
+	o.wake()
+	item := o.item(391)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, 1, mythicalChecksOf(item).GitHubOutages, "GitHub's outages count apart from the review's")
+	assert.Zero(t, mythicalChecksOf(item).Outages)
+	assert.Equal(t, &mythicalFault{Class: "infra", Tag: "github"}, mythicalChecksOf(item).Fault)
+	assert.WithinDuration(t, time.Now().Add(2*time.Minute), item.NextAttemptAt.Time, 30*time.Second, "it backs off")
+	for range 7 {
+		o.wake()
+	}
+	item = o.item(391)
+	assert.Equal(t, "proposed", item.State, "the pull request stays open for a person")
+	assert.Contains(t, item.Reason, "Smithers could not go on after")
+	assert.Contains(t, o.github.comments[len(o.github.comments)-1], "#391 Smithers is holding this TODO: Smithers could not go on after 7 tries")
+}
+
+// A person's retry of a TODO stopped with its pull request open keeps that
+// pull request: the retry pushes its branch again, never a second one
+// (Fable r4 L-A).
+func TestMythicalRetryKeepsAnOpenPullRequest(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 392, Title: "Keep", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.propose(392, "three-ninety-two.md")
+	item := o.item(392)
+	require.True(t, item.PRNumber.Valid)
+	require.Equal(t, "open", item.PRState)
+	stopped := mythicalChecksOf(item)
+	stopped.Fault = &mythicalFault{Class: "policy", Tag: "launch_bound"}
+	item.State, item.Checks = "blocked", stopped.encode()
+	_, err := o.service.queries().SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
+	require.NoError(t, err)
+	assert.Equal(t, "queued", view.State)
+	retried := o.item(392)
+	assert.Equal(t, item.PRNumber, retried.PRNumber, "the open pull request is kept")
+	assert.Equal(t, item.ProposalRound, retried.ProposalRound, "no second branch")
+	assert.Equal(t, item.PRHead, retried.PRHead, "the branch is pushed again from its head")
+}
+
+// A review whose admission keeps failing parks at the outage bound: once
+// this head's allowance is spent, nothing more is admitted for it, and a
+// recovered dispatcher does not launch it without a new head (Astra r4
+// R4-1, Fable r4 L-B).
+func TestMythicalReviewAdmissionParksAtTheOutageBound(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 401, Title: "Admit", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.propose(401, "four-oh-one.md")
+	o.fail(o.launcher.last(mythicalReviewFlow), "review-down", "infra", "flows/InfraInterrupt", "")
+	reviews := len(o.launcher.byFlow(mythicalReviewFlow))
+	o.launcher.mu.Lock()
+	o.launcher.fail = 20
+	o.launcher.mu.Unlock()
+	for range 10 {
+		o.wake()
+	}
+	item := o.item(401)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "the review of this head could not run after repeated tries; not the TODO's fault", item.Reason)
+	o.launcher.mu.Lock()
+	failedAdmissions := 20 - o.launcher.fail
+	o.launcher.fail = 0
+	o.launcher.mu.Unlock()
+	assert.Equal(t, 6, failedAdmissions, "admissions stop at the bound: 1 run outage and 6 failed admissions")
+	for range 3 {
+		o.wake()
+	}
+	assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews, "a recovered dispatcher launches nothing for this head")
+	assert.Equal(t, []string{"#401 Smithers is holding this TODO: Smithers could not go on after 7 tries (outage: infra: the review could not be launched: dispatch unavailable); not the TODO's fault."},
+		o.github.comments, "one comment for the park")
+}
+
+// A coding workspace kept between delivery and proposal holds its lane: on
+// a one-lane stack a lower-numbered TODO never starts beside its
+// verification (Astra r4 R4-2).
+func TestMythicalRetainedWorkspaceHoldsItsLane(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 1 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 412, Title: "Later", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	stack := o.wake()
+	item := o.item(412)
+	require.Equal(t, "running", item.State)
+	o.project(o.launcher.last("coding/request"), jobs.StateCompleted, "run-412", validatedRequest)
+	o.wake()
+	require.Equal(t, "delivering", o.item(412).State)
+	candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, map[string]string{"four-twelve.md": "x\n"}, "📝 docs: add four-twelve")
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+		Source: candidate, RequestRunID: "run-412", Summary: "📝 docs: add four-twelve"})
+	require.NoError(t, err)
+	require.Equal(t, "integrating", o.item(412).State)
+	// Main moves, so #412 must rebase and verify on its kept workspace, and
+	// the lower-numbered #411 is sorted ahead of it in the next pass.
+	o.commit("✨ feat: three", "c.txt", "c\n")
+	o.publish()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 411, Title: "Earlier", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	for range 3 {
+		o.wake()
+		running := 0
+		for _, number := range []int64{411, 412} {
+			if mythicalHoldsLane(o.item(number)) {
+				running++
+			}
+		}
+		require.LessOrEqual(t, running, 1, "#411 %s, #412 %s: two lanes on a one-lane stack", o.item(411).State, o.item(412).State)
+	}
+	assert.Equal(t, "queued", o.item(411).State, "#411 waits for the lane")
 }
