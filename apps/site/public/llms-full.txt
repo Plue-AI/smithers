@@ -35204,7 +35204,11 @@ for a limit. Unknown errors have a generic headline. Raw messages and stacks
 belong in technical details, never in the headline. A bare string is never
 read for a fault: the fault arrives typed. A `SeatUnresolved` anywhere on the
 cause chain reads "Model sign-in required" with the host's own sign-in
-instruction as the line, bounded to 240 characters. A cause that names what
+instruction as the line, bounded to 240 characters. A `SeatUnrouted` (an
+`auto` seat the router could not pick) reads "Model could not be chosen" and
+offers `switch-model` first; its line says why: nothing to route to, the host's
+own `unconfigured` message (bounded the same way), an interruption, or a
+router that could not pick one. A cause that names what
 happened better than its wrapper wins: frames spent without an answer, the
 repeated-failure guard, and a person's rejection or silence on a human task
 each read as themselves, not as a model call that failed.
