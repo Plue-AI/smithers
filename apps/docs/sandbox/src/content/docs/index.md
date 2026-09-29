@@ -140,13 +140,13 @@ next.
 
 ## Where to go next
 
-- [Installation](/installation/): import forms, and what each of the nine
+- [Installation](/installation/): import forms, and what each of the ten
   providers expects you to supply.
 - [Quickstart](/quickstart/): the walkthrough behind the example above,
   including what the health verdict does and does not mean.
 - [The two provider seams](/concepts/seams/): the contract a backend
   implements, and why there are two of them.
-- [Choose a provider](/guides/choose-a-provider/): the nine side by side, by
+- [Choose a provider](/guides/choose-a-provider/): the ten side by side, by
   boundary, byte exactness, and cost to run.
 - [Write a provider](/guides/write-a-provider/) and
   [Prove a provider](/guides/prove-a-provider/): adapt your own backend and

@@ -14,7 +14,7 @@
  * `RealContainerSandbox.integration.test.ts` beside it does.
  */
 import * as CommandLine from "@smthrs/kernel/CommandLine"
-import { ContainerSandbox, DirectorySandbox, Sandbox } from "@smthrs/sandbox"
+import { CommandSandbox, ContainerSandbox, DirectorySandbox, Sandbox } from "@smthrs/sandbox"
 import { Bash, Edit, Read, Write } from "@smthrs/std"
 import { Effect, FileSystem, Layer } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -194,4 +194,60 @@ describe.skipIf(!dockerAvailable)("standard tool placement on ContainerSandbox",
     expect(result.osRelease).toMatchObject({ exitCode: 0, stderr: "" })
     expect(result.osRelease?.stdout).toContain("Alpine Linux")
   }, 180_000)
+})
+
+// `Write` creates its temporary file exclusively, which the provider serves
+// with GNU or BusyBox `ln -T`; a Cloud box is Linux, and so is CI.
+const linuxHost = process.platform === "linux"
+describe.skipIf(linuxHost)("standard tool placement on CommandSandbox", () => {
+  it("is skipped because this host is not Linux, so `ln -T` is unavailable to the empty prefix", () => {
+    expect(linuxHost).toBe(false)
+  })
+})
+describe.skipIf(!linuxHost)("standard tool placement on CommandSandbox", () => {
+  it("runs the unchanged std handlers through an argv prefix, in the provider's workdir", async () => {
+    const workdir = join(root, "command-machine")
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        return yield* placeTools(CommandSandbox.make({ spawner, prefix: [], workdir }), {
+          session: `command-tool-placement-${identity}`,
+          input: "tool-input.txt",
+          output: "tool-output.txt"
+        })
+      }).pipe(Effect.provide(platform))
+    )
+
+    expectRoundTrip(result, "tool-input.txt", "tool-output.txt")
+    // Relative to the workdir, never to this process's cwd.
+    expect(result.hostInputExistsAfterWrite).toBe(false)
+    expect(existsSync(join(workdir, "tool-input.txt"))).toBe(true)
+  }, 60_000)
+})
+
+// `ssh localhost` stands in for a Cloud workspace: the prefix joins the guest
+// argv into one remote command line, which is the quoting a real box needs.
+const sshReachable = linuxHost &&
+  spawnSync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "localhost", "true"], { stdio: "ignore" })
+      .status === 0
+describe.skipIf(sshReachable)("standard tool placement on CommandSandbox over ssh", () => {
+  it("is skipped because this host is not Linux or `ssh -o BatchMode=yes localhost true` fails", () => {
+    expect(sshReachable).toBe(false)
+  })
+})
+describe.skipIf(!sshReachable)("standard tool placement on CommandSandbox over ssh", () => {
+  it("runs the unchanged std handlers over ssh", async () => {
+    const workdir = join(root, "ssh-machine")
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        return yield* placeTools(
+          CommandSandbox.make({ spawner, prefix: ["ssh", "-o", "BatchMode=yes", "localhost"], workdir }),
+          { session: `ssh-tool-placement-${identity}`, input: "tool-input.txt", output: "tool-output.txt" }
+        )
+      }).pipe(Effect.provide(platform))
+    )
+    expectRoundTrip(result, "tool-input.txt", "tool-output.txt")
+    expect(existsSync(join(workdir, "tool-input.txt"))).toBe(true)
+  }, 60_000)
 })

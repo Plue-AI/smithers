@@ -24,7 +24,7 @@ APIs report a command's output as a string: what those providers stream is that
 string re-encoded as UTF-8, so a command writing a tarball or a compiled binary
 to stdout comes back changed. `AwsSandbox` reframes output through a
 pseudo-terminal, which normalizes line endings and interleaves standard error.
-File transfer is byte-exact on all nine when the required transport is supplied, so a caller that needs bytes out of a
+File transfer is byte-exact on all ten when the required transport is supplied, so a caller that needs bytes out of a
 command has it write a file and reads that back with `readFile`.
 
 `JustBashSandbox` serializes commands across every session on one provider.

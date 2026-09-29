@@ -34,6 +34,8 @@ export interface ExecSpawn {
   readonly cwd: string
   /** Records the shell's pid, then refuses to start a cancelled command. */
   readonly record: ReadonlyArray<string>
+  /** The guest file `record` writes the pid to. */
+  readonly pidfile: string
   /** Applies the environment and execs the command under `/bin/sh -c`. */
   readonly command: string
   /** The exec's input channel, present only when there is input to carry. */
@@ -75,6 +77,8 @@ export interface ExecSessionOptions {
   readonly spawn: (spawn: ExecSpawn) => ReadonlyArray<string>
   /** The argv of a liveness probe. */
   readonly ping: ReadonlyArray<string>
+  /** The guest pidfile directory. Default {@link pidDirectory}; a machine shared by several sessions needs one each. */
+  readonly pids?: string | undefined
 }
 
 /**
@@ -105,8 +109,11 @@ export interface ExecSessionOptions {
 export const execSession = (options: ExecSessionOptions): Effect.Effect<Session, ProviderError> =>
   Effect.gen(function*() {
     const { encode, name, noun, program, workdir } = options
+    const pids = options.pids ?? pidDirectory
     const prepare = options.shell(
-      `mkdir -p ${CommandLine.quote(workdir)} && rm -rf ${pidDirectory} && mkdir -p ${pidDirectory}`,
+      `mkdir -p ${CommandLine.quote(workdir)} && rm -rf ${CommandLine.quote(pids)} && mkdir -p ${
+        CommandLine.quote(pids)
+      }`,
       false
     )
     const prepared = yield* options.run(prepare)
@@ -140,7 +147,7 @@ export const execSession = (options: ExecSessionOptions): Effect.Effect<Session,
       workdir,
       spawn: Effect.fnUntraced(function*(command, spawnOptions) {
         yield* checkEnvironmentNames(spawnOptions.env)
-        const pidfile = `${pidDirectory}/${nextPidfile++}.pid`
+        const pidfile = `${pids}/${nextPidfile++}.pid`
         const input = environmentInput(envPrefix(spawnOptions.env), spawnOptions.stdin)
         // The pid survives the whole chain: `exec` replaces the recorded
         // shell with env, env replaces itself with `/bin/sh`, and `sh -c`
@@ -151,6 +158,7 @@ export const execSession = (options: ExecSessionOptions): Effect.Effect<Session,
           options.spawn({
             cwd: resolveCwd(spawnOptions.cwd ?? ""),
             record: [`echo $$ > ${pidfile}`, cancelGuard(pidfile)],
+            pidfile,
             command: `${input.script}exec ${input.prefix}/bin/sh -c ${CommandLine.quote(command)}`,
             stdin: input.stdin
           }),

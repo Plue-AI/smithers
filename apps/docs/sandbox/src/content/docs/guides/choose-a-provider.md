@@ -1,22 +1,23 @@
 ---
 title: "Choose a provider"
-description: "Pick one of the nine bundled machine providers by what you need from it, construct it, and look one up by name at the host's composition root."
+description: "Pick one of the ten bundled machine providers by what you need from it, construct it, and look one up by name at the host's composition root."
 sidebar:
   order: 3
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/sandbox/docs/guides/choose-a-provider.md"
 ---
 
-All nine providers implement `Sandbox.Provider`, so the composition around them
+All ten providers implement `Sandbox.Provider`, so the composition around them
 is identical and only the construction differs. Choose on four questions: what
 boundary you need, whether output has to be byte exact, whether you need to
 stop a running command, and what the provider costs to run.
 
-## The nine, side by side
+## The ten, side by side
 
 | Provider              | A machine is                                                         | Needs                                            | Byte-exact command output | Declares `kill` |
 | --------------------- | -------------------------------------------------------------------- | ------------------------------------------------ | ------------------------- | --------------- |
 | `DirectorySandbox`    | one host directory                                                   | nothing beyond host services                     | yes                       | yes             |
 | `JustBashSandbox`     | one directory in a shared virtual filesystem, interpreted in process | a just-bash instance                             | no                        | no              |
+| `CommandSandbox`      | whatever an argv prefix reaches: `ssh`, `docker exec -i`, or `[]`    | the prefix's CLI; the guest's `sh` and `base64`  | yes                       | yes             |
 | `ContainerSandbox`    | one container held on `sleep infinity`                               | a Docker-compatible CLI                          | yes                       | yes             |
 | `KubernetesSandbox`   | one Pod held on `sleep infinity`                                     | `kubectl` and a cluster                          | yes                       | yes             |
 | `MicrosandboxSandbox` | one local microVM                                                    | a Microsandbox host                              | yes                       | yes             |
@@ -26,7 +27,7 @@ stop a running command, and what the provider costs to run.
 | `CloudflareSandbox`   | one Sandbox Durable Object                                           | a Worker binding                                 | no                        | no              |
 
 "Byte-exact command output" is about a command's own `stdout` and `stderr`.
-File transfer is byte exact on all nine, so a caller that needs bytes out of a
+File transfer is byte exact on all ten, so a caller that needs bytes out of a
 command has the command write a file and reads that back with `readFile`.
 
 A provider without `kill` cannot stop one command without tearing down the

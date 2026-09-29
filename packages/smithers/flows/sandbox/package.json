@@ -35,6 +35,8 @@
   "exports": {
     "./package.json": "./package.json",
     ".": "./src/index.ts",
+    "./CommandSandbox": "./src/CommandSandbox/index.ts",
+    "./CommandSandbox/*": null,
     "./ContainerSandbox": "./src/ContainerSandbox/index.ts",
     "./ContainerSandbox/*": null,
     "./DirectorySandbox": "./src/DirectorySandbox/index.ts",
@@ -96,6 +98,17 @@
           "default": "./dist/cjs/index.js"
         }
       },
+      "./CommandSandbox": {
+        "import": {
+          "types": "./dist/esm/CommandSandbox/index.d.ts",
+          "default": "./dist/esm/CommandSandbox/index.js"
+        },
+        "require": {
+          "types": "./dist/cjs/CommandSandbox/index.d.ts",
+          "default": "./dist/cjs/CommandSandbox/index.js"
+        }
+      },
+      "./CommandSandbox/*": null,
       "./ContainerSandbox": {
         "import": {
           "types": "./dist/esm/ContainerSandbox/index.d.ts",

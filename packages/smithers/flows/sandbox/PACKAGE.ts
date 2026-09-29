@@ -74,6 +74,7 @@ const securityReview = Smithers.SecurityReview({
         "Environment values placed on host argv instead of the stdin env-file or manifest, where `ps` on the host shows them."
       ],
       paths: [
+        "src/CommandSandbox/make.ts",
         "src/ContainerSandbox/make.ts",
         "src/KubernetesSandbox/make.ts",
         "src/AwsSandbox/make.ts",

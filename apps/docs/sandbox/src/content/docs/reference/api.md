@@ -1,6 +1,6 @@
 ---
 title: "API reference"
-description: "Every public export of @smthrs/sandbox: the two provider seams, the derived host surfaces, health and supervision, both conformance suites, and all nine bundled machine providers."
+description: "Every public export of @smthrs/sandbox: the two provider seams, the derived host surfaces, health and supervision, both conformance suites, and all ten bundled machine providers."
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/sandbox/docs/api.md"
 ---
 
@@ -38,6 +38,7 @@ Every namespace is also its own subpath, and `./internal/*` is null mapped.
 | `@smthrs/sandbox/Sandbox`                   | [src/Sandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/Sandbox)                                     |
 | `@smthrs/sandbox/SandboxConformance`        | [src/SandboxConformance/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/SandboxConformance)               |
 | `@smthrs/sandbox/DirectorySandbox`          | [src/DirectorySandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/DirectorySandbox)                   |
+| `@smthrs/sandbox/CommandSandbox`            | [src/CommandSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/CommandSandbox)                       |
 | `@smthrs/sandbox/ContainerSandbox`          | [src/ContainerSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/ContainerSandbox)                   |
 | `@smthrs/sandbox/KubernetesSandbox`         | [src/KubernetesSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/KubernetesSandbox)                 |
 | `@smthrs/sandbox/JustBashSandbox`           | [src/JustBashSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/JustBashSandbox)                     |
@@ -57,7 +58,7 @@ A provider may add SDK details to `ProviderError.cause`, but it cannot create ne
 
 `Provider.kill` and `Provider.ping` are optional, because a transport that can only post a command line has neither. A provider that implements them buys two things it cannot otherwise have: one command can be stopped without tearing down the session that runs it, and the session's liveness can be supervised. When `kill` is present the adapter maps `ChildProcessHandle.kill` onto it and signals a still-running command when its scope closes, ahead of the provider's own release finalizer; a process this side has already seen exit is left alone. When `kill` is absent the adapter refuses with a `BadArgument` `PlatformError` rather than pretending to have delivered a signal.
 
-The command reaches the provider as the string `CommandLine.render` produces. `@smthrs/kernel`'s `proc:spawn` check is written against `CommandLine.resource`, which starts from that string and adds a `sh -c` wrapper for a shell line holding control syntax, an `env <NAME>… -- ` prefix for overridden environment names, and a `cwd <path> -- ` prefix for a directory outside the workspace. The two strings match only when none of those apply.
+The command reaches the provider as the string `CommandLine.render` produces. `@smthrs/kernel`'s `proc:spawn` check is written against `CommandLine.resource`, which starts from that string and adds a `sh -c` wrapper for a shell line holding control syntax, an `env <NAME>… --` prefix for overridden environment names, and a `cwd <path> --` prefix for a directory outside the workspace. The two strings match only when none of those apply.
 
 Unsupported semantics are declared rather than dropped. Each of these fails with a `BadArgument` `PlatformError` before the provider is asked to start anything:
 
@@ -213,11 +214,12 @@ Each check acquires a fresh session. The file checks verify binary, empty, and 6
 
 ## Providers
 
-One row per bundled provider. Every cell is read from the provider's source and its tests. "Byte-exact command output" is about a command's own `stdout` and `stderr`; file transfer is byte-exact on all nine.
+One row per bundled provider. Every cell is read from the provider's source and its tests. "Byte-exact command output" is about a command's own `stdout` and `stderr`; file transfer is byte-exact on all ten.
 
 | Provider              | What a machine is                                                                 | How the vendor surface arrives                                                          | Reattaches an existing machine on the same session key                                                                        | Declares `kill`                                                      | Byte-exact command output                            | Proven against                                                                     |
 | --------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `DirectorySandbox`    | one host directory under `root`                                                   | injected services: the host `FileSystem` and `ChildProcessSpawner`                      | yes, the recursive `makeDirectory` leaves a crash-left directory and its files in place                                       | yes, the host handle's signal                                        | yes                                                  | host directories and processes                                                     |
+| `CommandSandbox`      | whatever an argv prefix reaches; the provider does not own its lifecycle          | injected spawner running the prefix, such as `ssh` with a workspace's arguments         | not applicable, the machine outlives the session; acquire wipes only the session's own pidfile directory                      | yes, a pidfile plus a `/proc` descendant walk                        | yes                                                  | host processes, and `ssh localhost` when it answers                                |
 | `ContainerSandbox`    | one container from `image`, held on `sleep infinity`                              | injected spawner running a Docker-compatible CLI                                        | yes, a refused create whose name `container inspect` finds is reattached                                                      | yes, a pidfile plus a `/proc` descendant walk                        | yes                                                  | a real Docker daemon                                                               |
 | `KubernetesSandbox`   | one Pod from `image`, held on `sleep infinity`                                    | injected spawner running `kubectl`                                                      | with `reattachKey`, a sealed `AlreadyExists` Pod is reattached                                                                | yes, the same pidfile script over `kubectl exec`                     | yes                                                  | a real Kubernetes cluster (OrbStack)                                               |
 | `JustBashSandbox`     | one directory in a shared virtual filesystem; commands are interpreted in-process | injected interpreter slice (`JustBashLike`) and `FileSystem`                            | not applicable, in-process                                                                                                    | no                                                                   | no, `exec` reports output as strings                 | none, fake only                                                                    |
@@ -252,6 +254,22 @@ withheld. An explicitly declared name is delivered even when it looks
 credential-bearing.
 
 This is a trusted local workspace backend, **not a security boundary**. A spawned process is not confined to the scratch directory and can address whatever its host credentials permit. Use it for local composition, tests, or CI placement where the body is trusted.
+
+### CommandSandbox
+
+```ts
+import { CommandSandbox } from "@smthrs/sandbox"
+
+const box = CommandSandbox.make({
+  spawner,
+  prefix: ["ssh", "-o", "BatchMode=yes", "developer@box.example"],
+  workdir: "/home/developer/workspace"
+})
+```
+
+The machine is whatever `prefix` reaches, and every guest argv follows it: `[]` is this machine, `["ssh", ...]` a remote host, `["docker", "exec", "-i", name]` a running container. A prefix whose program is `ssh` joins the guest argv into one quoted command line, because `ssh` hands its arguments to the remote login shell as one string; set `joinsArguments` for another transport that does the same. `prefix` may be an effect, asked again for every command, so a transport whose credential expires, such as a Smithers Cloud workspace SSH grant, stays fresh; its `ProviderError` is the command's failure.
+
+The provider does not create or remove the machine. `acquire` prepares `workdir` and a pidfile directory private to the session key, so several sessions can share one machine, and closing the scope signals only that session's unfinished commands. File bytes cross the prefix as base64 text, commands run under the guest's absolute `/bin/sh`, and signals use the same pidfile and `/proc` walk as `ContainerSandbox`. An unreachable machine fails `acquire` or the command with `unavailable`. A transport can outlive its machine: a Smithers Cloud gateway keeps an SSH channel open after the workspace behind it stopped, so the exit never arrives. Every command therefore runs beside a `heartbeat` (default 15 seconds) that reads the machine's boot id; a probe that fails, answers another boot, or takes twice the heartbeat ends the command with `unavailable`. Closing the scope removes the session's pidfile directory, and failures never carry the prefix's argv, which may hold a credential.
 
 ### ContainerSandbox
 

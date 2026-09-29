@@ -12,13 +12,14 @@ import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { concat } from "./concat.ts"
 
 /**
- * Wraps a failure cause in the provider vocabulary.
+ * Wraps a failure cause in the provider vocabulary. A cause that is already a
+ * `ProviderError` is the more precise answer and passes through unchanged.
  *
  * @category constructors
  * @since 0.1.0
  */
 export const providerFailure = (code: ProviderError["code"], message: string) => (cause: unknown): ProviderError =>
-  new ProviderError({ code, message, cause })
+  cause instanceof ProviderError ? cause : new ProviderError({ code, message, cause })
 
 /**
  * Presents a locally spawned handle as a remote process. The in-repository

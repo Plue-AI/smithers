@@ -35,8 +35,8 @@ place work, because there is no filesystem.
 The command reaches the provider as the string `CommandLine.render` produces.
 [`@smthrs/kernel`](/api/kernel) checks `proc:spawn` against
 `CommandLine.resource`, which starts from that string and adds a `sh -c`
-wrapper for a shell line holding control syntax, an `env <NAME>… -- ` prefix
-for overridden environment names, and a `cwd <path> -- ` prefix for a
+wrapper for a shell line holding control syntax, an `env <NAME>… --` prefix
+for overridden environment names, and a `cwd <path> --` prefix for a
 directory outside the workspace.
 
 ## Sandbox.Provider: a machine lifecycle

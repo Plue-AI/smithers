@@ -132,7 +132,7 @@ back altered. `AwsSandbox` reframes output through a pseudo-terminal, which
 normalizes line endings and interleaves standard error.
 
 **What to change.** Have the command write a file and read it back with
-`readFile`. File transfer is byte exact on all nine providers. The table is on
+`readFile`. File transfer is byte exact on all ten providers. The table is on
 [Limits](/limits/).
 
 ## Standard error arrived merged into standard output

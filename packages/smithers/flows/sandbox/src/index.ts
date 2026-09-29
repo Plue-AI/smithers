@@ -35,6 +35,9 @@ export * as DirectorySandbox from "./DirectorySandbox/index.ts"
 /** The container-lifecycle sandbox provider, over a Docker-compatible CLI. */
 export * as ContainerSandbox from "./ContainerSandbox/index.ts"
 
+/** The argv-prefix sandbox provider, over `ssh`, `docker exec`, or this machine. */
+export * as CommandSandbox from "./CommandSandbox/index.ts"
+
 /** The Pod-per-session sandbox provider, over `kubectl`. */
 export * as KubernetesSandbox from "./KubernetesSandbox/index.ts"
 

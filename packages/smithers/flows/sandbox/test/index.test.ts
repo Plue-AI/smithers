@@ -11,6 +11,7 @@ describe("@smthrs/sandbox barrel", () => {
     expect(Object.keys(Sandbox).sort()).toEqual([
       "AwsSandbox",
       "CloudflareSandbox",
+      "CommandSandbox",
       "ContainerSandbox",
       "DaytonaSandbox",
       "DirectorySandbox",

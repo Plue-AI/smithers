@@ -94,6 +94,7 @@ ignores `--cpus` and `--memory`.
 | --------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `DirectorySandbox`    | no filesystem, user, or network boundary. Real host processes with a narrow environment | child env inherits `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, and `SHELL`, plus declared names |
 | `JustBashSandbox`     | none. Commands are interpreted in process against a shared virtual filesystem           | none                                                                                                          |
+| `CommandSandbox`      | whatever the prefix reaches; with `[]`, none                                            | `prefix`, `workdir`                                                                                           |
 | `ContainerSandbox`    | the container runtime's                                                                 | `image`, `network` (`none` by default; another mode opts into egress), `env`, `createArgs`                    |
 | `KubernetesSandbox`   | the cluster's: the image, the service account, and the namespace's policies             | `image`, `serviceAccount`, `namespace`, `nodeSelector`, `resources`, `labels`, `createArgs`                   |
 | `MicrosandboxSandbox` | a local microVM                                                                         | `image` or `snapshot`, `cpus`, `memoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `network`       |
@@ -190,7 +191,7 @@ through `DirectorySandbox`, `ContainerSandbox`, `KubernetesSandbox`,
 `DaytonaSandbox`, or `CloudflareSandbox`, whose APIs report a
 command's output as a string that is re-encoded as UTF-8, and `AwsSandbox`
 reframes output through a pseudo-terminal, which normalizes line endings and
-interleaves standard error. File transfer is byte-exact on all nine, so a
+interleaves standard error. File transfer is byte-exact on all ten, so a
 caller that needs bytes out of a command has the command write a file and reads
 that back. The full table is on [Limits](/limits/).
 
@@ -219,6 +220,6 @@ Ask the question in this order.
 
 ## Read next
 
-- [Choose a provider](/guides/choose-a-provider/): the nine, side by side,
+- [Choose a provider](/guides/choose-a-provider/): the ten, side by side,
   with what each costs to run.
 - [Limits](/limits/): what this package bounds and what it buffers whole.

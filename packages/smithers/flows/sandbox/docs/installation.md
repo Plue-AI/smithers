@@ -63,6 +63,7 @@ backend needs.
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `DirectorySandbox`    | An Effect `FileSystem` and a lifecycle-backed `ChildProcessSpawner`.                                                          | The host process.                                                                   |
 | `JustBashSandbox`     | A [`just-bash`](https://www.npmjs.com/package/just-bash) `Bash` instance and a `FileSystem` mounted over the same tree.       | The host process, or the browser page.                                              |
+| `CommandSandbox`      | A `ChildProcessSpawner` and an argv prefix that reaches the machine, such as `ssh`. The guest needs `sh`, `env`, `base64`.    | The machine running the provider.                                                   |
 | `ContainerSandbox`    | A `ChildProcessSpawner`, a Docker-compatible CLI, host `/dev/stdin` for creation env, and guest `sh`, `env`, `base64`.        | The machine running the provider.                                                   |
 | `KubernetesSandbox`   | A `ChildProcessSpawner`, `kubectl` on `PATH`, and a cluster context. The guest image must carry `sh`, `env`, and `base64`.    | The machine running the provider, plus the cluster.                                 |
 | `MicrosandboxSandbox` | The [`microsandbox`](https://www.npmjs.com/package/microsandbox) SDK module, and a Microsandbox host that can boot a microVM. | Both.                                                                               |
@@ -73,7 +74,7 @@ backend needs.
 
 Because the SDK slices are structural, you can satisfy them with a test double
 instead of the vendor package, which is how the package's own suite proves
-seven of the nine providers. See
+seven of the ten providers. See
 [Test against a scripted machine](./guides/testing.md).
 
 ## Browser bundles
