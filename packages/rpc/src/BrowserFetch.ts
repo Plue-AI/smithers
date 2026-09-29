@@ -630,7 +630,7 @@ export const resolveHostOverHttps: ResolveHost = async (hostname, signal) => {
     )
     if (!response.ok) {
       // A resolver fault is not an empty answer set: surface it so guardTarget can say "try again".
-      await response.body?.cancel().catch(() => {})
+      void response.body?.cancel().catch(() => {})
       throw new Error(`status ${response.status}`)
     }
     const body = (await response.json().catch(() => undefined)) as
