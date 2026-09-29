@@ -14,7 +14,7 @@ import { Schema } from "effect"
 import * as Extension from "./extension.ts"
 import type * as Flows from "./flows.ts"
 
-export type Code = "unknown_agent" | "not_an_agent" | "not_invocable" | "unreadable" | "unknown_seat" | "unknown_effort"
+export type Code = "unknown_agent" | "seat_as_agent" | "not_an_agent" | "not_invocable" | "unreadable" | "unknown_seat" | "unknown_effort"
 
 /** A refusal or launch failure: a code and one line of text. */
 export class AgentError extends Error {

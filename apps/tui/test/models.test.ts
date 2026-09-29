@@ -82,12 +82,16 @@ describe("routing", () => {
 })
 
 describe("delegable", () => {
-  test("names only the delegate models whose provider is reachable", () => {
+  test("names aliases and detected seats whose provider is reachable", () => {
     const openai = [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" }]
     expect(Models.delegable(openai)).not.toContain("cerebras")
     expect(Models.delegable(openai)).toContain("sol")
+    expect(Models.delegable(openai)).toContain("openai:gpt-6-sol")
     expect(Models.delegable([{ seat: Models.delegateModels.cerebras, label: "Qwen 3.8", provider: "Cerebras" }]))
-      .toEqual(["cerebras"])
+      .toEqual(["cerebras", "qwen", Models.delegateModels.cerebras])
+    const claude = Models.detect({ ANTHROPIC_API_KEY: "test" }).models
+    expect(Models.delegable(claude)).toEqual(expect.arrayContaining(["opus", "sonnet", "fable"]))
+    expect(Models.delegable(claude)).not.toContain("claude-code:opus")
     expect(Models.delegable([])).toEqual([])
   })
 })
@@ -109,6 +113,9 @@ describe("Claude Code seats", () => {
         { seat: "claude-code:sonnet", label: "Claude Sonnet 5.5", provider: "Claude Code" },
         { seat: "claude-code:fable", label: "Claude Fable 5.1", provider: "Claude Code" }
       ])
+      expect(Models.delegable(Models.detect({ PATH: directory }).models)).toEqual(expect.arrayContaining([
+        "opus", "sonnet", "fable", "claude-code:opus", "claude-code:sonnet", "claude-code:fable"
+      ]))
       const keyed = claude(Models.detect({ PATH: directory, ANTHROPIC_API_KEY: "k" }).models).map((model) => model.seat)
       expect(keyed).toEqual(["anthropic:claude-opus-5-5", "anthropic:claude-sonnet-5-5", "anthropic:claude-fable-5-1"])
       expect(Models.seatOf("claude-code:opus", [])).toBe("claude-code:opus")

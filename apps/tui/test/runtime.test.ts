@@ -288,7 +288,7 @@ it("teaches only smthrs verbs the real CLI lists", () => {
   }
 }, 60_000)
 
-it("accepts only named models in the delegate flow", async () => {
+it("accepts seat names in the delegate flow", async () => {
   const requests: Array<unknown> = []
   const bindings = await Effect.runPromise(
     Runtime.source({
@@ -306,12 +306,12 @@ it("accepts only named models in the delegate flow", async () => {
   expect(delegate.descriptor.description).toEndWith(" Pass model only when the person names one.")
   const input = { id: "test", title: "Test", prompt: "Test work" }
   const call = (value: unknown) => delegate.run({ input: value } as Parameters<typeof delegate.run>[0])
-  for (const model of Object.keys(Models.delegateModels)) {
+  for (const model of [...Object.keys(Models.delegateModels), "opus", "claude-code:opus", "sonnet"]) {
     expect((await Effect.runPromise(call({ ...input, model }))).outcome).toBe("success")
   }
   expect((await Effect.runPromise(call(input))).outcome).toBe("success")
-  expect((await Effect.runPromise(call({ ...input, model: "unknown" }))).outcome).toBe("failure")
-  expect(requests).toHaveLength(Object.keys(Models.delegateModels).length + 1)
+  expect((await Effect.runPromise(call({ ...input, model: "" }))).outcome).toBe("failure")
+  expect(requests).toHaveLength(Object.keys(Models.delegateModels).length + 4)
 })
 
 it("teaches the coordinator honest receipts and the panel block contract", () => {
@@ -891,7 +891,7 @@ it("never offers a GPT-5.6 model as a picker, delegate, default or worker seat",
   expect(available.models.length).toBeGreaterThan(0)
   expect(seats.filter((seat) => seat === undefined || /5\.6/.test(seat))).toEqual([])
   expect(labels.filter((label) => /5\.6/.test(label))).toEqual([])
-  expect(Object.keys(Models.delegateModels).sort()).toEqual(["astra", "cerebras", "luna", "sol"])
+  expect(Models.delegable(available.models).some((seat) => /5\.6/.test(seat))).toBe(false)
 
   const bindings = await Effect.runPromise(
     Runtime.source({
@@ -902,7 +902,7 @@ it("never offers a GPT-5.6 model as a picker, delegate, default or worker seat",
     }).bindings()
   )
   const delegate = bindings.find((binding) => binding.descriptor.name === "agent.delegate")!
-  for (const model of ["quince", "chat", "gpt"]) {
+  for (const model of ["", " ".repeat(161)]) {
     const call = { input: { id: "t", title: "T", prompt: "P", model } } as unknown as Parameters<typeof delegate.run>[0]
     const result = await Effect.runPromise(delegate.run(call))
     expect(result.outcome).toBe("failure")

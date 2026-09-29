@@ -40,6 +40,7 @@ const setup = (
     readonly known?: boolean
     readonly routes?: boolean
     readonly delegable?: ReadonlyArray<Models.DelegateModel>
+    readonly seatOf?: (declared: string) => string | undefined
     readonly restored?: Workspace["snapshot"] extends () => infer S ? S : never
     readonly cwd?: string
   } = {}
@@ -104,7 +105,7 @@ const setup = (
     persist: (record) => records.push(record),
     ...(options.restored === undefined ? {} : { restored: options.restored }),
     agents,
-    seatOf: (declared) => Models.seatOf(declared, []),
+    seatOf: options.seatOf ?? ((declared) => Models.seatOf(declared, [])),
     ...(options.delegable === undefined ? {} : { delegable: options.delegable })
   })
   return {
@@ -124,6 +125,17 @@ const setup = (
 const request = { id: "rev", title: "Review src", prompt: "Look at src.", agent: "review" }
 
 describe("delegate models", () => {
+  it("requests detected Claude seats and keeps an omitted model for routing", async () => {
+    const f = setup({ delegable: ["opus", "claude-code:opus", "sonnet"] })
+    for (const model of ["opus", "claude-code:opus", "sonnet"] as const) {
+      expect(f.workspace.request({ id: model, title: model, prompt: "Review.", model }).status).toBe("requested")
+    }
+    expect(f.workspace.request({ id: "routed", title: "Routed", prompt: "Review." }).status).toBe("requested")
+    await tick()
+    expect(f.inputs.map((input) => input.seat)).toEqual(["opus", "claude-code:opus", "sonnet", "worker:test"])
+    f.workspace.dispose()
+  })
+
   it("refuses a model this machine cannot reach before any tab exists", () => {
     const f = setup({ delegable: ["sol"] })
     expect(() => f.workspace.request({ id: "q", title: "Q", prompt: "Answer.", model: "cerebras" }))
@@ -132,6 +144,8 @@ describe("delegate models", () => {
     expect(f.workspace.request({ id: "q", title: "Q", prompt: "Answer.", model: "sol" }).status).toBe("requested")
     expect(() => setup({ delegable: [] }).workspace.request({ id: "q", title: "Q", prompt: "A.", model: "luna" }))
       .toThrow("Model luna is not available here; omit model")
+    expect(() => f.workspace.request({ id: "opus", title: "Opus", prompt: "Review.", model: "opus" }))
+      .toThrow("Model opus is not available here; use sol or omit model")
   })
 })
 
@@ -247,10 +261,32 @@ describe("custom agents", () => {
       }
     }
     expect(code(() => f.workspace.request({ ...request, agent: "missing" }))).toBe("unknown_agent")
+    expect(code(() => f.workspace.request({ ...request, agent: "claude-code:opus" }))).toBe("seat_as_agent")
+    expect(code(() => f.workspace.request({ ...request, agent: "cerebras" }))).toBe("seat_as_agent")
+    expect(() => f.workspace.request({ ...request, agent: "claude-code:opus" }))
+      .toThrow("claude-code:opus is a model seat; pass it as model")
     expect(code(() => f.workspace.request({ ...request, agent: "echo" }))).toBe("not_an_agent")
     expect(code(() => f.workspace.request({ ...request, agent: "manual" }))).toBe("not_invocable")
     expect(f.workspace.request({ ...request, agent: "manual", by: "user" }).status).toBe("requested")
     expect(f.records.filter((record) => record.type === "tab")).toHaveLength(1)
+  })
+
+  it("keeps unknown_agent under a replay resolver that accepts every name", () => {
+    const f = setup({ seatOf: () => "replay:test" })
+    expect(() => f.workspace.request({ ...request, agent: "nobody" }))
+      .toThrow("No agent named nobody")
+  })
+
+  it("hints when a seat is mistaken for an agent before discovery finishes", async () => {
+    const f = setup({ known: false })
+    f.workspace.request({ ...request, agent: "claude-code:opus" })
+    await tick()
+    f.loads[0]!.resolve(body())
+    await tick()
+    expect(f.workspace.snapshot().tabs[0]).toMatchObject({
+      status: "failed", code: "seat_as_agent", message: "claude-code:opus is a model seat; pass it as model"
+    })
+    f.workspace.dispose()
   })
 
   it("deduplicates the same request and refuses the id for a different agent", () => {

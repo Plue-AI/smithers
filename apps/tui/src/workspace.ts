@@ -14,7 +14,7 @@ import type * as Context from "./context.ts"
 import type * as Extension from "./extension.ts"
 import type * as Host from "./host.ts"
 import * as Lifecycle from "./lifecycle.ts"
-import { type DelegateModel, delegateModels } from "./models.ts"
+import { type DelegateModel, delegateModels, delegateSeat, seatOf as modelSeatOf } from "./models.ts"
 import * as Panels from "./panels.ts"
 import * as Session from "./session.ts"
 import * as Steering from "./steering.ts"
@@ -437,7 +437,7 @@ export class Workspace {
           ? request.model === undefined
             ? existing.seat === this.options.workerSeat ||
               (this.routes && !Object.values<string>(delegateModels).includes(existing.seat))
-            : existing.seat === delegateModels[request.model]
+            : existing.seat === delegateSeat(request.model)
           : existing.model === request.model
       )
       if (!same) throw new Error("Request id already belongs to another request")
@@ -456,6 +456,11 @@ export class Workspace {
     }
     // Refuses now when the listing is known; otherwise the launch re-lists and fails the tab.
     const listed = request.agent === undefined ? undefined : this.agents().listed()
+    if (
+      request.agent !== undefined && listed !== undefined &&
+      !listed.some((each) => each.name === request.agent) &&
+      this.modelNamed(request.agent)
+    ) throw new Agents.AgentError("seat_as_agent", `${request.agent} is a model seat; pass it as model`)
     const agent = request.agent === undefined || listed === undefined
       ? undefined
       : Agents.find(listed, request.agent, request.by ?? "agent")
@@ -480,7 +485,7 @@ export class Workspace {
       prompt: request.prompt,
       ...(parent === undefined ? {} : { parent }),
       depth,
-      seat: kept?.seat ?? (request.model === undefined ? declared ?? this.unchosen() : delegateModels[request.model]),
+      seat: kept?.seat ?? (request.model === undefined ? declared ?? this.unchosen() : delegateSeat(request.model)),
       ...(kept?.variant === undefined ? {} : { variant: kept.variant }),
       ...(kept?.backups === undefined ? {} : { backups: kept.backups }),
       ...(kept?.panel === undefined ? {} : { panel: kept.panel }),
@@ -602,6 +607,10 @@ export class Workspace {
     if (this.options.agents === undefined) throw new Agents.AgentError("unknown_agent", "Agents unavailable here")
     return this.options.agents
   }
+  private modelNamed(name: string): boolean {
+    return Object.hasOwn(delegateModels, name) || this.options.delegable?.includes(name) === true ||
+      modelSeatOf(name, []) !== undefined
+  }
   /** Reads an agent's body in the background; the request already returned. */
   private async prepare(tab: Tab, writer: Session.Writer, history: ReadonlyArray<Context.Entry>, by: "user" | "agent") {
     const current = () => {
@@ -615,7 +624,10 @@ export class Workspace {
       Agents.find([descriptor], descriptor.name, by)
       profile = Agents.profile(descriptor, body, this.options.seatOf ?? (() => undefined))
     } catch (error) {
-      const failure = Agents.unreadable(error)
+      const failure = error instanceof Agents.AgentError && error.code === "unknown_agent" &&
+          this.modelNamed(tab.agent!.name)
+        ? new Agents.AgentError("seat_as_agent", `${tab.agent!.name} is a model seat; pass it as model`)
+        : Agents.unreadable(error)
       const now = current()
       if (now !== undefined) {
         this.tabs.move({ ...now, endedAt: Date.now(), message: failure.message, code: failure.code }, "fail")
@@ -628,7 +640,7 @@ export class Workspace {
     // A routed tab keeps `auto`, or the seat and route a retry carries.
     const seat = now.model === undefined
       ? profile.seat ?? (this.routes ? now.seat : this.options.workerSeat)
-      : delegateModels[now.model]
+      : delegateSeat(now.model)
     const ready: Tab = {
       ...rest,
       seat,

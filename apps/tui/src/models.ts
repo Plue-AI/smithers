@@ -25,7 +25,7 @@ export const delegateModels = {
   sol: Providers.seatAliases.sol!,
   astra: Providers.seatAliases.astra!
 } as const
-export type DelegateModel = keyof typeof delegateModels
+export type DelegateModel = string
 
 const subscription: ReadonlyArray<Omit<Model, "provider">> = [
   { seat: "openai:gpt-6-sol", label: "GPT-6 Sol" },
@@ -211,10 +211,22 @@ export const seatOf = (declared: string, available: ReadonlyArray<Model>): strin
  */
 export const delegable = (available: ReadonlyArray<Model>): ReadonlyArray<DelegateModel> => {
   const providers = new Set(available.map((model) => providerOf(model.seat)))
-  return (Object.keys(delegateModels) as Array<DelegateModel>).filter((name) =>
-    providers.has(providerOf(delegateModels[name]))
-  )
+  return [...new Set([
+    ...Object.keys(delegateModels),
+    ...Object.keys(aliases),
+    ...available.map((model) => model.seat)
+  ])].filter((name) => {
+    const seat = aliases[name] ?? delegateSeat(name)
+    const provider = providerOf(seat)
+    return providers.has(provider) || (provider === "anthropic" && providers.has("claude-code"))
+  })
 }
+
+/** The seat passed to the host for a named delegate model. Claude aliases stay aliases for its resolver. */
+export const delegateSeat = (name: DelegateModel): string =>
+  Object.hasOwn(delegateModels, name)
+    ? delegateModels[name as keyof typeof delegateModels]
+    : seatOf(name, []) ?? name
 
 /** A seat's display name: an available model's label, a known model's, or the seat itself. */
 export const labelOf = (seat: string, available: ReadonlyArray<Model>): string =>

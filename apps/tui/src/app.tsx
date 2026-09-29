@@ -1030,7 +1030,7 @@ export function App(props: AppProps) {
       workerSeat: props.workerSeat ?? props.seat,
       background: `${workspace.context()}\nFlow runs: ${runs.context()}\nMonitors: ${monitors.context()}\nAgents: ${
         Agents.context(runs.listed())
-      }\nDelegate models: ${Models.delegable(props.models).join(", ") || "none"}`,
+      }\nDelegate models (pass as model, not agent): ${Models.delegable(props.models).join(", ") || "none"}`,
       runtime: {
         publish: (contribution) => {
           if (contribution.kind !== "panel") return contribute("runtime:chat", contribution)
