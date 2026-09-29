@@ -10,13 +10,17 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
@@ -324,4 +328,31 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(answer)
+}
+
+// mountBrowserFlow serves the browser's flow and repository-setup seams. The
+// OpenAPI conformance test walks the same mounts.
+func mountBrowserFlow(router chi.Router, cfg *config.Config, queries *db.Queries, browser *browserFlowAPI, setup *repositorySetupAPI) {
+	access := func(limited bool) []func(http.Handler) http.Handler {
+		chain := []func(http.Handler) http.Handler{
+			cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),
+			middleware.JSONAllowContentType("application/json"), middleware.MaxBodySize(middleware.MaxRequestBodySize),
+			authLoader(queries, cfg.Auth), apiCSRFMiddleware,
+		}
+		if limited {
+			chain = append(chain, middleware.GlobalAPIRateLimit(queries))
+		}
+		return append(chain, middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository))
+	}
+	flowAccess := access(true)
+	router.With(flowAccess...).Post("/api/workflow/provision", browser.provision)
+	// The seam takes the API budget itself: a run's progress polls (a
+	// snapshot every two seconds per run) stay out of it (browserFlowAPI.limit).
+	router.With(access(false)...).Post("/api/workflow/rpc", browser.rpc)
+	router.With(flowAccess...).Post("/api/repository-setup/{operation}", setup.serve)
+	// A setup's progress is polled every few seconds for up to six hours,
+	// so its reads stay out of the API budget like a run's progress reads.
+	unlimited := access(false)
+	setupReads := append(unlimited[:len(unlimited)-1:len(unlimited)-1], middleware.RequireScope(middleware.ScopeReadRepository))
+	router.With(setupReads...).Get("/api/repository-setup/{operation}", setup.serve)
 }
