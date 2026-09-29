@@ -1,16 +1,65 @@
 import { Action } from "@smthrs/flow"
-import { Effect, Exit, Layer, Schema } from "effect"
+import { Context, Effect, Exit, Layer, Schema } from "effect"
 import { describe, expect, it, vi } from "vitest"
 import * as Hooks from "../src/Hooks.ts"
-import type { FlowsPlugin } from "../src/index.ts"
+import type { FlowsPlugin, PluginInput } from "../src/index.ts"
 import { PluginError } from "../src/PluginError.ts"
 import * as Plugins from "../src/Plugins.ts"
 import * as Resolve from "../src/Resolve.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
 
-// Plugin layers type their requirements as `any`; these fixtures require no services.
-const closed = <ROut = never>(layer: Layer.Layer<any, PluginError, any>) => layer as Layer.Layer<ROut, PluginError>
+/** What the plugin layers in `Input` provide. */
+type Provided<Input> = Input extends ReadonlyArray<infer Item> ? Provided<Item>
+  : Input extends { readonly layer: Layer.Layer<infer ROut, infer _E, infer _RIn> } ? ROut
+  : never
+
+/** What the plugin layers in `Input` need. */
+type Needed<Input> = Input extends ReadonlyArray<infer Item> ? Needed<Item>
+  : Input extends { readonly layer: Layer.Layer<infer _ROut, infer _E, infer RIn> } ? RIn
+  : never
+
+/**
+ * Resolves `plugins` and types the merged layer from the plugins passed in.
+ *
+ * `Resolve.layer` is `Layer<any, PluginError, any>`, so a test that named its
+ * services by hand kept compiling after a provider was removed (#2704). The
+ * cast below names exactly what `plugins` provide and still need, so dropping a
+ * plugin layer drops its services and the body that reads them fails tsc.
+ */
+const resolvedLayer = async <const Input extends ReadonlyArray<PluginInput>>(
+  plugins: Input,
+  options?: Resolve.Options
+) => {
+  const resolved = await run(Resolve.resolve(plugins, options))
+  const layer = Resolve.layer(resolved) as Layer.Layer<
+    Provided<Input>,
+    PluginError,
+    Exclude<Needed<Input>, Provided<Input>>
+  >
+  return { resolved, layer }
+}
+
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()(
+  "test/plugin/ResolveBoundary/Unprovided"
+) {}
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = async () => {
+  const marker = Layer.succeed(Unprovided)({ value: "marker" })
+  const withMarker = await resolvedLayer([{ name: "marker", layer: marker }])
+  run(Effect.map(Unprovided, (service) => service.value).pipe(Effect.provide(withMarker.layer)))
+  const withoutMarker = await resolvedLayer([{ name: "marker" }])
+  // @ts-expect-error dropping the marker plugin's layer leaves Unprovided unprovided
+  run(Effect.map(Unprovided, (service) => service.value).pipe(Effect.provide(withoutMarker.layer)))
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects a body that needs a service no plugin layer provides", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
+})
 
 const refusal = async (input: unknown, options?: Resolve.Options) =>
   run(Resolve.resolve(input as never, options).pipe(Effect.flip))
@@ -399,9 +448,9 @@ describe("cache-environment admission", () => {
   it("decodes, detaches, and deeply freezes cache identity at resolution", async () => {
     const capabilities = { fs: ["/safe/**"] }
     const layers = ["Host=node"]
-    const resolved = await run(Resolve.resolve([{ name: "model", version: "1.0.0" }], {
+    const { layer, resolved } = await resolvedLayer([{ name: "model", version: "1.0.0" }], {
       cacheEnvironment: { layers, capabilities }
-    }))
+    })
     layers.push("mutated")
     capabilities.fs.push("/**")
     expect(resolved.cacheEnvironment).toEqual({
@@ -414,7 +463,7 @@ describe("cache-environment admission", () => {
     expect(Object.isFrozen(resolved.cacheEnvironment?.capabilities["fs"])).toBe(true)
 
     const environment = await run(
-      Action.CurrentCacheEnvironment.pipe(Effect.provide(closed(Resolve.layer(resolved))))
+      Action.CurrentCacheEnvironment.pipe(Effect.provide(layer))
     )
     expect(environment).toBe(resolved.cacheEnvironment)
   })
@@ -439,8 +488,8 @@ describe("cache-environment admission", () => {
 
   it("still wraps a validated layer that later fails to construct", async () => {
     const broken = Layer.effectDiscard(Effect.die("layer defect"))
-    const resolved = await run(Resolve.resolve([{ name: "broken", layer: broken }]))
-    const error = await run(Effect.void.pipe(Effect.provide(closed(Resolve.layer(resolved))), Effect.flip))
+    const { layer } = await resolvedLayer([{ name: "broken", layer: broken }])
+    const error = await run(Effect.void.pipe(Effect.provide(layer), Effect.flip))
     expect(error).toMatchObject({ code: "layer_failed", plugin: "broken" })
   })
 })

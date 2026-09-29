@@ -13,7 +13,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, type Schema } from "effect"
 import type { ServerResponse } from "node:http"
 import { afterEach, describe, expect, it } from "vitest"
 import { IntegrationFailure } from "../src/core/ActionFailure.ts"
@@ -63,37 +63,67 @@ const noContent = (response: ServerResponse) => {
 const lines = (): ReadonlyArray<string> =>
   (fixture as Fixture).requests.map((request) => `${request.method} ${request.url}`)
 
-const runAction = <Success>(
-  declaration: {
-    readonly name: string
-    readonly payloadSchema: unknown
-    readonly successSchema: unknown
-    readonly errorSchema: unknown
-    readonly call: (payload: never) => unknown
-  },
-  payload: Record<string, unknown>
-): Promise<Success> => {
+/** Every action tag {@link Actions.layer} implements. */
+type CalendarTag = Layer.Success<typeof Actions.layer> extends Action.Requirement<infer Tag> ? Tag : never
+
+/** A schema whose codec needs no services, which every Calendar action schema is. */
+type PureSchema = { readonly DecodingServices: never; readonly EncodingServices: never }
+
+const runAction = <
+  Tag extends CalendarTag,
+  Payload extends Flow.AnyStructSchema & PureSchema,
+  Success extends Schema.Top & PureSchema,
+  Error extends Schema.Top & PureSchema
+>(
+  declaration: Action.Declared<Tag, Payload, Success, Error>,
+  payload: Payload["~type.make.in"]
+): Promise<Success["Type"]> => {
   const flow = Flow.make(`${declaration.name}/test-flow`, {
-    payload: declaration.payloadSchema as never,
-    success: declaration.successSchema as never,
-    error: declaration.errorSchema as never,
-    body: (input: never) => declaration.call(input) as never
+    payload: declaration.payloadSchema,
+    success: declaration.successSchema,
+    error: declaration.errorSchema,
+    // The cast is on the payload value only (decoded Type vs planned make-in); R is untouched.
+    body: (input) => declaration.call(input as never)
   })
   const clientLayer = CalendarClient.layer(
     { accessToken: "ya29.fixture", apiBaseUrl: (fixture as Fixture).origin, maxRetries: 0 },
     {}
   )
-  const layer = Layer.mergeAll(Actions.layer, Interpreter.layer(flow)).pipe(
+  // Narrows only the provided side to this tag, which `Tag extends CalendarTag`
+  // guarantees `Actions.layer` implements; its requirements (RIn) are kept.
+  const implementation = Actions.layer as Layer.Layer<
+    Action.Requirement<Tag>,
+    never,
+    Layer.Services<typeof Actions.layer>
+  >
+  const layer = Layer.mergeAll(implementation, Interpreter.layer(flow)).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(Layer.mergeAll(FlowEngine.layerMemory, clientLayer, NodeCrypto.layer))
   )
   return Effect.runPromise(
-    flow.execute(payload as never, { executionId: `run-${declaration.name}-${Math.random()}` }).pipe(
-      Effect.provide(layer as never),
+    flow.execute(payload, { executionId: `run-${declaration.name}-${Math.random()}` }).pipe(
+      Effect.provide(layer),
       Effect.scoped
-    ) as unknown as Effect.Effect<Success, unknown>
+    )
   )
 }
+
+/** An action nothing in {@link runAction}'s layer implements. */
+const Unprovided = Action.make("test/integrations/GoogleCalendarActions/Unprovided", { payload: {} })
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error Actions.layer does not implement the Unprovided action
+  runAction(Unprovided, {})
+  runAction(Actions.CancelEvent, { calendarId: "primary", eventId: "e" })
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects an action the Calendar layer does not implement", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
+})
 
 const rejected = async (promise: Promise<unknown>): Promise<any> => {
   const failure: any = await promise.then(() => undefined, (error: unknown) => error)
@@ -103,7 +133,7 @@ const rejected = async (promise: Promise<unknown>): Promise<any> => {
 describe("UpsertEvent", () => {
   it("inserts under the caller's id and emails nobody by default", async () => {
     fixture = await startFixture((request, response) => json(response, 200, stored({ ...JSON.parse(request.body) })))
-    const upserted = await runAction<typeof Actions.Upserted.Type>(Actions.UpsertEvent, {
+    const upserted = await runAction(Actions.UpsertEvent, {
       calendarId: "primary",
       eventId: EVENT_ID,
       event: EVENT
@@ -127,7 +157,7 @@ describe("UpsertEvent", () => {
         ? googleError(response, 409, "duplicate")
         : json(response, 200, { ...stored(), htmlLink: undefined, etag: undefined, status: undefined })
     )
-    const upserted = await runAction<typeof Actions.Upserted.Type>(Actions.UpsertEvent, {
+    const upserted = await runAction(Actions.UpsertEvent, {
       calendarId: "primary",
       eventId: EVENT_ID,
       event: EVENT,
@@ -164,7 +194,7 @@ describe("UpsertEvent", () => {
       // The first insert was applied but its answer lost; the retry meets the duplicate.
       return inserts === 1 ? googleError(response, 503, "backendError") : googleError(response, 409, "duplicate")
     })
-    const upserted = await runAction<typeof Actions.Upserted.Type>(Actions.UpsertEvent, {
+    const upserted = await runAction(Actions.UpsertEvent, {
       calendarId: "primary",
       eventId: EVENT_ID,
       event: EVENT
@@ -199,7 +229,7 @@ describe("PatchEvent", () => {
     fixture = await startFixture((request, response) =>
       json(response, 200, stored({ ...JSON.parse(request.body), status: "tentative" }))
     )
-    const receipt = await runAction<typeof Actions.EventReceipt.Type>(Actions.PatchEvent, {
+    const receipt = await runAction(Actions.PatchEvent, {
       calendarId: "primary",
       eventId: EVENT_ID,
       patch: { summary: "Moved", status: "tentative" },
@@ -226,7 +256,7 @@ describe("PatchEvent", () => {
       }
       return json(response, 200, { id: instanceId, recurringEventId: SERIES, summary: "Moved" })
     })
-    const receipt = await runAction<typeof Actions.EventReceipt.Type>(Actions.PatchEvent, {
+    const receipt = await runAction(Actions.PatchEvent, {
       calendarId: "primary",
       eventId: SERIES,
       originalStart: { dateTime: "2026-10-09T16:00:00Z" },
@@ -288,7 +318,7 @@ describe("PatchEvent", () => {
 describe("CancelEvent", () => {
   it("deletes the event and reports it was not already cancelled", async () => {
     fixture = await startFixture((_request, response) => noContent(response))
-    const cancelled = await runAction<typeof Actions.Cancelled.Type>(Actions.CancelEvent, {
+    const cancelled = await runAction(Actions.CancelEvent, {
       calendarId: "primary",
       eventId: EVENT_ID,
       sendUpdates: "all"
@@ -304,7 +334,7 @@ describe("CancelEvent", () => {
 
   it("treats 410 Gone as already cancelled", async () => {
     fixture = await startFixture((_request, response) => googleError(response, 410, "deleted"))
-    const cancelled = await runAction<typeof Actions.Cancelled.Type>(Actions.CancelEvent, {
+    const cancelled = await runAction(Actions.CancelEvent, {
       calendarId: "primary",
       eventId: EVENT_ID
     })
@@ -319,7 +349,7 @@ describe("CancelEvent", () => {
         items: [{ id: instanceId, status: "cancelled", originalStartTime: { date: "2026-10-09" } }]
       })
     )
-    const cancelled = await runAction<typeof Actions.Cancelled.Type>(Actions.CancelEvent, {
+    const cancelled = await runAction(Actions.CancelEvent, {
       calendarId: "primary",
       eventId: SERIES,
       originalStart: { date: "2026-10-09" }
@@ -339,7 +369,7 @@ describe("CancelEvent", () => {
           items: [{ id: instanceId, status: "confirmed", originalStartTime: { dateTime: "2026-10-09T16:00:00Z" } }]
         })
     )
-    const cancelled = await runAction<typeof Actions.Cancelled.Type>(Actions.CancelEvent, {
+    const cancelled = await runAction(Actions.CancelEvent, {
       calendarId: "primary",
       eventId: SERIES,
       originalStart: { dateTime: "2026-10-09T09:00:00-07:00", timeZone: "America/Los_Angeles" }
@@ -367,7 +397,7 @@ describe("FreeBusy", () => {
       })
     )
     const window = { timeMin: "2026-10-02T00:00:00Z", timeMax: "2026-10-03T00:00:00Z" }
-    const zoned = await runAction<typeof Actions.Availability.Type>(Actions.FreeBusy, {
+    const zoned = await runAction(Actions.FreeBusy, {
       ...window,
       calendarIds: ["primary", "team@group.calendar.example.test"],
       timeZone: "America/Los_Angeles"

@@ -13,8 +13,8 @@
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, Flow, Interpreter } from "@smthrs/flow"
-import { Effect, Layer, Schema } from "effect"
+import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Context, Effect, Layer, Schema } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
 import { fromIntegrationError, IntegrationFailure, toIntegrationError } from "../src/core/ActionFailure.ts"
 import { IntegrationError } from "../src/core/IntegrationError.ts"
@@ -40,23 +40,27 @@ afterEach(async () => {
  * `declaration.call(payload)` records a plan node that demands the action's
  * requirement, and only `declaration.toLayer(...)` answers it.
  */
-const runAction = <Success>(
-  declaration: {
-    readonly name: string
-    readonly payloadSchema: unknown
-    readonly successSchema: unknown
-    readonly errorSchema: unknown
-    readonly call: (payload: never) => unknown
-  },
-  actionLayer: Layer.Layer<never, never, never>,
-  payload: Record<string, unknown>,
-  clients: Layer.Layer<never>
-): Promise<Success> => {
+const runAction = <
+  Tag extends string,
+  Payload extends Flow.AnyStructSchema & PureSchema,
+  Success extends Schema.Top & PureSchema,
+  Error extends Schema.Top & PureSchema,
+  Clients,
+  ClientError
+>(
+  declaration: Action.Declared<Tag, Payload, Success, Error>,
+  // Every service the implementation needs must come from `clients` or the
+  // engine, so an action layer that needs something else fails to compile.
+  actionLayer: Layer.Layer<Action.Requirement<Tag>, never, NoInfer<Clients> | FlowRuntime.FlowRuntime>,
+  payload: Payload["~type.make.in"],
+  clients: Layer.Layer<Clients, ClientError>
+): Promise<Success["Type"]> => {
   const flow = Flow.make(`${declaration.name}/test-flow`, {
-    payload: declaration.payloadSchema as never,
-    success: declaration.successSchema as never,
-    error: declaration.errorSchema as never,
-    body: (input: never) => declaration.call(input) as never
+    payload: declaration.payloadSchema,
+    success: declaration.successSchema,
+    error: declaration.errorSchema,
+    // The cast is on the payload value only (decoded Type vs planned make-in); R is untouched.
+    body: (input) => declaration.call(input as never)
   })
   const layer = Layer.mergeAll(actionLayer, Interpreter.layer(flow)).pipe(
     Layer.provideMerge(Action.layerImplementations),
@@ -64,23 +68,49 @@ const runAction = <Success>(
   )
   // No `orDie`: a failing action must reject with its decoded failure, which
   // is exactly what the failure cases below assert on.
-  const program = flow.execute(payload as never, { executionId: `run-${declaration.name}` }).pipe(
-    Effect.provide(layer as never),
-    Effect.scoped
-  ) as unknown as Effect.Effect<Success, unknown>
-  return Effect.runPromise(program)
+  return Effect.runPromise(
+    flow.execute(payload, { executionId: `run-${declaration.name}` }).pipe(Effect.provide(layer), Effect.scoped)
+  )
 }
+
+/** A schema whose codec needs no services, which every action schema here is. */
+type PureSchema = { readonly DecodingServices: never; readonly EncodingServices: never }
+
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()(
+  "test/integrations/Actions/Unprovided"
+) {}
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  const payload = { owner: "o", repo: "r", issueNumber: 7, body: "hello" }
+  const clients = GitHubClient.layer({ token: "t", apiBaseUrl: "http://127.0.0.1" }, {})
+  const needsUnprovided = GitHubActions.CommentOnIssue.toLayer(() =>
+    Effect.map(Unprovided, (service) => ({ id: 1, url: service.value }))
+  )
+  // @ts-expect-error the action layer needs Unprovided, which neither the clients nor the engine provide
+  runAction(GitHubActions.CommentOnIssue, needsUnprovided, payload, clients)
+  // @ts-expect-error GitHubActions.layer needs GitHubClient, which an empty client layer does not provide
+  runAction(GitHubActions.CommentOnIssue, GitHubActions.layer, payload, Layer.empty)
+  runAction(GitHubActions.CommentOnIssue, GitHubActions.layer, payload, clients)
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects an action layer that needs a service the clients do not provide", () => {
+    // The assertion is the `@ts-expect-error` directives above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
+})
 
 describe("GitHub actions", () => {
   it("posts a comment and decodes what GitHub returned", async () => {
     fixture = await startFixture((_request, response) => {
       json(response, 201, { id: 42, url: "https://api.github.com/repos/o/r/issues/comments/42", extra: "ignored" })
     })
-    const sent = await runAction<typeof GitHubActions.Comment.Type>(
+    const sent = await runAction(
       GitHubActions.CommentOnIssue,
-      GitHubActions.layer as never,
+      GitHubActions.layer,
       { owner: "o", repo: "r", issueNumber: 7, body: "hello" },
-      GitHubClient.layer({ token: "t", apiBaseUrl: fixture.origin }, {}) as never
+      GitHubClient.layer({ token: "t", apiBaseUrl: fixture.origin }, {})
     )
     expect(sent).toEqual({ id: 42, url: "https://api.github.com/repos/o/r/issues/comments/42" })
     expect(fixture.requests).toHaveLength(1)
@@ -93,11 +123,11 @@ describe("GitHub actions", () => {
     fixture = await startFixture((_request, response) => {
       json(response, 404, { message: "Not Found" })
     })
-    const failure = await runAction<never>(
+    const failure = await runAction(
       GitHubActions.CommentOnIssue,
-      GitHubActions.layer as never,
+      GitHubActions.layer,
       { owner: "o", repo: "r", issueNumber: 7, body: "hello" },
-      GitHubClient.layer({ token: "secret-token", apiBaseUrl: fixture.origin }, {}) as never
+      GitHubClient.layer({ token: "secret-token", apiBaseUrl: fixture.origin }, {})
     ).then(() => undefined, (error: any) => error)
     // The engine surfaces the failure through the flow's error channel, so the
     // value that comes back is the decoded schema instance, not the class.
@@ -135,11 +165,11 @@ describe("Linear actions", () => {
         }
       })
     })
-    const issue = await runAction<typeof LinearActions.Issue.Type>(
+    const issue = await runAction(
       LinearActions.CreateIssue,
-      LinearActions.layer as never,
+      LinearActions.layer,
       { title: "Ship it", teamKey: "ENG" },
-      LinearClient.layer({ apiKey: "k", apiBaseUrl: fixture.origin }, {}) as never
+      LinearClient.layer({ apiKey: "k", apiBaseUrl: fixture.origin }, {})
     )
     expect(issue).toEqual({ id: "i1", identifier: "ENG-1", title: "Ship it", url: "https://linear.app/i/ENG-1" })
     expect(fixture.requests.length).toBeGreaterThanOrEqual(2)
@@ -149,11 +179,11 @@ describe("Linear actions", () => {
     fixture = await startFixture((_request, response) => {
       json(response, 200, { errors: [{ message: "Team not found" }] })
     })
-    const failure = await runAction<never>(
+    const failure = await runAction(
       LinearActions.CreateIssue,
-      LinearActions.layer as never,
+      LinearActions.layer,
       { title: "Ship it", teamId: "team-1" },
-      LinearClient.layer({ apiKey: "api-key-value", apiBaseUrl: fixture.origin }, {}) as never
+      LinearClient.layer({ apiKey: "api-key-value", apiBaseUrl: fixture.origin }, {})
     ).then(() => undefined, (error: any) => error)
     const carried: any = failure?.cause?.error ?? failure?.error ?? failure
     expect(carried).toBeInstanceOf(IntegrationFailure)
@@ -171,11 +201,11 @@ describe("Telegram actions", () => {
       }
       json(response, 200, { ok: true, result: { message_id: ++messageId, chat: { id: 55 } } })
     })
-    const sent = await runAction<typeof TelegramActions.Sent.Type>(
+    const sent = await runAction(
       TelegramActions.SendMessage,
-      TelegramActions.layer as never,
+      TelegramActions.layer,
       { chatId: "55", text: "hello" },
-      TelegramClient.layer({ botToken: "1:abc", apiBaseUrl: fixture.origin }) as never
+      TelegramClient.layer({ botToken: "1:abc", apiBaseUrl: fixture.origin })
     )
     expect(sent.chatId).toBe("55")
     expect(sent.messageIds).toEqual([101])
@@ -191,11 +221,11 @@ describe("Telegram actions", () => {
       }
       json(response, 200, { ok: true, result: { message_id: 7, chat: { id: 55 } } })
     })
-    await runAction<typeof TelegramActions.Sent.Type>(
+    await runAction(
       TelegramActions.SendMessage,
-      TelegramActions.layer as never,
+      TelegramActions.layer,
       { chatId: "55", text: "hello", parseMode: "none", messageThreadId: 9, disableNotification: true },
-      TelegramClient.layer({ botToken: "1:abc", apiBaseUrl: fixture.origin }) as never
+      TelegramClient.layer({ botToken: "1:abc", apiBaseUrl: fixture.origin })
     )
     const send = fixture.requests.find((request) => request.url.endsWith("/sendMessage"))
     const body = JSON.parse(send?.body ?? "{}")
@@ -213,11 +243,11 @@ describe("Telegram actions", () => {
       }
       json(response, 400, { ok: false, error_code: 400, description: "Bad Request: chat not found" })
     })
-    const failure = await runAction<never>(
+    const failure = await runAction(
       TelegramActions.SendMessage,
-      TelegramActions.layer as never,
+      TelegramActions.layer,
       { chatId: "55", text: "hello" },
-      TelegramClient.layer({ botToken: "1:supersecret", apiBaseUrl: fixture.origin }) as never
+      TelegramClient.layer({ botToken: "1:supersecret", apiBaseUrl: fixture.origin })
     ).then(() => undefined, (error: any) => error)
     const carried: any = failure?.cause?.error ?? failure?.error ?? failure
     expect(carried).toBeInstanceOf(IntegrationFailure)
@@ -272,11 +302,11 @@ describe("what an action journals", () => {
       }
       json(response, status, body)
     })
-    const failure = await runAction<never>(
+    const failure = await runAction(
       TelegramActions.SendMessage,
-      TelegramActions.layer as never,
+      TelegramActions.layer,
       { chatId: "55", text: "hello" },
-      TelegramClient.layer({ botToken: "1:abc", apiBaseUrl: fixture.origin }, {}) as never
+      TelegramClient.layer({ botToken: "1:abc", apiBaseUrl: fixture.origin }, {})
     ).then(() => undefined, (error: any) => error)
     const carried: any = failure?.cause?.error ?? failure?.error ?? failure
     await fixture.close()
@@ -319,11 +349,11 @@ describe("what an action journals", () => {
   // endpoint. The payload schema stops it before any request is made.
   it("refuses a GitHub comment payload that would leave the endpoint", async () => {
     fixture = await startFixture((_request, response) => json(response, 201, { id: 1, url: "https://x" }))
-    await runAction<never>(
+    await runAction(
       GitHubActions.CommentOnIssue,
-      GitHubActions.layer as never,
+      GitHubActions.layer,
       { owner: "..", repo: "..", issueNumber: 1, body: "hello" },
-      GitHubClient.layer({ token: "t", apiBaseUrl: fixture.origin }, {}) as never
+      GitHubClient.layer({ token: "t", apiBaseUrl: fixture.origin }, {})
     ).then(() => undefined, (error: unknown) => error)
     expect(fixture.requests).toHaveLength(0)
   })
@@ -347,11 +377,11 @@ describe("a partial or ambiguous outcome reaches the journal", () => {
       }
       json(response, 400, { ok: false, error_code: 400, description: "Bad Request: chat not found" })
     })
-    const failure = await runAction<never>(
+    const failure = await runAction(
       TelegramActions.SendMessage,
-      TelegramActions.layer as never,
+      TelegramActions.layer,
       { chatId: "55", text: "a".repeat(4200) },
-      TelegramClient.layer({ botToken: "1:abc", apiBaseUrl: fixture.origin }, {}) as never
+      TelegramClient.layer({ botToken: "1:abc", apiBaseUrl: fixture.origin }, {})
     ).then(() => undefined, (error: any) => error)
     const carried: any = failure?.cause?.error ?? failure?.error ?? failure
     expect(carried).toBeInstanceOf(IntegrationFailure)
@@ -365,11 +395,11 @@ describe("a partial or ambiguous outcome reaches the journal", () => {
   // operator deciding whether to run the step again needs the difference.
   it("says when a write's outcome is unknown", async () => {
     fixture = await startFixture((_request, response) => json(response, 502, { message: "bad gateway" }))
-    const failure = await runAction<never>(
+    const failure = await runAction(
       GitHubActions.CommentOnIssue,
-      GitHubActions.layer as never,
+      GitHubActions.layer,
       { owner: "o", repo: "r", issueNumber: 7, body: "hello" },
-      GitHubClient.layer({ token: "t", apiBaseUrl: fixture.origin }, {}) as never
+      GitHubClient.layer({ token: "t", apiBaseUrl: fixture.origin }, {})
     ).then(() => undefined, (error: any) => error)
     const carried: any = failure?.cause?.error ?? failure?.error ?? failure
     expect(carried).toBeInstanceOf(IntegrationFailure)
@@ -380,11 +410,11 @@ describe("a partial or ambiguous outcome reaches the journal", () => {
 
   it("leaves the field absent for a failure that definitely did not happen", async () => {
     fixture = await startFixture((_request, response) => json(response, 404, { message: "Not Found" }))
-    const failure = await runAction<never>(
+    const failure = await runAction(
       GitHubActions.CommentOnIssue,
-      GitHubActions.layer as never,
+      GitHubActions.layer,
       { owner: "o", repo: "r", issueNumber: 7, body: "hello" },
-      GitHubClient.layer({ token: "t", apiBaseUrl: fixture.origin }, {}) as never
+      GitHubClient.layer({ token: "t", apiBaseUrl: fixture.origin }, {})
     ).then(() => undefined, (error: any) => error)
     const carried: any = failure?.cause?.error ?? failure?.error ?? failure
     expect(carried.outcomeUnknown).toBeUndefined()

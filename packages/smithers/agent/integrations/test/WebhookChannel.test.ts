@@ -70,8 +70,16 @@ const ingest = (
       return yield* Effect.exit(channels.ingest({ channel: channel.name, raw }))
     }).pipe(
       Effect.provide(Channels.layerMemory.pipe(Layer.provide(controlLayer(calls))))
-    ) as Effect.Effect<{ readonly _tag: "Success" | "Failure" }>
+    )
   )
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  const body = Effect.flatMap(Channels.Channels, (channels) => channels.register(signedChannel()))
+  // @ts-expect-error Channels.layerMemory needs Control, which only controlLayer provides
+  Effect.runPromise(body.pipe(Effect.provide(Channels.layerMemory)))
+  Effect.runPromise(body.pipe(Effect.provide(Channels.layerMemory.pipe(Layer.provide(controlLayer([]))))))
+}
 
 /**
  * Ingests the same delivery twice through ONE `Channels` instance.
@@ -147,6 +155,13 @@ const ISSUE_BODY = JSON.stringify({
 // This is the requirement the 0.x end-to-end fault case `case17-webhook-bad-signature`
 // pinned against the deleted gateway. The gateway is gone; the requirement is
 // not, so it is re-pinned here against the channel that replaced it.
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects a Channels layer whose control provider was removed", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
+})
+
 describe("case 17: a WebhookChannel bound with the sha256 verifier rejects a bad signature", () => {
   it("refuses a sha256= signature computed with a different secret", async () => {
     const calls: Array<string> = []

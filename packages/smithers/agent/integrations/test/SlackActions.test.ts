@@ -57,35 +57,79 @@ const connections = (overrides: Partial<Connection> = {}) => {
   return Connections.layer([{ connection: target, client: Connections.clientFor(target, bot(), { maxRetries: 0 }) }])
 }
 
-const runAction = <Success>(
-  declaration: {
-    readonly name: string
-    readonly payloadSchema: unknown
-    readonly successSchema: unknown
-    readonly errorSchema: unknown
-    readonly call: (payload: never) => unknown
-  },
-  payload: Record<string, unknown>,
-  resolver: Layer.Layer<Connections.SlackConnections, IntegrationError> = connections(),
-  registered?: any
-): Promise<Success> => {
-  const flow = registered ?? Flow.make(`${declaration.name}/test-flow`, {
-    payload: declaration.payloadSchema as never,
-    success: declaration.successSchema as never,
-    error: declaration.errorSchema as never,
-    body: (input: never) => declaration.call(input) as never
-  })
-  const layer = Layer.mergeAll(Actions.layer, Interpreter.layer(flow)).pipe(
+/** Every action tag {@link Actions.layer} implements. */
+type SlackTag = Layer.Success<typeof Actions.layer> extends Action.Requirement<infer Tag> ? Tag : never
+
+/** A schema whose codec needs no services, which every Slack action schema is. */
+type PureSchema = { readonly DecodingServices: never; readonly EncodingServices: never }
+
+/** Runs `flow` against the Slack actions, with `resolver` answering which connection is which. */
+const runFlow = <
+  FlowTag extends string,
+  Payload extends Flow.AnyStructSchema & PureSchema,
+  Success extends Schema.Top & PureSchema,
+  Error extends Schema.Top & PureSchema,
+  Tag extends SlackTag
+>(
+  flow: Flow.Flow<FlowTag, Payload, Success, Error, Action.Requirement<Tag>>,
+  payload: Payload["~type.make.in"],
+  resolver: Layer.Layer<Connections.SlackConnections, IntegrationError> = connections()
+): Promise<Success["Type"]> => {
+  // Narrows only the provided side to this tag, which `Tag extends SlackTag`
+  // guarantees `Actions.layer` implements; its requirements (RIn) are kept.
+  const implementation = Actions.layer as Layer.Layer<
+    Action.Requirement<Tag>,
+    never,
+    Layer.Services<typeof Actions.layer>
+  >
+  const layer = Layer.mergeAll(implementation, Interpreter.layer(flow)).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(Layer.mergeAll(FlowEngine.layerMemory, resolver, NodeCrypto.layer))
   )
   return Effect.runPromise(
-    flow.execute(payload as never, { executionId: `run-${declaration.name}` }).pipe(
-      Effect.provide(layer as never),
-      Effect.scoped
-    ) as unknown as Effect.Effect<Success, unknown>
+    flow.execute(payload, { executionId: `run-${flow._tag}` }).pipe(Effect.provide(layer), Effect.scoped)
   )
 }
+
+/** Runs one action as the whole body of a durable flow. */
+const runAction = <
+  Tag extends SlackTag,
+  Payload extends Flow.AnyStructSchema & PureSchema,
+  Success extends Schema.Top & PureSchema,
+  Error extends Schema.Top & PureSchema
+>(
+  declaration: Action.Declared<Tag, Payload, Success, Error>,
+  payload: Payload["~type.make.in"],
+  resolver: Layer.Layer<Connections.SlackConnections, IntegrationError> = connections()
+): Promise<Success["Type"]> =>
+  runFlow(
+    Flow.make(`${declaration.name}/test-flow`, {
+      payload: declaration.payloadSchema,
+      success: declaration.successSchema,
+      error: declaration.errorSchema,
+      // The cast is on the payload value only (decoded Type vs planned make-in); R is untouched.
+      body: (input) => declaration.call(input as never)
+    }),
+    payload,
+    resolver
+  )
+
+/** An action nothing in {@link runFlow}'s layer implements. */
+const Unprovided = Action.make("test/integrations/SlackActions/Unprovided", { payload: {} })
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error Actions.layer does not implement the Unprovided action
+  runAction(Unprovided, {})
+  runAction(Actions.DeleteMessage, { connectionId: "workspace", channel: "C0001", ts: "1.2" })
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects an action the Slack layer does not implement", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
+})
 
 /** The decoded `IntegrationFailure` a failed action carries. */
 const failed = (promise: Promise<unknown>): Promise<any> =>
@@ -249,7 +293,7 @@ describe("PostMessage", () => {
         ? ok(response, { channel: "C0001", ts: "1700000001.000200" })
         : ok(response, { permalink: "https://example.slack.com/archives/C0001/p1700000001000200" })
     )
-    const posted = await runAction<typeof Actions.Posted.Type>(Actions.PostMessage, {
+    const posted = await runAction(Actions.PostMessage, {
       connectionId: "workspace",
       channel: "C0001",
       text: "On it.",
@@ -315,7 +359,7 @@ describe("PostMessage", () => {
     await start((call, response) =>
       call.method === "chat.postMessage" ? ok(response, { ts: "1700000001.000200" }) : refuse(response, "not_found")
     )
-    const posted = await runAction<typeof Actions.Posted.Type>(Actions.PostMessage, {
+    const posted = await runAction(Actions.PostMessage, {
       connectionId: "workspace",
       channel: "C0001",
       text: "hi",
@@ -326,7 +370,7 @@ describe("PostMessage", () => {
       call.method === "chat.postMessage" ? ok(response, { ts: "1700000001.000200" }) : ok(response, { permalink: 7 })
     )
     expect(
-      await runAction<typeof Actions.Posted.Type>(Actions.PostMessage, {
+      await runAction(Actions.PostMessage, {
         connectionId: "workspace",
         channel: "C0001",
         text: "hi",
@@ -371,7 +415,7 @@ describe("PostMessage", () => {
 describe("UpdateMessage", () => {
   it("replaces the text and blocks of a message", async () => {
     await start((_call, response) => ok(response, { ts: "1700000001.000200" }))
-    const updated = await runAction<typeof Actions.Updated.Type>(Actions.UpdateMessage, {
+    const updated = await runAction(Actions.UpdateMessage, {
       connectionId: "workspace",
       channel: "C0001",
       ts: "1700000001.000200",
@@ -403,7 +447,7 @@ describe("Reconcile", () => {
         ? ok(response, page([{ ts: "1.1", text: "no metadata" }, stamped("1.2", "other")], "next"))
         : ok(response, page([stamped("1.3", "run-1/ack")]))
     )
-    const found = await runAction<typeof Actions.Reconciled.Type>(Actions.Reconcile, {
+    const found = await runAction(Actions.Reconcile, {
       connectionId: "workspace",
       channel: "C0001",
       key: "run-1/ack",
@@ -425,7 +469,7 @@ describe("Reconcile", () => {
   it("answers absent only after the whole window, and inconclusive when the budget ran out", async () => {
     await start((_call, response) => ok(response, page([stamped("1.2", "other")])))
     expect(
-      await runAction<typeof Actions.Reconciled.Type>(Actions.Reconcile, {
+      await runAction(Actions.Reconcile, {
         connectionId: "workspace",
         channel: "C0001",
         key: "missing"
@@ -433,7 +477,7 @@ describe("Reconcile", () => {
     ).toMatchObject({ status: "absent", ts: null, pagesSearched: 1 })
     await start((_call, response) => ok(response, page([], "more")))
     expect(
-      await runAction<typeof Actions.Reconciled.Type>(Actions.Reconcile, {
+      await runAction(Actions.Reconcile, {
         connectionId: "workspace",
         channel: "C0001",
         key: "missing",
@@ -444,7 +488,7 @@ describe("Reconcile", () => {
 
   it("searches a thread's replies when given the thread", async () => {
     await start((_call, response) => ok(response, page([stamped("1.5", "run-1/reply")])))
-    const found = await runAction<typeof Actions.Reconciled.Type>(Actions.Reconcile, {
+    const found = await runAction(Actions.Reconcile, {
       connectionId: "workspace",
       channel: "C0001",
       key: "run-1/reply",
@@ -549,17 +593,11 @@ it("executes all registered issue transport flows through the existing action ru
     name: "eyes",
     active: true
   }
-  for (
-    const [action, flow] of [
-      [Actions.PostMessage, IssueSync.Post],
-      [Actions.UpdateMessage, IssueSync.Update],
-      [Actions.DeleteMessage, IssueSync.Delete],
-      [Actions.SetReaction, IssueSync.React],
-      [Actions.Reconcile, IssueSync.Reconcile]
-    ] as const
-  ) {
-    await runAction(action as any, common, connections(), flow)
-  }
+  await runFlow(IssueSync.Post, common)
+  await runFlow(IssueSync.Update, common)
+  await runFlow(IssueSync.Delete, common)
+  await runFlow(IssueSync.React, common)
+  await runFlow(IssueSync.Reconcile, common)
   expect((fixture as SlackFixture).calls.map((c) => c.method)).toEqual([
     "chat.postMessage",
     "chat.getPermalink",

@@ -14,7 +14,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
-import { Deferred, Effect, Fiber, Layer } from "effect"
+import { Deferred, Effect, Fiber, Layer, type Schema } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
 import type { ExternalEvent } from "../src/core/ExternalEvent.ts"
 import * as Actions from "../src/slack/Actions.ts"
@@ -35,33 +35,70 @@ afterEach(async () => {
   fixture = undefined
 })
 
-/** Runs one durable Slack action through a flow on the memory engine. */
-const perform = <Success>(
-  declaration: {
-    readonly name: string
-    readonly payloadSchema: unknown
-    readonly successSchema: unknown
-    readonly errorSchema: unknown
-    readonly call: (payload: never) => unknown
-  },
-  payload: Record<string, unknown>,
-  resolver: Layer.Layer<Connections.SlackConnections, unknown>
-): Effect.Effect<Success, unknown> => {
+/** Every action tag {@link Actions.layer} implements. */
+type SlackTag = Layer.Success<typeof Actions.layer> extends Action.Requirement<infer Tag> ? Tag : never
+
+/** A schema whose codec needs no services, which every Slack action schema is. */
+type PureSchema = { readonly DecodingServices: never; readonly EncodingServices: never }
+
+/**
+ * Runs one durable Slack action through a flow on the memory engine.
+ *
+ * The declared return type has no requirements, so tsc checks that the layer
+ * below provides everything the flow needs.
+ */
+const perform = <
+  Tag extends SlackTag,
+  Payload extends Flow.AnyStructSchema & PureSchema,
+  Success extends Schema.Top & PureSchema,
+  Error extends Schema.Top & PureSchema,
+  ResolverError
+>(
+  declaration: Action.Declared<Tag, Payload, Success, Error>,
+  payload: Payload["~type.make.in"],
+  resolver: Layer.Layer<Connections.SlackConnections, ResolverError>
+): Effect.Effect<Success["Type"], unknown> => {
   const flow = Flow.make(`${declaration.name}/round-trip`, {
-    payload: declaration.payloadSchema as never,
-    success: declaration.successSchema as never,
-    error: declaration.errorSchema as never,
-    body: (input: never) => declaration.call(input) as never
+    payload: declaration.payloadSchema,
+    success: declaration.successSchema,
+    error: declaration.errorSchema,
+    // The cast is on the payload value only (decoded Type vs planned make-in); R is untouched.
+    body: (input) => declaration.call(input as never)
   })
-  const layer = Layer.mergeAll(Actions.layer, Interpreter.layer(flow)).pipe(
+  // Narrows only the provided side to this tag, which `Tag extends SlackTag`
+  // guarantees `Actions.layer` implements; its requirements (RIn) are kept.
+  const implementation = Actions.layer as Layer.Layer<
+    Action.Requirement<Tag>,
+    never,
+    Layer.Services<typeof Actions.layer>
+  >
+  const layer = Layer.mergeAll(implementation, Interpreter.layer(flow)).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(Layer.mergeAll(FlowEngine.layerMemory, resolver, NodeCrypto.layer))
   )
-  return flow.execute(payload as never, { executionId: `round-trip-${declaration.name}` }).pipe(
-    Effect.provide(layer as never),
+  return flow.execute(payload, { executionId: `round-trip-${declaration.name}` }).pipe(
+    Effect.provide(layer),
     Effect.scoped
-  ) as unknown as Effect.Effect<Success, unknown>
+  )
 }
+
+/** An action nothing in {@link perform}'s layer implements. */
+const Unprovided = Action.make("test/integrations/SlackRoundTrip/Unprovided", { payload: {} })
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  const resolver = Connections.layer([])
+  // @ts-expect-error Actions.layer does not implement the Unprovided action
+  perform(Unprovided, {}, resolver)
+  perform(Actions.DeleteMessage, { connectionId: "workspace", channel: "C0001", ts: "1.2" }, resolver)
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects an action the Slack layer does not implement", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
+})
 
 describe("Slack owner round trip", () => {
   it("DM, thread reply with buttons, stranger ignored, owner approves, prompt updated", async () => {
@@ -103,7 +140,7 @@ describe("Slack owner round trip", () => {
           const message = payload["event"]
           const runId = "run-1"
           const token = Approval.token(`${runId}/merge`)
-          const posted = yield* perform<typeof Actions.Posted.Type>(Actions.PostMessage, {
+          const posted = yield* perform(Actions.PostMessage, {
             connectionId: "slack",
             channel: message.channel,
             threadTs: message.ts,

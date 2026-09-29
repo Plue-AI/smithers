@@ -11,8 +11,8 @@
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, Flow, Interpreter } from "@smthrs/flow"
-import { Effect, Layer, Redacted } from "effect"
+import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Effect, Layer, Redacted, type Schema } from "effect"
 import type { ServerResponse } from "node:http"
 import { afterEach, describe, expect, it } from "vitest"
 import type { AccessTokenSource } from "../src/core/AccessToken.ts"
@@ -513,36 +513,49 @@ describe("Gmail search", () => {
   })
 })
 
-const runAction = <Success>(
-  declaration: {
-    readonly name: string
-    readonly payloadSchema: unknown
-    readonly successSchema: unknown
-    readonly errorSchema: unknown
-    readonly call: (payload: never) => unknown
-  },
-  payload: Record<string, unknown>,
+/** Every action tag {@link Actions.layer} implements. */
+type GmailTag = Layer.Success<typeof Actions.layer> extends Action.Requirement<infer Tag> ? Tag : never
+
+/** A schema whose codec needs no services, which every Gmail action schema is. */
+type PureSchema = { readonly DecodingServices: never; readonly EncodingServices: never }
+
+const runAction = <
+  Tag extends GmailTag,
+  Payload extends Flow.AnyStructSchema & PureSchema,
+  Success extends Schema.Top & PureSchema,
+  Error extends Schema.Top & PureSchema
+>(
+  declaration: Action.Declared<Tag, Payload, Success, Error>,
+  payload: Payload["~type.make.in"],
   bound: Connection = connection()
-): Promise<Success> => {
+): Promise<Success["Type"]> => {
   const flow = Flow.make(`${declaration.name}/test-flow`, {
-    payload: declaration.payloadSchema as never,
-    success: declaration.successSchema as never,
-    error: declaration.errorSchema as never,
-    body: (input: never) => declaration.call(input) as never
+    payload: declaration.payloadSchema,
+    success: declaration.successSchema,
+    error: declaration.errorSchema,
+    // The cast is on the payload value only (decoded Type vs planned make-in); R is untouched.
+    body: (input) => declaration.call(input as never)
   })
   const clientLayer = GmailClient.layer(
     { token, connection: bound, apiBaseUrl: (fixture as Fixture).origin, maxRetries: 0 },
     {}
   )
-  const layer = Layer.mergeAll(Actions.layer, Interpreter.layer(flow)).pipe(
+  // Narrows only the provided side to this tag, which `Tag extends GmailTag`
+  // guarantees `Actions.layer` implements; its requirements (RIn) are kept.
+  const implementation = Actions.layer as Layer.Layer<
+    Action.Requirement<Tag>,
+    never,
+    Layer.Services<typeof Actions.layer>
+  >
+  const layer = Layer.mergeAll(implementation, Interpreter.layer(flow)).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(Layer.mergeAll(FlowEngine.layerMemory, clientLayer, NodeCrypto.layer))
   )
   return Effect.runPromise(
-    flow.execute(payload as never, { executionId: `run-${declaration.name}-${Math.random()}` }).pipe(
-      Effect.provide(layer as never),
+    flow.execute(payload, { executionId: `run-${declaration.name}-${Math.random()}` }).pipe(
+      Effect.provide(layer),
       Effect.scoped
-    ) as unknown as Effect.Effect<Success, unknown>
+    )
   )
 }
 
@@ -560,10 +573,27 @@ const compose = (extra: Record<string, unknown> = {}) => ({
   ...extra
 })
 
+/** An action nothing in {@link runAction}'s layer implements. */
+const Unprovided = Action.make("test/integrations/GmailMailbox/Unprovided", { payload: {} })
+
+/** Never called; tsc checks it (#2704). */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error Actions.layer does not implement the Unprovided action
+  runAction(Unprovided, {})
+  runAction(Actions.FindByKey, { connectionId: "assistant-mail", key: "k" })
+}
+
+describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {
+  it("rejects an action the Gmail layer does not implement", () => {
+    // The assertion is the `@ts-expect-error` directive above.
+    expect(unprovidedServiceProbe).toBeTypeOf("function")
+  })
+})
+
 describe("Gmail durable actions", () => {
   it("sends a message and journals its identity", async () => {
     await start()
-    const sent = await runAction<typeof Actions.MessageSent.Type>(Actions.SendMessage, compose())
+    const sent = await runAction(Actions.SendMessage, compose())
     const rfc822MessageId = messageIdFor("assistant/weekly-summary/2026-09-25")
     expect(sent).toEqual({
       connectionId: "assistant-mail",
@@ -581,7 +611,7 @@ describe("Gmail durable actions", () => {
 
   it("creates a draft in a thread", async () => {
     await start()
-    const draft = await runAction<typeof Actions.DraftCreated.Type>(
+    const draft = await runAction(
       Actions.CreateDraft,
       compose({ threadId: "t42", key: "assistant/draft-1" })
     )
@@ -601,7 +631,7 @@ describe("Gmail durable actions", () => {
       expect(fixture!.requests.filter((request) => request.method === "POST")).toHaveLength(1)
 
       // The write happened. The lookup finds exactly it, by key.
-      const found = await runAction<typeof Actions.Found.Type>(Actions.FindByKey, {
+      const found = await runAction(Actions.FindByKey, {
         connectionId: "assistant-mail",
         key: "assistant/weekly-summary/2026-09-25"
       })
@@ -621,14 +651,14 @@ describe("Gmail durable actions", () => {
   it("journals a receipt when Gmail answers with the id alone", async () => {
     await start()
     box.bare = true
-    const sent = await runAction<typeof Actions.MessageSent.Type>(Actions.SendMessage, compose())
+    const sent = await runAction(Actions.SendMessage, compose())
     expect(sent).toMatchObject({ messageId: "m0001", threadId: null, labelIds: [] })
-    const draft = await runAction<typeof Actions.DraftCreated.Type>(
+    const draft = await runAction(
       Actions.CreateDraft,
       compose({ key: "assistant/d" })
     )
     expect(draft).toMatchObject({ draftId: "r-m0002", messageId: "m0002", threadId: null })
-    const found = await runAction<typeof Actions.Found.Type>(Actions.FindByKey, {
+    const found = await runAction(Actions.FindByKey, {
       connectionId: "assistant-mail",
       key: "assistant/d"
     })
@@ -641,9 +671,9 @@ describe("Gmail durable actions", () => {
     box.add("forged", ["INBOX"], {
       headers: [{ name: "Message-ID", value: messageIdFor(key) }, { name: KEY_HEADER, value: "someone-else" }]
     })
-    const found = await runAction<typeof Actions.Found.Type>(Actions.FindByKey, { connectionId: "assistant-mail", key })
+    const found = await runAction(Actions.FindByKey, { connectionId: "assistant-mail", key })
     expect(found.matches).toEqual([])
-    const none = await runAction<typeof Actions.Found.Type>(Actions.FindByKey, {
+    const none = await runAction(Actions.FindByKey, {
       connectionId: "assistant-mail",
       key: "assistant/never"
     })
@@ -679,8 +709,9 @@ describe("Gmail durable actions", () => {
 
   it("refuses a payload naming a connection the client is not bound to", async () => {
     await start()
-    for (const declaration of [Actions.SendMessage, Actions.CreateDraft]) {
-      const failure = await rejected(runAction(declaration, compose({ connectionId: "someone-elses-mail" })))
+    const payload = compose({ connectionId: "someone-elses-mail" })
+    for (const attempt of [runAction(Actions.SendMessage, payload), runAction(Actions.CreateDraft, payload)]) {
+      const failure = await rejected(attempt)
       expect(failure).toBeInstanceOf(IntegrationFailure)
       expect(failure.reason).toBe("permission-denied")
     }
