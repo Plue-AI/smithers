@@ -1047,7 +1047,8 @@ export const trace = (
       // only on a firing, because this is the one demand a grader cannot
       // recompute from the journal: it is a model's answer, and the passing
       // answers are what say whether arming the control was right. `demanded`
-      // separates the two. `invented` is the one that acts; `complete` and
+      // separates a demand; `refused` names a spent-cap rejection. `invented`
+      // is the one that acts; `complete` and
       // `overclaims` ride along because a journal that stops carrying them
       // cannot answer whether demoting them was right. See `CompletionClaim`.
       return {
@@ -1059,6 +1060,7 @@ export const trace = (
           latencyMs: event.latencyMs,
           usage: event.usage,
           demanded: event.demanded,
+          refused: event.refused,
           currentDigest: event.currentDigest,
           nextFrame: event.nextFrame
         }

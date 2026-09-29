@@ -9,6 +9,8 @@ import * as Permission from "@smthrs/capability/Permission"
 import * as Digest from "@smthrs/core/Digest"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
+import * as CellTurn from "@smthrs/harness/CellTurn"
+import * as ContextWindow from "@smthrs/harness/ContextWindow"
 import * as EngineLike from "@smthrs/harness/EngineLike"
 import * as Transcript from "@smthrs/harness/Transcript"
 import { Redaction } from "@smthrs/journal"
@@ -16,8 +18,9 @@ import * as CanonicalJson from "@smthrs/model/CanonicalJson"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
-import { Option, Result } from "effect"
+import { Effect, Option, Result } from "effect"
 import { describe, expect, it } from "vitest"
+import * as Frame from "../harness/src/internal/frame.ts"
 import * as AgentSession from "../src/AgentSession.ts"
 import { unordered } from "../src/internal/TraceOrder.ts"
 
@@ -28,6 +31,64 @@ const identity = new Cell.CallIdentity({
   ordinal: 1,
   declaration: "sha256:declaration",
   layers: ["layer-a"]
+})
+
+describe("completion refusal projection", () => {
+  it("keeps the refusal produced by the real completion judge", async () => {
+    const contextWindow = ContextWindow.make({
+      modelId: "test-model",
+      segments: [{
+        kind: "instructions",
+        zone: "prefix",
+        content: [ModelRequest.SystemPart.make({ text: "The task: preserve query strings." })]
+      }]
+    })
+    const state = new CellTurn.State({
+      ...CellTurn.make({
+        session: "claim-refusal",
+        seat: "anthropic:test-model",
+        modelParams: ModelRequest.GenerationParams.make(),
+        layers: [],
+        capabilityEnvelope: [],
+        placement: Option.none(),
+        contextWindow,
+        maxFrames: 10
+      }),
+      openingDigest: "before",
+      claimCap: 1,
+      claimDemands: 1
+    })
+    const observation = (digest: string) =>
+      Option.some(new EngineLike.Observation({ digest, paths: 3, complete: true }))
+    const judged = await Effect.runPromise(Effect.provide(
+      Frame.judgeCompletion(
+        state,
+        Frame.account({
+          state,
+          calls: [],
+          opened: observation("before"),
+          closed: observation("after"),
+          minted: [],
+          bindings: [],
+          captures: []
+        }),
+        contextWindow,
+        "Updated the redirect and ran the tests."
+      ),
+      Evaluator.layerScripted(() => ({
+        complete: { probability: 0.1 },
+        overclaims: { probability: 0.9 },
+        invented: { probability: 0.95 }
+      }))
+    ))
+    expect(judged.unproven?.code).toBe("claim_unproven")
+    expect(judged.observed).toMatchObject({ _tag: "claim-demanded", demanded: false, refused: true })
+    if (judged.observed === undefined) throw new Error("completion judge emitted no reading")
+    expect(AgentSession.trace(judged.observed)).toMatchObject({
+      eventType: "control.agent.claim-demanded",
+      payload: { demanded: false, refused: true }
+    })
+  })
 })
 
 describe("capacity event trace", () => {
@@ -369,7 +430,7 @@ describe("trace", () => {
           eventType: "control.agent.claim-demanded",
           // All three probabilities and the latency, because this is the one
           // demand a grader cannot recompute: it is a model's answer, and
-          // `demanded` is what separates a firing from a reading that agreed.
+          // `demanded` names a firing; `refused` names a spent-cap rejection.
           // `invented` is the one that acts; the other two are journaled and
           // decide nothing. See `CompletionClaim`.
           payload: {
@@ -378,6 +439,7 @@ describe("trace", () => {
             invented: 0.94,
             latencyMs: 412,
             demanded: true,
+            refused: false,
             currentDigest: "tree-after",
             nextFrame: 12
           }

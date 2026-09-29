@@ -145,6 +145,9 @@ settlements, transitions, mutation observations, discipline demands, and the
 run's terminal resolution. `model-delta` is the one omission, because deltas
 are the token-by-token prefix of `model-settled`.
 
+Completion claim readings preserve `demanded` and `refused` separately. A
+refused claim remains visible in the run trace after its demand limit is spent.
+
 Two properties keep the trail trustworthy:
 
 - **Identity.** A resumed attempt republishes its whole prefix, so each event
