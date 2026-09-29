@@ -372,7 +372,7 @@ func (s *OrgService) CreateOrg(ctx context.Context, actor *db.User, req CreateOr
 
 	visibility := strings.TrimSpace(req.Visibility)
 	if visibility == "" {
-		visibility = "public"
+		visibility = "private"
 	}
 	if visibility != "public" && visibility != "limited" && visibility != "private" {
 		return db.Organization{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Organization", Field: "visibility", Code: "invalid"})
@@ -451,10 +451,17 @@ func (s *OrgService) GetOrg(ctx context.Context, viewer *db.User, orgName string
 	}
 
 	if viewer == nil {
+		if org.Visibility == "private" {
+			return db.Organization{}, pkgerrors.NotFound("organization not found")
+		}
 		return db.Organization{}, pkgerrors.Forbidden("organization membership required")
 	}
 
 	if err := s.requireOrgRole(ctx, org.ID, viewer.ID, "owner", "member"); err != nil {
+		var apiErr *pkgerrors.APIError
+		if org.Visibility == "private" && stdErrors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeForbidden {
+			return db.Organization{}, pkgerrors.NotFound("organization not found")
+		}
 		return db.Organization{}, err
 	}
 

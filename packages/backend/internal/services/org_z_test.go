@@ -179,7 +179,7 @@ func TestOrg_Z_GuardsAndResolveErrors(t *testing.T) {
 	}
 
 	_, err := NewOrgService(orgZQuerier()).GetOrg(ctx, nil, "acme")
-	assert.Equal(t, 403, apiStatus(t, err))
+	assert.Equal(t, 404, apiStatus(t, err))
 
 	_, err = NewOrgService(orgZQuerier()).GetOrg(ctx, actor, "acme")
 	require.NoError(t, err)

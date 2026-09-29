@@ -480,7 +480,7 @@ func TestOrgService_GetOrg_PrivateOrg_RequiresMembership(t *testing.T) {
 	})
 
 	_, err := s.GetOrg(context.Background(), testOrgUser(12, "outsider"), "acme")
-	requireAPIErrorStatus(t, err, 403)
+	requireAPIErrorStatus(t, err, 404)
 }
 
 func TestOrgService_UpdateOrg_OwnerOnly(t *testing.T) {
@@ -1465,6 +1465,7 @@ func TestOrgService_CreateOrg_ValidationErrors(t *testing.T) {
 	}{
 		{"empty name", CreateOrgRequest{Name: "   ", Visibility: "public"}},
 		{"name too long", CreateOrgRequest{Name: string(make([]byte, 256)), Visibility: "public"}},
+		{"invalid owner namespace", CreateOrgRequest{Name: "parent/org", Visibility: "private"}},
 		{"invalid visibility", CreateOrgRequest{Name: "acme", Visibility: "bad"}},
 	}
 
@@ -1525,7 +1526,7 @@ func TestOrgService_CreateOrg_DefaultVisibility(t *testing.T) {
 
 	s := NewOrgService(&mockOrgQuerier{
 		createOrganizationFn: func(ctx context.Context, arg db.CreateOrganizationParams) (db.Organization, error) {
-			assert.Equal(t, "public", arg.Visibility, "default visibility should be public")
+			assert.Equal(t, "private", arg.Visibility, "default visibility should be private")
 			return db.Organization{ID: 1, Name: arg.Name, LowerName: arg.LowerName, Visibility: arg.Visibility}, nil
 		},
 		addOrgMemberFn: func(ctx context.Context, arg db.AddOrgMemberParams) (db.OrgMember, error) {
@@ -1538,7 +1539,7 @@ func TestOrgService_CreateOrg_DefaultVisibility(t *testing.T) {
 		Name: "neworg",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "public", org.Visibility)
+	assert.Equal(t, "private", org.Visibility)
 }
 
 // ────────────────────────────────────────────────────────────────
