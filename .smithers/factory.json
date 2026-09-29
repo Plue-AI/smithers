@@ -1072,6 +1072,40 @@
       "flows": []
     },
     {
+      "id": "review/change",
+      "description": "Reviews one pull request's change the stack proposes and returns a verdict on its first line.",
+      "summary": null,
+      "featured": false,
+      "kind": "mdx",
+      "path": "flows/review/change/flow.mdx",
+      "capabilities": [
+        "fs:read:**"
+      ],
+      "model": "sol",
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [],
+      "budget": {
+        "tokens": 200000,
+        "milliseconds": 600000
+      }
+    },
+    {
       "id": "rollout",
       "description": "Deploy, verify, automatically restore the baseline release on failure, and re-verify.",
       "summary": null,
@@ -1128,12 +1162,12 @@
     },
     {
       "event": "change.opened",
-      "flow": "review",
+      "flow": "review/change",
       "description": "Review every Change"
     },
     {
       "event": "change.updated",
-      "flow": "review",
+      "flow": "review/change",
       "description": "Review every Change"
     },
     {

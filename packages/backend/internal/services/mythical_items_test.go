@@ -398,7 +398,7 @@ func (o *mythicalOrchestration) answerReviews(output string) {
 	requests := append([]flowdispatch.LaunchRequest(nil), o.launcher.requests...)
 	o.launcher.mu.Unlock()
 	for i, request := range requests {
-		if request.FlowID == "review" {
+		if request.FlowID == mythicalReviewFlow {
 			o.project(request, jobs.StateCompleted, fmt.Sprintf("run-review-%d", i), output)
 		}
 	}
@@ -522,16 +522,17 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 
 	// change.opened: the review reads the pull request's diff on the item's
 	// lane, which stays bound until it answers.
-	review := o.launcher.last("review")
+	review := o.launcher.last(mythicalReviewFlow)
 	assert.Equal(t, workspace, review.Target.WorkspaceID)
 	var args struct {
 		Args string `json:"args"`
 	}
 	require.NoError(t, json.Unmarshal(review.Payload, &args))
-	assert.Contains(t, args.Args, "Review pull request #"+strconv.FormatInt(item.PRNumber.Int64, 10)+": Add docs")
+	assert.Contains(t, args.Args, "Pull request #"+strconv.FormatInt(item.PRNumber.Int64, 10)+".\n\n<untrusted-title>\nAdd docs\n</untrusted-title>")
+	assert.Contains(t, args.Args, "<untrusted-diff>\n")
 	assert.Contains(t, args.Args, "+++ b/docs.md")
 	assert.NotContains(t, o.lanes.deleted, workspace)
-	o.answerReviews(`"Reads well.\n\napprove"`)
+	o.answerReviews(`"approve\n- docs.md reads well"`)
 	item = o.item(7)
 	assert.Equal(t, mythicalReview{Head: item.PRHead, RunID: "run-review-2", Verdict: "approve"}, *mythicalChecksOf(item).Review)
 	assert.Contains(t, o.lanes.deleted, workspace, "the lane is retired once the review answers")
@@ -601,8 +602,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	}
 
 	// #13 is declined by the planner: declined with the reason.
-	o.project(requests[13], jobs.StateFailed, "run-13",
-		`{"_tag":"coding/Error","code":"declined","message":"Already done: README.md has it."}`)
+	o.fail(requests[13], "run-13", "user", "coding/Error/declined", `{"_tag":"coding/Error","code":"declined","message":"Already done: README.md has it."}`)
 	// #11 and #12 validate and hand results built on the old tip.
 	o.project(requests[11], jobs.StateCompleted, "run-11", validatedRequest)
 	o.project(requests[12], jobs.StateCompleted, "run-12", validatedRequest)
@@ -655,17 +655,17 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	assert.Equal(t, o.hostTree(item.CandidateHead), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"),
 		"the proposal is exactly the verified rebased tree")
 
-	// #12's retries run out: blocked, visibly, and a retry re-queues it.
-	for attempt := 2; attempt <= mythicalAttempts; attempt++ {
+	// #12's retries run out: one very hard continuation on the last
+	// attempt, then blocked, visibly, and a retry re-queues it.
+	for attempt := 2; attempt <= mythicalAttempts+1; attempt++ {
 		_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = NOW() WHERE repository_id = $1`, o.repoID)
 		require.NoError(t, err)
 		o.wake()
 		twelve = o.item(12)
 		require.Equal(t, "running", twelve.State, twelve.Reason)
-		require.EqualValues(t, attempt, twelve.Attempt)
+		require.EqualValues(t, min(attempt, mythicalAttempts), twelve.Attempt)
 		// A plan failure spends an attempt; an outage would not.
-		o.project(o.launcher.last("coding/request"), jobs.StateFailed, fmt.Sprintf("run-12-%d", attempt),
-			`{"_tag":"coding/Error","code":"fast_gate","message":"the fast check failed"}`)
+		o.fail(o.launcher.last("coding/request"), fmt.Sprintf("run-12-%d", attempt), "factory", "coding/Error/fast_gate", "")
 		o.wake()
 	}
 	twelve = o.item(12)
@@ -741,7 +741,7 @@ func TestMythicalDeclinedItemStaysDeclined(t *testing.T) {
 		o.t.Helper()
 		o.wake()
 		require.Equal(t, "running", o.item(31).State)
-		o.project(o.launcher.last("coding/request"), jobs.StateFailed, fmt.Sprintf("run-31-%d", len(o.launcher.requests)),
+		o.fail(o.launcher.last("coding/request"), fmt.Sprintf("run-31-%d", len(o.launcher.requests)), "user", "coding/Error/declined",
 			`{"_tag":"coding/Error","code":"declined","message":"Already done."}`)
 		o.wake()
 		require.Equal(t, "declined", o.item(31).State)
@@ -832,8 +832,7 @@ func TestMythicalNonMaintainerEditIsNotApproved(t *testing.T) {
 	// queued again by the maintainer's own edit.
 	o.wake()
 	require.Equal(t, "running", o.item(41).State)
-	o.project(o.launcher.last("coding/request"), jobs.StateFailed, "run-41",
-		`{"_tag":"coding/Error","code":"declined","message":"Already tidy."}`)
+	o.fail(o.launcher.last("coding/request"), "run-41", "user", "coding/Error/declined", `{"_tag":"coding/Error","code":"declined","message":"Already tidy."}`)
 	o.wake()
 	require.Equal(t, "declined", o.item(41).State)
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, botEdit, gitHubLabelApplication{}))

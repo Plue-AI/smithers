@@ -145,6 +145,12 @@ type Run struct {
 	// FinalOutput is the canonical committed root projection, when observed.
 	// Absence on a terminal run must never be interpreted as a successful result.
 	FinalOutput *string `json:"finalOutput,omitempty"`
+	// FailureFault is whose fault a failed run was, in the failure
+	// registry's classes (user, wait, infra, dependency, bug, factory,
+	// policy), and FailureTag its typed error as <_tag>/<code>. Both are
+	// empty unless the run failed with a registered error.
+	FailureFault string `json:"failureFault,omitempty"`
+	FailureTag   string `json:"failureTag,omitempty"`
 }
 
 type Observation struct {

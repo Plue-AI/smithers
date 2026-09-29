@@ -78,14 +78,11 @@ type MythicalService struct {
 	// (todoAuthors, agentIssueSources); without it no issue is a TODO
 	// automatically.
 	policy repositoryPolicyHost
-	// todoTokenCap is the tripwire on one TODO's metered spend
-	// (mythicalTodoTokenCap).
-	todoTokenCap int64
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
 	return &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
-		logger: slog.Default(), now: time.Now, todoTokenCap: mythicalTodoTokenCap(os.Getenv("SMITHERS_TODO_TOKEN_CAP"))}
+		logger: slog.Default(), now: time.Now}
 }
 
 // SetPolicyReader wires the repo host the stack reads the owner's

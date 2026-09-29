@@ -70,6 +70,7 @@ const EXPECTED_FLOWS = [
   "pr-triage",
   "release-notes",
   "review",
+  "review/change",
 ];
 
 const FIXTURE = "migrate-smithers-v1/test/fixtures/smithers-0x-hello";
@@ -479,7 +480,14 @@ describe("the dispatcher table", () => {
       assert.ok(!/workflow/i.test(rule.description), `${rule.event} sentence never says workflow`);
     }
     assert.ok(projection.on.some((rule) => rule.event === "issue.opened"));
-    assert.deepEqual(projection.github, { mirror: "pull", issues: "two-way", changes: "send-upstream" });
+    assert.deepEqual(projection.github, {
+      mirror: "pull",
+      issues: "two-way",
+      changes: "send-upstream",
+      maintainers: ["roninjin10"],
+      todoSince: "2026-09-29T00:00:00Z",
+      dailyTokens: 2_000_000_000
+    });
     assert.equal(typeof projection.summary, "string");
   });
 });

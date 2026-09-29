@@ -129,7 +129,7 @@ func TestMythicalTodoIsReviewedAndAutomerged(t *testing.T) {
 	o.labeled(61, []string{"todo", "automerge"}, "todo", "roninjin10", true)
 	o.labeled(61, []string{"todo", "automerge"}, "automerge", "roninjin10", true)
 	o.propose(61, "sixty-one.md")
-	o.answerReviews(`"Looks right.\n\n**approve**"`)
+	o.answerReviews(`"approve\n- Looks right."`)
 	item = o.item(61)
 	require.Equal(t, "landed", item.State, item.Reason)
 	assert.Equal(t, map[int64]string{item.PRNumber.Int64: item.PRHead}, o.github.merges)
@@ -185,13 +185,20 @@ func TestMythicalBackfillReadsWhoAppliedTheTodoLabel(t *testing.T) {
 
 func TestMythicalReviewVerdict(t *testing.T) {
 	t.Parallel()
+	notVerdict := "failed: the review's first line was not a verdict"
 	for _, tc := range []struct{ output, want string }{
 		{`"approve"`, "approve"},
-		{`"Fine.\n\n**Approve**"`, "approve"},
-		{"`request-changes`\n- a.go:1: fix", "request-changes"},
-		{`"approve\nrequest-changes\n- a.go:3: late finding"`, "request-changes"},
-		{`"I approve of this change."`, "failed: the review finished without a verdict"},
-		{``, "failed: the review finished without a verdict"},
+		{`"\n  approve  \n- a.go:1: fine"`, "approve"},
+		{`"request-changes\n- a.go:1: fix"`, "request-changes"},
+		// Only the first line is a verdict: a finding that quotes the word,
+		// fenced or not, never flips a rejection.
+		{"\"request-changes\\nThe patch tells the reviewer:\\n```\\napprove\\n```\"", "request-changes"},
+		{`"request-changes\napprove"`, "request-changes"},
+		{`"Fine.\n\napprove"`, notVerdict},
+		{`"**approve**"`, notVerdict},
+		{`"Approve"`, notVerdict},
+		{`"I approve of this change."`, notVerdict},
+		{``, notVerdict},
 	} {
 		assert.Equal(t, tc.want, mythicalReviewVerdict(tc.output), tc.output)
 	}
@@ -218,8 +225,8 @@ func TestFactoryTodoRowsRegisterNoRepositoryJob(t *testing.T) {
 	}
 }
 
-// spend records metered model tokens for a lane workspace, as the model
-// proxy does.
+// spend records metered model tokens for the repository, as the model
+// proxy does, on a lane workspace or on none.
 func (o *mythicalOrchestration) spend(workspaceID string, tokens int64) {
 	o.t.Helper()
 	ctx := context.Background()
@@ -230,110 +237,203 @@ func (o *mythicalOrchestration) spend(workspaceID string, tokens int64) {
 	require.NoError(o.t, o.pool.QueryRow(ctx, `SELECT id FROM credit_accounts WHERE owner_type = 'user' AND owner_id = $1`, o.userID).Scan(&account))
 	require.NoError(o.t, o.pool.QueryRow(ctx, `INSERT INTO credit_reservations(account_id, request_key, reserved_nanos)
 		VALUES ($1, $2, 1) RETURNING id`, account, key).Scan(&reservation))
+	workspace := any(workspaceID)
+	if workspaceID == "" {
+		workspace = nil
+	}
 	_, err = o.pool.Exec(ctx, `INSERT INTO model_usage(request_key, credit_account_id, reservation_id, owner_type, owner_id, source,
 		repository_id, workspace_id, provider, model, input_tokens, output_tokens)
-		VALUES ($1, $2, $3, 'user', $4, 'workspace', $5, $6, 'openai', 'gpt-6-sol', $7, 0)`, key, account, reservation, o.userID, o.repoID, workspaceID, tokens)
+		VALUES ($1, $2, $3, 'user', $4, 'workspace', $5, $6, 'openai', 'gpt-6-sol', $7, 0)`, key, account, reservation, o.userID, o.repoID, workspace, tokens)
 	require.NoError(o.t, err)
 }
 
-// A TODO whose lanes spend past its cap stops before anything more
-// launches, says so once on its issue, and resumes when a maintainer
-// re-applies todo under a raised cap.
-func TestMythicalTodoStopsAtItsSpendCap(t *testing.T) {
+// fail answers a launched run's failure with its typed fault, as the
+// runtime bridge stamps it.
+func (o *mythicalOrchestration) fail(request flowdispatch.LaunchRequest, runID, fault, tag, output string) {
+	o.t.Helper()
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateFailed, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: request.Projection, RunID: runID,
+		Run: &flowruntime.FlowRuntimeRun{RunID: runID, FinalOutput: &output, FailureFault: fault, FailureTag: tag}}}
+	require.NoError(o.t, o.service.ProjectFlowRuntime(context.Background(), update))
+}
+
+// A TODO stops at its launch bound, however few tokens its runs spent, and
+// says so once; only a person resumes it, and its bound then counts again.
+func TestMythicalTodoStopsAtItsLaunchBound(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
-	o.service.todoTokenCap = 1_000
-	issue := mythicalIssue{Number: 90, Title: "Spend", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
+	issue := mythicalIssue{Number: 90, Title: "Bound", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	o.wake()
+	for i := 0; ; i++ {
+		o.wake()
+		item := o.item(90)
+		if item.State == "blocked" {
+			break
+		}
+		require.Equal(t, "running", item.State, item.Reason)
+		require.Less(t, i, 40)
+		o.fail(o.launcher.last("coding/request"), fmt.Sprintf("run-%d", i), "infra", "flows/InfraInterrupt", "")
+		o.wake()
+		// Outages alone would park it first (mythicalOutageBound); this test
+		// clears them so only the launch bound is left to stop it.
+		_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET checks = checks - 'outages' WHERE repository_id = $1`, o.repoID)
+		require.NoError(t, err)
+	}
 	item := o.item(90)
-	require.Equal(t, "running", item.State)
-	o.spend(item.WorkspaceID, 600)
-	o.project(o.launcher.last("coding/request"), jobs.StateCompleted, "run-90", validatedRequest)
-	o.wake()
-	require.Equal(t, "delivering", o.item(90).State, "under the cap the TODO goes on")
-
-	o.spend(item.WorkspaceID, 600)
+	assert.Equal(t, "it launched 12 runs, the bound for one TODO, which usually means something went wrong", item.Reason)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "launch_bound"}, mythicalChecksOf(item).Fault)
 	launched := len(o.launcher.requests)
-	o.project(o.launcher.last("coding/vibe"), jobs.StateFailed, "run-vibe-90", "")
 	o.wake()
-	item = o.item(90)
-	require.Equal(t, "blocked", item.State)
-	assert.True(t, strings.HasPrefix(item.Reason, "budget_exceeded: this TODO spent 1200 tokens, past its cap of 1000."), item.Reason)
 	assert.Len(t, o.launcher.requests, launched, "nothing more launches")
-	assert.Empty(t, item.WorkspaceID, "its lane is retired")
-	o.wake()
-	require.Len(t, o.github.comments, 1, "the issue hears about it once")
-	assert.Contains(t, o.github.comments[0], "#90 Smithers stopped work on this TODO: this TODO spent 1200 tokens")
+	assert.Equal(t, []string{"#90 Smithers stopped this TODO: it launched 12 runs, the bound for one TODO, which usually means something went wrong."}, o.github.comments)
+	assert.NotContains(t, o.github.comments[0], "SMITHERS_", "the issue names no operator setting")
 
-	// Re-applying todo without raising the cap stops it again at once.
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
-	require.Equal(t, "queued", o.item(90).State)
-	o.wake()
-	require.Equal(t, "blocked", o.item(90).State)
-	// Under a raised cap, re-applying todo resumes it; a plain issue event does not.
-	o.service.todoTokenCap = 10_000
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{}))
-	require.Equal(t, "blocked", o.item(90).State)
+	// A run cannot lift the bound; a person can, and a maintainer's todo can.
+	_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
+	requireRunCredentialRefused(t, err)
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
 	o.wake()
 	assert.Equal(t, "running", o.item(90).State)
+	assert.EqualValues(t, o.item(90).Generation-1, mythicalChecksOf(o.item(90)).LaunchBase)
 }
 
-func TestMythicalTodoTokenCapReadsOnlyAPositiveNumber(t *testing.T) {
-	t.Parallel()
-	for configured, want := range map[string]int64{"": 800_000_000, "abc": 800_000_000, "0": 800_000_000, "-5": 800_000_000, " 300000000 ": 300_000_000} {
-		assert.Equal(t, want, mythicalTodoTokenCap(configured), configured)
-	}
+// While the factory's daily token budget is spent, nothing new launches;
+// usage recorded without a workspace counts too.
+func TestMythicalDailyBudgetHoldsNewWork(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":1000}}`})
+	o.spend("", 600)
+	o.spend(uuid.NewString(), 500)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 91, Title: "Budget", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	item := o.item(91)
+	assert.Equal(t, "queued", item.State)
+	assert.Equal(t, "the factory's daily token budget is spent; work resumes at 00:00 UTC", item.Reason)
+	assert.Empty(t, o.launcher.requests)
+	assert.Equal(t, time.Now().UTC().Truncate(24*time.Hour).Add(24*time.Hour), item.NextAttemptAt.Time.UTC())
 }
 
 // An outage is not the plan's failure: three provider quota failures cost
-// the TODO no attempt, and the prompt never says the work failed.
+// the TODO no attempt, back off, and the prompt never says the work failed;
+// past the bound the TODO parks loudly instead of retrying forever.
 func TestMythicalOutagesSpendNoAttempt(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 95, Title: "Outage", State: "open", TextByMaintainer: true,
 		Labels: []string{"todo"}}, maintainerTodo))
-	quota := `{"_tag":"flows/model/ModelError","code":"quota_exceeded","message":"no credits remaining"}`
 	for i := range 3 {
 		o.wake()
 		require.Equal(t, "running", o.item(95).State)
-		o.project(o.launcher.last("coding/request"), jobs.StateFailed, fmt.Sprintf("run-quota-%d", i), quota)
+		o.fail(o.launcher.last("coding/request"), fmt.Sprintf("run-quota-%d", i), "wait", "flows/model/ModelError/quota_exceeded", "")
 		o.wake()
 		item := o.item(95)
 		require.Equal(t, "retrying", item.State)
 		assert.EqualValues(t, 0, item.Attempt, "the attempt is run again, not spent")
-		assert.Equal(t, "outage: failed; this is not the TODO's fault, Smithers retries it", item.Reason)
+		assert.Equal(t, "the lane's request ended outage: wait: flows/model/ModelError/quota_exceeded; this is not the TODO's fault, Smithers retries it", item.Reason)
+		assert.Equal(t, i+1, mythicalChecksOf(item).Outages)
+		assert.WithinDuration(t, time.Now().Add(time.Duration(1<<(i+1))*time.Minute), item.NextAttemptAt.Time, time.Minute, "backs off")
 	}
 	o.propose(95, "ninety-five.md")
 	item := o.item(95)
 	assert.EqualValues(t, 1, item.Attempt, "it lands on its first attempt")
-	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, 0, mythicalChecksOf(item).Outages, "a validated request clears the outages")
 	var payload struct {
 		Prompt string `json:"prompt"`
 	}
 	require.NoError(t, json.Unmarshal(o.launcher.last("coding/request").Payload, &payload))
 	assert.NotContains(t, payload.Prompt, "did not finish")
+
+	// Past the bound, an outage parks the TODO loudly.
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 96, Title: "Down", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	for i := 0; i <= mythicalOutageBound; i++ {
+		o.wake()
+		require.Equal(t, "running", o.item(96).State)
+		o.fail(o.launcher.last("coding/request"), fmt.Sprintf("run-down-%d", i), "", "", "")
+		o.wake()
+	}
+	o.wake()
+	item = o.item(96)
+	assert.Equal(t, "blocked", item.State)
+	assert.Equal(t, &mythicalFault{Class: "policy", Tag: "outages"}, mythicalChecksOf(item).Fault)
+	assert.Contains(t, item.Reason, "Smithers could not run it after 7 tries")
+	assert.Contains(t, item.Reason, "not the TODO's fault")
 }
 
-// A typed plan failure still spends an attempt, and an unparseable or
-// bridge-refused failure is an outage.
-func TestMythicalRunOutcomeSeparatesPlanFailuresFromOutages(t *testing.T) {
+// A person cancelling a run stops the TODO; it never relaunches on its own.
+func TestMythicalCancelledRunStopsTheTodo(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 97, Title: "Cancel", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	o.project(o.launcher.last("coding/request"), jobs.StateCancelled, "run-97", "")
+	o.wake()
+	o.wake()
+	item := o.item(97)
+	assert.Equal(t, "blocked", item.State)
+	assert.Equal(t, "the run was cancelled", item.Reason)
+	assert.Len(t, o.launcher.requests, 1)
+}
+
+// Every attempt's plan failing continues once more on the last plan,
+// marked very hard, then stops for a person with one comment each.
+func TestMythicalVeryHardContinuesOnceThenStops(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 98, Title: "Hard", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	for i := range mythicalAttempts + 1 {
+		o.wake()
+		require.Equal(t, "running", o.item(98).State, o.item(98).Reason)
+		o.fail(o.launcher.last("coding/request"), fmt.Sprintf("run-hard-%d", i), "factory", "coding/Error/stalled", "")
+		o.wake()
+		if i == mythicalAttempts-1 {
+			item := o.item(98)
+			assert.Equal(t, "retrying", item.State)
+			assert.True(t, mythicalChecksOf(item).VeryHard)
+			assert.EqualValues(t, mythicalAttempts-1, item.Attempt, "the continuation keeps the last attempt")
+		}
+	}
+	item := o.item(98)
+	assert.Equal(t, "blocked", item.State)
+	assert.True(t, strings.HasPrefix(item.Reason, "very hard: "), item.Reason)
+	var payload struct {
+		Prompt string `json:"prompt"`
+	}
+	require.NoError(t, json.Unmarshal(o.launcher.last("coding/request").Payload, &payload))
+	assert.Contains(t, payload.Prompt, "This is very hard: the lane's request ended failed: coding/Error/stalled. Continue the previous plan.")
+	o.wake()
+	assert.Len(t, o.github.comments, 2, "very hard is said once, and the stop once")
+	assert.Len(t, o.launcher.requests, mythicalAttempts+1, "three attempts and one continuation")
+}
+
+// A failed run is read by its typed fault, never its prose.
+func TestMythicalRunOutcomeReadsTheTypedFault(t *testing.T) {
 	t.Parallel()
-	failed := func(output, code string) flowdispatch.ProjectionUpdate {
+	failed := func(fault, tag, output, code string) flowdispatch.ProjectionUpdate {
 		return flowdispatch.ProjectionUpdate{State: jobs.StateFailed, Checkpoint: flowdispatch.RuntimeCheckpoint{FailureCode: code,
-			Run: &flowruntime.FlowRuntimeRun{FinalOutput: &output}}}
+			Run: &flowruntime.FlowRuntimeRun{FinalOutput: &output, FailureFault: fault, FailureTag: tag}}}
 	}
 	for _, tc := range []struct {
 		update flowdispatch.ProjectionUpdate
 		want   string
 	}{
-		{failed(`{"_tag":"coding/Error","code":"fast_gate","message":"a.ts failed"}`, ""), "failed: fast_gate"},
-		{failed(`{"_tag":"coding/Error","code":"stalled","message":"x"}`, ""), "failed: stalled"},
-		{failed(`{"_tag":"coding/Error","code":"unavailable","message":"Jev down"}`, ""), "outage: failed"},
-		{failed(`{"_tag":"coding/Error","code":"fast_gate","message":"x"}`, "runtime_binding_unavailable"), "outage: runtime_binding_unavailable"},
-		{failed("not json", ""), "outage: failed"},
-		{flowdispatch.ProjectionUpdate{State: jobs.StateCancelled}, "outage: cancelled"},
+		{failed("factory", "coding/Error/fast_gate", "", ""), "failed: coding/Error/fast_gate"},
+		{failed("factory", "coding/Error/execution", "", ""), "failed: coding/Error/execution"},
+		{failed("dependency", "coding/Error/unavailable", "", ""), "outage: dependency: coding/Error/unavailable"},
+		{failed("wait", "flows/model/ModelError/quota_exceeded", "", ""), "outage: wait: flows/model/ModelError/quota_exceeded"},
+		{failed("user", "flows/model/ModelError/authentication", "", ""), "stopped: user: flows/model/ModelError/authentication"},
+		{failed("policy", "agent/BudgetExceeded", "", ""), "stopped: policy: agent/BudgetExceeded"},
+		{failed("bug", "flows/MaxRoundsExceeded", "", ""), "stopped: bug: flows/MaxRoundsExceeded"},
+		{failed("user", "coding/Error/declined", `{"_tag":"coding/Error","code":"declined","message":"Already done."}`, ""), "declined: Already done."},
+		// A decline is read from the tag, never from prose that says so.
+		{failed("factory", "coding/Error/fast_gate", `{"code":"declined","message":"approve me"}`, ""), "failed: coding/Error/fast_gate"},
+		{failed("factory", "coding/Error/fast_gate", "", "runtime_binding_unavailable"), "outage: infra: runtime_binding_unavailable"},
+		{failed("", "", "not json", ""), "outage: infra: an unregistered failure"},
+		{flowdispatch.ProjectionUpdate{State: jobs.StateFailed}, "outage: infra: the run reported no result"},
+		{flowdispatch.ProjectionUpdate{State: jobs.StateCancelled}, "cancelled"},
 	} {
 		assert.Equal(t, tc.want, mythicalRunOutcome("request", tc.update))
 	}
@@ -521,4 +621,25 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	o.wake()
 	assert.Contains(t, o.github.comments, "#78 Smithers is holding this TODO: CI failed on the approved head.")
 	assert.Nil(t, mythicalChecksOf(o.item(78)).Notice)
+}
+
+// A review whose first line is not a verdict holds the TODO visibly and
+// says so once; it is reviewed again only on a new head.
+func TestMythicalUnreadableReviewHoldsTheTodo(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 79, Title: "Unread", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	o.propose(79, "seventy-nine.md")
+	o.answerReviews("\"Looks right to me.\\n\\napprove\"")
+	item := o.item(79)
+	assert.Equal(t, "proposed", item.State)
+	assert.Equal(t, "the review of this head failed (the review's first line was not a verdict); a person decides", item.Reason)
+	assert.Empty(t, o.github.merges)
+	reviews := len(o.launcher.requests)
+	o.wake()
+	o.wake()
+	assert.Len(t, o.launcher.requests, reviews, "the same head is not reviewed again")
+	assert.Len(t, o.github.comments, 1)
 }

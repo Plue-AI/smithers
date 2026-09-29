@@ -59,8 +59,8 @@ export const factory = S.Factory({
     // merges it once the review approves a TODO a maintainer also labeled
     // automerge. Anyone else's todo or automerge label is taken off.
     "issue.labeled:todo": { flow: "coding/request", description: "Implement every TODO" },
-    "change.opened": { flow: "review", description: "Review every Change" },
-    "change.updated": { flow: "review", description: "Review every Change" },
+    "change.opened": { flow: "review/change", description: "Review every Change" },
+    "change.updated": { flow: "review/change", description: "Review every Change" },
     // The stack service itself folds main into the mythical history after
     // every landing and GitHub main pull, then refreshes the wiki on the
     // folded tip (coding/wiki); these rows declare the flows it runs.
