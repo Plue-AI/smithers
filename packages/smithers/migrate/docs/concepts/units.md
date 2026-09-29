@@ -16,12 +16,16 @@ execution per unit, in plan order.
 
 ## The four kinds, in a fixed order
 
-| Order | Kind                 | What it does                                                                                      |
-| ----- | -------------------- | ------------------------------------------------------------------------------------------------- |
-| 1     | `dependencies`       | Adds the 1.0 packages and `effect` to every manifest that declares a 0.x package, and installs.   |
-| 2     | `workflow:<name>`    | Rewrites one workflow file, with the components, libraries, and prompts it owns.                  |
-| 3     | `integration:<name>` | Rewrites one integration seam.                                                                    |
-| 4     | `project`            | Removes the 0.x packages, the JSX settings, the preload, the agent pool, and the old CLI scripts. |
+| Order | Kind                 | What it does                                                                                          |
+| ----- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| 1     | `dependencies`       | Adds the 1.0 packages and `effect` to every manifest that declares a 0.x package, and installs.       |
+| 2     | `workflow:<name>`    | Rewrites one workflow file, with the components, libraries, and prompts it owns.                      |
+| 3     | `integration:<name>` | Rewrites one integration seam.                                                                        |
+| 4     | `project`            | Removes the 0.x packages, the 0.x JSX settings, the preload, the agent pool, and the old CLI scripts. |
+
+Project cleanup removes `jsx` and `jsxImportSource` only when the import
+source identifies a retired Smithers runtime. React and other JSX settings
+are preserved and accepted by final verification.
 
 The order is not a preference. The new packages go in first so every later unit
 can import them, and the old packages come out last, once nothing depends on

@@ -94,6 +94,43 @@ describe("Archive.rewriteManifest", () => {
 })
 
 describe("Archive.rewriteTsconfig", () => {
+  it.each([undefined, null, 42, false, {}])("does not classify a non-string JSX source as retired: %j", (source) => {
+    expect(Archive.isOldJsxImportSource(source)).toBe(false)
+  })
+
+  it("preserves an untouched React tsconfig byte for byte", () => {
+    const text =
+      "{\n  // Retained UI\n  \"compilerOptions\": { \"jsx\": \"react-jsx\", \"jsxImportSource\": \"react\" }\n}\n"
+    expect(Archive.rewriteTsconfig(text)).toBe(text)
+  })
+
+  it.each([
+    { jsx: "react-jsx", jsxImportSource: "react" },
+    { jsx: "react-jsxdev", jsxImportSource: "preact" },
+    { jsx: "preserve", jsxImportSource: "solid-js" },
+    { jsx: "react" },
+    { jsx: "preserve" },
+    { jsx: "react-jsx", jsxImportSource: "smithers" },
+    { jsx: "react-jsx", jsxImportSource: "@smthrs/core" }
+  ])("preserves JSX settings without evidence of a retired runtime: %j", (options) => {
+    const compilerOptions = { ...options, strict: true, paths: { "smthrs/*": ["./legacy/*"], "@app/*": ["./src/*"] } }
+    expect(JSON.parse(Archive.rewriteTsconfig(JSON.stringify({ compilerOptions })))).toEqual({
+      compilerOptions: { ...options, strict: true, paths: { "@app/*": ["./src/*"] } }
+    })
+  })
+
+  it.each([
+    { source: "smthrs", context: {} },
+    { source: "smithers-orchestrator", context: {} },
+    { source: "smithers", context: { localFacade: true } },
+    { source: "@smthrs/core", context: { oldScoped: ["core"] } }
+  ])("removes JSX settings supported by legacy evidence: %j", ({ source, context }) => {
+    const compilerOptions = { jsx: "react-jsx", jsxImportSource: source, strict: true }
+    expect(JSON.parse(Archive.rewriteTsconfig(JSON.stringify({ compilerOptions }), context))).toEqual({
+      compilerOptions: { strict: true }
+    })
+  })
+
   it("removes the JSX settings that made every .tsx resolve through the old runtime", () => {
     const rewritten = JSON.parse(Archive.rewriteTsconfig(read("jsx-single", "tsconfig.json"))) as {
       compilerOptions: Record<string, unknown>
@@ -118,10 +155,10 @@ describe("Archive.rewriteTsconfig", () => {
 
   it("reads a tsconfig that carries comments", () => {
     const rewritten = Archive.rewriteTsconfig(`{
-  // the old pragma
+  // ordinary JSX configuration
   "compilerOptions": { "jsx": "react-jsx", "strict": true }
 }`)
-    expect(JSON.parse(rewritten)).toEqual({ compilerOptions: { strict: true } })
+    expect(JSON.parse(rewritten)).toEqual({ compilerOptions: { jsx: "react-jsx", strict: true } })
   })
 
   it("keeps an include list whose globs look like comments", () => {

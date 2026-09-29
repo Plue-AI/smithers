@@ -668,7 +668,7 @@ export const postconditions = (
         if (typeof compiler !== "object" || compiler === null) continue
         const options = compiler as Record<string, unknown>
         for (const key of ["jsx", "jsxImportSource"]) {
-          if (options[key] !== undefined) {
+          if (Archive.isOldJsxImportSource(options.jsxImportSource, outline.specifiers) && options[key] !== undefined) {
             settings.push({ file, line: 1, message: `compilerOptions.${key} still points at the 0.x JSX runtime` })
           }
         }

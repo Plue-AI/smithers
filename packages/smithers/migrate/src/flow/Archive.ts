@@ -233,11 +233,20 @@ export const isOldPathsKey = (key: string, specifiers: Detect.SpecifierContext =
   Detect.isOldSpecifier(key.replace(/\*+$/, ""), specifiers)
 
 /**
- * Removes the JSX settings and the old path mappings from a tsconfig.
+ * Reports whether a JSX import source identifies a retired Smithers runtime.
+ * Uses the same manifest evidence as legacy imports; JSX mode alone does not
+ * identify a runtime.
  *
- * `jsx` and `jsxImportSource` are what made every `.tsx` in the project resolve
- * elements through the old runtime; leaving them would keep the JSX era
- * compiling after its sources are gone.
+ * @category checks
+ * @since 1.0.0-rc.0
+ */
+export const isOldJsxImportSource = (source: unknown, specifiers: Detect.SpecifierContext = {}): boolean =>
+  typeof source === "string" && Detect.isOldSpecifier(source, specifiers)
+
+/**
+ * Removes retired Smithers JSX settings and old path mappings from a tsconfig.
+ * Unrelated JSX settings are preserved, including a mode without an explicit
+ * import source, because retained UI may still need them.
  *
  * Which mappings are old is {@link isOldPathsKey}'s answer, and the unit's own
  * scan is what it is answered from: `smithers` is the old facade where a
@@ -248,21 +257,26 @@ export const isOldPathsKey = (key: string, specifiers: Detect.SpecifierContext =
  */
 export const rewriteTsconfig = (text: string, specifiers: Detect.SpecifierContext = {}): string => {
   const config = JSON.parse(stripComments(text)) as Record<string, unknown>
+  const before = JSON.stringify(config)
   const options = config.compilerOptions
   if (typeof options === "object" && options !== null) {
     const compiler = options as Record<string, unknown>
-    delete compiler.jsx
-    delete compiler.jsxImportSource
+    if (isOldJsxImportSource(compiler.jsxImportSource, specifiers)) {
+      delete compiler.jsx
+      delete compiler.jsxImportSource
+    }
     const paths = compiler.paths
     if (typeof paths === "object" && paths !== null) {
       const kept = Object.fromEntries(
         Object.entries(paths as Record<string, unknown>).filter(([key]) => !isOldPathsKey(key, specifiers))
       )
-      if (Object.keys(kept).length === 0) delete compiler.paths
-      else compiler.paths = kept
+      if (Object.keys(kept).length !== Object.keys(paths).length) {
+        if (Object.keys(kept).length === 0) delete compiler.paths
+        else compiler.paths = kept
+      }
     }
   }
-  return `${JSON.stringify(config, null, 2)}\n`
+  return JSON.stringify(config) === before ? text : `${JSON.stringify(config, null, 2)}\n`
 }
 
 /**

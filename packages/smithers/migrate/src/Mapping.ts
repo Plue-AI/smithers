@@ -538,7 +538,7 @@ const table: ReadonlyArray<MappingRow> = [
     "tsconfig.json",
     "The flows tsconfig shape",
     null,
-    "`jsx`, `jsxImportSource`, and the `smthrs` path mappings are removed in the final unit.",
+    "`jsx` and `jsxImportSource` are removed only when the import source identifies a retired Smithers runtime; unrelated JSX settings are preserved. Old `smthrs` path mappings are removed in the final unit.",
     "automatic"
   ),
   row(
