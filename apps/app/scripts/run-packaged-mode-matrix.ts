@@ -51,68 +51,18 @@ if (externalPath !== undefined) {
   }
 }
 
+const plueTarget = process.env.SMITHERS_MODE_MATRIX_PLUE_URL?.trim()
+const plueTokenEnvironment = "SMITHERS_MODE_MATRIX_PLUE_TOKEN"
+if (plueTarget && process.env[plueTokenEnvironment]?.trim() && (wants("web-plue") || wants("local-plue")) &&
+  external.modes.some(({ mode }) => mode === "web-plue" || mode === "local-plue")) {
+  throw new Error("external configuration must not duplicate the configured Plue web or local target")
+}
+
 let session: WebSelfhostSession | undefined
 let localSession: LocalOwnSession | undefined
 let nativeSession: NativeOwnSession | undefined
 let plueSessions: PlueSession[] = []
 let launchFailure: unknown
-if (wants("web-selfhost")) try {
-  session = await startPackagedWebSelfhost({
-    rootDir,
-    revision,
-    outputDir,
-    ...(process.env.SMITHERS_MODE_MATRIX_IMAGE ? { image: process.env.SMITHERS_MODE_MATRIX_IMAGE } : {}),
-    ...(option("--auth-environment") === undefined ? {} : { authEnvironment: option("--auth-environment") })
-  })
-} catch (error) {
-  launchFailure = error
-  console.error(`web-selfhost launch failed: ${error instanceof Error ? error.message : String(error)}`)
-}
-const plueTarget = process.env.SMITHERS_MODE_MATRIX_PLUE_URL?.trim()
-const plueTokenEnvironment = "SMITHERS_MODE_MATRIX_PLUE_TOKEN"
-if (plueTarget && process.env[plueTokenEnvironment]?.trim() && (wants("web-plue") || wants("local-plue"))) {
-  if (external.modes.some(({ mode }) => mode === "web-plue" || mode === "local-plue")) {
-    throw new Error("external configuration must not duplicate the configured Plue web or local target")
-  }
-  if (wants("web-plue")) try { plueSessions.push(await startWebPlue(outputDir, plueTarget, plueTokenEnvironment)) }
-  catch (error) {
-    launchFailure = error
-    console.error(`web-plue launch failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  if (wants("local-plue")) try { plueSessions.push(await startLocalPlue(appDir, revision, outputDir, plueTarget, plueTokenEnvironment)) }
-  catch (error) {
-    launchFailure = error
-    console.error(`local-plue launch failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
-}
-if (wants("local-own")) try {
-  localSession = await startLocalOwn(rootDir, revision, outputDir)
-} catch (error) {
-  launchFailure = error
-  console.error(`local-own launch failed: ${error instanceof Error ? error.message : String(error)}`)
-}
-const nativeExecutable = process.env.SMITHERS_MODE_MATRIX_NATIVE_EXECUTABLE?.trim()
-const nativeCDP = process.env.SMITHERS_MODE_MATRIX_NATIVE_CDP_ENDPOINT?.trim()
-if (wants("native-own") && Boolean(nativeExecutable) !== Boolean(nativeCDP)) {
-  const error = new Error("native-own requires both SMITHERS_MODE_MATRIX_NATIVE_EXECUTABLE and SMITHERS_MODE_MATRIX_NATIVE_CDP_ENDPOINT")
-  launchFailure = error
-  console.error(error.message)
-}
-if (nativeExecutable && nativeCDP && wants("native-own")) {
-  try { nativeSession = await startNativeOwn(revision, outputDir, nativeExecutable, nativeCDP) }
-  catch (error) {
-    launchFailure = error
-    console.error(`native-own launch failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
-}
-
-const config: MatrixConfig = {
-  revision,
-  modes: [...(session === undefined ? [] : [session.modeConfig]), ...(localSession === undefined ? [] : [localSession.modeConfig]),
-    ...(nativeSession === undefined ? [] : [nativeSession.modeConfig]), ...plueSessions.map(({ modeConfig }) => modeConfig), ...external.modes]
-}
-writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
-
 let matrixCode = 1
 let teardownFailure: unknown
 const stop = async (): Promise<void> => {
@@ -139,6 +89,58 @@ const interrupt = (signal: NodeJS.Signals): void => {
 process.once("SIGINT", interrupt)
 process.once("SIGTERM", interrupt)
 try {
+  if (wants("web-selfhost")) try {
+    session = await startPackagedWebSelfhost({
+      rootDir,
+      revision,
+      outputDir,
+      ...(process.env.SMITHERS_MODE_MATRIX_IMAGE ? { image: process.env.SMITHERS_MODE_MATRIX_IMAGE } : {}),
+      ...(option("--auth-environment") === undefined ? {} : { authEnvironment: option("--auth-environment") })
+    })
+  } catch (error) {
+    launchFailure = error
+    console.error(`web-selfhost launch failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (plueTarget && process.env[plueTokenEnvironment]?.trim() && (wants("web-plue") || wants("local-plue"))) {
+    if (wants("web-plue")) try { plueSessions.push(await startWebPlue(outputDir, plueTarget, plueTokenEnvironment)) }
+    catch (error) {
+      launchFailure = error
+      console.error(`web-plue launch failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (wants("local-plue")) try { plueSessions.push(await startLocalPlue(appDir, revision, outputDir, plueTarget, plueTokenEnvironment)) }
+    catch (error) {
+      launchFailure = error
+      console.error(`local-plue launch failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  if (wants("local-own")) try {
+    localSession = await startLocalOwn(rootDir, revision, outputDir)
+  } catch (error) {
+    launchFailure = error
+    console.error(`local-own launch failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  const nativeExecutable = process.env.SMITHERS_MODE_MATRIX_NATIVE_EXECUTABLE?.trim()
+  const nativeCDP = process.env.SMITHERS_MODE_MATRIX_NATIVE_CDP_ENDPOINT?.trim()
+  if (wants("native-own") && Boolean(nativeExecutable) !== Boolean(nativeCDP)) {
+    const error = new Error("native-own requires both SMITHERS_MODE_MATRIX_NATIVE_EXECUTABLE and SMITHERS_MODE_MATRIX_NATIVE_CDP_ENDPOINT")
+    launchFailure = error
+    console.error(error.message)
+  }
+  if (nativeExecutable && nativeCDP && wants("native-own")) {
+    try { nativeSession = await startNativeOwn(revision, outputDir, nativeExecutable, nativeCDP) }
+    catch (error) {
+      launchFailure = error
+      console.error(`native-own launch failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  const config: MatrixConfig = {
+    revision,
+    modes: [...(session === undefined ? [] : [session.modeConfig]), ...(localSession === undefined ? [] : [localSession.modeConfig]),
+      ...(nativeSession === undefined ? [] : [nativeSession.modeConfig]), ...plueSessions.map(({ modeConfig }) => modeConfig), ...external.modes]
+  }
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
+
   const matrix = Bun.spawn([
     "bun", "scripts/run-mode-matrix.ts", matrixCommand,
     "--config", configPath,
@@ -152,6 +154,9 @@ try {
     stderr: "inherit"
   })
   matrixCode = await matrix.exited
+} catch (error) {
+  console.error(error)
+  process.exitCode = 1
 } finally {
   process.off("SIGINT", interrupt)
   process.off("SIGTERM", interrupt)
