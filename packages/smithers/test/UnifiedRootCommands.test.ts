@@ -1,7 +1,8 @@
 import * as Audience from "@smthrs/build-cli/Audience"
 import type { RuntimeConfig } from "@smthrs/build-cli/Cli"
 import { Effect } from "effect"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { DatabaseSync } from "node:sqlite"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
@@ -130,6 +131,43 @@ const invoke = async (args: Array<string>, overrides: RuntimeConfig = {}) => {
 }
 
 describe("unified root command dispatch", () => {
+  it("cache steps conditional evict preserves a foreign run and removes only matching heads", async () => {
+    const root = mkdtempSync(join(directory, "step-cache-"))
+    mkdirSync(join(root, ".flows"))
+    const db = new DatabaseSync(join(root, ".flows", "engine.db"))
+    try {
+      db.exec(`CREATE TABLE flows_step_cache (
+        key_digest TEXT PRIMARY KEY, result_json TEXT NOT NULL, meta_json TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL, recorded_run_id TEXT NOT NULL,
+        recorded_event_seq INTEGER NOT NULL
+      )`)
+      const put = db.prepare(
+        "INSERT INTO flows_step_cache VALUES (?, ?, ?, ?, ?, ?)"
+      )
+      put.run("poisoned", '{"value":1}', "{}", 1000, "run-one", 1)
+      const wrong = await invoke(["cache", "steps", "evict", "poisoned", "--if-recorded-by", "run-two", "--root", root, "--json"])
+      expect(wrong.codes).not.toContain(1)
+      expect(db.prepare("SELECT recorded_run_id FROM flows_step_cache WHERE key_digest = ?").get("poisoned"))
+        .toMatchObject({ recorded_run_id: "run-one" })
+      const shown = await invoke(["cache", "steps", "show", "poisoned", "--root", root, "--json"])
+      expect(shown.stdout).toContain("run-one")
+      const removed = await invoke(["cache", "steps", "evict", "poisoned", "--if-recorded-by", "run-one", "--root", root, "--json"])
+      expect(removed.codes).not.toContain(1)
+      expect(db.prepare("SELECT 1 FROM flows_step_cache WHERE key_digest = ?").get("poisoned")).toBeUndefined()
+      // A later execution can publish a fresh result under the same digest.
+      put.run("poisoned", '{"value":2}', "{}", Date.now(), "run-two", 2)
+      put.run("stale", '{"value":0}', "{}", 1000, "old-run", 3)
+      const listed = await invoke(["cache", "steps", "ls", "--root", root, "--json"])
+      expect(listed.stdout).toContain("poisoned")
+      const sweep = await invoke(["cache", "steps", "sweep", "--older-than", "7d", "--root", root, "--json"])
+      expect(sweep.codes).not.toContain(1)
+      expect(db.prepare("SELECT 1 FROM flows_step_cache WHERE key_digest = ?").get("stale")).toBeUndefined()
+      expect(db.prepare("SELECT recorded_run_id FROM flows_step_cache WHERE key_digest = ?").get("poisoned"))
+        .toMatchObject({ recorded_run_id: "run-two" })
+    } finally {
+      db.close()
+    }
+  })
   it("keeps help/schema inert across every root command", async () => {
     for (const command of ["init", "doctor", "serve", "gc", "suggest", "open", "tui", "migrate", "update", "bug"]) {
       const result = await invoke([command, "--help"])

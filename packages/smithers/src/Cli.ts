@@ -20,6 +20,7 @@ import * as Generate from "./cli/Generate.ts"
 import { createGenerateCli, initialize } from "./cli/Generate.ts"
 import { appendHistoryCommands } from "./cli/HistoryCommands.ts"
 import * as Presentation from "./cli/Presentation.ts"
+import { createStepCacheCli } from "./cli/StepCacheCommands.ts"
 import * as CliError from "./CliError.ts"
 import * as BugCmd from "./commands/Bug.ts"
 import * as DoctorCmd from "./commands/Doctor.ts"
@@ -107,7 +108,8 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     ...config,
     cliName: "smthrs",
     cliVersion: packageVersion,
-    cliDescription: "Build workspace targets and operate durable agent flows"
+    cliDescription: "Build workspace targets and operate durable agent flows",
+    cacheSteps: createStepCacheCli()
   })
   cli.use((context, next) => Presentation.scope(context, config, next))
   cli

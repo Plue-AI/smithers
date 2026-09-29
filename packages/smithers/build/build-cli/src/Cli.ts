@@ -142,6 +142,8 @@ export interface RuntimeConfig {
   readonly cliDescription?: string | undefined
   readonly cacheUrl?: string | undefined
   readonly cacheToken?: string | undefined
+  /** Optional durable step-cache commands supplied by the unified CLI. */
+  readonly cacheSteps?: ReturnType<typeof Cli.create> | undefined
   readonly signal?: AbortSignal | undefined
   /**
    * The environment PACKAGE.ts execution reads for agent-fake selection
@@ -1013,8 +1015,8 @@ const showTarget = async (
   }
 }
 
-const cacheCli = (config: RuntimeConfig) =>
-  Cli.create("cache", { description: "Inspect and maintain local action-result caches" })
+const cacheCli = (config: RuntimeConfig) => {
+  const cache = Cli.create("cache", { description: "Inspect and maintain local action-result caches" })
     .command("status", {
       description: "Report cache size and configured remote without exposing credentials",
       mcp: { annotations: { readOnlyHint: true } },
@@ -1079,6 +1081,8 @@ const cacheCli = (config: RuntimeConfig) =>
         }
       }
     })
+  return config.cacheSteps === undefined ? cache : cache.command(config.cacheSteps)
+}
 
 const makeCommands = (config: RuntimeConfig) =>
   Cli.create(config.cliName ?? "smithers-build", {
