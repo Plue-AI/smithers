@@ -11,6 +11,7 @@ import { Cli, z } from "incur"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
+import * as CliError from "../CliError.ts"
 import { cancelAll } from "../commands/CancelAll.ts"
 import * as FlowCatalog from "../commands/FlowCatalog.ts"
 import * as Globals from "../commands/Globals.ts"
@@ -441,8 +442,20 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
         guard(c, () => Bridge.invoke(["steer", c.args.run, "--message", c.options.message], c.options, runtime))
     })
 
-const payload = async (value: string): Promise<string> =>
-  value.startsWith("@") ? readFile(value.slice(1), "utf8") : value
+const payload = async (value: string): Promise<string> => {
+  if (!value.startsWith("@")) return value
+  const path = value.slice(1)
+  try {
+    return await readFile(path, "utf8")
+  } catch (cause) {
+    const missing = (cause as { readonly code?: unknown } | null)?.code === "ENOENT"
+    throw new CliError.Refused({
+      fault: "user",
+      code: "payload_unreadable",
+      message: missing ? `The payload file ${path} does not exist.` : `The payload file ${path} cannot be read.`
+    })
+  }
+}
 
 /**
  * What a human wait asks, read off the run summary rather than the journal.

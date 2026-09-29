@@ -43,19 +43,6 @@ process.once("SIGINT", onSigint)
 process.once("SIGTERM", onSigterm)
 
 /**
- * The name an operator reads for a failure.
- *
- * Every `@smthrs/control` failure is a `Schema.TaggedError` whose `_tag` is a
- * namespaced path, and Effect uses that whole path as the error's `name`. The
- * operator wants the class, not the namespace it lives in, so the last segment
- * is what this prints: `NoMatchingWait`, not `/control/NoMatchingWait`.
- */
-const errorName = (error: Error): string => {
-  const tag = (error as { readonly _tag?: unknown })._tag
-  return typeof tag === "string" && tag.length > 0 ? tag.slice(tag.lastIndexOf("/") + 1) : error.name
-}
-
-/**
  * A CLI failure is a sentence for the operator, on stderr.
  *
  * Effect's default error reporting logs the cause through the runtime logger,
@@ -65,6 +52,14 @@ const errorName = (error: Error): string => {
  * migration message. Reporting is therefore disabled below and the message is
  * written here instead.
  */
+const verboseRequested = (): boolean => {
+  try {
+    return Argv.parse(process.argv.slice(2)).verbose
+  } catch {
+    return false
+  }
+}
+
 const report = (error: unknown): void => {
   const message = error instanceof CliError.UsageError ||
       error instanceof CliError.UnsupportedError ||
@@ -79,9 +74,7 @@ const report = (error: unknown): void => {
     // how the value travelled.
     : NodeDatabase.isUnsupportedDatabase(error)
     ? `${error.code}: ${error.message}`
-    : error instanceof Error
-    ? `${errorName(error)}: ${Failure.sentence(error)}`
-    : String(error)
+    : Failure.operatorLine(error, verboseRequested())
   // A failure sentence is written here rather than logged, so it misses the
   // redacting logger below. It is still a line an operator reads and a
   // collector keeps, so it takes the same rules (the release policy).

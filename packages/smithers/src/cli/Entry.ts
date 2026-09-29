@@ -7,7 +7,17 @@ import * as Audience from "@smthrs/build-cli/Audience"
 import type { Host as BuildHost } from "@smthrs/build-cli/Entry"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { makeCli } from "../Cli.ts"
+import * as Failure from "../internal/Failure.ts"
 import { normalizeArguments } from "./Arguments.ts"
+import * as Argv from "./Argv.ts"
+
+const verboseIn = (argv: ReadonlyArray<string>): boolean => {
+  try {
+    return Argv.parse(argv).verbose
+  } catch {
+    return false
+  }
+}
 
 /**
  * Process hosts keep MCP alive until stdin closes or the operator interrupts.
@@ -71,7 +81,12 @@ export const main = async (host: Host): Promise<void> => {
     if (mcp) await host.waitForDisconnect?.(controller.signal)
   } catch (cause) {
     if (interrupted === undefined) {
-      host.stderr.write(`${String(Redaction.redact(cause instanceof Error ? cause.message : String(cause)))}\n`)
+      const verbose = verboseIn(host.argv)
+      const stated = Failure.operatorSentence(cause)
+      const text = verbose && stated === Failure.unknownSentence
+        ? `${stated}\n${Failure.operatorDetail(cause)}`
+        : stated
+      host.stderr.write(`${String(Redaction.redact(text))}\n`)
       exit(1)
     }
   } finally {

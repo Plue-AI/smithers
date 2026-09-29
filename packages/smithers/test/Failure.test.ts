@@ -92,12 +92,31 @@ describe("Failure.operatorSentence", () => {
     expect(Failure.operatorSentence(new ControlError.ClaimLost({ runId: "run-42" }))).toBe("claim_lost runId=run-42")
   })
 
+  it("prints the sentence of a plain Error the CLI threw on purpose", () => {
+    // Transitional (#2813): these become tagged refusals; until then their
+    // sentence is still the one the operator needs.
+    expect(Failure.operatorSentence(new Error("No flows found in /work"))).toBe("No flows found in /work")
+  })
+
+  it("prints the message of a decoded refusal record", () => {
+    expect(Failure.operatorSentence({ _tag: "/control/Unavailable", message: "down" })).toBe("down")
+  })
+
   it.each([
-    ["an untagged error", new Error("ENOENT: open /home/op/.config/secret")],
-    ["a system error with a code", Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })],
+    ["a runtime bug", new TypeError("Cannot read properties of undefined (reading 'id')")],
+    ["a range error", new RangeError("Invalid array length")],
+    [
+      "a Node system error",
+      Object.assign(new Error("ENOENT: no such file or directory, open '/home/op/.config/x'"), {
+        code: "ENOENT",
+        errno: -2,
+        syscall: "open"
+      })
+    ],
     ["a string", "TypeError: undefined is not a function"],
     ["an object", { stack: "at x (y.ts:1)" }],
-    ["undefined", undefined]
+    ["undefined", undefined],
+    ["an Error with no sentence and no fields", new Error("")]
   ])("never prints %s; it answers the generic sentence", (_label, error) => {
     expect(Failure.operatorSentence(error)).toBe(Failure.unknownSentence)
   })
@@ -105,6 +124,25 @@ describe("Failure.operatorSentence", () => {
   it("matches the product's unknown-failure sentence", async () => {
     const { UNKNOWN_FAILURE } = await import("../../rpc/src/UserFailure.ts")
     expect(Failure.unknownSentence).toBe(UNKNOWN_FAILURE.sentence)
+  })
+})
+
+describe("Failure.operatorLine", () => {
+  it("names a tagged failure by its class, not its namespace", () => {
+    expect(Failure.operatorLine(new ControlError.ClaimLost({ runId: "run-42" }), false))
+      .toBe("ClaimLost: claim_lost runId=run-42")
+  })
+
+  it("prints only the generic sentence for an undesigned failure", () => {
+    expect(Failure.operatorLine(new TypeError("x is not a function"), false)).toBe(Failure.unknownSentence)
+  })
+
+  it("adds the redacted raw detail under --verbose only", () => {
+    const line = Failure.operatorLine(new TypeError("token=privatevalue123456 broke"), true)
+
+    expect(line.startsWith(`${Failure.unknownSentence}\n`)).toBe(true)
+    expect(line).toContain("broke")
+    expect(line).not.toContain("privatevalue123456")
   })
 })
 

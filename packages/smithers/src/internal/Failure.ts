@@ -127,16 +127,83 @@ export const isTagged = (error: unknown): error is Error & { readonly _tag: stri
   }
 }
 
+const ownValue = (value: object, key: string): unknown => {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
- * The one line an operator reads for any thrown value: a tagged failure's own
- * sentence, and `unknownSentence` for everything else. A raw message, a
- * stack, or `String(error)` of an untagged value is never the line; it is
+ * Whether a thrown value carries a sentence someone wrote for an operator: a
+ * tagged failure, or a plain `Error` this CLI threw on purpose. A runtime bug
+ * (`TypeError` and friends), a Node system error, and a non-Error value do
+ * not. The plain-`Error` allowance is transitional: those throws are being
+ * converted to tagged refusals (#2813).
+ *
+ * @category refinements
+ * @since 1.0.0-rc.1
+ */
+export const isDesigned = (error: unknown): error is Error => {
+  try {
+    if (isTagged(error)) return true
+    return error instanceof Error && Object.getPrototypeOf(error) === Error.prototype &&
+      ownValue(error, "syscall") === undefined && ownValue(error, "errno") === undefined
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The one sentence an operator reads for any thrown value: a designed
+ * failure's own sentence, and `unknownSentence` for everything else. A raw
+ * runtime message, a stack, or `String(error)` is never the sentence; it is
  * detail, printed only for `--verbose` through `operatorDetail`.
  *
  * @category getters
  * @since 1.0.0-rc.1
  */
-export const operatorSentence = (error: unknown): string => isTagged(error) ? sentence(error) : unknownSentence
+export const operatorSentence = (error: unknown): string => {
+  if (!isDesigned(error)) {
+    // A decoded refusal can arrive as a plain `{ _tag, message }` record.
+    const tag = typeof error === "object" && error !== null ? ownValue(error, "_tag") : undefined
+    const message = typeof error === "object" && error !== null ? ownValue(error, "message") : undefined
+    return typeof tag === "string" && typeof message === "string" && message !== ""
+      ? terminalSafe(message)
+      : unknownSentence
+  }
+  const stated = sentence(error)
+  return stated === "" ? unknownSentence : stated
+}
+
+/**
+ * The name an operator reads for a failure: the last segment of a tagged
+ * failure's `_tag` (`NoMatchingWait`, not `/control/NoMatchingWait`), or the
+ * error's `name`.
+ *
+ * @category getters
+ * @since 1.0.0-rc.1
+ */
+export const displayName = (error: Error): string => {
+  const tag = (error as { readonly _tag?: unknown })._tag
+  return typeof tag === "string" && tag.length > 0 ? tag.slice(tag.lastIndexOf("/") + 1) : error.name
+}
+
+/**
+ * The stderr line for a failure the CLI reports itself: `Name: sentence` for a
+ * designed failure, `unknownSentence` otherwise, and the raw detail on the
+ * following lines when `verbose` is set.
+ *
+ * @category getters
+ * @since 1.0.0-rc.1
+ */
+export const operatorLine = (error: unknown, verbose: boolean): string => {
+  const stated = operatorSentence(error)
+  const line = stated === unknownSentence ? stated : `${displayName(error as Error)}: ${stated}`
+  return verbose && stated === unknownSentence ? `${line}\n${operatorDetail(error)}` : line
+}
 
 const MAX_DETAIL_DEPTH = 8
 

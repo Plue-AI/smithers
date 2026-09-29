@@ -13,6 +13,7 @@ import * as Redaction from "@smthrs/journal/Redaction"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { Writable } from "node:stream"
 import { stripVTControlCharacters } from "node:util"
+import * as CliError from "../CliError.ts"
 import * as Forensics from "../Forensics.ts"
 import * as Failure from "../internal/Failure.ts"
 
@@ -292,9 +293,10 @@ export const fail = (context: Failing, cause: unknown, refusal: Refusal = {}): n
   return context.error({
     code: NodeDatabase.isUnsupportedDatabase(cause) ?
       cause.code :
-      refusal.code ?? error?._tag?.split("/").pop() ?? "command_failed",
+      refusal.code ?? (cause instanceof CliError.Refused ? cause.code : error?._tag?.split("/").pop()) ??
+        "command_failed",
     message: String(
-      Redaction.redact(cause instanceof Error ? Failure.sentence(cause) : error?.message ?? String(cause))
+      Redaction.redact(Failure.operatorSentence(cause))
     ),
     exitCode: error?._tag === "/cli/UsageError" ? 2 : refusal.exitCode ?? 1
   })

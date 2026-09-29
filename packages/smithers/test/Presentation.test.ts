@@ -208,6 +208,29 @@ describe("shared command presentation", () => {
     expect(errors).toEqual([{ code, exitCode, message: expect.not.stringContaining("private-fixture") }])
   })
 
+  it.each(
+    [
+      [
+        new TypeError("Cannot read properties of undefined (reading 'id')"),
+        "Something went wrong on our side. Not your fault."
+      ],
+      [
+        Object.assign(new Error("EACCES: permission denied, open '/etc/x'"), { syscall: "open", errno: -13 }),
+        "Something went wrong on our side. Not your fault."
+      ],
+      [{ reason: "opaque" }, "Something went wrong on our side. Not your fault."],
+      [new Error("No flows found in /work"), "No flows found in /work"]
+    ] as const
+  )("prints an undesigned failure as the generic sentence, never its raw text (%#)", async (cause, message) => {
+    const errors: Array<unknown> = []
+    const error = (value: unknown): never => {
+      errors.push(value)
+      return undefined as never
+    }
+    await Presentation.guard({ ok, error }, () => Promise.reject(cause))
+    expect(errors).toEqual([{ code: "command_failed", exitCode: 1, message }])
+  })
+
   it("preserves raw results outside a rendering invocation or without an ok adapter", async () => {
     const value = { runId: "run-1" }
     expect(Presentation.finish({ ok }, value)).toBe(value)

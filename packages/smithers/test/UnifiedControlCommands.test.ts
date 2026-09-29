@@ -243,7 +243,8 @@ describe("unified control dispatch", () => {
   it("does not dispatch a payload file that cannot be read", async () => {
     const result = await invoke(["flow", "execute", "@/missing-smthrs-review/approval.json", "--json"])
     expect(result.codes).toEqual([1])
-    expect(result.stdout).toContain("ENOENT")
+    expect(result.stdout).toContain(`"code": "payload_unreadable"`)
+    expect(result.stdout).toContain("The payload file /missing-smthrs-review/approval.json does not exist.")
     expect(ports.invoke).not.toHaveBeenCalled()
   })
 
