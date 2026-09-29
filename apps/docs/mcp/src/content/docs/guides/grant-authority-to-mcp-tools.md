@@ -21,6 +21,7 @@ host action, at resource `**`:
   "fs:write:**",
   "net:get:**",
   "net:post:**",
+  "net:private:**",
   "model:call:**",
   "memory:read:**",
   "memory:write:**",

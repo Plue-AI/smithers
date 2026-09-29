@@ -13,7 +13,7 @@ import { Rule } from "@smthrs/capability/Permission"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Workspace from "@smthrs/kernel/Workspace"
-import { Effect, Exit, Layer, Redacted, Scope } from "effect"
+import { Effect, Exit, Fiber, Layer, Redacted, Scope } from "effect"
 import type * as HttpClient from "effect/unstable/http/HttpClient"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -401,6 +401,36 @@ describe("McpClient over Streamable HTTP", () => {
       code: "connection_closed",
       message: "MCP server \"remote\" closed its response before answering tools/call"
     })
+  })
+
+  it("reads an event stream whose lines end in a lone CR", async () => {
+    const remote = await listen({
+      override: (message, response) => {
+        if (message.method !== "tools/call") return false
+        response.writeHead(200, { "content-type": "text/event-stream" })
+        response.end(event({ jsonrpc: "2.0", id: message.id, result: { content: [] } }).replaceAll("\n", "\r"))
+        return true
+      }
+    })
+    expect((await run(add(remote.url))).content).toEqual([])
+  })
+
+  it("fails a request pending when its scope closes, without cancelling over the ended session", async () => {
+    const remote = await listen({ override: (message) => message.method === "tools/call" })
+    const error = await run(Effect.gen(function*() {
+      const scope = yield* Scope.make()
+      const client = yield* Scope.provide(connect(remote.url), scope)
+      const pending = yield* Effect.forkChild(Effect.flip(client.callTool("add", { a: 2, b: 3 })))
+      while (!remote.hits.some((hit) => hit.rpc === "tools/call")) yield* Effect.sleep(10)
+      yield* Scope.close(scope, Exit.void)
+      return yield* Fiber.join(pending)
+    }))
+    expect(error).toMatchObject({
+      code: "connection_closed",
+      message: "MCP server \"remote\" connection scope closed"
+    })
+    await Effect.runPromise(Effect.sleep(50))
+    expect(rpcs(remote.hits).slice(3)).toEqual(["POST tools/call", "DELETE"])
   })
 
   it("reports a response body lost mid-stream as a closed connection", async () => {

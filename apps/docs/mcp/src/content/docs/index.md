@@ -4,7 +4,8 @@ description: "A Model Context Protocol client for Node, and the adapter that pro
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/mcp/docs/README.md"
 ---
 
-`@smthrs/mcp` connects to a Model Context Protocol (MCP) server over stdio and
+`@smthrs/mcp` connects to a Model Context Protocol (MCP) server over stdio or
+Streamable HTTP and
 projects the tools that server offers as flows a Smithers agent can call. It is
 two halves: `McpClient`, a small JSON-RPC client covering the `initialize`
 handshake, `tools/list`, and `tools/call`, and `McpFlows`, which turns a

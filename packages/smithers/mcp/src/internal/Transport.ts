@@ -105,9 +105,10 @@ export const replyError = (
 }
 
 /**
- * Splits a byte stream into LF-terminated lines in linear time, retaining one
- * bounded partial line and dropping a CR before its LF. Blank lines are kept:
- * server-sent events use them as delimiters.
+ * Splits a byte stream into lines in linear time, retaining one bounded
+ * partial line. Lines end at LF, with a CR before the LF dropped; with
+ * `crTerminates`, as server-sent events require, a lone CR also ends a line.
+ * Blank lines are kept: server-sent events use them as delimiters.
  *
  * @category constructors
  * @since 1.0.0-rc.1
@@ -115,9 +116,11 @@ export const replyError = (
 export const lines = <E>(
   server: string,
   maxLineBytes: number,
-  stream: Stream.Stream<Uint8Array, E>
+  stream: Stream.Stream<Uint8Array, E>,
+  options: { readonly crTerminates?: boolean } = {}
 ): Stream.Stream<string, E | McpError> => {
-  type PartialLine = { pieces: Array<Uint8Array>; bytes: number }
+  type PartialLine = { pieces: Array<Uint8Array>; bytes: number; skipLf: boolean }
+  const crTerminates = options.crTerminates === true
   const decoder = new TextDecoder()
   const decode = (partial: PartialLine): string => {
     const joined = new Uint8Array(partial.bytes)
@@ -129,9 +132,17 @@ export const lines = <E>(
     const end = joined[partial.bytes - 1] === 0x0d ? partial.bytes - 1 : partial.bytes
     return decoder.decode(joined.subarray(0, end))
   }
+  const terminator = (chunk: Uint8Array, from: number): number => {
+    if (!crTerminates) return chunk.indexOf(0x0a, from)
+    for (let index = from; index < chunk.byteLength; index += 1) {
+      if (chunk[index] === 0x0a || chunk[index] === 0x0d) return index
+    }
+    return -1
+  }
+  const tooLong = () => Effect.fail(Limits.protocolError(server, `MCP frame exceeded ${maxLineBytes} bytes`))
   return stream.pipe(
     Stream.mapAccumEffect(
-      (): PartialLine => ({ pieces: [], bytes: 0 }),
+      (): PartialLine => ({ pieces: [], bytes: 0, skipLf: false }),
       (partial, chunk) => {
         const complete: Array<string> = []
         const append = (piece: Uint8Array): boolean => {
@@ -145,18 +156,20 @@ export const lines = <E>(
           partial.bytes = bytes
           return true
         }
-        let start = 0
-        for (let end = chunk.indexOf(0x0a); end !== -1; end = chunk.indexOf(0x0a, start)) {
-          if (!append(chunk.subarray(start, end))) {
-            return Effect.fail(Limits.protocolError(server, `MCP frame exceeded ${maxLineBytes} bytes`))
-          }
+        // The LF of a CRLF split across chunks ends nothing new.
+        let start = partial.skipLf && chunk[0] === 0x0a ? 1 : 0
+        partial.skipLf = false
+        for (let end = terminator(chunk, start); end !== -1; end = terminator(chunk, start)) {
+          if (!append(chunk.subarray(start, end))) return tooLong()
           complete.push(decode(partial))
-          partial = { pieces: [], bytes: 0 }
+          partial = { pieces: [], bytes: 0, skipLf: false }
           start = end + 1
+          if (chunk[end] === 0x0d) {
+            if (start === chunk.byteLength) partial.skipLf = true
+            else if (chunk[start] === 0x0a) start += 1
+          }
         }
-        if (!append(chunk.subarray(start))) {
-          return Effect.fail(Limits.protocolError(server, `MCP frame exceeded ${maxLineBytes} bytes`))
-        }
+        if (!append(chunk.subarray(start))) return tooLong()
         return Effect.succeed([partial, complete] as const)
       },
       { onHalt: (partial) => partial.bytes === 0 ? [] : [decode(partial)] }

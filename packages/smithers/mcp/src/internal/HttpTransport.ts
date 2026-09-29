@@ -21,7 +21,7 @@
 
 import { isRecord } from "@smthrs/canonical/Record"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
-import { Effect, Option, type Redacted, type Scope, Stream } from "effect"
+import { Deferred, Effect, Option, type Redacted, type Scope, Stream } from "effect"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -114,8 +114,11 @@ export const connect = (
         `MCP server "${server}" url must be an absolute http or https URL without credentials`
       ))
     }
-    const client = yield* HttpClient.HttpClient
+    // Each message runs in its own scope, which aborts the HTTP request and
+    // releases its body however the exchange ends.
+    const client = HttpClient.withScope(yield* HttpClient.HttpClient)
     const scope = yield* Effect.scope
+    const closing = yield* Deferred.make<void>()
 
     let open = true
     let sessionId: string | undefined
@@ -212,7 +215,14 @@ export const connect = (
 
     /** Sends a notification or a reply to a server request; the body is ignored. */
     const deliver = (method: string, message: Rpc.OutboundMessage) =>
-      Effect.flatMap(post(method, message), (response) => Effect.asVoid(readBody(response.stream)))
+      Effect.scoped(Effect.flatMap(post(method, message), (response) => Effect.asVoid(readBody(response.stream))))
+
+    /** Fails `effect` with `connection_closed`, interrupting it, when the scope closes first. */
+    const untilClosed = <A>(effect: Effect.Effect<A, McpError>) =>
+      Effect.raceFirst(
+        effect,
+        Effect.andThen(Deferred.await(closing), Effect.fail(Transport.closed(server, "connection scope closed")))
+      )
 
     /**
      * Handles one inbound JSON-RPC message during request `id`: server
@@ -269,7 +279,7 @@ export const connect = (
 
     /** Collects `data:` lines into events; a blank line ends one. */
     const events = (stream: Stream.Stream<Uint8Array, HttpClientError.HttpClientError>) =>
-      Transport.lines(server, maxFrameBytes, Stream.mapError(stream, unreachable)).pipe(
+      Transport.lines(server, maxFrameBytes, Stream.mapError(stream, unreachable), { crTerminates: true }).pipe(
         Stream.mapAccumEffect(
           () => ({ data: undefined as string | undefined, bytes: 0 }),
           (event, line) => {
@@ -291,7 +301,7 @@ export const connect = (
       )
 
     const exchange = (method: string, params: unknown, id: number, dispatched: { value: boolean }) =>
-      Effect.gen(function*() {
+      Effect.scoped(Effect.gen(function*() {
         const response = yield* post(method, { jsonrpc: "2.0", id, method, params }, dispatched)
         if (method === "initialize") {
           const header = response.headers["mcp-session-id"]
@@ -325,11 +335,11 @@ export const connect = (
           protocolVersion = result.value.protocolVersion
         }
         return result.value
-      })
+      }))
 
     const notify = (method: string, params?: unknown, timeoutMs = requestTimeoutMs): Effect.Effect<void, McpError> =>
       Limits.isPositiveInteger(timeoutMs)
-        ? deliver(method, { jsonrpc: "2.0", method, params }).pipe(
+        ? untilClosed(deliver(method, { jsonrpc: "2.0", method, params })).pipe(
           Effect.timeoutOrElse({
             duration: timeoutMs,
             orElse: () => Effect.fail(Transport.timeout(server, method, timeoutMs))
@@ -352,7 +362,7 @@ export const connect = (
           // Closing the HTTP response is not a cancellation in MCP; tell the
           // server explicitly, without delaying the deadline being reported.
           Effect.onInterrupt(() =>
-            dispatched.value && method !== "initialize"
+            dispatched.value && open && method !== "initialize"
               ? Effect.asVoid(Effect.forkIn(
                 Effect.ignore(notify("notifications/cancelled", {
                   requestId: id,
@@ -362,6 +372,7 @@ export const connect = (
               ))
               : Effect.void
           ),
+          untilClosed,
           Effect.timeoutOrElse({
             duration: timeoutMs,
             orElse: () => Effect.fail(Transport.timeout(server, method, timeoutMs))
@@ -372,10 +383,15 @@ export const connect = (
     yield* Effect.addFinalizer(() =>
       Effect.suspend(() => {
         open = false
-        if (sessionId === undefined) return Effect.void
-        return Effect.flatMap(authorize(withSession(HttpClientRequest.delete(endpoint))), client.execute).pipe(
-          Effect.timeout(sessionCloseMs),
-          Effect.ignore
+        const ended = Deferred.succeed(closing, undefined)
+        if (sessionId === undefined) return ended
+        return Effect.andThen(
+          ended,
+          Effect.scoped(Effect.flatMap(authorize(withSession(HttpClientRequest.delete(endpoint))), client.execute))
+            .pipe(
+              Effect.timeout(sessionCloseMs),
+              Effect.ignore
+            )
         )
       })
     )

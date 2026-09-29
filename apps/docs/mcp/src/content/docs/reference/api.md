@@ -14,7 +14,7 @@ import * as McpClient from "@smthrs/mcp/McpClient"
 ```
 
 `@smthrs/mcp/internal/*` and `@smthrs/mcp/*/index` are not public, so the
-JSON-RPC codec and the stdio transport are not importable.
+JSON-RPC codec and the stdio and HTTP transports are not importable.
 `@smthrs/mcp/package.json` is exported.
 
 `McpError` is a namespace under both import forms. The error class is
@@ -45,23 +45,30 @@ const program = Effect.scoped(Effect.gen(function*() {
 ## McpClient
 
 A minimal MCP client covering the `initialize` handshake, `tools/list`, and
-`tools/call` over stdio. It is deliberately not a general MCP SDK: resources,
+`tools/call` over stdio or Streamable HTTP. It is deliberately not a general MCP SDK: resources,
 prompts, sampling, and roots are not wired up.
 
 ### McpClient.connect
 
 ```ts
-const connect: (
-  options: ConnectOptions
-) => Effect.Effect<McpClient, McpError, ChildProcessSpawner | Scope.Scope>
+const connect: <O extends ConnectOptions>(
+  options: O
+) => Effect.Effect<McpClient, McpError, Requirements<O> | Scope.Scope>
 ```
 
-Spawns the server, completes the handshake, and fetches its tool catalog once,
-up front, following `nextCursor` across pages.
+Spawns the server (`command`) or opens a Streamable HTTP session (`url`),
+completes the handshake, and fetches its tool catalog once, up front, following
+`nextCursor` across pages.
 
-Requires `ChildProcessSpawner` and a `Scope`. The connection's lifetime is the
-scope's lifetime: closing the scope tears the process down, and every request
-pending at that moment fails with `connection_closed`.
+Requires a `Scope`, plus `ChildProcessSpawner` for `command` or `HttpClient`
+for `url` (`Requirements<O>`). The connection's lifetime is the scope's
+lifetime: closing the scope tears the process down or ends the HTTP session,
+and every stdio request pending at that moment fails with `connection_closed`.
+
+Over HTTP, a destination the `HttpClient`'s egress policy denies and an
+unreachable server fail with `connection_closed`; a non-2xx answer fails with
+`protocol_error`; a `404` for an established session fails with
+`connection_closed` and is not retried.
 
 Fails with `spawn_failed` when the process will not start, `protocol_error` when
 an option is invalid or negotiation fails, and `invalid_response` when the
@@ -112,6 +119,8 @@ The result of one `tools/call`.
 
 ### McpClient.ConnectOptions
 
+`StdioConnectOptions | HttpConnectOptions`. The stdio form:
+
 | Field                   | Type                                               | Meaning                                                                                                   |
 | ----------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `server`                | `string`                                           | The name this server is known by, for flow naming and error messages. Required.                           |
@@ -130,8 +139,17 @@ The result of one `tools/call`.
 | `maxToolDocumentBytes`  | `number \| undefined`                              | Maximum UTF-8 bytes of one tool's description plus its JSON-encoded `inputSchema`. Default 65536.         |
 | `maxCatalogPages`       | `number \| undefined`                              | Maximum `tools/list` pages walked. Default 32.                                                            |
 
+`HttpConnectOptions` has `server`, the catalog limits, `requestTimeoutMs`,
+`maxFrameBytes`, and `maxOutboundFrameBytes` from the table above, plus:
+
+| Field          | Type                        | Meaning                                                                                        |
+| -------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `url`          | `string`                    | The server's MCP endpoint, an absolute `http:` or `https:` URL without credentials. Required.  |
+| `authProvider` | `AuthProvider \| undefined` | `{ token: Effect<Redacted<string>, McpError> }`, read once per HTTP message as a bearer token. |
+
 Every numeric field must be a positive safe integer. Anything else fails with
-`protocol_error` naming the option, before the process is spawned.
+`protocol_error` naming the option, before the process is spawned or a request
+is sent.
 
 The bootstrap child environment contains only `PATH`, `HOME`, `USER`, `LANG`,
 `LC_*`, `TERM`, `TMPDIR`, and `SHELL`. Other ambient names are withheld;
@@ -281,12 +299,12 @@ const privateDiagnostics = Diagnostics.layer((event) => {
 `Diagnostics.Diagnostics` is the optional Context service. Its `report` callback
 takes one `Diagnostics.Event`:
 
-| Field       | Meaning                                                                        |
-| ----------- | ------------------------------------------------------------------------------ |
-| `server`    | The host-configured server alias. Do not put credentials in aliases.           |
-| `source`    | `spawn`, `stderr`, `remote-error`, `invalid-response`, or `invalid-arguments`. |
-| `detail`    | `Redacted.Redacted<string>`, at most 16 KiB of UTF-8. May contain secrets.     |
-| `truncated` | Whether this event's private detail exceeded that 16 KiB bound.                |
+| Field       | Meaning                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| `server`    | The host-configured server alias. Do not put credentials in aliases.                        |
+| `source`    | `spawn`, `stderr`, `transport`, `remote-error`, `invalid-response`, or `invalid-arguments`. |
+| `detail`    | `Redacted.Redacted<string>`, at most 16 KiB of UTF-8. May contain secrets.                  |
+| `truncated` | Whether this event's private detail exceeded that 16 KiB bound.                             |
 
 Ordinary JSON serialization and inspection hide `detail`. A trusted local host
 can explicitly unwrap it with `Redacted.value`; it must control access and
@@ -388,6 +406,7 @@ from `Capability.Action.literals` and frozen.
   "fs:write:**",
   "net:get:**",
   "net:post:**",
+  "net:private:**",
   "model:call:**",
   "memory:read:**",
   "memory:write:**",
