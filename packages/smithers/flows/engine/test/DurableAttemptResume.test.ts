@@ -193,9 +193,10 @@ class Unprovided extends Context.Service<Unprovided, { readonly value: string }>
 
 /** Never called; tsc checks it (#2704). */
 const unprovidedServiceProbe = () => {
-  // @ts-expect-error provideInstance provides only the flow instance and runtime, not Unprovided
+  const needsUnprovided = Effect.map(Unprovided, (service) => service.value)
   provideInstance(
-    Effect.map(Unprovided, (service) => service.value),
+    // @ts-expect-error provideInstance provides only the flow instance and runtime, not Unprovided
+    needsUnprovided,
     scriptedWith({ latestAttempt: Option.none(), attempts: [] })
   )
   provideInstance(
