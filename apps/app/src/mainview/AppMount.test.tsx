@@ -1,14 +1,25 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, afterEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
-import { appWordmark } from "./AppMount"
+import { useLiveQuery } from "@tanstack/react-db"
+import type { StorageApi } from "@tanstack/db"
+import { appWordmark, unmountOnPageHide } from "./AppMount"
+import { createAppStore } from "./state/AppStore"
 import { SessionNavigationFallback } from "./SessionNavigation"
 import { SessionShell } from "./SessionShell"
 
 GlobalRegistrator.register()
 const roots = new Set<Root>()
+const memoryStorage = (): StorageApi => {
+  const data = new Map<string, string>()
+  return {
+    getItem: key => data.get(key) ?? null,
+    setItem: (key, value) => void data.set(key, value),
+    removeItem: key => void data.delete(key)
+  }
+}
 
 afterAll(async () => {
   // React's scheduler finishes a commit in tasks of its own; unregistering the
@@ -49,4 +60,30 @@ describe("the mounted app's entrance mark", () => {
     // page's view transition had no new-state mark to morph onto.
     expect(host.querySelector(".session-shell > .guide-wordmark")).toBeNull()
   })
+})
+
+test("pagehide unmounts live queries before AppStore teardown", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  roots.add(root)
+  const warning = spyOn(console, "warn")
+  function LiveCards() {
+    useLiveQuery(store.collections.cards)
+    useLiveQuery(store.collections.savedSignInPrompts)
+    return null
+  }
+  try {
+    const unmount = unmountOnPageHide(root)
+    flushSync(() => root.render(<LiveCards />))
+    window.dispatchEvent(new Event("pagehide"))
+    await store.dispose?.()
+    expect(warning.mock.calls.filter(args => args.some(arg => String(arg).includes("manually cleaned up while live query")))).toEqual([])
+    unmount()
+  } finally {
+    warning.mockRestore()
+    await store.dispose?.()
+    host.remove()
+  }
 })

@@ -1,5 +1,6 @@
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
+import type { Root } from "react-dom/client"
 import { AppRoot } from "./AppRoot"
 import { configureControllerBoot } from "./ControllerProvider"
 import { browserStartupWatchdog } from "./StartupWatchdog"
@@ -59,6 +60,16 @@ export const applyAppearance = (root: HTMLElement = document.documentElement): v
   if (typeof palette === "string" && /^[a-z][a-z-]*$/.test(palette)) root.setAttribute("data-palette", palette)
 }
 
+/** Unsubscribe React live queries before the pagehide owner closes their collections. */
+export const unmountOnPageHide = (root: Root, page: Window = window): (() => void) => {
+  const unmount = () => {
+    page.removeEventListener("pagehide", unmount)
+    flushSync(() => root.unmount())
+  }
+  page.addEventListener("pagehide", unmount)
+  return unmount
+}
+
 /**
  * Render the app into `container` synchronously: the entrance wordmark
  * (SessionNavigationFallback) is in the DOM when this returns, so a caller's
@@ -71,6 +82,8 @@ export function mountApp(container: HTMLElement, options: MountAppOptions): Moun
   configureControllerBoot({ keepUrl: options.keepUrl === true, clientErrors })
   const watchdog = browserStartupWatchdog({ clientErrors })
   const root = createRoot(container)
+  // Register before boot: ControllerBoot's pagehide handler disposes the store.
+  const unmount = unmountOnPageHide(root)
   flushSync(() => root.render(<AppRoot watchdog={watchdog} />))
-  return { unmount: () => root.unmount(), mark: appWordmark(container) }
+  return { unmount, mark: appWordmark(container) }
 }
