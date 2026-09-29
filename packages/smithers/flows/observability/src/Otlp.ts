@@ -19,16 +19,19 @@
  */
 
 import * as Redaction from "@smthrs/journal/Redaction"
+import * as Cause from "effect/Cause"
 import { Clock } from "effect/Clock"
 import * as ConfigProvider from "effect/ConfigProvider"
 import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
 import * as References from "effect/References"
 import * as Semaphore from "effect/Semaphore"
+import * as Tracer from "effect/Tracer"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as Headers from "effect/unstable/http/Headers"
 import type * as HttpBody from "effect/unstable/http/HttpBody"
@@ -210,6 +213,44 @@ const refusePlaintextCredentials = (
     : Effect.void
 }
 
+const redactText = (text: string): string => String(Redaction.redact(text))
+
+/**
+ * A span failure rendered with credentials removed. The exporter serializes a
+ * failed span's cause into its status message and `exception` events, which
+ * would otherwise carry any token an error message quoted to the collector.
+ */
+const redactedExit = (exit: Exit.Exit<unknown, unknown>): Exit.Exit<unknown, unknown> => {
+  if (exit._tag === "Success" || Cause.hasInterruptsOnly(exit.cause)) return exit
+  const errors = Cause.prettyErrors(exit.cause, { includeCauseInStack: true }).map((error) => {
+    const redacted = new Error(redactText(error.message))
+    redacted.name = redactText(error.name)
+    // `prettyErrors` always renders a stack.
+    redacted.stack = redactText(String(error.stack))
+    return redacted
+  })
+  return Exit.failCause(errors.map(Cause.fail).reduce(Cause.combine, Cause.empty as Cause.Cause<unknown>))
+}
+
+/**
+ * Wraps the installed tracer so every exported span's failure and string
+ * attributes pass through the journal redaction rules first.
+ */
+const redactedSpans = Layer.effect(Tracer.Tracer)(
+  Effect.map(Effect.tracer, (tracer) =>
+    Tracer.make({
+      ...tracer,
+      span(options) {
+        const span = tracer.span(options)
+        const end = span.end.bind(span)
+        const attribute = span.attribute.bind(span)
+        span.end = (endTime, exit) => end(endTime, redactedExit(exit))
+        span.attribute = (key, value) => attribute(key, typeof value === "string" ? redactText(value) : value)
+        return span
+      }
+    }))
+)
+
 /**
  * Configuration for the default OTLP wiring.
  *
@@ -313,7 +354,8 @@ export const layer = (
             Layer.provide(boundedClient),
             // Upstream merges OTEL_RESOURCE_ATTRIBUTES even with explicit
             // options. Keep unvalidated ambient metadata out of every request.
-            Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({})))
+            Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
+            (exporter) => Layer.provideMerge(redactedSpans, exporter)
           )
         )
       }

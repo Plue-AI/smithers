@@ -514,6 +514,33 @@ describe("Otlp", () => {
       expect(error._tag).toBe("@smthrs/observability/InvalidExporterEndpoint")
     }))
 
+  it.effect("redacts credentials from exported span failures and string attributes", () =>
+    Effect.gen(function*() {
+      const collector = recordingFetch()
+      const secret = "Bearer sk-ant-api03-synthetic-secret-value-0123456789"
+      yield* runExporting(
+        Effect.gen(function*() {
+          yield* Effect.annotateCurrentSpan({ "request.auth": secret, "request.count": 3 })
+          return yield* Effect.fail(new Error(`upstream refused ${secret}`))
+        }).pipe(
+          Effect.withSpan("observability_redacted_failure"),
+          Effect.ignore,
+          Effect.andThen(Effect.interrupt.pipe(Effect.withSpan("observability_interrupted"), Effect.exit)),
+          Effect.andThen(Effect.void.pipe(Effect.withSpan("observability_succeeded")))
+        ),
+        Otlp.layerFetch({ baseUrl: "http://127.0.0.1:4318" }),
+        collector.fetch
+      )
+      const traces = JSON.stringify(collector.requests.filter((request) => request.url.endsWith("/v1/traces")))
+      expect(traces).toContain("observability_redacted_failure")
+      expect(traces).toContain("upstream refused")
+      expect(traces).toContain("exception.stacktrace")
+      expect(traces).toContain("request.count")
+      expect(traces).not.toContain("sk-ant-api03-synthetic-secret-value-0123456789")
+      expect(traces).toContain("status.interrupted")
+      expect(traces).toContain("observability_succeeded")
+    }))
+
   it("parseHeaders decodes percent escapes and skips malformed pairs", () => {
     expect(Otlp.parseHeaders(undefined)).toEqual({})
     expect(Otlp.parseHeaders("")).toEqual({})
