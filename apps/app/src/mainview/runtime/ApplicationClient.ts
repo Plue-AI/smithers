@@ -112,8 +112,11 @@ const isAbort = (error: unknown, signal: AbortSignal | null | undefined): boolea
   signal?.aborted === true || (error instanceof DOMException && error.name === "AbortError") ||
   (error instanceof Error && error.name === "AbortError")
 
-const apiFailure = async (response: Response): Promise<ApplicationClientError> => {
-  const body = await response.json().catch(() => null) as { code?: unknown; message?: unknown; error?: unknown } | null
+const apiFailure = async (response: Response, signal?: AbortSignal | null): Promise<ApplicationClientError> => {
+  const body = await response.json().catch((error: unknown) => {
+    if (isAbort(error, signal)) throw error
+    return null
+  }) as { code?: unknown; message?: unknown; error?: unknown } | null
   const message = typeof body?.message === "string" && body.message !== ""
     ? body.message
     : typeof body?.error === "string" && body.error !== ""
@@ -234,7 +237,7 @@ export const createApplicationClient = (
   const stream = async (path: string, init?: RequestInit): Promise<Response> => {
     try {
       const response = await authenticatedFetch(path, init)
-      if (!response.ok) throw await apiFailure(response)
+      if (!response.ok) throw await apiFailure(response, init?.signal)
       return response
     } catch (error) {
       if (error instanceof ApplicationClientError) throw error

@@ -170,6 +170,44 @@ describe("application client", () => {
     expect((error as ApplicationClientError).cause).toBe(cause)
   })
 
+  test("aborting a non-2xx body read reports cancellation with its cause", async () => {
+    for (const method of ["stream", "request"] as const) {
+      const abort = new AbortController()
+      const cause = new DOMException("body read aborted", "AbortError")
+      let reading!: () => void
+      const bodyRead = new Promise<void>((resolve) => { reading = resolve })
+      const client = createApplicationClient(target("web-selfhost"), {
+        fetchImpl: async () => new Response(new ReadableStream({
+          pull(controller) {
+            reading()
+            abort.signal.addEventListener("abort", () => controller.error(cause), { once: true })
+          }
+        }, { highWaterMark: 0 }), { status: 503 })
+      })
+
+      const pending = client[method]("/api/wait", { signal: abort.signal })
+      await bodyRead
+      abort.abort()
+      const failure = await pending.catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(ApplicationClientError)
+      expect(failure).toMatchObject({ code: "cancelled", status: null })
+      expect((failure as ApplicationClientError).cause).toBe(cause)
+    }
+  })
+
+  test("malformed non-2xx bodies still report the HTTP failure", async () => {
+    const client = createApplicationClient(target("web-selfhost"), {
+      fetchImpl: async () => new Response("not json", { status: 503 })
+    })
+    for (const method of ["stream", "request"] as const) {
+      const signal = new AbortController().signal
+      await expect(client[method]("/api/fail", { signal })).rejects.toMatchObject({
+        code: "api", status: 503, message: "Request failed (503)."
+      })
+      expect(signal.aborted).toBe(false)
+    }
+  })
+
   test("never attaches an application credential to another origin", async () => {
     let calls = 0
     const client = createApplicationClient(target("native-plue"), {
