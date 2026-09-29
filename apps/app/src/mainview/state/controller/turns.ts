@@ -951,6 +951,7 @@ export const createTurnController = (
       if (
         frame.error === undefined &&
         frame.reason !== "cancelled" &&
+        frame.reason !== "tool_limit" &&
         turn.pendingCall !== undefined
       ) {
         if (turn.toolLegs >= MAX_TOOL_LEGS) {
