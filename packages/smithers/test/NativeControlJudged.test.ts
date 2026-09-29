@@ -236,9 +236,11 @@ const first = (events: ReadonlyArray<Journaled>, kind: string) => events.find((e
 describe("the shipped Node executor under ScriptedJudge.layerAll", () => {
   it("forwards workspace AGENTS.md into the relevance gate", async () => {
     const root = await project()
+    // The scripted judge keeps an instruction chunk that shares a word with the
+    // task ("Summarize the repository layout."), and withholds one that does not.
     await writeFile(
       join(root, "AGENTS.md"),
-      "- Keep failing tests visible.\n\n- Publish benchmark claims with artifacts.\n"
+      "- Describe the repository layout top-down.\n\n- Publish benchmark claims with artifacts.\n"
     )
     const { watched } = await runAll(root, ["survey"])
     const events = watched[0]!
@@ -250,10 +252,15 @@ describe("the shipped Node executor under ScriptedJudge.layerAll", () => {
     expect([...settled.kept, ...settled.withheld].filter((item) => item.kind === "instruction").length).toBeGreaterThan(
       0
     )
-    expect(settled.withheld.some((item) => item.id.includes("AGENTS.md"))).toBe(true)
+    expect(settled.kept.map((item) => item.id).filter((id) => id.startsWith(root))).toEqual([
+      join(root, "AGENTS.md#0")
+    ])
+    expect(settled.withheld.map((item) => item.id).filter((id) => id.startsWith(root))).toEqual([
+      join(root, "AGENTS.md#1")
+    ])
     const prompts = events.filter((event) => event.kind === "control.agent.model-requested")
     expect(prompts.length).toBeGreaterThan(0)
-    expect(JSON.stringify(prompts)).toContain("Keep failing tests visible")
+    expect(JSON.stringify(prompts)).toContain("Describe the repository layout top-down")
     expect(JSON.stringify(prompts)).not.toContain("Publish benchmark claims with artifacts")
   }, 60_000)
   it("arms a judged run, and a subagent step reads relevance on its own prompt under its own session", async () => {

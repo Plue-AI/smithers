@@ -159,14 +159,15 @@ describe("the credential store the seat scan reads when it is handed no reader",
         root: "/repo",
         list: false,
         json: true,
-        environment: {},
+        // The Codex login is opt-in (#1677); the opt-in names no credential.
+        environment: { SMITHERS_OPENAI_AUTH: "chatgpt" },
         homeDirectory: home,
         repository: project,
         emit: (line) => void documents.push(line)
       })
     )
 
-    // No `readFile`, no `MOONSHOT_API_KEY`: the only thing that can have
+    // No `readFile`, no API key: the only thing that can have
     // chosen this seat is the file the default reader opened under `home`.
     expect(outcome.seat).toBe("openai:gpt-6-sol")
     expect(JSON.parse(documents.at(-2)!)).toEqual({

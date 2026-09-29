@@ -105,11 +105,18 @@ describe("the credential store, read off disk when no reader is injected", () =>
     const documents: Array<string> = []
 
     const outcome = await Effect.runPromise(
-      Suggest.run({ ...base, json: true, homeDirectory: signedIn, emit: (line) => void documents.push(line) })
+      Suggest.run({
+        ...base,
+        // The Codex login is opt-in (#1677); the opt-in names no credential.
+        environment: { SMITHERS_OPENAI_AUTH: "chatgpt" },
+        json: true,
+        homeDirectory: signedIn,
+        emit: (line) => void documents.push(line)
+      })
     )
 
     // Nothing but the file on disk makes this seat available: the
-    // environment is empty and no reader was passed.
+    // environment holds only the opt-in and no reader was passed.
     expect(outcome.seat).toBe("openai:gpt-6-sol")
     expect(JSON.parse(documents.at(-2)!)).toEqual({
       document: "seat",
@@ -250,7 +257,7 @@ describe("the implementing step, defaulted to the bundled flow on this host", ()
         Suggest.run({
           ...base,
           root,
-          environment: { CODEX_HOME: signedOut, OPENAI_API_KEY: apiKey, SMITHERS_OPENAI_AUTH: "api-key" },
+          environment: { CODEX_HOME: signedOut, OPENAI_API_KEY: apiKey, SMITHERS_OPENAI_AUTH: "chatgpt" },
           readFile: () => JSON.stringify({ tokens: { access_token: "test-access", refresh_token: "test-refresh" } })
         }).pipe(Effect.provideService(Ui.Ui, service))
       ))
