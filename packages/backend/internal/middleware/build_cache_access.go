@@ -87,7 +87,7 @@ func presentedReadToken(r *http.Request) string {
 // holds read permission, and anonymous reads are allowed on a public
 // repository.
 //
-// A system-issued credential is never a cache writer, whatever its scopes. It
+// An agent credential is never a cache writer, whatever its scopes. It
 // serves a run of code nobody has reviewed yet, and the cache trust model
 // (packages/smithers/build/infra/CACHE-TRUST.md) admits only reviewed trunk
 // builds as publishers: a hit is reported green, so a run that could publish
@@ -114,9 +114,9 @@ func BuildCacheAccess(queries RepoContextQuerier, tokens BuildCacheReadTokenReso
 				restriction := authInfo.RepositoryRestriction()
 				return restriction == 0 || restriction == repository.ID
 			}
-			runCredential := authInfo.IsRunCredential()
+			agent := authInfo.IsAgent()
 			switch {
-			case permission.Satisfies(PermissionWrite) && scopeOK(ScopeWriteRepository) && !runCredential:
+			case permission.Satisfies(PermissionWrite) && scopeOK(ScopeWriteRepository) && !agent:
 				credential = BuildCacheCredentialWrite
 			case permission.Satisfies(PermissionRead) && scopeOK(ScopeReadRepository):
 				credential = BuildCacheCredentialRead

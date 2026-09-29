@@ -161,6 +161,21 @@ func TestBuildCacheAccess_OrdinaryCredentials(t *testing.T) {
 	rec = serve(http.MethodDelete, runInfo)
 	assert.Equal(t, http.StatusForbidden, rec.Code, "a run credential never deletes")
 
+	for _, userType := range []string{"bot", "service"} {
+		for _, tokenAuth := range []bool{true, false} {
+			info := tokenInfo(100, "write:repository")
+			info.User.UserType = userType
+			info.IsTokenAuth = tokenAuth
+			rec = serve(http.MethodGet, info)
+			assert.Equal(t, http.StatusOK, rec.Code, "%s token=%t reads", userType, tokenAuth)
+			assert.Equal(t, "read", rec.Header().Get("X-Credential"))
+			for _, method := range []string{http.MethodPut, http.MethodDelete} {
+				rec = serve(method, info)
+				assert.Equal(t, http.StatusForbidden, rec.Code, "%s token=%t %s", userType, tokenAuth, method)
+			}
+		}
+	}
+
 	rec = serve(http.MethodPut, tokenInfo(7, "write:repository,repo:999"))
 	assert.Equal(t, http.StatusForbidden, rec.Code, "a token bound to another repository is not a write credential here")
 
