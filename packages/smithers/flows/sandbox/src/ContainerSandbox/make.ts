@@ -292,7 +292,19 @@ export const make = (options: ContainerSandboxOptions): Provider => {
               )
             }
           }),
-          () => finalizeWithin(Effect.ignore(run(["rm", "--force", name]), { log: "Warn" }), `container ${name}`)
+          () =>
+            finalizeWithin(
+              Effect.flatMap(run(["rm", "--force", name]), (result) =>
+                result.code === 0 ? Effect.void : Effect.logWarning("sandbox removal failed", {
+                  resource: `container ${name}`,
+                  exitCode: result.code
+                })).pipe(Effect.catch(() =>
+                  Effect.logWarning("sandbox removal failed", {
+                    resource: `container ${name}`
+                  })
+                )),
+              `container ${name}`
+            )
         )
         yield* step(`the container ${name} could not be started`, ["start", name])
         const session = yield* execSession({

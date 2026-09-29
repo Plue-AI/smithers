@@ -403,7 +403,15 @@ export const make = (input: KubernetesSandboxOptions): Provider => {
           }),
           () =>
             finalizeWithin(
-              Effect.ignore(run(["delete", `pod/${name}`, "--force", "--grace-period=0"]), { log: "Warn" }),
+              Effect.flatMap(run(["delete", `pod/${name}`, "--force", "--grace-period=0"]), (result) =>
+                result.code === 0 ? Effect.void : Effect.logWarning("sandbox removal failed", {
+                  resource: `pod ${name}`,
+                  exitCode: result.code
+                })).pipe(Effect.catch(() =>
+                  Effect.logWarning("sandbox removal failed", {
+                    resource: `pod ${name}`
+                  })
+                )),
               `pod ${name}`
             )
         )
