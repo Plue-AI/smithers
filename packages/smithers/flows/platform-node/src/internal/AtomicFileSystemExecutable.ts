@@ -4,14 +4,20 @@
  * @since 1.0.0
  */
 
+import { createHash, randomBytes } from "node:crypto"
 import {
   chmodSync,
   existsSync,
-  mkdtempSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
+  utimes,
+  utimesSync,
   writeFileSync
 } from "node:fs"
 import { createRequire } from "node:module"
@@ -60,7 +66,8 @@ export const packageRoot = installedPackageRoot(
   resolvePackageRoot(moduleDirectory)
 )
 
-const staged = new Map<string, string>()
+/** Each source's staged copy, and when this process last marked its directory in use. */
+const staged = new Map<string, { readonly path: string; touchedAt: number }>()
 /**
  * Package roots already staged, and the sources that staging copied. Staging
  * happens once per root per process: a later layer build runs after flows may
@@ -73,6 +80,79 @@ const installHint = "install @smthrs/platform-node with its native helper, " +
   "or set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to its absolute path"
 
 const helperName = process.platform === "win32" ? "smithers-jj-export.exe" : "smithers-jj-export"
+
+const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex")
+
+/** Creates or adopts the per-user staging directory, refusing links and other owners. */
+const privateDirectory = (directory: string): void => {
+  try {
+    mkdirSync(directory, { mode: 0o700 })
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause
+  }
+  const info = lstatSync(directory)
+  const uid = process.getuid?.()
+  if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) {
+    throw new Error(`atomic helper staging directory is not a private directory: ${directory}`)
+  }
+  chmodSync(directory, 0o700)
+}
+
+/**
+ * Whether the staged copy is this user's own single-link file holding exactly
+ * the helper's bytes. A planted link, even one with the right bytes, is
+ * replaced: rename swaps the directory entry, never the linked inode.
+ */
+const matches = (destination: string, digest: string): boolean => {
+  try {
+    const info = lstatSync(destination)
+    const uid = process.getuid?.()
+    if (!info.isFile() || info.nlink !== 1 || (uid !== undefined && info.uid !== uid)) return false
+    return sha256(readFileSync(destination)) === digest
+  } catch {
+    return false
+  }
+}
+
+/** A staged copy no process has used for this long is removed; use refreshes the directory's time. */
+const staleMs = 7 * 24 * 60 * 60 * 1000
+const refreshMs = 60 * 60 * 1000
+
+/** Marks a staging directory in use, at most hourly, so no other process prunes it while this one runs. */
+const refresh = (copy: { readonly path: string; touchedAt: number }): void => {
+  const now = Date.now()
+  if (now - copy.touchedAt < refreshMs) return
+  copy.touchedAt = now
+  // Best effort and off the request path: a failed touch only risks a later re-stage.
+  utimes(dirname(copy.path), now / 1000, now / 1000, () => {})
+}
+
+/**
+ * Removes this user's stale staging directories beside `keep`: other helper
+ * builds and the per-process copies earlier versions left behind on a signal.
+ */
+const prune = (base: string, keep: string): void => {
+  const uid = process.getuid?.()
+  const now = Date.now()
+  let names: Array<string>
+  try {
+    names = readdirSync(base)
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (!name.startsWith(".smthrs-atomic-helper-") || name === keep) continue
+    const directory = join(base, name)
+    try {
+      const info = lstatSync(directory)
+      if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) continue
+      if (now - info.mtimeMs > staleMs) rmSync(directory, { recursive: true, force: true })
+    } catch {
+      // Another process removed or replaced it first.
+    }
+  }
+}
+
 let embeddedHelper: string | undefined
 
 /**
@@ -95,24 +175,43 @@ export const outsideWorkspace = (
   bases: ReadonlyArray<string> = [tmpdir(), homedir()]
 ): string => {
   const cached = staged.get(source)
-  if (cached !== undefined) return usableExecutable(cached, boundaryRoot)
+  if (cached !== undefined) {
+    if (existsSync(cached.path)) {
+      refresh(cached)
+      return usableExecutable(cached.path, boundaryRoot)
+    }
+    // A newer build's process pruned this copy after a week unused: stage it again.
+    staged.delete(source)
+  }
+  // readFile also supports assets embedded in a Bun executable; copyfile
+  // delegates to the OS, which cannot open its virtual /$bunfs path.
+  const bytes = readFileSync(source)
+  const digest = sha256(bytes)
   for (const [index, base] of bases.entries()) {
-    let created: string | undefined
+    const directory = join(base, `.smthrs-atomic-helper-${digest}`)
+    const destination = join(directory, helperName)
+    let temporary: string | undefined
     try {
-      const directory = mkdtempSync(join(base, ".smthrs-atomic-helper-"))
-      created = directory
-      const destination = join(directory, helperName)
-      chmodSync(directory, 0o700)
-      // readFile also supports assets embedded in a Bun executable; copyfile
-      // delegates to the OS, which cannot open its virtual /$bunfs path.
-      writeFileSync(destination, readFileSync(source), { flag: "wx", mode: 0o500 })
-      chmodSync(destination, 0o500)
+      privateDirectory(directory)
+      // Fresh before it is read, so a concurrent prune passes it by.
+      const now = new Date()
+      utimesSync(directory, now, now)
+      if (!matches(destination, digest)) {
+        // One copy per user and helper: concurrent processes each write a
+        // private temporary file and rename it over the shared name, so a
+        // reader only ever sees a complete copy.
+        temporary = join(directory, `.${helperName}.${process.pid}.${randomBytes(6).toString("hex")}`)
+        writeFileSync(temporary, bytes, { flag: "wx", mode: 0o500 })
+        chmodSync(temporary, 0o500)
+        renameSync(temporary, destination)
+        temporary = undefined
+      }
       const executable = usableExecutable(destination, boundaryRoot)
-      staged.set(source, executable)
-      process.once("exit", () => rmSync(directory, { recursive: true, force: true }))
+      prune(base, `.smthrs-atomic-helper-${digest}`)
+      staged.set(source, { path: executable, touchedAt: now.getTime() })
       return executable
     } catch (cause) {
-      if (created !== undefined) rmSync(created, { recursive: true, force: true })
+      if (temporary !== undefined) rmSync(temporary, { force: true })
       if (index === bases.length - 1) throw cause
     }
   }

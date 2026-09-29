@@ -1,4 +1,20 @@
-import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import {
+  access,
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join, sep } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -66,18 +82,166 @@ describe("default atomic helper resolution", () => {
     }
   )
 
-  it("removes its staged helper when its own process-exit hook runs", async () => {
+  it("stages one content-addressed copy across fresh module instances", async () => {
     const { root } = await fixture()
     const source = join(root, "helper")
+    const base = join(root, "stage")
     await helper(source)
+    await mkdir(base)
     const previous = new Set(process.rawListeners("exit"))
-    const selected = outsideWorkspace(source, undefined, [root])
-    const owned = process.rawListeners("exit").filter((listener) => !previous.has(listener))
-    expect(owned).toHaveLength(1)
+    const selected = new Set<string>()
+    for (let run = 0; run < 5; run += 1) {
+      vi.resetModules()
+      const fresh = await import("../src/internal/AtomicFileSystemExecutable.ts")
+      selected.add(fresh.outsideWorkspace(source, undefined, [base]))
+    }
+    const digest = createHash("sha256").update(await readFile(source)).digest("hex")
+    expect(await readdir(base)).toEqual([`.smthrs-atomic-helper-${digest}`])
+    expect(await readdir(join(base, `.smthrs-atomic-helper-${digest}`))).toEqual([helperName])
+    expect([...selected]).toEqual([join(base, `.smthrs-atomic-helper-${digest}`, helperName)])
+    expect((await stat(join(base, `.smthrs-atomic-helper-${digest}`))).mode & 0o777).toBe(0o700)
+    expect(process.rawListeners("exit").filter((listener) => !previous.has(listener))).toEqual([])
+  })
+
+  it("replaces a staged copy whose bytes no longer match its hash", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const base = join(root, "stage")
+    await helper(source)
+    await mkdir(base)
+    const digest = createHash("sha256").update(await readFile(source)).digest("hex")
+    const directory = join(base, `.smthrs-atomic-helper-${digest}`)
+    await mkdir(directory, { mode: 0o755 })
+    await writeFile(join(directory, helperName), "tampered", { mode: 0o755 })
+    const selected = outsideWorkspace(source, undefined, [base])
+    expect(selected).toBe(join(directory, helperName))
     expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
-    owned[0]!.call(process, 0)
-    await expect(access(dirname(selected))).rejects.toMatchObject({ code: "ENOENT" })
-    expect(process.rawListeners("exit")).not.toContain(owned[0])
+    expect(await readdir(directory)).toEqual([helperName])
+    expect((await stat(directory)).mode & 0o777).toBe(0o700)
+  })
+
+  it("refuses a planted link in place of the staging directory", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const base = join(root, "stage")
+    const elsewhere = join(root, "elsewhere")
+    await helper(source)
+    await mkdir(base)
+    await mkdir(elsewhere)
+    const digest = createHash("sha256").update(await readFile(source)).digest("hex")
+    await symlink(elsewhere, join(base, `.smthrs-atomic-helper-${digest}`))
+    expect(() => outsideWorkspace(source, undefined, [base])).toThrow(/staging directory/)
+    expect(await readdir(elsewhere)).toEqual([])
+  })
+
+  it.each(["symlink", "hard link"] as const)(
+    "replaces a planted %s with the right bytes by its own copy",
+    async (kind) => {
+      const { root } = await fixture()
+      const source = join(root, "helper")
+      const base = join(root, "stage")
+      const planted = join(root, "workspace-helper")
+      await helper(source)
+      await helper(planted)
+      await mkdir(base)
+      const digest = createHash("sha256").update(await readFile(source)).digest("hex")
+      const directory = join(base, `.smthrs-atomic-helper-${digest}`)
+      await mkdir(directory, { mode: 0o700 })
+      await (kind === "symlink" ? symlink : link)(planted, join(directory, helperName))
+      const selected = outsideWorkspace(source, undefined, [base])
+      const info = await lstat(selected)
+      expect(info.isFile() && info.nlink === 1).toBe(true)
+      // The planted target is untouched: rename replaced the entry, not the linked file.
+      expect((await lstat(planted)).nlink).toBe(1)
+      expect(await readFile(planted, "utf8")).toBe("#!/bin/sh\nexit 0\n")
+    }
+  )
+
+  it("removes this user's staging directories no process used for a week, and keeps recent ones", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const base = join(root, "stage")
+    await helper(source)
+    await mkdir(base)
+    const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+    const legacy = join(base, ".smthrs-atomic-helper-Ab3xYz")
+    const previous = join(base, `.smthrs-atomic-helper-${"0".repeat(64)}`)
+    const recent = join(base, ".smthrs-atomic-helper-Qr7uVw")
+    const unrelated = join(base, "keep-me")
+    // Only directories are staging copies; a file of that name is not this code's to remove.
+    const notDirectory = join(base, ".smthrs-atomic-helper-file")
+    for (const directory of [legacy, previous, recent, unrelated]) await mkdir(directory)
+    await writeFile(notDirectory, "")
+    for (const entry of [legacy, previous, unrelated, notDirectory]) await utimes(entry, old, old)
+    const selected = outsideWorkspace(source, undefined, [base])
+    expect((await readdir(base)).sort()).toEqual(
+      [basename(dirname(selected)), basename(recent), basename(notDirectory), "keep-me"].sort()
+    )
+  })
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "stages in a base it may write but not list, leaving pruning for a later process",
+    async () => {
+      const { root } = await fixture()
+      const source = join(root, "helper")
+      const base = join(root, "stage")
+      await helper(source)
+      await mkdir(base, { mode: 0o300 })
+      try {
+        const selected = outsideWorkspace(source, undefined, [base])
+        expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
+      } finally {
+        await chmod(base, 0o700)
+      }
+    }
+  )
+
+  it("stages again when another process pruned the copy it had cached", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const base = join(root, "stage")
+    await helper(source)
+    await mkdir(base)
+    const selected = outsideWorkspace(source, undefined, [base])
+    await rm(dirname(selected), { recursive: true, force: true })
+    expect(outsideWorkspace(source, undefined, [base])).toBe(selected)
+    expect(await readFile(selected, "utf8")).toBe("#!/bin/sh\nexit 0\n")
+  })
+
+  it("keeps a copy it goes on using fresh, at most hourly, so no other process prunes it", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const base = join(root, "stage")
+    await helper(source)
+    await mkdir(base)
+    const directory = dirname(outsideWorkspace(source, undefined, [base]))
+    const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+    await utimes(directory, old, old)
+    outsideWorkspace(source, undefined, [base])
+    await new Promise((settle) => setTimeout(settle, 50))
+    expect((await stat(directory)).mtimeMs).toBe(old.getTime())
+    const later = Date.now() + 2 * 60 * 60 * 1000
+    const clock = vi.spyOn(Date, "now").mockReturnValue(later)
+    try {
+      outsideWorkspace(source, undefined, [base])
+    } finally {
+      clock.mockRestore()
+    }
+    await vi.waitFor(async () => expect((await stat(directory)).mtimeMs).toBeGreaterThan(old.getTime()))
+  })
+
+  it("tries the next location when the staged path cannot be replaced", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const blocked = join(root, "blocked")
+    const available = join(root, "available")
+    await helper(source)
+    await mkdir(available)
+    const digest = createHash("sha256").update(await readFile(source)).digest("hex")
+    await mkdir(join(blocked, `.smthrs-atomic-helper-${digest}`, helperName, "occupied"), { recursive: true })
+    const selected = outsideWorkspace(source, undefined, [blocked, available])
+    expect(selected.startsWith(`${available}${sep}`)).toBe(true)
+    expect(await readdir(join(blocked, `.smthrs-atomic-helper-${digest}`))).toEqual([helperName])
   })
 
   it("tries a second staging location when the first is confined", async () => {
