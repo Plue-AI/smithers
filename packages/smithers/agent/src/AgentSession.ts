@@ -99,6 +99,7 @@ import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
+import * as Tracer from "effect/Tracer"
 import { Agent, type Options as AgentOptions } from "./Agent.ts"
 import * as Budget from "./Budget.ts"
 import { agentOutcome } from "./internal/AgentOutcome.ts"
@@ -370,6 +371,27 @@ const lateFields: ReadonlyMap<string, ReadonlySet<string>> = new Map([
 
 /** The exclusion set for an event type that has never been enriched. */
 const noLateFields: ReadonlySet<string> = new Set()
+
+/**
+ * The OpenTelemetry trace id every span of one run is exported under.
+ *
+ * Derived from the run id alone, so `runs status` names the trace without a
+ * stored column and every attempt of the run joins the same trace.
+ *
+ * @category tracing
+ * @since 1.0.0
+ */
+export const traceId = (runId: string): string => Digest.digest(`smithers/run-trace/${runId}`).slice(0, 32)
+
+/**
+ * The fixed parent every attempt of one run opens its `smithers.run` span
+ * under, so a resumed or re-driven run stays in the one trace {@link traceId}
+ * names.
+ */
+const runTraceParent = (runId: string): Tracer.ExternalSpan => {
+  const digest = Digest.digest(`smithers/run-trace/${runId}`)
+  return Tracer.externalSpan({ traceId: digest.slice(0, 32), spanId: digest.slice(32, 48) })
+}
 
 /**
  * The producer identity of one journaled agent event.
@@ -2966,6 +2988,7 @@ export const make = (
         }
         const plan = yield* runtime.getPlan(payload.planId)
         const card = plan.card
+        yield* Effect.annotateCurrentSpan("smithers.flow", card.flowId)
         // A budget park's approval raises the ceiling this attempt spends
         // against; the card itself stays the plan that was approved.
         const envelope = Budget.raisedBy(card.envelope, raises)
@@ -3741,6 +3764,10 @@ export const make = (
         }
         const fiber = yield* Effect.forkChild(
           body(payload, instance).pipe(
+            Effect.withSpan("smithers.run", {
+              parent: runTraceParent(payload.runId),
+              attributes: { "smithers.run_id": payload.runId, "gen_ai.conversation.id": payload.runId }
+            }),
             Effect.onExit((exit) =>
               Effect.andThen(
                 Effect.sync(() => {

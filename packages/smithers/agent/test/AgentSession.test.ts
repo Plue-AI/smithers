@@ -44,7 +44,7 @@ import { RunStore } from "@smthrs/run-store"
 import type * as Fixture from "@smthrs/testing/Fixture"
 import type * as ModelLike from "@smthrs/testing/ModelLike"
 import * as RecordedModel from "@smthrs/testing/RecordedModel"
-import { Cause, Context, Deferred, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
+import { Cause, Context, Deferred, Duration, Effect, Exit, Layer, Option, Schema, Stream, Tracer } from "effect"
 import { mkdtempSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -1080,6 +1080,62 @@ describe("AgentSession", () => {
       AgentSession.settleDriverFailure(Cause.interrupt(1), "run-interrupted", () => Effect.void)
     )
     expect(interrupted._tag).toBe("Failure")
+  })
+
+  it("exports OpenTelemetry GenAI spans under the run's derived trace", { timeout: 30_000 }, async () => {
+    const spans: Array<Tracer.NativeSpan> = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      }
+    })
+    const captured: Array<Captured> = []
+    const outcome = await Effect.runPromise(
+      Effect.gen(function*() {
+        const gate = yield* Deferred.make<void>()
+        return yield* drive(gate).pipe(
+          Effect.provide(stack({ resolve: seat(capturing(captured)), notes: [], checks: [], gate, judged: true }))
+        )
+      }).pipe(Effect.scoped, Effect.provideService(Tracer.Tracer, tracer))
+    )
+    const traceId = AgentSession.traceId(outcome.runId)
+    expect(traceId).toMatch(/^[0-9a-f]{32}$/)
+    expect(AgentSession.traceId("another-run")).not.toBe(traceId)
+    // The park and the resume are two attempts, each opening its own root
+    // span, and both land in the one trace the run id names.
+    const roots = spans.filter((span) => span.name === "smithers.run")
+    expect(roots).toHaveLength(2)
+    for (const root of roots) {
+      expect(root.traceId).toBe(traceId)
+      expect(Object.fromEntries(root.attributes)).toMatchObject({
+        "smithers.run_id": outcome.runId,
+        "smithers.flow": "agents/notes",
+        "gen_ai.conversation.id": outcome.runId
+      })
+    }
+    const agents = spans.filter((span) => span.name === "invoke_agent")
+    expect(agents).toHaveLength(2)
+    expect(Object.fromEntries(agents[0]!.attributes)).toEqual({
+      "gen_ai.operation.name": "invoke_agent",
+      "gen_ai.request.model": "test-model",
+      "gen_ai.conversation.id": outcome.runId
+    })
+    const chats = spans.filter((span) => span.name === "chat test-model")
+    expect(chats.length).toBeGreaterThanOrEqual(captured.length)
+    expect(Object.fromEntries(chats[0]!.attributes)).toMatchObject({
+      "gen_ai.operation.name": "chat",
+      "gen_ai.request.model": "test-model",
+      "gen_ai.response.finish_reasons": ["stop"]
+    })
+    const tool = spans.find((span) => span.name === "execute_tool project/check")!
+    expect(Object.fromEntries(tool.attributes)).toMatchObject({
+      "gen_ai.operation.name": "execute_tool",
+      "gen_ai.tool.name": "project/check"
+    })
+    expect(tool.attributes.get("gen_ai.tool.call.id")).toMatch(/^cell-call-v1:/)
+    for (const span of [...agents, ...chats, tool]) expect(span.traceId).toBe(traceId)
   })
 
   it("drives a 2-frame run through control → executor → engine, then replays it from the recorded fixture", {

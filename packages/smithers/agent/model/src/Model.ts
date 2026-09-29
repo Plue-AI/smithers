@@ -75,16 +75,46 @@ export const layer = (implementation: Model): Layer.Layer<Model> => Layer.succee
  */
 export const makeNoop = (overrides: Partial<Model> = {}): Model =>
   Model.of({
-    stream: () =>
-      Stream.unwrap(
-        Effect.fn("Model.stream")(() =>
-          Effect.succeed(
-            Stream.fail(new ModelErrorClass({ code: "no_route", message: "no model route in this environment" }))
-          )
-        )()
-      ),
+    stream: () => Stream.fail(new ModelErrorClass({ code: "no_route", message: "no model route in this environment" })),
     ...overrides
   })
+
+/**
+ * Wraps one model call in an OpenTelemetry GenAI client span.
+ *
+ * The span is named `chat <model>` and carries `gen_ai.operation.name`,
+ * `gen_ai.request.model`, the provider's `gen_ai.usage.input_tokens` and
+ * `gen_ai.usage.output_tokens` as they stream in, and
+ * `gen_ai.response.finish_reasons` from the settlement. Prompt and response
+ * content never reach the span.
+ *
+ * @category tracing
+ * @since 1.0.0
+ */
+export const withGenAiSpan =
+  (request: ModelRequest) => <E, R>(stream: Stream.Stream<ModelEvent, E, R>): Stream.Stream<ModelEvent, E, R> =>
+    stream.pipe(
+      Stream.tap((event) => {
+        switch (event.type) {
+          case "usage":
+            return Effect.annotateCurrentSpan({
+              ...(event.inputTokens === undefined ? {} : { "gen_ai.usage.input_tokens": event.inputTokens }),
+              ...(event.outputTokens === undefined ? {} : { "gen_ai.usage.output_tokens": event.outputTokens })
+            })
+          case "settle":
+            return Effect.annotateCurrentSpan({
+              "gen_ai.response.finish_reasons": [event.stopReason],
+              ...(event.responseId === undefined ? {} : { "gen_ai.response.id": event.responseId })
+            })
+          default:
+            return Effect.void
+        }
+      }),
+      Stream.withSpan(`chat ${request.modelId}`, {
+        kind: "client",
+        attributes: { "gen_ai.operation.name": "chat", "gen_ai.request.model": request.modelId }
+      })
+    )
 
 /**
  * Provides {@link makeNoop}.

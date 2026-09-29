@@ -87,6 +87,7 @@ import type * as Budget from "./Budget.ts"
 import * as CellPlugin from "./CellPlugin.ts"
 import * as Checkpointed from "./Checkpointed.ts"
 import * as FlowEngineLike from "./FlowEngineLike.ts"
+import * as CallIdentity from "./internal/CallIdentity.ts"
 import * as MemoryMine from "./MemoryMine.ts"
 import * as QuotaPolicy from "./QuotaPolicy.ts"
 import type * as Seat from "./Seat.ts"
@@ -896,10 +897,11 @@ const runProductionUnmeasured: Service["run"] = (options) =>
           // composition with nowhere to pin a tree must not be wrapped at all:
           // then `at` is refused by the engine port's own `capture`, which is
           // the one place that knows the host has no store.
-          const calls = yield* Checkpointed.decorate({
+          const decorated = yield* Checkpointed.decorate({
             ...(options.authorize === undefined ? {} : { authorize: options.authorize }),
             run: resolver.run
           })
+          const calls: FlowEngineLike.CallRunner = { ...decorated, run: (call) => executeTool(decorated.run, call) }
           const makePort = (seat: Seat.Seat) =>
             FlowEngineLike.make({
               model: seat.model,
@@ -971,6 +973,21 @@ const runProductionUnmeasured: Service["run"] = (options) =>
     })
   )
 
+/** One flow call from a cell, as an OpenTelemetry GenAI `execute_tool` span. */
+const executeTool = (
+  run: FlowEngineLike.CallRunner["run"],
+  call: Cell.Call
+): Effect.Effect<Cell.CallResult, HarnessError> =>
+  run(call).pipe(
+    Effect.withSpan(`execute_tool ${call.flowName}`, {
+      attributes: {
+        "gen_ai.operation.name": "execute_tool",
+        "gen_ai.tool.name": call.flowName,
+        "gen_ai.tool.call.id": CallIdentity.callId(call.identity)
+      }
+    })
+  )
+
 const runProduction: Service["run"] = (options) =>
   Stream.scoped(
     Stream.unwrap(
@@ -979,6 +996,14 @@ const runProduction: Service["run"] = (options) =>
         () => Metric.modify(ObservabilityMetric.activeSeats, -1)
       ).pipe(Effect.as(runProductionUnmeasured(options)))
     )
+  ).pipe(
+    Stream.withSpan("invoke_agent", {
+      attributes: {
+        "gen_ai.operation.name": "invoke_agent",
+        "gen_ai.request.model": options.seat.modelId,
+        "gen_ai.conversation.id": options.session
+      }
+    })
   )
 
 /**
