@@ -643,3 +643,21 @@ func TestMythicalUnreadableReviewHoldsTheTodo(t *testing.T) {
 	assert.Len(t, o.launcher.requests, reviews, "the same head is not reviewed again")
 	assert.Len(t, o.github.comments, 1)
 }
+
+// A running review holds one of the stack's lanes: a new TODO waits for it.
+func TestMythicalReviewLanesCountTowardTheLaneCap(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 1 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 85, Title: "First", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.propose(85, "eighty-five.md")
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 86, Title: "Second", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	assert.Equal(t, "queued", o.item(86).State, "the review holds the only lane")
+	o.answerReviews(`"request-changes"`)
+	o.wake()
+	assert.Equal(t, "running", o.item(86).State, "the lane is free once the review answers")
+}

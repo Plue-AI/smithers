@@ -918,7 +918,9 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	}
 	busy := 0
 	for _, item := range items {
-		if mythicalLaneStates[item.State] {
+		// A running review holds a lane too, so reviews and new requests
+		// together stay within the stack's lane cap.
+		if mythicalLaneStates[item.State] || item.State == "proposed" && mythicalChecksOf(item).reviewing(item) {
 			busy++
 		}
 	}
