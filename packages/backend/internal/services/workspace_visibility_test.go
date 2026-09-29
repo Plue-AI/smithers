@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
@@ -82,10 +83,25 @@ func TestWorkspaceVisibilityOwnerAndRevocation(t *testing.T) {
 	}
 	require.Error(t, s.SetWorkspaceServicePublic(ctx, id, 101, 42, 0, true))
 	q.storeErr = errors.New("down")
-	require.Error(t, s.SetWorkspaceServicePublic(ctx, id, 101, 42, 3000, true))
+	storageErr := q.storeErr
+	assertStorageError := func(err error, message string) {
+		t.Helper()
+		var apiErr *pkgerrors.APIError
+		require.ErrorAs(t, err, &apiErr)
+		require.Equal(t, 500, apiErr.Status)
+		require.Equal(t, message, apiErr.Message)
+		require.Same(t, storageErr, apiErr.Cause())
+	}
+	assertStorageError(s.SetWorkspaceServicePublic(ctx, id, 101, 42, 3000, true), "save workspace visibility")
 	_, err = s.WorkspaceServicePublic(ctx, id, 101, 42, 3000)
-	require.Error(t, err)
-	require.Error(t, s.AuthorizePublicPreview(ctx, domain))
+	assertStorageError(err, "load workspace visibility")
+	assertStorageError(s.AuthorizePublicPreview(ctx, domain), "authorize public preview")
+	q.storeErr = nil
+	q.values[3000] = true
+	q.mockWorkspaceQuerier.getWorkspaceFn = func(context.Context, string) (db.Workspace, error) {
+		return db.Workspace{}, storageErr
+	}
+	assertStorageError(s.AuthorizePublicPreview(ctx, domain), "load public preview workspace")
 }
 func TestPublicPreviewRejectsNoncanonicalDomains(t *testing.T) {
 	q := newVisibilityQuerier()

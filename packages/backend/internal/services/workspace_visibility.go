@@ -47,7 +47,7 @@ func (s *WorkspaceService) SetWorkspaceServicePublic(ctx context.Context, id str
 		return err
 	}
 	if err := q.SetWorkspaceServicePublic(ctx, db.SetWorkspaceServicePublicParams{WorkspaceID: id, Port: int32(port), Public: public}); err != nil {
-		return pkgerrors.Internal("save workspace visibility")
+		return pkgerrors.Internal("save workspace visibility").WithCause(err)
 	}
 	return nil
 }
@@ -58,7 +58,7 @@ func (s *WorkspaceService) WorkspaceServicePublic(ctx context.Context, id string
 	}
 	public, err := q.WorkspaceServicePublic(ctx, db.WorkspaceServicePublicParams{WorkspaceID: id, Port: int32(port)})
 	if err != nil {
-		return false, pkgerrors.Internal("load workspace visibility")
+		return false, pkgerrors.Internal("load workspace visibility").WithCause(err)
 	}
 	return public, nil
 }
@@ -97,7 +97,7 @@ func (s *WorkspaceService) AuthorizePublicPreview(ctx context.Context, domain st
 	}
 	allowed, err := q.AuthorizePublicWorkspaceService(ctx, db.AuthorizePublicWorkspaceServiceParams{WorkspaceID: parts[2], Port: int32(port)})
 	if err != nil {
-		return pkgerrors.Internal("authorize public preview")
+		return pkgerrors.Internal("authorize public preview").WithCause(err)
 	}
 	if !allowed {
 		return pkgerrors.Forbidden("preview is private")
@@ -108,7 +108,7 @@ func (s *WorkspaceService) AuthorizePublicPreview(ctx context.Context, domain st
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pkgerrors.Forbidden("preview is private")
 		}
-		return pkgerrors.Internal("load public preview workspace")
+		return pkgerrors.Internal("load public preview workspace").WithCause(err)
 	}
 	return s.AuthorizeWorkspacePreview(ctx, workspace.ID, workspace.RepositoryID, workspace.UserID)
 }

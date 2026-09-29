@@ -894,7 +894,7 @@ func (s *WorkspaceService) AuthorizeWorkspacePreview(ctx context.Context, worksp
 			if errors.Is(err, pgx.ErrNoRows) {
 				return pkgerrors.Forbidden("access denied")
 			}
-			return pkgerrors.Internal("load preview owner")
+			return pkgerrors.Internal("load preview owner").WithCause(err)
 		}
 		if !owner.IsActive || owner.ProhibitLogin || owner.DeletedAt.Valid {
 			return pkgerrors.Forbidden("access denied")

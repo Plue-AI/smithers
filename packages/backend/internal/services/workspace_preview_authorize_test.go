@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -20,6 +21,7 @@ type previewAuthorizeQuerier struct {
 	*mockWorkspaceQuerier
 	user              db.User
 	owner             db.User
+	ownerErr          error
 	collaborator      string
 	ownerCollaborator string
 	shareRevoked      bool
@@ -29,7 +31,7 @@ type previewAuthorizeQuerier struct {
 
 func (q *previewAuthorizeQuerier) GetUserByID(_ context.Context, id int64) (db.User, error) {
 	if id == q.owner.ID {
-		return q.owner, nil
+		return q.owner, q.ownerErr
 	}
 	if id != q.user.ID {
 		return db.User{}, pgx.ErrNoRows
@@ -82,16 +84,19 @@ func newPreviewAuthorizeQuerier() *previewAuthorizeQuerier {
 func TestAuthorizeWorkspacePreviewRechecksEveryGrant(t *testing.T) {
 	t.Parallel()
 	const workspaceID = "11111111-1111-4111-8111-111111111111"
+	databaseErr := errors.New("owner database unavailable")
 
 	for name, tc := range map[string]struct {
 		mutate func(*previewAuthorizeQuerier)
 		denied bool
+		cause  error
 	}{
 		"owner remains a repository collaborator": {mutate: func(q *previewAuthorizeQuerier) { q.repoPrivateTo = 99 }},
 		"owner repository access removed":         {mutate: func(q *previewAuthorizeQuerier) { q.repoPrivateTo = 99; q.ownerCollaborator = "" }, denied: true},
 		"owner suspended":                         {mutate: func(q *previewAuthorizeQuerier) { q.owner.ProhibitLogin = true }, denied: true},
 		"owner deactivated":                       {mutate: func(q *previewAuthorizeQuerier) { q.owner.IsActive = false }, denied: true},
 		"owner deleted":                           {mutate: func(q *previewAuthorizeQuerier) { q.owner.DeletedAt = pgtype.Timestamptz{Valid: true} }, denied: true},
+		"owner database failure":                  {mutate: func(q *previewAuthorizeQuerier) { q.ownerErr = databaseErr }, denied: true, cause: databaseErr},
 		"shared viewer":                           {mutate: func(*previewAuthorizeQuerier) {}},
 		"share removed":                           {mutate: func(q *previewAuthorizeQuerier) { q.shareRevoked = true }, denied: true},
 		"user suspended":                          {mutate: func(q *previewAuthorizeQuerier) { q.user.ProhibitLogin = true }, denied: true},
@@ -111,6 +116,12 @@ func TestAuthorizeWorkspacePreviewRechecksEveryGrant(t *testing.T) {
 			}
 			var apiErr *pkgerrors.APIError
 			require.ErrorAs(t, err, &apiErr)
+			if tc.cause != nil {
+				assert.Equal(t, 500, apiErr.Status)
+				assert.Equal(t, "load preview owner", apiErr.Message)
+				assert.Same(t, tc.cause, apiErr.Cause())
+				return
+			}
 			assert.Equal(t, 403, apiErr.Status)
 		})
 	}
