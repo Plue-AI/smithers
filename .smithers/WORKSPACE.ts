@@ -40,6 +40,7 @@ export const Workspace = S.Workspace("smithers", {
   // Only the post-merge CI publisher receives the write credential.
   cache: S.Cache({
     directory: ".flows",
+    hostDirectories: [".backend-go-modcache"],
     remote: S.RemoteCache.make({
       endpoint: "https://build.smithers.sh",
       read: S.Secret("SMITHERS_CACHE_READ_TOKEN"),

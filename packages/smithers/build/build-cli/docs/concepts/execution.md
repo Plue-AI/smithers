@@ -73,6 +73,26 @@ only for the paths matching an ignore pattern (`--ignored=matching`) and walks
 each matched directory itself by `lstat`, never entering `node_modules` at any
 depth, version-control internals, the cache directory, or a nested repository.
 
+Declare additional regenerable tool caches explicitly in the workspace:
+
+```ts
+cache: S.Cache({
+  directory: ".flows",
+  hostDirectories: [".backend-go-modcache"]
+})
+```
+
+`hostDirectories` contains workspace-relative directory paths, not globs.
+Their ignored contents are host state, like `node_modules` and a declared
+Rust toolchain's build directory: they are neither stashed nor restored. Ignored
+symlinks inside these directories also leave the portal census; do not place
+links to source files or unique external data there.
+Only declare caches that their owning tool can rebuild, never source files,
+credentials, or unique local data. Tracked files remain guarded, and sibling
+directories do not inherit the exclusion. This declaration does not grant
+sandbox access, prune discovery, or move or delete the cache. All other ignored
+files retain the same census limits and exact rollback.
+
 One stash serves every guarded body in a run. A census copies only the files
 whose `lstat` identity moved since the stash last held them and drops the ones
 that vanished, so an unchanged ignored file costs one `lstat` per body and a

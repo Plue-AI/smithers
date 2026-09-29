@@ -36,6 +36,7 @@ import type * as Toolchain from "./Toolchain.ts"
  */
 export const CacheDeclaration = Schema.TaggedStruct("Cache", {
   directory: Schema.NonEmptyString,
+  hostDirectories: Schema.optional(Schema.Array(Schema.NonEmptyString)),
   remote: Schema.optional(
     Schema.declare<RemoteCache.RemoteCache>(RemoteCache.isRemoteCache, {
       identifier: "smithers-build/RemoteCache",
@@ -65,25 +66,40 @@ export const isCacheDeclaration: (value: unknown) => value is CacheDeclaration =
  * Declares the workspace cache directory and, optionally, the remote cache
  * (`S.RemoteCache.make(...)`) it replicates to. The remote declaration is
  * inert data here; the CLI reads it when it opens the workspace cache.
+ * `hostDirectories` explicitly owns regenerable tool caches as host state:
+ * ignored contents are excluded from write-set snapshots and rollback.
+ * Tracked files remain guarded. Paths must be canonical and workspace-relative.
  *
  * @category constructors
  * @since 0.1.0
  */
 export const Cache = (options: {
   readonly directory: string
+  readonly hostDirectories?: ReadonlyArray<string> | undefined
   readonly remote?: RemoteCache.RemoteCache | undefined
 }): CacheDeclaration => {
   if (typeof options !== "object" || options === null) throw new TypeError("Cache options must be an object")
   for (const key of Object.getOwnPropertyNames(options)) {
-    if (key !== "directory" && key !== "remote") {
+    if (key !== "directory" && key !== "remote" && key !== "hostDirectories") {
       throw new TypeError(`Cache received unknown option ${JSON.stringify(key)}`)
     }
   }
   if (options.remote !== undefined && !RemoteCache.isRemoteCache(options.remote)) {
     throw new TypeError("Cache remote must be an S.RemoteCache.make declaration")
   }
+  if (options.hostDirectories !== undefined && !Array.isArray(options.hostDirectories)) {
+    throw new TypeError("Cache hostDirectories must be an array of workspace-relative directories")
+  }
+  const hostDirectories = options.hostDirectories?.map((directory) => {
+    const normalized = Config.normalizeCacheDirectory(directory)
+    if (normalized !== directory || /[*?[\]{}]/.test(directory)) {
+      throw new TypeError("Cache hostDirectories must contain canonical directory paths, not globs")
+    }
+    return normalized
+  })
   return CacheDeclaration.make({
     directory: Config.normalizeCacheDirectory(options.directory),
+    ...(hostDirectories === undefined ? {} : { hostDirectories: Object.freeze(hostDirectories) }),
     ...(options.remote === undefined ? {} : { remote: options.remote })
   })
 }

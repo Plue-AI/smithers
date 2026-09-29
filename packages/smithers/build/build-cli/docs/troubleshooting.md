@@ -200,7 +200,11 @@ The gitignored census could not hold the tree whole: it crossed the 50,000
 entry or 1 GiB ceiling, or held a path it could not read. An escaping symlink
 portal over its entry cap refuses the same way. Usually this means a large
 generated tree belongs under the cache directory or `node_modules` rather than
-loose in the workspace.
+loose in the workspace. A regenerable repository-local tool cache can also be
+listed in `S.Cache({ directory: ".flows", hostDirectories: [".backend-go-modcache"] })`.
+Its ignored contents then remain in place as host state outside rollback;
+tracked files and other ignored data remain guarded. Never declare a directory
+containing unique local data.
 
 ## A commit refused
 

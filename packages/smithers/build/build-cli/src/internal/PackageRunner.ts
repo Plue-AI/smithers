@@ -978,8 +978,8 @@ export const executeEffect = (
     )
 
     /**
-     * The gitignored directories a toolchain this workspace declares owns, which
-     * the census skips whole like `node_modules`.
+     * The gitignored directories a declared toolchain or workspace host cache
+     * owns, which the census skips whole like `node_modules`.
      *
      * Cargo writes every crate's build artifacts into one directory beside the
      * workspace manifest, and rebuilds all of it on demand. Stashing it bought
@@ -992,13 +992,14 @@ export const executeEffect = (
      * there all the same.
      */
     const hostTrees = ((): ReadonlyArray<string> => {
+      const declared = index.workspace.cache.hostDirectories ?? []
       const rust = WorkspaceDeclaration.rustToolchain(index.workspace)
-      if (rust === undefined) return []
+      if (rust === undefined) return declared
       // Cargo puts the build directory beside the manifest it was pointed at,
       // and defaults to the workspace root when the declaration names none.
       const manifest = rust.workspace === undefined ? undefined : Input.resolvePath("", rust.workspace.path)
       const directory = manifest === undefined ? "." : NodePath.posix.dirname(manifest)
-      return [directory === "." ? "target" : `${directory}/target`]
+      return [...declared, directory === "." ? "target" : `${directory}/target`]
     })()
 
     /**

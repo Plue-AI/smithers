@@ -78,10 +78,12 @@ Declares the workspace: its name plus the typed host and toolchain services ever
 
 ### `Smithers.Cache`
 
-- **Signature:** `Cache(options: { directory: string; remote?: RemoteCache.RemoteCache | undefined }): CacheDeclaration`
+- **Signature:** `Cache(options: { directory: string; hostDirectories?: ReadonlyArray<string> | undefined; remote?: RemoteCache.RemoteCache | undefined }): CacheDeclaration`
 - **Since:** `0.1.0`
 
 Declares the workspace cache directory and, optionally, the remote cache it replicates to. `directory` is required and normalized to one workspace-relative directory; `Config.defaultCacheDirectory` is `.flows`. A `remote` that is not a `Smithers.RemoteCache.make` declaration raises `TypeError`. The remote declaration is inert data here, read by the CLI when it opens the workspace cache.
+
+`hostDirectories` explicitly lists regenerable tool caches, such as `[".backend-go-modcache"]`. Each path must be canonical, workspace-relative, and free of globs. Their ignored contents are host state excluded from write-set snapshots and rollback; tracked files and other ignored paths remain guarded. Ignored symlinks inside these directories are also excluded from portal snapshots, so they must not link to unique external data. Declare only caches the owning tool can rebuild, never credentials or unique local data. The declaration neither grants sandbox access nor moves or deletes files.
 
 ### `Smithers.Package`
 
