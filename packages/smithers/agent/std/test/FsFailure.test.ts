@@ -19,6 +19,7 @@ const refusing = (tag: PlatformError.SystemErrorTag) => {
   return FileSystem.makeNoop({
     exists: () => Effect.succeed(true),
     stat: () => fail("stat"),
+    realPath: () => fail("realPath"),
     readFile: () => fail("readFile"),
     readDirectory: () => fail("readDirectory"),
     makeDirectory: () => fail("makeDirectory"),

@@ -17,6 +17,7 @@ import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as ApplyPatchText from "./internal/ApplyPatch.ts"
 import { capability, envelope } from "./internal/Declaration.ts"
+import * as FileMutation from "./internal/FileMutation.ts"
 import * as FsFailure from "./internal/FsFailure.ts"
 import * as Preserve from "./internal/Preserve.ts"
 import * as StdError from "./StdError.ts"
@@ -177,9 +178,6 @@ export const paths = (patch: string): ReadonlyArray<string> | undefined => {
   ]
 }
 
-const encoder = new TextEncoder()
-const decoder = new TextDecoder("utf-8", { fatal: true })
-
 /**
  * The one sentence a model sees for a failure this handler did not design.
  * The raw failure goes to the log, never into the tool result.
@@ -196,6 +194,9 @@ const unknownFailure = (error: unknown, path?: string): Effect.Effect<never, Std
       )
     ))
   )
+
+const encoder = new TextEncoder()
+const decoder = new TextDecoder("utf-8", { fatal: true })
 
 /**
  * Parses and applies a V4A patch through the permission-aware kernel
@@ -276,131 +277,135 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
     }
   }
 
-  const added: Array<string> = []
-  const modified: Array<string> = []
-  const deleted: Array<string> = []
-  const prepared = new Map<ApplyPatchText.Hunk, string>()
-
+  // Create only parents the patch already intends to create, before taking
+  // stable sibling locks for new destinations as well as existing sources.
   for (const hunk of parsed.hunks) {
-    if (hunk.kind !== "update") continue
-    const bytes = yield* fileSystem.readFile(hunk.path).pipe(
-      Effect.mapError(FsFailure.reading(hunk.path, `Failed to read file to update ${hunk.path}`))
-    )
-    if (bytes.includes(0)) {
-      return yield* Effect.fail(
-        new StdError.StdError({
-          code: "binary_file",
-          message: `Cannot read binary file: ${hunk.path}`,
-          path: hunk.path
-        })
+    const destination = hunk.kind === "add" ? hunk.path : hunk.kind === "update" ? hunk.movePath : undefined
+    if (destination !== undefined) {
+      yield* fileSystem.makeDirectory(path.dirname(destination), { recursive: true }).pipe(
+        Effect.mapError(
+          FsFailure.denied(destination, () =>
+            new StdError.StdError({
+              code: "command_failed",
+              message: `Failed to create parent directories for ${destination}`,
+              path: destination
+            }))
+        )
       )
     }
-    const original = yield* Effect.try({
-      try: () => decoder.decode(bytes),
-      catch: () =>
-        new StdError.StdError({
-          code: "binary_file",
-          message: `File is not valid UTF-8: ${hunk.path}`,
-          path: hunk.path
-        })
-    })
-    let contents: string
-    try {
-      contents = ApplyPatchText.deriveNewContents(original, hunk.path, hunk.chunks)
-    } catch (error) {
-      if (error instanceof ApplyPatchText.ComputeReplacementsError) {
+  }
+  return yield* Effect.scoped(Effect.gen(function*() {
+    yield* FileMutation.acquire(
+      fileSystem,
+      parsed.hunks.flatMap((hunk) =>
+        hunk.kind === "update" && hunk.movePath !== undefined ? [hunk.path, hunk.movePath] : [hunk.path]
+      ),
+      path
+    )
+    const added: Array<string> = []
+    const modified: Array<string> = []
+    const deleted: Array<string> = []
+    const prepared = new Map<ApplyPatchText.Hunk, string>()
+
+    for (const hunk of parsed.hunks) {
+      if (hunk.kind !== "update") continue
+      const bytes = yield* fileSystem.readFile(hunk.path).pipe(
+        Effect.mapError(FsFailure.reading(hunk.path, `Failed to read file to update ${hunk.path}`))
+      )
+      if (bytes.includes(0)) {
         return yield* Effect.fail(
-          new StdError.StdError({ code: "no_match", message: error.message, path: hunk.path })
+          new StdError.StdError({
+            code: "binary_file",
+            message: `Cannot read binary file: ${hunk.path}`,
+            path: hunk.path
+          })
         )
       }
-      return yield* unknownFailure(error, hunk.path)
-    }
-    prepared.set(hunk, contents)
-  }
-
-  // A denial names itself, so the model does not retry a write the host refuses.
-  const mutationFailure =
-    (code: StdError.Code, message: string, offendingPath: string) =>
-    (error: PlatformError.PlatformError): StdError.StdError =>
-      error.reason._tag === "PermissionDenied"
-        ? mutationError("permission_denied", `Permission denied: ${offendingPath}`, offendingPath)
-        : mutationError(code, message, offendingPath)
-  const mutationError = (code: StdError.Code, message: string, offendingPath: string): StdError.StdError =>
-    new StdError.StdError({
-      code,
-      message: `${message}; applied before failure: added=${JSON.stringify(added)}, modified=${
-        JSON.stringify(modified)
-      }, deleted=${JSON.stringify(deleted)}`,
-      path: offendingPath
-    })
-
-  for (const hunk of parsed.hunks) {
-    switch (hunk.kind) {
-      case "add": {
-        const parent = path.dirname(hunk.path)
-        if (parent !== "" && parent !== ".") {
-          yield* fileSystem.makeDirectory(parent, { recursive: true }).pipe(
-            Effect.mapError(
-              mutationFailure("command_failed", `Failed to create parent directories for ${hunk.path}`, hunk.path)
-            )
+      const original = yield* Effect.try({
+        try: () => decoder.decode(bytes),
+        catch: () =>
+          new StdError.StdError({
+            code: "binary_file",
+            message: `File is not valid UTF-8: ${hunk.path}`,
+            path: hunk.path
+          })
+      })
+      let contents: string
+      try {
+        contents = ApplyPatchText.deriveNewContents(original, hunk.path, hunk.chunks)
+      } catch (error) {
+        if (error instanceof ApplyPatchText.ComputeReplacementsError) {
+          return yield* Effect.fail(
+            new StdError.StdError({ code: "no_match", message: error.message, path: hunk.path })
           )
         }
-        yield* fileSystem.writeFile(hunk.path, encoder.encode(hunk.contents)).pipe(
-          Effect.mapError(mutationFailure("command_failed", `Failed to write file ${hunk.path}`, hunk.path))
-        )
-        added.push(hunk.path)
-        break
+        return yield* unknownFailure(error, hunk.path)
       }
-      case "delete": {
-        yield* fileSystem.remove(hunk.path).pipe(
-          Effect.mapError(mutationFailure("not_found", `Failed to delete file ${hunk.path}`, hunk.path))
-        )
-        deleted.push(hunk.path)
-        break
-      }
-      case "update": {
-        const contents = prepared.get(hunk)!
-        const destination = hunk.movePath ?? hunk.path
-        if (hunk.movePath !== undefined) {
-          const parent = path.dirname(hunk.movePath)
-          if (parent !== "" && parent !== ".") {
-            yield* fileSystem.makeDirectory(parent, { recursive: true }).pipe(
-              Effect.mapError(
-                mutationFailure(
+      prepared.set(hunk, contents)
+    }
+
+    // A denial names itself, so the model does not retry a write the host refuses.
+    const mutationFailure =
+      (code: StdError.Code, message: string, offendingPath: string) =>
+      (error: PlatformError.PlatformError): StdError.StdError =>
+        error.reason._tag === "PermissionDenied"
+          ? mutationError("permission_denied", `Permission denied: ${offendingPath}`, offendingPath)
+          : mutationError(code, message, offendingPath)
+    const mutationError = (code: StdError.Code, message: string, offendingPath: string): StdError.StdError =>
+      new StdError.StdError({
+        code,
+        message: `${message}; applied before failure: added=${JSON.stringify(added)}, modified=${
+          JSON.stringify(modified)
+        }, deleted=${JSON.stringify(deleted)}`,
+        path: offendingPath
+      })
+
+    for (const hunk of parsed.hunks) {
+      switch (hunk.kind) {
+        case "add": {
+          yield* fileSystem.writeFile(hunk.path, encoder.encode(hunk.contents)).pipe(
+            Effect.mapError(mutationFailure("command_failed", `Failed to write file ${hunk.path}`, hunk.path))
+          )
+          added.push(hunk.path)
+          break
+        }
+        case "delete": {
+          yield* fileSystem.remove(hunk.path).pipe(
+            Effect.mapError(mutationFailure("not_found", `Failed to delete file ${hunk.path}`, hunk.path))
+          )
+          deleted.push(hunk.path)
+          break
+        }
+        case "update": {
+          const contents = prepared.get(hunk)!
+          const destination = hunk.movePath ?? hunk.path
+          yield* Preserve.writeFile(fileSystem, destination, encoder.encode(contents)).pipe(
+            Effect.mapError((error) =>
+              error.reason.method === "chmod"
+                ? mutationError(
                   "command_failed",
-                  `Failed to create parent directories for ${destination}`,
+                  `Could not preserve the mode of ${destination} before replacement by chmod`,
                   destination
                 )
-              )
+                : mutationFailure("command_failed", `Failed to write file ${destination}`, destination)(error)
+            )
+          )
+          modified.push(destination)
+          if (hunk.movePath !== undefined && (yield* identity(hunk.movePath)) !== (yield* identity(hunk.path))) {
+            yield* fileSystem.remove(hunk.path).pipe(
+              Effect.mapError(mutationFailure("command_failed", `Failed to remove original ${hunk.path}`, hunk.path))
             )
           }
+          break
         }
-        yield* Preserve.writeFile(fileSystem, destination, encoder.encode(contents)).pipe(
-          Effect.mapError((error) =>
-            error.reason.method === "chmod"
-              ? mutationError(
-                "command_failed",
-                `Could not preserve the mode of ${destination} before replacement by chmod`,
-                destination
-              )
-              : mutationFailure("command_failed", `Failed to write file ${destination}`, destination)(error)
-          )
-        )
-        modified.push(destination)
-        if (hunk.movePath !== undefined && (yield* identity(hunk.movePath)) !== (yield* identity(hunk.path))) {
-          yield* fileSystem.remove(hunk.path).pipe(
-            Effect.mapError(mutationFailure("command_failed", `Failed to remove original ${hunk.path}`, hunk.path))
-          )
-        }
-        break
       }
     }
-  }
 
-  return {
-    output: ApplyPatchText.printSummary({ added, deleted, modified }),
-    added,
-    deleted,
-    modified
-  }
+    return {
+      output: ApplyPatchText.printSummary({ added, deleted, modified }),
+      added,
+      deleted,
+      modified
+    }
+  }))
 })

@@ -103,6 +103,8 @@ describe("Write", () => {
     let writes = 0
     let stats = 0
     const host = FileSystem.makeNoop({
+      realPath: (path) => Effect.succeed(path),
+      remove: () => Effect.void,
       exists: () => Effect.succeed(true),
       makeDirectory: () => Effect.void,
       stat: () => {
@@ -201,6 +203,8 @@ describe("Write", () => {
 
   it("fails with permission_denied and the path when the filesystem refuses the write", async () => {
     const host = FileSystem.makeNoop({
+      realPath: (path) => Effect.succeed(path),
+      remove: () => Effect.void,
       exists: () => Effect.succeed(false),
       makeDirectory: () => Effect.void,
       stat: () => Effect.fail(systemError("NotFound", "stat", "/file.txt")),

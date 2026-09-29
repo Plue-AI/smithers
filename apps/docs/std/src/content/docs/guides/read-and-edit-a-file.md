@@ -135,6 +135,31 @@ context on each side:
 
 A mis-indented edit costs one glance at `hunk` instead of an investigation.
 
+## Concurrent changes
+
+`edit`, `write`, and `apply_patch` hold exclusive sibling directory locks from
+before reading until their mutation finishes. Existing symlink aliases share
+the resolved file's lock. Case and Unicode normalization variants conservatively
+share a lock, even on a case-sensitive filesystem. Separate hosts and processes using these handlers
+coordinate through the same filesystem; it must implement exclusive directory
+creation. A competing call fails with `no_match` and names the busy file before
+changing it. Re-read and retry after the other writer finishes. Anchors and
+line-range `expect` are checked again on every retry.
+
+A patch locks all source and destination paths before reading update contents.
+It may create destination parent directories first. Failure to acquire any lock
+releases the locks already acquired without applying file changes. Locks also
+release on ordinary failure and Effect interruption. Process death leaves a
+`.smithers-*.lock` directory and subsequent calls refuse to write. Stop all
+writers for that file, inspect its contents, and remove only the lock named in
+the refusal before retrying. Locks are never reclaimed by age.
+
+These locks coordinate standard handlers sharing a filesystem, including patch
+adds, deletes, and moves. Shell commands, editors, and other programs that do
+not use this protocol are outside that guarantee. Whole-file `write` and patch
+add operations intentionally replace contents; use an anchored edit when a
+previously read version must still match.
+
 ## Write a whole file
 
 `write` replaces a file, creating parent directories:

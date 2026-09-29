@@ -23,6 +23,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Schema from "effect/Schema"
 import { capability, envelope } from "./internal/Declaration.ts"
+import * as FileMutation from "./internal/FileMutation.ts"
 import * as FsFailure from "./internal/FsFailure.ts"
 import * as Match from "./internal/Match.ts"
 import * as Preserve from "./internal/Preserve.ts"
@@ -250,92 +251,95 @@ export const run = Effect.fn("Edit.run")(function*(
   if (byLines && input.replaceAll !== undefined) {
     return yield* Effect.fail(invalid(input.path, "replaceAll cannot be used with startLine/endLine"))
   }
-  const bytes = yield* fileSystem.readFile(input.path).pipe(
-    Effect.mapError(FsFailure.reading(input.path, `File not found: ${input.path}`))
-  )
-  if (bytes.includes(0)) {
-    return yield* Effect.fail(
-      new StdError.StdError({
-        code: "binary_file",
-        message: `Cannot read binary file: ${input.path}`,
-        path: input.path
-      })
+  return yield* Effect.scoped(Effect.gen(function*() {
+    yield* FileMutation.acquire(fileSystem, [input.path])
+    const bytes = yield* fileSystem.readFile(input.path).pipe(
+      Effect.mapError(FsFailure.reading(input.path, `File not found: ${input.path}`))
     )
-  }
-  const content = yield* Effect.try({
-    try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    catch: () =>
-      new StdError.StdError({
-        code: "binary_file",
-        message: `File is not valid UTF-8: ${input.path}`,
-        path: input.path
-      })
-  })
-
-  const targets: Array<{ readonly start: number; readonly end: number }> = []
-  if (input.oldString !== undefined) {
-    const located = Match.locate(content, input.oldString)
-    if (located.length === 0) return yield* Effect.fail(miss(input.path, content, input.oldString, "oldString"))
-    if (located.length > 1 && input.replaceAll !== true) {
-      const at = located.map((span) => span.startLine).join(", ")
-      return yield* Effect.fail(
-        invalid(
-          input.path,
-          `oldString occurs ${located.length} times in ${input.path}, on lines ${at}; add surrounding context to pick one, anchor by startLine/endLine, or set replaceAll`
-        )
-      )
-    }
-    targets.push(...(input.replaceAll === true ? located : [located[0]!]))
-  } else {
-    const span = lineSpan(input.path, content, input.startLine!, input.endLine!)
-    if (span instanceof StdError.StdError) return yield* Effect.fail(span)
-    if (input.expect !== undefined && content.slice(span.start, span.end) !== input.expect) {
+    if (bytes.includes(0)) {
       return yield* Effect.fail(
         new StdError.StdError({
-          code: "no_match",
-          message:
-            `Lines ${input.startLine}-${input.endLine} of ${input.path} do not hold expect. They hold this, raw:\n${
-              content.slice(span.start, span.end)
-            }\n\nRe-read the file: it moved under the line numbers you anchored on.`,
+          code: "binary_file",
+          message: `Cannot read binary file: ${input.path}`,
           path: input.path
         })
       )
     }
-    targets.push(span)
-  }
-
-  let replaced = ""
-  let cursor = 0
-  for (const span of targets) {
-    replaced += content.slice(cursor, span.start) + input.newString
-    cursor = span.end
-  }
-  replaced += content.slice(cursor)
-  yield* Preserve.writeFileString(fileSystem, input.path, replaced).pipe(
-    Effect.mapError((error) =>
-      error.reason.method === "chmod"
-        ? new StdError.StdError({
-          code: "command_failed",
-          message: `Could not preserve the mode of ${input.path} before replacement by chmod`,
+    const content = yield* Effect.try({
+      try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      catch: () =>
+        new StdError.StdError({
+          code: "binary_file",
+          message: `File is not valid UTF-8: ${input.path}`,
           path: input.path
         })
-        : FsFailure.denied(input.path, () =>
-          new StdError.StdError({
-            code: "command_failed",
-            message: `Could not write ${input.path}`,
-            path: input.path
-          }))(
-            error
+    })
+
+    const targets: Array<{ readonly start: number; readonly end: number }> = []
+    if (input.oldString !== undefined) {
+      const located = Match.locate(content, input.oldString)
+      if (located.length === 0) return yield* Effect.fail(miss(input.path, content, input.oldString, "oldString"))
+      if (located.length > 1 && input.replaceAll !== true) {
+        const at = located.map((span) => span.startLine).join(", ")
+        return yield* Effect.fail(
+          invalid(
+            input.path,
+            `oldString occurs ${located.length} times in ${input.path}, on lines ${at}; add surrounding context to pick one, anchor by startLine/endLine, or set replaceAll`
           )
+        )
+      }
+      targets.push(...(input.replaceAll === true ? located : [located[0]!]))
+    } else {
+      const span = lineSpan(input.path, content, input.startLine!, input.endLine!)
+      if (span instanceof StdError.StdError) return yield* Effect.fail(span)
+      if (input.expect !== undefined && content.slice(span.start, span.end) !== input.expect) {
+        return yield* Effect.fail(
+          new StdError.StdError({
+            code: "no_match",
+            message:
+              `Lines ${input.startLine}-${input.endLine} of ${input.path} do not hold expect. They hold this, raw:\n${
+                content.slice(span.start, span.end)
+              }\n\nRe-read the file: it moved under the line numbers you anchored on.`,
+            path: input.path
+          })
+        )
+      }
+      targets.push(span)
+    }
+
+    let replaced = ""
+    let cursor = 0
+    for (const span of targets) {
+      replaced += content.slice(cursor, span.start) + input.newString
+      cursor = span.end
+    }
+    replaced += content.slice(cursor)
+    yield* Preserve.writeFileString(fileSystem, input.path, replaced).pipe(
+      Effect.mapError((error) =>
+        error.reason.method === "chmod"
+          ? new StdError.StdError({
+            code: "command_failed",
+            message: `Could not preserve the mode of ${input.path} before replacement by chmod`,
+            path: input.path
+          })
+          : FsFailure.denied(input.path, () =>
+            new StdError.StdError({
+              code: "command_failed",
+              message: `Could not write ${input.path}`,
+              path: input.path
+            }))(
+              error
+            )
+      )
     )
-  )
-  const first = targets[0]!
-  const applied = Match.hunk(replaced, first.start, first.start + input.newString.length)
-  return {
-    path: input.path,
-    replacements: targets.length,
-    startLine: applied.startLine,
-    endLine: applied.endLine,
-    hunk: applied.text
-  }
+    const first = targets[0]!
+    const applied = Match.hunk(replaced, first.start, first.start + input.newString.length)
+    return {
+      path: input.path,
+      replacements: targets.length,
+      startLine: applied.startLine,
+      endLine: applied.endLine,
+      hunk: applied.text
+    }
+  }))
 })
