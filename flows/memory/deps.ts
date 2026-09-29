@@ -8,6 +8,7 @@
  * lockfile installed, and a URL's bytes must hash to the declared SHA-256.
  * Each directory carries a `source.json` receipt naming the pin.
  */
+import { Fault } from "@smthrs/flow"
 import * as DependencyDocs from "@smthrs/targets/DependencyDocs"
 import { Effect, FileSystem, Path, Schema } from "effect"
 import { createHash } from "node:crypto"
@@ -28,6 +29,17 @@ export class DocsImportError extends Schema.TaggedError<DocsImportError>()("Docs
   source: Schema.String,
   message: Schema.String
 }) {}
+Fault.register(
+  "DocsImportError",
+  {
+    workspace: "user",
+    invalid: "user",
+    missing: "user",
+    digest: "user",
+    fetch: "infra",
+    too_large: "policy"
+  } satisfies Fault.Rows<DocsImportError["code"]>
+)
 
 /** What one import wrote. */
 export interface Imported {

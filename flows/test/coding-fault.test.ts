@@ -6,6 +6,7 @@ import { test } from "node:test"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { NativeCode, NativeCodingError } from "../coding/native-schema.ts"
 import { CodingError } from "../coding/schema.ts"
+import { DocsImportError } from "../memory/deps.ts"
 
 const flows = fileURLToPath(new URL("..", import.meta.url))
 const sources = (directory: string): ReadonlyArray<string> =>
@@ -29,6 +30,14 @@ test("every tagged error the repository flows declare has a fault class", async 
   }
   for (const file of new Set(declared.map((entry) => entry.file))) await import(pathToFileURL(file).href)
   assert.deepEqual(declared.filter((entry) => !Fault.registered().has(entry.tag)), [])
+})
+
+test("dependency docs faults distinguish declaration repair, fetch retry, and size policy", () => {
+  const fault = (code: DocsImportError["code"]) =>
+    Fault.of(new DocsImportError({ code, source: "docs", message: "failed" }))
+  assert.deepEqual(fault("digest"), { class: "user", tag: "DocsImportError/digest" })
+  assert.deepEqual(fault("fetch"), { class: "infra", tag: "DocsImportError/fetch" })
+  assert.deepEqual(fault("too_large"), { class: "policy", tag: "DocsImportError/too_large" })
 })
 
 test("a decline closes the TODO and a stalled plan is replanned", () => {
