@@ -135,6 +135,20 @@ export const provisionHostBuiltins = (
 ) => provisionBuiltins(stateRoot, policy, configuredCodingRoutes(options).map((route) => route.name))
 
 /**
+ * The coding routes a configured host refuses to serve without. They come from
+ * the measured host bundle, never from the repository's own `flows/` tree: a
+ * repository copy that cannot load on this host (smithersai/smithers ships the
+ * source of these routes; older repositories carry stale copies) would
+ * otherwise shadow the built-in and stop the host at startup.
+ */
+export const hostOwnedCodingRoutes = (options: Pick<Options, "planning" | "landing">): ReadonlyArray<string> => [
+  "coding",
+  "coding/dispatch",
+  "coding/implementation",
+  ...configuredCodingRoutes(options).map((route) => route.name)
+]
+
+/**
  * The executables a configured host refuses to serve without, by name.
  *
  * A module that IS its own flow reports no delegate, so `undefined` is the
@@ -146,10 +160,7 @@ export const missingCodingExecutables = (
   options: Pick<Options, "planning" | "landing">
 ): ReadonlyArray<string> => {
   const required: ReadonlyArray<readonly [string, string | undefined]> = [
-    ["coding", undefined],
-    ["coding/dispatch", undefined],
-    ["coding/implementation", undefined],
-    ...configuredCodingRoutes(options).map((route) => [route.name, undefined] as const),
+    ...hostOwnedCodingRoutes(options).map((name) => [name, undefined] as const),
     ["repository/setup", RunSetup._tag],
     ["repository/trigger", RunTrigger._tag],
     ["repository-jobs/issues", RunJob._tag]
@@ -377,7 +388,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
                 base
                 : bindWikiRegistry(base, wikiCheckPolicy(wikiOptions)),
               builtins.registry,
-              repositoryPolicy
+              repositoryPolicy,
+              hostOwnedCodingRoutes(options)
             ))
         ).pipe(Layer.provide(native.layerRegistry(options.repositoryPath)))
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(

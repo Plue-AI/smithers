@@ -18,7 +18,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
-import { missingCodingExecutables, provisionHostBuiltins } from "../coding/host.ts"
+import { hostOwnedCodingRoutes, missingCodingExecutables, provisionHostBuiltins } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
 import { bindRepositoryRegistry, provisionBuiltins, repositoryCatalog } from "../repository/registry.ts"
@@ -72,7 +72,7 @@ const startup = (repositoryPath: string, stateRoot: string, provision: "host" | 
     const project = yield* Registry.make({
       sources: [{ root: join(repositoryPath, "flows"), source: "project", naming: "path" }]
     }).pipe(Effect.provide(Discovery.layer))
-    const registry = bindRepositoryRegistry(project, builtins.registry, policy)
+    const registry = bindRepositoryRegistry(project, builtins.registry, policy, hostOwnedCodingRoutes(options))
     const built = yield* repositoryCatalog({ delegates: [RunSetup, RunJob, RunTrigger] }, builtins.load).pipe(
       Effect.provideService(Registry.Registry, registry)
     )
@@ -102,4 +102,24 @@ test("a route the host stops serving is no longer discoverable under the same po
   assert.deepEqual(unbound.missing, [])
   assert.equal(unbound.listed.includes("coding/vibe"), false)
   assert.ok(unbound.listed.includes("coding/request"))
+})
+
+// 2026-09-29, production: in a workspace of smithersai/smithers the repository's
+// own flows/coding/request/flow.ts (the source of the built-in) shadowed the
+// bundled route and could not load on the host ("runs code this host cannot
+// pin"), so every coding host exited with "Required coding executable
+// coding/request is unavailable". An older copy of flows/coding.mdx in another
+// repository failed the same way.
+test("a repository's own coding route never replaces the one the host requires", async (t) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  await mkdir(join(repositoryPath, "flows", "coding", "request"), { recursive: true })
+  // Discovered, then refused at load (a prompt body needs the "agent"
+  // delegate this host does not register), as the production copies were.
+  await writeFile(
+    join(repositoryPath, "flows", "coding", "request", "flow.mdx"),
+    "---\ndescription: A stale repository copy of the request route.\n---\n\nPlan the request.\n"
+  )
+  const started = await startup(repositoryPath, stateRoot, "host")
+  assert.deepEqual(started.missing, [])
+  assert.equal(started.listed.filter((name) => name === "coding/request").length, 1)
 })

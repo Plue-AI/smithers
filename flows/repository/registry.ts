@@ -266,7 +266,8 @@ export const provisionBuiltins = (stateRoot: string, policy: string, routes: Rea
      * `/flow.create` had nothing to launch and why no run could show a person an
      * agent's frames (`AgentSession` runs only a Prompt body through its trace
      * and pump). A repository that writes its own `create-flow` still wins:
-     * `bindRepositoryRegistry` reserves only the repository-job names.
+     * `bindRepositoryRegistry` reserves only the repository-job names and the
+     * coding routes the host requires.
      */
     for (const [name, text] of yield* authoringBodies) {
       const directory = path.join(root, name)
@@ -343,15 +344,20 @@ export const repositoryRegistration = <ROut, E, RIn>(
 export const refreshableEntry = (descriptor: Descriptor.FlowDescriptor): boolean =>
   descriptor.provenance.source !== "repository-host"
 
-/** Reserved job declarations always come from the measured host bundle. */
+/**
+ * Reserved job declarations, and the routes the host names in `hostOwned`,
+ * always come from the measured host bundle.
+ */
 export const bindRepositoryRegistry = (
   base: Registry.Registry,
   builtins: Registry.Registry,
-  policy: string
+  policy: string,
+  hostOwned: ReadonlyArray<string> = []
 ): Registry.Registry => {
   const reserved = (name: string) =>
     name === "repository/setup" || name === "repository/trigger" ||
     /^repository-jobs\/(issues|review|ci|feature|chores)$/.test(name)
+  const bundled = (name: string) => reserved(name) || hostOwned.includes(name)
   const reservedSchemas = (name: string) =>
     name === "repository/setup" ?
       { input: SetupInput, output: OperationResult }
@@ -373,16 +379,16 @@ export const bindRepositoryRegistry = (
       }) :
       descriptor
   const owned = (name: string) =>
-    reserved(name)
+    bundled(name)
       ? Effect.succeed(builtins)
       : base.getOption(name).pipe(Effect.map((found) => Option.isSome(found) ? base : builtins))
   const get = (name: string) => owned(name).pipe(Effect.flatMap((registry) => registry.get(name)), Effect.map(derived))
   const list = () =>
     Effect.all([base.list(), builtins.list()]).pipe(Effect.map(([project, defaults]) =>
       [
-        ...project.filter((entry) => !reserved(entry.name)),
+        ...project.filter((entry) => !bundled(entry.name)),
         ...defaults.filter((entry) =>
-          reserved(entry.name) || !project.some((candidate) => candidate.name === entry.name)
+          bundled(entry.name) || !project.some((candidate) => candidate.name === entry.name)
         )
       ].map(derived)
     ))
