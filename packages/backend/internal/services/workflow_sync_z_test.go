@@ -26,8 +26,8 @@ func TestWorkflowSync_Z_LoadDefinitionsMarshalError(t *testing.T) {
 			listFilesAtChangeFn: func(context.Context, string, string, string, string) ([]repohost.ChangeFile, error) {
 				return []repohost.ChangeFile{{Path: ".smithers/workflows/bad.tsx"}}, nil
 			},
-			getFileAtChangeFn: func(context.Context, string, string, string, string) (repohost.FileContent, error) {
-				return repohost.FileContent{Content: "workflow"}, nil
+			getFileAtChangeFn: func(_ context.Context, _, _, _, path string) (repohost.FileContent, error) {
+				return repohost.FileContent{Path: path, Content: "workflow"}, nil
 			},
 		},
 		&mockWorkflowSyncParser{

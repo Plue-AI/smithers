@@ -91,7 +91,7 @@ func TestWorkflowSync_H_LoadDefinitionsErrorBranches(t *testing.T) {
 			if p == ".smithers/workflows/read.ts" {
 				return repohost.FileContent{}, errors.New("read failed")
 			}
-			return repohost.FileContent{Content: "bad"}, nil
+			return repohost.FileContent{Path: p, Content: "bad"}, nil
 		},
 	}, &mockWorkflowSyncParser{
 		parseFn: func(context.Context, string, []byte) (*WorkflowConfig, error) {

@@ -59,6 +59,9 @@ type LoadedWorkflowDefinition struct {
 type WorkflowLoadFileError struct {
 	Path  string
 	Error string
+	// PreserveExisting marks an unreadable source, whose last known definition
+	// and registrations must remain unchanged until the file can be read.
+	PreserveExisting bool
 }
 
 // WorkflowLoadResult captures the valid definitions and per-file failures found in a commit snapshot.
@@ -195,16 +198,29 @@ func (s *WorkflowSyncService) LoadDefinitionsFromCommit(ctx context.Context, rep
 		file, err := s.repoHost.GetFileAtChange(ctx, owner, repository.Name, commitSHA, fileInfo.Path)
 		if err != nil {
 			result.FileErrors = append(result.FileErrors, WorkflowLoadFileError{
-				Path:  fileInfo.Path,
-				Error: err.Error(),
+				Path:             fileInfo.Path,
+				Error:            err.Error(),
+				PreserveExisting: true,
 			})
 			continue
 		}
 
-		if len(file.Content) > maxWorkflowFileBytes {
+		var readError string
+		switch {
+		case file.TooLarge:
+			readError = "workflow file too large for repo-host to return its contents"
+		case file.Path != fileInfo.Path:
+			readError = fmt.Sprintf("workflow file response path %q does not match requested path %q", file.Path, fileInfo.Path)
+		case file.Encoding != "" && file.Encoding != "utf8":
+			readError = fmt.Sprintf("unsupported workflow file encoding %q", file.Encoding)
+		case len(file.Content) > maxWorkflowFileBytes:
+			readError = fmt.Sprintf("workflow file too large (%d bytes, max %d)", len(file.Content), maxWorkflowFileBytes)
+		}
+		if readError != "" {
 			result.FileErrors = append(result.FileErrors, WorkflowLoadFileError{
-				Path:  fileInfo.Path,
-				Error: fmt.Sprintf("workflow file too large (%d bytes, max %d)", len(file.Content), maxWorkflowFileBytes),
+				Path:             fileInfo.Path,
+				Error:            readError,
+				PreserveExisting: true,
 			})
 			continue
 		}
@@ -242,7 +258,8 @@ func (s *WorkflowSyncService) LoadDefinitionsFromCommit(ctx context.Context, rep
 	return result, nil
 }
 
-// PersistDefinitions persists valid definitions and deactivates stale or invalid ones.
+// PersistDefinitions persists valid definitions and deactivates stale or invalid
+// ones, preserving existing state for files that could not be read.
 func (s *WorkflowSyncService) PersistDefinitions(ctx context.Context, repoID int64, result WorkflowLoadResult) error {
 	if repoID <= 0 {
 		return fmt.Errorf("repository id must be positive")
@@ -260,8 +277,17 @@ func (s *WorkflowSyncService) PersistDefinitions(ctx context.Context, repoID int
 		return fmt.Errorf("list workflow definitions: %w", err)
 	}
 
+	preservedPaths := make(map[string]struct{})
+	for _, fileErr := range result.FileErrors {
+		if fileErr.PreserveExisting {
+			preservedPaths[fileErr.Path] = struct{}{}
+		}
+	}
 	activePaths := make(map[string]struct{}, len(result.Definitions))
 	for _, loaded := range result.Definitions {
+		if _, preserve := preservedPaths[loaded.Path]; preserve {
+			continue
+		}
 		activePaths[loaded.Path] = struct{}{}
 
 		cfg := loaded.ConfigData
@@ -295,12 +321,18 @@ func (s *WorkflowSyncService) PersistDefinitions(ctx context.Context, repoID int
 
 	stalePaths := make(map[string]int64)
 	for _, existing := range existingDefs {
+		if _, preserve := preservedPaths[existing.Path]; preserve {
+			continue
+		}
 		if _, ok := activePaths[existing.Path]; ok {
 			continue
 		}
 		stalePaths[existing.Path] = existing.ID
 	}
 	for _, fileErr := range result.FileErrors {
+		if _, preserve := preservedPaths[fileErr.Path]; preserve {
+			continue
+		}
 		for _, existing := range existingDefs {
 			if existing.Path == fileErr.Path {
 				stalePaths[fileErr.Path] = existing.ID
