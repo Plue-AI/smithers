@@ -52,6 +52,9 @@ EOF
 # Seed the checksums the root module already verified, so an offline runner
 # never needs the checksum database.
 cp "$repo_dir/go.sum" "$consumer_dir/go.sum"
+# Pin the root build list too. tidy, or a bare require, makes Go resolve
+# versions and dependency tests that the offline CI module cache
+# (GOPROXY=off) never downloaded.
+awk '/^require \(/,/^\)/ { print; next } /^require / { print }' "$repo_dir/go.mod" >> "$consumer_dir/go.mod"
 cd "$consumer_dir"
-GOWORK=off go mod tidy
 GOWORK=off go build ./...
