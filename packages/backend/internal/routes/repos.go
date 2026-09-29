@@ -258,6 +258,14 @@ func (h *RepoHandler) PatchRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Archive changes cannot be combined with ordinary settings updates.
+	if req.Archived != nil && (req.Name != nil || req.Description != nil || req.Private != nil ||
+		req.DefaultBookmark != nil || req.Topics != nil || req.LandingQueueMode != nil ||
+		req.LandingQueueRequiredChecks != nil) {
+		errors.WriteError(w, errors.UnprocessableEntity("archived cannot be combined with repository settings"))
+		return
+	}
+
 	// Handle archive/unarchive via the archived field.
 	if req.Archived != nil {
 		if *req.Archived {

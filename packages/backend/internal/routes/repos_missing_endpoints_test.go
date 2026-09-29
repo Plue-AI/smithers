@@ -200,6 +200,36 @@ func TestRepoHandlerMissingEndpoints_PatchArchive(t *testing.T) {
 	})
 }
 
+func TestPatchRepoRejectsMixedArchiveSettings(t *testing.T) {
+	t.Parallel()
+	fields := []struct {
+		name string
+		body string
+	}{
+		{"private and description", `"private":true,"description":"mixed"`},
+		{"name", `"name":"renamed"`},
+		{"description", `"description":"mixed"`},
+		{"private false", `"private":false`},
+		{"default bookmark", `"default_bookmark":"main"`},
+		{"topics", `"topics":[]`},
+		{"landing queue mode", `"landing_queue_mode":"manual"`},
+		{"required checks", `"landing_queue_required_checks":[]`},
+	}
+	for _, archived := range []string{"false", "true"} {
+		for _, field := range fields {
+			t.Run(archived+"/"+field.name, func(t *testing.T) {
+				h := RepoHandler{Service: repoMissingEndpointMockService{}}
+				req := httptest.NewRequest(http.MethodPatch, "/api/repos/alice/demo", strings.NewReader(`{"archived":`+archived+`,`+field.body+`}`))
+				req = withRepoRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
+				req = withRepoAuth(req, 1, "alice")
+				rec := httptest.NewRecorder()
+				h.PatchRepo(rec, req)
+				require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			})
+		}
+	}
+}
+
 func TestRepoHandlerMissingEndpoints_ContentsAndGitRefs(t *testing.T) {
 	t.Parallel()
 
