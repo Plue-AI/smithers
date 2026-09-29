@@ -160,13 +160,12 @@ func TestIssueHandler_ListIssues(t *testing.T) {
 		assert.Contains(t, rec.Header().Get("Link"), `rel="first"`)
 	})
 
-	t.Run("legacy page/per_page params are accepted", func(t *testing.T) {
+	t.Run("later legacy pages are rejected", func(t *testing.T) {
 		t.Parallel()
 		h := IssueHandler{Service: &mockIssueRouteService{
 			listIssuesFn: func(ctx context.Context, viewer *db.User, owner, repo string, afterNumber int64, limit int, state string) ([]services.IssueResponse, string, int64, error) {
-				assert.Equal(t, int64(5), afterNumber) // page=2, per_page=5 → offset=5 → afterNumber=5
-				assert.Equal(t, 5, limit)
-				return []services.IssueResponse{sampleIssueResponse()}, "", 12, nil
+				t.Fatal("service must not receive a legacy offset as an issue number")
+				return nil, "", 0, nil
 			},
 		}}
 
@@ -175,8 +174,8 @@ func TestIssueHandler_ListIssues(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ListIssues(rec, req)
 
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, "12", rec.Header().Get("X-Total-Count"))
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "page-based pagination is not supported")
 	})
 
 	t.Run("legacy decimal cursor is accepted", func(t *testing.T) {
@@ -360,9 +359,8 @@ func TestIssueHandler_Comments(t *testing.T) {
 			return sampleIssueCommentResponse(), nil
 		},
 		listIssueCommentsFn: func(ctx context.Context, viewer *db.User, owner, repo string, number int64, afterID int64, limit int) ([]services.IssueCommentResponse, string, int64, error) {
-			assert.Equal(t, int64(10), afterID) // page=2, per_page=10 → offset=10 → afterID=10
-			assert.Equal(t, 10, limit)
-			return []services.IssueCommentResponse{sampleIssueCommentResponse()}, "", 1, nil
+			t.Fatal("service must not receive a legacy offset as a comment ID")
+			return nil, "", 0, nil
 		},
 		getIssueCommentFn: func(ctx context.Context, viewer *db.User, owner, repo string, commentID int64) (services.IssueCommentResponse, error) {
 			assert.Equal(t, int64(31), commentID)
@@ -390,8 +388,8 @@ func TestIssueHandler_Comments(t *testing.T) {
 	listReq = withRouteParams(listReq, map[string]string{"owner": "alice", "repo": "demo", "number": "3"})
 	listRec := httptest.NewRecorder()
 	h.ListIssueComments(listRec, listReq)
-	require.Equal(t, http.StatusOK, listRec.Code)
-	assert.Equal(t, "1", listRec.Header().Get("X-Total-Count"))
+	require.Equal(t, http.StatusBadRequest, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), "page-based pagination is not supported")
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/issues/comments/31", nil)
 	getReq = withRouteParams(getReq, map[string]string{"owner": "alice", "repo": "demo", "id": "31"})

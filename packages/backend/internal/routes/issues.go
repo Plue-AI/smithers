@@ -84,13 +84,11 @@ func (h *IssueHandler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	afterNumber, limit, err := parseKeysetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	afterNumber := decodeIDCursor(cursor)
-
 	items, nextCursor, total, err := h.Service.ListIssues(r.Context(), middleware.UserFromContext(r.Context()), owner, repo, afterNumber, limit, strings.TrimSpace(r.URL.Query().Get("state")))
 	if err != nil {
 		writeRouteError(w, r, err)
@@ -261,13 +259,12 @@ func (h *IssueHandler) ListIssueComments(w http.ResponseWriter, r *http.Request)
 		errors.WriteJSON(w, http.StatusOK, comment)
 		return
 	}
-	cursor, limit, err := parsePagination(r)
+	afterID, limit, err := parseKeysetPagination(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
 
-	afterID := decodeIDCursor(cursor)
 	items, nextCursor, total, err := h.Service.ListIssueComments(r.Context(), middleware.UserFromContext(r.Context()), owner, repo, number, afterID, limit)
 	if err != nil {
 		writeRouteError(w, r, err)
