@@ -21,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -196,6 +197,9 @@ func (s *MythicalService) stepWiki(ctx context.Context, r *mythicalRun) error {
 	now := s.now()
 	switch {
 	case row.State == "running":
+		if row.NextAttemptAt.Valid && now.Before(row.NextAttemptAt.Time) {
+			return nil
+		}
 		return s.settleWiki(ctx, r, row, now)
 	case !enabled:
 		if row.State == "off" && row.WorkspaceID == "" {
@@ -248,12 +252,18 @@ func (s *MythicalService) launchWiki(ctx context.Context, r *mythicalRun, row db
 	if err != nil {
 		return err
 	}
-	fail := func(reason string) error {
+	fail := func(reason string, cause error) error {
 		current, err := q.GetMythicalWiki(ctx, r.row.RepositoryID)
 		if err != nil {
 			return err
 		}
 		next := current
+		if delay, held := repohost.HeldRetryAfter(cause); held {
+			next.State, next.Error = "idle", ""
+			next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(delay), Valid: true}
+			s.wakeWikiAt(r.row.RepositoryID, next.NextAttemptAt.Time)
+			return s.saveWiki(ctx, r, next)
+		}
 		next.State, next.CommitID, next.Attempt, next.Error = "failed", r.row.LandedMain, attempt+1, reason
 		next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(mythicalWikiBackoff(attempt + 1)), Valid: true}
 		s.wakeWikiAt(r.row.RepositoryID, next.NextAttemptAt.Time)
@@ -268,11 +278,11 @@ func (s *MythicalService) launchWiki(ctx context.Context, r *mythicalRun, row db
 			return err
 		})
 	if err != nil {
-		return fail("no wiki workspace: " + err.Error())
+		return fail("no wiki workspace: "+err.Error(), err)
 	}
 	ref, err := s.retainFor(ctx, r, workspaceID, r.row.TipCommit)
 	if err != nil {
-		return fail("the stack tip could not reach the wiki workspace: " + err.Error())
+		return fail("the stack tip could not reach the wiki workspace: "+err.Error(), err)
 	}
 	current, err := q.GetMythicalWiki(ctx, r.row.RepositoryID)
 	if err != nil {
@@ -356,6 +366,12 @@ func (s *MythicalService) settleWiki(ctx context.Context, r *mythicalRun, row db
 				if err := s.retireWikiWorkspace(ctx, r, &next); err != nil {
 					s.logger.Warn("mythical.wiki_retire_failed", "repository_id", r.row.RepositoryID, "error", err)
 				}
+				return s.saveWiki(ctx, r, next)
+			}
+			if delay, held := repohost.HeldRetryAfter(err); held {
+				next.Error = ""
+				next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(delay), Valid: true}
+				s.wakeWikiAt(r.row.RepositoryID, next.NextAttemptAt.Time)
 				return s.saveWiki(ctx, r, next)
 			}
 			if !timedOut {

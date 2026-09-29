@@ -27,6 +27,7 @@ type fakeWikiStore struct {
 	pages   map[string]WikiPageResponse
 	writes  []string
 	actorID int64
+	held    error
 	// afterRead runs once after the next read of a slug, as a person saving
 	// between the service's read and its write would.
 	afterRead map[string]func()
@@ -53,6 +54,9 @@ func (w *fakeWikiStore) GetWikiPage(_ context.Context, viewer *db.User, _, _, sl
 func (w *fakeWikiStore) CreateWikiPage(_ context.Context, _ *db.User, _, _ string, input CreateWikiPageInput) (WikiPageResponse, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.held != nil {
+		return WikiPageResponse{}, w.held
+	}
 	if _, ok := w.pages[input.Slug]; ok {
 		return WikiPageResponse{}, pkgerrors.Conflict("exists")
 	}
@@ -643,6 +647,41 @@ func TestMythicalWikiRefreshesAfterEveryFoldAndKeepsEdits(t *testing.T) {
 	assert.Equal(t, "current", view.State)
 	assert.Equal(t, 1, view.Pages)
 	assert.Equal(t, 1, view.Edited)
+}
+
+func TestMythicalWikiDefersOnHeldRepository(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
+	o.service.SetWiki(store)
+	o.declareWiki()
+	stack := o.wake()
+	request := o.launcher.last(mythicalWikiFlow)
+	o.project(request, jobs.StateCompleted, "wiki-run-1", wikiResult(stack.TipCommit, `{"reviews":true}`, "runtime", "Runtime v1"))
+	_, err := o.pool.Exec(context.Background(), `UPDATE mythical_wikis SET pool = '{"reviews":true}'::jsonb WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	before := o.wiki()
+	store.held = &repohost.StatusError{StatusCode: 503, Code: repohost.RepositoryHeldCode, RetryAfter: 5}
+	start := time.Now()
+	o.wake()
+	row := o.wiki()
+	assert.NotEqual(t, "failed", row.State)
+	assert.Empty(t, row.Error)
+	assert.Equal(t, before.Attempt, row.Attempt)
+	assert.Equal(t, string(before.Pool), string(row.Pool))
+	require.True(t, row.NextAttemptAt.Valid)
+	assert.WithinDuration(t, start.Add(5*time.Second), row.NextAttemptAt.Time, 2*time.Second)
+	assert.NotEqual(t, "failed", o.wikiView().State)
+	assert.Empty(t, store.takeWrites())
+
+	store.held = nil
+	o.wake()
+	assert.Empty(t, store.takeWrites(), "the hold still delays publication")
+	o.dueWiki()
+	o.wake()
+	row = o.wiki()
+	assert.Equal(t, "idle", row.State, row.Error)
+	assert.Equal(t, stack.LandedMain, row.PublishedCommit)
+	assert.Equal(t, []string{"create generated-runtime"}, store.takeWrites())
 }
 
 func TestMythicalWikiFailuresStayVisibleAndRetry(t *testing.T) {
