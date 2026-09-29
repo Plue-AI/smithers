@@ -36,6 +36,26 @@ sessions.
 
 ## Coverage
 
+The TUI Bun suite remains assertion-only (see `PACKAGE.ts` and
+`scripts/repo-contract/README.md`): Bun's loaded-source LCOV denominator changes
+on unchanged sources and cannot establish a whole-production floor. The explicit
+`coverage-roster.json` lists every `src/**/*.{ts,tsx}` owner source for the
+Istanbul collector (`scripts/bun-coverage`), including unimported files with
+zero hits. Use `node scripts/bun-coverage/run.mjs --root apps/tui --roster
+apps/tui/coverage-roster.json --run /tmp/tui-coverage-new -- test ./test` from
+the repository root to collect an LCOV/JSON report. This is measurement, not a
+release gate: TUI child-launch paths (including detached descendants and
+platform-specific cleanup described in the collector README) and missing
+behavior tests remain unqualified; no numeric floor is claimed under #2392.
+
+The local two-run qualification on this source roster (Bun 1.4.1) kept the
+same statement/function/branch/line denominators with and without
+`test/surfaces.test.ts`: `src/surfaces.ts` 58/23/49/47 and the whole roster
+8626/2205/10150/7133. The reports contain all 77 sources, including zero-hit
+`src/surfaces.ts` when its test is absent. Both commands published LCOV and JSON
+without collector refusal, but Bun's suite exited 1 (75 failing tests and 67
+errors in each run); these reports do **not** qualify a passing TUI gate.
+
 | Area                    | Terminal evidence                                                                                                                                                |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Startup and packaging   | Redirected-stream refusal, Node bundle, relocated compiled binary, embedded helper, dynamic project flows, shared Effect identity.                               |

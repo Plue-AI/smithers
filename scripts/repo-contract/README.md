@@ -36,6 +36,7 @@ production denominator across Worker, CLI, React and static assets.
 | `apps/server` | Worker unit and canary-wiring assertions | Whole Worker/script source denominator and failure-branch measurement. |
 | `apps/app` | Typecheck, Bun units, offline Playwright | TSX/host/React denominator; packaged native host and live provider acceptance. |
 | `apps/review` | Node/Bun typechecks and unit contracts | Mixed CLI/Worker denominator; credentialed review case is optional and cannot close offline coverage. |
+| `apps/tui` | Bun unit and terminal assertions | Explicit source roster is measured by the Istanbul collector; no numeric floor until TUI child-launch paths and complete behavior coverage are qualified. |
 | `apps/bug-worker` | Real fetch handler against in-memory KV | Complete Worker branch measurement, including transport failures. |
 
 These are explicit transitional exceptions owned by the corresponding app, not
