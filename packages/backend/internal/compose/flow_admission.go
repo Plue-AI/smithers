@@ -109,7 +109,26 @@ func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.H
 	return connection, err
 }
 
+// staleRoleSource is a permanent dispatch refusal: retrying the same pinned
+// registration cannot move the owner's box to that revision.
+type staleRoleSource struct{}
+
+func (staleRoleSource) Error() string {
+	return "role run refused: owner's box source revision differs from the registered revision"
+}
+func (staleRoleSource) FlowRuntimeCode() string    { return "runtime_source_revision_mismatch" }
+func (staleRoleSource) FlowRuntimeRetryable() bool { return false }
+
 func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	if launch.Authority.Target.BindingKind == "repository-job-dispatch" {
+		revision, err := l.SourceResolver.ResolveFlowHostSource(ctx, launch.Authority)
+		if err != nil {
+			return flowhost.Connection{}, err
+		}
+		if revision != launch.Binding.SourceRevision {
+			return flowhost.Connection{}, staleRoleSource{}
+		}
+	}
 	var targetEnvironment map[string]string
 	if l.targets != nil {
 		var err error

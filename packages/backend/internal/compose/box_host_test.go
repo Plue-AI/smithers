@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -47,6 +48,35 @@ type recordingHostTransport struct {
 func (r *recordingHostTransport) StartFlowHost(_ context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	r.started = append(r.started, launch)
 	return flowhost.Connection{}, r.fail
+}
+
+type revisionHostTransport struct {
+	recordingHostTransport
+	revision  string
+	sourceErr error
+}
+
+func (r *revisionHostTransport) ResolveFlowHostSource(context.Context, flowhost.Authority) (string, error) {
+	return r.revision, r.sourceErr
+}
+
+func TestRoleDispatchStaleSourceRevisionFailsOnceVisibly(t *testing.T) {
+	boxes := &recordingBoxes{env: map[string]string{}}
+	transport := &revisionHostTransport{revision: "new-revision"}
+	launcher := newBoxHostLauncher(transport, boxes, nil)
+	launch := flowhost.HostLaunch{
+		Binding:   flowhost.Binding{ID: "host-1", SourceRevision: "registered-revision"},
+		Authority: flowhost.Authority{WorkspaceID: "box", Target: flowruntime.Target{BindingKind: "repository-job-dispatch"}},
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		_, err := launcher.StartFlowHost(context.Background(), launch)
+		var failure flowruntime.Failure
+		require.ErrorAs(t, err, &failure)
+		require.Equal(t, "runtime_source_revision_mismatch", failure.FlowRuntimeCode())
+		require.False(t, failure.FlowRuntimeRetryable(), "dispatch must fail once rather than retry host start")
+	}
+	require.Empty(t, boxes.prepared)
+	require.Empty(t, transport.started)
 }
 
 // Every start of a box's coding host carries that start's landing credential;
