@@ -75,26 +75,37 @@ describe("documentation contracts", () => {
     expect(admission).toContain("../guides/share-a-cache-across-machines.md#trust-every-writer-of-the-shared-tier")
   })
 
-  it("assembles the quickstart snippets without duplicate import bindings", () => {
+  it("assembled quickstart typechecks against public Jj", () => {
     const blocks = [...readDoc("quickstart.md").matchAll(/^```ts\n([\s\S]*?)^```/gm)]
     expect(blocks.length).toBeGreaterThan(1)
-    const source = ts.createSourceFile(
-      "quickstart.ts",
-      blocks.map((block) => block[1]).join("\n"),
-      ts.ScriptTarget.Latest
-    )
-    const names: Array<string> = []
-    for (const statement of source.statements) {
-      if (!ts.isImportDeclaration(statement)) continue
-      const clause = statement.importClause
-      if (clause?.name) names.push(clause.name.text)
-      const bindings = clause?.namedBindings
-      if (bindings === undefined) continue
-      if (ts.isNamespaceImport(bindings)) names.push(bindings.name.text)
-      else names.push(...bindings.elements.map((binding) => binding.name.text))
+    const filename = new URL("../docs/quickstart.mts", import.meta.url).pathname
+    const source = blocks.map((block) => block[1]).join("\n")
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2024,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      strict: true,
+      skipLibCheck: true,
+      allowImportingTsExtensions: true,
+      noEmit: true,
+      types: ["node"]
     }
-    expect(names).toEqual(expect.arrayContaining(["Action", "Flow", "Interpreter"]))
-    expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([])
+    const host = ts.createCompilerHost(options)
+    const readFile = host.readFile.bind(host)
+    const fileExists = host.fileExists.bind(host)
+    host.readFile = (path) => path === filename ? source : readFile(path)
+    host.fileExists = (path) => path === filename || fileExists(path)
+    const program = ts.createProgram([filename], options, host)
+    const diagnostics = ts.getPreEmitDiagnostics(program)
+    expect(
+      diagnostics.map((diagnostic) =>
+        ts.formatDiagnosticsWithColorAndContext([diagnostic], {
+          getCanonicalFileName: (path) => path,
+          getCurrentDirectory: () => host.getCurrentDirectory(),
+          getNewLine: () => "\n"
+        })
+      )
+    ).toEqual([])
   })
 })
 
