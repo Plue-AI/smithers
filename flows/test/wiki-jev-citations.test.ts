@@ -15,6 +15,7 @@ import {
   citationClassifier,
   citationRequests,
   citationVerdicts,
+  MAX_CLAIM_BYTES,
   MAX_STATE_BYTES,
   UNSUPPORTED_CONFIDENCE
 } from "../wiki/jev-citations.ts"
@@ -133,6 +134,37 @@ test("a huge claim and a huge source are clipped so the state still fits", async
       "clipping keeps a claim and an excerpt to judge, it does not empty them"
     )
   }
+})
+
+test("clipped citation claims and excerpts preserve complete Unicode characters", async (t) => {
+  const f = await fixture(t), collected = await run(f.ops.collect(f.spec))
+  const claim = `${"a".repeat(MAX_CLAIM_BYTES - 7)}😀😀`
+  const evidence: Evidence = {
+    ...collected,
+    sections: collected.sections.map((section) => ({ ...section, markdown: claim }))
+  }
+  const [claimRequest] = citationRequests(evidence, supported(evidence))
+  assert.equal(claimRequest!.state.claim, `${"a".repeat(MAX_CLAIM_BYTES - 7)}😀`)
+  assert.ok(new TextEncoder().encode(claimRequest!.state.claim).length <= MAX_CLAIM_BYTES)
+
+  const hasUnpairedSurrogate = (value: string) =>
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)
+  const encoder = new TextEncoder()
+  const frameBytes = encoder.encode(JSON.stringify({
+    claim: collected.sections[0]!.markdown,
+    source: { path: "src/answer.ts", excerpt: "" }
+  })).length
+  const escapedTail = "\"".repeat(8)
+  const padding = MAX_STATE_BYTES - frameBytes - "1 | ".length - 7 - escapedTail.length
+  const source = `${"a".repeat(padding)}😀😀${escapedTail}`
+  const withSource: Evidence = {
+    ...collected,
+    sources: collected.sources.map((entry) => ({ ...entry, text: source }))
+  }
+  const [request] = citationRequests(withSource, supported(withSource))
+  assert.equal(request!.state.source.excerpt, `1 | ${"a".repeat(padding)}😀`)
+  assert.equal(hasUnpairedSurrogate(request!.state.source.excerpt), false)
+  assert.ok(encoder.encode(JSON.stringify(request!.state)).length <= MAX_STATE_BYTES)
 })
 
 test("seventy citations are judged in two batches and every one is answered", async (t) => {

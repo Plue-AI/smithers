@@ -8,6 +8,8 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 The wiki flow combines semantic review with citation checks. A citation judged
 with confidence below 0.8 makes an otherwise supported section uncertain.
+Each check carries at most 8 KiB of the claim and 32 KiB of JSON state. Clipped
+claims and source excerpts end on complete Unicode code points.
 Semantic uncertain and unsupported findings remain unchanged. The original
 reviewer and citation-check receipts remain in the execution attempt store;
 the snapshot contains the combined assessment.

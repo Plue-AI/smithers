@@ -90,7 +90,7 @@ const clipToBytes = (value: string, limit: number): string => {
   if (bytes(value) <= limit) return value
   let end = Math.min(value.length, limit)
   while (end > 0 && bytes(value.slice(0, end)) > limit) end -= 1
-  if (end > 0 && value.codePointAt(end - 1)! >= 0xd800 && value.codePointAt(end - 1)! <= 0xdbff) end -= 1
+  if (end > 0 && value.charCodeAt(end - 1) >= 0xd800 && value.charCodeAt(end - 1) <= 0xdbff) end -= 1
   return value.slice(0, end)
 }
 
