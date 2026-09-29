@@ -56,12 +56,12 @@ jobs:
         run: cargo +1.98.0 test --locked -p smithers-ffi --bin smithers-jj-export workspace_files::tests -- --nocapture
       - name: Verify managed guest authority is unavailable locally
         run: cargo +1.98.0 test --locked -p smithers-ffi --bin smithers-jj-export local_windows_host_cannot_acquire_managed_unix_guest_credentials
-      - name: Test executable filesystem protocol
-        run: cargo +1.98.0 test --locked -p smithers-ffi --test atomic_fs_cli -- --nocapture
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b
         with:
           tool: jj-cli@0.39.0,ripgrep@14.1.1
+      - name: Test executable filesystem protocol
+        run: cargo +1.98.0 test --locked -p smithers-ffi --test atomic_fs_cli -- --nocapture
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - name: Install Node workspace dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Expose the built Windows helper
