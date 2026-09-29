@@ -1222,7 +1222,7 @@ Gives an answer the caller's own type. The schema here and the question's own sc
 - **Type:** `Schema.TaggedError` with fields `code`, `flow: string`, `node: string`, and `message: string`
 - **Since:** `0.1.0`
 
-A graph the interpreter refuses to drive. The `code` is one of `incomplete_graph`, `duplicate_node_id`, `unresolved_action`, `implementation_version_mismatch`, `missing_implementation_version`, `unresolved_reference`, `unsupported_call`, `missing_operation`, or `node_record_too_large`.
+A graph the interpreter refuses to drive. The `code` is one of `incomplete_graph`, `duplicate_node_id`, `unresolved_action`, `implementation_version_mismatch`, `missing_implementation_version`, `unresolved_reference`, `unsupported_call`, `missing_operation`, `node_record_too_large`, or `join_mismatch` (a race, any, or quorum journaled members its plan can no longer reproduce).
 
 ### `Interpreter.Interpretation`
 

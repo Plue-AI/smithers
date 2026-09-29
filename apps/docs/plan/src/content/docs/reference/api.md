@@ -742,6 +742,30 @@ const all: <const Nodes extends Readonly<Record<string, Any>>>(
 
 Combines independent children into one node, keyed by name. Width is fixed at plan time. A non-node member throws `invalid_all_member` naming that member.
 
+### Node.race, Node.any, and Node.quorum
+
+```ts
+type Members = Readonly<Record<string, Any>>
+const race: <const Nodes extends Members>(
+  nodes: Nodes
+) => Node<Success<Nodes[keyof Nodes]>, Error<Nodes[keyof Nodes]>, Services<Nodes[keyof Nodes]>>
+const any: <const Nodes extends Members>(
+  nodes: Nodes
+) => Node<Success<Nodes[keyof Nodes]>, Error<Nodes[keyof Nodes]>, Services<Nodes[keyof Nodes]>>
+const quorum: <const Nodes extends Members>(
+  count: number,
+  nodes: Nodes
+) => Node<
+  Types.Simplify<{ readonly [K in keyof Nodes]?: Success<Nodes[K]> }>,
+  Error<Nodes[keyof Nodes]>,
+  Services<Nodes[keyof Nodes]>
+>
+```
+
+Joins that settle early. `race` settles with the first member to settle, success or typed failure. `any` settles with the first success and fails with the last failure when every member fails. `quorum` succeeds with exactly the first `count` successes, keyed by member, and fails with the failure that leaves too few members able to succeed.
+
+Members still running when the join decides are interrupted. The members that decided are journaled in order, so a resumed run settles the same members and never starts the others again. An interrupted (parked) member is undecided; a defect or interpreter refusal in a member propagates without a decision. No members, a non-node member, or a quorum count outside 1 to the member count throws `invalid_join`.
+
 ### Node.map
 
 ```ts
@@ -1365,6 +1389,7 @@ class GraphBuildError extends Schema.TaggedError<GraphBuildError>()("@smthrs/pla
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `planned_value_computed`      | a body computed on a step result                                                               |
 | `invalid_all_member`          | `Node.all` received a non-node member                                                          |
+| `invalid_join`                | a race, any, or quorum has a non-node member, no members, or an unreachable count              |
 | `invalid_continuation`        | a branch arm, catch arm, or continuation did not return a node                                 |
 | `recursion_requires_boundary` | a flow calls itself inline instead of using a trampoline handoff or an explicit child boundary |
 | `placement_requires_boundary` | an inline call's callee declares a placement the enclosing flow cannot satisfy                 |
@@ -1386,7 +1411,7 @@ class GraphBuildError extends Schema.TaggedError<GraphBuildError>()("@smthrs/pla
 | `payload_too_large`           | one plan value expands to more members than the bound                                          |
 | `invalid_node`                | a malformed node AST                                                                           |
 
-`GraphBuildErrorCode` is a closed schema literal, so a caller may switch on it and a new refusal is a deliberate addition rather than a new free-form string. This package raises `planned_value_computed`, `invalid_all_member`, `invalid_continuation`, `invalid_priority`, `invalid_payload`, and `cyclic_payload`. [`@smthrs/flow`](https://flow.smithers.sh/reference/api/)'s graph walk raises `recursion_requires_boundary`, `placement_requires_boundary`, `payload_too_deep`, `graph_too_deep`, `duplicate_node`, `unstable_callback`, and the four effect-authority codes. [`@smthrs/core`](https://core.smithers.sh/reference/api/)'s graph builder raises the last six, plus `payload_too_deep`, `graph_too_deep`, `duplicate_node`, `invalid_payload`, and the four effect-authority codes; it uses this error rather than a second class of its own. `unstable_callback` is raised when `Graph.build` runs with `callbackIdentity: "stable"` and a callback carries no `Node.capture` declaration; declare its complete inert captures, including the version of any imported implementation, so the callback keys by content instead of by process.
+`GraphBuildErrorCode` is a closed schema literal, so a caller may switch on it and a new refusal is a deliberate addition rather than a new free-form string. This package raises `planned_value_computed`, `invalid_all_member`, `invalid_join`, `invalid_continuation`, `invalid_priority`, `invalid_payload`, and `cyclic_payload`. [`@smthrs/flow`](https://flow.smithers.sh/reference/api/)'s graph walk raises `recursion_requires_boundary`, `placement_requires_boundary`, `payload_too_deep`, `graph_too_deep`, `duplicate_node`, `unstable_callback`, and the four effect-authority codes. [`@smthrs/core`](https://core.smithers.sh/reference/api/)'s graph builder raises the last six, plus `payload_too_deep`, `graph_too_deep`, `duplicate_node`, `invalid_payload`, and the four effect-authority codes; it uses this error rather than a second class of its own. `unstable_callback` is raised when `Graph.build` runs with `callbackIdentity: "stable"` and a callback carries no `Node.capture` declaration; declare its complete inert captures, including the version of any imported implementation, so the callback keys by content instead of by process.
 
 The four effect-authority codes are recorded while a walk checks every
 declaration against the envelope enclosing it, using the narrowing rule

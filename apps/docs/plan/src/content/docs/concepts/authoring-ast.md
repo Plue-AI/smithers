@@ -89,7 +89,7 @@ resulting error type.
 A plan is always a DAG, so this module has no loop and never will. Repetition
 lives one level up, in what a flow settles with.
 
-`Node.all` has the same boundary. Its width is fixed at plan time. Fanning out
+`Node.all`, `Node.race`, `Node.any`, and `Node.quorum` have the same boundary. Its width is fixed at plan time. Fanning out
 over something a step discovered is not `all`: end the round and carry the list
 in the next flow's payload, where it is real data.
 
