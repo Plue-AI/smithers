@@ -30,10 +30,10 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { homedir } from "node:os"
 import { isAbsolute, relative } from "node:path"
 import * as CliError from "../CliError.ts"
-import * as CodexAuth from "../CodexAuth.ts"
 import * as Environment_ from "../Environment.ts"
 import * as Providers from "../Providers.ts"
 import * as ClaudeCode from "./ClaudeCode.ts"
+import * as CodexCode from "./CodexCode.ts"
 import { readText } from "./HostFiles.ts"
 
 const apiKeyVariable: Readonly<Record<string, string>> = {
@@ -100,9 +100,8 @@ const accountPoolOf = (environment: Readonly<Record<string, string | undefined>>
  * a Claude alias (`opus`, `sonnet`, `fable`) when no Anthropic key is set.
  *
  * `SMITHERS_OPENAI_AUTH=chatgpt` swaps the `openai` provider's credential source
- * from `OPENAI_API_KEY` to the codex CLI's ChatGPT session
- * (`$CODEX_HOME/auth.json`); the token store is shared across every seat that
- * resolves against the same file so its refresh stays single-flight.
+ * from `OPENAI_API_KEY` to vendor `codex exec`, as `codex:<model>` does.
+ * Only Codex reads or refreshes its login.
  *
  * @category constructors
  * @since 0.1.0
@@ -160,7 +159,7 @@ const withAliases = (base: SeatResolver.Service, host: Providers.Host): SeatReso
 type Credential =
   | { readonly _tag: "Compatible"; readonly key: string }
   | { readonly _tag: "Pooled"; readonly key: string; readonly origin: string }
-  | { readonly _tag: "Session"; readonly file: string }
+  | { readonly _tag: "Codex"; readonly executable: string }
   | { readonly _tag: "ClaudeCode"; readonly executable: string }
   | { readonly _tag: "Key"; readonly key: string }
   | { readonly _tag: "Refused"; readonly refusal: (seat: string) => string }
@@ -192,6 +191,14 @@ const credential = async (provider: string, host: Providers.Host): Promise<Crede
       ? refused((seat) => `${found.reason}, so the ${seat} seat cannot run: ${found.setupHint}`)
       : { _tag: "ClaudeCode", executable: found.executable }
   }
+  if (provider === "codex") {
+    const login = await Providers.codexLogin(environment)
+    return login?.loggedIn === true
+      ? { _tag: "Codex", executable: login.executable }
+      : refused((seat) =>
+        `${login === undefined ? "install Codex, then " : ""}run \`codex login --device-auth\` to run the ${seat} seat`
+      )
+  }
   const variable = apiKeyVariable[provider]
   if (variable === undefined) return refused(() => `No route is configured for the ${provider} provider`)
   const configured = Environment_.read(environment, openaiAuthVariable)
@@ -210,12 +217,7 @@ const credential = async (provider: string, host: Providers.Host): Promise<Crede
         ? refused((seat) => `Set ${variable} to run the ${seat} seat through the model proxy`)
         : { _tag: "Pooled", key, origin }
     }
-    // The ChatGPT mode needs a provisioned session, not an API key: the
-    // refusal names the store so a detached lane fails before spending.
-    const file = CodexAuth.locate(environment, host.homeDirectory)
-    return host.readFile(file) === undefined
-      ? refused((seat) => `Sign in with \`codex login\` to run the ${seat} seat: no ChatGPT credentials at ${file}`)
-      : { _tag: "Session", file }
+    return credential("codex", host)
   }
   return key === undefined ? refused((seat) => `Set ${variable} to run the ${seat} seat`) : { _tag: "Key", key }
 }
@@ -257,15 +259,6 @@ const providerSeats = (
       }
       return served.routes.includes(route) ? pool : undefined
     })
-  const codexStores = new Map<string, CodexAuth.Store>()
-  const codexStore = (file: string): CodexAuth.Store => {
-    let store = codexStores.get(file)
-    if (store === undefined) {
-      store = CodexAuth.make({ file, executor })
-      codexStores.set(file, store)
-    }
-    return store
-  }
   const host = hostOf(environment)
   return SeatResolver.make({
     resolve: (seat) =>
@@ -329,13 +322,16 @@ const providerSeats = (
               seat,
               modelId
             )
-          case "Session":
-            return yield* seatOf(
-              OpenAIChatGPT.make({ auth: codexStore(signed.file).auth({ modelId }) }),
-              executor,
-              seat,
-              modelId
-            )
+          case "Codex": {
+            const model = Providers.codexModel(modelId)
+            return Seat.make({
+              id: seat,
+              modelId: model,
+              model: CodexCode.make({ model, executable: signed.executable, environment }),
+              route: CodexCode.route(model),
+              contextWindowTokens: SeatResolver.contextWindowTokensFor(model)
+            })
+          }
           case "ClaudeCode": {
             const model = Providers.claudeCodeModel(modelId)
             return Seat.make({
@@ -584,7 +580,7 @@ export const layerSeatEvaluator = (
       const route = poolRouteOf("openai", environment)
       const signed = await credential("openai", hostOf(environment))
       return (pool !== undefined && route !== undefined && pool.routes.includes(route)) ||
-        signed._tag === "Session" || signed._tag === "Pooled"
+        signed._tag === "Codex" || signed._tag === "Pooled"
     }
     const luna: Evaluator.Evaluator = Evaluator.Evaluator.of({
       evaluate: (request) =>

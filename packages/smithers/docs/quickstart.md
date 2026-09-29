@@ -68,7 +68,7 @@ narrow those capabilities when the task needs less authority.
 Connect a subscription and choose its model in the flow's `model:` field:
 
 ```bash
-codex login
+codex login --device-auth
 export SMITHERS_OPENAI_AUTH=chatgpt
 ```
 

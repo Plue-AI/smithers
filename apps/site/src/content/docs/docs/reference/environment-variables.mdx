@@ -19,7 +19,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_REMOTE` | operator | Control-plane base URL. | `--remote` |
 | `SMITHERS_TOKEN` | operator | Preferred bearer credential channel for the remote control plane; avoids argv exposure. | `auth login` |
 | `SMITHERS_MCP_CONFIG` | operator | Path to the MCP server array the local executor projects into a run's flow catalog. | `--mcp-config` |
-| `SMITHERS_OPENAI_AUTH` | operator | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. `chatgpt` reads the codex CLI's ChatGPT session at `$CODEX_HOME/auth.json` instead of `OPENAI_API_KEY`; any other value refuses the seat. | none |
+| `SMITHERS_OPENAI_AUTH` | operator | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. For local seats, `chatgpt` opts into the Codex subscription and runs the vendor CLI after `codex login status` confirms a ChatGPT login; Smithers never reads its credential store. Any other value refuses the seat. | none |
 | `SMITHERS_BACKEND` | operator | Database backend: `sqlite` or `postgres`. Any other value exits 1 with `unsupported_database`. | `--backend` (hidden) |
 | `SMITHERS_POSTGRES_URL` | operator | PostgreSQL connection string; selects PostgreSQL (`DATABASE_URL` counts only with `SMITHERS_BACKEND=postgres`). | none |
 | `SMITHERS_BUG_ENDPOINT` | operator | Where `smthrs bug` posts its report. | none |

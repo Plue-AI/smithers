@@ -118,7 +118,7 @@ Anything outside it is not read, including the 0.x `SMITHERS_HOME`,
 | `SMITHERS_TOKEN` | Session token override for the saved login. |
 | `SMITHERS_MCP_CONFIG` | Path to the `--mcp-config` server array. |
 | `SMITHERS_BACKEND` | Database backend. Only `sqlite` is supported. |
-| `SMITHERS_OPENAI_AUTH` | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. Set `chatgpt` explicitly to use your Codex login; detection does not select it from `auth.json` alone. Use is governed by your own agreement with OpenAI. |
+| `SMITHERS_OPENAI_AUTH` | `api-key` or `chatgpt`, selecting whether `openai` seats run through the API or vendor `codex exec`. Explicit `codex:<model>` seats always use the vendor CLI. Smithers never reads the Codex auth store. |
 | `SMITHERS_TEST_COMMAND`, `SMITHERS_TEST_CONTAINER`, `SMITHERS_TEST_CWD`, `SMITHERS_TEST_TIMEOUT_MS` | What the `test` flow runs, where, and for how long. |
 | `SMITHERS_BASH_CONTAINER` | The one container `bash` may reach. Any other `bash` call fails with `outside_container`, and the host filesystem flows are not offered. |
 | `SMITHERS_ASKS` | `park` or `refuse`, what an in-run `ask` does. Unset is `park`: the run waits for `smthrs approvals approve`. `refuse` is for a host nobody answers, such as a benchmark or CI lane: the ask fails at once with `ApprovalUnavailable` and the run continues. Any other value refuses to start. |

@@ -150,16 +150,15 @@ const securityReview = Smithers.SecurityReview({
       paths: ["src/internal/backend/Workspaces.ts", "src/internal/backend/Auth.ts"]
     },
     {
-      id: "codex-auth-store-integrity",
-      title: "The shared Codex auth store is rewritten atomically at 0600 and never leaks tokens",
-      threat:
-        "Another local user reads the operator's ChatGPT tokens, or a concurrent refresh burns the refresh token and locks the operator out.",
+      id: "codex-vendor-login",
+      title: "Codex alone holds its subscription credentials",
+      threat: "Smithers reads or forwards a vendor login, or silently replaces a subscription with an ambient API key.",
       lookFor: [
-        "A temp or lock file in CodexAuth.ts opened without 'wx' and mode 0600, or renamed across directories.",
-        "A token, account id, or refresh response body included in a ModelError message.",
-        "The refresh lock removed while its recorded pid is still alive, allowing two refreshes to spend one refresh token."
+        "A read or rewrite of Codex auth.json outside the vendor binary.",
+        "A Codex key or token in child environment overrides, command arguments, model errors or journal receipts.",
+        "An unbounded vendor process or a process group left alive after cancellation."
       ],
-      paths: ["src/CodexAuth.ts"]
+      paths: ["src/internal/CodexCode.ts", "src/Providers.ts", "src/internal/NativeEquipment.ts"]
     },
     {
       id: "serve-bind-auth",

@@ -14,7 +14,7 @@ import { createHash } from "node:crypto"
 import { join } from "node:path"
 
 /** The harnesses with a verified launch adapter. */
-export const Harness = Schema.Literals(["claude-code"])
+export const Harness = Schema.Literals(["claude-code", "codex"])
 export type Harness = typeof Harness.Type
 
 /**
@@ -47,7 +47,7 @@ const allowed: Record<Permission, string> = {
 /** Part 2: a few constant lines per permission mode. */
 export const rules = (permission: Permission): string =>
   [
-    "You run as Claude Code inside a Smithers flow. For package facts, CLI flags and authoring, read the package's README.md and docs/.",
+    "You run inside a Smithers flow. For package facts, CLI flags and authoring, read the package's README.md and docs/.",
     allowed[permission],
     "The memory block below is context Smithers selected for this task; open a cited file before relying on it."
   ].join("\n")

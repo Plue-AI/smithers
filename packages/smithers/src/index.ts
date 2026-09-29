@@ -52,7 +52,6 @@ export * as CliError from "./CliError.ts"
  * @category node
  * @since 1.0.0
  */
-export * as CodexAuth from "./CodexAuth.ts"
 /**
  * @category commands
  * @since 1.0.0

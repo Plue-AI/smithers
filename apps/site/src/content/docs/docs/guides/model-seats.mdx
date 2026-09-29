@@ -103,14 +103,14 @@ An exported-but-empty variable reads exactly like an unset one, so `export ANTHR
 
 ## 3. Choose how openai seats authenticate
 
-By default an `openai:` seat resolves against `OPENAI_API_KEY`. To run it on a ChatGPT subscription instead, select the codex CLI's session and sign in:
+For a local seat, an `openai:` seat defaults to `OPENAI_API_KEY`. To run it on a ChatGPT subscription instead, select the Codex CLI and sign in on the machine that runs the seat:
 
 ```bash
 export SMITHERS_OPENAI_AUTH=chatgpt
-codex login
+codex login --device-auth
 ```
 
-The seat string does not change: the declared seat remains the same while authentication uses the configured Codex session store. The same seat then routes to the ChatGPT backend at `https://chatgpt.com/backend-api/codex/responses`. With the mode selected but no session on disk, the launch is declined with a message that names `codex login` and the credential file it looked for. For an `openai:` seat, a value other than `api-key` or `chatgpt` is refused: `SMITHERS_OPENAI_AUTH must be "api-key" or "chatgpt" to run the <seat> seat`.
+The declared seat remains unchanged. For a local seat, Smithers checks `codex login status` for a ChatGPT login and runs `codex exec` with the selected model. Smithers never reads or forwards the Codex credential store. A missing CLI or signed-out session declines the launch with the setup step `codex login --device-auth`. For an `openai:` seat, a value other than `api-key` or `chatgpt` is refused: `SMITHERS_OPENAI_AUTH must be "api-key" or "chatgpt" to run the <seat> seat`.
 
 ## 4. Change the seat
 

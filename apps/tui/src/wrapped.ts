@@ -11,6 +11,7 @@
  * prompt cache keeps its prefix. Argv follows the installed CLIs
  * (claude 2.1, codex-cli 0.158) and the 0.x resume table (39d0d2380bd9).
  */
+import { codexConfigString } from "@smthrs/cli/Agents"
 import { spawn } from "node:child_process"
 import { createInterface } from "node:readline"
 import * as Log from "./log.ts"
@@ -34,11 +35,8 @@ export interface Launch {
   readonly approve: "all" | "ask" | "deny"
 }
 
-/** A TOML basic string: Codex parses `-c` values as TOML. */
-const toml = (text: string): string => JSON.stringify(text)
-
 /** Codex's `-c` setting that carries the brief. */
-const instructions = (brief: string): string => `developer_instructions=${toml(brief)}`
+const instructions = (brief: string): string => `developer_instructions=${codexConfigString(brief)}`
 
 /**
  * The headless command. The prompt is never an argument: it goes to the vendor on stdin, so a

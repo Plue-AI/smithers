@@ -1,7 +1,7 @@
 /**
  * Runs `wrapped` through the flow runtime:
  *
- *   node --experimental-strip-types flows/wrapped/main.ts --harness claude-code \
+ *   node --experimental-strip-types flows/wrapped/main.ts --harness claude-code|codex \
  *     --cwd <dir> --task "<text>" [--session <id>] [--permission plan|acceptEdits] [--dry-run]
  *
  * Prints one JSON line per fact: the memory Output, the exact argv, then the
@@ -42,7 +42,7 @@ const argv = (command: Command) => [command.executable, ...command.args]
 
 if (values.task === undefined || values.cwd === undefined) {
   process.stderr.write(
-    "usage: node --experimental-strip-types flows/wrapped/main.ts --harness claude-code --cwd <dir> --task <text> [--session <id>] [--permission plan|acceptEdits] [--dry-run]\n"
+    "usage: node --experimental-strip-types flows/wrapped/main.ts --harness claude-code|codex --cwd <dir> --task <text> [--session <id>] [--permission plan|acceptEdits] [--dry-run]\n"
   )
   process.exit(2)
 }
@@ -76,9 +76,9 @@ const dryRun = Effect.gen(function*() {
   const prepared = session === undefined
     ? yield* Effect.flatMap(
       Effect.tap(selectMemory(task, cwd), (memory) => Effect.sync(() => print({ memory }))),
-      (memory) => writePrompt({ cwd, permission: permission ?? defaultPermission, memory })
+      (memory) => writePrompt({ cwd, harness, permission: permission ?? defaultPermission, memory })
     )
-    : yield* recallSession(cwd, session, permission)
+    : yield* recallSession(cwd, session, permission, harness)
   const command = yield* commandFor({ harness, task, cwd, resume: session !== undefined, ...prepared })
   print({ argv: argv(command), extra: prepared.extra })
 }).pipe(Effect.provide(services))

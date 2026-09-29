@@ -5,8 +5,6 @@
 
 import { NodeWS } from "@effect/platform-node/NodeSocket"
 import { randomUUID } from "node:crypto"
-import { readFile } from "node:fs/promises"
-import { join } from "node:path"
 import { Readable } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
 import { Refused, UsageError } from "../../CliError.ts"
@@ -199,48 +197,41 @@ workspaces["workspace ssh"] = async (c, a, o) => {
   c.runtime.exit?.(result.code)
   return { connected: result.code === 0, workspace_id: id }
 }
-const seed = async (c: Client, ssh: Endpoint, agents: Array<string>) => {
-  for (const agent of [...new Set(agents.map((value) => value.toLowerCase()))]) {
-    let path: string, data: string
-    if (agent === "codex") {
-      path = "/home/developer/.codex/auth.json"
-      const required = new Refused({
-        fault: "user",
-        code: "not_signed_in",
-        message: "Codex subscription login required"
-      })
-      let saved: Values
-      try {
-        data = await readFile(join(c.env.CODEX_HOME || join(c.home, ".codex"), "auth.json"), "utf8")
-        saved = object(JSON.parse(data))
-      } catch (error) {
-        throw withCause(required, error)
-      }
-      const tokens = object(saved.tokens)
-      if (!tokens.access_token || !tokens.refresh_token) throw required
-      for (const value of Object.values(tokens)) if (typeof value === "string") c.protect(value)
-    } else if (agent === "claude") {
-      const key = c.env.ANTHROPIC_API_KEY ?? ""
-      if (!key.startsWith("sk-ant-api")) {
-        throw new Refused({
-          fault: "user",
-          code: "not_signed_in",
-          message: "ANTHROPIC_API_KEY is required; Claude subscriptions are never sent to a workspace"
-        })
-      }
-      c.protect(key)
-      path = "/home/developer/.smithers/claude-env.sh"
-      data = `export ANTHROPIC_API_KEY=${quote(key)}\n`
-    } else throw new UsageError({ message: "seedAgentAuth accepts claude,codex" })
-    const script = `set -e; umask 077; mkdir -p ${quote(path.slice(0, path.lastIndexOf("/")))}; printf %s ${
-      quote(Buffer.from(data).toString("base64"))
-    } | base64 -d > ${quote(path)}; chmod 600 ${
-      quote(path)
-    }; if [ "$(id -u)" = 0 ]; then chown -R developer:developer ${quote(path.slice(0, path.lastIndexOf("/")))}; fi`
-    const result = await remote(c, ssh, "bash -s", 120_000, Readable.from([script]))
-    if (result.code) {
-      throw new Refused({ fault: "dependency", code: "seed_failed", message: "Agent credential seeding failed" })
-    }
+const seedCredential = (c: Client, agents: Array<string>): string => {
+  const normalized = [...new Set(agents.map((value) => value.trim().toLowerCase()).filter(Boolean))]
+  if (normalized.includes("codex")) {
+    throw new Refused({
+      fault: "user",
+      code: "not_signed_in",
+      message: "Run `codex login --device-auth` on the workspace; Codex subscriptions are never sent to a workspace"
+    })
+  }
+  if (normalized.some((agent) => agent !== "claude")) {
+    throw new UsageError({ message: "seedAgentAuth accepts claude API keys only" })
+  }
+  if (normalized.length === 0) throw new UsageError({ message: "seedAgentAuth accepts claude API keys only" })
+  const key = c.env.ANTHROPIC_API_KEY ?? ""
+  if (!/^sk-ant-api[0-9a-z-]*-(?=[A-Za-z0-9._-]*[A-Za-z0-9])[A-Za-z0-9._-]+$/.test(key)) {
+    throw new Refused({
+      fault: "user",
+      code: "not_signed_in",
+      message: "ANTHROPIC_API_KEY is required; Claude subscriptions are never sent to a workspace"
+    })
+  }
+  c.protect(key)
+  return key
+}
+const seed = async (c: Client, ssh: Endpoint, key: string) => {
+  const path = "/home/developer/.smithers/claude-env.sh"
+  const data = `export ANTHROPIC_API_KEY=${quote(key)}\n`
+  const script = `set -e; umask 077; mkdir -p ${quote(path.slice(0, path.lastIndexOf("/")))}; printf %s ${
+    quote(Buffer.from(data).toString("base64"))
+  } | base64 -d > ${quote(path)}; chmod 600 ${quote(path)}; if [ "$(id -u)" = 0 ]; then chown -R developer:developer ${
+    quote(path.slice(0, path.lastIndexOf("/")))
+  }; fi`
+  const result = await remote(c, ssh, "bash -s", 120_000, Readable.from([script]))
+  if (result.code) {
+    throw new Refused({ fault: "dependency", code: "seed_failed", message: "Agent credential seeding failed" })
   }
 }
 const interrupted = () =>
@@ -264,10 +255,11 @@ workspaces["workspace exec"] = async (c, a, o) => {
   )
   const requestID = str(o["exec-id"]) || randomUUID()
   if (requestID.length > 128 || !requestID.trim()) throw new UsageError({ message: "Invalid exec id" })
+  const credential = o.seedAgentAuth === undefined ? undefined : seedCredential(c, str(o.seedAgentAuth).split(","))
   const id = await resolveID(c, a, o), path = base(c, o) + `/${esc(id)}/command-runs`
-  if (o.seedAgentAuth) {
+  if (credential !== undefined) {
     const ssh = await sshInfo(c, base(c, o) + `/${esc(id)}`, "developer")
-    await seed(c, ssh, str(o.seedAgentAuth).split(",").map((part) => part.trim()).filter(Boolean))
+    await seed(c, ssh, credential)
   }
   let receipt: Values
   try {
@@ -463,7 +455,7 @@ workspaces["workspace issue"] = async (c, a, o) => {
   if (!id) throw protocol("Workspace response omitted id")
   const ssh = await sshInfo(c, base(c, o) + `/${esc(id)}`, "")
   try {
-    await seed(c, ssh, ["claude"])
+    await seed(c, ssh, seedCredential(c, ["claude"]))
   } catch (error) {
     const existing = await remote(c, ssh, "test -s /home/developer/.smithers/claude-env.sh")
     if (existing.code) throw error

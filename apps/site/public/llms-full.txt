@@ -6015,14 +6015,14 @@ An exported-but-empty variable reads exactly like an unset one, so `export ANTHR
 
 ## 3. Choose how openai seats authenticate
 
-By default an `openai:` seat resolves against `OPENAI_API_KEY`. To run it on a ChatGPT subscription instead, select the codex CLI's session and sign in:
+For a local seat, an `openai:` seat defaults to `OPENAI_API_KEY`. To run it on a ChatGPT subscription instead, select the Codex CLI and sign in on the machine that runs the seat:
 
 ```bash
 export SMITHERS_OPENAI_AUTH=chatgpt
-codex login
+codex login --device-auth
 ```
 
-The seat string does not change: the declared seat remains the same while authentication uses the configured Codex session store. The same seat then routes to the ChatGPT backend at `https://chatgpt.com/backend-api/codex/responses`. With the mode selected but no session on disk, the launch is declined with a message that names `codex login` and the credential file it looked for. For an `openai:` seat, a value other than `api-key` or `chatgpt` is refused: `SMITHERS_OPENAI_AUTH must be "api-key" or "chatgpt" to run the <seat> seat`.
+The declared seat remains unchanged. For a local seat, Smithers checks `codex login status` for a ChatGPT login and runs `codex exec` with the selected model. Smithers never reads or forwards the Codex credential store. A missing CLI or signed-out session declines the launch with the setup step `codex login --device-auth`. For an `openai:` seat, a value other than `api-key` or `chatgpt` is refused: `SMITHERS_OPENAI_AUTH must be "api-key" or "chatgpt" to run the <seat> seat`.
 
 ## 4. Change the seat
 
@@ -20160,6 +20160,7 @@ The agent configurations `smthrs mcp add` writes into.
 | Export | Signature | Meaning |
 | --- | --- | --- |
 | `serverName` | `"smithers"` | The registered server name. |
+| `codexConfigString` | `(text: string) => string` | A TOML basic string for Codex overrides; refuses malformed Unicode. |
 | `Agent`, `agents` | `{ id, mcpConfig }` | `claude` at `~/.claude.json`, `codex` at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). |
 | `find` | `(id) => Agent \| undefined` | One agent by id. |
 | `launchCommand` | `(execPath?, entry?) => { command, args }` | The current executable and entry, verbatim, so a local development install registers itself rather than a package runner. |
@@ -20227,6 +20228,7 @@ Which seats this machine can run.
 | `Candidate`, `order` | | The seats considered, in preference order. |
 | `Detection`, `detect` | `(host) => ReadonlyArray<Detection>` | What this machine has, from host facts passed in. |
 | `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => Promise<ClaudeCodeLogin \| undefined>` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
+| `CodexLogin`, `codexLogin`, `codexModel` | `(environment) => Promise<CodexLogin \| undefined>` | Vendor `codex login status` and the model an OpenAI alias names. Only Codex reads its login; API-key logins are refused. |
 | `claudeCode` | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
 | `claudeCodeSeats`, `claudeCodeModel` | | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one. |
 | `Chosen`, `chooseSeat` | | The seat picked, and why. |
@@ -20253,7 +20255,6 @@ Retention.
 | --- | --- |
 | `Legacy` | `read(path)` opens a 0.x `smithers.db` read-only; `refusal(databases)` is the sentence that names its non-terminal runs; `terminalStatuses` is the vocabulary it counts against. |
 | `ClaudeMirror` | The Claude Code plugin mirror protocol: `contract`, `subscriptionsPath`, `subscriptionTtlMs`, `Subscription`, `readSubscriptions`, `subscribe`, `unsubscribe`, `MirrorNode`, `Frame`, `frame`, `defaultMaxOutputChars`, `terminalStatuses`, `isTerminal`, `Transition`, `notableKinds`, `transition`. |
-| `CodexAuth` | Locates and refreshes the Codex credential store: `refreshUrl`, `clientId`, `locate`, `parse`, `Store`, `MakeOptions`, `make`. |
 | `Update` | `packageName`, `registryUrl`, `Status`, `isNewer`, `compare(current, tags)`, `render(status)`. Compares the installed version against the `next` and `latest` dist-tags, `next` first, and prints the install line. It changes nothing. |
 | `Bug` | `defaultEndpoint`, `timeoutMs`, `scrubText`, `scrub`, `Report`, `report`. Everything collected takes the diagnostic redaction rules (`Redaction.redactDiagnostic`) before it leaves the machine, and a value carrying a callable, a proxy, or a `toJSON` member is refused rather than rendered. |
 | `Version` | `packageVersion`, read from the shipped manifest. The module throws at import when the manifest declares no version, because printing `undefined` to an operator is worse than refusing to start. |
@@ -49284,7 +49285,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_REMOTE` | operator | Control-plane base URL. | `--remote` |
 | `SMITHERS_TOKEN` | operator | Preferred bearer credential channel for the remote control plane; avoids argv exposure. | `auth login` |
 | `SMITHERS_MCP_CONFIG` | operator | Path to the MCP server array the local executor projects into a run's flow catalog. | `--mcp-config` |
-| `SMITHERS_OPENAI_AUTH` | operator | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. `chatgpt` reads the codex CLI's ChatGPT session at `$CODEX_HOME/auth.json` instead of `OPENAI_API_KEY`; any other value refuses the seat. | none |
+| `SMITHERS_OPENAI_AUTH` | operator | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. For local seats, `chatgpt` opts into the Codex subscription and runs the vendor CLI after `codex login status` confirms a ChatGPT login; Smithers never reads its credential store. Any other value refuses the seat. | none |
 | `SMITHERS_BACKEND` | operator | Database backend: `sqlite` or `postgres`. Any other value exits 1 with `unsupported_database`. | `--backend` (hidden) |
 | `SMITHERS_POSTGRES_URL` | operator | PostgreSQL connection string; selects PostgreSQL (`DATABASE_URL` counts only with `SMITHERS_BACKEND=postgres`). | none |
 | `SMITHERS_BUG_ENDPOINT` | operator | Where `smthrs bug` posts its report. | none |
@@ -51888,7 +51889,7 @@ smthrs auth — auth
 Usage: smthrs auth <command>
 
 Commands:
-  connect      Connect your own Codex subscription (imports the Codex CLI login) or an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Claude subscriptions are never stored; they run locally through Claude Code
+  connect      Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth
   connections  List connected subscriptions
   local        local
   login        Log in to Smithers
@@ -51917,7 +51918,7 @@ Global Options:
 ## auth connect
 
 ```text
-smthrs auth connect — Connect your own Codex subscription (imports the Codex CLI login) or an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Claude subscriptions are never stored; they run locally through Claude Code
+smthrs auth connect — Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth
 
 Usage: smthrs auth connect <provider> [options]
 
@@ -51925,7 +51926,6 @@ Arguments:
   provider  claude or codex
 
 Options:
-  --config-dir <string>
   --label <string>
   --api-key
 
@@ -58396,7 +58396,7 @@ The seat is the first available entry in this order. `suggest` never uses an Ant
 
 | Order | Seat | Available when |
 | --- | --- | --- |
-| 1 | Codex subscription, through the default harness | `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) holds a usable ChatGPT session; `SMITHERS_OPENAI_AUTH=chatgpt` explicitly selects this mode but still requires credentials |
+| 1 | Codex subscription, through the default harness | `SMITHERS_OPENAI_AUTH=chatgpt` opts into the candidate; seat resolution requires `codex login status` to confirm a ChatGPT login. Run `codex login --device-auth` on the machine running `suggest` to sign in |
 | 2 | Kimi K3 | `MOONSHOT_API_KEY` is set |
 | 3 | Any other known provider key | the first set of `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY` |
 

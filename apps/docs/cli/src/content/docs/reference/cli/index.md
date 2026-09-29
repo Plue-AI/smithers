@@ -54,9 +54,10 @@ control-plane commands on that origin. `SMITHERS_TOKEN` overrides the saved logi
 for automation. Login reads the existing OS keyring, `~/.config/smithers/auth.json`,
 and legacy config token; a new login removes the legacy token. Login and token
 status never print credentials. Local owner installations use `auth local bootstrap`
-and `auth local login`; `auth connect codex` connects a ChatGPT subscription and
-`auth connect claude --api-key` an Anthropic API key. A Claude subscription is
-never connected: it runs on the user's own Claude Code.
+and `auth local login`; `auth connect claude --api-key` connects an Anthropic
+API key. Vendor subscriptions stay with their own CLIs. Sign into Codex on the
+workspace with `codex login --device-auth`; `auth connect codex` refuses token
+transfer.
 
 | Commands | Backend behavior |
 | --- | --- |

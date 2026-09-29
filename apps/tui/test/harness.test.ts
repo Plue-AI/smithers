@@ -57,7 +57,7 @@ test("puts a claude that reaches the workspace first on PATH", () => {
   expect(environment).toEqual({ PATH: `${bin}${delimiter}/usr/bin`, SMITHERS_TOKEN: "t" })
   expect(statSync(join(bin, "claude")).mode & 0o111).not.toBe(0)
   expect(readFileSync(join(bin, "claude"), "utf8")).toMatch(
-    /^#!\/bin\/sh\nexec bun '.+\/harness-claude\.ts' 'acme\/app\/ws-1' "\$@"\n$/
+    /^#!\/bin\/sh\nexec bun '.+\/harness-cli\.ts' 'claude' 'acme\/app\/ws-1' "\$@"\n$/
   )
 })
 

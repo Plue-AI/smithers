@@ -1,12 +1,12 @@
 /**
- * The live seat a recording run streams from: `<provider>:<model>` over the
- * platform's `fetch`, credentialed from the provider's environment variable.
+ * The live seat a recording run streams from: API providers over `fetch`,
+ * or a subscription through the vendor's signed-in Codex CLI.
  *
  * This is the credentialed half of `seatsFromEnv` in
  * `@smthrs/create-app/worker` with the Worker's env binding replaced by
  * `process.env` and the `Seat` wrapper dropped, because `cachedModelTest`'s
  * `live` option asks for a bare `Model.Model` and builds the seat itself. It
- * also knows the ChatGPT-subscription credential, which a Worker never has.
+ * also runs the local Codex subscription seat, which a Worker never has.
  *
  * Two providers are credentialed here because the app has run on both. The
  * machine that records a fixture supplies one key, the seat in AGENT.ts names
@@ -17,16 +17,16 @@
  * fixture and serves it with `RecordedModel`, so it reads no key and opens no
  * socket. Only `SMTHRS_RECORD=1` reaches this file.
  */
-import * as CodexAuth from "@smthrs/cli/CodexAuth"
-import type * as Model from "@smthrs/model/Model"
-import * as OpenAIChatGPT from "@smthrs/model/OpenAIChatGPT"
-import type * as ModelError from "@smthrs/model/ModelError"
+import * as NodeControl from "@smthrs/cli/NodeControl"
+import * as Model from "@smthrs/model/Model"
+import * as ModelError from "@smthrs/model/ModelError"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Route from "@smthrs/model/Route"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import type * as Result from "effect/Result"
+import * as Stream from "effect/Stream"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 
 /**
@@ -51,16 +51,20 @@ interface Provider {
   readonly route: RouteFor
 }
 
-/** The ChatGPT-subscription model: OpenAIChatGPT route over the codex auth store. */
-const chatgptModel = (modelId: string, file: string): Model.Model =>
-  Effect.runSync(
-    Effect.gen(function*() {
-      const exec = yield* RequestExecutor.RequestExecutor
-      const store = CodexAuth.make({ file, executor: exec })
-      const route = yield* Effect.fromResult(OpenAIChatGPT.make({ auth: store.auth({ modelId }) }))
-      return yield* Route.toModel(route)
-    }).pipe(Effect.provide(executor), Effect.orDie)
-  )
+/** The ChatGPT-subscription model over the vendor's signed-in Codex CLI. */
+const codexModel = (seat: string): Model.Model =>
+  Model.make({
+    stream: (request) =>
+      Stream.unwrap(
+        Effect.gen(function*() {
+          const transport = yield* RequestExecutor.RequestExecutor
+          const resolved = yield* NodeControl.seatResolver(process.env, transport).resolve(seat).pipe(
+            Effect.mapError((error) => new ModelError.ModelError({ code: "authentication", message: error.message }))
+          )
+          return resolved.model.stream(request)
+        }).pipe(Effect.provide(executor))
+      )
+  })
 
 /**
  * The providers a recorded seat may name.
@@ -103,10 +107,10 @@ export const liveModel = (seat: string): Model.Model => {
   const separator = seat.indexOf(":")
   const name = separator < 0 ? DEFAULT_PROVIDER : seat.slice(0, separator)
   // `SMITHERS_OPENAI_AUTH=chatgpt` swaps the openai provider's credential
-  // source to the codex CLI's ChatGPT session, exactly as the @smthrs/cli seat
+  // source to vendor `codex exec`, exactly as the @smthrs/cli seat
   // resolver does.
-  if (name === "openai" && process.env.SMITHERS_OPENAI_AUTH === "chatgpt") {
-    return chatgptModel(separator < 0 ? seat : seat.slice(separator + 1), CodexAuth.locate(process.env))
+  if (name === "codex" || (name === "openai" && process.env.SMITHERS_OPENAI_AUTH === "chatgpt")) {
+    return codexModel(seat)
   }
   const provider = providers[name]
   if (provider === undefined) {

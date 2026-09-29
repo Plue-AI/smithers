@@ -28,7 +28,7 @@ The seat is the first available entry in this order. `suggest` never uses an Ant
 
 | Order | Seat | Available when |
 | --- | --- | --- |
-| 1 | Codex subscription, through the default harness | `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) holds a usable ChatGPT session; `SMITHERS_OPENAI_AUTH=chatgpt` explicitly selects this mode but still requires credentials |
+| 1 | Codex subscription, through the default harness | `SMITHERS_OPENAI_AUTH=chatgpt` opts into the candidate; seat resolution requires `codex login status` to confirm a ChatGPT login. Run `codex login --device-auth` on the machine running `suggest` to sign in |
 | 2 | Kimi K3 | `MOONSHOT_API_KEY` is set |
 | 3 | Any other known provider key | the first set of `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY` |
 

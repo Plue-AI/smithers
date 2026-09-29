@@ -341,18 +341,16 @@ describe("box remote execution", () => {
       )
     }
   )
-  it.each(["claude", "codex"])("seeds %s credentials over stdin with private guest ownership", async (provider) => {
-    const { c, home } = await fixture({ ANTHROPIC_API_KEY: "sk-ant-api03-key" })
-    await mkdir(join(home, ".codex"))
-    await writeFile(
-      join(home, ".codex/auth.json"),
-      JSON.stringify({ tokens: { access_token: "subscription", refresh_token: "refresh" } })
-    )
+  it("seeds Claude API credentials over stdin with private guest ownership", async () => {
+    const { c, request } = await fixture({ ANTHROPIC_API_KEY: "sk-ant-api03-key" })
+    const protect = vi.spyOn(c, "protect")
     await workspaces["workspace exec"]!(c, { id: "box" }, {
       ...options,
       command: "true",
-      seedAgentAuth: provider.toUpperCase() + "," + provider
+      seedAgentAuth: "CLAUDE,claude"
     })
+    expect(protect).toHaveBeenCalledWith("sk-ant-api03-key")
+    expect(protect.mock.invocationCallOrder[0]).toBeLessThan(request.mock.invocationCallOrder[0]!)
     expect(remote).toHaveBeenCalledTimes(1)
     const call = vi.mocked(remote).mock.calls[0]!
     expect(call[2]).toBe("bash -s")
@@ -362,6 +360,43 @@ describe("box remote execution", () => {
     expect(stdin).toContain("chown -R developer:developer")
     expect(JSON.stringify(call.slice(0, 4).slice(1))).not.toContain("subscription")
   })
+  it.each([undefined, "custom-codex"])(
+    "refuses Codex credential seeding without reading or sending the local login (%s)",
+    async (codexDirectory) => {
+      const custom = codexDirectory === undefined ? undefined : await mkdtemp(join(tmpdir(), "codex-seed-"))
+      if (custom !== undefined) dirs.push(custom)
+      const { c, home, request } = await fixture({
+        ANTHROPIC_API_KEY: "sk-ant-api03-key",
+        ...(custom === undefined ? {} : { CODEX_HOME: custom })
+      })
+      const directory = custom ?? join(home, ".codex")
+      if (custom === undefined) await mkdir(directory)
+      await writeFile(
+        join(directory, "auth.json"),
+        JSON.stringify({
+          tokens: { access_token: "local-access-secret", refresh_token: "local-refresh-secret" }
+        })
+      )
+      const protect = vi.spyOn(c, "protect")
+      for (const seedAgentAuth of ["CODEX,codex", "claude,codex", "codex,claude"]) {
+        await expect(workspaces["workspace exec"]!(c, { id: "box" }, {
+          ...options,
+          command: "true",
+          seedAgentAuth
+        })).rejects.toMatchObject({
+          fault: "user",
+          code: "not_signed_in",
+          message: "Run `codex login --device-auth` on the workspace; Codex subscriptions are never sent to a workspace"
+        })
+      }
+      expect(protect).not.toHaveBeenCalledWith("local-access-secret")
+      expect(protect).not.toHaveBeenCalledWith("local-refresh-secret")
+      expect(remote).not.toHaveBeenCalled()
+      expect(request.mock.calls.some(([method, path]) => method === "POST" && path.endsWith("/command-runs"))).toBe(
+        false
+      )
+    }
+  )
   it("never seeds a Claude subscription token (#2777)", async () => {
     for (
       const env of [{ ANTHROPIC_AUTH_TOKEN: "sk-ant-oat01-subscription" }, {
@@ -379,11 +414,42 @@ describe("box remote execution", () => {
     }
     expect(remote).not.toHaveBeenCalled()
   })
-  it("refuses an unsupported agent credential kind", async () => {
-    const { c } = await fixture()
-    await expect(
-      workspaces["workspace exec"]!(c, { id: "box" }, { ...options, command: "true", seedAgentAuth: "other" })
-    ).rejects.toThrow("claude,codex")
+  it.each([
+    undefined,
+    "",
+    "sk-ant-oat01-subscription",
+    "sk-ant-api",
+    "sk-ant-api--",
+    "sk-ant-api03--",
+    "not-an-api-key"
+  ])(
+    "refuses Claude seeding with key %j before workspace lookup or creation",
+    async (key) => {
+      const { c, request } = await fixture(key === undefined ? {} : { ANTHROPIC_API_KEY: key })
+      const protect = vi.spyOn(c, "protect")
+      await expect(workspaces["workspace exec"]!(c, {}, { ...options, command: "true", seedAgentAuth: "claude" }))
+        .rejects.toMatchObject({
+          fault: "user",
+          code: "not_signed_in",
+          message: "ANTHROPIC_API_KEY is required; Claude subscriptions are never sent to a workspace"
+        })
+      expect(request).not.toHaveBeenCalled()
+      expect(remote).not.toHaveBeenCalled()
+      expect(protect).not.toHaveBeenCalled()
+    }
+  )
+  it("refuses unsupported or blank credential seeding before creating or looking up a workspace", async () => {
+    const { c, request } = await fixture({ ANTHROPIC_API_KEY: "sk-ant-api03-key" })
+    for (const seedAgentAuth of ["other", "claude,other", "other,claude", "", ",", " , "]) {
+      await expect(workspaces["workspace exec"]!(c, {}, { ...options, command: "true", seedAgentAuth })).rejects
+        .toThrow("claude API keys")
+    }
+    for (const seedAgentAuth of ["codex", "claude,codex"]) {
+      await expect(workspaces["workspace exec"]!(c, {}, { ...options, command: "true", seedAgentAuth })).rejects
+        .toMatchObject({ code: "not_signed_in", fault: "user" })
+    }
+    expect(remote).not.toHaveBeenCalled()
+    expect(request).not.toHaveBeenCalled()
   })
   it.each(["stopped", "failed", "error"])("cleans up a terminal on %s", async (terminal) => {
     const { c, request, exit } = await fixture()

@@ -50,6 +50,18 @@ const launch = (overrides: Partial<Wrapped.Launch> = {}): Wrapped.Launch => ({
 })
 
 describe("vendor argv", () => {
+  it("encodes Codex instructions as TOML-safe text on headless and interactive runs", () => {
+    const brief = "say \"hello\"\n\u007f🦄"
+    const expected = "developer_instructions=\"say \\\"hello\\\"\\n\\u007f🦄\""
+    expect(Wrapped.headless(launch({ vendor: "codex", brief })).args).toContain(expected)
+    expect(Wrapped.interactive("codex", "s-1", "/repo", brief, "all").args).toContain(expected)
+  })
+
+  it.each(["\ud800", "\udfff"])("refuses malformed Unicode %j in Codex instructions", (brief) => {
+    expect(() => Wrapped.headless(launch({ vendor: "codex", brief }))).toThrow(RangeError)
+    expect(() => Wrapped.interactive("codex", "s-1", "/repo", brief, "all")).toThrow("malformed Unicode")
+  })
+
   it("starts Claude Code headless on the chosen session with the brief, and resumes it with the same brief", () => {
     expect(Wrapped.headless(launch()).args).toEqual([
       "-p",

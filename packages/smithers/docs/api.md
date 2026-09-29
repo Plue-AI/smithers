@@ -368,6 +368,7 @@ The agent configurations `smthrs mcp add` writes into.
 | Export | Signature | Meaning |
 | --- | --- | --- |
 | `serverName` | `"smithers"` | The registered server name. |
+| `codexConfigString` | `(text: string) => string` | A TOML basic string for Codex overrides; refuses malformed Unicode. |
 | `Agent`, `agents` | `{ id, mcpConfig }` | `claude` at `~/.claude.json`, `codex` at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). |
 | `find` | `(id) => Agent \| undefined` | One agent by id. |
 | `launchCommand` | `(execPath?, entry?) => { command, args }` | The current executable and entry, verbatim, so a local development install registers itself rather than a package runner. |
@@ -435,6 +436,7 @@ Which seats this machine can run.
 | `Candidate`, `order` | | The seats considered, in preference order. |
 | `Detection`, `detect` | `(host) => ReadonlyArray<Detection>` | What this machine has, from host facts passed in. |
 | `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => Promise<ClaudeCodeLogin \| undefined>` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
+| `CodexLogin`, `codexLogin`, `codexModel` | `(environment) => Promise<CodexLogin \| undefined>` | Vendor `codex login status` and the model an OpenAI alias names. Only Codex reads its login; API-key logins are refused. |
 | `claudeCode` | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
 | `claudeCodeSeats`, `claudeCodeModel` | | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one. |
 | `Chosen`, `chooseSeat` | | The seat picked, and why. |
@@ -461,7 +463,6 @@ Retention.
 | --- | --- |
 | `Legacy` | `read(path)` opens a 0.x `smithers.db` read-only; `refusal(databases)` is the sentence that names its non-terminal runs; `terminalStatuses` is the vocabulary it counts against. |
 | `ClaudeMirror` | The Claude Code plugin mirror protocol: `contract`, `subscriptionsPath`, `subscriptionTtlMs`, `Subscription`, `readSubscriptions`, `subscribe`, `unsubscribe`, `MirrorNode`, `Frame`, `frame`, `defaultMaxOutputChars`, `terminalStatuses`, `isTerminal`, `Transition`, `notableKinds`, `transition`. |
-| `CodexAuth` | Locates and refreshes the Codex credential store: `refreshUrl`, `clientId`, `locate`, `parse`, `Store`, `MakeOptions`, `make`. |
 | `Update` | `packageName`, `registryUrl`, `Status`, `isNewer`, `compare(current, tags)`, `render(status)`. Compares the installed version against the `next` and `latest` dist-tags, `next` first, and prints the install line. It changes nothing. |
 | `Bug` | `defaultEndpoint`, `timeoutMs`, `scrubText`, `scrub`, `Report`, `report`. Everything collected takes the diagnostic redaction rules (`Redaction.redactDiagnostic`) before it leaves the machine, and a value carrying a callable, a proxy, or a `toJSON` member is refused rather than rendered. |
 | `Version` | `packageVersion`, read from the shipped manifest. The module throws at import when the manifest declares no version, because printing `undefined` to an operator is worse than refusing to start. |

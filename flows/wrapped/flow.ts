@@ -12,13 +12,14 @@
  * {@link layer}.
  */
 import * as Memory from "@smthrs/agent/Memory"
+import { codexConfigString } from "@smthrs/cli/Agents"
 import { Action, Flow } from "@smthrs/flow"
 import { Capability } from "@smthrs/flows"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema } from "effect"
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { launch, type LaunchOptions, WrappedFailed } from "./launch.ts"
 import { defaultPermission, extraPrompt, Harness, maxExtraBytes, Permission, promptPath, sha256 } from "./prompt.ts"
@@ -39,6 +40,7 @@ export const MemorySummary = Schema.Struct({
 export type MemorySummary = typeof MemorySummary.Type
 export const Prepared = Schema.Struct({
   session: Schema.String,
+  vendorSession: Schema.optional(Schema.String),
   permission: Permission,
   extra: Extra,
   memory: MemorySummary
@@ -64,13 +66,13 @@ export const SelectMemory = Action.make("wrapped/memory", {
   nondeterministic: true
 })
 export const WritePrompt = Action.make("wrapped/prompt", {
-  payload: { task: Schema.String, cwd: Schema.String, permission: Permission, memory: Memory.Output },
+  payload: { task: Schema.String, cwd: Schema.String, harness: Harness, permission: Permission, memory: Memory.Output },
   success: Prepared,
   error: WrappedFailed,
   nondeterministic: true
 })
 export const Recall = Action.make("wrapped/session", {
-  payload: { cwd: Schema.String, session: Schema.String, permission: Schema.optional(Permission) },
+  payload: { cwd: Schema.String, session: Schema.String, harness: Harness, permission: Schema.optional(Permission) },
   success: Prepared,
   error: WrappedFailed
 })
@@ -82,17 +84,19 @@ export const Launch = Action.make("wrapped/launch", {
 })
 
 /** A launch selects memory and writes the prompt; a resume replays the recorded prompt. */
-const prepare = ({ cwd, permission, session, task }: Payload) =>
+const prepare = ({ cwd, harness, permission, session, task }: Payload) =>
   session === undefined
     ? SelectMemory.call({ task, cwd }).pipe(
-      Node.bindPlanned((memory) => WritePrompt.call({ task, cwd, permission: permission ?? defaultPermission, memory }))
+      Node.bindPlanned((memory) =>
+        WritePrompt.call({ task, cwd, harness, permission: permission ?? defaultPermission, memory })
+      )
     )
-    : Recall.call({ cwd, session, ...(permission === undefined ? {} : { permission }) })
+    : Recall.call({ cwd, session, harness, ...(permission === undefined ? {} : { permission }) })
 type Prepare = ReturnType<typeof prepare>
 
 export default Flow.make("wrapped", {
   description:
-    "Run Claude Code on a task with the memory a native agent starts with and the shared Smithers prompt appended through its own mechanism.",
+    "Run Claude Code or Codex on a task with the memory a native agent starts with and the shared Smithers prompt appended through its own mechanism.",
   capabilities: ["*"],
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   payload,
@@ -160,23 +164,35 @@ export const summarize = (output: Memory.Output): MemorySummary => ({
 export const writePrompt = (input: {
   readonly cwd: string
   readonly permission: Permission
+  readonly harness?: typeof Harness.Type | undefined
   readonly memory: Memory.Output
 }): Effect.Effect<Prepared, WrappedFailed> => {
   const text = extraPrompt({ permission: input.permission, memory: input.memory })
   const digest = sha256(text)
   const path = promptPath(input.cwd, digest)
   const refused = (message: string) => Effect.fail(new WrappedFailed({ code: "prompt_unsendable", message }))
+  if (!text.isWellFormed()) return refused("the extra prompt contains malformed Unicode")
   if (text.includes("\0")) return refused("the extra prompt holds a NUL byte, which no argv can carry")
   const bytes = Buffer.byteLength(text, "utf8")
   if (bytes > maxExtraBytes) {
     return refused(`the extra prompt is ${bytes} bytes, over the ${maxExtraBytes}-byte argv bound`)
   }
+  if (
+    input.harness === "codex" &&
+    Buffer.byteLength(`developer_instructions=${codexConfigString(text)}`, "utf8") > maxExtraBytes
+  ) {
+    return refused(`the encoded developer instructions exceed the ${maxExtraBytes}-byte argv bound`)
+  }
   return Effect.tryPromise({
     try: async () => {
       await mkdir(dirname(path), { recursive: true })
       const temporary = `${path}.${randomUUID()}.tmp`
-      await writeFile(temporary, text, "utf8")
-      await rename(temporary, path)
+      try {
+        await writeFile(temporary, text, "utf8")
+        await rename(temporary, path)
+      } finally {
+        await rm(temporary, { force: true }).catch(() => {})
+      }
     },
     catch: (cause) => new WrappedFailed({ code: "prompt_failed", message: String(cause) })
   }).pipe(Effect.as({
@@ -195,14 +211,21 @@ export const sessionPath = (cwd: string, session: string): string | undefined =>
 
 /** The record names the prompt by digest only; its path follows from `cwd`, so a moved checkout still resumes. */
 const SessionRecord = Schema.Struct({
+  harness: Schema.optional(Harness),
   digest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
   memory: MemorySummary,
   permission: Permission,
-  task: Schema.String
+  task: Schema.String,
+  vendorSession: Schema.optional(Schema.String)
 })
 
 /** Records what a launch appends, as deterministic JSON (sorted keys, trailing newline). */
-export const recordSession = (cwd: string, task: string, prepared: Prepared): Effect.Effect<void, WrappedFailed> => {
+export const recordSession = (
+  cwd: string,
+  task: string,
+  prepared: Prepared,
+  harness: typeof Harness.Type = "claude-code"
+): Effect.Effect<void, WrappedFailed> => {
   const path = sessionPath(cwd, prepared.session)
   if (path === undefined) {
     return Effect.fail(
@@ -212,6 +235,7 @@ export const recordSession = (cwd: string, task: string, prepared: Prepared): Ef
   const { cost, digest, kept, unjudged } = prepared.memory
   const record = {
     digest: prepared.extra.digest,
+    harness,
     memory: {
       cost: { candidates: cost.candidates, jevMs: cost.jevMs, jevRequests: cost.jevRequests },
       digest,
@@ -219,12 +243,19 @@ export const recordSession = (cwd: string, task: string, prepared: Prepared): Ef
       ...(unjudged === undefined ? {} : { unjudged: { detail: unjudged.detail, reason: unjudged.reason } })
     },
     permission: prepared.permission,
-    task
+    task,
+    ...(prepared.vendorSession === undefined ? {} : { vendorSession: prepared.vendorSession })
   }
   return Effect.tryPromise({
     try: async () => {
       await mkdir(dirname(path), { recursive: true })
-      await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, "utf8")
+      const temporary = `${path}.${randomUUID()}.tmp`
+      try {
+        await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, "utf8")
+        await rename(temporary, path)
+      } finally {
+        await rm(temporary, { force: true }).catch(() => {})
+      }
     },
     catch: (cause) => new WrappedFailed({ code: "session_record_failed", message: String(cause) })
   })
@@ -238,7 +269,8 @@ export const recordSession = (cwd: string, task: string, prepared: Prepared): Ef
 export const recallSession = (
   cwd: string,
   session: string,
-  permission?: Permission | undefined
+  permission?: Permission | undefined,
+  harness: typeof Harness.Type = "claude-code"
 ): Effect.Effect<Prepared, WrappedFailed> =>
   Effect.gen(function*() {
     const unknown = (message: string) => new WrappedFailed({ code: "session_unknown", message })
@@ -252,6 +284,12 @@ export const recallSession = (
       try: () => Schema.decodeUnknownSync(SessionRecord)(JSON.parse(text)),
       catch: () => new WrappedFailed({ code: "session_malformed", message: `${path} is not a session record` })
     })
+    if (harness !== (record.harness ?? "claude-code")) {
+      return yield* new WrappedFailed({
+        code: "harness_changed",
+        message: `session ${session} launched with ${record.harness ?? "claude-code"}, not ${harness}`
+      })
+    }
     if (permission !== undefined && permission !== record.permission) {
       return yield* new WrappedFailed({
         code: "permission_changed",
@@ -271,6 +309,7 @@ export const recallSession = (
     }
     return {
       session,
+      ...(record.vendorSession === undefined ? {} : { vendorSession: record.vendorSession }),
       permission: record.permission,
       extra: { path: extraPath, digest: record.digest, bytes: Buffer.byteLength(extra, "utf8") },
       memory: record.memory
@@ -288,13 +327,28 @@ export const layer = (
     SelectMemory.toLayer(({ cwd, task }) =>
       selectMemory(task, cwd).pipe(Effect.tap((output) => Effect.sync(() => options.onMemory?.(output))))
     ),
-    WritePrompt.toLayer(({ task, ...input }) =>
-      Effect.tap(writePrompt(input), (prepared) => recordSession(input.cwd, task, prepared))
+    WritePrompt.toLayer(({ task, harness, ...input }) =>
+      Effect.tap(writePrompt({ ...input, harness }), (prepared) => recordSession(input.cwd, task, prepared, harness))
     ),
-    Recall.toLayer(({ cwd, permission, session }) => recallSession(cwd, session, permission)),
+    Recall.toLayer(({ cwd, permission, session, harness }) => recallSession(cwd, session, permission, harness)),
     Launch.toLayer(({ prepared, resume, ...input }) =>
       launch({ ...input, ...prepared, resume }, options).pipe(
-        Effect.map(({ answer }) => ({ answer, ...prepared }))
+        Effect.flatMap(({ answer, session }) => {
+          const completed = input.harness === "codex" ? { ...prepared, vendorSession: session } : prepared
+          return input.harness === "codex" && !resume
+            ? recordSession(input.cwd, input.task, completed, input.harness).pipe(
+              Effect.mapError(() =>
+                new WrappedFailed({
+                  code: "session_record_after_launch",
+                  message: "Codex completed; its session could not be saved",
+                  answer,
+                  vendorSession: session
+                })
+              ),
+              Effect.as({ answer, ...completed })
+            )
+            : Effect.succeed({ answer, ...completed })
+        })
       )
     )
   )

@@ -110,7 +110,7 @@ namespace, and each is also importable from `@smthrs/cli/<Module>`:
 | `Agents` | The agent configurations `mcp add` writes the MCP server into. |
 | `Serve` | The gateway bind rule, the mount list, and the banner rendered from it. |
 | `Init`, `Suggest`, `Providers` | Scaffolding, the guided suggestion pass, and the seats this machine can run. |
-| `Gc`, `Update`, `Bug`, `ClaudeMirror`, `CodexAuth`, `ExecutorOwnership`, `Version` | Retention, version checks, bug reports, the Claude Code mirror protocol, the Codex credential store, executor ownership, and the installed version. |
+| `Gc`, `Update`, `Bug`, `ClaudeMirror`, `ExecutorOwnership`, `Version` | Retention, version checks, bug reports, the Claude Code mirror protocol, executor ownership, and the installed version. |
 
 Every export of every namespace is on the [API reference](./api.md), and
 [Embed the command tree](./guides/embed-the-command-tree.md) is the guide.

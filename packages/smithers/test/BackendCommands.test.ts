@@ -443,36 +443,30 @@ describe("one-login authentication", () => {
       expect(request.mock.calls[0]![3]).toMatchObject({ headers: { "X-Smithers-Bootstrap-Token": "bootstrap" } })
     }
   })
-  it("connects Codex subscription credentials", async () => {
-    const provider = "codex"
+  it.each([
+    {
+      tokens: {
+        access_token: "local-access-secret",
+        refresh_token: "local-refresh-secret",
+        id_token: "local-id-secret"
+      }
+    },
+    { OPENAI_API_KEY: "not-a-subscription" },
+    undefined
+  ])("refuses Codex connection without consuming local credentials (%j)", async (credentials) => {
     const { c, home, request } = await fixture()
-    const jwt = (body: object) => `header.${Buffer.from(JSON.stringify(body)).toString("base64url")}.signature`
-    await writeFile(
-      join(home, "auth.json"),
-      JSON.stringify({
-        tokens: {
-          access_token: jwt({ exp: 2e9 }),
-          refresh_token: "refresh",
-          id_token: jwt({
-            email: "owner@example.test",
-            "https://api.openai.com/auth": { chatgpt_account_id: "account", chatgpt_plan_type: "pro" }
-          })
-        }
+    if (credentials !== undefined) await writeFile(join(home, "auth.json"), JSON.stringify(credentials))
+    const protect = vi.spyOn(c, "protect")
+    await expect(auth["auth connect"]!(c, { provider: "codex" }, { "config-dir": home, label: "laptop" })).rejects
+      .toMatchObject({
+        fault: "user",
+        code: "not_signed_in",
+        message: "Run `codex login --device-auth` on the workspace; Codex subscriptions are never sent to a workspace"
       })
-    )
-    await auth["auth connect"]!(c, { provider }, { "config-dir": home, label: "laptop" })
-    expect(request).toHaveBeenCalledWith(
-      "POST",
-      "/api/user/provider-connections",
-      expect.objectContaining({ provider, kind: "oauth", refresh_token: "refresh", label: "laptop" })
-    )
-  })
-  it("refuses a Codex API-key login", async () => {
-    const { c, home } = await fixture()
-    await writeFile(join(home, "auth.json"), JSON.stringify({ OPENAI_API_KEY: "not-a-subscription" }))
-    await expect(auth["auth connect"]!(c, { provider: "codex" }, { "config-dir": home })).rejects.toThrow(
-      "subscription"
-    )
+    expect(request).not.toHaveBeenCalled()
+    expect(protect).not.toHaveBeenCalledWith("local-access-secret")
+    expect(protect).not.toHaveBeenCalledWith("local-refresh-secret")
+    expect(protect).not.toHaveBeenCalledWith("local-id-secret")
   })
   it("accepts an Anthropic API key and never a Claude subscription token (#2777)", async () => {
     const { c, home, request } = await fixture()

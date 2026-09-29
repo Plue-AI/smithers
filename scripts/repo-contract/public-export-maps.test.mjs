@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { describe, it } from "node:test"
@@ -106,7 +106,8 @@ describe("explicit public entrypoints", () => {
       "@smthrs/plan/PlanStore",
       "@smthrs/gateway/SuperviseRuntime",
       "@smthrs/gateway/test/TestSuperviseRuntime",
-      "@smthrs/cli/McpServer"
+      "@smthrs/cli/McpServer",
+      "@smthrs/cli/CodexAuth"
     ])
     let retained = 0
     for (const previous of baseline.packages) {
@@ -129,7 +130,51 @@ describe("explicit public entrypoints", () => {
       }
       retained += previous.subpaths.length - removed.length
     }
-    assert.equal(retained, 768)
+    assert.equal(retained, 767)
+  })
+
+  it("retires CLI CodexAuth credentials while preserving the reviewed export history", () => {
+    const entry = current.get("@smthrs/cli")
+    const directory = join(repoRoot, entry.dir)
+    const original = baseline.packages.find(({ name }) => name === entry.name)
+    const retirement = baseline.removed.find(({ name, subpath }) => name === entry.name && subpath === "./CodexAuth")
+    assert.ok(original.subpaths.includes("./CodexAuth"), "the original reviewed surface remains recorded")
+    assert.match(retirement.reason, /vendor CLI/)
+    assert.match(retirement.reason, /#2804/)
+    assert.equal(existsSync(join(directory, "src/CodexAuth.ts")), false)
+    assert.equal(sourceSubpaths(directory).includes("./CodexAuth"), false)
+    assert.doesNotMatch(readFileSync(join(directory, "src/index.ts"), "utf8"), /CodexAuth/)
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "smithers-codex-export-retirement-")))
+    try {
+      for (const [mode, map] of [["development", entry.manifest.exports], ["published", entry.manifest.publishConfig.exports]]) {
+        assert.equal(exportTarget(map, "./CodexAuth"), null, mode)
+        assert.ok(exportTarget(original[mode], "./CodexAuth"), `${mode} was addressable before retirement`)
+        assert.equal(publicSubpaths(map, directory).includes("./CodexAuth"), false)
+        const fixture = join(root, mode)
+        mkdirSync(fixture, { recursive: true })
+        writeFileSync(join(fixture, "package.json"), JSON.stringify({ name: entry.name, type: "module", exports: map }))
+        // A stale or newly recreated implementation cannot bypass the explicit denial.
+        for (const path of ["src/CodexAuth.ts", "dist/esm/CodexAuth.js", "dist/cjs/CodexAuth.js"]) {
+          mkdirSync(dirname(join(fixture, path)), { recursive: true })
+          writeFileSync(join(fixture, path), "export const obsolete = true\n")
+        }
+        const probe = spawnSync(process.execPath, ["--experimental-import-meta-resolve", "--input-type=module", "-e", `
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+const parent = ${JSON.stringify(join(fixture, "package.json"))};
+const specifier = '@smthrs/cli/CodexAuth';
+const probe = resolve => { try { resolve(); return 'unexpectedly exported' } catch (error) { return error.code } };
+process.stdout.write(JSON.stringify([
+  probe(() => import.meta.resolve(specifier, pathToFileURL(parent).href)),
+  probe(() => createRequire(parent).resolve(specifier))
+]));
+`], { encoding: "utf8" })
+        assert.equal(probe.status, 0, probe.stderr)
+        assert.deepEqual(JSON.parse(probe.stdout), ["ERR_PACKAGE_PATH_NOT_EXPORTED", "ERR_PACKAGE_PATH_NOT_EXPORTED"], mode)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it("admits only explicitly reviewed additions without rewriting the original surface", () => {

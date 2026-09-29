@@ -315,12 +315,9 @@ export const definitions = {
   },
   "auth connect": {
     description:
-      "Connect your own Codex subscription (imports the Codex CLI login) or an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Claude subscriptions are never stored; they run locally through Claude Code",
+      "Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth",
     args: z.object({ "provider": z.string().describe("claude or codex") }),
     options: z.object({
-      "config-dir": z.string().describe(
-        "Codex home (CODEX_HOME) to import from"
-      ).optional(),
       "label": z.string().describe("Display label for the connection").optional(),
       "api-key": z.boolean().describe("Read an Anthropic API key from stdin (claude only)").default(false)
     })
@@ -1404,7 +1401,7 @@ export const definitions = {
         .optional(),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
       "seedAgentAuth": z.string().describe(
-        "Comma-separated list of agent auth to seed before running the command (claude seeds ANTHROPIC_API_KEY, codex seeds the Codex login)"
+        "Agent auth to seed before running the command (claude seeds ANTHROPIC_API_KEY; subscription logins stay on the workspace)"
       ).optional(),
       "timeout": z.coerce.number().describe("Cancel after this many seconds (default: 0; server guard: 60 minutes)")
         .optional()

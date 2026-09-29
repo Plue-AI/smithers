@@ -48,10 +48,10 @@ release gate: TUI child-launch paths (including detached descendants and
 platform-specific cleanup described in the collector README) and missing
 behavior tests remain unqualified; no numeric floor is claimed under #2392.
 
-The local two-run qualification on this source roster (Bun 1.4.1) kept the
+An earlier two-run qualification on a 77-source roster (Bun 1.4.1) kept the
 same statement/function/branch/line denominators with and without
 `test/surfaces.test.ts`: `src/surfaces.ts` 58/23/49/47 and the whole roster
-8626/2205/10150/7133. The reports contain all 77 sources, including zero-hit
+8626/2205/10150/7133. Those historical reports contain all 77 sources, including zero-hit
 `src/surfaces.ts` when its test is absent. Both commands published LCOV and JSON
 without collector refusal, but Bun's suite exited 1 (75 failing tests and 67
 errors in each run); these reports do **not** qualify a passing TUI gate.
@@ -81,6 +81,12 @@ It does not establish live provider quality, hosted deployment health, other
 operating systems, or every possible terminal configuration. Report skips and
 failures with the result. The audit is tracked in
 [#2074](https://github.com/smithersai/smithers/issues/2074).
+
+The current roster has 79 sources. A focused collection of
+`test/harness-cli.test.ts`, `test/harness.test.ts`, and
+`test/harness-codex.test.ts` passes 10 tests and exercises every statement,
+function, and branch arm in `src/harness-cli.ts`. This selection retains the
+whole roster as its denominator and does not qualify whole-TUI coverage.
 
 ## Parked worker retry controls
 

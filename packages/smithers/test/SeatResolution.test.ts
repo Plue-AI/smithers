@@ -187,63 +187,45 @@ describe("NodeControl.seatResolver ChatGPT mode", () => {
     for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
   })
 
-  /** A codex home, provisioned with a fabricated session when asked. */
-  const codexHome = (options: { readonly provisioned: boolean }): string => {
+  const codexOnPath = (signedIn: boolean): string => {
     const directory = mkdtempSync(join(tmpdir(), "flows-seat-codex-"))
     directories.push(directory)
-    if (options.provisioned) {
-      writeFileSync(
-        join(directory, "auth.json"),
-        `${
-          JSON.stringify({
-            OPENAI_API_KEY: null,
-            auth_mode: "chatgpt",
-            tokens: {
-              id_token: "fake-id-token",
-              access_token: "fake-access-token",
-              refresh_token: "fake-refresh-token",
-              account_id: "acct-fake-123"
-            },
-            last_refresh: "2026-08-19T19:35:39.648449Z"
-          })
-        }\n`,
-        { mode: 0o600 }
-      )
-    }
+    writeFileSync(
+      join(directory, "codex"),
+      signedIn
+        ? "#!/bin/sh\necho \"Logged in using ChatGPT\"\n"
+        : "#!/bin/sh\necho \"Not logged in\" >&2\nexit 1\n",
+      { mode: 0o755 }
+    )
     return directory
   }
 
-  it("routes the unchanged openai seat over the ChatGPT backend, demanding no API key", async () => {
-    const environment = { SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: codexHome({ provisioned: true }) }
-
-    const resolved = await Effect.runPromise(resolve(environment, "openai:gpt-5.6-sol"))
-
-    // The seat string, and so the journaled seat and its committed price,
-    // stays spelled exactly as the API-key mode spells it.
-    expect(resolved.id).toBe("openai:gpt-5.6-sol")
-    expect(resolved.contextWindowTokens).toBe(400_000)
-    const request = await prepared(resolved, "gpt-5.6-sol")
-    expect(request.url).toBe("https://chatgpt.com/backend-api/codex/responses")
-    // The codex client identity travels as route identity; the bearer and
-    // account id do not exist until Auth signs the attempt.
-    expect(request.publicHeaders).toMatchObject({ originator: "codex_cli_rs" })
-    const sealed = JSON.stringify(request)
-    expect(sealed).not.toContain("fake-access-token")
-    expect(sealed).not.toContain("acct-fake-123")
+  it.each([
+    ["openai:gpt-5.6-sol", "gpt-5.6-sol", "chatgpt"],
+    ["codex:sol", "gpt-6-sol", undefined],
+    ["codex:gpt-6-luna", "gpt-6-luna", undefined]
+  ])("routes %s through the signed-in vendor CLI", async (id, modelId, authMode) => {
+    const resolved = await Effect.runPromise(resolve({
+      SMITHERS_OPENAI_AUTH: authMode,
+      PATH: codexOnPath(true),
+      OPENAI_API_KEY: "unused"
+    }, id))
+    expect(resolved.id).toBe(id)
+    expect(resolved.modelId).toBe(modelId)
+    const request = await prepared(resolved, modelId)
+    expect(request.url).toBe(`codex:${modelId}`)
+    expect(request.publicHeaders).toEqual({})
+    expect(JSON.stringify(request)).not.toContain("unused")
   })
 
-  it("refuses the mode without a provisioned session, naming the store and the login command", async () => {
-    const home = codexHome({ provisioned: false })
-    const environment = { SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: home, OPENAI_API_KEY: "unused" }
-
-    const error = await Effect.runPromise(Effect.flip(resolve(environment, "openai:gpt-5.6-sol")))
-
+  it.each(["signed out", "missing"])("refuses a %s vendor CLI without API key fallback", async (status) => {
+    const error = await Effect.runPromise(Effect.flip(resolve({
+      SMITHERS_OPENAI_AUTH: "chatgpt",
+      PATH: status === "missing" ? "/nonexistent" : codexOnPath(false),
+      OPENAI_API_KEY: "unused"
+    }, "openai:gpt-5.6-sol")))
     expect(error).toBeInstanceOf(Seat.SeatUnresolved)
-    expect(error.message).toBe(
-      `Sign in with \`codex login\` to run the openai:gpt-5.6-sol seat: no ChatGPT credentials at ${
-        join(home, "auth.json")
-      }`
-    )
+    expect(error.message).toContain("codex login --device-auth")
   })
 
   it("refuses a mode value it does not know rather than guessing a credential source", async () => {
@@ -266,7 +248,7 @@ describe("NodeControl.seatResolver ChatGPT mode", () => {
   it("scopes the mode to the openai provider: every other seat keeps its own key", async () => {
     const environment = {
       SMITHERS_OPENAI_AUTH: "chatgpt",
-      CODEX_HOME: codexHome({ provisioned: false }),
+      PATH: "/nonexistent",
       ANTHROPIC_API_KEY: "anthropic-key"
     }
 
@@ -680,7 +662,7 @@ describe("NodeControl.seatResolver behind SMITHERS_MODEL_PROXY_URL", () => {
     expect((await prepared(openai, openai.modelId)).url).toBe("https://api.openai.com/v1/responses")
     const chatgpt = await Effect.runPromise(
       Effect.flip(
-        resolve({ ...limited, SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: "/nonexistent" }, "openai:gpt-6-luna")
+        resolve({ ...limited, SMITHERS_OPENAI_AUTH: "chatgpt", PATH: "/nonexistent" }, "openai:gpt-6-luna")
       )
     )
     expect(chatgpt.message).toContain("codex login")

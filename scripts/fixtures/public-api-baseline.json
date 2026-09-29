@@ -1481,16 +1481,7 @@
             "default": "./dist/cjs/CliError.js"
           }
         },
-        "./CodexAuth": {
-          "import": {
-            "types": "./dist/esm/CodexAuth.d.ts",
-            "default": "./dist/esm/CodexAuth.js"
-          },
-          "require": {
-            "types": "./dist/cjs/CodexAuth.d.ts",
-            "default": "./dist/cjs/CodexAuth.js"
-          }
-        },
+        "./CodexAuth": null,
         "./Command": {
           "import": {
             "types": "./dist/esm/Command.d.ts",
@@ -1973,7 +1964,7 @@
         }
       },
       "declarations": {
-        "Agents.d.ts": "d0d63d7b29e507718915a56d0891d1f4c18893c775c3f6d337c51cebfa8b2d3a",
+        "Agents.d.ts": "0adab1dd2073090f46b54dcfc1a2103d63c7d8ed52fd7fd26af909732f75cb30",
         "Application.d.ts": "5b5b8fe86a5cbf4cc155c9a08eb2fda46d276c4259b73caf1059fc479445ba13",
         "Audience.d.ts": "b86624146cb972ea6874414bcd68d01b9e9a075507d331a11011465e9b73c277",
         "Bug.d.ts": "e917f661cfe56a75b01e9b65dd18e8aa4b8b5b8725322c4b27d7b26b07bb121d",
@@ -1982,7 +1973,6 @@
         "Cli.d.ts": "79e35a9b46e04fbe01d52af66999e3871ad658a4bc39661671d1e21e122a9f6f",
         "CliError.d.ts": "dc2e7f8981ab0ab96df7283ec601f63a204d6ecfbbea21867bfec9b31a22df44",
         "CloudSession.d.ts": "660652a4f9cb11447749751de8c97a9310b120c856453888965a87f2d7426d15",
-        "CodexAuth.d.ts": "0fa2fa87a34278bf76bea923911fec78d64c93ea58d8fc69cbc1c67762abca7b",
         "Command.d.ts": "5da321fa6ae5ccfd346b568320a63940a505ffd44ebad8faf1173ac58b2aaaa5",
         "Detached.d.ts": "65bc6212d1978a479749fcf43bab197c43b666e886386bf0af36c12c7c6fddf1",
         "DidYouMean.d.ts": "954ff7768c0525379d5720c9a051391355a42377df319922a58e45350430deeb",
@@ -1997,7 +1987,7 @@
         "NodeOutput.d.ts": "7f69bf51c34811c9f145819f708ddc99c3514978fb1de65b2fce8c222d8c7450",
         "Output.d.ts": "24dfb305a0c95909e8f6ad8d24e341c0124718401d699955fb05172bbd2d2bb6",
         "Project.d.ts": "f58c5dab5b1c1d5f9071865534e7e74efb44b88fbb361ddd0b9ab43f11cccca8",
-        "Providers.d.ts": "5399123ac7f4f5430fcfc305f7f1a38ae80e44974895f0ec47ebe864808834c9",
+        "Providers.d.ts": "6fab0123c78c61651e01a0b8bd1f05147cd327f3f0b9cfc7e87e82d3ade7b082",
         "Serve.d.ts": "9dcdafb0c7fb6814c5e81ffa2c910be949b7a3816b870a41ae631cb54942182b",
         "Suggest.d.ts": "42413693c167f48e1c63aaaa5bb1e5d37498ccc4b920a64ce1dc7ef19bf9b146",
         "Ui.d.ts": "498b4174c8f7e4376d1f88c75173c5ed7e007f54861a452d762b7a2d7281fbeb",
@@ -2040,13 +2030,14 @@
         "history/Projection.d.ts": "232a54dee848fabccb84d4d4bb14a05fead42de4291c03b3aa4a2347d4e0651a",
         "history/Workspace.d.ts": "d7574ec15179f2056b3a04bd83c16577e7dc877edf5d3b37136f8a3dac70e1e9",
         "history/migrations/0001_applied_audits.d.ts": "1bb1793ad66bc92436656b0aee1e7151e139f2e34f6b848803de69be628f142d",
-        "index.d.ts": "8e9ba7db74399775a98bc04b6eb10a83cd0b63cf483b6e00d4ee9c3d933ed957",
+        "index.d.ts": "eb811e27d26d291841949e9e60e62e97cbb1721ce173bd1ec400786d1e04936b",
         "internal/ApprovalScope.d.ts": "9a37a62dfdd579a39aef7e3537aed180c6057aee197601ce63d3089b5560e03f",
         "internal/AuthoredRebuild.d.ts": "98fcb28918fcab1782182221533e9f175ba8254ae2f18b49d2973bb906c2d44a",
         "internal/AuthoredSources.d.ts": "19be9168e6bed3836237fdd969e31301d76db3a6a8816d7c0b67c450dc5a0c72",
         "internal/BoundedEvents.d.ts": "3ba1509f6fd8b63688ffe61c7bf85d9000dc0836a8ca9fec2417fa8fb1bb6d58",
         "internal/BunControl.d.ts": "8b5536b8e901974d112d65a0ba8c6a790978202f80bf30692f875e25a0e5e0be",
         "internal/ClaudeCode.d.ts": "c4d83714ea315b8d9e62b5a8a4196a4c0d7c556868e4398e38075f3c885317b4",
+        "internal/CodexCode.d.ts": "3bdc1c290eeaaf6fbef22a20ac67af7ccec08b72d38ded2f0b7f1dca04fc360d",
         "internal/CommandStatus.d.ts": "d9ff49f9e549351892d2421009aed76f1513355361daa6ebb6f483727869bb48",
         "internal/ControlDatabase.d.ts": "66dbc78217a70f16f4afa654500c0bebe749d2ddcdf85e32ebe34ebd5b470a63",
         "internal/ControlDatabaseMigrations.d.ts": "baca25c2f0dee767f7111a635b93618bebd69e0b7253058c66aff32d579a4bdf",
@@ -2067,7 +2058,7 @@
         "internal/ModuleOwner.d.ts": "85bd21af61e5cc503ed0848fbfa6c6e499b2954520744cf7a0ca2434476bcbc9",
         "internal/NativeControl.d.ts": "546e265bc0a12ba929f89c42f31f48c93e20140235bfa5d66f6d8c4e48f0ee98",
         "internal/NativeControlDatabase.d.ts": "f4aa2c539a550ce91c656a09f1d426503cca2138aa42271f1d1b9229aaa42ba8",
-        "internal/NativeEquipment.d.ts": "a3306c43ac2b870c4a699e9c2bbff14cf1a395d028c2e2bf2cb11d86b05135ba",
+        "internal/NativeEquipment.d.ts": "7f8b74c965c7ba723102aa2371c3a81bcb656d146a25e2c2e0215db1282c49d5",
         "internal/NodeControlHost.d.ts": "152441a65965ab1ed4ab7dfbf468a167e569d1993c461adf519e160405c8e7a1",
         "internal/NodeWebSocket.d.ts": "b58f00a49881df364cb0372314edcd81b924af66ccd019bcc40ea74bc73ba079",
         "internal/NodeWorkspaceObservation.d.ts": "87cadba649d73e8e5d72d68c34cc9fcdd50ee789a49ba56016035f84a6d47372",
@@ -2084,7 +2075,7 @@
         "internal/backend/Client.d.ts": "b8fc9614835fc9f8594cdf7ce71a87e5e350b04a2f9da475e4853d583efaa1a0",
         "internal/backend/Commands.d.ts": "9774096434cc7606401ca2c808e1abc5f874be0ade6a1c17493dc5a9f3477ac7",
         "internal/backend/Copy.d.ts": "e5f42061492a1291899d26faf925a6cf8497b4d83eadb47a0670bcd4032a03ef",
-        "internal/backend/Definitions.d.ts": "aaf01fb8a8bb1bb3ff504adf19904bf8d0b000691b168e809f65dc71bca77114",
+        "internal/backend/Definitions.d.ts": "5ed72216fb13f0335e34e9b9bd4b174ff081da7aed569b668fc0f93866b83ce3",
         "internal/backend/Local.d.ts": "e251f225f6d56225e4379ab305a0f1b541948a1371cd6fb79ee42bd9a2660e93",
         "internal/backend/Misc.d.ts": "72b954dcf7b5e17b1c405425f53b04bc77e4e861201b579750f52117656428f5",
         "internal/backend/Process.d.ts": "5d65e9dddf520d0724b95172a69234e7f3a907ccf75676c0170a26d864f4c8e1",

@@ -1759,7 +1759,7 @@
     },
     {
       "name": "auth connect",
-      "description": "Connect your own Codex subscription (imports the Codex CLI login) or an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Claude subscriptions are never stored; they run locally through Claude Code",
+      "description": "Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth",
       "schema": {
         "args": {
           "type": "object",
@@ -1777,10 +1777,6 @@
         "options": {
           "type": "object",
           "properties": {
-            "config-dir": {
-              "type": "string",
-              "description": "Codex home (CODEX_HOME) to import from"
-            },
             "label": {
               "type": "string",
               "description": "Display label for the connection"
@@ -11217,7 +11213,7 @@
             },
             "seedAgentAuth": {
               "type": "string",
-              "description": "Comma-separated list of agent auth to seed before running the command (claude seeds ANTHROPIC_API_KEY, codex seeds the Codex login)"
+              "description": "Agent auth to seed before running the command (claude seeds ANTHROPIC_API_KEY; subscription logins stay on the workspace)"
             },
             "timeout": {
               "type": "number",

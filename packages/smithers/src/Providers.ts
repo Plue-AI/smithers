@@ -28,8 +28,8 @@ import * as Data from "effect/Data"
 import { execFile } from "node:child_process"
 import { accessSync, constants } from "node:fs"
 import { delimiter, join } from "node:path"
-import * as CodexAuth from "./CodexAuth.ts"
 import * as Environment from "./Environment.ts"
+import * as CodexCode from "./internal/CodexCode.ts"
 
 /**
  * The stable id of one candidate seat.
@@ -58,8 +58,8 @@ export const order: ReadonlyArray<Candidate> = [
  * What the scan found for one candidate.
  *
  * `environment` is what the seat resolver has to read on top of the process
- * environment to run `seat`: the Codex subscription is an `openai:` seat with
- * `SMITHERS_OPENAI_AUTH=chatgpt`, and every other candidate needs nothing.
+ * environment to run `seat`: Codex detection supplies
+ * `SMITHERS_OPENAI_AUTH=chatgpt`; every other candidate supplies no variables.
  *
  * @category models
  * @since 1.0.0-rc.0
@@ -165,7 +165,7 @@ export const compatibleKey = (
  * @since 1.0.0-rc.0
  */
 export const defaultSeat: Readonly<Record<Candidate, string>> = {
-  "codex-subscription": "openai:gpt-6-sol",
+  "codex-subscription": "codex:sol",
   "kimi-k3": "moonshot:kimi-k3",
   openai: "openai:gpt-6-sol",
   gemini: "gemini:gemini-2.5-pro",
@@ -298,40 +298,17 @@ const keyed = (
   }
 }
 
-const codex = (host: Host): Detection => {
-  const base = {
-    id: "codex-subscription" as const,
-    label: labels["codex-subscription"],
-    seat: defaultSeat["codex-subscription"],
-    setupHint: "run `codex login`, or set SMITHERS_OPENAI_AUTH=chatgpt with a signed-in codex CLI",
-    environment: { SMITHERS_OPENAI_AUTH: "chatgpt" }
-  }
-  const file = CodexAuth.locate(host.environment, host.homeDirectory)
-  const text = host.readFile(file)
-  if (text !== undefined) {
-    const parsed = CodexAuth.parse(text)
-    if (parsed.usable) {
-      return Environment.read(host.environment, "SMITHERS_OPENAI_AUTH") === "chatgpt"
-        ? { ...base, available: true, reason: `${file} holds a ChatGPT session` }
-        : { ...base, available: false, reason: "set SMITHERS_OPENAI_AUTH=chatgpt to use this Codex login" }
-    }
-    if (Environment.read(host.environment, "SMITHERS_OPENAI_AUTH") !== "chatgpt") {
-      return {
-        ...base,
-        available: false,
-        reason: parsed.reason === "invalid-json"
-          ? `${file} is not valid JSON`
-          : `${file} holds no ChatGPT token set (an API-key login cannot serve this seat)`
-      }
-    }
-  }
-  if (Environment.read(host.environment, "SMITHERS_OPENAI_AUTH") === "chatgpt") {
-    // The mode is selected, so the seat is what the operator asked for; the
-    // resolver reports the missing or unusable session when it signs.
-    return { ...base, available: true, reason: "SMITHERS_OPENAI_AUTH=chatgpt" }
-  }
-  return { ...base, available: false, reason: `no ${file}` }
-}
+const codex = (host: Host): Detection => ({
+  id: "codex-subscription",
+  label: labels["codex-subscription"],
+  seat: defaultSeat["codex-subscription"],
+  setupHint: "install Codex, then run `codex login --device-auth` and set SMITHERS_OPENAI_AUTH=chatgpt",
+  environment: { SMITHERS_OPENAI_AUTH: "chatgpt" },
+  available: Environment.read(host.environment, "SMITHERS_OPENAI_AUTH") === "chatgpt",
+  reason: Environment.read(host.environment, "SMITHERS_OPENAI_AUTH") === "chatgpt"
+    ? "SMITHERS_OPENAI_AUTH=chatgpt"
+    : "set SMITHERS_OPENAI_AUTH=chatgpt to use Codex"
+})
 
 /**
  * One record per candidate, in {@link order}.
@@ -468,6 +445,72 @@ export const claudeCodeLogin = (environment: Environment.Source): Promise<Claude
       : Date.now() + signedOutTtl
   })
   return result
+}
+
+/**
+ * The vendor status receipt; Smithers never opens its credential store.
+ * @category models
+ * @since 1.0.0
+ */
+export interface CodexLogin {
+  readonly executable: string
+  readonly loggedIn: boolean
+}
+
+const codexLoginCache = new Map<string, { readonly result: Promise<CodexLogin>; expiresAt?: number }>()
+const codexLoginTtl = 30_000
+
+/**
+ * The installed Codex CLI and its subscription login status.
+ * In-flight and signed-in results are shared by binary, `HOME` and `CODEX_HOME`.
+ * All results expire after 30 seconds so login changes take effect without a restart.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const codexLogin = (source: Environment.Source): Promise<CodexLogin | undefined> => {
+  const executable = (Environment.read(source, "PATH") ?? "").split(delimiter).filter((directory) => directory !== "")
+    .map((directory) => join(directory, "codex")).find((file) => {
+      try {
+        accessSync(file, constants.X_OK)
+        return true
+      } catch {
+        return false
+      }
+    })
+  if (executable === undefined) return Promise.resolve(undefined)
+  const key = JSON.stringify([executable, source.HOME, source.CODEX_HOME])
+  const known = codexLoginCache.get(key)
+  if (known !== undefined && (known.expiresAt === undefined || known.expiresAt > Date.now())) return known.result
+  const result = new Promise<CodexLogin>((resolve) => {
+    try {
+      execFile(executable, ["login", "status"], {
+        env: CodexCode.environment(source),
+        encoding: "utf8",
+        timeout: 15_000,
+        maxBuffer: 16 * 1024
+      }, (error, stdout, stderr) => {
+        resolve({ executable, loggedIn: error === null && /Logged in using ChatGPT/i.test(`${stdout}\n${stderr}`) })
+      })
+    } catch {
+      resolve({ executable, loggedIn: false })
+    }
+  })
+  const entry: { readonly result: Promise<CodexLogin>; expiresAt?: number } = { result }
+  codexLoginCache.set(key, entry)
+  void result.then(() => {
+    entry.expiresAt = Date.now() + codexLoginTtl
+  })
+  return result
+}
+
+/**
+ * The OpenAI model an alias names, or the model unchanged.
+ * @category getters
+ * @since 1.0.0
+ */
+export const codexModel = (model: string): string => {
+  const seat = Object.hasOwn(seatAliases, model) ? seatAliases[model]! : ""
+  return seat.startsWith("openai:") ? seat.slice("openai:".length) : model
 }
 
 /**

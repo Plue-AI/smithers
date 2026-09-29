@@ -75,13 +75,12 @@ endpoint, in `/home/developer/workspace`. The chat, the model and the journal
 stay on this machine. A placed worker's edits land on the box, so they carry
 no undo receipt here.
 
-`--harness owner/repo/workspace-id` (or `SMITHERS_HARNESS`) makes that
-workspace's signed-in `claude` this machine's Claude Code seat (the seat and
-the judge, not wrapped Claude Code workers): the seat runs
-`claude` over the workspace's SSH endpoint, with its home and
-`CLAUDE_CONFIG_DIR` in `/home/developer` on the workspace's persistent disk.
-Sign in there once with `claude auth login` over `smthrs workspace ssh`; the
-login never leaves the box.
+`--harness owner/repo/workspace-id` (or `SMITHERS_HARNESS`) runs this
+machine's `claude-code:` and `codex:` seats through the workspace's vendor
+CLIs over SSH. Sign in there once with `claude auth login` or
+`codex login --device-auth` over `smthrs workspace ssh`; the login stays on
+its persistent disk. The wrappers set the workspace's home and vendor config
+paths under `/home/developer`. The laptop holds no vendor token.
 
 Spend caps are tripwires for runaway loops, not cost control. Each chat turn
 and each worker stops before a model call's estimated total would pass **200M

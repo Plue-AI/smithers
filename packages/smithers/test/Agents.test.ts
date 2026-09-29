@@ -28,6 +28,22 @@ import * as Agents from "../src/Agents.ts"
 
 const staged: Array<string> = []
 
+describe("codexConfigString", () => {
+  it.each([
+    ["DEL", "before\u007fafter", "\"before\\u007fafter\""],
+    ["quotes and newline", "say \"hello\"\nnext", "\"say \\\"hello\\\"\\nnext\""],
+    ["astral Unicode", "🦄", "\"🦄\""]
+  ])("encodes %s as a valid TOML basic string", (_name, text, expected) => {
+    expect(Agents.codexConfigString(text)).toBe(expected)
+    expect(JSON.parse(Agents.codexConfigString(text))).toBe(text)
+  })
+
+  it.each(["\ud800", "\udfff"])("refuses a lone surrogate %j", (text) => {
+    expect(() => Agents.codexConfigString(text)).toThrow(RangeError)
+    expect(() => Agents.codexConfigString(text)).toThrow("malformed Unicode")
+  })
+})
+
 const home = (): string => {
   const directory = mkdtempSync(join(tmpdir(), "smithers-agents-"))
   staged.push(directory)

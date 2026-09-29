@@ -41,13 +41,12 @@ downgrade to a 0.x `latest`.
   root and write `.flows/` under it. See
   [The project and its state](./concepts/project-and-state.md).
 - A configured subscription seat for model flows and their completion judge.
-  For Codex, run `codex login` and set `SMITHERS_OPENAI_AUTH=chatgpt`.
-  This self-hosted route reads `$CODEX_HOME/auth.json` (or `~/.codex/auth.json`)
-  and calls the ChatGPT Codex Responses backend using a Codex client identity.
-  Use is governed by your own agreement with OpenAI. A Codex login alone
-  does not opt you in: automatic seat selection uses this route only when
-  `SMITHERS_OPENAI_AUTH=chatgpt` is set. Hosted Smithers uses the host's
-  connected accounts, not an auto-detected local Codex login.
+  For Codex, install the vendor CLI and run `codex login --device-auth`.
+  A `codex:sol` seat runs `codex exec --json -m gpt-6-sol -` with the prompt
+  on stdin and Smithers tools over MCP. Only Codex reads or refreshes its login;
+  Smithers holds no Codex token. Set `SMITHERS_OPENAI_AUTH=chatgpt` to select
+  Codex automatically or to run existing `openai:` seats through Codex.
+  A signed-out host refuses the seat and names `codex login --device-auth`.
   For Claude, install Claude Code and run `claude auth login`; with no
   `ANTHROPIC_API_KEY` set, the `opus`, `sonnet` and `fable` seats (and their
   `claude-code:` forms) run on your own Claude Code, which signs its own

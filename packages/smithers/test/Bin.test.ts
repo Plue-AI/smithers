@@ -25,7 +25,6 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import * as CodexAuth from "../src/CodexAuth.ts"
 import { cli } from "../src/Command.ts"
 import * as Environment from "../src/Environment.ts"
 import { Version } from "../src/index.ts"
@@ -1634,13 +1633,8 @@ describe("the migrate verb's target", processBudget, () => {
  * `smthrs up ci-fast --json` returned 0 in three seconds while `smthrs ps`
  * reported `failed`.
  *
- * The run below fails for real, with no provider and no network. The flow
- * declares an `openai` seat, `SMITHERS_OPENAI_AUTH=chatgpt` routes that seat
- * to the codex CLI's credential store, and the store this project points at
- * holds a file with no token set. The seat resolves because the file exists,
- * so the launch is accepted and the driver starts. The turn then fails locally
- * reading it. That is a real `control.run.failed` settlement, written by the
- * real agent session into the project's own `.flows/control.db`.
+ * The vendor CLI fixture reports a signed-in subscription, then fails its
+ * first exec locally. The real agent session settles the accepted run failed.
  */
 /** A project whose one flow's seat resolves and whose turns cannot. */
 const stageUnservableSeat = (): string => {
@@ -1663,9 +1657,11 @@ const stageUnservableSeat = (): string => {
     ].join("\n")
   )
   mkdirSync(join(cwd, "codex"), { recursive: true })
-  // A store the resolver accepts and the turn cannot use: `CodexAuth.locate`
-  // only asks whether the file is there.
-  writeFileSync(join(cwd, "codex", "auth.json"), "{}")
+  writeFileSync(
+    join(cwd, "codex", "codex"),
+    "#!/bin/sh\nif [ \"$1\" = login ]; then echo \"Logged in using ChatGPT\"; exit 0; fi\necho \"fixture exec failed\" >&2\nexit 1\n",
+    { mode: 0o755 }
+  )
   return cwd
 }
 
@@ -1677,7 +1673,7 @@ const launch = (cwd: string, args: ReadonlyArray<string>) =>
     env: {
       ...process.env,
       SMITHERS_OPENAI_AUTH: "chatgpt",
-      CODEX_HOME: join(cwd, "codex")
+      PATH: `${join(cwd, "codex")}:${process.env["PATH"] ?? ""}`
     }
   })
 
@@ -1687,6 +1683,7 @@ describe("an attached launch's exit status", processBudget, () => {
     try {
       const launched = launch(cwd, ["up", "failing", "--json", "--verbose"])
 
+      expect(launched.stdout, launched.stderr).not.toBe("")
       expect(launched.error).toBeUndefined()
       expect(launched.status).toBe(1)
       // The `--json` contract does not move: stdout is one document, the
@@ -2144,10 +2141,14 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
  * hold it is to run the scaffolded prompt on a real provider. It costs a real
  * agent run of three to four minutes, so it runs only where the ChatGPT seat
  * the CLI suite already stages is actually signed in: export
- * `SMITHERS_OPENAI_AUTH=chatgpt` after `codex login` to take it.
+ * `SMITHERS_LIVE_MODEL_TESTS=1 SMITHERS_OPENAI_AUTH=chatgpt` after
+ * `codex login --device-auth` to take it.
  */
-const chatgptSeat = process.env["SMITHERS_OPENAI_AUTH"] === "chatgpt" &&
-  existsSync(CodexAuth.locate(process.env))
+const chatgptSeat = process.env["SMITHERS_LIVE_MODEL_TESTS"] === "1" &&
+  process.env["SMITHERS_OPENAI_AUTH"] === "chatgpt" && (() => {
+    const status = spawnSync("codex", ["login", "status"], { encoding: "utf8", timeout: 10_000 })
+    return status.status === 0 && /Logged in using ChatGPT/i.test(`${status.stdout}${status.stderr}`)
+  })()
 
 describe.skipIf(!chatgptSeat)("the smthrs init scaffold on a funded seat", { timeout: 900_000 }, () => {
   it("runs to completed, from `init` to a terminal row in both databases", () => {

@@ -44,6 +44,41 @@ import * as Failure from "./internal/Failure.ts"
 export const serverName = "smithers"
 
 /**
+ * A TOML basic string for a Codex configuration override.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const codexConfigString = (text: string): string => {
+  if (!text.isWellFormed()) throw new RangeError("Codex configuration text contains malformed Unicode")
+  return JSON.stringify(text).replaceAll("\u007f", "\\u007f")
+}
+
+/**
+ * The vendor environment with API credentials, workload identity and injected
+ * Node settings excluded before their values are read.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const codexEnvironment = (source: Readonly<Record<string, string | undefined>>): NodeJS.ProcessEnv => {
+  const denied = new Set([
+    "OPENAI_API_KEY",
+    "CODEX_API_KEY",
+    "CODEX_ACCESS_TOKEN",
+    "CODEX_AUTH_TOKEN",
+    "OPENAI_IDENTITY_TOKEN_FILE",
+    "OPENAI_IDENTITY_TOKEN",
+    "AI_GATEWAY_API_KEY",
+    "NODE_OPTIONS",
+    "NODE_PATH"
+  ])
+  return Object.fromEntries(
+    Object.keys(source).filter((name) => !denied.has(name.toUpperCase())).map((name) => [name, source[name]])
+  )
+}
+
+/**
  * One agent this CLI can wire itself into.
  *
  * @category models

@@ -1368,6 +1368,11 @@
       "name": "@smthrs/cli",
       "subpath": "./McpServer",
       "reason": "The 0.x named-tool MCP server duplicated `smthrs --mcp`, which serves the canonical command tree through Incur (#2152)."
+    },
+    {
+      "name": "@smthrs/cli",
+      "subpath": "./CodexAuth",
+      "reason": "Codex subscription seats use the vendor CLI; Smithers no longer reads, forwards or refreshes vendor credentials (#2804)."
     }
   ],
   "packages": [

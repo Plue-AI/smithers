@@ -7,7 +7,7 @@ import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import {
   chmodSync,
   existsSync,
@@ -22,18 +22,36 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
-import Wrapped, { grants, layer, sessionPath, type Success, writePrompt } from "../wrapped/flow.ts"
+import Wrapped, {
+  grants,
+  layer,
+  recallSession,
+  recordSession,
+  sessionPath,
+  type Success,
+  writePrompt
+} from "../wrapped/flow.ts"
 import {
   adapters,
+  commandFor,
   launch,
   type LaunchInput,
   type LaunchOptions,
   parseClaude,
+  parseCodex,
   run,
   withheld,
   WrappedFailed
 } from "../wrapped/launch.ts"
-import { extraPrompt, maxExtraBytes, type Permission, rules, sha256, wrappedBrief } from "../wrapped/prompt.ts"
+import {
+  extraPrompt,
+  maxExtraBytes,
+  type Permission,
+  promptPath,
+  rules,
+  sha256,
+  wrappedBrief
+} from "../wrapped/prompt.ts"
 
 const claude = adapters["claude-code"]
 const memoryBlock = (text: string) => `<memory>\n${text}\n</memory>`
@@ -388,6 +406,7 @@ test("the flow runs memory, records the session, launches through the runtime, t
   const record = readFileSync(sessionPath(repo, first.session)!, "utf8")
   assert.deepEqual(JSON.parse(record), {
     digest: first.extra.digest,
+    harness: "claude-code",
     memory: first.memory,
     permission: "acceptEdits",
     task
@@ -520,12 +539,34 @@ test("an argv the OS refuses is a typed spawn_failed, never a defect", async () 
 test("the harness inherits the environment minus the withheld names", async () => {
   const fake = fakeClaude()
   const input = await prepare(fake.dir)
-  const env = { ...fake.env(), ...Object.fromEntries(withheld.map((name) => [name, "secret"])), WRAPPED_KEEP: "kept" }
+  const env = {
+    ...fake.env(),
+    ...Object.fromEntries(
+      [...withheld, "AI_GATEWAY_API_KEY", "NODE_OPTIONS", "NODE_PATH"].map((name) => [name, "secret"])
+    ),
+    OPENAI_API_KEY: "ambient-openai-secret",
+    CODEX_API_KEY: "ambient-codex-key",
+    CODEX_ACCESS_TOKEN: "ambient-access-token",
+    CODEX_AUTH_TOKEN: "ambient-auth-token",
+    ANTHROPIC_API_KEY: "claude-provider-key",
+    WRAPPED_KEEP: "kept"
+  }
   await Effect.runPromise(launch(input, { env }))
   const seen = readFileSync(join(fake.log, "env.0"), "utf8").split("\n")
   assert.ok(seen.includes("WRAPPED_KEEP=kept"))
+  assert.ok(seen.includes("ANTHROPIC_API_KEY=claude-provider-key"))
   for (
-    const name of ["AI_GATEWAY_API_KEY", "NODE_OPTIONS", "NODE_PATH", "SMITHERS_CACHE_URL", "SMITHERS_CACHE_TOKEN"]
+    const name of [
+      "AI_GATEWAY_API_KEY",
+      "NODE_OPTIONS",
+      "NODE_PATH",
+      "SMITHERS_CACHE_URL",
+      "SMITHERS_CACHE_TOKEN",
+      "OPENAI_API_KEY",
+      "CODEX_API_KEY",
+      "CODEX_ACCESS_TOKEN",
+      "CODEX_AUTH_TOKEN"
+    ]
   ) {
     assert.ok(!seen.some((line) => line.startsWith(`${name}=`)), name)
   }
@@ -589,5 +630,389 @@ test("WrappedFailed has a fault class for every code", () => {
   for (const code of codes) {
     // An unregistered error reads as `{ class: "bug", tag: "unregistered" }`.
     assert.equal(Fault.of(new WrappedFailed({ code, message: "m" })).tag, `wrapped/WrappedFailed/${code}`)
+  }
+})
+
+const codexEnvelope = (session = "vendor-session", answer = "answer") =>
+  [
+    { type: "thread.started", thread_id: session },
+    { type: "item.completed", item: { id: "a", type: "agent_message", text: "earlier" } },
+    { type: "item.completed", item: { id: "b", type: "agent_message", text: answer } },
+    { type: "turn.completed", usage: { input_tokens: 5, output_tokens: 2 } }
+  ].map((event) => JSON.stringify(event)).join("\n")
+
+const fakeCodex = () => {
+  const fake = fakeClaude()
+  writeFileSync(
+    join(fake.dir, "bin", "codex"),
+    `#!/bin/sh
+if [ "$1" = login ]; then
+  env > "$WRAPPED_LOG/login-env"
+  echo probe >> "$WRAPPED_LOG/probes"
+  if [ "$FAKE_MODE" = signed-out ]; then echo "Not logged in" >&2; exit 1; fi
+  if [ "$FAKE_MODE" = probe-fail ]; then echo "status unavailable" >&2; exit 3; fi
+  if [ "$FAKE_MODE" = probe-flood ]; then head -c 17000 /dev/zero; exit 0; fi
+  if [ "$FAKE_MODE" = api-key ]; then echo "Logged in using an API key"; exit 0; fi
+  echo "Logged in using ChatGPT"
+  exit 0
+fi
+n=$(ls "$WRAPPED_LOG" | grep -c '^argv')
+printf '%s\\0' "$@" > "$WRAPPED_LOG/argv.$n"
+echo $$ > "$WRAPPED_LOG/pid.$n"
+env > "$WRAPPED_LOG/env.$n"
+cat > "$WRAPPED_LOG/stdin.$n"
+if [ "$FAKE_MODE" = fail ]; then echo "exec failed" >&2; exit 3; fi
+if [ "$FAKE_MODE" = record-fail ]; then
+  for record in .flows/wrapped/sessions/*.json; do rm "$record"; mkdir "$record"; done
+fi
+printf '%s\\n' '${codexEnvelope()}'
+`,
+    { mode: 0o755 }
+  )
+  return fake
+}
+
+test("Codex uses developer instructions, bounded tools and permission-specific sandbox config", () => {
+  const extra = "instructions with \"quotes\" and\nnewlines"
+  for (const permission of ["plan", "acceptEdits"] as const) {
+    const fresh = adapters.codex.command(extra, { session: "app-session", resume: false, permission })
+    assert.equal(fresh.executable, "codex")
+    assert.deepEqual(fresh.args, [
+      "exec",
+      "--json",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--skip-git-repo-check",
+      "-c",
+      `developer_instructions=${JSON.stringify(extra)}`,
+      "-c",
+      "features.shell_tool=false",
+      "-c",
+      "web_search=\"disabled\"",
+      "-c",
+      `sandbox_mode="${permission === "plan" ? "read-only" : "workspace-write"}"`,
+      "-c",
+      "approval_policy=\"never\"",
+      "-"
+    ])
+    const resumed = adapters.codex.command(extra, {
+      session: "app-session",
+      vendorSession: "vendor-session",
+      resume: true,
+      permission
+    })
+    assert.deepEqual(resumed.args, ["exec", "resume", "vendor-session", ...fresh.args.slice(1)])
+  }
+})
+
+test("Codex JSONL requires a vendor session, answer and completed turn, and preserves the last answer", async () => {
+  assert.deepEqual(await Effect.runPromise(parseCodex(codexEnvelope())), {
+    session: "vendor-session",
+    answer: "answer"
+  })
+  assert.deepEqual(await Effect.runPromise(parseCodex(codexEnvelope(), "vendor-session")), {
+    session: "vendor-session",
+    answer: "answer"
+  })
+  const invalid = [
+    "not JSON",
+    `${codexEnvelope()}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "late" } })}`,
+    `${JSON.stringify({ type: "thread.started", thread_id: "duplicate" })}\n${codexEnvelope()}`,
+    codexEnvelope().replace("\"thread_id\":\"vendor-session\"", "\"thread_id\":\"\""),
+    codexEnvelope().replace("\"text\":\"answer\"", "\"text\":42"),
+    "",
+    "null",
+    "[]",
+    codexEnvelope().split("\n").slice(1).join("\n"),
+    codexEnvelope().split("\n").slice(0, -1).join("\n"),
+    [
+      JSON.stringify({ type: "thread.started", thread_id: "vendor-session" }),
+      JSON.stringify({ type: "turn.completed", usage: {} })
+    ].join("\n")
+  ]
+  for (const stdout of invalid) assert.equal((await failureOf(parseCodex(stdout))).code, "bad_envelope")
+  assert.equal((await failureOf(parseCodex(codexEnvelope(), "another-session"))).code, "bad_envelope")
+  for (
+    const event of [
+      { type: "error", message: "quota exhausted" },
+      { type: "turn.failed", error: { message: "quota exhausted" } }
+    ]
+  ) {
+    const error = await failureOf(parseCodex(JSON.stringify(event)))
+    assert.equal(error.code, "harness_error")
+    assert.match(error.message, /quota exhausted/)
+  }
+})
+
+test("Codex launches with prompt bytes and stdin, probes login, and resumes the vendor session", async () => {
+  const fake = fakeCodex()
+  const input = { ...(await prepare(fake.dir)), harness: "codex" as const, task: "Explain a.ts" }
+  const bytes = readFileSync(input.extra.path, "utf8")
+  const command = await Effect.runPromise(commandFor(input))
+  assert.ok(command.args.includes(`developer_instructions=${JSON.stringify(bytes)}`))
+  assert.ok(!existsSync(join(fake.log, "probes")), "dry-run command construction must not probe login")
+  const first = await Effect.runPromise(launch(input, { env: fake.env() }))
+  assert.deepEqual(first, { answer: "answer", session: "vendor-session" })
+  assert.equal(fake.call(0).stdin, "Explain a.ts")
+  assert.ok(fake.call(0).argv.includes(`developer_instructions=${JSON.stringify(bytes)}`))
+  const resume = { ...input, task: "One more.", resume: true, vendorSession: first.session }
+  await Effect.runPromise(launch(resume, { env: fake.env() }))
+  assert.deepEqual(fake.call(1).argv.slice(0, 3), ["exec", "resume", "vendor-session"])
+  assert.equal(fake.call(1).stdin, "One more.")
+  assert.equal(readFileSync(join(fake.log, "probes"), "utf8"), "probe\nprobe\n")
+  assert.equal((await failureOf(commandFor({ ...input, resume: true }))).code, "session_unknown")
+})
+
+test("Codex signed-out refusal never launches exec and tells the operator how to sign in", async () => {
+  const fake = fakeCodex()
+  const input = { ...(await prepare(fake.dir)), harness: "codex" as const }
+  for (const mode of ["signed-out", "api-key"]) {
+    const error = await failureOf(launch(input, { env: fake.env(mode) }))
+    assert.equal(error.code, "signed_out")
+    assert.match(error.message, /codex login --device-auth/)
+    assert.equal(fake.calls(), 0)
+  }
+  assert.equal((await failureOf(launch(input, { env: fake.env("fail") }))).code, "exit_nonzero")
+})
+
+test("wrapped persists the Codex vendor session under its app session and recalls it on resume", async () => {
+  const fake = fakeCodex()
+  const repo = join(fake.dir, "repo")
+  mkdirSync(repo)
+  writeFileSync(join(repo, "README.md"), "# Codex fixture\n")
+  const { succeeded, memories } = flowHarnessAt(fake, repo)
+  const first = await succeeded({ harness: "codex", task: "Read README.md", cwd: repo }, "codex-first")
+  assert.notEqual(first.session, "vendor-session")
+  assert.equal(first.vendorSession, "vendor-session")
+  const recordText = readFileSync(sessionPath(repo, first.session)!, "utf8")
+  const record = JSON.parse(recordText)
+  assert.equal(record.vendorSession, "vendor-session")
+  const second = await succeeded({
+    harness: "codex",
+    task: "And again.",
+    cwd: repo,
+    session: first.session
+  }, "codex-second")
+  assert.equal(second.session, first.session)
+  assert.equal(second.vendorSession, "vendor-session")
+  assert.equal(memories.length, 1, "resume must reuse the original memory selection")
+  assert.deepEqual(fake.call(1).argv.slice(0, 3), ["exec", "resume", "vendor-session"])
+  assert.deepEqual(second.extra, first.extra)
+  assert.equal(
+    readFileSync(sessionPath(repo, first.session)!, "utf8"),
+    recordText,
+    "resume preserves the original record"
+  )
+})
+
+test("a completed Codex turn keeps its answer and vendor receipt when post-launch persistence fails", async () => {
+  const fake = fakeCodex()
+  const repo = join(fake.dir, "repo")
+  mkdirSync(repo)
+  writeFileSync(join(repo, "README.md"), "# fixture\n")
+  const { failed } = flowHarnessAt({ ...fake, env: () => fake.env("record-fail") }, repo)
+  const error = await failed({ harness: "codex", task: "Read README.md", cwd: repo }, "codex-record-fail")
+  assert.ok(error instanceof WrappedFailed)
+  assert.equal(error.code, "session_record_after_launch")
+  assert.equal(error.answer, "answer")
+  assert.equal(error.vendorSession, "vendor-session")
+  assert.equal(Fault.of(error).class, "user")
+  assert.equal(fake.calls(), 1, "completed execution must never be replayed after a persistence failure")
+})
+
+test("a saved session refuses the other harness before spawning, including legacy Claude records", async () => {
+  for (const harness of ["claude-code", "codex"] as const) {
+    const fake = fakeCodex()
+    const repo = join(fake.dir, "repo")
+    mkdirSync(repo)
+    writeFileSync(join(repo, "README.md"), "# fixture\n")
+    const { succeeded, failed } = flowHarnessAt(fake, repo)
+    const first = await succeeded({ harness, task: "Read README.md", cwd: repo }, `binding-${harness}`)
+    const path = sessionPath(repo, first.session)!
+    const record = JSON.parse(readFileSync(path, "utf8"))
+    assert.equal(record.harness, harness)
+    if (harness === "claude-code") {
+      delete record.harness
+      writeFileSync(path, JSON.stringify(record))
+      await Effect.runPromise(recallSession(repo, first.session))
+    }
+    const error = await failed({
+      harness: harness === "codex" ? "claude-code" : "codex",
+      task: "Again",
+      cwd: repo,
+      session: first.session
+    }, `binding-refused-${harness}`)
+    assert.ok(error instanceof WrappedFailed)
+    assert.equal(error.code, "harness_changed")
+    assert.equal(fake.calls(), 1)
+  }
+})
+
+test("session records replace atomically and retain sorted keys", async () => {
+  const fake = fakeCodex()
+  const prepared = await Effect.runPromise(writePrompt({ cwd: fake.dir, permission: "plan", memory: noMemory }))
+  await Effect.runPromise(recordSession(fake.dir, "original", prepared, "codex"))
+  const path = sessionPath(fake.dir, prepared.session)!
+  const writing = Effect.runPromise(
+    recordSession(fake.dir, "updated", { ...prepared, vendorSession: "vendor" }, "codex")
+  )
+  // Every observed snapshot is an intact old or new record, never a truncated rewrite.
+  for (let i = 0; i < 30; i++) {
+    const snapshot = JSON.parse(readFileSync(path, "utf8"))
+    assert.ok(snapshot.task === "original" || snapshot.task === "updated")
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+  await writing
+  const record = JSON.parse(readFileSync(path, "utf8"))
+  assert.deepEqual(Object.keys(record), Object.keys(record).sort())
+  assert.equal(record.vendorSession, "vendor")
+  assert.equal(readdirSync(dirname(path)).some((name) => name.endsWith(".tmp")), false)
+})
+
+test("Codex login probe spawn errors retain their infrastructure code", async () => {
+  const fake = fakeCodex()
+  const input = { ...(await prepare(fake.dir)), harness: "codex" as const }
+  const error = await failureOf(launch(input, { env: { PATH: "/nonexistent" } }))
+  assert.equal(error.code, "spawn_failed")
+  assert.equal(Fault.of(error).class, "infra")
+  const failed = await failureOf(launch(input, { env: fake.env("probe-fail") }))
+  assert.equal(failed.code, "exit_nonzero")
+  assert.equal(Fault.of(failed).class, "dependency")
+  const flooded = await failureOf(launch(input, { env: fake.env("probe-flood") }))
+  assert.equal(flooded.code, "output_too_large")
+  assert.equal(fake.calls(), 0)
+})
+
+test("Codex escapes DEL in TOML developer instructions and malformed Unicode refuses before writing", async () => {
+  const command = adapters.codex.command("a\u007fb", { session: "s", resume: false, permission: "plan" })
+  assert.ok(command.args.includes("developer_instructions=\"a\\u007fb\""))
+  assert.ok(!command.args.join("").includes("\u007f"))
+  for (const text of ["bad\ud800", "bad\udfff"]) {
+    const fake = fakeCodex()
+    const error = await failureOf(
+      writePrompt({ cwd: fake.dir, permission: "plan", memory: { ...noMemory, context: text } })
+    )
+    assert.equal(error.code, "prompt_unsendable")
+    assert.equal(existsSync(join(fake.dir, ".flows")), false)
+  }
+})
+
+test("the Codex dry-run CLI resumes the vendor session without probing or rewriting its record", async () => {
+  const fake = fakeCodex()
+  const prepared = {
+    ...(await Effect.runPromise(writePrompt({ cwd: fake.dir, permission: "plan", memory: noMemory }))),
+    vendorSession: "vendor-session"
+  }
+  await Effect.runPromise(recordSession(fake.dir, "original", prepared, "codex"))
+  const path = sessionPath(fake.dir, prepared.session)!
+  const before = readFileSync(path, "utf8")
+  const result = spawnSync(process.execPath, [
+    "--experimental-strip-types",
+    join(import.meta.dirname, "..", "wrapped", "main.ts"),
+    "--harness",
+    "codex",
+    "--cwd",
+    fake.dir,
+    "--task",
+    "Follow up",
+    "--session",
+    prepared.session,
+    "--dry-run"
+  ], {
+    env: { ...fake.env(), AI_GATEWAY_API_KEY: "" },
+    encoding: "utf8",
+    timeout: 30_000
+  })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 0, result.stderr)
+  const fact = JSON.parse(result.stdout.trim())
+  assert.deepEqual(fact.argv.slice(0, 4), ["codex", "exec", "resume", "vendor-session"])
+  assert.equal(fake.calls(), 0)
+  assert.equal(existsSync(join(fake.log, "probes")), false)
+  assert.equal(readFileSync(path, "utf8"), before)
+})
+
+test("Codex bounds the encoded developer-instructions argv before writing or launching", async () => {
+  const fixed = Buffer.byteLength(extraPrompt({ permission: "plan", memory: { context: "" } })) + 2
+  for (const character of ["\n", "\\", "\u007f"]) {
+    const fake = fakeCodex()
+    const context = character.repeat(maxExtraBytes - fixed - 1)
+    const text = extraPrompt({ permission: "plan", memory: { context } })
+    assert.ok(Buffer.byteLength(text) <= maxExtraBytes)
+    const error = await failureOf(
+      writePrompt({ cwd: fake.dir, harness: "codex", permission: "plan", memory: { ...noMemory, context } })
+    )
+    assert.equal(error.code, "prompt_unsendable")
+    assert.equal(existsSync(join(fake.dir, ".flows")), false)
+    const manuallyStored = join(fake.dir, "manual.txt")
+    writeFileSync(manuallyStored, text)
+    const refused = await failureOf(
+      commandFor({
+        harness: "codex",
+        cwd: fake.dir,
+        task: "t",
+        session: "s",
+        resume: false,
+        permission: "plan",
+        memory: { digest: "d", kept: 0, cost: noMemory.cost },
+        extra: { path: manuallyStored, digest: sha256(text), bytes: Buffer.byteLength(text) }
+      })
+    )
+    assert.equal(refused.code, "prompt_unsendable")
+    assert.equal(fake.calls(), 0)
+    assert.equal(existsSync(join(fake.log, "probes")), false)
+  }
+  const fake = fakeCodex()
+  const prepared = await Effect.runPromise(
+    writePrompt({
+      cwd: fake.dir,
+      harness: "codex",
+      permission: "plan",
+      memory: { ...noMemory, context: "x".repeat(32 * 1024) }
+    })
+  )
+  const command = await Effect.runPromise(
+    commandFor({ harness: "codex", cwd: fake.dir, task: "t", resume: false, ...prepared })
+  )
+  assert.ok(command.args.every((arg) => Buffer.byteLength(arg) <= maxExtraBytes))
+})
+
+test("a failed prompt rename removes its temporary file", async () => {
+  const fake = fakeCodex()
+  const text = extraPrompt({ permission: "plan", memory: noMemory })
+  const path = promptPath(fake.dir, sha256(text))
+  mkdirSync(path, { recursive: true })
+  const error = await failureOf(writePrompt({ cwd: fake.dir, permission: "plan", memory: noMemory }))
+  assert.equal(error.code, "prompt_failed")
+  assert.equal(readdirSync(dirname(path)).some((name) => name.endsWith(".tmp")), false)
+})
+
+test("wrapped Codex probe and exec share credential filtering without reading denied getters", async () => {
+  const fake = fakeCodex()
+  const input = { ...(await prepare(fake.dir)), harness: "codex" as const }
+  const env = {
+    ...fake.env(),
+    OPENAI_IDENTITY_TOKEN: "ambient-identity-secret",
+    OPENAI_IDENTITY_TOKEN_FILE: "/ambient/identity-secret",
+    SMITHERS_CACHE_TOKEN: "cache-secret"
+  }
+  let reads = 0
+  for (const name of ["openai_identity_token", "OpEnAi_IdEnTiTy_ToKeN_FiLe", "CoDeX_ApI_KeY"]) {
+    Object.defineProperty(env, name, {
+      enumerable: true,
+      get() {
+        reads++
+        throw new Error("denied credential getter evaluated")
+      }
+    })
+  }
+  await Effect.runPromise(launch(input, { env }))
+  assert.equal(reads, 0)
+  for (const path of [join(fake.log, "login-env"), join(fake.log, "env.0")]) {
+    const inherited = readFileSync(path, "utf8")
+    assert.ok(!/OPENAI_IDENTITY_TOKEN(?:_FILE)?=|CODEX_API_KEY=/i.test(inherited))
+    assert.ok(!inherited.includes("ambient-identity-secret"))
+    assert.ok(!inherited.includes("cache-secret"))
+    assert.ok(inherited.includes(`WRAPPED_LOG=${fake.log}`))
   }
 })

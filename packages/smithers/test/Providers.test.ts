@@ -10,8 +10,6 @@ import { delimiter, join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import * as Providers from "../src/Providers.ts"
 
-const session = JSON.stringify({ tokens: { access_token: "a", refresh_token: "r", account_id: "acct" } })
-
 const host = (
   environment: Readonly<Record<string, string | undefined>>,
   files: Readonly<Record<string, string>> = {}
@@ -35,7 +33,7 @@ describe("Providers.detect", () => {
     ])
     expect(detections.every((detection) => !detection.available)).toBe(true)
     expect(detections.map((detection) => detection.seat)).toEqual([
-      "openai:gpt-6-sol",
+      "codex:sol",
       "moonshot:kimi-k3",
       "openai:gpt-6-sol",
       "gemini:gemini-2.5-pro",
@@ -45,46 +43,32 @@ describe("Providers.detect", () => {
     expect(detections.some((detection) => detection.seat.startsWith("anthropic"))).toBe(false)
   })
 
-  it("does not use a Codex login unless SMITHERS_OPENAI_AUTH=chatgpt", () => {
-    const [codex] = Providers.detect(host({}, { "/home/op/.codex/auth.json": session }))
+  it.each([undefined, "", "api-key", "oauth"])("requires explicit Codex opt-in for %j", (mode) => {
+    const readFile = vi.fn(() => {
+      throw new Error("credential files must not be read")
+    })
+    const [codex] = Providers.detect({ ...host({ SMITHERS_OPENAI_AUTH: mode }), readFile })
 
     expect(codex!.available).toBe(false)
-    expect(codex!.reason).toContain("SMITHERS_OPENAI_AUTH=chatgpt")
+    expect(codex!.reason).toBe("set SMITHERS_OPENAI_AUTH=chatgpt to use Codex")
     expect(codex!.environment).toEqual({ SMITHERS_OPENAI_AUTH: "chatgpt" })
+    expect(codex!.setupHint).toContain("codex login")
+    expect(readFile).not.toHaveBeenCalled()
   })
 
-  it("reads $CODEX_HOME/auth.json instead when it is set", () => {
-    const [codex] = Providers.detect(
-      host({ CODEX_HOME: "/elsewhere", SMITHERS_OPENAI_AUTH: "chatgpt" }, { "/elsewhere/auth.json": session })
-    )
-
-    expect(codex!.available).toBe(true)
-    expect(codex!.reason).toBe("/elsewhere/auth.json holds a ChatGPT session")
-  })
-
-  it("does not count an API-key codex login or a broken file as a session", () => {
-    const apiKey = JSON.stringify({ OPENAI_API_KEY: "sk-x" })
-    const [keyed] = Providers.detect(host({}, { "/home/op/.codex/auth.json": apiKey }))
-    const [broken] = Providers.detect(host({}, { "/home/op/.codex/auth.json": "{" }))
-
-    expect(keyed!.available).toBe(false)
-    expect(keyed!.reason).toContain("no ChatGPT token set")
-    expect(broken!.available).toBe(false)
-    expect(broken!.reason).toBe("/home/op/.codex/auth.json is not valid JSON")
-  })
-
-  it("takes SMITHERS_OPENAI_AUTH=chatgpt as the operator's word", () => {
-    const [codex] = Providers.detect(host({ SMITHERS_OPENAI_AUTH: "chatgpt" }))
+  it("takes explicit Codex opt-in without reading vendor credentials", () => {
+    const readFile = vi.fn(() => {
+      throw new Error("credential files must not be read")
+    })
+    const [codex] = Providers.detect({
+      ...host({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: "/elsewhere" }),
+      readFile
+    })
 
     expect(codex!.available).toBe(true)
     expect(codex!.reason).toBe("SMITHERS_OPENAI_AUTH=chatgpt")
-  })
-
-  it("names the missing file and the setup step when there is no session", () => {
-    const [codex] = Providers.detect(host({}))
-
-    expect(codex!.reason).toBe("no /home/op/.codex/auth.json")
-    expect(codex!.setupHint).toContain("codex login")
+    expect(codex!.seat).toBe("codex:sol")
+    expect(readFile).not.toHaveBeenCalled()
   })
 
   it.each(
@@ -125,12 +109,12 @@ describe("Providers.chooseSeat", () => {
 
   it("prefers an explicitly selected Codex session over every key", () => {
     const detections = Providers.detect(
-      host({ MOONSHOT_API_KEY: "m", SMITHERS_OPENAI_AUTH: "chatgpt" }, { "/home/op/.codex/auth.json": session })
+      host({ MOONSHOT_API_KEY: "m", SMITHERS_OPENAI_AUTH: "chatgpt" })
     )
     const chosen = Providers.chooseSeat(detections)
 
     expect(chosen).toMatchObject({
-      seat: "openai:gpt-6-sol",
+      seat: "codex:sol",
       source: "codex-subscription",
       environment: { SMITHERS_OPENAI_AUTH: "chatgpt" }
     })
@@ -138,7 +122,7 @@ describe("Providers.chooseSeat", () => {
 
   it("chooses a key instead of an unconfigured Codex login", () => {
     const chosen = Providers.chooseSeat(Providers.detect(
-      host({ OPENAI_API_KEY: "k" }, { "/home/op/.codex/auth.json": session })
+      host({ OPENAI_API_KEY: "k" })
     ))
 
     expect(chosen).toMatchObject({ source: "openai", environment: {} })
@@ -151,7 +135,7 @@ describe("Providers.chooseSeat", () => {
     expect(chosen).toBeInstanceOf(Providers.NoSeatError)
     const message = (chosen as Providers.NoSeatError).message
     expect(message).toContain("No model seat is available")
-    expect(message).toContain("Codex subscription (openai:gpt-6-sol): no /home/op/.codex/auth.json")
+    expect(message).toContain("Codex subscription (codex:sol): set SMITHERS_OPENAI_AUTH=chatgpt to use Codex")
     expect(message).toContain("Kimi K3 (moonshot:kimi-k3): $MOONSHOT_API_KEY is not set")
     expect(message).toContain("OpenAI (openai:gpt-6-sol): $OPENAI_API_KEY exported but empty")
     expect(message).toContain("Gemini (gemini:gemini-2.5-pro): $GEMINI_API_KEY or $GOOGLE_API_KEY is not set")
@@ -232,7 +216,7 @@ describe("Providers default seats", () => {
     const seats = [...Object.values(Providers.defaultSeat), ...Providers.starterSeats.map(([, seat]) => seat)]
     expect(seats.filter((seat) => /gpt-5\.6/.test(seat))).toEqual([])
     expect(Providers.defaultSeat.openai).toBe("openai:gpt-6-sol")
-    expect(Providers.defaultSeat["codex-subscription"]).toBe("openai:gpt-6-sol")
+    expect(Providers.defaultSeat["codex-subscription"]).toBe("codex:sol")
     expect(Providers.defaultSeat.openrouter).toBe("openrouter:openai/gpt-6-sol")
   })
 })

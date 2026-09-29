@@ -5,15 +5,14 @@
  * kills the whole group when it ends. Every failure is a typed
  * {@link WrappedFailed}, never a guessed answer.
  *
- * Only Claude Code has an adapter: neither `codex exec --help` nor
- * `opencode run --help` names a developer-instructions flag or config key to
- * verify against.
+ * Claude Code and Codex carry the brief through their own developer instructions.
  */
+import { codexConfigString, codexEnvironment } from "@smthrs/cli/Agents"
 import * as Fault from "@smthrs/flow/Fault"
 import { Effect, Schema } from "effect"
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import { readFile } from "node:fs/promises"
-import { type Harness, type Permission, sha256, tools } from "./prompt.ts"
+import { type Harness, maxExtraBytes, type Permission, sha256, tools } from "./prompt.ts"
 
 export class WrappedFailed extends Schema.TaggedError<WrappedFailed>()("wrapped/WrappedFailed", {
   code: Schema.Literals([
@@ -25,13 +24,18 @@ export class WrappedFailed extends Schema.TaggedError<WrappedFailed>()("wrapped/
     "exit_nonzero",
     "bad_envelope",
     "harness_error",
+    "signed_out",
     "session_unknown",
     "session_malformed",
     "permission_changed",
     "extra_changed",
-    "session_record_failed"
+    "session_record_failed",
+    "session_record_after_launch",
+    "harness_changed"
   ]),
-  message: Schema.String
+  message: Schema.String,
+  answer: Schema.optional(Schema.String),
+  vendorSession: Schema.optional(Schema.String)
 }) {}
 Fault.register(
   "wrapped/WrappedFailed",
@@ -39,6 +43,9 @@ Fault.register(
     // The caller named a session this working copy cannot resume as asked.
     session_unknown: "user",
     session_malformed: "user",
+    harness_changed: "user",
+    // A completed irreversible launch must retain its receipt without an automatic replay.
+    session_record_after_launch: "user",
     permission_changed: "user",
     extra_changed: "user",
     // The host's disk or process table failed; a retry may pass.
@@ -51,6 +58,7 @@ Fault.register(
     exit_nonzero: "dependency",
     bad_envelope: "dependency",
     harness_error: "dependency",
+    signed_out: "user",
     // Memory selected a block no argv can carry: memory must filter it, a retry repeats it.
     prompt_unsendable: "bug"
   } satisfies Fault.Rows<WrappedFailed["code"]>
@@ -71,18 +79,19 @@ export interface SessionArgs {
   readonly session: string
   readonly resume: boolean
   readonly permission: Permission
+  readonly vendorSession?: string | undefined
 }
 
 export interface Adapter {
   readonly command: (extra: string, session: SessionArgs) => Command
   /** Parses stdout, refusing an envelope for any session but `session`. */
-  readonly parse: (stdout: string, session: string) => Effect.Effect<Launched, WrappedFailed>
+  readonly parse: (stdout: string, session?: string) => Effect.Effect<Launched, WrappedFailed>
 }
 
 const bad = (message: string) => new WrappedFailed({ code: "bad_envelope", message })
 
 /** Reads `result` and `session_id` from one `claude -p --output-format json` envelope. */
-export const parseClaude = (stdout: string, session: string): Effect.Effect<Launched, WrappedFailed> =>
+export const parseClaude = (stdout: string, session?: string): Effect.Effect<Launched, WrappedFailed> =>
   Effect.try({ try: () => JSON.parse(stdout) as unknown, catch: () => bad(`not JSON: ${stdout.slice(0, 200)}`) }).pipe(
     Effect.flatMap((envelope) => {
       if (typeof envelope !== "object" || envelope === null) return Effect.fail(bad("envelope is not an object"))
@@ -95,6 +104,60 @@ export const parseClaude = (stdout: string, session: string): Effect.Effect<Laun
       return Effect.succeed({ answer: result, session: session_id })
     })
   )
+
+/** Codex names its thread in JSONL; only a completed turn makes it resumable. */
+export const parseCodex = (stdout: string, expectedSession?: string): Effect.Effect<Launched, WrappedFailed> =>
+  Effect.try({
+    try: () => {
+      let session: string | undefined
+      let answer: string | undefined
+      let completed = false
+      for (const line of stdout.split("\n").filter((line) => line.trim() !== "")) {
+        let event: Record<string, unknown>
+        try {
+          const value: unknown = JSON.parse(line)
+          if (value === null || typeof value !== "object" || Array.isArray(value)) throw bad("event is not an object")
+          event = value as Record<string, unknown>
+        } catch {
+          throw bad("Codex returned invalid JSONL")
+        }
+        if (completed) throw bad("Codex emitted events after completion")
+        if (event.type === "error" || event.type === "turn.failed") {
+          const error = event.error as { message?: unknown } | undefined
+          throw new WrappedFailed({
+            code: "harness_error",
+            message: typeof error?.message === "string"
+              ? error.message
+              : typeof event.message === "string"
+              ? event.message
+              : "Codex failed"
+          })
+        }
+        if (event.type === "thread.started") {
+          if (session !== undefined || typeof event.thread_id !== "string" || event.thread_id === "") {
+            throw bad("Codex returned an invalid thread")
+          }
+          session = event.thread_id
+        }
+        if (event.type === "item.completed") {
+          const item = event.item as Record<string, unknown> | undefined
+          if (item?.type === "agent_message") {
+            if (typeof item.text !== "string") throw bad("Codex returned an invalid answer")
+            answer = item.text
+          }
+        }
+        if (event.type === "turn.completed") completed = true
+      }
+      if (!completed || session === undefined || answer === undefined) {
+        throw bad("Codex exited without a completed answer")
+      }
+      if (expectedSession !== undefined && session !== expectedSession) {
+        throw bad(`envelope is for session ${session}, not ${expectedSession}`)
+      }
+      return { answer, session }
+    },
+    catch: (error) => error instanceof WrappedFailed ? error : bad("Codex returned an invalid envelope")
+  })
 
 /** The `--mcp-config` a launch passes with `--strict-mcp-config`: zero servers. */
 export const noMcpServers = JSON.stringify({ mcpServers: {} })
@@ -123,25 +186,43 @@ export const adapters: Record<Harness, Adapter> = {
       ]
     }),
     parse: parseClaude
+  },
+  codex: {
+    command: (extra, { permission, resume, vendorSession }) => ({
+      executable: "codex",
+      args: [
+        "exec",
+        ...(resume ? ["resume", vendorSession!] : []),
+        "--json",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--skip-git-repo-check",
+        "-c",
+        `developer_instructions=${codexConfigString(extra)}`,
+        "-c",
+        "features.shell_tool=false",
+        "-c",
+        "web_search=\"disabled\"",
+        "-c",
+        `sandbox_mode=${JSON.stringify(permission === "plan" ? "read-only" : "workspace-write")}`,
+        "-c",
+        "approval_policy=\"never\"",
+        "-"
+      ]
+    }),
+    parse: parseCodex
   }
 }
 
-/**
- * Variables a harness never inherits: the host's Jev key, Node injection
- * hooks, and the build cache's credentials, as LlmLint's `spawnEnvironment`
- * withholds them.
- */
+/** Cache credentials withheld in addition to the shared vendor credential policy. */
 export const withheld: ReadonlyArray<string> = [
-  "AI_GATEWAY_API_KEY",
-  "NODE_OPTIONS",
-  "NODE_PATH",
   "SMITHERS_CACHE_URL",
   "SMITHERS_CACHE_TOKEN"
 ]
 
-/** `base` without {@link withheld}. */
+/** Applies the shared credential policy and wrapped cache exclusions. */
 export const childEnvironment = (base: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
-  const env: NodeJS.ProcessEnv = { ...base }
+  const env: NodeJS.ProcessEnv = codexEnvironment(base)
   for (const name of withheld) delete env[name]
   return env
 }
@@ -155,6 +236,7 @@ export interface RunOptions {
   readonly timeoutMs: number
   readonly maxBytes: number
   readonly env?: NodeJS.ProcessEnv | undefined
+  readonly includeStderr?: boolean | undefined
 }
 
 /**
@@ -209,8 +291,13 @@ export const run = (command: Command, options: RunOptions): Effect.Effect<string
     const finish = (code: number | null, signal: NodeJS.Signals | null) =>
       settle(() =>
         code === 0
-          ? resume(Effect.succeed(Buffer.concat(stdout).toString("utf8")))
-          : fail("exit_nonzero", `${command.executable} exited ${code ?? signal}: ${stderr.trim()}`)
+          ? resume(Effect.succeed(Buffer.concat(stdout).toString("utf8") + (options.includeStderr ? stderr : "")))
+          : fail(
+            "exit_nonzero",
+            `${command.executable} exited ${code ?? signal}: ${
+              (stderr + (options.includeStderr ? Buffer.concat(stdout).toString("utf8") : "")).trim()
+            }`
+          )
       )
     const timer = setTimeout(
       () => settle(() => fail("timeout", `${command.executable} exceeded ${options.timeoutMs} ms`)),
@@ -268,6 +355,9 @@ export interface LaunchOptions {
 /** Reads the extra prompt back, refuses it if its digest moved, and returns the command. */
 export const commandFor = (input: LaunchInput): Effect.Effect<Command, WrappedFailed> =>
   Effect.gen(function*() {
+    if (input.harness === "codex" && input.resume && input.vendorSession === undefined) {
+      return yield* new WrappedFailed({ code: "session_unknown", message: "No completed Codex session was recorded" })
+    }
     const extra = yield* Effect.tryPromise({
       try: () => readFile(input.extra.path, "utf8"),
       catch: (cause) => new WrappedFailed({ code: "prompt_failed", message: String(cause) })
@@ -278,13 +368,57 @@ export const commandFor = (input: LaunchInput): Effect.Effect<Command, WrappedFa
         message: `${input.extra.path} changed after it was written`
       })
     }
-    return adapters[input.harness].command(extra, input)
+    if (input.harness === "claude-code" && input.vendorSession !== undefined) {
+      return yield* new WrappedFailed({
+        code: "harness_changed",
+        message: "A Codex session cannot resume with Claude Code"
+      })
+    }
+    const command = yield* Effect.try({
+      try: () => adapters[input.harness].command(extra, input),
+      catch: () =>
+        new WrappedFailed({ code: "prompt_unsendable", message: "the extra prompt contains malformed Unicode" })
+    })
+    if (
+      input.harness === "codex" &&
+      command.args.some((arg) =>
+        arg.startsWith("developer_instructions=") && Buffer.byteLength(arg, "utf8") > maxExtraBytes
+      )
+    ) {
+      return yield* new WrappedFailed({
+        code: "prompt_unsendable",
+        message: `the encoded developer instructions exceed the ${maxExtraBytes}-byte argv bound`
+      })
+    }
+    return command
   })
 
 export const launch = (input: LaunchInput, options: LaunchOptions = {}): Effect.Effect<Launched, WrappedFailed> =>
   Effect.gen(function*() {
     const command = yield* commandFor(input)
     options.observe?.(command)
+    if (input.harness === "codex") {
+      const status = yield* run({ executable: command.executable, args: ["login", "status"] }, {
+        cwd: input.cwd,
+        stdin: "",
+        timeoutMs: 15_000,
+        maxBytes: 16 * 1024,
+        env: options.env,
+        includeStderr: true
+      }).pipe(
+        Effect.mapError((error) =>
+          error.code === "exit_nonzero" && / exited 1:.*not logged in/is.test(error.message) ?
+            new WrappedFailed({ code: "signed_out", message: "Run `codex login --device-auth` on the workspace" }) :
+            error
+        )
+      )
+      if (!/Logged in using ChatGPT/i.test(status)) {
+        return yield* new WrappedFailed({
+          code: "signed_out",
+          message: "Run `codex login --device-auth` on the workspace"
+        })
+      }
+    }
     const stdout = yield* run(command, {
       cwd: input.cwd,
       stdin: input.task,
@@ -293,5 +427,8 @@ export const launch = (input: LaunchInput, options: LaunchOptions = {}): Effect.
       env: options.env
     })
     options.observeOutput?.(stdout)
-    return yield* adapters[input.harness].parse(stdout, input.session)
+    return yield* adapters[input.harness].parse(
+      stdout,
+      input.harness === "codex" ? (input.resume ? input.vendorSession : undefined) : input.session
+    )
   })

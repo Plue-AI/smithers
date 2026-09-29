@@ -5,9 +5,7 @@
 
 import * as prompts from "@clack/prompts"
 import { randomBytes, timingSafeEqual } from "node:crypto"
-import { readFile } from "node:fs/promises"
 import { createServer, type IncomingMessage } from "node:http"
-import { join } from "node:path"
 import { Refused, UsageError } from "../../CliError.ts"
 import * as Failure from "../Failure.ts"
 import { APIError, type Client, object, str, type Values, withCause } from "./Client.ts"
@@ -144,14 +142,7 @@ const anthropicKey = (value: string) => {
   if (!key) throw new UsageError({ message: "Expected an Anthropic API key (sk-ant-api...)" })
   return key
 }
-const claims = (token: unknown): Values => {
-  try {
-    return object(JSON.parse(Buffer.from(str(token).split(".")[1]!, "base64url").toString()))
-  } catch {
-    return {}
-  }
-}
-const providerLogin = async (c: Client, provider: string, directory: string): Promise<Values> => {
+const providerLogin = (provider: string): Values => {
   if (provider === "claude") {
     throw new UsageError({
       message:
@@ -159,30 +150,11 @@ const providerLogin = async (c: Client, provider: string, directory: string): Pr
     })
   }
   if (provider !== "codex") throw new UsageError({ message: "Provider must be claude or codex" })
-  const dir = directory || c.env.CODEX_HOME || join(c.home, ".codex")
-  let saved: Values
-  try {
-    saved = object(JSON.parse(await readFile(join(dir, "auth.json"), "utf8")))
-  } catch (error) {
-    throw withCause(refused("user", "not_signed_in", "No Codex login found. Run codex login"), error)
-  }
-  const tokens = object(saved.tokens)
-  if (!tokens.access_token || !tokens.refresh_token) {
-    throw refused("user", "not_signed_in", "Codex login is not a ChatGPT subscription login")
-  }
-  const id = claims(tokens.id_token),
-    auth = object(id["https://api.openai.com/auth"]),
-    access = claims(tokens.access_token)
-  return {
-    provider,
-    kind: "oauth",
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
-    account_id: tokens.account_id || auth.chatgpt_account_id,
-    account_email: id.email,
-    plan: auth.chatgpt_plan_type,
-    ...(Number(access.exp) > 0 ? { access_expires_at: new Date(Number(access.exp) * 1000).toISOString() } : {})
-  }
+  throw refused(
+    "user",
+    "not_signed_in",
+    "Run `codex login --device-auth` on the workspace; Codex subscriptions are never sent to a workspace"
+  )
 }
 /**
  * @private
@@ -318,7 +290,7 @@ auth["auth connect"] = async (c, a, o) => {
   if (provider === "claude") await forgetClaudeToken(c)
   const payload = provider === "claude" && o["api-key"]
     ? { provider, kind: "api_key", access_token: anthropicKey(await c.stdin("Anthropic API key")) }
-    : await providerLogin(c, provider, str(o["config-dir"]))
+    : providerLogin(provider)
   return c.request("POST", "/api/user/provider-connections", { ...payload, label: str(o.label) })
 }
 auth["auth connections"] = (c, _a, o) =>

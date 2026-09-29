@@ -60,7 +60,7 @@
     "./ClaudeMirror": "./src/ClaudeMirror.ts",
     "./Cli": "./src/Cli.ts",
     "./CliError": "./src/CliError.ts",
-    "./CodexAuth": "./src/CodexAuth.ts",
+    "./CodexAuth": null,
     "./Command": "./src/Command.ts",
     "./Detached": "./src/Detached.ts",
     "./Doctor": "./src/Doctor.ts",
@@ -222,16 +222,7 @@
           "default": "./dist/cjs/CliError.js"
         }
       },
-      "./CodexAuth": {
-        "import": {
-          "types": "./dist/esm/CodexAuth.d.ts",
-          "default": "./dist/esm/CodexAuth.js"
-        },
-        "require": {
-          "types": "./dist/cjs/CodexAuth.d.ts",
-          "default": "./dist/cjs/CodexAuth.js"
-        }
-      },
+      "./CodexAuth": null,
       "./Command": {
         "import": {
           "types": "./dist/esm/Command.d.ts",
