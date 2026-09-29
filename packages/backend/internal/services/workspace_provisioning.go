@@ -27,6 +27,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services/workspace_scripts"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // bootstrapVars holds the dynamic values injected into the bootstrap shell template.
@@ -1045,6 +1046,13 @@ func (s *WorkspaceService) findOrCreatePrimaryWorkspace(ctx context.Context, rep
 		if err := s.refuseRebuildRequired(workspace); err != nil {
 			return db.Workspace{}, err
 		}
+		retired, inspectErr := s.retireMissingPrimaryWorkspace(ctx, workspace)
+		if inspectErr != nil {
+			return db.Workspace{}, inspectErr
+		}
+		if retired {
+			return s.createPrimaryWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata)
+		}
 		workspace, err = s.ensureWorkspaceTargetBookmark(ctx, workspace, targetBookmark)
 		if err != nil {
 			return db.Workspace{}, err
@@ -1055,6 +1063,55 @@ func (s *WorkspaceService) findOrCreatePrimaryWorkspace(ctx context.Context, rep
 		return db.Workspace{}, pkgerrors.Internal("load workspace: " + err.Error())
 	}
 	return s.createPrimaryWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata)
+}
+
+// retireMissingPrimaryWorkspace frees the primary slot only on confirmed
+// runtime loss. A failed row retains its VM, snapshot, and volume references
+// for recovery. Lease loss alone is transient; an adapter must also report
+// ErrWorkspaceNotFound when the worker is permanently retired.
+func (s *WorkspaceService) retireMissingPrimaryWorkspace(ctx context.Context, row db.Workspace) (bool, error) {
+	if row.Status != "running" && row.Status != "suspended" {
+		return false, nil
+	}
+	var inspectErr error
+	if s.runtime != nil {
+		operationCtx, err := s.workspaceRuntimeContext(ctx, row, row.UserID, workspaceLifecycleOperation(row, "inspect-primary"))
+		if err != nil {
+			return false, err
+		}
+		observed, err := s.runtime.InspectWorkspace(operationCtx, row.ID)
+		inspectErr = err
+		if err == nil {
+			if err := validateRuntimeWorkspace(row.ID, observed); err != nil {
+				return false, pkgerrors.Internal(err.Error())
+			}
+		}
+	} else if s.sandbox != nil && strings.TrimSpace(row.VmID) != "" {
+		_, inspectErr = s.sandbox.InspectSandbox(ctx, row.VmID)
+	}
+	if inspectErr == nil {
+		return false, nil
+	}
+	if !errors.Is(inspectErr, workspaceapi.ErrWorkspaceNotFound) && !vmAlreadyGone(inspectErr) &&
+		workspaceFailureDetailsFor(inspectErr).Code != pkgerrors.CodeWorkspaceVMMissing {
+		return false, runtimeOperationError("inspect primary workspace runtime", inspectErr)
+	}
+	failure := lostWorkerError(inspectErr)
+	if failure == nil {
+		failure = pkgerrors.New(pkgerrors.CodeWorkspaceVMMissing, "workspace runtime no longer exists; create a fresh workspace")
+	}
+	retained, err := s.failWorkspace(ctx, row, failure)
+	if err != nil {
+		return false, err
+	}
+	if retained.Status != "failed" {
+		return false, pkgerrors.Conflict("workspace changed while checking its runtime; retry")
+	}
+	if s.runtime == nil && row.Status == "running" && s.sandboxMetrics != nil {
+		// Only the winner of the failure CAS releases the old VM's gauge slot.
+		s.sandboxMetrics.AddSandboxActiveVMs("workspace", -1)
+	}
+	return true, nil
 }
 
 func (s *WorkspaceService) findOrCreateDerivedWorkspaceForBookmark(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata) (db.Workspace, error) {

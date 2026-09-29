@@ -732,6 +732,8 @@ type GetActiveWorkspaceForUserRepoParams struct {
 }
 
 // Returns an active primary workspace candidate for flows such as forking.
+// Permanently missing runtimes are retained as failed rows for recovery and
+// excluded here. The service must inspect candidates before reusing them.
 func (q *Queries) GetActiveWorkspaceForUserRepo(ctx context.Context, arg GetActiveWorkspaceForUserRepoParams) (Workspace, error) {
 	row := q.db.QueryRow(ctx, getActiveWorkspaceForUserRepo, arg.RepositoryID, arg.UserID)
 	var i Workspace
@@ -801,6 +803,8 @@ type GetActiveWorkspaceForUserRepoKindParams struct {
 
 // Returns the active workspace that can be reused for a create request. Each
 // workspace kind is a distinct computer, even on the same repository/bookmark.
+// Running/suspended rows still require a runtime liveness check in the service;
+// permanently missing runtimes are retained as failed rows, never deleted.
 func (q *Queries) GetActiveWorkspaceForUserRepoKind(ctx context.Context, arg GetActiveWorkspaceForUserRepoKindParams) (Workspace, error) {
 	row := q.db.QueryRow(ctx, getActiveWorkspaceForUserRepoKind, arg.RepositoryID, arg.UserID, arg.Kind)
 	var i Workspace

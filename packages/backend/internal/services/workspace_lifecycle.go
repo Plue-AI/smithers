@@ -528,12 +528,8 @@ func (s *WorkspaceService) ensureWorkspaceRunningOwned(ctx context.Context, work
 	vm, err := s.sandbox.InspectSandbox(ctx, workspace.VmID)
 	if err != nil {
 		if vmAlreadyGone(err) {
-			// VM reclaimed out-of-band — reprovision from scratch (this path has
-			// the CreateWorkspaceSessionInput) instead of 500ing forever. Must go
-			// through reprovisionWorkspaceVM, not bare createWorkspaceVM: the row
-			// still holds the dead vm_id, which RegisterWorkspaceVM's claim guard
-			// reads as "already claimed" — the replacement VM would be reaped as
-			// an orphan and the dead row returned as a bogus success.
+			// Primary references stay intact for recovery, including when the VM
+			// disappears after create's liveness probe. Derived rows can rebuild.
 			return s.reprovisionWorkspaceVM(ctx, workspace, input, err)
 		}
 		return workspace, workspaceProvisioningError("get sandbox", err)
@@ -566,9 +562,8 @@ func (s *WorkspaceService) ensureWorkspaceRunningOwned(ctx context.Context, work
 		}
 		// The controller has forgotten this sandbox (404). Inspect said it was
 		// there a moment ago, so the VM died between the two calls — a worker
-		// rollout mid-deploy does exactly this. Retrying a resource that no
-		// longer exists can only keep 404ing, so reprovision, which is also the
-		// only path that clears the dead vm_id off the row.
+		// rollout mid-deploy does exactly this. Preserve primary references;
+		// only derived workspaces can rebuild in place.
 		if vmAlreadyGone(err) && canProvisionWorkspace(input) {
 			return s.reprovisionWorkspaceVM(ctx, workspace, input, err)
 		}
@@ -715,6 +710,11 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 }
 
 func (s *WorkspaceService) reprovisionWorkspaceVM(ctx context.Context, workspace db.Workspace, input CreateWorkspaceSessionInput, cause error) (db.Workspace, error) {
+	if !workspace.IsFork {
+		// Session/SSH opens must not silently replace the primary's recovery
+		// identity. Create retires the old row and allocates a distinct primary.
+		return workspace, pkgerrors.New(pkgerrors.CodeWorkspaceVMMissing, "workspace VM no longer exists; run `smithers workspace create` to provision a fresh workspace")
+	}
 	// If the row still holds the gauge's +1 (DB said running while the VM was
 	// actually down), release it via the running->suspended CAS so the -1 pairs
 	// exactly once with the +1 the replacement VM will record.

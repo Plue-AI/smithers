@@ -28,7 +28,10 @@ type Terminal interface {
 }
 
 // ErrWorkspaceNotFound is returned when an execution adapter has no durable
-// workspace with the requested product-owned identifier.
+// workspace with the requested product-owned identifier, or confirms its
+// runtime is permanently gone. On inspection, join it with a typed host_lease_lost
+// error when the assigned worker is retired; lease expiry alone must not carry it.
+// Product code may retain the old row for recovery and allocate a fresh workspace.
 var ErrWorkspaceNotFound = errors.New("workspace not found")
 
 // ErrWorkspaceStopped is returned when an operation needs a running workspace.

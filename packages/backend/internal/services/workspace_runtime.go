@@ -364,7 +364,7 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 	}
 	observed, err := snapshots.ForkColdSnapshot(operationCtx, snapshot.SnapshotID, workspaceapi.WorkspaceSpec{ID: row.ID})
 	if err != nil {
-		return row, pkgerrors.Internal("restore workspace snapshot: " + err.Error())
+		return row, runtimeOperationError("restore workspace snapshot", err)
 	}
 	cleanupRestored := true
 	defer func() {
@@ -470,7 +470,7 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 	_, resumeErr := s.ensureRuntimeWorkspaceRunningLocked(resumeCtx, source, input.UserID)
 	cancelResume()
 	if snapshotErr != nil {
-		err = pkgerrors.Internal("snapshot workspace for fork: " + snapshotErr.Error())
+		err = runtimeOperationError("snapshot workspace for fork", snapshotErr)
 		if resumeErr != nil {
 			err = errors.Join(err, resumeErr)
 		}
@@ -510,7 +510,7 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 	}
 	observed, err := snapshots.ForkColdSnapshot(forkCtx, temporarySnapshotID, workspaceapi.WorkspaceSpec{ID: created.ID})
 	if err != nil {
-		err = pkgerrors.Internal("fork workspace runtime: " + err.Error())
+		err = runtimeOperationError("fork workspace runtime", err)
 		s.markWorkspaceProvisionFailed(ctx, created, err)
 		return WorkspaceResponse{}, err
 	}
@@ -608,7 +608,7 @@ func (s *WorkspaceService) createRuntimeWorkspaceSnapshot(ctx context.Context, i
 	resumed, resumeErr := s.ensureRuntimeWorkspaceRunningLocked(resumeCtx, suspended, input.UserID)
 	cancelResume()
 	if snapshotErr != nil {
-		resultErr := error(pkgerrors.Internal("create workspace snapshot: " + snapshotErr.Error()))
+		resultErr := runtimeOperationError("create workspace snapshot", snapshotErr)
 		if resumeErr != nil {
 			resultErr = errors.Join(resultErr, resumeErr)
 		}
@@ -667,7 +667,7 @@ func (s *WorkspaceService) deleteRuntimeWorkspaceSnapshot(ctx context.Context, s
 		return err
 	}
 	if err := snapshots.DeleteColdSnapshot(operationCtx, snapshot.SnapshotID); err != nil && !errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
-		return pkgerrors.Internal("delete workspace snapshot: " + err.Error())
+		return runtimeOperationError("delete workspace snapshot", err)
 	}
 	return nil
 }
@@ -911,7 +911,7 @@ func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID 
 	}
 	if err := terminal.Resize(ctx, columns, rows); err != nil {
 		_ = terminal.Close()
-		return nil, pkgerrors.Internal("resize workspace terminal").WithCause(err)
+		return nil, runtimeOperationError("resize workspace terminal", err)
 	}
 	return terminal, nil
 }

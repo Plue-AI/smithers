@@ -181,8 +181,8 @@ func TestDestroySession_DoesNotSuspendWhenSessionAppearsConcurrently(t *testing.
 // (vm_id=” AND status IN pending/starting/failed) over the mock, mirroring prod
 // *db.Queries. Issue #240: reprovision left the row failed with the stale
 // vm_id, so this guard never matched and the replacement VM was reaped.
-// 'failed' is claimable: find-or-create reuses failed rows, and a raced
-// provisioner can fail the row after our VM boots — the healthy VM must win.
+// 'failed' remains claimable for a derived row: a raced provisioner can fail
+// the row after its replacement VM boots, and the healthy VM must win.
 type registrarWorkspaceQuerier struct {
 	*mockWorkspaceQuerier
 	state db.Workspace
@@ -197,11 +197,12 @@ func (r *registrarWorkspaceQuerier) RegisterWorkspaceVM(ctx context.Context, arg
 	return r.state, nil
 }
 
-func TestReprovisionWorkspaceVM_RegistersReplacementVM(t *testing.T) {
+func TestReprovisionDerivedWorkspaceVM_RegistersReplacementVM(t *testing.T) {
 	t.Parallel()
 
 	reg := &registrarWorkspaceQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{}}
 	reg.state = sampleDBWorkspace("ws-240")
+	reg.state.IsFork = true
 	reg.state.Status = "suspended"
 	reg.state.VmID = "vm-old"
 	reg.mockWorkspaceQuerier.getWorkspaceFn = func(ctx context.Context, id string) (db.Workspace, error) {
@@ -331,17 +332,14 @@ func TestCreateWorkspaceSnapshot_RejectsInvalidNameBeforeSnapshotVM(t *testing.T
 	assert.Empty(t, snapshotCalls, "external snapshot must not be created for an invalid name")
 }
 
-// The 2026-07-15 prod brick: a provisioning failure leaves the row
-// status='failed' with vm_id=”, find-or-create then reuses that row on every
-// subsequent open, and the old claim guard (pending/starting only) could never
-// match it — the fresh VM was reaped as an orphan and the open died with
-// "store sandbox vm info: no rows in result set" forever. A failed unclaimed
-// row must be claimable by the healthy replacement VM.
-func TestEnsureWorkspaceRunning_ClaimsFailedRowWithFreshVM(t *testing.T) {
+// A derived row failed without a VM remains claimable by a fresh VM. The old
+// pending/starting-only guard reaped that VM as an orphan and stranded the row.
+func TestEnsureDerivedWorkspaceRunning_ClaimsFailedRowWithFreshVM(t *testing.T) {
 	t.Parallel()
 
 	reg := &registrarWorkspaceQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{}}
 	reg.state = sampleDBWorkspace("ws-failed-reuse")
+	reg.state.IsFork = true
 	reg.state.Status = "failed"
 	reg.state.VmID = ""
 	reg.mockWorkspaceQuerier.getWorkspaceFn = func(ctx context.Context, id string) (db.Workspace, error) {
@@ -375,16 +373,17 @@ func TestEnsureWorkspaceRunning_ClaimsFailedRowWithFreshVM(t *testing.T) {
 	assert.NotContains(t, deletedVMs, "vm-replacement", "healthy replacement VM must not be reaped as an orphan")
 }
 
-// Same incident, sibling path: the workspace still points at a VM Microsandbox
+// Same incident, sibling path: a derived workspace still points at a VM Microsandbox
 // deleted out-of-band (InspectSandbox 404). The old code jumped straight to
 // createWorkspaceVM without resetting the row, so the claim guard saw the
 // stale vm_id as "already claimed", reaped the replacement VM, and returned
 // the dead row as a bogus success. The gone path must reset the row first.
-func TestEnsureWorkspaceRunning_VMGoneResetsStaleRowAndRegistersReplacement(t *testing.T) {
+func TestEnsureDerivedWorkspaceRunning_VMGoneResetsStaleRowAndRegistersReplacement(t *testing.T) {
 	t.Parallel()
 
 	reg := &registrarWorkspaceQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{}}
 	reg.state = sampleDBWorkspace("ws-vm-gone")
+	reg.state.IsFork = true
 	reg.state.Status = "suspended"
 	reg.state.VmID = "vm-dead"
 	reg.mockWorkspaceQuerier.getWorkspaceFn = func(ctx context.Context, id string) (db.Workspace, error) {

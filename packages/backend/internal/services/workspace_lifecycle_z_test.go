@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -132,13 +133,22 @@ func TestWorkspaceLifecycle_Z_EnsureRunningAndResumeBranches(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
-	created, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	mutatedPrimary := false
+	retained, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{
+		updateWorkspaceExecutionInfoFn: func(context.Context, db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
+			mutatedPrimary = true
+			return db.Workspace{}, nil
+		},
+	}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
 			return sandbox.Sandbox{}, &sandbox.StatusError{StatusCode: 404, Message: "gone"}
 		},
 	})).ensureWorkspaceRunning(ctx, ws, CreateWorkspaceSessionInput{})
-	require.NoError(t, err)
-	assert.Equal(t, "running", created.Status)
+	require.Error(t, err)
+	assert.Equal(t, 409, apiStatus(t, err))
+	assert.Equal(t, pkgerrors.CodeWorkspaceVMMissing, apiErrorOf(t, err).Code)
+	assert.Equal(t, ws.VmID, retained.VmID)
+	assert.False(t, mutatedPrimary)
 
 	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
@@ -181,9 +191,12 @@ func TestWorkspaceLifecycle_Z_EnsureRunningAndResumeBranches(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
-	// reprovision resets the row (vm_id='', status='starting') via
-	// UpdateWorkspaceExecutionInfo so RegisterWorkspaceVM can bind the
-	// replacement VM (issue #240); a reset failure surfaces as 500.
+	// A derived workspace reprovision resets the row (vm_id='',
+	// status='starting') via UpdateWorkspaceExecutionInfo so
+	// RegisterWorkspaceVM can bind the replacement VM; a reset failure
+	// surfaces as 500.
+	derived := ws
+	derived.IsFork = true
 	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		suspendRunningWorkspaceFn: func(context.Context, string) (db.Workspace, error) {
 			return db.Workspace{}, pgx.ErrNoRows
@@ -191,7 +204,7 @@ func TestWorkspaceLifecycle_Z_EnsureRunningAndResumeBranches(t *testing.T) {
 		updateWorkspaceExecutionInfoFn: func(context.Context, db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
 			return db.Workspace{}, errors.New("reset failed")
 		},
-	}).reprovisionWorkspaceVM(ctx, ws, CreateWorkspaceSessionInput{}, errors.New("cause"))
+	}).reprovisionWorkspaceVM(ctx, derived, CreateWorkspaceSessionInput{}, errors.New("cause"))
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
