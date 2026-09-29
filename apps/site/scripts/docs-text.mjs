@@ -1,3 +1,15 @@
+/** Apply a prose rewrite without changing fenced or inline Markdown code. */
+export function mapMarkdownProse(source, rewrite) {
+  const code = /(^[ \t]*```[^\n]*\n[\s\S]*?^[ \t]*```[ \t]*$)|(`+)(?!`)[^\n]*?\2(?!`)/gm
+  let result = ""
+  let offset = 0
+  for (const match of source.matchAll(code)) {
+    result += rewrite(source.slice(offset, match.index)) + match[0]
+    offset = match.index + match[0].length
+  }
+  return result + rewrite(source.slice(offset))
+}
+
 /** Convert the site's supported MDX components to portable Markdown. */
 export function docsText(source, { raw = {}, versions = {} } = {}) {
   const body = source.replace(/^---\n[\s\S]*?\n---\n/, "")
@@ -5,8 +17,7 @@ export function docsText(source, { raw = {}, versions = {} } = {}) {
   return body.split(/(^[ \t]*```[^\n]*\n[\s\S]*?^[ \t]*```[ \t]*$)/gm).map((part, index) => {
     if (index % 2 === 1) return part
     const attr = (tag, name) => tag.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1] ?? ""
-    return part
-      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    return mapMarkdownProse(part, (prose) => prose.replace(/\{\/\*[\s\S]*?\*\/\}/g, ""))
       .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];?\s*$/gm, "")
       .replace(/<DocsDiagram\b[\s\S]*?\/>/g, (tag) => `**${attr(tag, "title")}**\n\n${attr(tag, "caption")}`)
       .replace(/<AppScreenshot\b[\s\S]*?\/>/g, (tag) => `![${attr(tag, "alt")}](${attr(tag, "src")})\n\n${attr(tag, "caption")}`)

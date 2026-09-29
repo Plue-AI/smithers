@@ -17,6 +17,7 @@ import { join, relative, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { sites } from "../../docs/shared/manifest.mjs"
 import { outputRelFor, routeFor } from "../../docs/shared/sync-content.mjs"
+import { mapMarkdownProse } from "./docs-text.mjs"
 
 /**
  * npm name to docs-site slug, read from the docs fleet's manifest rather than
@@ -175,7 +176,7 @@ function transform(pkg) {
   ])].filter((name) => apiPackageNames.has(name)).sort()
   const relatedLinks = relatedPackages.length === 0 ? "" : `\n\n> **Related APIs:** ${relatedPackages.map((name) => `[\`${name}\`](/docs/reference/api/${name.replace("@smthrs/", "")}/)`).join(" · ")}`
   // MDX has no HTML comments; the colocated READMEs mark generated regions with them.
-  const mdxBody = rewritten.trim().replace(/<!--([\s\S]*?)-->/g, "{/*$1*/}")
+  const mdxBody = mapMarkdownProse(rewritten.trim(), (prose) => prose.replace(/<!--([\s\S]*?)-->/g, "{/*$1*/}"))
   const page = `---
 title: ${yamlQuote(pkg.name)}
 description: ${yamlQuote(pkg.description)}
