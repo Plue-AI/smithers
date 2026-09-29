@@ -131,7 +131,9 @@ func TestBrowserFlowTargetIsTheBoxCodingHost(t *testing.T) {
 	require.Error(t, err)
 }
 
-// #2206: a running box built with a subscription token is not entered.
+// #2206: a running box built with a subscription token is not entered, even
+// on a deployment that allows ChatGPT tokens: it marks a box only for a
+// Claude one (#2777).
 func TestBrowserFlowRefusesRebuildRequiredBox(t *testing.T) {
 	body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"List","payload":{}}`
 	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running", RebuildRequiredAt: pgtype.Timestamptz{Valid: true}}}
@@ -139,11 +141,6 @@ func TestBrowserFlowRefusesRebuildRequiredBox(t *testing.T) {
 	writer, ok, _ := browserFlowCall(api, body, false)
 	require.False(t, ok)
 	require.Equal(t, 409, writer.Code)
-
-	// A deployment that allows subscription tokens enters it.
-	api.subscriptionTokens = true
-	_, ok, _ = browserFlowCall(api, body, false)
-	require.True(t, ok)
 }
 
 type startingDispatcher struct {

@@ -28,6 +28,10 @@ func TestHolds(t *testing.T) {
 		{"CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-abcdef", true},
 		{"ANYTHING", "  sk-ant-oat01-abcdef\n", true},
 		{"CLAUDE_REFRESH", "sk-ant-ort01-abcdef", true},
+		{"CLAUDE_SESSION", "sk-ant-sid01-abcdef", true},
+		{"", "curl -H 'Cookie: sessionKey=sk-ant-sid02-abc_DEF' https://claude.ai", true},
+		{"SIDECAR", "image: flask-ant-sidecar", false},
+		{"TASK", "desk-ant-oat-milk", false},
 		{"CLAUDE_CODE_OAUTH_TOKEN", "whatever", true},
 		{"OPENAI_CODEX_ACCESS_TOKEN", "whatever", true},
 		{"CODEX_TOKEN", chatgpt, true},
@@ -85,4 +89,25 @@ func TestRedact(t *testing.T) {
 		assert.Equal(t, tc.want, got)
 		assert.False(t, Holds("", got), got)
 	}
+}
+
+// #2777: the stored-token scan removes a Claude token from a setup script in
+// place and leaves a ChatGPT one, which only a flag-off deployment refuses.
+func TestRemoveClaude(t *testing.T) {
+	t.Parallel()
+	chatgpt := chatGPTAccessTokenForTest(t)
+	for _, tc := range []struct{ script, want string }{
+		{"export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-abc\nnpm ci", "export CLAUDE_CODE_OAUTH_TOKEN=[removed:#2777]\nnpm ci"},
+		{"export ANTHROPIC_AUTH_TOKEN='sk-ant-oat01-abc' REFRESH=sk-ant-ort01-def", "export ANTHROPIC_AUTH_TOKEN='[removed:#2777]' REFRESH=[removed:#2777]"},
+		{"curl -b sessionKey=sk-ant-sid01-abc https://claude.ai", "curl -b sessionKey=[removed:#2777] https://claude.ai"},
+		{`{"CLAUDE_CODE_OAUTH_TOKEN": "literal"}`, `{"CLAUDE_CODE_OAUTH_TOKEN": "[removed:#2777]"}`},
+		{"export OPENAI_CODEX_ACCESS_TOKEN=" + chatgpt + " CLAUDE_CODE_OAUTH_TOKEN=x", "export OPENAI_CODEX_ACCESS_TOKEN=" + chatgpt + " CLAUDE_CODE_OAUTH_TOKEN=[removed:#2777]"},
+		{"export ANTHROPIC_API_KEY=sk-ant-api03-key\nnpm ci", "export ANTHROPIC_API_KEY=sk-ant-api03-key\nnpm ci"},
+	} {
+		got := RemoveClaude(tc.script)
+		assert.Equal(t, tc.want, got)
+		assert.False(t, HoldsClaude("", got), got)
+		assert.Equal(t, got, RemoveClaude(got), "removal is idempotent")
+	}
+	assert.True(t, Holds("", RemoveClaude("export OPENAI_CODEX_ACCESS_TOKEN="+chatgpt)), "a ChatGPT token is left for the flag to decide")
 }

@@ -181,7 +181,7 @@ describe("box remote execution", () => {
     }
   )
   it.each(["claude", "codex"])("seeds %s credentials over stdin with private guest ownership", async (provider) => {
-    const { c, home } = await fixture({ ANTHROPIC_AUTH_TOKEN: "sk-ant-oat01-subscription" })
+    const { c, home } = await fixture({ ANTHROPIC_API_KEY: "sk-ant-api03-key" })
     await mkdir(join(home, ".codex"))
     await writeFile(
       join(home, ".codex/auth.json"),
@@ -200,6 +200,23 @@ describe("box remote execution", () => {
     expect(stdin).toContain("chmod 600")
     expect(stdin).toContain("chown -R developer:developer")
     expect(JSON.stringify(call.slice(0, 4).slice(1))).not.toContain("subscription")
+  })
+  it("never seeds a Claude subscription token (#2777)", async () => {
+    for (
+      const env of [{ ANTHROPIC_AUTH_TOKEN: "sk-ant-oat01-subscription" }, {
+        ANTHROPIC_API_KEY: "sk-ant-oat01-subscription"
+      }]
+    ) {
+      const { c, home } = await fixture(env)
+      await writeFile(
+        join(home, ".credentials.json"),
+        JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat01-login" } })
+      )
+      await expect(
+        workspaces["workspace exec"]!(c, { id: "box" }, { ...options, command: "true", seedAgentAuth: "claude" })
+      ).rejects.toThrow("ANTHROPIC_API_KEY")
+    }
+    expect(remote).not.toHaveBeenCalled()
   })
   it("refuses an unsupported agent credential kind", async () => {
     const { c } = await fixture()
@@ -230,7 +247,7 @@ describe("box remote execution", () => {
 
 describe("issue to landing", () => {
   const prepare = async () => {
-    const f = await fixture({ ANTHROPIC_AUTH_TOKEN: "sk-ant-oat01-subscription" })
+    const f = await fixture({ ANTHROPIC_API_KEY: "sk-ant-api03-key" })
     f.request.mockImplementation(async (method, path) =>
       path.endsWith("/issues/7")
         ? { title: "Fix $quoting", body: "Details", labels: [{ name: "bug" }] }

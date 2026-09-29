@@ -57,16 +57,15 @@ func TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel(t *testing.
 			http.NotFound(w, r)
 			return
 		}
+		// The pool's one route (#2777: a Claude subscription has none).
 		routes := []string{}
-		for provider, route := range map[string]string{ProviderConnectionProviderCodex: "chatgpt", ProviderConnectionProviderClaude: "anthropic"} {
-			has, err := connections.HasPool(r.Context(), owner.ID, repo.ID, provider)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if has {
-				routes = append(routes, route)
-			}
+		has, err := connections.HasPool(r.Context(), owner.ID, repo.ID, ProviderConnectionProviderCodex)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if has {
+			routes = append(routes, "chatgpt")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"routes": routes})
@@ -87,26 +86,19 @@ func TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel(t *testing.
 		require.Equal(t, server.URL+route, resolved.URL)
 	}
 
-	connect := func(provider string) string {
+	connect := func(label string) string {
 		t.Helper()
-		input := ConnectProviderInput{Provider: provider, Label: provider + "-rotation"}
-		if provider == ProviderConnectionProviderCodex {
-			input.AccessToken, input.RefreshToken, input.AccountID = "codex-access", "codex-refresh", "codex-account"
-		} else {
-			input.AccessToken = "sk-ant-oat01-rotation"
-		}
-		account, err := connections.ConnectForUser(ctx, &owner, input)
+		account, err := connections.ConnectForUser(ctx, &owner, ConnectProviderInput{Provider: ProviderConnectionProviderCodex, Label: label,
+			AccessToken: "codex-access-" + label, RefreshToken: "codex-refresh", AccountID: "codex-account"})
 		require.NoError(t, err)
 		return account.ID
 	}
-	checkCurrent := func(provider, absent string) {
+	checkCurrent := func() {
 		t.Helper()
+		provider := ProviderConnectionProviderCodex
 		present, err := connections.HasPool(ctx, owner.ID, repo.ID, provider)
 		require.NoError(t, err)
 		require.True(t, present, provider)
-		missing, err := connections.HasPool(ctx, owner.ID, repo.ID, absent)
-		require.NoError(t, err)
-		require.False(t, missing, absent)
 		pick, err := connections.PickForModelCall(ctx, owner.ID, repo.ID, provider, nil)
 		require.NoError(t, err)
 		require.True(t, pick.Pooled)
@@ -114,7 +106,7 @@ func TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel(t *testing.
 		require.Equal(t, provider, pick.Connection.Provider)
 	}
 
-	codex := connect(ProviderConnectionProviderCodex)
+	codex := connect("first")
 	binding, err := service.resolveWorkspaceProviderBindings(ctx, workspace)
 	require.NoError(t, err)
 	require.Empty(t, bootstrapModel(binding.environment), "boot must not persist a pool-derived Codex pin")
@@ -124,23 +116,20 @@ func TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel(t *testing.
 	require.NotContains(t, profile, "SMITHERS_CODING_IMPLEMENT_MODEL")
 	require.Contains(t, profile, "SMITHERS_CODING_FALLBACK_MODEL")
 	require.Contains(t, profile, ProviderPoolURLEnvName)
-	checkCurrent(ProviderConnectionProviderCodex, ProviderConnectionProviderClaude)
+	checkCurrent()
 	startHost(profile, "openai:gpt-6-luna", ProviderPoolPath+"/chatgpt/codex/responses")
 
+	// With no account the host falls back to the platform seat; the next
+	// account connected serves the same profile again.
 	require.NoError(t, connections.Revoke(ctx, &owner, codex))
-	claude := connect(ProviderConnectionProviderClaude)
-	checkCurrent(ProviderConnectionProviderClaude, ProviderConnectionProviderCodex)
-	startHost(profile, "anthropic:claude-sonnet-4-6", ProviderPoolPath+"/anthropic/v1/messages")
-	require.NoError(t, connections.Revoke(ctx, &owner, claude))
-	codex = connect(ProviderConnectionProviderCodex)
-	checkCurrent(ProviderConnectionProviderCodex, ProviderConnectionProviderClaude)
+	startHost(profile, "anthropic:claude-sonnet-4-6", "/model-proxy/anthropic/v1/messages")
+	codex = connect("second")
+	checkCurrent()
 	startHost(profile, "openai:gpt-6-luna", ProviderPoolPath+"/chatgpt/codex/responses")
 	require.NoError(t, connections.Revoke(ctx, &owner, codex))
-	for _, provider := range []string{ProviderConnectionProviderCodex, ProviderConnectionProviderClaude} {
-		has, err := connections.HasPool(ctx, owner.ID, repo.ID, provider)
-		require.NoError(t, err)
-		require.False(t, has, provider)
-	}
+	has, err := connections.HasPool(ctx, owner.ID, repo.ID, ProviderConnectionProviderCodex)
+	require.NoError(t, err)
+	require.False(t, has)
 	startHost(profile, "anthropic:claude-sonnet-4-6", "/model-proxy/anthropic/v1/messages")
 	require.Empty(t, bootstrapModel(binding.environment), "the original workspace profile remains unpinned through both rotations")
 }

@@ -236,14 +236,11 @@ func (s *AgentEnvironmentService) PutAgentEnvironment(ctx context.Context, actor
 	if err != nil {
 		return AgentEnvironmentResponse{}, pkgerrors.Internal("failed to encode agent environment").WithCause(err)
 	}
-	storedToken := false
-	if !s.subscriptionTokens {
-		stored, err := s.queries.GetRepositoryAgentEnvironment(ctx, repository.ID)
-		if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
-			return AgentEnvironmentResponse{}, pkgerrors.Internal("failed to load agent environment").WithCause(err)
-		}
-		storedToken = err == nil && agentEnvironmentHoldsSubscriptionToken(stored)
+	stored, err := s.queries.GetRepositoryAgentEnvironment(ctx, repository.ID)
+	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
+		return AgentEnvironmentResponse{}, pkgerrors.Internal("failed to load agent environment").WithCause(err)
 	}
+	storedToken := err == nil && agentEnvironmentHoldsSubscriptionToken(s.subscriptionTokens, stored)
 	err = guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
 		if _, err := s.queries.UpsertRepositoryAgentEnvironment(ctx, db.UpsertRepositoryAgentEnvironmentParams{
 			RepositoryID:         repository.ID,
@@ -497,23 +494,24 @@ func (s *AgentEnvironmentService) loadAgentEnvironmentRow(ctx context.Context, r
 	}
 	updatedAt := row.UpdatedAt
 	config := agentEnvironmentConfigRow{SetupScript: row.SetupScript, Env: normalized, UpdatedAt: &updatedAt}
-	config.SubscriptionToken = !s.subscriptionTokens && agentEnvironmentHoldsSubscriptionToken(row)
+	config.SubscriptionToken = agentEnvironmentHoldsSubscriptionToken(s.subscriptionTokens, row)
 	return config, nil
 }
 
 // agentEnvironmentHoldsSubscriptionToken reports a stored setup script or
-// variable holding a Claude or ChatGPT subscription token. Variables that do
-// not decode are checked as one document.
-func agentEnvironmentHoldsSubscriptionToken(row db.RepositoryAgentEnvironment) bool {
-	if subscriptiontoken.Holds("", row.SetupScript) {
+// variable holding a subscription token the deployment refuses: a Claude one
+// always, a ChatGPT one unless allowed. Variables that do not decode are
+// checked as one document.
+func agentEnvironmentHoldsSubscriptionToken(allowed bool, row db.RepositoryAgentEnvironment) bool {
+	if !subscriptionTokenAllowed(allowed, "", row.SetupScript) {
 		return true
 	}
 	var variables []AgentEnvironmentVariable
 	if json.Unmarshal(row.EnvironmentVariables, &variables) != nil {
-		return subscriptiontoken.Holds("", string(row.EnvironmentVariables))
+		return !subscriptionTokenAllowed(allowed, "", string(row.EnvironmentVariables))
 	}
 	for _, variable := range variables {
-		if subscriptiontoken.Holds(variable.Name, variable.Value) {
+		if !subscriptionTokenAllowed(allowed, variable.Name, variable.Value) {
 			return true
 		}
 	}
@@ -551,10 +549,14 @@ func (s *AgentEnvironmentService) agentEnvironmentResponse(ctx context.Context, 
 		// Never hand a refused token back. Saving this answer as-is drops the
 		// token variables and keeps the redacted script.
 		response.ReconnectRequired = true
-		response.SetupScript = subscriptiontoken.Redact(config.SetupScript)
+		if s.subscriptionTokens {
+			response.SetupScript = subscriptiontoken.RemoveClaude(config.SetupScript)
+		} else {
+			response.SetupScript = subscriptiontoken.Redact(config.SetupScript)
+		}
 		response.Env = make([]AgentEnvironmentVariable, 0, len(config.Env))
 		for _, variable := range config.Env {
-			if !subscriptiontoken.Holds(variable.Name, variable.Value) {
+			if subscriptionTokenAllowed(s.subscriptionTokens, variable.Name, variable.Value) {
 				response.Env = append(response.Env, variable)
 			}
 		}

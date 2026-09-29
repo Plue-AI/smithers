@@ -102,13 +102,14 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "subscription-credential-export",
-      title: "Local Claude and Codex subscription credentials leave the machine only to the named workspace or backend",
+      title:
+        "Local Codex subscription credentials and Anthropic API keys leave the machine only to the named workspace or backend",
       threat:
-        "A backend or SSH endpoint the operator did not intend receives their Claude or ChatGPT OAuth refresh tokens and spends their subscription.",
+        "A backend or SSH endpoint the operator did not intend receives their ChatGPT OAuth refresh tokens or Anthropic API key and spends their account. A Claude subscription token is never read, stored, or sent (#2777).",
       lookFor: [
-        "seed() in Workspaces.ts writing auth.json or claude-env.sh to a host chosen by the server's ssh_command without StrictHostKeyChecking beyond accept-new.",
+        "seed() in Workspaces.ts writing auth.json or the API-key claude-env.sh to a host chosen by the server's ssh_command without StrictHostKeyChecking beyond accept-new.",
         "providerLogin or auth connect posting refresh tokens to an origin taken from SMITHERS_API_ORIGIN or --hostname without confirmation.",
-        "A token read from ~/.codex/auth.json, .credentials.json, or the keychain that is not passed to c.protect before output streams."
+        "Any read of Claude's .credentials.json or keychain entry. A token read from ~/.codex/auth.json that is not passed to c.protect before output streams."
       ],
       paths: ["src/internal/backend/Workspaces.ts", "src/internal/backend/Auth.ts"]
     },

@@ -18,6 +18,14 @@
 
 ### Removed
 
+- **Breaking:** Claude subscription tokens are never stored, accepted or
+  forwarded (#2777). The `auth claude *` commands are removed; `auth connect
+  claude` takes an Anthropic API key (`--api-key`); workspace seeding sends
+  `ANTHROPIC_API_KEY` only. The backend deletes stored Claude setup tokens and
+  OAuth pairs (migration 0067), refuses Claude tokens on every write, and on
+  every start deletes secrets, variables and provider connections holding one
+  and redacts it from agent environments. Claude subscriptions run on the
+  user's own Claude Code (`claude-code:*` seats).
 - **Breaking:** `smthrs integrations reconcile` and its `.smithers/listeners.json`
   declarations are removed. GitHub webhooks enter through the Smithers
   backend's GitHub webhook (`POST /webhooks/github`), which decides whether an

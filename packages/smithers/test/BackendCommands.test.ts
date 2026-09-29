@@ -443,32 +443,22 @@ describe("one-login authentication", () => {
       expect(request.mock.calls[0]![3]).toMatchObject({ headers: { "X-Smithers-Bootstrap-Token": "bootstrap" } })
     }
   })
-  it.each(["claude", "codex"])("connects %s subscription credentials", async (provider) => {
+  it("connects Codex subscription credentials", async () => {
+    const provider = "codex"
     const { c, home, request } = await fixture()
     const jwt = (body: object) => `header.${Buffer.from(JSON.stringify(body)).toString("base64url")}.signature`
     await writeFile(
-      join(home, provider === "claude" ? ".credentials.json" : "auth.json"),
-      JSON.stringify(
-        provider === "claude"
-          ? {
-            claudeAiOauth: {
-              accessToken: "oauth-token",
-              refreshToken: "refresh",
-              subscriptionType: "max",
-              expiresAt: 2e12
-            }
-          }
-          : {
-            tokens: {
-              access_token: jwt({ exp: 2e9 }),
-              refresh_token: "refresh",
-              id_token: jwt({
-                email: "owner@example.test",
-                "https://api.openai.com/auth": { chatgpt_account_id: "account", chatgpt_plan_type: "pro" }
-              })
-            }
-          }
-      )
+      join(home, "auth.json"),
+      JSON.stringify({
+        tokens: {
+          access_token: jwt({ exp: 2e9 }),
+          refresh_token: "refresh",
+          id_token: jwt({
+            email: "owner@example.test",
+            "https://api.openai.com/auth": { chatgpt_account_id: "account", chatgpt_plan_type: "pro" }
+          })
+        }
+      })
     )
     await auth["auth connect"]!(c, { provider }, { "config-dir": home, label: "laptop" })
     expect(request).toHaveBeenCalledWith(
@@ -484,18 +474,32 @@ describe("one-login authentication", () => {
       "subscription"
     )
   })
-  it("accepts Claude setup tokens and gates repository publication", async () => {
-    const { c, request } = await fixture({ ANTHROPIC_AUTH_TOKEN: "sk-ant-oat01-subscription" })
-    vi.spyOn(c, "stdin").mockResolvedValue("Here is sk-ant-oat01-subscription")
-    await auth["auth connect"]!(c, { provider: "claude" }, { "setup-token": true })
+  it("accepts an Anthropic API key and never a Claude subscription token (#2777)", async () => {
+    const { c, home, request } = await fixture()
+    vi.spyOn(c, "stdin").mockResolvedValue("Here is sk-ant-api03-key")
+    await auth["auth connect"]!(c, { provider: "claude" }, { "api-key": true })
     expect(request).toHaveBeenCalledWith(
       "POST",
       "/api/user/provider-connections",
-      expect.objectContaining({ kind: "setup_token" })
+      expect.objectContaining({ provider: "claude", kind: "api_key", access_token: "sk-ant-api03-key" })
     )
-    await expect(auth["auth claude push"]!(c, {}, options)).rejects.toThrow("not enabled")
-    request.mockResolvedValue({ flags: { subscription_connections: true } })
-    expect(await auth["auth claude push"]!(c, {}, options)).toMatchObject({ status: "pushed" })
+    request.mockClear()
+    vi.spyOn(c, "stdin").mockResolvedValue("sk-ant-oat01-subscription")
+    await expect(auth["auth connect"]!(c, { provider: "claude" }, { "api-key": true })).rejects.toThrow("API key")
+    // The local Claude login is never read, so nothing can forward it.
+    await writeFile(
+      join(home, ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: { accessToken: "sk-ant-oat01-login", refreshToken: "r", subscriptionType: "max" }
+      })
+    )
+    await expect(auth["auth connect"]!(c, { provider: "claude" }, { "config-dir": home })).rejects.toThrow(
+      "never stored"
+    )
+    expect(request).not.toHaveBeenCalled()
+    for (const command of ["login", "logout", "push", "status", "token"]) {
+      expect(auth[`auth claude ${command}`]).toBeUndefined()
+    }
   })
   it("does not reuse host-only legacy credentials at another port", async () => {
     const { c, home } = await fixture({ SMITHERS_TOKEN: "" })

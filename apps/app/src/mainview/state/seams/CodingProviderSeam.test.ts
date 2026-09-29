@@ -50,7 +50,7 @@ test("admission waits only for durable intent, including duplicate input", async
   const persisted = deferred<void>()
   const response = deferred<Response>()
   const h = harness({ persist: () => persisted.promise, http: () => response.promise })
-  const gesture = () => writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-fixture" })
+  const gesture = () => writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-fixture" })
   let acknowledged = false
   const first = h.seam.connectCodingProvider(gesture()).then(value => { acknowledged = true; return value })
   const duplicate = h.seam.connectCodingProvider(gesture())
@@ -69,7 +69,7 @@ test("failed intent persistence never launches or acknowledges enrollment or rev
   for (const action of ["connect", "revoke"] as const) {
     const h = harness({ persist: () => Promise.reject(new Error("storage unavailable")), http: async () => Response.json({}) })
     const result = action === "connect"
-      ? await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-fixture" }))
+      ? await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-fixture" }))
       : await h.seam.revokeCodingProvider("conn-1")
     expect(result).toBe("Connection request could not be saved.")
     expect(h.calls).toHaveLength(0)
@@ -80,7 +80,7 @@ test("failed intent persistence never launches or acknowledges enrollment or rev
 test("missing or non-string IDs cannot be successful provider receipts", async () => {
   for (const id of [undefined, null, 123]) {
     const h = harness({ http: async (_init, rows) => Response.json({ id, provider: "claude", state: "active", label: `web-${rows[0]!.id}` }) })
-    await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-fixture" }))
+    await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-fixture" }))
     expect(await h.work[0]).toBe("Claude connection failed.")
     expect(h.rows()[0]?.state).toBe("failed")
   }
@@ -130,7 +130,7 @@ test("revoke deduplicates live work and reconnects after A to B to A", async () 
 test("disposal while response JSON is held cannot publish a connection", async () => {
   const parsed = deferred<unknown>()
   const h = harness({ http: async () => ({ ok: true, json: () => parsed.promise } as Response) })
-  await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-fixture" }))
+  await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-fixture" }))
   await tick()
   h.dispose()
   parsed.resolve({ id: "conn-1", provider: "claude", state: "active", label: `web-${h.rows()[0]!.id}` })
@@ -157,7 +157,7 @@ test("Claude coding enrollment returns before the held request, deduplicates, an
     return settled
   }) as FailureController["withToast"]
   const seam = createSecretsSeam(ctx, withToast)
-  const value = "sk-ant-oat01-private-fixture"
+  const value = "sk-ant-api03-private-fixture"
   const gesture = writeOnlyGesture("secrets.connect", { value })
   expect(await seam.connectCodingProvider(gesture)).toEqual({ value: "Requested" })
   expect(await seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value }))).toEqual({ value: "Requested" })
@@ -171,7 +171,7 @@ test("Claude coding enrollment returns before the held request, deduplicates, an
   expect(rows[0]).toMatchObject({ owner: "alice", state: "completed" })
   expect(gesture.takeWriteOnly?.("value")).toBeUndefined()
   login = "bob"
-  expect(await seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "bad" }))).toBe("Enter a Claude setup token or API key.")
+  expect(await seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "bad" }))).toBe("Enter an Anthropic API key.")
   expect(sent).toHaveLength(1)
 })
 
@@ -261,7 +261,7 @@ test("an A to B to A switch cannot publish the first account's response", async 
   } as unknown as SeamContext
   const withToast = ((_key: string, _title: string, _done: string, work: () => Promise<unknown>) => { settled = work(); return settled }) as FailureController["withToast"]
   const seam = createSecretsSeam(ctx, withToast)
-  seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-private-fixture" }))
+  seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-private-fixture" }))
   await new Promise(resolve => setTimeout(resolve, 0))
   login = "bob"; revision++
   login = "alice"; revision++
@@ -289,7 +289,7 @@ test("a rejected or malformed enrollment receipt never completes the persisted r
       http: async () => response
     } as unknown as SeamContext
     const withToast = ((_key: string, _title: string, _done: string, work: () => Promise<unknown>) => { settled = work(); return settled }) as FailureController["withToast"]
-    await createSecretsSeam(ctx, withToast).connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-private-fixture" }))
+    await createSecretsSeam(ctx, withToast).connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-private-fixture" }))
     expect(await settled).not.toBe(true)
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(rows[0]?.state).toBe("failed")

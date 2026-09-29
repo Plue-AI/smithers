@@ -60,7 +60,7 @@ var subscriptionConnectionRoutes = []struct {
 	method, path, body string
 }{
 	{http.MethodGet, "/api/user/provider-connections", ""},
-	{http.MethodPost, "/api/user/provider-connections", `{"provider":"claude","kind":"setup_token","access_token":"sk-ant-oat01-x"}`},
+	{http.MethodPost, "/api/user/provider-connections", `{"provider":"claude","kind":"api_key","access_token":"sk-ant-api03-x"}`},
 	{http.MethodPut, "/api/user/provider-connections/order", `{"provider":"claude","ids":["conn-1"]}`},
 	{http.MethodPost, "/api/user/provider-connections/codex/device", ""},
 	{http.MethodPost, "/api/user/provider-connections/codex/device/dev-1", ""},
@@ -127,7 +127,7 @@ func TestServerRouter_SubscriptionConnectionsReachableWhenEnabled(t *testing.T) 
 // so the same gate closes it.
 func TestServerRouter_ProviderPoolGatedOffByDefault(t *testing.T) {
 	t.Parallel()
-	rec := serveSubscriptionConnectionRoute(t, config.FeatureFlagsConfig{}, http.MethodPost, services.ProviderPoolPath+"/anthropic/v1/messages", `{}`)
+	rec := serveSubscriptionConnectionRoute(t, config.FeatureFlagsConfig{}, http.MethodPost, services.ProviderPoolPath+"/chatgpt/codex/responses", `{}`)
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "feature not available")
 }

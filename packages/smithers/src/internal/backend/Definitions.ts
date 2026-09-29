@@ -313,46 +313,16 @@ export const definitions = {
     args: z.object({ "runId": z.coerce.number().describe("Run ID") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
-  "auth claude login": {
-    description: "Store a Claude setup token from stdin",
-    args: z.object({}),
-    options: z.object({
-      "repo": z.string().describe("Also push the token to this repository's secrets (OWNER/REPO)").optional()
-    })
-  },
-  "auth claude logout": {
-    description: "Clear the stored Claude setup token",
-    args: z.object({}),
-    options: z.object({})
-  },
-  "auth claude push": {
-    description:
-      "Push the active Claude Code credential into repository secrets (subscription tokens only on self-hosted servers with subscription connections enabled)",
-    args: z.object({}),
-    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
-  },
-  "auth claude status": {
-    description: "Show Claude Code authentication status",
-    args: z.object({}),
-    options: z.object({})
-  },
-  "auth claude token": {
-    description: "Show token status without displaying the credential",
-    args: z.object({}),
-    options: z.object({})
-  },
   "auth connect": {
     description:
-      "Connect your own Claude or Codex subscription for your own agent runs on a self-hosted server (imports the vendor CLI's login, or a pasted Claude setup token)",
+      "Connect your own Codex subscription (imports the Codex CLI login) or an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Claude subscriptions are never stored; they run locally through Claude Code",
     args: z.object({ "provider": z.string().describe("claude or codex") }),
     options: z.object({
       "config-dir": z.string().describe(
-        "Claude config directory (CLAUDE_CONFIG_DIR) or Codex home (CODEX_HOME) to import from"
+        "Codex home (CODEX_HOME) to import from"
       ).optional(),
       "label": z.string().describe("Display label for the connection").optional(),
-      "setup-token": z.boolean().describe(
-        "Read a Claude setup token from stdin (`claude setup-token`) instead of importing the local login"
-      ).default(false)
+      "api-key": z.boolean().describe("Read an Anthropic API key from stdin (claude only)").default(false)
     })
   },
   "auth connections": {
@@ -1434,7 +1404,7 @@ export const definitions = {
         .optional(),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
       "seedAgentAuth": z.string().describe(
-        "Comma-separated list of agent auth to seed before running the command (claude, codex)"
+        "Comma-separated list of agent auth to seed before running the command (claude seeds ANTHROPIC_API_KEY, codex seeds the Codex login)"
       ).optional(),
       "stdin": z.boolean().describe("Forward the terminal's stdin (a pipe or file is always forwarded)").default(false),
       "timeout": z.coerce.number().describe("Client timeout in seconds (default: 120; 0 = no limit)").optional(),

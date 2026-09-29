@@ -18,7 +18,7 @@ test("a write-only input stays outside form.set, clears before submit, and trave
     return { status: "executed" }
   } } as unknown as AppController
   const host = mount(<ControllerContext value={controller}><FlowFormCardBody card={formCard({
-    flow: "secrets.connect", via: "user", fields: [{ name: "value", label: "Claude setup token", kind: "write-only", required: true }], draft: {}, given: {}
+    flow: "secrets.connect", via: "user", fields: [{ name: "value", label: "Anthropic API key", kind: "write-only", required: true }], draft: {}, given: {}
   })} onRunCommand={name => calls.push(name)} /></ControllerContext>)
   input(host, "flow-form-value", "dom-private-fixture")
   expect(calls).toEqual([])
@@ -33,7 +33,7 @@ test("a write-only input stays outside form.set, clears before submit, and trave
 
 test("a disabled write-only field keeps Submit disabled and shows its reason", () => {
   const card = formCard({ flow: "secrets.connect", via: "user", fields: [
-    { name: "value", label: "Claude setup token", kind: "write-only", required: true, disabledReason: "Sign in required" }
+    { name: "value", label: "Anthropic API key", kind: "write-only", required: true, disabledReason: "Sign in required" }
   ], draft: {}, given: {} })
   const host = mount(<FlowFormCardBody card={card} onRunCommand={() => {}} />)
   expect(host.querySelector<HTMLButtonElement>("[data-testid=flow-form-submit]")!.disabled).toBe(true)

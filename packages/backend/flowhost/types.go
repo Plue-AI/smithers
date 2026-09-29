@@ -67,7 +67,7 @@ const (
 	AccountPoolProvidersEnv = "SMITHERS_ACCOUNT_POOL_PROVIDERS"
 	AccountPoolKeyEnv       = "SMITHERS_ACCOUNT_POOL_KEY"
 	// AccountPoolRoutes are every route a pool serves.
-	AccountPoolRoutes = "anthropic,chatgpt"
+	AccountPoolRoutes = "chatgpt"
 )
 
 type WorkspacePaths struct {

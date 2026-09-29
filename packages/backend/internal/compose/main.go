@@ -672,10 +672,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		queries,
 		webhookSecretCodec,
 		services.NewHTTPProviderTokenRefresher(services.ProviderConnectionsConfig{
-			ClaudeTokenURL: cfg.ProviderConnections.ClaudeTokenURL,
-			ClaudeClientID: cfg.ProviderConnections.ClaudeClientID,
-			CodexTokenURL:  cfg.ProviderConnections.CodexTokenURL,
-			CodexClientID:  cfg.ProviderConnections.CodexClientID,
+			CodexTokenURL: cfg.ProviderConnections.CodexTokenURL,
+			CodexClientID: cfg.ProviderConnections.CodexClientID,
 		}, nil),
 		services.WithProviderConnectionAudit(auditService),
 		services.WithSubscriptionConnectionsEnabled(cfg.FeatureFlags.SubscriptionConnections),
@@ -730,7 +728,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	workspaceService := services.NewWorkspaceService(runtimeStores.Workspaces,
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceTransactions(pool),
-		services.WithWorkspaceSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections),
 		services.WithWorkspaceBillingPolicy(billingPolicy),
 		services.WithWorkspaceSandboxClient(sandboxClient),
 		services.WithWorkspaceSourceReader(repoHostClient),
@@ -1441,9 +1438,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{registrationPool: pool, repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
-			resumes:            background.Jobs[string]{Timeout: 5 * time.Minute, FailureTTL: time.Minute},
-			limit:              middleware.GlobalAPIRateLimit(queries),
-			subscriptionTokens: cfg.FeatureFlags.SubscriptionConnections}
+			resumes: background.Jobs[string]{Timeout: 5 * time.Minute, FailureTTL: time.Minute},
+			limit:   middleware.GlobalAPIRateLimit(queries)}
 		access := func(limited bool) []func(http.Handler) http.Handler {
 			chain := []func(http.Handler) http.Handler{
 				cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),
@@ -1626,11 +1622,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			launchWorker(func() { providerConnectionRefreshWorker.Start(workerCtx) })
 		}
 		launchWorker(func() { workflowLogBudgetBackfiller.Start(workerCtx) })
-		if !cfg.FeatureFlags.SubscriptionConnections {
-			// #2206: flag subscription tokens stored before the hosted
-			// refusal and the workspaces built with them, once per database.
-			launchWorker(func() { services.RunStoredSubscriptionTokenScan(workerCtx, pool, webhookSecretCodec) })
-		}
+		// #2777: remove stored Claude subscription tokens on every start of
+		// every deployment; #2206: flag the ChatGPT ones a hosted deployment
+		// refuses, once per database. Both mark the workspaces built with them.
+		launchWorker(func() {
+			services.RunStoredSubscriptionTokenScan(workerCtx, pool, webhookSecretCodec, cfg.FeatureFlags.SubscriptionConnections)
+		})
 		// #2237: case variants of reserved refs that predate their refusal
 		// block the canonical refs; the repair is idempotent.
 		launchWorker(func() { services.RunRefCaseCollisionRepair(workerCtx, queries, repoHostClient) })

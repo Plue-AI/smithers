@@ -107,7 +107,7 @@ func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {
 		WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
 	require.NoError(t, err)
 	assert.Equal(t, "https://backend.internal/provider-pool", spec.Environment[AccountPoolURLEnv])
-	assert.Equal(t, "anthropic,chatgpt", spec.Environment[AccountPoolProvidersEnv])
+	assert.Equal(t, "chatgpt", spec.Environment[AccountPoolProvidersEnv], "a Claude subscription has no pool route (#2777)")
 	assert.Equal(t, credential, spec.Environment[AccountPoolKeyEnv])
 	assert.NotContains(t, spec.Identity, credential)
 	// Pool-only managed hosts discover a model at startup, including accounts

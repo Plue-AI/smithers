@@ -176,9 +176,10 @@ type FeatureFlagsConfig struct {
 	// Changesets gates /orgs/{org}/changesets: cross-repository changesets
 	// landed through the organization superproject. Default false.
 	Changesets bool `mapstructure:"changesets"`
-	// SubscriptionConnections lets each user connect their own Claude or
-	// ChatGPT (Codex) subscription login so their own agent runs and
-	// workspaces authenticate with it through the egress proxy. Default false,
+	// SubscriptionConnections lets each user connect their own ChatGPT (Codex)
+	// subscription login or Anthropic API key so their own agent runs and
+	// workspaces authenticate with it through the pool route. A Claude
+	// subscription token is refused even with the flag on (#2777). Default false,
 	// and the hosted product keeps it false: storing subscription logins is for
 	// self-hosters running their own subscriptions, never a service offered to
 	// others. When false the /provider-connections routes and the account pool
@@ -385,14 +386,11 @@ type WebhookConfig struct {
 	GitHubAppSecret     string `mapstructure:"github_app_secret"`
 }
 
-// ProviderConnectionsConfig is the provider token endpoints and the vendor
-// CLI client ids the refresh loop presents. Defaults are the Claude Code and
-// Codex CLI clients; tests point them at a local server.
+// ProviderConnectionsConfig is the Codex token endpoint and the Codex CLI
+// client id the refresh loop presents; tests point them at a local server.
 type ProviderConnectionsConfig struct {
-	ClaudeTokenURL string `mapstructure:"claude_token_url"`
-	ClaudeClientID string `mapstructure:"claude_client_id"`
-	CodexTokenURL  string `mapstructure:"codex_token_url"`
-	CodexClientID  string `mapstructure:"codex_client_id"`
+	CodexTokenURL string `mapstructure:"codex_token_url"`
+	CodexClientID string `mapstructure:"codex_client_id"`
 }
 
 type BillingConfig struct {
@@ -547,8 +545,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("billing.enterprise_monthly_price_id", "")
 	v.SetDefault("billing.enterprise_annual_price_id", "")
 	v.SetDefault("webhook.secret_encryption_key", "")
-	v.SetDefault("provider_connections.claude_token_url", "https://console.anthropic.com/v1/oauth/token")
-	v.SetDefault("provider_connections.claude_client_id", "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
 	v.SetDefault("provider_connections.codex_token_url", "https://auth.openai.com/oauth/token")
 	v.SetDefault("provider_connections.codex_client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
 	v.SetDefault("webhook.github_app_secret", "")

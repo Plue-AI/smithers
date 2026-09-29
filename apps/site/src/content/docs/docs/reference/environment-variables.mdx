@@ -27,7 +27,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | operator | Absolute path to the `smithers-jj-export` filesystem helper, when it is not in a searched location. | none |
 | `SMITHERS_MEMORY_DB` | operator | Moves the memory store to its own SQLite file, shared by runs of one repository in separate workspaces. | none |
 | `SMITHERS_MODEL_PROXY_URL` | operator | Base URL of a model proxy that fronts the provider routes. | none |
-| `SMITHERS_ACCOUNT_POOL_URL` | operator | Smithers account pool that signs `anthropic:` and `openai:` seats; with `SMITHERS_ACCOUNT_POOL_KEY` and `SMITHERS_ACCOUNT_POOL_PROVIDERS`. | none |
+| `SMITHERS_ACCOUNT_POOL_URL` | operator | Smithers account pool of connected ChatGPT sign-ins that signs `openai:` seats; with `SMITHERS_ACCOUNT_POOL_KEY` and `SMITHERS_ACCOUNT_POOL_PROVIDERS`. | none |
 | `SMITHERS_TUI_BIN` | operator | The executable `smthrs tui` runs. See [TUI configuration](/docs/tui/configuration/) for chat, worker, approval, budget, and conversation settings. | none |
 | `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | operator | How long a detached flow launch waits for the detached run's admission line. A value that is not a positive integer is ignored. | none |
 | `SMITHERS_TEST_COMMAND` | operator | The command the `test` flow runs. | none |
@@ -53,11 +53,11 @@ same policy.
 
 ## Provider keys
 
-Flow judgments use a connected ChatGPT or Claude subscription, directly or through the account pool. Gateway and provider keys cannot substitute for a subscription. `smthrs doctor` reports available model connections.
+A Claude subscription runs only as a `claude-code:*` seat on your own Claude Code, signed in with `claude auth login`; Smithers never reads, stores, or forwards a Claude subscription token. Flow judgments use a connected ChatGPT subscription, directly or through the account pool. Gateway and provider keys cannot substitute for a subscription. `smthrs doctor` reports available model connections.
 
 | Name | Read by | Purpose |
 | --- | --- | --- |
-| `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | seat resolver | Claude subscription bearer for `anthropic:*` seats. |
+| `ANTHROPIC_API_KEY` | seat resolver | Credentials for `anthropic:*` seats. Without it, a Claude alias (`opus`, `fable`) runs as its `claude-code:*` seat. |
 | `CODEX_HOME` | seat resolver | Codex account directory for the ChatGPT subscription. |
 | `SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY` | seat resolver | Account-pool connection and host credential. |
 | `OPENROUTER_API_KEY` | seat resolver | Credentials `openrouter:*` seats. |

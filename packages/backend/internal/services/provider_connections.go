@@ -19,22 +19,23 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
 
-// Bring-your-own subscriptions (RFD-003). A provider connection is one Claude
-// or Codex account a user or organization connected. The refresh token stays
-// here, encrypted; the access token is minted by the refresh loop and handed
-// to the per-sandbox egress proxy at dispatch. The guest only ever sees
-// placeholders.
+// Bring-your-own accounts (RFD-003). A provider connection is one Codex
+// (ChatGPT) sign-in or one Anthropic API key a user connected. A Codex refresh
+// token stays here, encrypted; the access token is minted by the refresh loop
+// and handed to the pool route per model call. The guest only ever sees
+// placeholders. A Claude subscription is never stored (#2777): it runs through
+// the user's own logged-in Claude Code (`claude-code:*` seats).
 
 const (
 	ProviderConnectionProviderClaude = "claude"
 	ProviderConnectionProviderCodex  = "codex"
 
-	ProviderConnectionKindSetupToken = "setup_token"
-	ProviderConnectionKindOAuth      = "oauth"
-	ProviderConnectionKindAPIKey     = "api_key"
+	ProviderConnectionKindOAuth  = "oauth"
+	ProviderConnectionKindAPIKey = "api_key"
 
 	ProviderConnectionStateActive        = "active"
 	ProviderConnectionStateRefreshFailed = "refresh_failed"
@@ -57,7 +58,6 @@ const (
 
 var (
 	providerConnectionLabelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._@-]{0,79}$`)
-	claudeSetupTokenPrefix         = "sk-ant-oat01-"
 	claudeAPIKeyPrefix             = "sk-ant-api"
 
 	// ErrProviderRefreshInvalidGrant is what a provider says when the refresh
@@ -112,29 +112,24 @@ type ProviderTokenRefresher interface {
 	Refresh(ctx context.Context, provider, refreshToken string) (RefreshedTokens, error)
 }
 
-// ProviderConnectionsConfig names the provider token endpoints. Both default
-// to the vendor CLIs' own endpoints and client ids; tests point them at a
-// local server.
+// ProviderConnectionsConfig names the Codex token endpoint. It defaults to
+// the Codex CLI's own endpoint and client id; tests point it at a local
+// server.
 type ProviderConnectionsConfig struct {
-	ClaudeTokenURL string
-	ClaudeClientID string
-	CodexTokenURL  string
-	CodexClientID  string
+	CodexTokenURL string
+	CodexClientID string
 	// CodexIssuer is the OpenAI auth origin serving the device-code sign-in
 	// (`codex login --device-auth`).
 	CodexIssuer string
 }
 
-// DefaultProviderConnectionsConfig is the Claude Code and Codex CLI OAuth
-// clients, which are the only clients the providers issue subscription
-// tokens to.
+// DefaultProviderConnectionsConfig is the Codex CLI OAuth client, the only
+// client OpenAI issues ChatGPT subscription tokens to.
 func DefaultProviderConnectionsConfig() ProviderConnectionsConfig {
 	return ProviderConnectionsConfig{
-		ClaudeTokenURL: "https://console.anthropic.com/v1/oauth/token",
-		ClaudeClientID: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-		CodexTokenURL:  "https://auth.openai.com/oauth/token",
-		CodexClientID:  "app_EMoamEEZ73f0CkXaXp7hrann",
-		CodexIssuer:    "https://auth.openai.com",
+		CodexTokenURL: "https://auth.openai.com/oauth/token",
+		CodexClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
+		CodexIssuer:   "https://auth.openai.com",
 	}
 }
 
@@ -152,20 +147,11 @@ func NewHTTPProviderTokenRefresher(cfg ProviderConnectionsConfig, client *http.C
 }
 
 func (r *HTTPProviderTokenRefresher) Refresh(ctx context.Context, provider, refreshToken string) (RefreshedTokens, error) {
-	var (
-		endpoint string
-		payload  map[string]any
-	)
-	switch provider {
-	case ProviderConnectionProviderClaude:
-		endpoint = r.cfg.ClaudeTokenURL
-		payload = map[string]any{"grant_type": "refresh_token", "refresh_token": refreshToken, "client_id": r.cfg.ClaudeClientID}
-	case ProviderConnectionProviderCodex:
-		endpoint = r.cfg.CodexTokenURL
-		payload = map[string]any{"grant_type": "refresh_token", "refresh_token": refreshToken, "client_id": r.cfg.CodexClientID, "scope": "openid profile email"}
-	default:
-		return RefreshedTokens{}, fmt.Errorf("unknown provider %q", provider)
+	if provider != ProviderConnectionProviderCodex {
+		return RefreshedTokens{}, fmt.Errorf("provider %q has no refreshable connection", provider)
 	}
+	endpoint := r.cfg.CodexTokenURL
+	payload := map[string]any{"grant_type": "refresh_token", "refresh_token": refreshToken, "client_id": r.cfg.CodexClientID, "scope": "openid profile email"}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return RefreshedTokens{}, err
@@ -271,9 +257,9 @@ type ProviderConnectionService struct {
 
 type ProviderConnectionServiceOption func(*ProviderConnectionService)
 
-// WithSubscriptionConnectionsEnabled turns on bring-your-own Claude/ChatGPT
-// subscriptions for a self-hosted deployment. Each connection serves only the
-// connecting user's own runs and workspaces.
+// WithSubscriptionConnectionsEnabled turns on bring-your-own ChatGPT
+// subscriptions and Anthropic API keys for a self-hosted deployment. Each
+// connection serves only the connecting user's own runs and workspaces.
 func WithSubscriptionConnectionsEnabled(enabled bool) ProviderConnectionServiceOption {
 	return func(s *ProviderConnectionService) { s.enabled = enabled }
 }
@@ -308,8 +294,8 @@ func NewProviderConnectionService(q ProviderConnectionQuerier, codec webhook.Sec
 	return s
 }
 
-// ConnectProviderInput is what a user or organization hands over to connect
-// an account: a setup token, or an imported access+refresh pair.
+// ConnectProviderInput is what a user hands over to connect an account: an
+// Anthropic API key, or a Codex access+refresh pair.
 type ConnectProviderInput struct {
 	Provider        string     `json:"provider"`
 	Kind            string     `json:"kind"`
@@ -381,6 +367,12 @@ func normalizeProviderConnectionProvider(provider string) (string, error) {
 	return "", pkgerrors.BadRequest("provider must be claude or codex")
 }
 
+// errClaudeSubscriptionToken refuses anything but an Anthropic API key where
+// a Claude credential is offered (#2777).
+func errClaudeSubscriptionToken() error {
+	return pkgerrors.BadRequest("a claude connection is an Anthropic API key (sk-ant-api…); Claude subscriptions run locally through Claude Code")
+}
+
 func (s *ProviderConnectionService) validateConnectInput(in *ConnectProviderInput) error {
 	provider, err := normalizeProviderConnectionProvider(in.Provider)
 	if err != nil {
@@ -403,46 +395,33 @@ func (s *ProviderConnectionService) validateConnectInput(in *ConnectProviderInpu
 	if !IsUsableProviderCredential(in.AccessToken) || strings.ContainsAny(in.AccessToken, " \t\r\n") {
 		return pkgerrors.BadRequest("access_token does not look like a provider token")
 	}
-	switch in.Kind {
-	case "":
-		if in.RefreshToken != "" {
-			in.Kind = ProviderConnectionKindOAuth
-		} else if provider == ProviderConnectionProviderClaude && strings.HasPrefix(in.AccessToken, claudeAPIKeyPrefix) {
-			in.Kind = ProviderConnectionKindAPIKey
-		} else {
-			in.Kind = ProviderConnectionKindSetupToken
-		}
-	case ProviderConnectionKindSetupToken, ProviderConnectionKindOAuth, ProviderConnectionKindAPIKey:
-	default:
-		return pkgerrors.BadRequest("kind must be setup_token, oauth, or api_key")
+	// A Claude subscription token is never stored, whatever provider it is
+	// labeled with (#2777), and a claude connection is an Anthropic API key
+	// and nothing else.
+	if subscriptiontoken.HoldsClaude("", in.AccessToken) || subscriptiontoken.HoldsClaude("", in.RefreshToken) {
+		return errClaudeSubscriptionToken()
 	}
-	if in.Kind == ProviderConnectionKindAPIKey {
-		if provider != ProviderConnectionProviderClaude || !strings.HasPrefix(in.AccessToken, claudeAPIKeyPrefix) {
-			return pkgerrors.BadRequest("an api_key connection is an Anthropic API key (sk-ant-api…)")
+	if provider == ProviderConnectionProviderClaude {
+		if (in.Kind != "" && in.Kind != ProviderConnectionKindAPIKey) || in.RefreshToken != "" || !strings.HasPrefix(in.AccessToken, claudeAPIKeyPrefix) {
+			return errClaudeSubscriptionToken()
 		}
-		in.RefreshToken = ""
+		in.Kind = ProviderConnectionKindAPIKey
+		return nil
 	}
-	if in.Kind == ProviderConnectionKindSetupToken {
-		if provider != ProviderConnectionProviderClaude {
-			return pkgerrors.BadRequest("setup_token connections exist only for claude")
-		}
-		if !strings.HasPrefix(in.AccessToken, claudeSetupTokenPrefix) {
-			return pkgerrors.BadRequest("a Claude setup token starts with sk-ant-oat01-; run `claude setup-token`")
-		}
-		in.RefreshToken = ""
+	if in.Kind != "" && in.Kind != ProviderConnectionKindOAuth {
+		return pkgerrors.BadRequest("a codex connection is a ChatGPT sign-in (kind oauth)")
 	}
-	if in.Kind == ProviderConnectionKindOAuth && in.RefreshToken == "" {
+	in.Kind = ProviderConnectionKindOAuth
+	if in.RefreshToken == "" {
 		return pkgerrors.BadRequest("oauth connections need a refresh_token")
 	}
-	if in.AccessExpiresAt == nil && in.Kind == ProviderConnectionKindOAuth {
+	if in.AccessExpiresAt == nil {
 		if exp, ok := jwtExpiry(in.AccessToken); ok {
 			in.AccessExpiresAt = &exp
 		}
 	}
-	if provider == ProviderConnectionProviderCodex {
-		if in.AccountID == "" {
-			return pkgerrors.BadRequest("codex connections need the ChatGPT account_id")
-		}
+	if in.AccountID == "" {
+		return pkgerrors.BadRequest("codex connections need the ChatGPT account_id")
 	}
 	return nil
 }
@@ -557,8 +536,8 @@ func (s *ProviderConnectionService) grantEverywhere(ctx context.Context, answer 
 	return answer, nil
 }
 
-// ConnectForOrg always refuses. A Claude or ChatGPT subscription serves only
-// its account holder's own runs; sharing one across an organization's members
+// ConnectForOrg always refuses. A connection serves only its account
+// holder's own runs; sharing one across an organization's members
 // is exactly what the providers' consumer terms forbid.
 func (s *ProviderConnectionService) ConnectForOrg(ctx context.Context, actor *db.User, orgName string, in ConnectProviderInput) (ProviderConnectionResponse, error) {
 	if !s.enabled {
@@ -681,7 +660,7 @@ func (s *ProviderConnectionService) RefreshNow(ctx context.Context, actor *db.Us
 		return ProviderConnectionResponse{}, err
 	}
 	if len(row.RefreshTokenEncrypted) == 0 {
-		return ProviderConnectionResponse{}, pkgerrors.BadRequest("this connection has no refresh token; setup tokens are not refreshed")
+		return ProviderConnectionResponse{}, pkgerrors.BadRequest("this connection has no refresh token; API keys are not refreshed")
 	}
 	if row.State == ProviderConnectionStateRevoked {
 		return ProviderConnectionResponse{}, pkgerrors.Conflict("connection is revoked")
@@ -767,9 +746,28 @@ func (s *ProviderConnectionService) usesUserConnections(ctx context.Context, rep
 	return preference != ProviderConnectionPreferencePlatformOnly && preference != ProviderConnectionPreferenceOrgOnly, nil
 }
 
+// refuseStoredClaudeToken refuses a row whose stored access or refresh token
+// is a Claude subscription token, whatever provider it is labeled with
+// (#2777): it is never forwarded to a provider nor sent to a refresher. The
+// startup scan deletes such rows.
+func (s *ProviderConnectionService) refuseStoredClaudeToken(row db.ProviderConnection) error {
+	for _, cipher := range [][]byte{row.AccessTokenEncrypted, row.RefreshTokenEncrypted} {
+		if len(cipher) == 0 {
+			continue
+		}
+		if value, err := s.codec.DecryptString(string(cipher)); err == nil && subscriptiontoken.HoldsClaude("", value) {
+			return errors.New("the connection holds a Claude subscription token")
+		}
+	}
+	return nil
+}
+
 // materialize decrypts the access token, refreshing first when it is about to
 // expire and a refresh token exists.
 func (s *ProviderConnectionService) materialize(ctx context.Context, row db.ProviderConnection) (*ResolvedProviderConnection, error) {
+	if err := s.refuseStoredClaudeToken(row); err != nil {
+		return nil, err
+	}
 	if row.AccessExpiresAt.Valid && row.AccessExpiresAt.Time.Before(s.now().Add(providerConnectionDispatchHorizon)) {
 		if len(row.RefreshTokenEncrypted) == 0 {
 			return nil, errors.New("access token expired and the connection has no refresh token")
@@ -790,6 +788,11 @@ func (s *ProviderConnectionService) materialize(ctx context.Context, row db.Prov
 	plaintext, err := s.codec.DecryptString(string(row.AccessTokenEncrypted))
 	if err != nil {
 		return nil, errors.New("failed to decrypt access token")
+	}
+	// A claude row read before migration 0067 deleted the subscription ones
+	// is never handed out (#2777).
+	if row.Provider == ProviderConnectionProviderClaude && !strings.HasPrefix(plaintext, claudeAPIKeyPrefix) {
+		return nil, errors.New("a claude connection holds no Anthropic API key")
 	}
 	return &ResolvedProviderConnection{
 		ConnectionID: row.ID, Provider: row.Provider, Kind: row.Kind,
@@ -817,6 +820,10 @@ func (s *ProviderConnectionService) refreshRow(ctx context.Context, row db.Provi
 func (s *ProviderConnectionService) refreshClaimedRow(ctx context.Context, row db.ProviderConnection) error {
 	if s.refresher == nil {
 		return errors.New("no token refresher configured")
+	}
+	if err := s.refuseStoredClaudeToken(row); err != nil {
+		slog.Warn("refused to refresh a connection holding a Claude subscription token (#2777); the next start deletes it", "connection_id", row.ID)
+		return err
 	}
 	refreshToken, err := s.codec.DecryptString(string(row.RefreshTokenEncrypted))
 	if err != nil {

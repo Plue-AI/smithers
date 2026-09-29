@@ -29,9 +29,9 @@ const ACCOUNTS_CARD = "provider-accounts"
 const connectionId = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9-]{1,100}$/.test(value)
 const deviceId = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value)
-/* A Claude setup token or an Anthropic API key; the server infers which. */
+/* An Anthropic API key. A Claude subscription token is never accepted (#2777). */
 const claudeToken = (value: string | undefined): value is string =>
-  value !== undefined && (value.startsWith("sk-ant-oat01-") || value.startsWith("sk-ant-api")) && !/\s/.test(value)
+  value !== undefined && value.startsWith("sk-ant-api") && !/\s/.test(value)
 type Connection = { id: string; provider: string; state: string; label: string; email: string | null; limitedUntil: string | null; sortOrder: number }
 const text = (value: unknown): string | null => typeof value === "string" && value !== "" ? value : null
 const connections = (raw: unknown): Connection[] | undefined => Array.isArray(raw) && raw.every(row =>
@@ -350,7 +350,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       const flight = flightAt(pending.id)
       return flight ? acknowledgment(flight) : "Connection check failed."
     }
-    if (!claudeToken(value)) return "Enter a Claude setup token or API key."
+    if (!claudeToken(value)) return "Enter an Anthropic API key."
     const row: Pending = { id: crypto.randomUUID(), owner: login, action: "connect", state: "requested" }
     const flight = admit(row, current)
     inFlight.set(flightKey, flight)

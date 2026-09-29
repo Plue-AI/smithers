@@ -30,7 +30,7 @@ test("Claude form and controller keep a held token out of history and persisted 
   const id = "form-secrets.connect"
   const card = store.collections.cards.get(id)
   expect(card?.kind === "flow-form" && card.payload.fields.find(field => field.name === "value")?.kind).toBe("write-only")
-  const token = "sk-ant-oat01-private-controller-fixture"
+  const token = "sk-ant-api03-private-controller-fixture"
   expect(await controller.commands.run("form.set", `${id} value ${token}`)).toMatchObject({ status: "failed" })
   expect(await controller.commands.submit({ name: "form.submit", actor: "user", payload: { cardId: id }, gesture: writeOnlyGesture("form.submit", { value: token }) })).toMatchObject({ status: "executed", value: "Requested" })
   await waitFor(() => posts.length === 1)

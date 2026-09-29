@@ -174,42 +174,45 @@ describe("browser consent", () => {
 })
 
 describe("subscription storage and owner input", () => {
-  it("stores a Claude subscription in the native store and publishes it only when requested", async () => {
-    const { c } = await fixture()
-    vi.spyOn(c, "stdin").mockResolvedValue("sk-ant-oat01-test")
-    const keyring = vi.spyOn(c.session, "keyring").mockResolvedValue("")
-    expect(await auth["auth claude login"]!(c, {}, {})).toEqual({ status: "logged_in", stored_token: true })
-    keyring.mockResolvedValue("sk-ant-oat01-test")
-    expect(await auth["auth claude token"]!(c, {}, {})).toMatchObject({ configured: true, stored_token_set: true })
-    expect(await auth["auth claude logout"]!(c, {}, {})).toEqual({ status: "logged_out", cleared: true })
-    keyring.mockResolvedValue(undefined)
-    await expect(auth["auth claude login"]!(c, {}, {})).rejects.toThrow("storage is unavailable")
-    await expect(auth["auth claude push"]!(c, {}, { repo: "owner/repo" })).rejects.toThrow("No Claude")
-  })
-  it("refuses malformed Claude credentials and unsupported providers", async () => {
+  it("refuses Claude subscription logins and unsupported providers", async () => {
     const { c, home } = await fixture()
     vi.spyOn(c, "stdin").mockResolvedValue("API-key")
-    await expect(auth["auth connect"]!(c, { provider: "claude" }, { "setup-token": true })).rejects.toThrow(
-      "subscription"
-    )
+    await expect(auth["auth connect"]!(c, { provider: "claude" }, { "api-key": true })).rejects.toThrow("API key")
     await writeFile(join(home, ".credentials.json"), "{}")
     await expect(auth["auth connect"]!(c, { provider: "claude" }, { "config-dir": home })).rejects.toThrow(
-      "subscription"
+      "never stored"
     )
     await expect(auth["auth connect"]!(c, { provider: "other" }, {})).rejects.toThrow("Provider")
   })
-  it("reads Claude keychain metadata when the local file is missing", async () => {
+  it("never reads the Claude keychain entry", async () => {
     Object.defineProperty(process, "platform", { value: "darwin" })
     const { c, home } = await fixture()
-    vi.spyOn(c, "exec").mockResolvedValue("{\"claudeAiOauth\":{\"accessToken\":\"oauth\"}}")
+    const exec = vi.spyOn(c, "exec").mockResolvedValue("{\"claudeAiOauth\":{\"accessToken\":\"oauth\"}}")
     const request = vi.spyOn(c, "request").mockResolvedValue({})
-    await writeFile(join(home, ".claude.json"), "{\"oauthAccount\":{\"emailAddress\":\"owner@example.test\"}}")
-    await auth["auth connect"]!(c, { provider: "claude" }, { "config-dir": home })
-    expect(request).toHaveBeenCalledWith(
-      "POST",
-      "/api/user/provider-connections",
-      expect.objectContaining({ account_email: "owner@example.test" })
+    await expect(auth["auth connect"]!(c, { provider: "claude" }, { "config-dir": home })).rejects.toThrow(
+      "never stored"
     )
+    expect(exec).not.toHaveBeenCalled()
+    expect(request).not.toHaveBeenCalled()
+  })
+  it("deletes the legacy Claude setup token entry without reading it (#2777)", async () => {
+    const { c } = await fixture()
+    const keyring = vi.spyOn(c.session, "keyring").mockResolvedValue("")
+    const exec = vi.spyOn(c, "exec")
+    vi.spyOn(c, "stdin").mockResolvedValue("sk-ant-api03-key")
+    const request = vi.spyOn(c, "request").mockResolvedValue({ id: "conn-1" })
+    await auth["auth connect"]!(c, { provider: "claude" }, { "api-key": true })
+    await expect(auth["auth connect"]!(c, { provider: "claude" }, {})).rejects.toThrow("never stored")
+    expect(await auth["auth logout"]!(c, {}, {})).toMatchObject({ status: "logged_out" })
+    const legacy = keyring.mock.calls.filter(([, host]) => host === "claude.subscription-token")
+    expect(legacy).toEqual(Array(3).fill(["delete", "claude.subscription-token"]))
+    expect(exec).not.toHaveBeenCalled()
+    expect(request).toHaveBeenCalledTimes(1)
+
+    keyring.mockClear().mockRejectedValue(new Error("Secure credential storage delete failed"))
+    expect(await auth["auth logout"]!(c, {}, {})).toMatchObject({ status: "logged_out" })
+    await auth["auth connect"]!(c, { provider: "codex" }, { "config-dir": "/nonexistent" }).catch(() => undefined)
+    expect(keyring.mock.calls.filter(([, host]) => host === "claude.subscription-token")).toHaveLength(1)
   })
   it("validates owner identity and incomplete token receipts", async () => {
     const { c } = await fixture()

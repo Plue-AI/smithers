@@ -3,8 +3,7 @@ smthrs auth — auth
 Usage: smthrs auth <command>
 
 Commands:
-  claude       claude
-  connect      Connect your own Claude or Codex subscription for your own agent runs on a self-hosted server (imports the vendor CLI's login, or a pasted Claude setup token)
+  connect      Connect your own Codex subscription (imports the Codex CLI login) or an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Claude subscriptions are never stored; they run locally through Claude Code
   connections  List connected subscriptions
   local        local
   login        Log in to Smithers

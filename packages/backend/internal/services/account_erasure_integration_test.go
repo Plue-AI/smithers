@@ -61,7 +61,7 @@ func seedErasureFixture(t *testing.T, pool *pgxpool.Pool) erasureFixture {
 	exec(`INSERT INTO access_tokens(user_id,token_hash,name) VALUES ($1,$2,'cli')`, f.a, fmt.Sprintf("hash-%d", base))
 	exec(`INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES ($1,$2,$3,now()+interval '1 day')`, fmt.Sprintf("sess-%d", base), f.a, f.aName)
 	exec(`INSERT INTO ssh_keys(user_id,name,fingerprint,public_key) VALUES ($1,'laptop',$2,'ssh-ed25519 AAAA')`, f.a, fmt.Sprintf("SHA256:%d", base))
-	exec(`INSERT INTO provider_connections(owner_type,user_id,provider,kind,access_token_encrypted) VALUES ('user',$1,'claude','oauth','\x00')`, f.a)
+	exec(`INSERT INTO provider_connections(owner_type,user_id,provider,kind,access_token_encrypted) VALUES ('user',$1,'claude','api_key','\x00')`, f.a)
 	exec(`INSERT INTO chat_turns(id,repository_id,user_id,run_id,leg_id,request_hash,access_hash,state) VALUES ($1,$2,$3,'run','leg','rh','ah','completed')`, uuid.NewString(), f.aRepo, f.a)
 	// B comments on A's repository; A comments on B's repository.
 	var aIssue int64

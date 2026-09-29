@@ -35,9 +35,13 @@ func TestMythicalLaneAccountsOnProductSchema(t *testing.T) {
 	}
 	ws1, ws2, ws3, ws4 := workspace(), workspace(), workspace(), workspace()
 	connection := func(provider, label, email string) string {
+		kind := "api_key"
+		if provider == "codex" {
+			kind = "oauth"
+		}
 		var id string
 		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO provider_connections (owner_type, user_id, provider, kind, label, account_email, access_token_encrypted)
-			VALUES ('user', $1, $2, 'setup_token', $3, $4, 'sk-ant-oat01-never-shown'::bytea) RETURNING id::text`, userID, provider, label, email).Scan(&id))
+			VALUES ('user', $1, $2, $5, $3, $4, 'sk-ant-api03-never-shown'::bytea) RETURNING id::text`, userID, provider, label, email, kind).Scan(&id))
 		return id
 	}
 	browser := connection("claude", "web-3f1c", "")

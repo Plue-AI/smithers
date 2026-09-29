@@ -109,7 +109,7 @@ The root entry point exports the following namespaces; each is also available fr
 
 The existing Effect embedding API remains supported:
 
-The native host runs flows and completion judgments on configured subscription seats. Use `SMITHERS_OPENAI_AUTH=chatgpt` after `codex login`, a Claude subscription token, or the backend's connected account pool. No provider API key or gateway key is required. An unavailable subscription or invalid judgment fails closed; subscription routes never fall back to API keys. Remote clients use the server's configured seats.
+The native host runs flows and completion judgments on configured subscription seats. Use `SMITHERS_OPENAI_AUTH=chatgpt` after `codex login`, a logged-in Claude Code (`claude-code:*` seats), or the backend's connected account pool. No provider API key or gateway key is required. An unavailable subscription or invalid judgment fails closed; subscription routes never fall back to API keys. Remote clients use the server's configured seats.
 
 ```ts
 import { Command, NodeControl, Version } from "@smthrs/cli"

@@ -22,13 +22,13 @@ const (
 	// credentials are confined away from the /api surface.
 	ProviderPoolPath = "/provider-pool"
 	// ProviderPoolURLEnvName names the pool origin for the guest's model
-	// routes (NativeEquipment): ${SMITHERS_ACCOUNT_POOL_URL}/{anthropic,chatgpt}.
+	// routes (NativeEquipment): ${SMITHERS_ACCOUNT_POOL_URL}/chatgpt.
 	ProviderPoolURLEnvName = flowhost.AccountPoolURLEnv
 	// ProviderPoolKeyEnvName holds the guest's pool credential as an
 	// egress-proxy placeholder, bound for the API host only.
 	ProviderPoolKeyEnvName = flowhost.AccountPoolKeyEnv
-	// ProviderPoolProvidersEnvName lists the routes ("anthropic", "chatgpt")
-	// the guest may take to the pool: a provider the repository keys itself
+	// ProviderPoolProvidersEnvName lists the routes ("chatgpt") the guest may
+	// take to the pool: a provider the repository keys itself
 	// keeps that key. Which of them have connected accounts the guest asks
 	// the pool (GET /provider-pool/routes) when it resolves a seat, so an
 	// account connected after boot serves without a restart.
@@ -41,10 +41,10 @@ const (
 // providerPoolSeat is one guest seat a pool can serve.
 type providerPoolSeat struct{ seat, route string }
 
-// providerPoolSeats are the guest seats a pool serves: the Anthropic seat
-// for Claude accounts, the OpenAI seat in ChatGPT mode for Codex accounts.
+// providerPoolSeats are the guest seats a pool serves: the OpenAI seat in
+// ChatGPT mode for Codex accounts. A Claude subscription has no pool route
+// (#2777).
 var providerPoolSeats = []providerPoolSeat{
-	{"ANTHROPIC_API_KEY", "anthropic"},
 	{"OPENAI_API_KEY", "chatgpt"},
 }
 
@@ -120,7 +120,7 @@ func (s *WorkspaceService) bindWorkspaceProviderPool(ctx context.Context, worksp
 	if err != nil {
 		return pkgerrors.Internal("mint workspace provider pool credential").WithCause(err)
 	}
-	binding.bind(sandbox.EgressProxySecret{Name: ProviderPoolKeyEnvName, Value: token.Plaintext, Hosts: []string{host}, MatchHeaders: []string{"authorization", "x-api-key"}})
+	binding.bind(sandbox.EgressProxySecret{Name: ProviderPoolKeyEnvName, Value: token.Plaintext, Hosts: []string{host}, MatchHeaders: []string{"authorization"}})
 	binding.setEnv(ProviderPoolURLEnvName, strings.TrimRight(base, "/")+ProviderPoolPath)
 	binding.setEnv(ProviderPoolProvidersEnvName, strings.Join(routes, ","))
 	return nil

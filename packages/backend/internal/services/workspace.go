@@ -548,8 +548,6 @@ type WorkspaceQuerier interface {
 // lifecycle reconciliation around either a shared runtime or the legacy
 // sandbox transport during migration.
 type WorkspaceService struct {
-	// subscriptionTokens mirrors feature_flags.subscription_connections.
-	subscriptionTokens   bool
 	provisionTasks       *workspaceProvisionTasks
 	launchSessionCleanup func(string, func())
 	// sessionProvisionGrace is how long CreateSession waits before answering

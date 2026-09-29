@@ -760,10 +760,8 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			GitHubAppSecret:     "",
 		},
 		ProviderConnections: ProviderConnectionsConfig{
-			ClaudeTokenURL: "https://console.anthropic.com/v1/oauth/token",
-			ClaudeClientID: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-			CodexTokenURL:  "https://auth.openai.com/oauth/token",
-			CodexClientID:  "app_EMoamEEZ73f0CkXaXp7hrann",
+			CodexTokenURL: "https://auth.openai.com/oauth/token",
+			CodexClientID: "app_EMoamEEZ73f0CkXaXp7hrann",
 		},
 		Cleanup: CleanupConfig{
 			AuthInterval:                    "5m",

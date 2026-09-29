@@ -34,7 +34,7 @@ for (const action of ["list", "claude", "codex"] as const) for (const retirement
     const gate = delayedGate()
     t.setFetch(async () => gate.response)
     const pending = action === "list" ? t.seam.listCodingProviders() : action === "claude"
-      ? t.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-owned-fixture" })) : t.seam.connectCodex()
+      ? t.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-owned-fixture" })) : t.seam.connectCodex()
     await gate.parsed
     if (retirement === "account") {
       await t.login("bob")

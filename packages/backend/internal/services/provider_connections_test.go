@@ -249,15 +249,15 @@ func TestProviderConnection_ConnectValidatesKindsAndTokens(t *testing.T) {
 	svc := newPCService(q, nil)
 	actor := &db.User{ID: 7, Username: "will"}
 
-	_, err := svc.ConnectForUser(context.Background(), actor, ConnectProviderInput{Provider: "claude", AccessToken: "not-a-setup-token"})
-	require.Error(t, err, "a Claude connection without a refresh token must be a setup token")
+	_, err := svc.ConnectForUser(context.Background(), actor, ConnectProviderInput{Provider: "claude", AccessToken: "not-an-api-key"})
+	require.Error(t, err, "a Claude connection must be an Anthropic API key")
 
 	_, err = svc.ConnectForUser(context.Background(), actor, ConnectProviderInput{Provider: "codex", AccessToken: "acc", RefreshToken: "ref"})
 	require.Error(t, err, "codex needs the account id")
 
-	out, err := svc.ConnectForUser(context.Background(), actor, ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-oat01-abc"})
+	out, err := svc.ConnectForUser(context.Background(), actor, ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-api03-abc"})
 	require.NoError(t, err)
-	assert.Equal(t, ProviderConnectionKindSetupToken, out.Kind)
+	assert.Equal(t, ProviderConnectionKindAPIKey, out.Kind)
 	assert.False(t, out.HasRefreshToken)
 	assert.Equal(t, "active", out.State)
 
@@ -271,22 +271,80 @@ func TestProviderConnection_ConnectValidatesKindsAndTokens(t *testing.T) {
 	assert.Equal(t, "enc:ref", string(row.RefreshTokenEncrypted))
 }
 
+// #2777: no shape of Claude subscription login is accepted or stored, even
+// with subscription connections enabled and whatever provider it is labeled
+// with, so the Codex refresher never sends a Claude refresh token to OpenAI.
+func TestProviderConnection_RefusesEveryClaudeSubscriptionToken(t *testing.T) {
+	q := newFakePCQ()
+	svc := newPCService(q, nil)
+	actor := &db.User{ID: 7}
+	for name, in := range map[string]ConnectProviderInput{
+		"setup token":            {Provider: "claude", AccessToken: "sk-ant-oat01-setup"},
+		"setup_token kind":       {Provider: "claude", Kind: "setup_token", AccessToken: "sk-ant-oat01-setup"},
+		"oauth pair":             {Provider: "claude", Kind: "oauth", AccessToken: "sk-ant-oat01-access", RefreshToken: "sk-ant-ort01-refresh"},
+		"oauth inferred":         {Provider: "claude", AccessToken: "sk-ant-oat01-access", RefreshToken: "sk-ant-ort01-refresh"},
+		"oauth as api_key":       {Provider: "claude", Kind: "api_key", AccessToken: "sk-ant-oat01-access"},
+		"api key with a refresh": {Provider: "claude", AccessToken: "sk-ant-api03-key", RefreshToken: "sk-ant-ort01-refresh"},
+		"claude-code alias":      {Provider: "claude-code", AccessToken: "sk-ant-oat01-setup"},
+		"codex-labeled pair":     {Provider: "codex", Kind: "oauth", AccessToken: "sk-ant-oat01-access", RefreshToken: "sk-ant-ort01-refresh", AccountID: "acct"},
+		"codex-labeled access":   {Provider: "codex", AccessToken: "sk-ant-oat01-access", RefreshToken: "rt", AccountID: "acct"},
+		"codex-labeled refresh":  {Provider: "chatgpt", AccessToken: "at", RefreshToken: "sk-ant-ort01-refresh", AccountID: "acct"},
+	} {
+		_, err := svc.ConnectForUser(context.Background(), actor, in)
+		require.Error(t, err, name)
+		assert.Equal(t, errClaudeSubscriptionToken().Error(), err.Error(), name)
+	}
+	_, err := svc.ConnectForUser(context.Background(), actor, ConnectProviderInput{Provider: "codex", Kind: "setup_token", AccessToken: "at", RefreshToken: "rt", AccountID: "acct"})
+	require.ErrorContains(t, err, "a codex connection is a ChatGPT sign-in (kind oauth)")
+	assert.Empty(t, q.rows, "nothing is stored")
+}
+
+// #2777: a row holding a Claude token, under any provider label, is never
+// handed to the pool, and its refresh token never reaches a refresher.
+func TestProviderConnection_NeverMaterializesAStoredClaudeSubscriptionToken(t *testing.T) {
+	q := newFakePCQ()
+	refresher := &stubRefresher{tokens: RefreshedTokens{AccessToken: "fresh", ExpiresAt: time.Now().Add(time.Hour)}}
+	svc := NewProviderConnectionService(q, plainCodec{}, refresher, WithSubscriptionConnectionsEnabled(true))
+	for _, row := range []db.ProviderConnection{
+		{ID: "setup", Provider: "claude", Kind: "setup_token", AccessTokenEncrypted: []byte("enc:sk-ant-oat01-setup")},
+		{ID: "mislabeled", Provider: "claude", Kind: "api_key", AccessTokenEncrypted: []byte("enc:sk-ant-oat01-access")},
+		{ID: "codex-access", Provider: "codex", Kind: "oauth", AccessTokenEncrypted: []byte("enc:sk-ant-oat01-access"), RefreshTokenEncrypted: []byte("enc:rt")},
+		{ID: "codex-refresh", Provider: "codex", Kind: "oauth", AccessTokenEncrypted: []byte("enc:at"), RefreshTokenEncrypted: []byte("enc:sk-ant-ort01-refresh"),
+			AccessExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}},
+		{ID: "codex-session", Provider: "codex", Kind: "oauth", AccessTokenEncrypted: []byte("enc:sk-ant-sid01-session"), RefreshTokenEncrypted: []byte("enc:rt")},
+	} {
+		resolved, err := svc.materialize(context.Background(), row)
+		require.Error(t, err, row.ID)
+		assert.Nil(t, resolved, row.ID)
+	}
+	resolved, err := svc.materialize(context.Background(), db.ProviderConnection{ID: "key", Provider: "claude", Kind: "api_key", AccessTokenEncrypted: []byte("enc:sk-ant-api03-key")})
+	require.NoError(t, err)
+	assert.Equal(t, "sk-ant-api03-key", resolved.AccessToken)
+	resolved, err = svc.materialize(context.Background(), db.ProviderConnection{ID: "codex", Provider: "codex", Kind: "oauth", AccessTokenEncrypted: []byte("enc:at"), RefreshTokenEncrypted: []byte("enc:rt")})
+	require.NoError(t, err)
+	assert.Equal(t, "at", resolved.AccessToken)
+	// The background refresh never sends a Claude refresh token to OpenAI.
+	require.Error(t, svc.refreshClaimedRow(context.Background(), db.ProviderConnection{ID: "codex-refresh", Provider: "codex", Kind: "oauth",
+		AccessTokenEncrypted: []byte("enc:at"), RefreshTokenEncrypted: []byte("enc:sk-ant-ort01-refresh")}))
+	assert.Zero(t, refresher.calls, "no Claude token reaches a refresher")
+}
+
 func TestProviderConnection_WebRequestIsIdempotentAndAccountScoped(t *testing.T) {
 	q := newFakePCQ()
 	q.repos[2] = db.Repository{ID: 2, UserID: pgtype.Int8{Int64: 7, Valid: true}}
 	svc := newPCService(q, nil)
 	alice, bob := &db.User{ID: 7}, &db.User{ID: 8}
-	first, err := svc.ConnectForUser(context.Background(), alice, ConnectProviderInput{Provider: "claude", Label: "web-request-1", AccessToken: "sk-ant-oat01-first"})
+	first, err := svc.ConnectForUser(context.Background(), alice, ConnectProviderInput{Provider: "claude", Label: "web-request-1", AccessToken: "sk-ant-api03-first"})
 	require.NoError(t, err)
-	replayed, err := svc.ConnectForUser(context.Background(), alice, ConnectProviderInput{Provider: "claude", Label: "web-request-1", AccessToken: "sk-ant-oat01-second"})
+	replayed, err := svc.ConnectForUser(context.Background(), alice, ConnectProviderInput{Provider: "claude", Label: "web-request-1", AccessToken: "sk-ant-api03-second"})
 	require.NoError(t, err)
 	assert.Equal(t, first.ID, replayed.ID)
 	assert.Equal(t, 1, len(q.rows))
-	assert.Equal(t, "enc:sk-ant-oat01-first", string(q.rows[first.ID].AccessTokenEncrypted))
+	assert.Equal(t, "enc:sk-ant-api03-first", string(q.rows[first.ID].AccessTokenEncrypted))
 	foreign, err := resolveForRun(svc, context.Background(), 8, 2, "claude")
 	require.NoError(t, err)
 	assert.Nil(t, foreign, "a collaborator cannot resolve the owner's connection")
-	other, err := svc.ConnectForUser(context.Background(), bob, ConnectProviderInput{Provider: "claude", Label: "web-request-1", AccessToken: "sk-ant-oat01-bob"})
+	other, err := svc.ConnectForUser(context.Background(), bob, ConnectProviderInput{Provider: "claude", Label: "web-request-1", AccessToken: "sk-ant-api03-bob"})
 	require.NoError(t, err)
 	assert.NotEqual(t, first.ID, other.ID)
 	assert.Equal(t, 2, len(q.rows))
@@ -302,12 +360,12 @@ func TestProviderConnection_OrganizationConnectionsNeverServeRuns(t *testing.T) 
 	q.members[[2]int64{3, 7}] = "member"
 	q.members[[2]int64{3, 8}] = "owner"
 	svc := newPCService(q, nil)
-	_, err := svc.ConnectForOrg(context.Background(), &db.User{ID: 8}, "acme", ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-oat01-x"})
+	_, err := svc.ConnectForOrg(context.Background(), &db.User{ID: 8}, "acme", ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-api03-x"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "own runs")
 	assert.Empty(t, q.rows)
 
-	_, err = q.CreateProviderConnection(context.Background(), db.CreateProviderConnectionParams{OwnerType: "org", OrgID: pgtype.Int8{Int64: 3, Valid: true}, Provider: "claude", Kind: "setup_token", AccessTokenEncrypted: []byte("enc:sk-ant-oat01-org")})
+	_, err = q.CreateProviderConnection(context.Background(), db.CreateProviderConnectionParams{OwnerType: "org", OrgID: pgtype.Int8{Int64: 3, Valid: true}, Provider: "claude", Kind: "api_key", AccessTokenEncrypted: []byte("enc:sk-ant-api03-org")})
 	require.NoError(t, err)
 	for _, preference := range []string{ProviderConnectionPreferenceOrgFirst, ProviderConnectionPreferenceOrgOnly, ProviderConnectionPreferenceUserFirst} {
 		require.NoError(t, svc.SetRepositoryPreference(context.Background(), 1, preference))
@@ -328,7 +386,7 @@ func TestProviderConnection_ResolveOnlyTheRunUsersOwnConnection(t *testing.T) {
 	q.repos[2] = db.Repository{ID: 2, UserID: pgtype.Int8{Int64: 7, Valid: true}}
 	svc := newPCService(q, nil)
 	user := &db.User{ID: 7}
-	userConn, err := svc.ConnectForUser(context.Background(), user, ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-oat01-user"})
+	userConn, err := svc.ConnectForUser(context.Background(), user, ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-api03-user"})
 	require.NoError(t, err)
 
 	// Org repo without a grant: nothing.
@@ -343,7 +401,7 @@ func TestProviderConnection_ResolveOnlyTheRunUsersOwnConnection(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resolved)
 	assert.Equal(t, userConn.ID, resolved.ConnectionID)
-	assert.Equal(t, "sk-ant-oat01-user", resolved.AccessToken)
+	assert.Equal(t, "sk-ant-api03-user", resolved.AccessToken)
 
 	// Another user's run on the same repo never gets it.
 	resolved, err = resolveForRun(svc, context.Background(), 9, 1, "smithers")
@@ -379,7 +437,7 @@ func TestProviderConnection_DisabledDeploymentResolvesNothing(t *testing.T) {
 	q := newFakePCQ()
 	q.repos[2] = db.Repository{ID: 2, UserID: pgtype.Int8{Int64: 7, Valid: true}}
 	soon := time.Now().Add(time.Minute)
-	_, err := newPCService(q, nil).ConnectForUser(context.Background(), &db.User{ID: 7}, ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-oat01-user", RefreshToken: "r", AccessExpiresAt: &soon})
+	_, err := newPCService(q, nil).ConnectForUser(context.Background(), &db.User{ID: 7}, ConnectProviderInput{Provider: "codex", AccessToken: "at-user", RefreshToken: "r", AccountID: "acct", AccessExpiresAt: &soon})
 	require.NoError(t, err)
 
 	refresher := &stubRefresher{tokens: RefreshedTokens{AccessToken: "fresh", ExpiresAt: time.Now().Add(time.Hour)}}
@@ -388,7 +446,7 @@ func TestProviderConnection_DisabledDeploymentResolvesNothing(t *testing.T) {
 		"explicit": NewProviderConnectionService(q, plainCodec{}, refresher, WithSubscriptionConnectionsEnabled(false)),
 	} {
 		t.Run(name, func(t *testing.T) {
-			resolved, err := resolveForRun(svc, context.Background(), 7, 2, "claude")
+			resolved, err := resolveForRun(svc, context.Background(), 7, 2, "codex")
 			require.NoError(t, err)
 			assert.Nil(t, resolved)
 
@@ -425,7 +483,7 @@ func TestProviderConnection_RevocationDuringResolutionFailsClosed(t *testing.T) 
 	q.repos[2] = db.Repository{ID: 2, UserID: pgtype.Int8{Int64: 7, Valid: true}}
 	owner := &db.User{ID: 7}
 	svc := newPCService(q, nil)
-	connection, err := svc.ConnectForUser(context.Background(), owner, ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-oat01-fixture"})
+	connection, err := svc.ConnectForUser(context.Background(), owner, ConnectProviderInput{Provider: "claude", AccessToken: "sk-ant-api03-fixture"})
 	require.NoError(t, err)
 	decrypted := false
 	svc.codec = revokingCodec{revoke: func() {
@@ -504,15 +562,14 @@ func TestProviderConnection_DispatchRefreshesExpiringTokenSynchronously(t *testi
 	assert.Equal(t, 1, refresher.calls)
 }
 
-func TestHTTPProviderTokenRefresher_ClaudeAndCodex(t *testing.T) {
+// Only a Codex sign-in refreshes: there is no Claude refresh client (#2777).
+func TestHTTPProviderTokenRefresher_CodexOnly(t *testing.T) {
 	var seen []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		seen = append(seen, body)
 		switch r.URL.Path {
-		case "/claude":
-			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "sk-ant-oat01-new", "refresh_token": "sk-ant-ort01-new", "expires_in": 3600})
 		case "/codex":
 			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "codex-new", "refresh_token": "codex-ref-new", "id_token": testIDToken(t, "acct_9", "pro", "p@example.com")})
 		case "/revoked":
@@ -521,24 +578,23 @@ func TestHTTPProviderTokenRefresher_ClaudeAndCodex(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	r := NewHTTPProviderTokenRefresher(ProviderConnectionsConfig{ClaudeTokenURL: server.URL + "/claude", ClaudeClientID: "cid-claude", CodexTokenURL: server.URL + "/codex", CodexClientID: "cid-codex"}, server.Client())
+	r := NewHTTPProviderTokenRefresher(ProviderConnectionsConfig{CodexTokenURL: server.URL + "/codex", CodexClientID: "cid-codex"}, server.Client())
 
-	claude, err := r.Refresh(context.Background(), "claude", "sk-ant-ort01-old")
-	require.NoError(t, err)
-	assert.Equal(t, "sk-ant-oat01-new", claude.AccessToken)
-	assert.WithinDuration(t, time.Now().Add(time.Hour), claude.ExpiresAt, 5*time.Second)
-	assert.Equal(t, "cid-claude", seen[0]["client_id"])
-	assert.Equal(t, "refresh_token", seen[0]["grant_type"])
+	_, err := r.Refresh(context.Background(), "claude", "sk-ant-ort01-old")
+	require.Error(t, err)
+	assert.Empty(t, seen, "a Claude refresh token is never sent anywhere")
 
 	codex, err := r.Refresh(context.Background(), "codex", "codex-ref-old")
 	require.NoError(t, err)
 	assert.Equal(t, "acct_9", codex.AccountID)
 	assert.Equal(t, "pro", codex.Plan)
 	assert.Equal(t, "p@example.com", codex.AccountEmail)
-	assert.Equal(t, "openid profile email", seen[1]["scope"])
+	assert.Equal(t, "cid-codex", seen[0]["client_id"])
+	assert.Equal(t, "refresh_token", seen[0]["grant_type"])
+	assert.Equal(t, "openid profile email", seen[0]["scope"])
 
-	r2 := NewHTTPProviderTokenRefresher(ProviderConnectionsConfig{ClaudeTokenURL: server.URL + "/revoked"}, server.Client())
-	_, err = r2.Refresh(context.Background(), "claude", "dead")
+	r2 := NewHTTPProviderTokenRefresher(ProviderConnectionsConfig{CodexTokenURL: server.URL + "/revoked"}, server.Client())
+	_, err = r2.Refresh(context.Background(), "codex", "dead")
 	assert.ErrorIs(t, err, ErrProviderRefreshInvalidGrant)
 }
 

@@ -110,16 +110,14 @@ func TestRebuildRequiredSnapshotIsNotRestored(t *testing.T) {
 	assert.False(t, created)
 }
 
-// A self-hosted deployment that stores subscription tokens reuses every
-// workspace and snapshot, including ones marked before it turned them on.
-func TestRebuildRequiredIsIgnoredWhenSubscriptionTokensAreAllowed(t *testing.T) {
+// Every deployment refuses a marked workspace and snapshot: one that allows
+// ChatGPT tokens marks them only for a Claude token (#2777).
+func TestRebuildRequiredIsRefusedOnEveryDeployment(t *testing.T) {
 	t.Parallel()
-	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSubscriptionTokens(true))
-	require.NoError(t, svc.refuseRebuildRequired(flaggedWorkspace("ws")))
+	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
+	requireRebuildRequired(t, svc.refuseRebuildRequired(flaggedWorkspace("ws")))
 	snapshot := sampleDBWorkspaceSnapshot("11111111-1111-1111-1111-111111111111", "ws", "s", "snap")
 	snapshot.RebuildRequiredAt = pgtype.Timestamptz{Valid: true}
-	require.NoError(t, svc.refuseRebuildRequiredSnapshot(snapshot))
-	hosted := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
-	requireRebuildRequired(t, hosted.refuseRebuildRequired(flaggedWorkspace("ws")))
-	requireRebuildRequired(t, hosted.refuseRebuildRequiredSnapshot(snapshot))
+	requireRebuildRequired(t, svc.refuseRebuildRequiredSnapshot(snapshot))
+	require.NoError(t, svc.refuseRebuildRequired(db.Workspace{ID: "clean"}))
 }

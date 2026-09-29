@@ -39,7 +39,7 @@ func (s *stubProviderConnectionService) PollCodexDeviceLogin(_ context.Context, 
 
 func (s *stubProviderConnectionService) ConnectForUser(_ context.Context, actor *db.User, in services.ConnectProviderInput) (services.ProviderConnectionResponse, error) {
 	s.connected = in
-	return services.ProviderConnectionResponse{ID: "conn-1", OwnerType: "user", Provider: in.Provider, Kind: "setup_token", State: "active", Grants: []services.ProviderConnectionGrantResponse{}}, nil
+	return services.ProviderConnectionResponse{ID: "conn-1", OwnerType: "user", Provider: in.Provider, Kind: "api_key", State: "active", Grants: []services.ProviderConnectionGrantResponse{}}, nil
 }
 func (s *stubProviderConnectionService) ConnectForOrg(context.Context, *db.User, string, services.ConnectProviderInput) (services.ProviderConnectionResponse, error) {
 	return services.ProviderConnectionResponse{ID: "conn-org"}, nil
@@ -107,11 +107,11 @@ func TestProviderConnectionRoutes(t *testing.T) {
 		return rec
 	}
 
-	rec := do(http.MethodPost, "/api/user/provider-connections", `{"provider":"claude","access_token":"sk-ant-oat01-x"}`)
+	rec := do(http.MethodPost, "/api/user/provider-connections", `{"provider":"claude","access_token":"sk-ant-api03-x"}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	assert.Equal(t, "claude", stub.connected.Provider)
 	assert.Contains(t, rec.Body.String(), `"id":"conn-1"`)
-	assert.NotContains(t, rec.Body.String(), "sk-ant-oat01-x", "a response never echoes a token")
+	assert.NotContains(t, rec.Body.String(), "sk-ant-api03-x", "a response never echoes a token")
 
 	rec = do(http.MethodGet, "/api/user/provider-connections", "")
 	require.Equal(t, http.StatusOK, rec.Code)

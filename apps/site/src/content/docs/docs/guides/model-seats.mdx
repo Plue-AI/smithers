@@ -53,14 +53,15 @@ The string holds no credential, endpoint, or client. At launch the CLI's seat re
 
 | Seat prefix | Credential the resolver reads | Route it builds |
 | --- | --- | --- |
-| `anthropic:` | `ANTHROPIC_API_KEY`, then the Claude subscription tokens `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` | Anthropic Messages at `https://api.anthropic.com/v1/messages` |
+| `anthropic:` | `ANTHROPIC_API_KEY` | Anthropic Messages at `https://api.anthropic.com/v1/messages` |
+| `claude-code:` | Your own Claude Code, signed in with `claude auth login` | Claude Code runs the turn and signs its own requests. |
 | `openai:` | `OPENAI_API_KEY`, or the ChatGPT session (step 3) | OpenAI Responses at `https://api.openai.com/v1/responses` |
 | `openrouter:` | `OPENROUTER_API_KEY` | OpenRouter through its configured model route. |
 | `moonshot:` | `MOONSHOT_API_KEY` | OpenAI-compatible Chat Completions at Moonshot. |
 | `gemini:` | `GEMINI_API_KEY`, then `GOOGLE_API_KEY` | Gemini's OpenAI-compatible Chat Completions endpoint. |
 | `cerebras:` | `CEREBRAS_API_KEY` | OpenAI-compatible Chat Completions at Cerebras. |
 
-OpenRouter seats spell the model as `openrouter:vendor/model`, for example `openrouter:anthropic/claude-sonnet-4.5`. A seat with no `:` reads as a bare model id on the Anthropic route. Any other provider prefix declines the launch: the resolver reports that no route is configured for that provider. A Smithers account pool (`SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY`, `SMITHERS_ACCOUNT_POOL_PROVIDERS`) signs `anthropic:` and `openai:` seats ahead of these credentials.
+OpenRouter seats spell the model as `openrouter:vendor/model`, for example `openrouter:anthropic/claude-sonnet-4.5`. A seat with no `:` reads as a bare model id on the Anthropic route. Any other provider prefix declines the launch: the resolver reports that no route is configured for that provider. A Smithers account pool (`SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY`, `SMITHERS_ACCOUNT_POOL_PROVIDERS`) signs `openai:` seats with connected ChatGPT sign-ins ahead of these credentials. A Claude subscription runs only on your own Claude Code: without `ANTHROPIC_API_KEY`, the Claude aliases `opus` and `fable` run as `claude-code:opus` and `claude-code:fable`.
 
 These aliases expand to a full seat; the run records the alias:
 

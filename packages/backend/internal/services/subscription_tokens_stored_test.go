@@ -90,7 +90,9 @@ func TestStoredSubscriptionTokenSecretsAreRefusedWhenUsed(t *testing.T) {
 			requireSubscriptionTokenRefused(t, err)
 			assert.NotContains(t, err.Error(), token)
 			assert.Regexp(t, `ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN`, err.Error())
-			require.NoError(t, fn(true))
+			// A stored Claude subscription token is refused with the flag on
+			// too (#2777).
+			requireSubscriptionTokenRefused(t, fn(true))
 		})
 	}
 }

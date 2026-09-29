@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,10 +91,20 @@ func TestSubscriptionTokensRefusedUnlessFlagOn(t *testing.T) {
 			_, err := svc.PutAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo", PutAgentEnvironmentInput{Env: []AgentEnvironmentVariable{{Name: "ANTHROPIC_AUTH_TOKEN", Value: token}}})
 			return err
 		},
+		"chatgpt repo secret": func(allowed bool) error {
+			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}, WithSecretSubscriptionTokens(allowed)).SetSecret(ctx, actor, "alice", "demo", "OPENAI_CODEX_ACCESS_TOKEN", chatGPTAccessTokenForTest(t), nil)
+			return err
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			requireSubscriptionTokenRefused(t, fn(false))
-			require.NoError(t, fn(true))
+			// A Claude subscription token is refused on every deployment
+			// (#2777); only a ChatGPT one is stored when the flag is on.
+			if strings.Contains(strings.ToLower(name), "chatgpt") || strings.Contains(name, "Codex") {
+				require.NoError(t, fn(true))
+				return
+			}
+			requireSubscriptionTokenRefused(t, fn(true))
 		})
 	}
 
@@ -157,15 +168,39 @@ func TestStoredSubscriptionTokenInAgentEnvironmentIsRefusedAndRedacted(t *testin
 		})
 	}
 
-	// A self-hosted deployment with the flag on uses what it stored.
-	svc := NewAgentEnvironmentService(stored("export CLAUDE_CODE_OAUTH_TOKEN="+token, `[]`), codec, WithAgentEnvironmentSubscriptionTokens(true))
+	// A self-hosted deployment with the flag on uses a stored ChatGPT token
+	// but never a Claude one (#2777): it is refused and redacted, its
+	// variables dropped, and saving the answer back marks what it built.
+	chatgptScript := "export OPENAI_CODEX_ACCESS_TOKEN=" + chatgpt
+	store := stored(chatgptScript+"\nexport CLAUDE_CODE_OAUTH_TOKEN="+token, `[{"name":"CLAUDE_CODE_OAUTH_TOKEN","value":"x"},{"name":"CODEX_TOKEN","value":"`+chatgpt+`"}]`)
+	svc := NewAgentEnvironmentService(store, codec, WithAgentEnvironmentSubscriptionTokens(true))
 	response, err := svc.GetAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo")
 	require.NoError(t, err)
-	assert.False(t, response.ReconnectRequired)
-	assert.Contains(t, response.SetupScript, token)
+	assert.True(t, response.ReconnectRequired)
+	assert.Equal(t, chatgptScript+"\nexport CLAUDE_CODE_OAUTH_TOKEN=[removed:#2777]", response.SetupScript)
+	assert.Equal(t, []AgentEnvironmentVariable{{Name: "CODEX_TOKEN", Value: chatgpt}}, response.Env)
+	_, err = svc.LoadForProvisioning(ctx, 42)
+	requireSubscriptionTokenRefused(t, err)
+	assert.NotContains(t, err.Error(), token)
+	_, err = svc.LoadVariables(ctx, 42)
+	requireSubscriptionTokenRefused(t, err)
+	_, err = svc.PutAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo", PutAgentEnvironmentInput{SetupScript: response.SetupScript, Env: response.Env})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{42}, store.rebuildMarked, "the workspaces the Claude token reached are rebuilt")
 	config, err := svc.LoadForProvisioning(ctx, 42)
 	require.NoError(t, err)
-	assert.Contains(t, config.SetupScript, token)
+	assert.Contains(t, config.SetupScript, chatgpt)
+	assert.NotContains(t, config.SetupScript, token)
+
+	chatgptOnly := stored(chatgptScript, `[]`)
+	svc = NewAgentEnvironmentService(chatgptOnly, codec, WithAgentEnvironmentSubscriptionTokens(true))
+	response, err = svc.GetAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo")
+	require.NoError(t, err)
+	assert.False(t, response.ReconnectRequired)
+	assert.Equal(t, chatgptScript, response.SetupScript)
+	_, err = svc.PutAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo", PutAgentEnvironmentInput{SetupScript: "npm ci"})
+	require.NoError(t, err)
+	assert.Empty(t, chatgptOnly.rebuildMarked, "an allowed ChatGPT token marks nothing")
 }
 
 func TestAgentEnvironmentLoadErrorKeepsTheStoredTokenRefusal(t *testing.T) {

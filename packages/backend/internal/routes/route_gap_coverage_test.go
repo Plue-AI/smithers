@@ -223,7 +223,7 @@ func (s *orgProviderConnectionRecorder) ConnectForOrg(_ context.Context, actor *
 
 func TestConnectOrg_Route(t *testing.T) {
 	t.Parallel()
-	const body = `{"provider":"claude","kind":"setup_token","access_token":"tok"}`
+	const body = `{"provider":"claude","kind":"api_key","access_token":"tok"}`
 	params := map[string]string{"org": "acme"}
 
 	t.Run("requires auth", func(t *testing.T) {

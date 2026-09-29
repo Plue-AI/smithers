@@ -96,7 +96,7 @@ func (api *browserFlowAPI) registrationTarget(ctx context.Context, workspaceID s
 	}
 	destination := registrationDestination{Repo: repo, WorkspaceID: workspace.ID}
 	target := flowruntime.Target{TenantID: "repository:" + strconv.FormatInt(workspace.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(workspace.UserID, 10), WorkspaceID: workspace.ID, BindingKind: "browser-flow", BindingID: repo}
-	if workspace.RebuildRequiredAt.Valid && !api.subscriptionTokens {
+	if workspace.RebuildRequiredAt.Valid {
 		return destination, target, workspace, pkgerrors.Conflict(browserFlowRebuildRequired)
 	}
 	return destination, target, workspace, nil

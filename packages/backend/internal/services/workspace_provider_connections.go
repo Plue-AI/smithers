@@ -93,8 +93,8 @@ func workspaceProviderFamily(name string) []string {
 	switch name {
 	case "OPENAI_API_KEY", "OPENAI_CODEX_ACCESS_TOKEN":
 		return []string{"OPENAI_API_KEY", "OPENAI_CODEX_ACCESS_TOKEN"}
-	case "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN":
-		return []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+	case "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN":
+		return []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
 	default:
 		return []string{name}
 	}
@@ -137,7 +137,7 @@ var workspaceCodingModels = []struct {
 	Keys            []string
 }{
 	{"openai", "gpt-6-luna", []string{"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_API_KEY"}},
-	{"anthropic", "claude-sonnet-4-6", []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}},
+	{"anthropic", "claude-sonnet-4-6", []string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"}},
 	{"cerebras", "gpt-oss-120b", []string{"CEREBRAS_API_KEY"}},
 }
 

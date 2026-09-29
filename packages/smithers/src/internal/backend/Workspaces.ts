@@ -177,19 +177,13 @@ const seed = async (c: Client, ssh: Endpoint, agents: Array<string>) => {
       if (!tokens.access_token || !tokens.refresh_token) throw new Error("Codex subscription login required")
       for (const value of Object.values(tokens)) if (typeof value === "string") c.protect(value)
     } else if (agent === "claude") {
-      let token = c.env.ANTHROPIC_AUTH_TOKEN || await c.session.keyring("get", "claude.subscription-token")
-      if (!token) {
-        const value = object(
-          JSON.parse(
-            await readFile(join(c.env.CLAUDE_CONFIG_DIR || join(c.home, ".claude"), ".credentials.json"), "utf8")
-          )
-        )
-        token = str(object(value.claudeAiOauth).accessToken)
+      const key = c.env.ANTHROPIC_API_KEY ?? ""
+      if (!key.startsWith("sk-ant-api")) {
+        throw new Error("ANTHROPIC_API_KEY is required; Claude subscriptions are never sent to a workspace")
       }
-      if (!token || !token.startsWith("sk-ant-oat")) throw new Error("Claude subscription login required")
-      c.protect(token)
+      c.protect(key)
       path = "/home/developer/.smithers/claude-env.sh"
-      data = `export ANTHROPIC_AUTH_TOKEN=${quote(token)}\n`
+      data = `export ANTHROPIC_API_KEY=${quote(key)}\n`
     } else throw new Error("seedAgentAuth accepts claude,codex")
     const script = `set -e; umask 077; mkdir -p ${quote(path.slice(0, path.lastIndexOf("/")))}; printf %s ${
       quote(Buffer.from(data).toString("base64"))
@@ -304,7 +298,7 @@ export const claudeScript = (prompt: string) => {
     "command -v node >/dev/null && command -v npm >/dev/null || { echo 'Node.js and npm must be on PATH' >&2; exit 1; }",
     "command -v claude >/dev/null || npm install -g @anthropic-ai/claude-code >/home/developer/.smithers/claude-install.log 2>&1",
     ". /home/developer/.smithers/claude-env.sh",
-    "test -n \"${ANTHROPIC_AUTH_TOKEN:-}\" || { echo 'Claude subscription login required' >&2; exit 1; }",
+    "test -n \"${ANTHROPIC_API_KEY:-}\" || { echo 'ANTHROPIC_API_KEY required' >&2; exit 1; }",
     "cd /home/developer/workspace",
     "prompt=$(cat /home/developer/.smithers/issue-prompt.txt)",
     "exec </dev/null claude -p --dangerously-skip-permissions --no-session-persistence --output-format json \"$prompt\""

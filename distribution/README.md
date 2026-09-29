@@ -56,7 +56,12 @@ docker exec smithers /opt/smithers/bin/smithers-backend credits balance -owner u
 
 ## Subscription connections
 
-Claude and ChatGPT (Codex) subscription connections are disabled by default.
+ChatGPT (Codex) subscription connections are disabled by default. No
+deployment stores a Claude subscription: Anthropic's terms forbid storing
+Claude.ai credentials, so Claude subscriptions run locally through the user's
+own logged-in Claude Code (`claude-code:*` seats). A Claude connection is an
+Anthropic API key only.
+
 The hosted product keeps them disabled. A self-hosted installation can set
 `SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS=true` in its backend environment
 and restart to let each user connect their own subscription for their own runs
@@ -65,9 +70,19 @@ and workspaces.
 With the flag off, provider-connection routes return 403, the account refresh
 worker does not start, and execution does not resolve stored subscription
 tokens. The app hides the connection buttons. Secret, variable, and agent
-environment writes also reject recognized subscription credentials, including
+environment writes also reject recognized subscription credentials (a Claude one
+even with the flag on), including
 `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_CODEX_ACCESS_TOKEN`, and `CODEX_AUTH_JSON`.
 Provider API keys remain supported through their existing credential paths.
+On every start, every deployment deletes the secrets, variables, and provider
+connections that hold a Claude subscription token, clears such model
+credentials, removes the token from agent environments, logs each removal by
+table, owner, and entry name, and marks the workspaces and snapshots built
+with them for rebuild. The scan costs about 7 µs per stored row. A marked workspace or snapshot is refused whatever the flag says: a
+deployment that turns the flag on after running with it off still rebuilds the
+workspaces it marked for a ChatGPT token. The account pool serves only
+connected ChatGPT sign-ins (`/provider-pool/chatgpt`); a Claude subscription
+runs only on the user's own logged-in Claude Code.
 
 ## Native application
 

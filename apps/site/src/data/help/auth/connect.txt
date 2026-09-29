@@ -1,4 +1,4 @@
-smthrs auth connect — Connect your own Claude or Codex subscription for your own agent runs on a self-hosted server (imports the vendor CLI's login, or a pasted Claude setup token)
+smthrs auth connect — Connect your own Codex subscription (imports the Codex CLI login) or an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Claude subscriptions are never stored; they run locally through Claude Code
 
 Usage: smthrs auth connect <provider> [options]
 
@@ -8,7 +8,7 @@ Arguments:
 Options:
   --config-dir <string>
   --label <string>
-  --setup-token
+  --api-key
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

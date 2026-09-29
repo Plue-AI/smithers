@@ -26,10 +26,10 @@ const device = (state: string, extra: Record<string, unknown> = {}) => ({
   interval_seconds: 5, expires_at: "2999-01-01T00:00:00Z", ...extra
 })
 const POOL = [
-  { id: "a", provider: "claude", kind: "setup_token", label: "web-1", account_email: "a@example.com", state: "active", sort_order: 0 },
-  { id: "old", provider: "claude", kind: "setup_token", label: "web-0", state: "revoked", sort_order: 1 },
+  { id: "a", provider: "claude", kind: "api_key", label: "web-1", account_email: "a@example.com", state: "active", sort_order: 0 },
+  { id: "old", provider: "claude", kind: "api_key", label: "web-0", state: "revoked", sort_order: 1 },
   { id: "b", provider: "claude", kind: "api_key", label: "b", state: "active", sort_order: 2, limited_until: "2026-09-25T10:15:00Z" },
-  { id: "c", provider: "claude", kind: "setup_token", label: "c", state: "refresh_failed", sort_order: 3 },
+  { id: "c", provider: "claude", kind: "api_key", label: "c", state: "refresh_failed", sort_order: 3 },
   { id: "x", provider: "codex", kind: "oauth", label: "x", state: "active", sort_order: 0 }
 ]
 
@@ -355,8 +355,8 @@ test("reload puts a persisted Codex code back on the card while it polls", async
   expect(h.accounts()?.pending).toBeUndefined()
 })
 
-test("Claude accepts a setup token or an API key and lets the server infer the kind", async () => {
-  for (const token of ["sk-ant-oat01-fixture", "sk-ant-api03-fixture"]) {
+test("Claude accepts an Anthropic API key and refuses a subscription token", async () => {
+  for (const token of ["sk-ant-api03-fixture"]) {
     const h = harness({ card: true, http: async call => call.method === "POST"
       ? Response.json({ id: "conn-9", provider: "claude", state: "active", label: JSON.parse(call.body!).label })
       : Response.json(POOL) })
@@ -368,7 +368,9 @@ test("Claude accepts a setup token or an API key and lets the server infer the k
     expect(JSON.stringify(h.accounts())).not.toContain(token)
   }
   const h = harness({ http: async () => Response.json(POOL) })
-  expect(await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-other" }))).toBe("Enter a Claude setup token or API key.")
+  expect(await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-fixture" }))).toBe("Enter an Anthropic API key.")
+  expect(h.calls).toEqual([])
+  expect(await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-other" }))).toBe("Enter an Anthropic API key.")
 })
 
 test("connecting Claude while a move is pending sends the token instead of joining the move", async () => {
@@ -378,9 +380,9 @@ test("connecting Claude while a move is pending sends the token instead of joini
       ? Response.json({ id: "conn-9", provider: "claude", state: "active", label: JSON.parse(call.body!).label })
       : new Response(null, { status: 204 })
   })
-  expect(await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-fixture" }))).toEqual({ value: "Requested" })
+  expect(await h.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-fixture" }))).toEqual({ value: "Requested" })
   expect(await h.work.at(-1)).toBe(true)
-  expect(h.calls.find(call => call.method === "POST")?.body).toContain("sk-ant-oat01-fixture")
+  expect(h.calls.find(call => call.method === "POST")?.body).toContain("sk-ant-api03-fixture")
 })
 
 test("two quick presses while persistence is held compute from each other", async () => {
@@ -438,7 +440,7 @@ test("a feature-gated connections list shows the Accounts card without connect b
 
 test("a feature-gated Claude or Codex connect fails its toast plainly and hides the buttons", async () => {
   const claude = harness({ card: true, http: async () => gated() })
-  expect(await claude.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-oat01-fixture" }))).toEqual({ value: "Requested" })
+  expect(await claude.seam.connectCodingProvider(writeOnlyGesture("secrets.connect", { value: "sk-ant-api03-fixture" }))).toEqual({ value: "Requested" })
   expect(await claude.work[0]).toBe(UNAVAILABLE)
   expect(claude.accounts()?.unavailable).toBe(true)
   expect(claude.rows()[0]).toMatchObject({ state: "failed" })

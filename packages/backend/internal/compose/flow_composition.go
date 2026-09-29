@@ -51,8 +51,8 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		modelProxyURL = productAPIURL + modelproxy.Path
 	}
 	// With subscription connections allowed, managed coding hosts also
-	// reach the account pool: the binding user's
-	// connected Claude and Codex accounts, per request.
+	// reach the account pool: the binding user's connected Codex (ChatGPT)
+	// accounts, per request. A Claude subscription has no pool (#2777).
 	accountPoolURL := ""
 	if cfg.FeatureFlags.SubscriptionConnections {
 		accountPoolURL = productAPIURL + services.ProviderPoolPath

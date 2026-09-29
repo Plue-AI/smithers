@@ -89,7 +89,7 @@ func newPoolFixture(t *testing.T) poolFixture {
 
 func (f poolFixture) connect(t *testing.T, label string) string {
 	t.Helper()
-	out, err := f.svc.ConnectForUser(context.Background(), f.alice, services.ConnectProviderInput{Provider: "claude", Label: label, AccessToken: "sk-ant-oat01-" + label})
+	out, err := f.svc.ConnectForUser(context.Background(), f.alice, services.ConnectProviderInput{Provider: "claude", Label: label, AccessToken: "sk-ant-api03-" + label})
 	require.NoError(t, err)
 	return out.ID
 }
@@ -105,7 +105,7 @@ func (f poolFixture) pickLabels(t *testing.T, n int) []string {
 			out = append(out, "-")
 			continue
 		}
-		out = append(out, strings.TrimPrefix(pick.Connection.AccessToken, "sk-ant-oat01-"))
+		out = append(out, strings.TrimPrefix(pick.Connection.AccessToken, "sk-ant-api03-"))
 	}
 	return out
 }
@@ -190,11 +190,14 @@ func TestProviderPoolSkipsFailedRefreshAndFencesRejection(t *testing.T) {
 	f := newPoolFixture(t)
 	ctx := context.Background()
 	expired := time.Now().Add(-time.Minute)
-	oauth, err := f.svc.ConnectForUser(ctx, f.alice, services.ConnectProviderInput{Provider: "claude", Kind: "oauth", Label: "oauth", AccessToken: "old-access", RefreshToken: "old-refresh", AccessExpiresAt: &expired})
+	// Only a Codex sign-in refreshes; a Claude connection is an API key (#2777).
+	oauth, err := f.svc.ConnectForUser(ctx, f.alice, services.ConnectProviderInput{Provider: "codex", Kind: "oauth", Label: "oauth", AccessToken: "old-access", RefreshToken: "old-refresh", AccountID: "acct-1", AccessExpiresAt: &expired})
 	require.NoError(t, err)
-	b := f.connect(t, "b")
+	fresh, err := f.svc.ConnectForUser(ctx, f.alice, services.ConnectProviderInput{Provider: "codex", Kind: "oauth", Label: "b", AccessToken: "b-access", RefreshToken: "b-refresh", AccountID: "acct-2"})
+	require.NoError(t, err)
+	b := fresh.ID
 	f.ref.err = services.ErrProviderRefreshInvalidGrant
-	pick, err := f.svc.PickForModelCall(ctx, 1, f.repoID, "claude", nil)
+	pick, err := f.svc.PickForModelCall(ctx, 1, f.repoID, "codex", nil)
 	require.NoError(t, err)
 	require.Equal(t, b, pick.Connection.ConnectionID, "an account whose refresh fails is skipped")
 	current, err := f.q.GetProviderConnection(ctx, oauth.ID)
@@ -206,7 +209,7 @@ func TestProviderPoolSkipsFailedRefreshAndFencesRejection(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "active", current.State, "a refusal of an older token generation is ignored")
 	require.NoError(t, f.svc.MarkRejected(ctx, b, pick.Connection.RefreshGeneration, "401"))
-	pick, err = f.svc.PickForModelCall(ctx, 1, f.repoID, "claude", nil)
+	pick, err = f.svc.PickForModelCall(ctx, 1, f.repoID, "codex", nil)
 	require.NoError(t, err)
 	require.True(t, pick.Pooled)
 	require.True(t, pick.Reconnect, "every remaining account needs a reconnect")

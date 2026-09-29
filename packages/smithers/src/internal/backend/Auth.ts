@@ -135,10 +135,10 @@ export const browserLogin = async (
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
 }
-const setupToken = (value: string) => {
-  const token = value.match(/\bsk-ant-oat[0-9a-z-]*-[A-Za-z0-9._-]+\b/)?.[0]
-  if (!token) throw new Error("Expected a Claude subscription token from claude setup-token")
-  return token
+const anthropicKey = (value: string) => {
+  const key = value.match(/\bsk-ant-api[0-9a-z-]*-[A-Za-z0-9._-]+\b/)?.[0]
+  if (!key) throw new Error("Expected an Anthropic API key (sk-ant-api...)")
+  return key
 }
 const claims = (token: unknown): Values => {
   try {
@@ -149,29 +149,9 @@ const claims = (token: unknown): Values => {
 }
 const providerLogin = async (c: Client, provider: string, directory: string): Promise<Values> => {
   if (provider === "claude") {
-    const dir = directory || c.env.CLAUDE_CONFIG_DIR || join(c.home, ".claude")
-    let raw: string
-    try {
-      raw = await readFile(join(dir, ".credentials.json"), "utf8")
-    } catch {
-      if (process.platform !== "darwin") throw new Error("No Claude subscription login; run claude and sign in")
-      raw = await c.exec("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"])
-    }
-    const oauth = object(object(JSON.parse(raw)).claudeAiOauth)
-    if (!oauth.accessToken) throw new Error("Claude login is not a subscription login")
-    let meta: Values = {}
-    try {
-      meta = object(JSON.parse(await readFile(join(dir, ".claude.json"), "utf8")))
-    } catch { /* optional metadata */ }
-    return {
-      provider,
-      kind: "oauth",
-      access_token: oauth.accessToken,
-      refresh_token: str(oauth.refreshToken),
-      plan: str(oauth.subscriptionType),
-      ...(Number(oauth.expiresAt) > 0 ? { access_expires_at: new Date(Number(oauth.expiresAt)).toISOString() } : {}),
-      account_email: str(object(meta.oauthAccount).emailAddress)
-    }
+    throw new Error(
+      "A Claude subscription is never stored; it runs locally through Claude Code. Use --api-key for an Anthropic API key"
+    )
   }
   if (provider !== "codex") throw new Error("Provider must be claude or codex")
   const dir = directory || c.env.CODEX_HOME || join(c.home, ".codex")
@@ -223,7 +203,15 @@ auth["auth login"] = async (c, _a, o) => {
     token_source: saved.source
   }
 }
-auth["auth logout"] = async (c, _a, o) => await c.session.clear(str(o.hostname))
+// #2777: the removed `auth claude login` kept a Claude setup token in the
+// CLI's own keyring entry. Logging out and connecting Claude delete it without
+// reading it; Claude Code's own login is never touched. A keyring failure never
+// blocks the command.
+const forgetClaudeToken = (c: Client) => c.session.keyring("delete", "claude.subscription-token").catch(() => undefined)
+auth["auth logout"] = async (c, _a, o) => {
+  await forgetClaudeToken(c)
+  return await c.session.clear(str(o.hostname))
+}
 auth["auth status"] = async (c, _a, o) => {
   const target = c.session.target(str(o.hostname)), resolved = await c.session.resolve(target.api_url)
   if (!resolved) {
@@ -310,8 +298,9 @@ for (const action of ["status", "login", "bootstrap"]) {
 }
 auth["auth connect"] = async (c, a, o) => {
   const provider = str(a.provider).trim().toLowerCase()
-  const payload = provider === "claude" && o["setup-token"]
-    ? { provider, kind: "setup_token", access_token: setupToken(await c.stdin("Claude setup token")) }
+  if (provider === "claude") await forgetClaudeToken(c)
+  const payload = provider === "claude" && o["api-key"]
+    ? { provider, kind: "api_key", access_token: anthropicKey(await c.stdin("Anthropic API key")) }
     : await providerLogin(c, provider, str(o["config-dir"]))
   return c.request("POST", "/api/user/provider-connections", { ...payload, label: str(o.label) })
 }
@@ -324,37 +313,6 @@ auth["auth revoke"] = async (c, a) => {
   await c.request("DELETE", `/api/user/provider-connections/${encodeURIComponent(str(a.id))}`)
   return { status: "revoked", id: a.id }
 }
-const claudeKey = "claude.subscription-token"
-const claudeToken = async (c: Client) => c.env.ANTHROPIC_AUTH_TOKEN || await c.session.keyring("get", claudeKey)
-const pushClaude: Handler = async (c, _a, o) => {
-  const token = await claudeToken(c)
-  if (!token) throw new Error("No Claude subscription token; run smithers auth claude login")
-  const flags = object(object(await c.request("GET", "/api/feature-flags", undefined, { anonymous: true })).flags)
-  if (flags.subscription_connections !== true) {
-    throw new Error("Subscription connections are not enabled on this deployment")
-  }
-  await c.request("POST", c.repoPath(o.repo) + "/secrets", { name: "ANTHROPIC_AUTH_TOKEN", value: setupToken(token) })
-  return { status: "pushed", repo: c.repo(o.repo), secret_name: "ANTHROPIC_AUTH_TOKEN" }
-}
-auth["auth claude login"] = async (c, a, o) => {
-  const token = setupToken(await c.stdin("Claude setup token"))
-  if (await c.session.keyring("set", claudeKey, token) === undefined) {
-    throw new Error("Secure credential storage is unavailable")
-  }
-  return o.repo ? pushClaude(c, a, o) : { status: "logged_in", stored_token: true }
-}
-auth["auth claude logout"] = async (c) => ({
-  status: "logged_out",
-  cleared: await c.session.keyring("delete", claudeKey) !== undefined
-})
-auth["auth claude status"] = async (c) => ({
-  configured: !!await claudeToken(c),
-  stored_token_set: !!await c.session.keyring("get", claudeKey),
-  auth_kind: "ANTHROPIC_AUTH_TOKEN"
-})
-auth["auth claude token"] = auth["auth claude status"]!
-auth["auth claude push"] = pushClaude
-
 const openObserve = async (c: Client, token: string) => {
   const base = observeOrigin(str(c.session.config().observe_url)), state = randomBytes(32).toString("base64url")
   let resolve!: () => void, reject!: (error: Error) => void, finished = false, origin = ""

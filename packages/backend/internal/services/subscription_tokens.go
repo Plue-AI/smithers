@@ -9,16 +9,28 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 )
 
-// A hosted deployment never stores a user's Claude.ai or ChatGPT subscription
-// login, whether as a provider connection or pasted into a secret, variable or
-// model credential. The writers refuse one unless the deployment sets
-// feature_flags.subscription_connections (self-host only);
+// No deployment stores a user's Claude.ai subscription login, and a hosted
+// deployment never stores a ChatGPT one either, whether as a provider
+// connection or pasted into a secret, variable or model credential. The
+// writers refuse a ChatGPT login unless the deployment sets
+// feature_flags.subscription_connections (self-host only) and a Claude login
+// always (#2777: Anthropic's terms forbid storing Claude.ai credentials);
 // subscriptiontoken.Holds is the one detector.
+
+// subscriptionTokenAllowed reports whether the pair may be stored or
+// delivered: it holds no subscription token, or it holds a ChatGPT one on a
+// deployment that allows them.
+func subscriptionTokenAllowed(allowed bool, name, value string) bool {
+	if !subscriptiontoken.Holds(name, value) {
+		return true
+	}
+	return allowed && !subscriptiontoken.HoldsClaude(name, value)
+}
 
 // refuseSubscriptionToken is the write-path guard. The message starts with
 // the feature gate's text so clients treat both refusals the same way.
 func refuseSubscriptionToken(allowed bool, name, value string) error {
-	if allowed || !subscriptiontoken.Holds(name, value) {
+	if subscriptionTokenAllowed(allowed, name, value) {
 		return nil
 	}
 	return pkgerrors.Forbidden("feature not available: this deployment does not store Claude or ChatGPT subscription tokens; use an API key")
@@ -36,7 +48,7 @@ func storedSubscriptionTokenRefused() error {
 // holding a subscription token refuses with the feature gate's 403 instead.
 // The message names the entry, never its value.
 func refuseStoredSubscriptionToken(allowed bool, kind, name, value string) error {
-	if allowed || value == "" || !subscriptiontoken.Holds(name, value) {
+	if value == "" || subscriptionTokenAllowed(allowed, name, value) {
 		return nil
 	}
 	return pkgerrors.Forbidden("feature not available: " + kind + " " + name + " holds a Claude or ChatGPT subscription token; remove it and use an API key")
@@ -66,18 +78,14 @@ func markRepositoryRebuildRequiredCount(ctx context.Context, q rebuildRequiredMa
 	return workspaces, snapshots, nil
 }
 
-// WithWorkspaceSubscriptionTokens mirrors feature_flags.subscription_connections:
-// a deployment that allows subscription tokens reuses every workspace.
-func WithWorkspaceSubscriptionTokens(allowed bool) WorkspaceServiceOption {
-	return func(s *WorkspaceService) { s.subscriptionTokens = allowed }
-}
-
 // refuseRebuildRequired keeps a workspace built while its repository stored
-// a subscription token from being reused: resumed, entered (read-only facets
-// included), forked or snapshotted. Deleting it and creating a new workspace
-// is the rebuild.
+// a subscription token the deployment refuses from being reused: resumed,
+// entered (read-only facets included), forked or snapshotted. Deleting it and
+// creating a new workspace is the rebuild. A deployment that allows ChatGPT
+// tokens marks a workspace only for a Claude one, so the mark is refused
+// whatever feature_flags.subscription_connections says (#2777).
 func (s *WorkspaceService) refuseRebuildRequired(workspace db.Workspace) error {
-	if s.subscriptionTokens || !workspace.RebuildRequiredAt.Valid {
+	if !workspace.RebuildRequiredAt.Valid {
 		return nil
 	}
 	return pkgerrors.New(pkgerrors.CodeWorkspaceRebuildRequired, "this workspace was built with a Claude or ChatGPT subscription token; delete it and create a new workspace")
@@ -86,7 +94,7 @@ func (s *WorkspaceService) refuseRebuildRequired(workspace db.Workspace) error {
 // refuseRebuildRequiredSnapshot keeps a snapshot of such a workspace from
 // being restored.
 func (s *WorkspaceService) refuseRebuildRequiredSnapshot(snapshot db.WorkspaceSnapshot) error {
-	if s.subscriptionTokens || !snapshot.RebuildRequiredAt.Valid {
+	if !snapshot.RebuildRequiredAt.Valid {
 		return nil
 	}
 	return pkgerrors.New(pkgerrors.CodeWorkspaceRebuildRequired, "this snapshot was taken while its repository stored a Claude or ChatGPT subscription token; delete it and create a new workspace")

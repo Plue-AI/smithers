@@ -52,8 +52,6 @@ type browserFlowAPI struct {
 	// limit is the account-wide API budget. Reads a run's progress polls
 	// (Projection.Snapshot, List) stay out of it, as the box relay always did.
 	limit func(http.Handler) http.Handler
-	// subscriptionTokens mirrors feature_flags.subscription_connections.
-	subscriptionTokens bool
 }
 
 // browserFlowDispatcher is the box's flow seam (flowdispatch.Service).
@@ -144,7 +142,7 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 	workspace, err := api.queries.GetWorkspaceForUserRepo(r.Context(), db.GetWorkspaceForUserRepoParams{
 		ID: request.WorkspaceID, RepositoryID: view.Repository.ID, UserID: user.ID,
 	})
-	if err == nil && workspace.RebuildRequiredAt.Valid && !api.subscriptionTokens {
+	if err == nil && workspace.RebuildRequiredAt.Valid {
 		browserFlowRefusal(w, http.StatusConflict, browserFlowRebuildRequired)
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}

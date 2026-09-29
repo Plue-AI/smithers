@@ -1758,98 +1758,8 @@
       }
     },
     {
-      "name": "auth claude login",
-      "description": "Store a Claude setup token from stdin",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string",
-              "description": "Also push the token to this repository's secrets (OWNER/REPO)"
-            }
-          },
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "auth claude logout",
-      "description": "Clear the stored Claude setup token",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "auth claude push",
-      "description": "Push the active Claude Code credential into repository secrets (subscription tokens only on self-hosted servers with subscription connections enabled)",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string",
-              "description": "Repository (OWNER/REPO)"
-            }
-          },
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "auth claude status",
-      "description": "Show Claude Code authentication status",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "auth claude token",
-      "description": "Show token status without displaying the credential",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "auth connect",
-      "description": "Connect your own Claude or Codex subscription for your own agent runs on a self-hosted server (imports the vendor CLI's login, or a pasted Claude setup token)",
+      "description": "Connect your own Codex subscription (imports the Codex CLI login) or an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Claude subscriptions are never stored; they run locally through Claude Code",
       "schema": {
         "args": {
           "type": "object",
@@ -1869,20 +1779,20 @@
           "properties": {
             "config-dir": {
               "type": "string",
-              "description": "Claude config directory (CLAUDE_CONFIG_DIR) or Codex home (CODEX_HOME) to import from"
+              "description": "Codex home (CODEX_HOME) to import from"
             },
             "label": {
               "type": "string",
               "description": "Display label for the connection"
             },
-            "setup-token": {
+            "api-key": {
               "default": false,
               "type": "boolean",
-              "description": "Read a Claude setup token from stdin (`claude setup-token`) instead of importing the local login"
+              "description": "Read an Anthropic API key from stdin (claude only)"
             }
           },
           "required": [
-            "setup-token"
+            "api-key"
           ],
           "additionalProperties": false
         }
@@ -11158,7 +11068,7 @@
             },
             "seedAgentAuth": {
               "type": "string",
-              "description": "Comma-separated list of agent auth to seed before running the command (claude, codex)"
+              "description": "Comma-separated list of agent auth to seed before running the command (claude seeds ANTHROPIC_API_KEY, codex seeds the Codex login)"
             },
             "stdin": {
               "default": false,

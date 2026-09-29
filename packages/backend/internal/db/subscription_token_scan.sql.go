@@ -10,6 +10,146 @@ import (
 	"encoding/json"
 )
 
+const clearOwnerModelCredentialSubscriptionToken = `-- name: ClearOwnerModelCredentialSubscriptionToken :execrows
+UPDATE owner_model_credentials
+SET value_encrypted = NULL
+WHERE user_id = $1
+  AND name = $2
+  AND value_encrypted = $3::text
+`
+
+type ClearOwnerModelCredentialSubscriptionTokenParams struct {
+	UserID         int64  `json:"user_id"`
+	Name           string `json:"name"`
+	ValueEncrypted string `json:"value_encrypted"`
+}
+
+// A removed model credential keeps its row with no value, as a user's own
+// removal does.
+func (q *Queries) ClearOwnerModelCredentialSubscriptionToken(ctx context.Context, arg ClearOwnerModelCredentialSubscriptionTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, clearOwnerModelCredentialSubscriptionToken, arg.UserID, arg.Name, arg.ValueEncrypted)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteAgentEnvironmentSecretSubscriptionToken = `-- name: DeleteAgentEnvironmentSecretSubscriptionToken :execrows
+DELETE FROM repository_agent_environment_secrets
+WHERE repository_id = $1
+  AND name = $2
+  AND value_encrypted = $3
+`
+
+type DeleteAgentEnvironmentSecretSubscriptionTokenParams struct {
+	RepositoryID   int64  `json:"repository_id"`
+	Name           string `json:"name"`
+	ValueEncrypted []byte `json:"value_encrypted"`
+}
+
+func (q *Queries) DeleteAgentEnvironmentSecretSubscriptionToken(ctx context.Context, arg DeleteAgentEnvironmentSecretSubscriptionTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAgentEnvironmentSecretSubscriptionToken, arg.RepositoryID, arg.Name, arg.ValueEncrypted)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteOrgSecretSubscriptionToken = `-- name: DeleteOrgSecretSubscriptionToken :execrows
+DELETE FROM organization_secrets
+WHERE id = $1
+  AND value_encrypted = $2
+`
+
+type DeleteOrgSecretSubscriptionTokenParams struct {
+	ID             int64  `json:"id"`
+	ValueEncrypted []byte `json:"value_encrypted"`
+}
+
+func (q *Queries) DeleteOrgSecretSubscriptionToken(ctx context.Context, arg DeleteOrgSecretSubscriptionTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOrgSecretSubscriptionToken, arg.ID, arg.ValueEncrypted)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteOrgVariableSubscriptionToken = `-- name: DeleteOrgVariableSubscriptionToken :execrows
+DELETE FROM organization_variables
+WHERE id = $1
+  AND value = $2
+`
+
+type DeleteOrgVariableSubscriptionTokenParams struct {
+	ID    int64  `json:"id"`
+	Value string `json:"value"`
+}
+
+func (q *Queries) DeleteOrgVariableSubscriptionToken(ctx context.Context, arg DeleteOrgVariableSubscriptionTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOrgVariableSubscriptionToken, arg.ID, arg.Value)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteProviderConnectionSubscriptionToken = `-- name: DeleteProviderConnectionSubscriptionToken :execrows
+DELETE FROM provider_connections
+WHERE id = $1
+  AND access_token_encrypted = $2
+`
+
+type DeleteProviderConnectionSubscriptionTokenParams struct {
+	ID                   string `json:"id"`
+	AccessTokenEncrypted []byte `json:"access_token_encrypted"`
+}
+
+func (q *Queries) DeleteProviderConnectionSubscriptionToken(ctx context.Context, arg DeleteProviderConnectionSubscriptionTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteProviderConnectionSubscriptionToken, arg.ID, arg.AccessTokenEncrypted)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteRepositorySecretSubscriptionToken = `-- name: DeleteRepositorySecretSubscriptionToken :execrows
+DELETE FROM repository_secrets
+WHERE id = $1
+  AND value_encrypted = $2
+`
+
+type DeleteRepositorySecretSubscriptionTokenParams struct {
+	ID             int64  `json:"id"`
+	ValueEncrypted []byte `json:"value_encrypted"`
+}
+
+func (q *Queries) DeleteRepositorySecretSubscriptionToken(ctx context.Context, arg DeleteRepositorySecretSubscriptionTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRepositorySecretSubscriptionToken, arg.ID, arg.ValueEncrypted)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteRepositoryVariableSubscriptionToken = `-- name: DeleteRepositoryVariableSubscriptionToken :execrows
+DELETE FROM repository_variables
+WHERE id = $1
+  AND value = $2
+`
+
+type DeleteRepositoryVariableSubscriptionTokenParams struct {
+	ID    int64  `json:"id"`
+	Value string `json:"value"`
+}
+
+func (q *Queries) DeleteRepositoryVariableSubscriptionToken(ctx context.Context, arg DeleteRepositoryVariableSubscriptionTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRepositoryVariableSubscriptionToken, arg.ID, arg.Value)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const flagAgentEnvironmentSecretSubscriptionToken = `-- name: FlagAgentEnvironmentSecretSubscriptionToken :execrows
 UPDATE repository_agent_environment_secrets
 SET subscription_token_flagged_at = COALESCE(subscription_token_flagged_at, NOW())
@@ -311,6 +451,62 @@ func (q *Queries) ListOwnerModelCredentialValuesAfter(ctx context.Context, arg L
 	return items, nil
 }
 
+const listProviderConnectionTokensAfter = `-- name: ListProviderConnectionTokensAfter :many
+
+SELECT id, owner_type, COALESCE(user_id, org_id)::bigint AS owner_id, provider, label,
+       access_token_encrypted, refresh_token_encrypted
+FROM provider_connections
+WHERE id > $1::uuid
+ORDER BY id
+LIMIT $2
+`
+
+type ListProviderConnectionTokensAfterParams struct {
+	AfterID  string `json:"after_id"`
+	PageSize int32  `json:"page_size"`
+}
+
+type ListProviderConnectionTokensAfterRow struct {
+	ID                    string `json:"id"`
+	OwnerType             string `json:"owner_type"`
+	OwnerID               int64  `json:"owner_id"`
+	Provider              string `json:"provider"`
+	Label                 string `json:"label"`
+	AccessTokenEncrypted  []byte `json:"access_token_encrypted"`
+	RefreshTokenEncrypted []byte `json:"refresh_token_encrypted"`
+}
+
+// #2777: the scan removes every Claude subscription token on every start.
+// Each removal applies only while the value is still the one the scan read;
+// a value replaced since then is checked again on the next start.
+func (q *Queries) ListProviderConnectionTokensAfter(ctx context.Context, arg ListProviderConnectionTokensAfterParams) ([]ListProviderConnectionTokensAfterRow, error) {
+	rows, err := q.db.Query(ctx, listProviderConnectionTokensAfter, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProviderConnectionTokensAfterRow{}
+	for rows.Next() {
+		var i ListProviderConnectionTokensAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.Provider,
+			&i.Label,
+			&i.AccessTokenEncrypted,
+			&i.RefreshTokenEncrypted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRepositorySecretValuesAfter = `-- name: ListRepositorySecretValuesAfter :many
 SELECT id, repository_id, name, value_encrypted
 FROM repository_secrets
@@ -442,6 +638,38 @@ ON CONFLICT (id) DO NOTHING
 func (q *Queries) RecordStoredSubscriptionTokenScan(ctx context.Context, counts json.RawMessage) error {
 	_, err := q.db.Exec(ctx, recordStoredSubscriptionTokenScan, counts)
 	return err
+}
+
+const replaceAgentEnvironmentSubscriptionToken = `-- name: ReplaceAgentEnvironmentSubscriptionToken :execrows
+UPDATE repository_agent_environments
+SET setup_script = $1,
+    environment_variables = $2,
+    updated_at = NOW()
+WHERE repository_id = $3
+  AND setup_script = $4
+  AND environment_variables = $5
+`
+
+type ReplaceAgentEnvironmentSubscriptionTokenParams struct {
+	SetupScript                string          `json:"setup_script"`
+	EnvironmentVariables       json.RawMessage `json:"environment_variables"`
+	RepositoryID               int64           `json:"repository_id"`
+	StoredSetupScript          string          `json:"stored_setup_script"`
+	StoredEnvironmentVariables json.RawMessage `json:"stored_environment_variables"`
+}
+
+func (q *Queries) ReplaceAgentEnvironmentSubscriptionToken(ctx context.Context, arg ReplaceAgentEnvironmentSubscriptionTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, replaceAgentEnvironmentSubscriptionToken,
+		arg.SetupScript,
+		arg.EnvironmentVariables,
+		arg.RepositoryID,
+		arg.StoredSetupScript,
+		arg.StoredEnvironmentVariables,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const storedSubscriptionTokenScanCompleted = `-- name: StoredSubscriptionTokenScanCompleted :one

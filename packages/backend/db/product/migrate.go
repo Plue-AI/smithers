@@ -102,6 +102,7 @@ var migrationRegistry = []migrationSpec{
 	{64, "migrations/0064_invoked_flow_plane.sql"},
 	{65, "migrations/0065_invoked_flow_run_log.sql"},
 	{66, "migrations/0066_invoked_flow_source.sql"},
+	{67, "migrations/0067_claude_subscription_connections_delete.sql"},
 }
 
 type migration struct {
