@@ -108,7 +108,9 @@ describe("the History card", () => {
     expect(change).toContain('href="https://github.com/pr/44"')
     expect(html).toContain("src/a.ts, src/b.ts")
     expect(html).toContain("✗ //:ci")
-    expect(html).toContain("not actionable")
+    // A skipped issue never entered the factory, so no group lists it or its reason (StackIssues.ts).
+    expect(html).not.toContain("stack-item-i6")
+    expect(html).not.toContain("not actionable")
     // A landed item that is no longer a stack row is in Done, not the stack list.
     expect(rows).not.toContain("#7 Issue i7")
   })
