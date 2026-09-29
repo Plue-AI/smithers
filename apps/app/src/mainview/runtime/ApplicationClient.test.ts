@@ -18,6 +18,25 @@ const target = (mode: "web-selfhost" | "web-plue" | "local-own" | "local-plue" |
   }, pageOrigin)
 }
 
+const interruptedJsonRead = (failure: unknown, signal?: AbortSignal) => {
+  const reading = Promise.withResolvers<void>()
+  const interrupt = Promise.withResolvers<void>()
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      reading.resolve()
+      if (signal?.aborted) interrupt.resolve()
+      else signal?.addEventListener("abort", () => interrupt.resolve(), { once: true })
+      await interrupt.promise
+      controller.error(failure)
+    }
+  }, { highWaterMark: 0 })
+  const client = createApplicationClient(target("web-selfhost"), {
+    pageOrigin,
+    fetchImpl: async () => new Response(body, { headers: { "content-type": "application/json" } })
+  })
+  return { client, reading: reading.promise, interrupt: interrupt.resolve }
+}
+
 describe("application client", () => {
   test("the six targets share URL and auth behavior", async () => {
     for (const mode of ["web-selfhost", "web-plue", "local-own", "local-plue", "native-own", "native-plue"] as const) {
@@ -92,6 +111,63 @@ describe("application client", () => {
     const invalid = createApplicationClient(session, { fetchImpl: async () => new Response("not json") })
     await expect(invalid.request("/api/user")).rejects.toBeInstanceOf(ApplicationClientError)
     await expect(invalid.request("/api/user")).rejects.toMatchObject({ code: "invalid-response" })
+  })
+
+  test("aborting a signal during a JSON body read preserves cancellation and its cause", async () => {
+    const cause = new DOMException("body aborted", "AbortError")
+    const abort = new AbortController()
+    const read = interruptedJsonRead(cause, abort.signal)
+    const pending = read.client.request("/api/read", { signal: abort.signal })
+    await read.reading
+    abort.abort()
+
+    const error: unknown = await pending.catch((failure: unknown) => failure)
+    expect(error).toBeInstanceOf(ApplicationClientError)
+    expect(error).toMatchObject({ code: "cancelled", message: "Request cancelled.", status: null })
+    expect((error as ApplicationClientError).cause).toBe(cause)
+  })
+
+  test("a body AbortError without a signal and a custom signal reason are cancellations", async () => {
+    const namedAbort = new Error("reader stopped")
+    namedAbort.name = "AbortError"
+    const reason = new Error("user stopped reading")
+    const abort = new AbortController()
+
+    for (const { cause, controller } of [
+      { cause: namedAbort, controller: undefined },
+      { cause: reason, controller: abort }
+    ]) {
+      const read = interruptedJsonRead(cause, controller?.signal)
+      const pending = read.client.request("/api/read", { signal: controller?.signal })
+      await read.reading
+      controller?.abort(reason)
+      if (controller === undefined) read.interrupt()
+
+      const error: unknown = await pending.catch((failure: unknown) => failure)
+      expect(error).toBeInstanceOf(ApplicationClientError)
+      expect(error).toMatchObject({ code: "cancelled", message: "Request cancelled.", status: null })
+      expect((error as ApplicationClientError).cause).toBe(cause)
+    }
+  })
+
+  test("malformed JSON and an unrelated body reader failure remain invalid responses", async () => {
+    const malformed = createApplicationClient(target("web-selfhost"), {
+      fetchImpl: async () => new Response("not json")
+    })
+    const syntaxError: unknown = await malformed.request("/api/read").catch((failure: unknown) => failure)
+    expect(syntaxError).toBeInstanceOf(ApplicationClientError)
+    expect(syntaxError).toMatchObject({ code: "invalid-response", status: 200 })
+    expect((syntaxError as ApplicationClientError).cause).toBeInstanceOf(SyntaxError)
+
+    const cause = new Error("reader failed")
+    const read = interruptedJsonRead(cause)
+    const pending = read.client.request("/api/read")
+    await read.reading
+    read.interrupt()
+    const error: unknown = await pending.catch((failure: unknown) => failure)
+    expect(error).toBeInstanceOf(ApplicationClientError)
+    expect(error).toMatchObject({ code: "invalid-response", status: 200 })
+    expect((error as ApplicationClientError).cause).toBe(cause)
   })
 
   test("never attaches an application credential to another origin", async () => {

@@ -259,6 +259,9 @@ export const createApplicationClient = (
     try {
       return await response.json() as T
     } catch (error) {
+      if (isAbort(error, requestInit.signal)) {
+        throw new ApplicationClientError("cancelled", "Request cancelled.", null, null, null, { cause: error })
+      }
       throw new ApplicationClientError(
         "invalid-response",
         "Backend returned invalid JSON.",
