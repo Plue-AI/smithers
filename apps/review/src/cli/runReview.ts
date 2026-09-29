@@ -137,15 +137,18 @@ export async function runReview(args: ReviewArgs): Promise<void> {
   const repoDir = resolve(args.repo);
   const dbPath = args.db ? resolve(args.db) : join(repoDir, ".smithers-review", "review.db");
 
-  // --quiz on needs seats even when review and narration are both off.
-  const needsAgents = args.review || args.narrate || args.quiz === "on";
   const seats = resolveReviewSeats();
-  if (needsAgents) {
-    const missing = missingSeatCredential(seats.review) ?? missingSeatCredential(seats.narrate);
+  const activeSeats = [
+    ...(args.review ? [seats.review] : []),
+    ...(args.review && args.verify ? [seats.verify] : []),
+    ...(args.narrate ? [seats.narrate] : []),
+    ...(args.quiz !== "off" ? [seats.quiz] : []),
+  ];
+  const needsAgents = activeSeats.length > 0;
+  for (const seat of activeSeats) {
+    const missing = missingSeatCredential(seat);
     if (missing) {
-      return failRun(
-        `smithers-review: ${missing} — set it, or pass --no-review --no-narrate (and --quiz off) for a walkthrough-only run`,
-      );
+      return failRun(`smithers-review: ${missing} — pass --no-review --no-narrate --quiz off for a walkthrough-only run`);
     }
   }
 

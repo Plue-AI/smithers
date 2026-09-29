@@ -233,7 +233,7 @@ describe("main (agentless full run, subprocess)", () => {
     const summaryPath = join(work, "summary.json");
 
     const result = spawnMain(
-      [repo, "--no-review", "--no-narrate", "--publish", "--out", outPath, "--db", join(work, "review.db")],
+      [repo, "--no-review", "--no-narrate", "--quiz", "off", "--publish", "--out", outPath, "--db", join(work, "review.db")],
       {
         // A port nothing listens on: publish must fail without failing the run.
         SMITHERS_REVIEW_PUBLISH_URL: "http://127.0.0.1:9",

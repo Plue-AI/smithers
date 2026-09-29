@@ -25,6 +25,8 @@ smithers-review /path/to/repo --no-review --no-narrate --quiz off
 `--quiz` is independent of both flags and defaults to `auto`, which calls a
 model for high or critical impact changes. Set `--quiz off` alongside both
 flags for offline use. `--quiz on` forces quiz generation.
+The command checks credentials only for enabled review, verification, narration,
+and quiz seats. `--quiz auto` can use the quiz seat; `--quiz off` does not.
 
 `--timeout <min>` sets a deadline for each file review, verification, narration,
 and quiz action. The default is 10 minutes; values must be finite and at least
