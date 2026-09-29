@@ -1,15 +1,12 @@
-smthrs cache — Inspect and maintain local action-result caches
+smthrs cache steps show — Inspect a recorded step result
 
-Usage: smthrs cache <command>
+Usage: smthrs cache steps show <key> [options]
 
-Commands:
-  clear    Remove all local action results; durable runs and artifacts are preserved
-  cloud    cloud
-  connect  Connect this workspace to the Smithers Cloud build cache: mint a public read token and declare it in the root PACKAGE.ts
-  prune    Remove local action results older than the retention window
-  status   Report cache size and configured remote without exposing credentials
-  steps    Inspect and maintain durable flow step results
-  token    token
+Arguments:
+  key
+
+Options:
+  --root <string>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

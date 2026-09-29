@@ -1,24 +1,12 @@
-smthrs runs — Inspect and control durable execution records
+smthrs cache steps — Inspect and maintain durable flow step results
 
-Usage: smthrs runs <command>
+Usage: smthrs cache steps <command>
 
 Commands:
-  cancel      Cancel one durable run
-  cancel-all  Cancel every nonterminal run in this project
-  fork        Branch a parked run at a historical frame into a durable, isolated workspace
-  inspect     Inspect the state and event counts recorded at one historical frame
-  list        List durable runs filtered by flow or status
-  logs        Read run events or follow new events as they commit
-  output      Read recorded outputs for one node or all nodes
-  replay      Replay committed history and sealed results without re-executing any actions
-  rerun       Rerun a workflow
-  resume      Resume a parked durable run
-  rewind      Preview or archive a run's suffix and restore an earlier frame; requires --yes to mutate
-  show        Show a run's current status and diagnosis
-  signal      Deliver a durable JSON signal
-  steer       Send an attributed operator message
-  wait        Wait for a durable run to settle
-  watch       Watch a workflow run in real-time (streams logs, status changes, and completion)
+  evict  Remove a step result only if its provenance matches
+  ls     List recent step cache heads
+  show   Inspect a recorded step result
+  sweep  Remove old step cache heads; recorded replay evidence is preserved
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

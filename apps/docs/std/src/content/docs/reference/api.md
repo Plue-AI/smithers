@@ -127,16 +127,12 @@ verdict about the code it ran, not about the command it was handed.
 | `Attribution`      | `{ to, executed?, invalidProbe? }`                                                           | What one result was attributed to: the tree, or one of the five.                            |
 | `CONFIDENCE_FLOOR` | `0.7`                                                                                        | The confidence an attribution needs before it outranks the tree.                            |
 | `MAX_OUTPUT_BYTES` | `32768`                                                                                      | The most output bytes one judgment carries, newest kept.                                    |
-| `posix`            | `(exitCode: number) => InvalidProbe \| undefined`                                            | Reads the shell's own refusal, 126 and 127, from the exit code alone.                       |
 | `probeAttribution` | `Classifier` `probe/attribution`                                                             | The classifier `classify` asks: `attribution` choice, `executed` boolean.                   |
 | `classify`         | `(result: { command, exitCode, output }) => Effect<Attribution, ClassifierError, Evaluator>` | Attributes one command result, with Jev.                                                    |
 | `unjudged`         | `(error: ClassifierError) => StdError`                                                       | The standard-flow failure a judge that did not answer is.                                   |
 
 ```ts
 import * as Probe from "@smthrs/std/Probe"
-
-Probe.posix(127)
-// { reason: "unknown-command", evidence: "the command exited 127", message: "..." }
 
 const attribution = yield * Probe.classify({ command: "pytest tests/x.py::nope", exitCode: 4, output })
 // { to: "unknown-test", executed: false, invalidProbe: { reason: "unknown-test", ... } }
@@ -145,9 +141,9 @@ const attribution = yield * Probe.classify({ command: "pytest tests/x.py::nope",
 The attribution is Jev's: `classify` asks `probeAttribution`, the exported
 `probe/attribution` declaration, through the `Evaluator` service of
 [`@smthrs/model`](https://model.smithers.sh/reference/api/), so a host needs a bound evaluator on a
-subscription seat. Two things are still decided without it, because an exit code is a
-fact rather than prose: a zero exit is never classified, and 126 and 127 are
-the shell's own refusal to start the command. An answer below
+subscription seat. A zero exit is attributed to the tree without the judge. All non-zero exits,
+including 126 and 127, need attribution: a runner can choose those codes after
+executing a check. An answer below
 `CONFIDENCE_FLOOR` is the tree's failure, which leaves a genuine reproduction
 intact. There is no third path: when the judge does not answer, `unjudged`
 turns its failure into the caller's typed failure rather than a guess.

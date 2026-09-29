@@ -1,0 +1,137 @@
+---
+title: "Placed deploy"
+description: "Run a secret-using action only on the host that holds the secret."
+editUrl: "https://github.com/smithersai/smithers/edit/main/examples/src/42-placed-deploy.ts"
+sidebar:
+  order: 42
+---
+
+{/* Generated from examples/src/42-placed-deploy.ts by `node apps/site/scripts/gen-examples.mjs`; edit the example, not this page. */}
+
+Run a secret-using action only on the host that holds the secret.
+
+`Ship` calls `PushRelease`, which sends `DEPLOY_TOKEN` to the deploy endpoint. The caller's engine has no such variable. Its `Hosts` table binds the action's placement, `remote({ target: "deploy" })`, to the holder's engine, which serves `PlacedAction.served(PushRelease)` and runs the body with its own vault and its own deploy endpoint. The caller names a version and journals the result; the value and the endpoint never enter its process.
+
+The holder here listens without authentication to keep the example short. A real holder serves the group behind a bearer, as `@smthrs/gateway` serves `/rpc` behind `ControlAuth`: anyone who reaches it can ship a version.
+
+## Run the test
+
+The complete program is [`examples/src/42-placed-deploy.ts`](https://github.com/smithersai/smithers/blob/main/examples/src/42-placed-deploy.ts). Clone the repository and follow [CONTRIBUTING.md](https://github.com/smithersai/smithers/blob/main/CONTRIBUTING.md) to install and build its packages.
+
+From the repository root, run this example's assertions:
+
+```bash
+pnpm --filter @smthrs/examples exec vitest run test/42-placed-deploy.test.ts
+```
+
+Vitest reports the assertions that passed, failed, or were skipped. Examples that call live providers need the credentials described below; a skipped test does not verify a provider call.
+
+## Related reference
+
+[`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/targets`](/docs/reference/api/targets/)
+
+## Source
+
+```ts title="examples/src/42-placed-deploy.ts"
+import { FlowProxy, FlowProxyServer, Hosts, PlacedAction } from "@smthrs/engine"
+import { Action, Flow, Interpreter } from "@smthrs/flow"
+import * as Placement from "@smthrs/plan/Placement"
+import * as Secret from "@smthrs/targets/Secret"
+import * as SecretProxy from "@smthrs/targets/SecretProxy"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import { FetchHttpClient, HttpRouter, type HttpServer } from "effect/unstable/http"
+import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { durableEngine } from "./durable-layer.ts"
+
+/** Sends one release to the deploy endpoint with the deploy token. */
+export const PushRelease = Action.make("examples/PlacedDeploy/PushRelease", {
+  payload: { version: Schema.String },
+  success: Schema.Struct({ version: Schema.String, status: Schema.Number })
+})
+
+/** The flow a caller runs. Nothing in it names a machine or an endpoint. */
+export const Ship = Flow.make("examples/PlacedDeploy/Ship", {
+  payload: { version: Schema.String },
+  success: Schema.Struct({ version: Schema.String, status: Schema.Number }),
+  body: (payload) => PushRelease.call(payload)
+})
+
+/** Where `PushRelease` runs: whichever host a table binds `deploy` to. */
+export const deploy = Placement.remote({ target: "deploy" })
+
+/**
+ * The body, run with one host's environment and its deploy endpoint. The
+ * vault mints a placeholder for `DEPLOY_TOKEN`, bound to that endpoint's
+ * origin, and substitutes the value only while it builds the one request
+ * there. A host without the variable fails with `SecretUnavailable`.
+ */
+export const push = (read: SecretProxy.Read, endpoint: string) => ({ version }: { readonly version: string }) =>
+  Effect.promise(async () => {
+    const vault = SecretProxy.makeVault({ read })
+    const placeholder = vault.mint(Secret.HttpSecret(Secret.Secret("DEPLOY_TOKEN"), [endpoint]))
+    const boundary = vault.request(new URL(endpoint).origin)
+    const response = await fetch(new URL("/release", endpoint), {
+      method: "POST",
+      headers: { authorization: boundary.substitute(`Bearer ${placeholder}`) },
+      body: version
+    })
+    return { version, status: response.status }
+  })
+
+/**
+ * The holder: a durable engine that serves `PushRelease` over HTTP on
+ * `server` and runs its body with `read`, the holder's environment, against
+ * `endpoint`, the holder's deploy endpoint.
+ */
+export const holder = <E, R>(
+  filename: string,
+  read: SecretProxy.Read,
+  endpoint: string,
+  server: Layer.Layer<HttpServer.HttpServer, E, R>
+) => {
+  const served = PlacedAction.served(PushRelease)
+  return HttpRouter.serve(
+    RpcServer.layerHttp({ group: FlowProxy.toRpcGroup([served]), path: "/", protocol: "http" }).pipe(
+      Layer.provide(FlowProxyServer.layerRpcHandlers([served])),
+      Layer.provide(RpcSerialization.layerJson)
+    )
+  ).pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(PushRelease.toLayer(push(read, endpoint)), Interpreter.layer(served)).pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(durableEngine(filename, "examples-placed-deploy-holder"))
+      )
+    ),
+    Layer.provideMerge(server)
+  )
+}
+
+/**
+ * The caller: a durable engine that runs `Ship` and binds `deploy` to the
+ * holder at `holderUrl`. Without one, `deploy` runs here, with `read` and
+ * `endpoint` standing for this host's own environment and endpoint.
+ */
+export const caller = (filename: string, read: SecretProxy.Read, endpoint: string, holderUrl?: string) =>
+  Layer.mergeAll(PlacedAction.layer(PushRelease, deploy, push(read, endpoint)), Interpreter.layer(Ship)).pipe(
+    Layer.provideMerge(Action.layerImplementations),
+    Layer.provideMerge(durableEngine(filename, "examples-placed-deploy-caller")),
+    Layer.provideMerge(
+      holderUrl === undefined ? Hosts.layer({}) : Hosts.layer({
+        deploy: {
+          _tag: "Proxy",
+          connect: (group) =>
+            RpcClient.make(group).pipe(
+              Effect.provide(
+                RpcClient.layerProtocolHttp({ url: holderUrl }).pipe(
+                  Layer.provide(RpcSerialization.layerJson),
+                  Layer.provide(FetchHttpClient.layer)
+                )
+              )
+            )
+        }
+      })
+    )
+  )
+```

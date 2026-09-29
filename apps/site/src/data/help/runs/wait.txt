@@ -1,15 +1,16 @@
-smthrs cache — Inspect and maintain local action-result caches
+smthrs runs wait — Wait for a durable run to settle
 
-Usage: smthrs cache <command>
+Usage: smthrs runs wait <run> [options]
 
-Commands:
-  clear    Remove all local action results; durable runs and artifacts are preserved
-  cloud    cloud
-  connect  Connect this workspace to the Smithers Cloud build cache: mint a public read token and declare it in the root PACKAGE.ts
-  prune    Remove local action results older than the retention window
-  status   Report cache size and configured remote without exposing credentials
-  steps    Inspect and maintain durable flow step results
-  token    token
+Arguments:
+  run  Durable run ID
+
+Options:
+  --root <string>        Project directory; defaults to the nearest Smithers project
+  --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
+  --mcp-config <string>  Path to the configured MCP servers
+  --quiet                Suppress progress messages
+  --timeout <number>     Maximum wait in milliseconds
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

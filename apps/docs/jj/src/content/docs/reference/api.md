@@ -124,12 +124,12 @@ The optional operations are capability-checked like every other one:
 
 ### Service construction
 
-| Export                 | Signature                               | Meaning                                                                                                               |
-| ---------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `Jj`                   | `Context.Service<Jj, Jj>`               | The service key. The tag string is `"@smthrs/jj/Jj"` and is durable identity.                                         |
-| `make(impl)`           | `(impl: Jj) => Jj`                      | Brands an implementation as the service, so a new backend is checked where it is written.                             |
-| `makeNoop(overrides)`  | `(overrides: Partial<Jj>) => Jj`        | A stub whose every unoverridden method fails `not_installed`, naming the method called.                               |
-| `layerNoop(overrides)` | `(overrides: Partial<Jj>) => Layer<Jj>` | `makeNoop` as a layer.                                                                                                |
+| Export                 | Signature                               | Meaning                                                                                                             |
+| ---------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `Jj`                   | `Context.Service<Jj, Jj>`               | The service key. The tag string is `"@smthrs/jj/Jj"` and is durable identity.                                       |
+| `make(impl)`           | `(impl: Jj) => Jj`                      | Brands an implementation as the service, so a new backend is checked where it is written.                           |
+| `makeNoop(overrides)`  | `(overrides: Partial<Jj>) => Jj`        | A stub whose every unoverridden method fails `not_installed`, naming the method called.                             |
+| `layerNoop(overrides)` | `(overrides: Partial<Jj>) => Layer<Jj>` | `makeNoop` as a layer.                                                                                              |
 | `ChangeId`             | `type ChangeId = string`                | A moving display pointer for a change; use the snapshot's immutable `commitId` to restore recorded workspace state. |
 
 ### Failures

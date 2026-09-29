@@ -72,6 +72,8 @@ type Action =
   | "net:get"
   | "net:post"
   | "model:call"
+  | "memory:read"
+  | "memory:write"
   | "proc:spawn"
   | "jj:status"
   | "jj:diff"
@@ -96,7 +98,7 @@ being read as something adjacent.
 ### Capability.PatternAction
 
 ```ts
-type PatternAction = Action | "fs:*" | "net:*" | "model:*" | "proc:*" | "jj:*" | "*"
+type PatternAction = Action | "fs:*" | "net:*" | "model:*" | "memory:*" | "proc:*" | "jj:*" | "*"
 
 const PatternAction: Schema.Literals<[...]>
 ```
@@ -343,9 +345,9 @@ Classifies an exact capability.
 
 | Tier           | Actions                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sealed`       | `fs:read`, `net:get`, `model:call`, `jj:status`, `jj:diff`, `jj:root`                                                                        |
+| `sealed`       | `fs:read`, `net:get`, `model:call`, `memory:read`, `jj:status`, `jj:diff`, `jj:root`                                                         |
 | `compensable`  | `jj:snapshot`, `jj:restore`, `jj:workspace-add`, `jj:workspace-forget`, `jj:revert`, `jj:op-restore`, and an `fs:write` inside the workspace |
-| `irreversible` | `net:post`, `proc:spawn`, and an `fs:write` that escapes the workspace                                                                       |
+| `irreversible` | `net:post`, `proc:spawn`, `memory:write`, and an `fs:write` that escapes the workspace                                                       |
 
 Workspace containment is lexical, so symlinks are invisible: a caller that
 materializes workspace snapshots resolves real paths before classifying a

@@ -126,7 +126,6 @@ verdict about the code it ran, not about the command it was handed.
 | `Attribution`      | `{ to, executed?, invalidProbe? }`                                                           | What one result was attributed to: the tree, or one of the five.                            |
 | `CONFIDENCE_FLOOR` | `0.7`                                                                                        | The confidence an attribution needs before it outranks the tree.                            |
 | `MAX_OUTPUT_BYTES` | `32768`                                                                                      | The most output bytes one judgment carries, newest kept.                                    |
-
 | `probeAttribution` | `Classifier` `probe/attribution`                                                             | The classifier `classify` asks: `attribution` choice, `executed` boolean.                   |
 | `classify`         | `(result: { command, exitCode, output }) => Effect<Attribution, ClassifierError, Evaluator>` | Attributes one command result, with Jev.                                                    |
 | `unjudged`         | `(error: ClassifierError) => StdError`                                                       | The standard-flow failure a judge that did not answer is.                                   |

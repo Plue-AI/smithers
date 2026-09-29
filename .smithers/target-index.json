@@ -16527,6 +16527,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/box.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/budget.ts"
       },
       {
@@ -16583,6 +16587,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/factory.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/files.ts"
       },
       {
@@ -16596,6 +16604,18 @@
       {
         "kind": "file",
         "path": "apps/tui/src/fuzzy.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/graph.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/harness-claude.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/harness.ts"
       },
       {
         "kind": "file",
@@ -16779,6 +16799,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/wrapped.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/errors/package.json"
       },
       {
@@ -16936,6 +16960,14 @@
       {
         "kind": "file",
         "path": "packages/rpc/src/Sha256.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/StackIssues.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/src/StackView.ts"
       },
       {
         "kind": "file",
@@ -20227,6 +20259,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/engine/src/FlowEngine/Placed.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/engine/src/FlowEngine/Round.ts"
       },
       {
@@ -20256,6 +20292,14 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/engine/src/FlowProxyServer.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/engine/src/Hosts.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/engine/src/PlacedAction.ts"
       },
       {
         "kind": "file",
@@ -20384,6 +20428,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/flow/src/DurableQueue.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/flow/src/Fault.ts"
       },
       {
         "kind": "file",
@@ -21252,6 +21300,14 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/sandbox/src/CloudflareSandbox/make.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/CommandSandbox/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/CommandSandbox/make.ts"
       },
       {
         "kind": "file",
@@ -22367,6 +22423,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/src/CloudSession.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/src/CodexAuth.ts"
       },
       {
@@ -22504,6 +22564,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/cli/RunProgress.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/cli/StepCacheCommands.ts"
       },
       {
         "kind": "file",

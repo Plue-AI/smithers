@@ -509,17 +509,18 @@ decodes the run's final answer with the declared output schema, spending
 
 ### AgentAction.Options
 
-| Field         | Type                                              | What it decides                                                                                                                                                               |
-| ------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `payload`     | `Schema.Struct.Fields \| Flow.AnyStructSchema`    | The step's typed input, exactly as `Action.make` takes it. Required.                                                                                                          |
-| `output`      | `Schema.Top`                                      | The schema the answer must satisfy. Rendered into the prompt and enforced. Required.                                                                                          |
-| `seat`        | `ModelSelection \| ((payload) => ModelSelection)` | One seat or a non-empty ordered list. The first seat is primary, the rest are fallbacks. A callback is evaluated once per execution. Required.                                |
-| `prompt`      | `(payload) => string`                             | The task, built from the decoded payload. Required.                                                                                                                           |
-| `system`      | `ReadonlyArray<string>`                           | Stable system teaching for this step, after the host's and before the schema's.                                                                                               |
-| `corrections` | `number`                                          | How many times a decode miss may be re-prompted. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal and beats a generous host default. |
-| `repair`      | `Repair<Payload>`                                 | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                 |
-| `modelParams` | `ModelRequest.GenerationParams`                   | Generation parameters for the step's model calls.                                                                                                                             |
-| `maxFrames`   | `number`                                          | The cell-loop bound for this step, ahead of the host's.                                                                                                                       |
+| Field         | Type                                              | What it decides                                                                                                                                                                       |
+| ------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `payload`     | `Schema.Struct.Fields \| Flow.AnyStructSchema`    | The step's typed input, exactly as `Action.make` takes it. Required.                                                                                                                  |
+| `output`      | `Schema.Top`                                      | The schema the answer must satisfy. Rendered into the prompt and enforced. Required.                                                                                                  |
+| `seat`        | `ModelSelection \| ((payload) => ModelSelection)` | One seat or a non-empty ordered list. The first seat is primary, the rest are fallbacks. A callback is evaluated once per execution. Required.                                        |
+| `phase`       | `SeatRouter.Phase`                                | The phase of work a `Seat.auto` seat routes as. Jev classifies it when absent. A panel route runs the members in parallel, then the merger on the answers of those that did not fail. |
+| `prompt`      | `(payload) => string`                             | The task, built from the decoded payload. Required.                                                                                                                                   |
+| `system`      | `ReadonlyArray<string>`                           | Stable system teaching for this step, after the host's and before the schema's.                                                                                                       |
+| `corrections` | `number`                                          | How many times a decode miss may be re-prompted. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal and beats a generous host default.         |
+| `repair`      | `Repair<Payload>`                                 | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                         |
+| `modelParams` | `ModelRequest.GenerationParams`                   | Generation parameters for the step's model calls.                                                                                                                                     |
+| `maxFrames`   | `number`                                          | The cell-loop bound for this step, ahead of the host's.                                                                                                                               |
 
 ### AgentAction.Repair
 
@@ -705,7 +706,6 @@ class SeatUnrouted extends Schema.TaggedError<SeatUnrouted>()(
       "unconfigured",
       "interrupted",
       "no_candidates",
-      "too_many_candidates",
       ...Evaluator.EvaluatorErrorCode.literals
     ]),
     message: Schema.String
@@ -714,9 +714,8 @@ class SeatUnrouted extends Schema.TaggedError<SeatUnrouted>()(
 ```
 
 A seat Jev could not pick. `unconfigured` means no judge is bound or the
-catalog could not list its seats; `no_candidates` and `too_many_candidates`
-mean the catalog offered none or more than 255; any other reason is the
-judge's own failure. No default seat is ever picked instead.
+catalog could not list its seats; `no_candidates` means the catalog offered
+no seat the routing graph picked; any other reason is the judge's own failure. No default seat is ever picked instead.
 
 ### Seat.modelIdOf
 
@@ -798,18 +797,79 @@ of 128,000 for models the catalog has not met. Never zero.
 
 ## SeatRouter
 
-Jev picks the seat a run starts on and its system-prompt variant, in one call.
-A declared seat always wins and asks nothing. A run that declares `auto` asks
-once at its start, and each subagent asks on its own. There is no confidence
-floor, and a judge that cannot answer fails as `Seat.SeatUnrouted`.
+Routes a run by the maintainer's routing graph. A declared seat always wins
+and asks nothing. A run that declares `auto` asks Jev once, at its start, the
+graph's edge questions and the system-prompt variant in one call; a pure
+table picks the seat, its backups, and, for important plans and reviews, a
+panel. Each subagent routes on its own prompt. A judge that cannot answer, or
+a pick with nothing available, fails as `Seat.SeatUnrouted`.
 
-### SeatRouter.Candidate, SeatRouter.Variant
+### SeatRouter.seats, SeatRouter.phases
 
 ```ts
-interface Candidate {
-  readonly id: string
-  readonly description: string
+const seats: readonly ["luna", "sol", "astra", "opus", "fable", "sonnet", "kimi"]
+type GraphSeat = typeof seats[number]
+const phases: readonly ["plan", "implement", "review", "ui", "tool", "other"]
+type Phase = typeof phases[number]
+```
+
+The graph's seats, by their `Providers.seatAliases` names, and its phases of
+work.
+
+### SeatRouter.plan, SeatRouter.backupsOf
+
+```ts
+const Answers: Schema.Struct<{
+  phase: Schema.Literals<Phase>
+  size: Schema.Literals<["trivial", "simple", "middle", "important"]>
+  clarity: Schema.Literals<["clear", "unknowns"]>
+  binary: Schema.Boolean
+}>
+interface Planned {
+  readonly seat: GraphSeat
+  readonly panel?: { readonly seats: ReadonlyArray<GraphSeat>; readonly merger: GraphSeat }
 }
+const plan: (answers: Answers) => Planned
+const backupsOf: (seat: GraphSeat, phase: Phase) => ReadonlyArray<GraphSeat>
+```
+
+`plan` is the graph; the panel is Opus, Fable, and Astra, merged by Fable.
+
+| Phase       | Pick                                                                     |
+| ----------- | ------------------------------------------------------------------------ |
+| `plan`      | trivial: Sonnet; simple: Opus; middle: Fable; important: the panel       |
+| `implement` | important with unknowns: Fable; important or unknowns: Opus; else Sonnet |
+| `review`    | important: the panel; else Opus                                          |
+| `ui`        | Opus                                                                     |
+| `tool`      | binary and clear: Luna when trivial, else Sonnet; else Opus              |
+| `other`     | Opus                                                                     |
+
+Writing code never runs on Luna. `backupsOf` is the failover order: Fable to
+Astra; Opus to Sol, or Kimi then Sol for `ui`; Kimi to none; every other seat
+to Kimi.
+
+### SeatRouter.fit, SeatRouter.Route
+
+```ts
+const RouteSchema: Schema.Struct<{
+  seat: Schema.String
+  backups: Schema.Array<Schema.String>
+  panel: Schema.optionalKey<typeof AgentEvent.SeatPanel>
+}>
+type Route = typeof RouteSchema.Type
+const fit: (planned: Planned, phase: Phase, available: ReadonlyArray<string>) => Route | undefined
+```
+
+Keeps the available seats of a pick. Each seat becomes the first available of
+itself and its backups, and the rest available are its backups. Panel members
+that land on one seat are one member with the union of their backups, in
+order, less the seats on the panel. A panel left with one member is that
+member's seat and backups alone. `undefined` when
+the pick's seat and backups are all unavailable.
+
+### SeatRouter.Variant
+
+```ts
 interface Variant {
   readonly id: string
   readonly description: string
@@ -817,22 +877,22 @@ interface Variant {
 }
 ```
 
-A candidate id is a seat the host's `SeatResolver` resolves: an alias,
-`provider:model`, or a role. Jev reads each `description`; a run picked for a
-variant is given its `system` text.
+Jev reads each `description`; a run picked for a variant is given its
+`system` text.
 
 ### SeatRouter.Catalog, SeatRouter.Service, SeatRouter.layer
 
 ```ts
 interface Service {
-  readonly candidates: Effect.Effect<ReadonlyArray<Candidate>, Seat.SeatUnresolved>
+  readonly candidates: Effect.Effect<ReadonlyArray<string>, Seat.SeatUnresolved>
   readonly variants: ReadonlyArray<Variant>
 }
 class Catalog extends Context.Service<Catalog, Service>()("@smthrs/agent/SeatRouter/Catalog")
 const layer: (implementation: Service) => Layer.Layer<Catalog>
 ```
 
-What the host offers Jev.
+What the host offers: the graph seats its `SeatResolver` runs here, and the
+variants.
 
 ### SeatRouter.defaultVariants
 
@@ -851,35 +911,36 @@ const State: Schema.Struct<{
   flow: Schema.String
   description: Schema.String
   capabilities: Schema.Array<Schema.String>
-  parent: Schema.optionalKey<Schema.Struct<{ seat: Schema.String; flow: Schema.String }>>
 }>
 ```
 
-What Jev reads. `route` sends the task as `Judgement.task` carries it, both
-ends kept.
+What Jev reads. Callers pass the task whole; `route` sends it as
+`Judgement.task` carries it, both ends kept.
 
-### SeatRouter.classifierFor
+### SeatRouter.classifierFor, SeatRouter.edgeQuestions
 
 ```ts
 const classifierFor: (
-  candidates: ReadonlyArray<Candidate>,
-  variants: ReadonlyArray<Variant>
+  variants: ReadonlyArray<Variant>,
+  pinned: boolean
 ) => Classifier.Classifier<"seat/route", typeof State, Classifier.Questions>
 ```
 
-The `seat/route` classifier: `seat` is a choice over the candidates, with
-`seatInstructions`; `system` is a choice over the variants, with
-`systemInstructions`; each is asked only when there are at least two to
-choose from. The same ids and descriptions return the same classifier.
+The `seat/route` classifier: the `edgeQuestions` `phase`, `size`, `clarity`,
+and `binary`, without `phase` when the caller pinned it, and `system`, a choice
+over the variants with `systemInstructions`, asked only when there are at
+least two. The same variants and pin return the same classifier.
 
 ### SeatRouter.Decision, SeatRouter.DecisionSchema
 
 ```ts
 type Decision = {
   readonly seat: string
+  readonly backups: ReadonlyArray<string>
+  readonly panel?: AgentEvent.SeatPanel
   readonly variant: string | null
-  readonly decidedBy: "jev" | "declared" | "only"
-  readonly confidence?: number
+  readonly decidedBy: "jev" | "declared"
+  readonly answers: Answers | null
   readonly latencyMs: number
   readonly candidates: ReadonlyArray<string>
   readonly asked: {
@@ -893,8 +954,8 @@ type Decision = {
 }
 ```
 
-`confidence` is the provider's own confidence in `seat`, absent when it sent
-none. `asked.questions` is the wire form.
+The route, the variant, and the graph's inputs. `candidates` are the seats that
+were available. `asked.questions` is the wire form.
 
 ### SeatRouter.route
 
@@ -902,11 +963,26 @@ none. `asked.questions` is the wire form.
 const route: (input: Input) => Effect.Effect<Decision, Seat.SeatUnrouted, Catalog>
 ```
 
-`Input` is `{ declared, state }`. A seat other than `Seat.auto` is kept with
-`decidedBy: "declared"`. Otherwise one candidate is taken with
-`decidedBy: "only"`, and two to `maxCandidates` (255) are put to Jev. None, or
-more, fails as `no_candidates` or `too_many_candidates`. Two or more variants
-are put to Jev in the same call, so one candidate still gets its variant.
+`Input` is `{ declared, state, phase?, panel? }`. A seat other than
+`Seat.auto` is kept with `decidedBy: "declared"`. Otherwise Jev answers the
+edge questions, with `phase` taken from the input when given, and the route is
+`fit` of `plan` over the catalog's seats. `panel: false`, for a caller that
+does not fan out, routes a panel pick to its merger and its backups alone, so
+no panel is recorded that does not run. An empty catalog, or a pick with
+nothing available, fails as `no_candidates`.
+
+### SeatRouter.mergePrompt
+
+```ts
+const mergePrompt: (
+  task: string,
+  answers: ReadonlyArray<readonly [seat: string, answer: string]>,
+  failed: ReadonlyArray<string>
+) => string
+```
+
+The merger's task: the task, each member's answer as `seat: answer`, and the
+members that failed without one.
 
 ### SeatRouter.durable
 
@@ -921,7 +997,7 @@ const durable: (
 `seat/route:${executionId}:${purpose}`. A replay is served the recorded
 decision; a process that dies before it is recorded asks again. The key leaves
 out the classifier digest, so editing a description does not re-route a run in
-flight.
+flight. A replay is served the recorded route, panel included.
 
 ### SeatRouter.events
 
@@ -932,9 +1008,8 @@ const events: (
 ) => ReadonlyArray<AgentEvent.AgentEvent>
 ```
 
-`seat-routed` and the reading's `decision-settled` row (frame 0, acted)
-whenever Jev was asked; `seat-routed` alone for the only candidate with no
-variant to choose; nothing for a declared seat.
+`seat-routed`, with the route's `backups` and `panel`, and the reading's
+`decision-settled` row (frame 0, acted); nothing for a declared seat.
 
 ### SeatRouter.variantText
 
@@ -1664,7 +1739,8 @@ that wants the run to wait for a person fails with a `HarnessError` carrying a
 ```ts
 const AskInput = Schema.Struct({
   question: Schema.String,
-  options: Schema.optional(Schema.Array(Schema.String))
+  options: Schema.optional(Schema.Array(Schema.String)),
+  to: Schema.optional(Schema.Literals(["parent", "person"]))
 })
 
 const AskOutput = Schema.Struct({
@@ -1672,6 +1748,10 @@ const AskOutput = Schema.Struct({
   approved: Schema.Boolean
 })
 ```
+
+`to` says who answers. `parent`, the default, is the agent that started this
+one, escalating toward the person; `person` skips the agents. A host with no
+agent above the run asks the person either way.
 
 ### StandardFlows.ApprovalUnavailable
 

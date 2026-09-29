@@ -229,13 +229,13 @@ envelope `bash` declares for every call.
 | `env`         | record of string, optional     | Environment variables.                                                                       |
 | `timeoutMs`   | number, optional               | Numeric wall-clock milliseconds. Defaults to 600,000.                                        |
 
-| Output                                     | Type                           | Meaning                                                               |
-| ------------------------------------------ | ------------------------------ | --------------------------------------------------------------------- |
-| `exitCode`                                 | number                         | The command's exit code, including non-zero.                          |
-| `stdout`, `stderr`                         | string                         | Captured streams, tail kept when truncated.                           |
-| `stdoutTruncated`, `stderrTruncated`       | boolean                        | Whether that stream is a fragment.                                    |
-| `stdoutDroppedBytes`, `stderrDroppedBytes` | number                         | Bytes omitted from the start.                                         |
-| `invalidProbe`                             | `Probe.InvalidProbe`, optional | Present when the shell refused to start the command: exit 126 or 127. |
+| Output                                     | Type                           | Meaning                                                                            |
+| ------------------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------- |
+| `exitCode`                                 | number                         | The command's exit code, including non-zero.                                       |
+| `stdout`, `stderr`                         | string                         | Captured streams, tail kept when truncated.                                        |
+| `stdoutTruncated`, `stderrTruncated`       | boolean                        | Whether that stream is a fragment.                                                 |
+| `stdoutDroppedBytes`, `stderrDroppedBytes` | number                         | Bytes omitted from the start.                                                      |
+| `invalidProbe`                             | `Probe.InvalidProbe`, optional | Reserved for independently confirmed launch failures; not inferred from exit code. |
 
 `Bash.Input` and `Bash.Output` are also exported as TypeScript types alongside
 the schemas. Fails with `invalid_input`, `outside_declared_reads`,

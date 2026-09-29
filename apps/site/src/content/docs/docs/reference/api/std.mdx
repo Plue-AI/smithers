@@ -131,16 +131,12 @@ verdict about the code it ran, not about the command it was handed.
 | `Attribution`      | `{ to, executed?, invalidProbe? }`                                                           | What one result was attributed to: the tree, or one of the five.                            |
 | `CONFIDENCE_FLOOR` | `0.7`                                                                                        | The confidence an attribution needs before it outranks the tree.                            |
 | `MAX_OUTPUT_BYTES` | `32768`                                                                                      | The most output bytes one judgment carries, newest kept.                                    |
-| `posix`            | `(exitCode: number) => InvalidProbe \| undefined`                                            | Reads the shell's own refusal, 126 and 127, from the exit code alone.                       |
 | `probeAttribution` | `Classifier` `probe/attribution`                                                             | The classifier `classify` asks: `attribution` choice, `executed` boolean.                   |
 | `classify`         | `(result: { command, exitCode, output }) => Effect<Attribution, ClassifierError, Evaluator>` | Attributes one command result, with Jev.                                                    |
 | `unjudged`         | `(error: ClassifierError) => StdError`                                                       | The standard-flow failure a judge that did not answer is.                                   |
 
 ```ts
 import * as Probe from "@smthrs/std/Probe"
-
-Probe.posix(127)
-// { reason: "unknown-command", evidence: "the command exited 127", message: "..." }
 
 const attribution = yield * Probe.classify({ command: "pytest tests/x.py::nope", exitCode: 4, output })
 // { to: "unknown-test", executed: false, invalidProbe: { reason: "unknown-test", ... } }
@@ -149,9 +145,9 @@ const attribution = yield * Probe.classify({ command: "pytest tests/x.py::nope",
 The attribution is Jev's: `classify` asks `probeAttribution`, the exported
 `probe/attribution` declaration, through the `Evaluator` service of
 [`@smthrs/model`](/docs/reference/api/model/), so a host needs a bound evaluator on a
-subscription seat. Two things are still decided without it, because an exit code is a
-fact rather than prose: a zero exit is never classified, and 126 and 127 are
-the shell's own refusal to start the command. An answer below
+subscription seat. A zero exit is attributed to the tree without the judge. All non-zero exits,
+including 126 and 127, need attribution: a runner can choose those codes after
+executing a check. An answer below
 `CONFIDENCE_FLOOR` is the tree's failure, which leaves a genuine reproduction
 intact. There is no third path: when the judge does not answer, `unjudged`
 turns its failure into the caller's typed failure rather than a guess.
@@ -260,8 +256,12 @@ A requested variable never reaches the host transport process under its own
 name, so `PATH`, `LD_PRELOAD`, or `DOCKER_HOST` cannot choose what runs on the
 host: `Plan.env` carries each value as `SMITHERS_CONTAINER_ENV_KEY`, argv
 carries only `-e SMITHERS_CONTAINER_ENV_KEY`, and an `sh -c` inside the
-container renames it to `KEY` before `exec`ing the program. Custom transports
-return any host process environment overrides in `Plan.env`.
+container renames it to `KEY` before `exec`ing the program. A request that
+carries `env` therefore requires `sh` on the container's `PATH`; an image
+without one (distroless, `scratch`) fails every such request, and a request
+without `env` runs the program directly. Supply a custom transport for such an
+image. Custom transports return any host process environment overrides in
+`Plan.env`.
 
 ## TreeFingerprint
 
@@ -334,14 +334,23 @@ therefore does not run on the host. The workspace is still read for refs, its
 index, its config file (as a file) and a few `core.*` hashing settings. A
 checkout gets its own standalone `.git`, so a container can run git in it.
 
+A materialize never has host git write into an agent-writable directory. It
+writes the checkout and its `.git` into a staging directory the agent cannot
+reach, inside the temporary shadow or, when the host's temporary directory is
+another filesystem, a `.smithers-checkout-<uuid>` directory beside the
+workspace root, or `checkout-<uuid>` under `$XDG_CACHE_HOME/smithers` (default
+`~/.cache/smithers`) when the root's parent is not writable. One `rename` then
+gives the finished directory its name under the workspace. A checkout name the
+agent swaps for a symlink fails the call before anything is written through
+it. The rename runs from inside the checkout's parent, entered by its physical
+path, and a parent that resolves outside the workspace root's real path fails
+the call before the rename. When no staging directory shares the checkout's
+filesystem, the materialize is refused rather than copied, and the refusal
+names each candidate, including a root parent that is not writable.
+
 Two data-write residuals remain, neither of which runs a program. First, host
-writes into agent-writable paths (new objects, the checkpoint's config entry,
-the checkout directory) follow a symlink the agent races into place. The
-directories and `.git` files a materialize prepares are created exclusively,
-but the `git read-tree --reset -u` that then writes the checkpoint's files is
-not: an agent that swaps the checkout directory, or a parent of it, for a
-symlink between those two steps can have read-tree overwrite existing files in
-the symlink's target with the checkpoint's contents. Second, the repository is
+writes into agent-writable `.git` paths (new objects, the checkpoint's config
+entry) follow a symlink the agent races into place. Second, the repository is
 whatever `git rev-parse --git-common-dir` names: a `.git` gitfile
 (`gitdir: <path>`) or an `objects/info/alternates` entry can point it at
 another git directory on the host. Captures then write objects and the config
@@ -408,8 +417,9 @@ The server runs on the host as the host user. `make` fails with
 `permission_denied`, before spawning, when the program it would execute lies
 under `cwd`: a relative or absolute command there, a bare name found through a
 `PATH` entry there, or a workspace symlink to a host binary. An argument, or
-the value after `=` in one, that names an existing file under `cwd` is refused
-the same way. A launcher is refused outright, because its arguments are code or
+the value after `=` in one, that names an existing file or directory under
+`cwd` is refused the same way; `node <dir>` runs that directory's `index.js` or
+package `main`. A launcher is refused outright, because its arguments are code or
 package names the file check cannot see: a shell (`sh -c`, `bash`, `zsh`),
 `env`, a package runner (`npx`, `pnpm`, `npm`, `yarn`, `bunx`, `bun x`,
 `deno`), or `node` and `bun` given inline code or a preload (`-e`, `--eval`,

@@ -1,12 +1,12 @@
 # Smithers
 
 
-> Smithers maintains your codebase. It turns issues into reviewed, tested changes and keeps the project wiki current. Flows beside your code define how.
+> Smithers maintains your codebase. It turns issues into reviewed, tested changes and, when enabled, keeps the project wiki current. Flows beside your code define how.
 
 
 ## Start here
 
-- [Welcome to Smithers](https://smithers.sh/docs/): Smithers maintains your codebase. It turns issues into reviewed, tested changes and keeps the project wiki current. Flows beside your code define how.
+- [Welcome to Smithers](https://smithers.sh/docs/): Smithers maintains your codebase. It turns issues into reviewed, tested changes and, when enabled, keeps the project wiki current. Flows beside your code define how.
 - [Quickstart](https://smithers.sh/docs/quickstart/): Connect a repository, set up a job, and inspect its real result in the Smithers app.
 - [Pricing](https://smithers.sh/docs/pricing/): Free and Pro plans. Smithers runs the models; model usage draws on your account credit.
 - [Self-host Smithers](https://smithers.sh/docs/self-hosting/): Run the Smithers app and backend on your own machine: one container, an external PostgreSQL 18, and one data volume.
@@ -312,3 +312,4 @@
 - [Agent policies](https://smithers.sh/docs/examples/39-agent-policies/): Resume a model-backed action after a rate limit and an invalid structured answer.
 - [Sandbox placement](https://smithers.sh/docs/examples/40-sandbox-placement/): Place an action's host operations in a provisioned session.
 - [Sandboxed flow](https://smithers.sh/docs/examples/41-sandboxed-flow/): Run a child flow's code inside a provisioned environment as one parent action.
+- [Placed deploy](https://smithers.sh/docs/examples/42-placed-deploy/): Run a secret-using action only on the host that holds the secret.

@@ -3,7 +3,9 @@
 # Welcome to Smithers
 https://smithers.sh/docs/
 
-Smithers maintains your codebase. It turns issues into reviewed, tested changes and keeps the project wiki current. Flows beside your code define how.
+Smithers maintains your codebase. It turns issues into reviewed, tested changes and, when enabled, keeps the project wiki current. Flows beside your code define how.
+
+[Turn on wiki upkeep](/docs/how-it-works/wiki/) when you want Smithers to keep the wiki current.
 
 [Open Smithers](https://smithers.sh/smithersai/smithers)
 [Follow the quickstart](/docs/quickstart/)
@@ -541,9 +543,9 @@ The **wiki** is what people and agents know about a repository. Both read it and
 
 ## Kept current
 
-When a change lands, Smithers regenerates the pages it affects, reviews each against the code, and publishes it. Pages a person edited stay as written.
+When wiki upkeep is enabled and a change lands, Smithers regenerates the pages it affects, reviews each against the code, and publishes it. Pages a person edited stay as written.
 
-**Partly available.** Refresh runs when main moves, for repositories with the stack on and a declared wiki. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
+**Partly available.** Wiki upkeep is off by default. Set `planning.wiki` to `true` in the host-owned coding request configuration to refresh wiki input before planning. For post-fold refresh when main moves, set `"wiki": true` and provide a non-empty `pages` array in `.smithers/coding-project.json` on main; the repository also needs the stack on. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
 
 ## Sync with Notion and Obsidian
 
@@ -9133,6 +9135,7 @@ Options:
   --quiet                                        Suppress progress messages
   --data <string>
   --detached, -d
+  --wait                                         Wait for the run's status before exiting
   --budget-tokens <number>                       Token ceiling for this run
   --budget-ms <number>                           Wall-clock ceiling in milliseconds for this run
   --on-exceeded <fail|warn|skip-remaining|park>  What the run does at a ceiling
@@ -14042,17 +14045,18 @@ decodes the run's final answer with the declared output schema, spending
 
 ### AgentAction.Options
 
-| Field         | Type                                              | What it decides                                                                                                                                                               |
-| ------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `payload`     | `Schema.Struct.Fields \| Flow.AnyStructSchema`    | The step's typed input, exactly as `Action.make` takes it. Required.                                                                                                          |
-| `output`      | `Schema.Top`                                      | The schema the answer must satisfy. Rendered into the prompt and enforced. Required.                                                                                          |
-| `seat`        | `ModelSelection \| ((payload) => ModelSelection)` | One seat or a non-empty ordered list. The first seat is primary, the rest are fallbacks. A callback is evaluated once per execution. Required.                                |
-| `prompt`      | `(payload) => string`                             | The task, built from the decoded payload. Required.                                                                                                                           |
-| `system`      | `ReadonlyArray<string>`                           | Stable system teaching for this step, after the host's and before the schema's.                                                                                               |
-| `corrections` | `number`                                          | How many times a decode miss may be re-prompted. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal and beats a generous host default. |
-| `repair`      | `Repair<Payload>`                                 | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                 |
-| `modelParams` | `ModelRequest.GenerationParams`                   | Generation parameters for the step's model calls.                                                                                                                             |
-| `maxFrames`   | `number`                                          | The cell-loop bound for this step, ahead of the host's.                                                                                                                       |
+| Field         | Type                                              | What it decides                                                                                                                                                                       |
+| ------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `payload`     | `Schema.Struct.Fields \| Flow.AnyStructSchema`    | The step's typed input, exactly as `Action.make` takes it. Required.                                                                                                                  |
+| `output`      | `Schema.Top`                                      | The schema the answer must satisfy. Rendered into the prompt and enforced. Required.                                                                                                  |
+| `seat`        | `ModelSelection \| ((payload) => ModelSelection)` | One seat or a non-empty ordered list. The first seat is primary, the rest are fallbacks. A callback is evaluated once per execution. Required.                                        |
+| `phase`       | `SeatRouter.Phase`                                | The phase of work a `Seat.auto` seat routes as. Jev classifies it when absent. A panel route runs the members in parallel, then the merger on the answers of those that did not fail. |
+| `prompt`      | `(payload) => string`                             | The task, built from the decoded payload. Required.                                                                                                                                   |
+| `system`      | `ReadonlyArray<string>`                           | Stable system teaching for this step, after the host's and before the schema's.                                                                                                       |
+| `corrections` | `number`                                          | How many times a decode miss may be re-prompted. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal and beats a generous host default.         |
+| `repair`      | `Repair<Payload>`                                 | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                         |
+| `modelParams` | `ModelRequest.GenerationParams`                   | Generation parameters for the step's model calls.                                                                                                                                     |
+| `maxFrames`   | `number`                                          | The cell-loop bound for this step, ahead of the host's.                                                                                                                               |
 
 ### AgentAction.Repair
 
@@ -14238,7 +14242,6 @@ class SeatUnrouted extends Schema.TaggedError<SeatUnrouted>()(
       "unconfigured",
       "interrupted",
       "no_candidates",
-      "too_many_candidates",
       ...Evaluator.EvaluatorErrorCode.literals
     ]),
     message: Schema.String
@@ -14247,9 +14250,8 @@ class SeatUnrouted extends Schema.TaggedError<SeatUnrouted>()(
 ```
 
 A seat Jev could not pick. `unconfigured` means no judge is bound or the
-catalog could not list its seats; `no_candidates` and `too_many_candidates`
-mean the catalog offered none or more than 255; any other reason is the
-judge's own failure. No default seat is ever picked instead.
+catalog could not list its seats; `no_candidates` means the catalog offered
+no seat the routing graph picked; any other reason is the judge's own failure. No default seat is ever picked instead.
 
 ### Seat.modelIdOf
 
@@ -14331,18 +14333,79 @@ of 128,000 for models the catalog has not met. Never zero.
 
 ## SeatRouter
 
-Jev picks the seat a run starts on and its system-prompt variant, in one call.
-A declared seat always wins and asks nothing. A run that declares `auto` asks
-once at its start, and each subagent asks on its own. There is no confidence
-floor, and a judge that cannot answer fails as `Seat.SeatUnrouted`.
+Routes a run by the maintainer's routing graph. A declared seat always wins
+and asks nothing. A run that declares `auto` asks Jev once, at its start, the
+graph's edge questions and the system-prompt variant in one call; a pure
+table picks the seat, its backups, and, for important plans and reviews, a
+panel. Each subagent routes on its own prompt. A judge that cannot answer, or
+a pick with nothing available, fails as `Seat.SeatUnrouted`.
 
-### SeatRouter.Candidate, SeatRouter.Variant
+### SeatRouter.seats, SeatRouter.phases
 
 ```ts
-interface Candidate {
-  readonly id: string
-  readonly description: string
+const seats: readonly ["luna", "sol", "astra", "opus", "fable", "sonnet", "kimi"]
+type GraphSeat = typeof seats[number]
+const phases: readonly ["plan", "implement", "review", "ui", "tool", "other"]
+type Phase = typeof phases[number]
+```
+
+The graph's seats, by their `Providers.seatAliases` names, and its phases of
+work.
+
+### SeatRouter.plan, SeatRouter.backupsOf
+
+```ts
+const Answers: Schema.Struct<{
+  phase: Schema.Literals<Phase>
+  size: Schema.Literals<["trivial", "simple", "middle", "important"]>
+  clarity: Schema.Literals<["clear", "unknowns"]>
+  binary: Schema.Boolean
+}>
+interface Planned {
+  readonly seat: GraphSeat
+  readonly panel?: { readonly seats: ReadonlyArray<GraphSeat>; readonly merger: GraphSeat }
 }
+const plan: (answers: Answers) => Planned
+const backupsOf: (seat: GraphSeat, phase: Phase) => ReadonlyArray<GraphSeat>
+```
+
+`plan` is the graph; the panel is Opus, Fable, and Astra, merged by Fable.
+
+| Phase       | Pick                                                                     |
+| ----------- | ------------------------------------------------------------------------ |
+| `plan`      | trivial: Sonnet; simple: Opus; middle: Fable; important: the panel       |
+| `implement` | important with unknowns: Fable; important or unknowns: Opus; else Sonnet |
+| `review`    | important: the panel; else Opus                                          |
+| `ui`        | Opus                                                                     |
+| `tool`      | binary and clear: Luna when trivial, else Sonnet; else Opus              |
+| `other`     | Opus                                                                     |
+
+Writing code never runs on Luna. `backupsOf` is the failover order: Fable to
+Astra; Opus to Sol, or Kimi then Sol for `ui`; Kimi to none; every other seat
+to Kimi.
+
+### SeatRouter.fit, SeatRouter.Route
+
+```ts
+const RouteSchema: Schema.Struct<{
+  seat: Schema.String
+  backups: Schema.Array<Schema.String>
+  panel: Schema.optionalKey<typeof AgentEvent.SeatPanel>
+}>
+type Route = typeof RouteSchema.Type
+const fit: (planned: Planned, phase: Phase, available: ReadonlyArray<string>) => Route | undefined
+```
+
+Keeps the available seats of a pick. Each seat becomes the first available of
+itself and its backups, and the rest available are its backups. Panel members
+that land on one seat are one member with the union of their backups, in
+order, less the seats on the panel. A panel left with one member is that
+member's seat and backups alone. `undefined` when
+the pick's seat and backups are all unavailable.
+
+### SeatRouter.Variant
+
+```ts
 interface Variant {
   readonly id: string
   readonly description: string
@@ -14350,22 +14413,22 @@ interface Variant {
 }
 ```
 
-A candidate id is a seat the host's `SeatResolver` resolves: an alias,
-`provider:model`, or a role. Jev reads each `description`; a run picked for a
-variant is given its `system` text.
+Jev reads each `description`; a run picked for a variant is given its
+`system` text.
 
 ### SeatRouter.Catalog, SeatRouter.Service, SeatRouter.layer
 
 ```ts
 interface Service {
-  readonly candidates: Effect.Effect<ReadonlyArray<Candidate>, Seat.SeatUnresolved>
+  readonly candidates: Effect.Effect<ReadonlyArray<string>, Seat.SeatUnresolved>
   readonly variants: ReadonlyArray<Variant>
 }
 class Catalog extends Context.Service<Catalog, Service>()("@smthrs/agent/SeatRouter/Catalog")
 const layer: (implementation: Service) => Layer.Layer<Catalog>
 ```
 
-What the host offers Jev.
+What the host offers: the graph seats its `SeatResolver` runs here, and the
+variants.
 
 ### SeatRouter.defaultVariants
 
@@ -14384,35 +14447,36 @@ const State: Schema.Struct<{
   flow: Schema.String
   description: Schema.String
   capabilities: Schema.Array<Schema.String>
-  parent: Schema.optionalKey<Schema.Struct<{ seat: Schema.String; flow: Schema.String }>>
 }>
 ```
 
-What Jev reads. `route` sends the task as `Judgement.task` carries it, both
-ends kept.
+What Jev reads. Callers pass the task whole; `route` sends it as
+`Judgement.task` carries it, both ends kept.
 
-### SeatRouter.classifierFor
+### SeatRouter.classifierFor, SeatRouter.edgeQuestions
 
 ```ts
 const classifierFor: (
-  candidates: ReadonlyArray<Candidate>,
-  variants: ReadonlyArray<Variant>
+  variants: ReadonlyArray<Variant>,
+  pinned: boolean
 ) => Classifier.Classifier<"seat/route", typeof State, Classifier.Questions>
 ```
 
-The `seat/route` classifier: `seat` is a choice over the candidates, with
-`seatInstructions`; `system` is a choice over the variants, with
-`systemInstructions`; each is asked only when there are at least two to
-choose from. The same ids and descriptions return the same classifier.
+The `seat/route` classifier: the `edgeQuestions` `phase`, `size`, `clarity`,
+and `binary`, without `phase` when the caller pinned it, and `system`, a choice
+over the variants with `systemInstructions`, asked only when there are at
+least two. The same variants and pin return the same classifier.
 
 ### SeatRouter.Decision, SeatRouter.DecisionSchema
 
 ```ts
 type Decision = {
   readonly seat: string
+  readonly backups: ReadonlyArray<string>
+  readonly panel?: AgentEvent.SeatPanel
   readonly variant: string | null
-  readonly decidedBy: "jev" | "declared" | "only"
-  readonly confidence?: number
+  readonly decidedBy: "jev" | "declared"
+  readonly answers: Answers | null
   readonly latencyMs: number
   readonly candidates: ReadonlyArray<string>
   readonly asked: {
@@ -14426,8 +14490,8 @@ type Decision = {
 }
 ```
 
-`confidence` is the provider's own confidence in `seat`, absent when it sent
-none. `asked.questions` is the wire form.
+The route, the variant, and the graph's inputs. `candidates` are the seats that
+were available. `asked.questions` is the wire form.
 
 ### SeatRouter.route
 
@@ -14435,11 +14499,26 @@ none. `asked.questions` is the wire form.
 const route: (input: Input) => Effect.Effect<Decision, Seat.SeatUnrouted, Catalog>
 ```
 
-`Input` is `{ declared, state }`. A seat other than `Seat.auto` is kept with
-`decidedBy: "declared"`. Otherwise one candidate is taken with
-`decidedBy: "only"`, and two to `maxCandidates` (255) are put to Jev. None, or
-more, fails as `no_candidates` or `too_many_candidates`. Two or more variants
-are put to Jev in the same call, so one candidate still gets its variant.
+`Input` is `{ declared, state, phase?, panel? }`. A seat other than
+`Seat.auto` is kept with `decidedBy: "declared"`. Otherwise Jev answers the
+edge questions, with `phase` taken from the input when given, and the route is
+`fit` of `plan` over the catalog's seats. `panel: false`, for a caller that
+does not fan out, routes a panel pick to its merger and its backups alone, so
+no panel is recorded that does not run. An empty catalog, or a pick with
+nothing available, fails as `no_candidates`.
+
+### SeatRouter.mergePrompt
+
+```ts
+const mergePrompt: (
+  task: string,
+  answers: ReadonlyArray<readonly [seat: string, answer: string]>,
+  failed: ReadonlyArray<string>
+) => string
+```
+
+The merger's task: the task, each member's answer as `seat: answer`, and the
+members that failed without one.
 
 ### SeatRouter.durable
 
@@ -14454,7 +14533,7 @@ const durable: (
 `seat/route:${executionId}:${purpose}`. A replay is served the recorded
 decision; a process that dies before it is recorded asks again. The key leaves
 out the classifier digest, so editing a description does not re-route a run in
-flight.
+flight. A replay is served the recorded route, panel included.
 
 ### SeatRouter.events
 
@@ -14465,9 +14544,8 @@ const events: (
 ) => ReadonlyArray<AgentEvent.AgentEvent>
 ```
 
-`seat-routed` and the reading's `decision-settled` row (frame 0, acted)
-whenever Jev was asked; `seat-routed` alone for the only candidate with no
-variant to choose; nothing for a declared seat.
+`seat-routed`, with the route's `backups` and `panel`, and the reading's
+`decision-settled` row (frame 0, acted); nothing for a declared seat.
 
 ### SeatRouter.variantText
 
@@ -15197,7 +15275,8 @@ that wants the run to wait for a person fails with a `HarnessError` carrying a
 ```ts
 const AskInput = Schema.Struct({
   question: Schema.String,
-  options: Schema.optional(Schema.Array(Schema.String))
+  options: Schema.optional(Schema.Array(Schema.String)),
+  to: Schema.optional(Schema.Literals(["parent", "person"]))
 })
 
 const AskOutput = Schema.Struct({
@@ -15205,6 +15284,10 @@ const AskOutput = Schema.Struct({
   approved: Schema.Boolean
 })
 ```
+
+`to` says who answers. `parent`, the default, is the agent that started this
+one, escalating toward the person; `person` skips the agents. A host with no
+agent above the run asks the person either way.
 
 ### StandardFlows.ApprovalUnavailable
 
@@ -17847,6 +17930,8 @@ type Action =
   | "net:get"
   | "net:post"
   | "model:call"
+  | "memory:read"
+  | "memory:write"
   | "proc:spawn"
   | "jj:status"
   | "jj:diff"
@@ -17871,7 +17956,7 @@ being read as something adjacent.
 ### Capability.PatternAction
 
 ```ts
-type PatternAction = Action | "fs:*" | "net:*" | "model:*" | "proc:*" | "jj:*" | "*"
+type PatternAction = Action | "fs:*" | "net:*" | "model:*" | "memory:*" | "proc:*" | "jj:*" | "*"
 
 const PatternAction: Schema.Literals<[...]>
 ```
@@ -18118,9 +18203,9 @@ Classifies an exact capability.
 
 | Tier           | Actions                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sealed`       | `fs:read`, `net:get`, `model:call`, `jj:status`, `jj:diff`, `jj:root`                                                                        |
+| `sealed`       | `fs:read`, `net:get`, `model:call`, `memory:read`, `jj:status`, `jj:diff`, `jj:root`                                                         |
 | `compensable`  | `jj:snapshot`, `jj:restore`, `jj:workspace-add`, `jj:workspace-forget`, `jj:revert`, `jj:op-restore`, and an `fs:write` inside the workspace |
-| `irreversible` | `net:post`, `proc:spawn`, and an `fs:write` that escapes the workspace                                                                       |
+| `irreversible` | `net:post`, `proc:spawn`, `memory:write`, and an `fs:write` that escapes the workspace                                                       |
 
 Workspace containment is lexical, so symlinks are invisible: a caller that
 materializes workspace snapshots resolves real paths before classifying a
@@ -19535,9 +19620,9 @@ The Node composition for the command tree.
 | `executionDatabasePath` | `(root: string) => string` | `<root>/.flows/engine.db`. |
 | `EngineDurable` | `Application.Engine & { stores }` | The durable engine plus the shared database seam other stores hang off. |
 | `engineDurable` | `(root: string, registry?, authority?) => EngineDurable` | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects. |
-| `layerSeatEvaluator` | layer | The native subscription judge, backed by the existing seat resolver and `RequestExecutor`. Resolves connected ChatGPT or Claude subscriptions at judgment time, including account pools. Missing seats and invalid verdicts fail closed; provider API keys are never a fallback. |
-| `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. |
-| `seatCandidates`, `layerSeatCatalog` | constructor, layer | The seats Jev routes an undeclared or `auto` run to: each alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with, once per model, never Jev. |
+| `layerSeatEvaluator` | layer | The native judge: Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`; a missing key reads as unreachable) over its own egress HTTP client (fetch under Bun), backed up by the `luna` seat (`openai:gpt-6-luna`) only when Jev is unreachable, times out, or answers 5xx or 429 through its retries. Luna resolves through the seat resolver and the host `RequestExecutor` at judgment time, including account pools; if it cannot resolve either, the judgment fails `unreachable`. A gateway refusal (401, 403) or an invalid Jev answer fails without a fallback. |
+| `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. A `claude-code:<model>` seat runs on the user's signed-in Claude Code through the Claude Agent SDK, one locked-down, tool-less session per conversation whose turns are the frames' new messages; it resolves only without `ANTHROPIC_API_KEY`, and this process never reads a Claude credential. Its session is discarded unless `SMITHERS_HIJACKABLE=1`, which keeps it on disk so `claude --resume <sessionId>`, run in the system temporary directory, opens it; the journaled `model-settled` row carries the `sessionId`. |
+| `seatCandidates`, `layerSeatCatalog` | constructor, layer | The routing graph's seats an undeclared or `auto` run may route to: each `SeatRouter.seats` alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with. A Claude seat is offered on `ANTHROPIC_API_KEY` or on a Claude subscription signed in to Claude Code, never as a `claude-code` seat. |
 | `supervisorStance` | `(environment) => "careful" \| "paranoid"` | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`. |
 | `testRunner`, `testFlows`, `checkpointStore` | constructors | The `test` flow's runner, the flows it registers, and the checkpoint store. `testRunner(environment, root, workspaceRoot?)` declares the runner for `workspaceRoot`, named inside the mount `SMITHERS_TEST_CWD` gives `root`. |
 | `rebuildableTransport` | constructor | The replaceable HTTP dispatcher a model captures and uses after seat resolution returns. |
@@ -19748,6 +19833,16 @@ Read-only projections of a run's events. Nothing here opens a database, so
 | `notFound` | `(runId, nodeId, nodes) => string` | The usage message for a node the run does not have. |
 | `render` | `(node) => string` | One node's human rendering. |
 
+## CloudSession
+
+The signed-in Smithers Cloud session for hosts other than the CLI (the terminal UI reads the factory's issue list with it). The token and origin come from where `smthrs auth login` and `smthrs config` put them.
+
+| Export | Signature | Meaning |
+| --- | --- | --- |
+| `Cloud` | interface | `origin`, and `get(path, signal?)` for a `/api/…` path on that origin as the signed-in person: no redirects, 30 s, at most 4 MiB. |
+| `signedIn` | `(env) => Promise<Cloud \| undefined>` | The session, or undefined without an origin or a login. |
+| `repository` | `(directory, env) => string \| undefined` | The `owner/name` a checkout's git or jj remote names, as `smthrs open` reads it. |
+
 ## Agents
 
 The agent configurations `smthrs mcp add` writes into.
@@ -19821,10 +19916,12 @@ Which seats this machine can run.
 | --- | --- | --- |
 | `Candidate`, `order` | | The seats considered, in preference order. |
 | `Detection`, `detect` | `(host) => ReadonlyArray<Detection>` | What this machine has, from host facts passed in. |
+| `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => Promise<ClaudeCodeLogin \| undefined>` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
+| `claudeCode` | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
+| `claudeCodeSeats`, `claudeCodeModel` | | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one. |
 | `Chosen`, `chooseSeat` | | The seat picked, and why. |
 | `compatible`, `compatibleKey` | | The provider compatibility table and its lookup. |
 | `defaultSeat` | `Record<Candidate, string>` | The seat string each candidate resolves to. |
-| `seatDescriptions` | `Record<string, string>` | One line per seat alias: label, provider, context window. |
 | `starterSeats` | `ReadonlyArray<readonly [variable: string, seat: string]>` | Ordered credential-variable and model-seat pairs used by scaffolding, aligned with the executor's supported provider routes. |
 | `NoSeatError`, `SeatSyntaxError`, `noSeatMessage` | | The two refusals, and the sentence that names what to set. |
 
@@ -23024,9 +23121,15 @@ composes, `@smthrs/crypto`, `@smthrs/flow`, `@smthrs/journal`,
 `@smthrs/kernel`, and `@smthrs/engine`, is browser-bundleable too. A release
 that broke the bundle would fail the build before it shipped.
 
-The only `DurableWriter` backing shipped here is `node:sqlite`, so a browser
-composition can import the types and the in-memory helpers but cannot execute
-durable flows. See [platform support](/docs/reference/api/#platform-support).
+The durable stores accept an injected SQL client and `DurableWriter`. Native
+Node.js and Bun compositions use SQLite or the shipped PostgreSQL adapter;
+`NodeDatabase.layer` selects PostgreSQL for a PostgreSQL URL, and
+`@smthrs/database/postgres/PostgresDatabase` supports direct injection. Browser
+bundling does not supply a durable browser driver or qualify browser execution.
+PostgreSQL storage alone does not qualify a canonical backend deployment:
+artifacts, workspaces, and native process state still need durable host storage.
+See [database configuration](https://database.smithers.sh/concepts/sqlite-only/)
+and [platform support](/docs/reference/api/#platform-support).
 
 ## EngineStore
 
@@ -23210,11 +23313,14 @@ the insert, so a rejected edge leaves no durable trace and, of two concurrent
 writers whose edges jointly close a cycle, exactly one fails. `transaction`
 makes several store operations atomic; nested store writes become savepoints.
 Serialized write transactions are a documented requirement of the
-`DurableWriter.write` contract, not a SQLite artifact: a Postgres-backed
-implementation must use `SERIALIZABLE`. The in-memory twin serializes every
-store operation behind one permit, snapshots its state on entry, rolls back to
-that snapshot when the effect fails or dies, and treats a nested call on the
-same fiber as a savepoint. It is not durable: a process crash loses the whole
+`DurableWriter.write` contract, not a SQLite artifact. The shipped PostgreSQL
+adapter uses READ COMMITTED transactions with a transaction-scoped advisory lock
+keyed by schema, acquired before domain reads to serialize writes across pools
+and processes; nested writes use savepoints. A bare PostgreSQL READ COMMITTED
+client without equivalent serialization is insufficient. The in-memory twin
+serializes every store operation behind one permit, snapshots its state on
+entry, rolls back to that snapshot when the effect fails or dies, and treats a
+nested call on the same fiber as a savepoint. It is not durable: a process crash loses the whole
 in-memory state, not only the uncommitted part.
 
 When engine state and the journal participate together, `StateTransaction`
@@ -23400,7 +23506,9 @@ and every `reservedPaths` entry, under any write set or boundary mode. A change
 that targets or lies beneath a reserved path fails with `host_unavailable`.
 Reserved names match after Unicode NFKC normalization and case folding, so
 `.FLOWS` or `.ﬂows`, which open `.flows` on default APFS and NTFS volumes, are
-refused on every volume.
+refused on every volume. An NTFS 8.3 short-name shape, such as `FLOWS~1`, is
+refused wherever a reserved segment stands, because an NTFS volume with short
+names on opens the long name through it, including from WSL or SMB.
 Hosts must support exclusive `wx` file creation, `stat` with an mtime,
 `utimes`, `rename`, and `remove`; writers that ignore the lock are outside this
 guarantee.
@@ -26734,23 +26842,23 @@ adds what a terminal card needs on top of it, so the served row and
 [`smthrs runs show`](/docs/reference/cli/runs/) cannot disagree about a run's counts, refusals,
 or clipping.
 
-| Export           | Signature                                                                           | Answers                                                                                                                            |
-| ---------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `Digest`         | interface                                                                           | Status, cause, seat, turn and call counts, edits, refusals, tokens, final output, pending question, and the span the events cover. |
-| `Refusal`        | `{ message: string; count: number }`                                                | One refused flow call, aggregated by its message.                                                                                  |
-| `Subject`        | `{ runId: string; flowId?: string }`                                                | The identity a diagnosis is rendered for.                                                                                          |
-| `RunStatus`      | `ControlSchema.RunStatus`                                                           | The run statuses a digest may report.                                                                                              |
-| `digest`         | `(events) => Digest`                                                                | The facts. Total: an unknown kind contributes nothing, including its timestamp.                                                    |
-| `resolvedOutput` | `(value: Pick<Digest, "finalOutput" \| "nativeResolution">) => string \| undefined` | Assistant output first, otherwise a committed native result matching the host's root binding.                                      |
-| `verdict`        | `(value: Digest) => string`                                                         | One line: the status plus the reason that most explains it.                                                                        |
-| `duration`       | `(span: Pick<Digest, "startedAt" \| "endedAt">) => string`                          | The wall-clock span the handled events cover, as `12s` or `3m 04s`.                                                                |
-| `render`         | `(subject: Subject, value: Digest) => string`                                       | The whole card: verdict, activity evidence, tokens, refusals, cause, and output.                                                   |
-| `asRecord`       | `(value: unknown) => Record<string, unknown>`                                       | A wire payload as a record, or an empty record when it is not one.                                                                 |
-| `asString`       | `(value: unknown) => string \| undefined`                                           | A payload field as a string, or nothing.                                                                                           |
-| `asNumber`       | `(value: unknown) => number \| undefined`                                           | A payload field as a number, or nothing.                                                                                           |
-| `timeOf`         | `(event) => number`                                                                 | When an event occurred: its payload's own stamp, else journal admission time.                                                      |
-| `firstLine`      | `(text: string) => string`                                                          | The first line, whichever line ending produced it, so a CRLF cause loses its carriage return.                                      |
-| `clip`           | `(text: string, width: number) => string`                                           | Truncation on code points, never on UTF-16 code units, marking the cut with an ellipsis.                                           |
+| Export           | Signature                                                                           | Answers                                                                                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Digest`         | interface                                                                           | Status, cause, seat, turn and call counts, edits, refusals, tokens, final output, pending question, and the span the events cover.                                |
+| `Refusal`        | `{ message: string; count: number }`                                                | One refused flow call, aggregated by its message.                                                                                                                 |
+| `Subject`        | `{ runId: string; flowId?: string }`                                                | The identity a diagnosis is rendered for.                                                                                                                         |
+| `RunStatus`      | `ControlSchema.RunStatus`                                                           | The run statuses a digest may report.                                                                                                                             |
+| `digest`         | `(events, runId?) => Digest`                                                        | The facts. Total: an unknown kind contributes nothing, including its timestamp. With `runId`, a `control.run.*` verdict stamped with another run's id is skipped. |
+| `resolvedOutput` | `(value: Pick<Digest, "finalOutput" \| "nativeResolution">) => string \| undefined` | Assistant output first, otherwise a committed native result matching the host's root binding.                                                                     |
+| `verdict`        | `(value: Digest) => string`                                                         | One line: the status plus the reason that most explains it.                                                                                                       |
+| `duration`       | `(span: Pick<Digest, "startedAt" \| "endedAt">) => string`                          | The wall-clock span the handled events cover, as `12s` or `3m 04s`.                                                                                               |
+| `render`         | `(subject: Subject, value: Digest) => string`                                       | The whole card: verdict, activity evidence, tokens, refusals, cause, and output.                                                                                  |
+| `asRecord`       | `(value: unknown) => Record<string, unknown>`                                       | A wire payload as a record, or an empty record when it is not one.                                                                                                |
+| `asString`       | `(value: unknown) => string \| undefined`                                           | A payload field as a string, or nothing.                                                                                                                          |
+| `asNumber`       | `(value: unknown) => number \| undefined`                                           | A payload field as a number, or nothing.                                                                                                                          |
+| `timeOf`         | `(event) => number`                                                                 | When an event occurred: its payload's own stamp, else journal admission time.                                                                                     |
+| `firstLine`      | `(text: string) => string`                                                          | The first line, whichever line ending produced it, so a CRLF cause loses its carriage return.                                                                     |
+| `clip`           | `(text: string, width: number) => string`                                           | Truncation on code points, never on UTF-16 code units, marking the cut with an ellipsis.                                                                          |
 
 `RunSummaryRow.verdict` and `RunSummaryRow.diagnosis` are `verdict` and `render`
 already applied, so a client rendering a run card calls neither. See
@@ -26855,7 +26963,7 @@ https://smithers.sh/docs/reference/api/harness/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/harness/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/harness/docs/api.md) · [package docs](https://harness.smithers.sh)
 
-> **Related APIs:** [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/registry`](/docs/reference/api/registry/)
+> **Related APIs:** [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/registry`](/docs/reference/api/registry/)
 
 `@smthrs/harness` is the built-in agent loop, expressed as pure translation
 plus a small set of service ports. It holds no scheduler, no database, no
@@ -26906,41 +27014,41 @@ The `./internal/*` and `./*/index` subpaths map to `null` and do not resolve.
 in the [module and export inventory](https://harness.smithers.sh/reference/); the sections below state
 behavior and signatures.
 
-| Module                       | Public exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | What it is                                                                                               |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `HarnessError`               | `HarnessErrorCode`, `HarnessError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Stable failures reported at the harness translation boundary.                                            |
-| `AgentEvent`                 | `Observer`, `Journal`, `RelevanceKind`, `CompactionMark`, `CompactionPin`, `MonitorKind`, `Stance`, `Suppression`, `UnjudgedReason`, `DisciplineArmed`, `TurnOpened`, `ModelRequested`, `ModelDelta`, `ModelRetried`, `ModelSettled`, `CellProduced`, `CellRejectedInFrame`, `CellCallStarted`, `CellCallSettled`, `CellPrinted`, `CellSettled`, `TransitionApplied`, `ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`, `NarrowedDemanded`, `UnmovedDemanded`, `UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `NarrowOnlyDemanded`, `ClaimDemanded`, `DecisionAnswer`, `decisionAnswers`, `DecisionSettled`, `SupervisorSettled`, `SupervisorUnjudged`, `DecisionUnjudged`, `RelevanceSettled`, `RelevanceRestored`, `SeatRouted`, `SufficiencyObserved`, `VacuousVerificationObserved`, `MutationObserved`, `CheckpointMinted`, `Suspended`, `CompactionSettled`, `SteeringDrained`, `TurnClosed`, `PermissionRequired`, `Aborted`, `Resolved`, `AgentEvent`, `eventType` | Serializable events emitted by harness adapters.                                                         |
-| `Plan`                       | `Child`, `Batch`, `ChildResult`, `ChildProgress`, `ChildSettled`, `SpliceEvent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Local structural plan nodes used at the harness-to-engine boundary.                                      |
-| `EngineLike`                 | `SuspendReasonCode`, `SuspendReason`, `SealedModelStep`, `BoundaryIdentity`, `DurableSchema`, `RecordBoundary`, `Observation`, `Snapshot`, `Binding`, `Resolved`, `CaptureRequest`, `EngineLike`, `make`, `layer`, `resolve`, `makeNoop`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Narrow engine port consumed by the built-in harness.                                                     |
-| `Tokens`                     | `Count`, `Segment`, `Accounting`, `Estimator`, `estimate`, `count`, `combine`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Deterministic token accounting for context windows.                                                      |
-| `ContextWindow`              | `TypeId`, `SegmentKind`, `SegmentZone`, `Content`, `Mark`, `ContextWindowErrorCode`, `ContextWindowError`, `Segment`, `ContextWindow`, `SegmentInput`, `MakeOptions`, `makeSegment`, `make`, `empty`, `appendTurn`, `prefixDigest`, `compactMarked`, `compactPrefix`, `compact`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The immutable, provider-neutral context assembled for one model request.                                 |
-| `Transcript`                 | `journalVersion`, `validateJournal`, `TranscriptErrorCode`, `TranscriptError`, `ProjectedMessage`, `ProjectedState`, `CellEvidence`, `projectStateResult`, `projectResult`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Transcript projection from durable journal entries.                                                      |
-| `Compaction`                 | `summaryInstruction`, `InvalidStep`, `Summarizer`, `CompactionStep`, `TokenAccounting`, `shouldCompact`, `selectPrefix`, `declare`, `summaryRequest`, `apply`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Declarations for sealed transcript-summary steps.                                                        |
-| `Steering`                   | `Delivery`, `SteerInsert`, `QueueInsert`, `Insert`, `SeatChange`, `ThinkingChange`, `Item`, `Queue`, `Drain`, `BoundaryInput`, `DrainRecord`, `drainRecord`, `empty`, `enqueue`, `drainAtClose`, `Source`, `SourceInput`, `make`, `makeNoop`, `layer`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Turn-boundary steering values and their source contract.                                                 |
-| `Notifications`              | `Options`, `make`, `layer`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Adapter from the durable notification queue to harness turn boundaries.                                  |
-| `Cell`                       | `Language`, `Source`, `digestOf`, `source`, `Continue`, `Complete`, `Park`, `Transition`, `renderText`, `RejectionCode`, `Settled`, `Raised`, `Rejected`, `Outcome`, `FlowProjection`, `project`, `CallFailureCode`, `defaultCallFailureCode`, `callFailureHint`, `CallIdentity`, `declarationDigest`, `Call`, `baseCheckpoint`, `checkpoint`, `checkpointOf`, `CallResult`, `CallSuccess`, `CallFailure`, `CallResultVariant`, `decodeCallResult`, `decodeOutcome`, `decodeTransition`, `callFailure`, `Extracted`, `extract`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | The cell contract.                                                                                       |
-| `Sandbox`                    | `SandboxErrorCode`, `SandboxError`, `Invocation`, `Mint`, `Minter`, `mintUnavailable`, `Handler`, `Limits`, `Capabilities`, `defaultLimits`, `minimumSteps`, `minimumTimeMs`, `minimumMemoryBytes`, `printFrameBytes`, `printStatementFloor`, `printRetainedBytes`, `withDefaults`, `Intent`, `replTransition`, `RealmEvaluation`, `RealmFrame`, `Realm`, `RealmOptions`, `Sandbox`, `make`, `layer`, `makeNoop`, `layerNoop`, `realmUnsupported`, `callTimedOut`, `compile`, `PendingCall`, `driveCell`, `raisedOutcome`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The deterministic script sandbox port.                                                                   |
-| `CellTurn`                   | `defaultMaxFrames`, `defaultReadOnlyFrames`, `defaultModelCallMs`, `defaultRepeatFrames`, `defaultNarrowingDemands`, `defaultUnmovedDemands`, `defaultUnresolvedDemands`, `defaultClaimDemands`, `defaultRevalidations`, `defaultMaxCheckpoints`, `State`, `Input`, `MemoryRow`, `Memory`, `make`, `teach`, `instructionsSegment`, `memorySegment`, `run`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The cell-first controller.                                                                               |
-| `CellHistory`                | `ExecutedCell`, `Service`, `CellHistory`, `make`, `makeCells`, `makeNoop`, `layer`, `layerCells`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The source of every cell the current turn executed.                                                      |
-| `CellCalls`                  | `Implementation`, `Prompt`, `PromptRunner`, `Options`, `Resolver`, `make`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Registry-backed resolution for the flow calls a cell makes.                                              |
-| `FlowBinding`                | `Declared`, `DescriptorOptions`, `descriptorOf`, `Binding`, `Options`, `make`, `provide`, `Source`, `source`, `Catalog`, `empty`, `catalogResult`, `catalog`, `registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The executable-flow binding contract.                                                                    |
-| `StructuredOutput`           | `StructuredOutputFailureCode`, `OutputIssueCode`, `OutputIssue`, `StructuredOutputFailure`, `maxIssues`, `jsonSchema`, `digest`, `instructions`, `issuesDigest`, `correction`, `lastBalanced`, `candidates`, `decode`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Turning one agent's final text into a value the declared output schema accepts, or into a typed failure. |
-| `TruncatedOutput`            | `flagSuffix`, `droppedSuffix`, `flagKey`, `minimumBytes`, `retained`, `Capture`, `Reuse`, `captures`, `reuse`, `refusal`, `retain`, `Ledger`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | The truncation ledger: which bytes this run was handed as a fragment.                                    |
-| `CallLedger`                 | `bound`, `width`, `members`, `Entry`, `Ledger`, `subject`, `target`, `digest`, `payload`, `Settlement`, `entry`, `settled`, `remember`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | The call ledger: what this run has already asked, rendered every frame.                                  |
-| `NarrowedCheck`              | `retained`, `maxTerms`, `labelWidth`, `label`, `targeting`, `names`, `lex`, `terms`, `conditions`, `Check`, `Narrowing`, `check`, `narrows`, `find`, `demand`, `Only`, `findOnly`, `demandOnly`, `remember`, `Ledger`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | The narrowing ledger: which checks this run has run, and over which tree.                                |
-| `CellValidation`             | `Validation`, `normalize`, `validate`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Cell validation at the boundary.                                                                         |
-| `CompletionClaim`            | `outputBytes`, `proseBytes`, `disprovenAt`, `overclaimedAt`, `unsupportedAt`, `inventedAt`, `leafBytes`, `resultBytes`, `receipt`, `Reported`, `Settled`, `record`, `checksRunLimit`, `Check`, `Ran`, `Evidence`, `classifier`, `sentenceLimit`, `sentences`, `sentenceMarker`, `sentenceOf`, `sentenceClassifier`, `Probabilities`, `Reading`, `find`, `unrecorded`, `newest`, `unjudged`, `unproven`, `read`, `demand`, `quote`, `prose`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | The completion nothing in the record contradicts.                                                        |
-| `Supervisor`                 | `frameBytes`, `recentFrames`, `candidateLimit`, `recalledLimit`, `thrashingAt`, `offTargetAt`, `suspectAt`, `acceptAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Options`, `defaultOptions`, `Memory`, `memoryNone`, `Verdict`, `nudge`, `recalledInsert`, `judge`, `head`, `tail`, `candidates`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | The reading Jev takes of a run while it is still running.                                                |
-| `Monitor`                    | `Kind`, `Common`, `Questioned`, `Derived`, `Monitor`, `Budget`, `Input`, `budgets`, `idPattern`, `questionId`, `make`, `InvalidMonitor`, `validate`, `lint`, `paranoidText`, `carefulText`, `stepBackText`, `clarifyText`, `moods`, `defaults`, `skillText`, `skills`, `useJevText`, `useJev`, `questions`, `Row`, `Candidate`, `Evaluation`, `evaluate`, `Entry`, `Ledger`, `fresh`, `Gated`, `gate`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | What one supervisor reading can put in front of the run, and when.                                       |
-| `Judgement`                  | `Unjudged`, `unconfigured`, `Asked`, `Read`, `measured`, `read`, `maxStateBytes`, `ItemQuestions`, `ItemAnswers`, `PerItemOptions`, `ItemState`, `ItemsRead`, `PerItem`, `perItem`, `decision`, `unjudgedEvent`, `Recorded`, `recorded`, `emitRecorded`, `taskBytes`, `task`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | The one way this package asks Jev a question.                                                            |
-| `Relevance`                  | `Kind`, `Item`, `Context`, `withholdAt`, `itemBytes`, `reader`, `Verdict`, `Reading`, `judge`, `settled`, `flowItem`, `Document`, `Chunk`, `chunks`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | What a run is shown of the human-provided items it could be shown.                                       |
-| `UnmovedTree`                | `Unmoved`, `find`, `demand`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | The completion with nothing behind it.                                                                   |
-| `UnresolvedFailure`          | `exitStatusKey`, `failed`, `exitStatus`, `passed`, `Displaced`, `revisits`, `find`, `demand`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | The failing check a completion stepped around.                                                           |
-| `FailedCall`                 | `cap`, `heading`, `stated`, `Failure`, `reason`, `inspects`, `find`, `demand`, `state`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | The completion its own cell wrote before a call in it failed.                                            |
-| `Sufficiency`                | `retained`, `Failure`, `Ledger`, `remember`, `Sufficient`, `find`, `observation`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | The evidence that is already complete.                                                                   |
-| `VacuousVerification`        | `retained`, `Pass`, `Ledger`, `remember`, `stored`, `find`, `observation`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The proof that was already true before anything changed. Not wired into `CellTurn`.                      |
-| `VariablesPanel`             | `bound`, `Binding`, `Stamp`, `Ledger`, `stamp`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The variables panel: what the realm holds, stated every frame.                                           |
-| `QuickJSSandbox` _(subpath)_ | `cacheSuccessful`, `VariantService`, `Variant`, `layerVariantLive`, `layerVariant`, `ComputeClockService`, `ComputeClock`, `layerClockLive`, `loadModule`, `makeWithVariant`, `makeWithClock`, `make`, `layerWithVariant`, `layer`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | The QuickJS-WASM sandbox binding.                                                                        |
+| Module                       | Public exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | What it is                                                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `HarnessError`               | `HarnessErrorCode`, `HarnessError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Stable failures reported at the harness translation boundary.                                            |
+| `AgentEvent`                 | `Observer`, `Journal`, `RelevanceKind`, `CompactionMark`, `CompactionPin`, `MonitorKind`, `Stance`, `Suppression`, `UnjudgedReason`, `DisciplineArmed`, `TurnOpened`, `ModelRequested`, `ModelDelta`, `ModelRetried`, `ModelSettled`, `CellProduced`, `CellRejectedInFrame`, `CellCallStarted`, `CellCallSettled`, `CellPrinted`, `CellSettled`, `TransitionApplied`, `ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`, `NarrowedDemanded`, `UnmovedDemanded`, `UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `NarrowOnlyDemanded`, `ClaimDemanded`, `DecisionAnswer`, `decisionAnswers`, `DecisionSettled`, `SupervisorSettled`, `SupervisorUnjudged`, `DecisionUnjudged`, `RelevanceSettled`, `RelevanceRestored`, `SeatPanel`, `SeatRouted`, `SufficiencyObserved`, `VacuousVerificationObserved`, `MutationObserved`, `CheckpointMinted`, `Suspended`, `CompactionSettled`, `SteeringDrained`, `TurnClosed`, `PermissionRequired`, `Aborted`, `Resolved`, `AgentEvent`, `eventType` | Serializable events emitted by harness adapters.                                                         |
+| `Plan`                       | `Child`, `Batch`, `ChildResult`, `ChildProgress`, `ChildSettled`, `SpliceEvent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Local structural plan nodes used at the harness-to-engine boundary.                                      |
+| `EngineLike`                 | `SuspendReasonCode`, `SuspendReason`, `SealedModelStep`, `BoundaryIdentity`, `DurableSchema`, `RecordBoundary`, `Observation`, `Snapshot`, `Binding`, `Resolved`, `CaptureRequest`, `EngineLike`, `make`, `layer`, `resolve`, `makeNoop`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Narrow engine port consumed by the built-in harness.                                                     |
+| `Tokens`                     | `Count`, `Segment`, `Accounting`, `Estimator`, `estimate`, `count`, `combine`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Deterministic token accounting for context windows.                                                      |
+| `ContextWindow`              | `TypeId`, `SegmentKind`, `SegmentZone`, `Content`, `Mark`, `ContextWindowErrorCode`, `ContextWindowError`, `Segment`, `ContextWindow`, `SegmentInput`, `MakeOptions`, `makeSegment`, `make`, `empty`, `appendTurn`, `prefixDigest`, `compactMarked`, `compactPrefix`, `compact`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | The immutable, provider-neutral context assembled for one model request.                                 |
+| `Transcript`                 | `journalVersion`, `validateJournal`, `TranscriptErrorCode`, `TranscriptError`, `ProjectedMessage`, `ProjectedState`, `CellEvidence`, `projectStateResult`, `projectResult`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Transcript projection from durable journal entries.                                                      |
+| `Compaction`                 | `summaryInstruction`, `InvalidStep`, `Summarizer`, `CompactionStep`, `TokenAccounting`, `shouldCompact`, `selectPrefix`, `declare`, `summaryRequest`, `apply`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Declarations for sealed transcript-summary steps.                                                        |
+| `Steering`                   | `Delivery`, `SteerInsert`, `QueueInsert`, `Insert`, `SeatChange`, `ThinkingChange`, `Item`, `Queue`, `Drain`, `BoundaryInput`, `DrainRecord`, `drainRecord`, `empty`, `enqueue`, `drainAtClose`, `Source`, `SourceInput`, `make`, `makeNoop`, `layer`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Turn-boundary steering values and their source contract.                                                 |
+| `Notifications`              | `Options`, `make`, `layer`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Adapter from the durable notification queue to harness turn boundaries.                                  |
+| `Cell`                       | `Language`, `Source`, `digestOf`, `source`, `Continue`, `Complete`, `Park`, `Transition`, `renderText`, `RejectionCode`, `Settled`, `Raised`, `Rejected`, `Outcome`, `FlowProjection`, `project`, `CallFailureCode`, `defaultCallFailureCode`, `callFailureHint`, `CallIdentity`, `declarationDigest`, `Call`, `baseCheckpoint`, `checkpoint`, `checkpointOf`, `CallResult`, `CallSuccess`, `CallFailure`, `CallResultVariant`, `decodeCallResult`, `decodeOutcome`, `decodeTransition`, `callFailure`, `Extracted`, `extract`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | The cell contract.                                                                                       |
+| `Sandbox`                    | `SandboxErrorCode`, `SandboxError`, `Invocation`, `Mint`, `Minter`, `mintUnavailable`, `Handler`, `Limits`, `Capabilities`, `defaultLimits`, `minimumSteps`, `minimumTimeMs`, `minimumMemoryBytes`, `printFrameBytes`, `printStatementFloor`, `printRetainedBytes`, `withDefaults`, `Intent`, `replTransition`, `RealmEvaluation`, `RealmFrame`, `Realm`, `RealmOptions`, `Sandbox`, `make`, `layer`, `makeNoop`, `layerNoop`, `realmUnsupported`, `callTimedOut`, `compile`, `PendingCall`, `driveCell`, `raisedOutcome`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | The deterministic script sandbox port.                                                                   |
+| `CellTurn`                   | `defaultMaxFrames`, `defaultReadOnlyFrames`, `defaultModelCallMs`, `defaultRepeatFrames`, `defaultNarrowingDemands`, `defaultUnmovedDemands`, `defaultUnresolvedDemands`, `defaultClaimDemands`, `defaultRevalidations`, `defaultMaxCheckpoints`, `State`, `Input`, `MemoryRow`, `Memory`, `make`, `teach`, `instructionsSegment`, `memorySegment`, `run`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | The cell-first controller.                                                                               |
+| `CellHistory`                | `ExecutedCell`, `Service`, `CellHistory`, `make`, `makeCells`, `makeNoop`, `layer`, `layerCells`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | The source of every cell the current turn executed.                                                      |
+| `CellCalls`                  | `Implementation`, `Prompt`, `PromptRunner`, `Options`, `Resolver`, `make`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Registry-backed resolution for the flow calls a cell makes.                                              |
+| `FlowBinding`                | `Declared`, `DescriptorOptions`, `descriptorOf`, `Binding`, `Options`, `make`, `provide`, `Source`, `source`, `Catalog`, `empty`, `catalogResult`, `catalog`, `registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | The executable-flow binding contract.                                                                    |
+| `StructuredOutput`           | `StructuredOutputFailureCode`, `OutputIssueCode`, `OutputIssue`, `StructuredOutputFailure`, `maxIssues`, `jsonSchema`, `digest`, `instructions`, `issuesDigest`, `correction`, `lastBalanced`, `candidates`, `decode`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Turning one agent's final text into a value the declared output schema accepts, or into a typed failure. |
+| `TruncatedOutput`            | `flagSuffix`, `droppedSuffix`, `flagKey`, `minimumBytes`, `retained`, `Capture`, `Reuse`, `captures`, `reuse`, `refusal`, `retain`, `Ledger`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The truncation ledger: which bytes this run was handed as a fragment.                                    |
+| `CallLedger`                 | `bound`, `width`, `members`, `Entry`, `Ledger`, `subject`, `target`, `digest`, `payload`, `Settlement`, `entry`, `settled`, `remember`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | The call ledger: what this run has already asked, rendered every frame.                                  |
+| `NarrowedCheck`              | `retained`, `maxTerms`, `labelWidth`, `label`, `targeting`, `names`, `lex`, `terms`, `conditions`, `Check`, `Narrowing`, `check`, `narrows`, `find`, `demand`, `Only`, `findOnly`, `demandOnly`, `remember`, `Ledger`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | The narrowing ledger: which checks this run has run, and over which tree.                                |
+| `CellValidation`             | `Validation`, `normalize`, `validate`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Cell validation at the boundary.                                                                         |
+| `CompletionClaim`            | `outputBytes`, `proseBytes`, `disprovenAt`, `overclaimedAt`, `unsupportedAt`, `inventedAt`, `leafBytes`, `resultBytes`, `receipt`, `Reported`, `Settled`, `record`, `checksRunLimit`, `Check`, `Ran`, `Evidence`, `classifier`, `sentenceLimit`, `sentences`, `sentenceMarker`, `sentenceOf`, `sentenceClassifier`, `Probabilities`, `Reading`, `find`, `unrecorded`, `newest`, `unjudged`, `unproven`, `read`, `demand`, `quote`, `prose`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The completion nothing in the record contradicts.                                                        |
+| `Supervisor`                 | `frameBytes`, `recentFrames`, `candidateLimit`, `recalledLimit`, `thrashingAt`, `offTargetAt`, `suspectAt`, `acceptAt`, `Level`, `levels`, `Help`, `emotions`, `Emotion`, `Frame`, `Signals`, `Recalled`, `skillLimit`, `skillBytes`, `calledLimit`, `Skill`, `skill`, `Snapshot`, `monitorPrefix`, `MonitorQuestions`, `classifierFor`, `classifier`, `Reading`, `read`, `Options`, `defaultOptions`, `Memory`, `memoryNone`, `Verdict`, `nudge`, `recalledInsert`, `judge`, `head`, `tail`, `candidates`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The reading Jev takes of a run while it is still running.                                                |
+| `Monitor`                    | `Kind`, `Common`, `Questioned`, `Derived`, `Monitor`, `Budget`, `Input`, `budgets`, `idPattern`, `questionId`, `make`, `InvalidMonitor`, `validate`, `lint`, `paranoidText`, `carefulText`, `stepBackText`, `clarifyText`, `moods`, `defaults`, `skillText`, `skills`, `useJevText`, `useJev`, `questions`, `Row`, `Candidate`, `Evaluation`, `evaluate`, `Entry`, `Ledger`, `fresh`, `Gated`, `gate`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | What one supervisor reading can put in front of the run, and when.                                       |
+| `Judgement`                  | `Unjudged`, `unconfigured`, `Asked`, `Read`, `measured`, `read`, `maxStateBytes`, `ItemQuestions`, `ItemAnswers`, `PerItemOptions`, `ItemState`, `ItemsRead`, `PerItem`, `perItem`, `decision`, `unjudgedEvent`, `Recorded`, `recorded`, `emitRecorded`, `taskBytes`, `task`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The one way this package asks Jev a question.                                                            |
+| `Relevance`                  | `Kind`, `Item`, `Context`, `withholdAt`, `itemBytes`, `reader`, `Verdict`, `Reading`, `judge`, `settled`, `flowItem`, `Document`, `Chunk`, `chunks`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | What a run is shown of the human-provided items it could be shown.                                       |
+| `UnmovedTree`                | `Unmoved`, `find`, `demand`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | The completion with nothing behind it.                                                                   |
+| `UnresolvedFailure`          | `exitStatusKey`, `failed`, `exitStatus`, `passed`, `Displaced`, `revisits`, `find`, `demand`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The failing check a completion stepped around.                                                           |
+| `FailedCall`                 | `cap`, `heading`, `stated`, `Failure`, `reason`, `inspects`, `find`, `demand`, `state`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The completion its own cell wrote before a call in it failed.                                            |
+| `Sufficiency`                | `retained`, `Failure`, `Ledger`, `remember`, `Sufficient`, `find`, `observation`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | The evidence that is already complete.                                                                   |
+| `VacuousVerification`        | `retained`, `Pass`, `Ledger`, `remember`, `stored`, `find`, `observation`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | The proof that was already true before anything changed. Not wired into `CellTurn`.                      |
+| `VariablesPanel`             | `bound`, `Binding`, `Stamp`, `Ledger`, `stamp`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | The variables panel: what the realm holds, stated every frame.                                           |
+| `QuickJSSandbox` _(subpath)_ | `cacheSuccessful`, `VariantService`, `Variant`, `layerVariantLive`, `layerVariant`, `ComputeClockService`, `ComputeClock`, `layerClockLive`, `loadModule`, `makeWithVariant`, `makeWithClock`, `make`, `layerWithVariant`, `layer`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | The QuickJS-WASM sandbox binding.                                                                        |
 
 ## Durability
 
@@ -27801,8 +27909,11 @@ Jev's other readings write these:
   `withholdAt`.
 - `RelevanceRestored`: a withheld `flow` the run called by name.
 - `SeatRouted`: the `seat`, `modelId` and prompt `variant` a run that
-  `declared` no model was routed to, from `candidates`. `decidedBy` is `jev`,
-  or `only` for a single candidate, whose variant Jev may still have picked.
+  `declared` no model was routed to, from the available `candidates`, with
+  the `backups` it fails over to and, for a panel route, the `SeatPanel`
+  (member seats with their backups, and the `merger`, which is `seat`).
+  `decidedBy` is `jev`; rows written before the routing graph may say `only`
+  and carry `confidence`.
 - `DecisionUnjudged`: a reading nobody could judge, with `UnjudgedReason`
   (shared with `SupervisorUnjudged`) and the `items` it covered.
 
@@ -27814,7 +27925,8 @@ optional; `SupervisorSettled.monitors` (`MonitorKind` `mood`, `skill` or
 `lint`) and `skillsCapped`; `DisciplineArmed.judged`,
 `relevance`, `monitors` and `stance` (`careful` or `paranoid`), with
 `supervisorSteer` optional; `SteeringDrained.monitor`, `suppressed`
-(each with a `Suppression` reason) and `memory`.
+(each with a `Suppression` reason) and `memory`; `SeatRouted.backups` and
+`panel`.
 
 Every member's `_tag` is the kebab-case discriminant `switch` and
 `Stream.filter` match on. `AgentEvent.eventType` is keyed by the camelCase
@@ -29571,13 +29683,13 @@ The optional operations are capability-checked like every other one:
 
 ### Service construction
 
-| Export                 | Signature                               | Meaning                                                                                                               |
-| ---------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `Jj`                   | `Context.Service<Jj, Jj>`               | The service key. The tag string is `"@smthrs/jj/Jj"` and is durable identity.                                         |
-| `make(impl)`           | `(impl: Jj) => Jj`                      | Brands an implementation as the service, so a new backend is checked where it is written.                             |
-| `makeNoop(overrides)`  | `(overrides: Partial<Jj>) => Jj`        | A stub whose every unoverridden method fails `not_installed`, naming the method called.                               |
-| `layerNoop(overrides)` | `(overrides: Partial<Jj>) => Layer<Jj>` | `makeNoop` as a layer.                                                                                                |
-| `ChangeId`             | `type ChangeId = string`                | The durable handle a run uses to name workspace state. A bare alias, because the value jj prints is the value stored. |
+| Export                 | Signature                               | Meaning                                                                                                             |
+| ---------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `Jj`                   | `Context.Service<Jj, Jj>`               | The service key. The tag string is `"@smthrs/jj/Jj"` and is durable identity.                                       |
+| `make(impl)`           | `(impl: Jj) => Jj`                      | Brands an implementation as the service, so a new backend is checked where it is written.                           |
+| `makeNoop(overrides)`  | `(overrides: Partial<Jj>) => Jj`        | A stub whose every unoverridden method fails `not_installed`, naming the method called.                             |
+| `layerNoop(overrides)` | `(overrides: Partial<Jj>) => Layer<Jj>` | `makeNoop` as a layer.                                                                                              |
+| `ChangeId`             | `type ChangeId = string`                | A moving display pointer for a change; use the snapshot's immutable `commitId` to restore recorded workspace state. |
 
 ### Failures
 
@@ -34660,7 +34772,7 @@ https://smithers.sh/docs/reference/api/model/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/model/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/model/docs/api.md) · [package docs](https://model.smithers.sh)
 
-> **Related APIs:** [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/kernel`](/docs/reference/api/kernel/)
+> **Related APIs:** [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/kernel`](/docs/reference/api/kernel/)
 
 A model call is one composition: a `Protocol` owns the wire shape of an API
 family, an `Endpoint` owns where to send it, an `Auth` owns the credential,
@@ -34765,18 +34877,18 @@ The normalized events one model call emits. Every protocol lowers its own
 wire vocabulary into these, so a consumer reads one stream shape whichever
 provider answered.
 
-| Export                                            | Kind       | Behavior                                                                                                                                                                                                                                                                                  |
-| ------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Usage`                                           | struct     | Optional `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`, `cacheWriteTokens`, `totalTokens`. A missing count is not a zero count.                                                                                                                                   |
-| `TextStart` / `TextDelta` / `TextEnd`             | structs    | Open, extend, and close a text part. `id` correlates the events of one part.                                                                                                                                                                                                              |
-| `ThinkingStart` / `ThinkingDelta` / `ThinkingEnd` | structs    | The same for a reasoning part. `ThinkingStart.signature` carries the provider's attestation.                                                                                                                                                                                              |
-| `ToolCallStart` / `ToolCallDelta` / `ToolCallEnd` | structs    | The same for a tool call. `ToolCallEnd.arguments` repeats the complete argument text when the provider sends it.                                                                                                                                                                          |
-| `ToolResult`                                      | struct     | `{ type: "tool-result", id, output, isError? }`: a harness report, not part of the settled message.                                                                                                                                                                                       |
-| `UsageEvent`                                      | struct     | `Usage` counters as a `type: "usage"` stream event.                                                                                                                                                                                                                                       |
-| `Retry`                                           | struct     | `{ type: "retry", attempt, code, delayMillis }`: a bounded model-boundary retry, recorded so run reports can count transport recovery. `delayMillis` defaults to `0`.                                                                                                                     |
-| `Settle`                                          | struct     | `{ type: "settle", stopReason, responseId?, sessionId?, itemIds? }`. Ends the stream and states why; a stream without one was interrupted. `itemIds` carries stored provider reasoning items a continuation replays by reference; `sessionId` is the vendor session a wrapped CLI seat answered from.                                                                     |
-| `ModelEvent`                                      | union      | The tagged union of all of the above, with a constructor per member attached (for example `ModelEvent.TextStart({ type: "text-start", id })`) and `settledMessage` attached.                                                                                                              |
-| `settledMessage(events)`                          | destructor | Folds an iterable of events into `{ message: AssistantMessage, usage: Usage }`. No `settle` event means interruption, represented as `stopReason: "aborted"` rather than an exception. Partial tool-call argument text is preserved verbatim; validate arguments before executing a tool. |
+| Export                                            | Kind       | Behavior                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Usage`                                           | struct     | Optional `inputTokens`, `outputTokens`, `reasoningTokens`, `cachedInputTokens`, `cacheWriteTokens`, `totalTokens`. A missing count is not a zero count.                                                                                                                                               |
+| `TextStart` / `TextDelta` / `TextEnd`             | structs    | Open, extend, and close a text part. `id` correlates the events of one part.                                                                                                                                                                                                                          |
+| `ThinkingStart` / `ThinkingDelta` / `ThinkingEnd` | structs    | The same for a reasoning part. `ThinkingStart.signature` carries the provider's attestation.                                                                                                                                                                                                          |
+| `ToolCallStart` / `ToolCallDelta` / `ToolCallEnd` | structs    | The same for a tool call. `ToolCallEnd.arguments` repeats the complete argument text when the provider sends it.                                                                                                                                                                                      |
+| `ToolResult`                                      | struct     | `{ type: "tool-result", id, output, isError? }`: a harness report, not part of the settled message.                                                                                                                                                                                                   |
+| `UsageEvent`                                      | struct     | `Usage` counters as a `type: "usage"` stream event.                                                                                                                                                                                                                                                   |
+| `Retry`                                           | struct     | `{ type: "retry", attempt, code, delayMillis }`: a bounded model-boundary retry, recorded so run reports can count transport recovery. `delayMillis` defaults to `0`.                                                                                                                                 |
+| `Settle`                                          | struct     | `{ type: "settle", stopReason, responseId?, sessionId?, itemIds? }`. Ends the stream and states why; a stream without one was interrupted. `itemIds` carries stored provider reasoning items a continuation replays by reference; `sessionId` is the vendor session a wrapped CLI seat answered from. |
+| `ModelEvent`                                      | union      | The tagged union of all of the above, with a constructor per member attached (for example `ModelEvent.TextStart({ type: "text-start", id })`) and `settledMessage` attached.                                                                                                                          |
+| `settledMessage(events)`                          | destructor | Folds an iterable of events into `{ message: AssistantMessage, usage: Usage }`. No `settle` event means interruption, represented as `stopReason: "aborted"` rather than an exception. Partial tool-call argument text is preserved verbatim; validate arguments before executing a tool.             |
 
 ## `ModelError`
 
@@ -34813,6 +34925,7 @@ The codes and their retryability:
 | `authentication`          | The credential was rejected.                          | no        |
 | `rate_limited`            | A transient limit.                                    | yes       |
 | `quota_exceeded`          | The account has no usable balance or quota.           | no        |
+| `out_of_credit`           | Hosted proxy credit is exhausted.                     | no        |
 | `content_policy`          | The provider refused on safety grounds.               | no        |
 | `provider_internal`       | The provider failed on its own side.                  | yes       |
 | `transport`               | The connection failed.                                | yes       |
@@ -34829,7 +34942,7 @@ itself, so nothing about the request's settlement is known.
 
 | Export                                     | Kind        | Behavior                                                                                                                                                        |
 | ------------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ModelErrorCode`                           | schema      | The twelve-literal code vocabulary above.                                                                                                                       |
+| `ModelErrorCode`                           | schema      | The thirteen-literal code vocabulary above.                                                                                                                     |
 | `ModelError`                               | error class | As described above.                                                                                                                                             |
 | `isContextOverflow(providerCode, message)` | refinement  | Whether a provider's own code and message describe a context overflow. Protocol adapters call it ahead of their generic bad-request branch.                     |
 | `isQuotaExhausted(providerCode, message)`  | refinement  | Whether a provider's own code and message describe an exhausted account rather than a transient rate limit, so a durable consumer can park instead of retrying. |
@@ -34837,14 +34950,20 @@ itself, so nothing about the request's settlement is known.
 ## `FailureCopy`
 
 `describe(error, seat?)` walks wrapped causes for a typed `ModelError` or
-`HarnessError` and returns `{ headline, fault, line, actions }`. The five fault
-values are `user`, `wait`, `infra`, `dependency`, and `bug`; actions are
-`resume`, `switch-model`, `wait`, and `details`. A model seat supplies the
-provider name for a limit. Unknown errors have a generic bug headline. Raw
-messages and stacks belong in technical details, never in the headline.
-For legacy persisted failures that contain only a provider limit message,
-`describe` maps recognized usage, rate, and quota limit text to the provider
-limit headline without displaying the raw message.
+`HarnessError` and returns `{ headline, fault, line, actions }`. `fault` is
+[`Fault.of(error).class`](/docs/reference/api/flow/#fault), one of `user`, `wait`, `infra`,
+`dependency`, `bug`, `factory`, and `policy`; actions are `resume`,
+`switch-model`, `wait`, and `details`. A model seat supplies the provider name
+for a limit. Unknown errors have a generic headline. Raw messages and stacks
+belong in technical details, never in the headline. A bare string is never
+read for a fault: the fault arrives typed.
+
+`ModelError` registers its codes with `Fault`: `rate_limited` and
+`quota_exceeded` are `wait`; `invalid_request` and
+`context_overflow` are `factory`, because the agent built the request;
+`authentication`, `content_policy` and `out_of_credit` are `user`; the rest are `dependency`.
+`Evaluator.faults` is the same table for Jev's codes, shared by
+`EvaluatorError` and `ClassifierError`.
 
 ## `Route`
 
@@ -35341,10 +35460,10 @@ original state.
 
 Static facts about known provider models, read from a model id alone.
 
-| Export                            | Kind     | Behavior                                                                                                                                                                                                                                   |
-| --------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `contextWindowTokensFor(modelId)` | resolver | The context window in tokens, matched case-insensitively against the id. A million-token row is anchored to the bare id, so a cloud-prefixed or suffixed id falls through to the conservative row. Unknown ids answer 128,000, never zero. |
-| `knownContextWindowTokens(modelId)` | resolver | The same match, but `undefined` for an id no row names, so a caller that must not show an unmeasured window can omit it. |
+| Export                              | Kind     | Behavior                                                                                                                                                                                                                                   |
+| ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `contextWindowTokensFor(modelId)`   | resolver | The context window in tokens, matched case-insensitively against the id. A million-token row is anchored to the bare id, so a cloud-prefixed or suffixed id falls through to the conservative row. Unknown ids answer 128,000, never zero. |
+| `knownContextWindowTokens(modelId)` | resolver | The same match, but `undefined` for an id no row names, so a caller that must not show an unmeasured window can omit it.                                                                                                                   |
 
 `@smthrs/agent` re-exports this as `SeatResolver.contextWindowTokensFor`, and
 the built-in harness calls it for the compaction budget of a seat whose host
@@ -35687,11 +35806,11 @@ the receipt alone, so the notification id stays admissible once a boundary
 drains. The literal remains in `AdmissionDecision` because a reader must stay
 total over a record any writer could have produced.
 
-| Export       | Signature                                             | Returns                                                                                                                                                                                                                                                                                                                                             |
-| ------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `isAdmitted` | `(event: Event) => event is Admitted`                 | Whether the owned event is an admission record.                                                                                                                                                                                                                                                                                                     |
-| `isPromoted` | `(event: Event) => event is Promoted`                 | Whether the owned event is a promotion record.                                                                                                                                                                                                                                                                                                      |
-| `fromEntry`  | `(entry: JournalEvent.Entry) => Option.Option<Event>` | The owned event a journal entry carries. Foreign entries and structurally invalid payloads answer `None`, so a projection over a shared journal stays total. An admission counts only under `admissionSourceId` of the notification it carries, and a promotion only under a `/notifications/drain/` source, so another writer cannot forge either. |
+| Export       | Signature                                             | Returns                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isAdmitted` | `(event: Event) => event is Admitted`                 | Whether the owned event is an admission record.                                                                                                                                                                                                                                                                                                                                                                                                |
+| `isPromoted` | `(event: Event) => event is Promoted`                 | Whether the owned event is a promotion record.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `fromEntry`  | `(entry: JournalEvent.Entry) => Option.Option<Event>` | The owned event a journal entry carries. Foreign entries and structurally invalid payloads answer `None`, so a projection over a shared journal stays total. An admission counts only under `admissionSourceId` of the notification it carries, and a promotion only under a `/notifications/drain/` source, so another producer's record with the same event type is ignored. The source scopes records; it does not authenticate the writer. |
 
 ## Projection
 
@@ -35824,9 +35943,10 @@ Both owned event types are excluded from condition detection: they are written
 into the journal the detectors read, and they carry the alert's own vocabulary,
 so reading them as evidence would let a page close the condition it paged about.
 
-A `flows.alerts.delivered` entry suppresses a page only when the alerter wrote
-it, under the source `/notifications/alerts/<alertId>/delivered`. The same entry
-from any other writer to the run's journal is ignored.
+A `flows.alerts.delivered` entry suppresses a page only under the source the
+alerter writes, `/notifications/alerts/<alertId>/delivered`. The same entry under
+any other source is ignored. The journal does not bind a source to a writer, so
+this keeps other producers' records out; it does not authenticate the writer.
 
 See [`@smthrs/control`](/docs/reference/api/control/) for the run conditions the entries come
 from.
@@ -40412,13 +40532,24 @@ original so those specifiers resolve to the live files, which makes them code
 the flow runs, so they ride `Descriptor.executionDigest` and are re-measured
 before anything is imported. The field is ABSENT, not empty, when the entry
 loads nothing beside itself, so such a module hashes exactly as it did before
-the field existed. Bare package specifiers are not measured: those resolve into
-installed code, which is the host's own. A `ModuleImport` with no
-`contentDigest` is a specifier discovery could not pin: one that resolves to no
-file, a module it could not read, an `import()` or `require()` whose target is
-computed, a `createRequire(...)` loader, an absolute or `file:` specifier, or a
-closure past its bound. Its `path` then carries that reason instead of a
+the field existed. A bare specifier that a loader maps onto project files is
+measured too: a package.json `imports` entry (`#impl`), and a tsconfig or
+jsconfig `paths` alias or `baseUrl` in any directory above the entry, followed
+through `extends`. The files they name are pinned like relative imports. Other
+bare specifiers resolve into installed packages and are not measured. A
+`ModuleImport` with no `contentDigest` is a specifier discovery could not pin:
+one that resolves to no file, a module it could not read, an `import()` or
+`require()` whose target is computed, any `createRequire` or `module` import,
+`require` used as a value rather than called, an absolute or `file:`
+specifier, a `#` specifier with no relative `imports` target, a self-import of
+the flow's own package through `exports`, or a closure past its bound. Its `path` then carries that reason instead of a
 location, and `Executable.fromDescriptor` refuses to run such a module.
+
+The pin covers the loads a static scan of the source can read. It is not a
+sandbox: a module that hides a load from the scan, for example behind
+`eval`, `new Function`, or a member access whose name is computed at run time,
+loads a file the pin does not measure. That hiding code is itself in the
+digested source the approver reviews.
 
 ### Descriptor.FlowBody, FlowBodyPrompt, FlowBodyModule
 
@@ -42559,6 +42690,7 @@ Every namespace is also its own subpath, and `./internal/*` is null mapped.
 | `@smthrs/sandbox/Sandbox`                   | [src/Sandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/Sandbox)                                     |
 | `@smthrs/sandbox/SandboxConformance`        | [src/SandboxConformance/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/SandboxConformance)               |
 | `@smthrs/sandbox/DirectorySandbox`          | [src/DirectorySandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/DirectorySandbox)                   |
+| `@smthrs/sandbox/CommandSandbox`            | [src/CommandSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/CommandSandbox)                       |
 | `@smthrs/sandbox/ContainerSandbox`          | [src/ContainerSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/ContainerSandbox)                   |
 | `@smthrs/sandbox/KubernetesSandbox`         | [src/KubernetesSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/KubernetesSandbox)                 |
 | `@smthrs/sandbox/JustBashSandbox`           | [src/JustBashSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/JustBashSandbox)                     |
@@ -42578,7 +42710,7 @@ A provider may add SDK details to `ProviderError.cause`, but it cannot create ne
 
 `Provider.kill` and `Provider.ping` are optional, because a transport that can only post a command line has neither. A provider that implements them buys two things it cannot otherwise have: one command can be stopped without tearing down the session that runs it, and the session's liveness can be supervised. When `kill` is present the adapter maps `ChildProcessHandle.kill` onto it and signals a still-running command when its scope closes, ahead of the provider's own release finalizer; a process this side has already seen exit is left alone. When `kill` is absent the adapter refuses with a `BadArgument` `PlatformError` rather than pretending to have delivered a signal.
 
-The command reaches the provider as the string `CommandLine.render` produces: the same string `@smthrs/kernel`'s `proc:spawn` check is written against, so a grant and the thing it authorizes cannot drift apart.
+The command reaches the provider as the string `CommandLine.render` produces. `@smthrs/kernel`'s `proc:spawn` check is written against `CommandLine.resource`, which starts from that string and adds a `sh -c` wrapper for a shell line holding control syntax, an `env <NAME>… --` prefix for overridden environment names, and a `cwd <path> --` prefix for a directory outside the workspace. The two strings match only when none of those apply.
 
 Unsupported semantics are declared rather than dropped. Each of these fails with a `BadArgument` `PlatformError` before the provider is asked to start anything:
 
@@ -42734,11 +42866,12 @@ Each check acquires a fresh session. The file checks verify binary, empty, and 6
 
 ## Providers
 
-One row per bundled provider. Every cell is read from the provider's source and its tests. "Byte-exact command output" is about a command's own `stdout` and `stderr`; file transfer is byte-exact on all nine.
+One row per bundled provider. Every cell is read from the provider's source and its tests. "Byte-exact command output" is about a command's own `stdout` and `stderr`; file transfer is byte-exact on all ten.
 
 | Provider              | What a machine is                                                                 | How the vendor surface arrives                                                          | Reattaches an existing machine on the same session key                                                                        | Declares `kill`                                                      | Byte-exact command output                            | Proven against                                                                     |
 | --------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `DirectorySandbox`    | one host directory under `root`                                                   | injected services: the host `FileSystem` and `ChildProcessSpawner`                      | yes, the recursive `makeDirectory` leaves a crash-left directory and its files in place                                       | yes, the host handle's signal                                        | yes                                                  | host directories and processes                                                     |
+| `CommandSandbox`      | whatever an argv prefix reaches; the provider does not own its lifecycle          | injected spawner running the prefix, such as `ssh` with a workspace's arguments         | not applicable, the machine outlives the session; acquire wipes only the session's own pidfile directory                      | yes, a pidfile plus a `/proc` descendant walk                        | yes                                                  | host processes, and `ssh localhost` when it answers                                |
 | `ContainerSandbox`    | one container from `image`, held on `sleep infinity`                              | injected spawner running a Docker-compatible CLI                                        | yes, a refused create whose name `container inspect` finds is reattached                                                      | yes, a pidfile plus a `/proc` descendant walk                        | yes                                                  | a real Docker daemon                                                               |
 | `KubernetesSandbox`   | one Pod from `image`, held on `sleep infinity`                                    | injected spawner running `kubectl`                                                      | with `reattachKey`, a sealed `AlreadyExists` Pod is reattached                                                                | yes, the same pidfile script over `kubectl exec`                     | yes                                                  | a real Kubernetes cluster (OrbStack)                                               |
 | `JustBashSandbox`     | one directory in a shared virtual filesystem; commands are interpreted in-process | injected interpreter slice (`JustBashLike`) and `FileSystem`                            | not applicable, in-process                                                                                                    | no                                                                   | no, `exec` reports output as strings                 | none, fake only                                                                    |
@@ -42773,6 +42906,22 @@ withheld. An explicitly declared name is delivered even when it looks
 credential-bearing.
 
 This is a trusted local workspace backend, **not a security boundary**. A spawned process is not confined to the scratch directory and can address whatever its host credentials permit. Use it for local composition, tests, or CI placement where the body is trusted.
+
+### CommandSandbox
+
+```ts
+import { CommandSandbox } from "@smthrs/sandbox"
+
+const box = CommandSandbox.make({
+  spawner,
+  prefix: ["ssh", "-o", "BatchMode=yes", "developer@box.example"],
+  workdir: "/home/developer/workspace"
+})
+```
+
+The machine is whatever `prefix` reaches, and every guest argv follows it: `[]` is this machine, `["ssh", ...]` a remote host, `["docker", "exec", "-i", name]` a running container. A prefix whose program is `ssh` joins the guest argv into one quoted command line, because `ssh` hands its arguments to the remote login shell as one string; set `joinsArguments` for another transport that does the same. `prefix` may be an effect, asked again for every command, so a transport whose credential expires, such as a Smithers Cloud workspace SSH grant, stays fresh; its `ProviderError` is the command's failure.
+
+The provider does not create or remove the machine. `acquire` prepares `workdir` and a pidfile directory private to the session key, so several sessions can share one machine, and closing the scope signals only that session's unfinished commands. File bytes cross the prefix as base64 text, commands run under the guest's absolute `/bin/sh`, and signals use the same pidfile and `/proc` walk as `ContainerSandbox`. An unreachable machine fails `acquire` or the command with `unavailable`. A transport can outlive its machine: a Smithers Cloud gateway keeps an SSH channel open after the workspace behind it stopped, so the exit never arrives. Every command therefore runs beside a `heartbeat` (default 15 seconds) that reads the machine's boot id; a probe that fails, answers another boot, or takes twice the heartbeat ends the command with `unavailable`. Closing the scope removes the session's pidfile directory, and failures never carry the prefix's argv, which may hold a credential.
 
 ### ContainerSandbox
 
@@ -43583,16 +43732,12 @@ verdict about the code it ran, not about the command it was handed.
 | `Attribution`      | `{ to, executed?, invalidProbe? }`                                                           | What one result was attributed to: the tree, or one of the five.                            |
 | `CONFIDENCE_FLOOR` | `0.7`                                                                                        | The confidence an attribution needs before it outranks the tree.                            |
 | `MAX_OUTPUT_BYTES` | `32768`                                                                                      | The most output bytes one judgment carries, newest kept.                                    |
-| `posix`            | `(exitCode: number) => InvalidProbe \| undefined`                                            | Reads the shell's own refusal, 126 and 127, from the exit code alone.                       |
 | `probeAttribution` | `Classifier` `probe/attribution`                                                             | The classifier `classify` asks: `attribution` choice, `executed` boolean.                   |
 | `classify`         | `(result: { command, exitCode, output }) => Effect<Attribution, ClassifierError, Evaluator>` | Attributes one command result, with Jev.                                                    |
 | `unjudged`         | `(error: ClassifierError) => StdError`                                                       | The standard-flow failure a judge that did not answer is.                                   |
 
 ```ts
 import * as Probe from "@smthrs/std/Probe"
-
-Probe.posix(127)
-// { reason: "unknown-command", evidence: "the command exited 127", message: "..." }
 
 const attribution = yield * Probe.classify({ command: "pytest tests/x.py::nope", exitCode: 4, output })
 // { to: "unknown-test", executed: false, invalidProbe: { reason: "unknown-test", ... } }
@@ -43601,9 +43746,9 @@ const attribution = yield * Probe.classify({ command: "pytest tests/x.py::nope",
 The attribution is Jev's: `classify` asks `probeAttribution`, the exported
 `probe/attribution` declaration, through the `Evaluator` service of
 [`@smthrs/model`](/docs/reference/api/model/), so a host needs a bound evaluator on a
-subscription seat. Two things are still decided without it, because an exit code is a
-fact rather than prose: a zero exit is never classified, and 126 and 127 are
-the shell's own refusal to start the command. An answer below
+subscription seat. A zero exit is attributed to the tree without the judge. All non-zero exits,
+including 126 and 127, need attribution: a runner can choose those codes after
+executing a check. An answer below
 `CONFIDENCE_FLOOR` is the tree's failure, which leaves a genuine reproduction
 intact. There is no third path: when the judge does not answer, `unjudged`
 turns its failure into the caller's typed failure rather than a guess.
@@ -43712,8 +43857,12 @@ A requested variable never reaches the host transport process under its own
 name, so `PATH`, `LD_PRELOAD`, or `DOCKER_HOST` cannot choose what runs on the
 host: `Plan.env` carries each value as `SMITHERS_CONTAINER_ENV_KEY`, argv
 carries only `-e SMITHERS_CONTAINER_ENV_KEY`, and an `sh -c` inside the
-container renames it to `KEY` before `exec`ing the program. Custom transports
-return any host process environment overrides in `Plan.env`.
+container renames it to `KEY` before `exec`ing the program. A request that
+carries `env` therefore requires `sh` on the container's `PATH`; an image
+without one (distroless, `scratch`) fails every such request, and a request
+without `env` runs the program directly. Supply a custom transport for such an
+image. Custom transports return any host process environment overrides in
+`Plan.env`.
 
 ## TreeFingerprint
 
@@ -43786,14 +43935,23 @@ therefore does not run on the host. The workspace is still read for refs, its
 index, its config file (as a file) and a few `core.*` hashing settings. A
 checkout gets its own standalone `.git`, so a container can run git in it.
 
+A materialize never has host git write into an agent-writable directory. It
+writes the checkout and its `.git` into a staging directory the agent cannot
+reach, inside the temporary shadow or, when the host's temporary directory is
+another filesystem, a `.smithers-checkout-<uuid>` directory beside the
+workspace root, or `checkout-<uuid>` under `$XDG_CACHE_HOME/smithers` (default
+`~/.cache/smithers`) when the root's parent is not writable. One `rename` then
+gives the finished directory its name under the workspace. A checkout name the
+agent swaps for a symlink fails the call before anything is written through
+it. The rename runs from inside the checkout's parent, entered by its physical
+path, and a parent that resolves outside the workspace root's real path fails
+the call before the rename. When no staging directory shares the checkout's
+filesystem, the materialize is refused rather than copied, and the refusal
+names each candidate, including a root parent that is not writable.
+
 Two data-write residuals remain, neither of which runs a program. First, host
-writes into agent-writable paths (new objects, the checkpoint's config entry,
-the checkout directory) follow a symlink the agent races into place. The
-directories and `.git` files a materialize prepares are created exclusively,
-but the `git read-tree --reset -u` that then writes the checkpoint's files is
-not: an agent that swaps the checkout directory, or a parent of it, for a
-symlink between those two steps can have read-tree overwrite existing files in
-the symlink's target with the checkpoint's contents. Second, the repository is
+writes into agent-writable `.git` paths (new objects, the checkpoint's config
+entry) follow a symlink the agent races into place. Second, the repository is
 whatever `git rev-parse --git-common-dir` names: a `.git` gitfile
 (`gitdir: <path>`) or an `objects/info/alternates` entry can point it at
 another git directory on the host. Captures then write objects and the config
@@ -43860,8 +44018,9 @@ The server runs on the host as the host user. `make` fails with
 `permission_denied`, before spawning, when the program it would execute lies
 under `cwd`: a relative or absolute command there, a bare name found through a
 `PATH` entry there, or a workspace symlink to a host binary. An argument, or
-the value after `=` in one, that names an existing file under `cwd` is refused
-the same way. A launcher is refused outright, because its arguments are code or
+the value after `=` in one, that names an existing file or directory under
+`cwd` is refused the same way; `node <dir>` runs that directory's `index.js` or
+package `main`. A launcher is refused outright, because its arguments are code or
 package names the file check cannot see: a shell (`sh -c`, `bash`, `zsh`),
 `env`, a package runner (`npx`, `pnpm`, `npm`, `yarn`, `bunx`, `bun x`,
 `deno`), or `node` and `bun` given inline code or a preload (`-e`, `--eval`,
@@ -51995,6 +52154,7 @@ Commands:
   connect  Connect this workspace to the Smithers Cloud build cache: mint a public read token and declare it in the root PACKAGE.ts
   prune    Remove local action results older than the retention window
   status   Report cache size and configured remote without exposing credentials
+  steps    Inspect and maintain durable flow step results
   token    token
 
 Custom Global Options:
@@ -52230,6 +52390,152 @@ Usage: smthrs cache status [options]
 Options:
   --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## cache steps
+
+```text
+smthrs cache steps — Inspect and maintain durable flow step results
+
+Usage: smthrs cache steps <command>
+
+Commands:
+  evict  Remove a step result only if its provenance matches
+  ls     List recent step cache heads
+  show   Inspect a recorded step result
+  sweep  Remove old step cache heads; recorded replay evidence is preserved
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## cache steps evict
+
+```text
+smthrs cache steps evict — Remove a step result only if its provenance matches
+
+Usage: smthrs cache steps evict <key> [options]
+
+Arguments:
+  key
+
+Options:
+  --root <string>
+  --if-recorded-by <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## cache steps ls
+
+```text
+smthrs cache steps ls — List recent step cache heads
+
+Usage: smthrs cache steps ls [options]
+
+Options:
+  --root <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## cache steps show
+
+```text
+smthrs cache steps show — Inspect a recorded step result
+
+Usage: smthrs cache steps show <key> [options]
+
+Arguments:
+  key
+
+Options:
+  --root <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## cache steps sweep
+
+```text
+smthrs cache steps sweep — Remove old step cache heads; recorded replay evidence is preserved
+
+Usage: smthrs cache steps sweep [options]
+
+Options:
+  --root <string>
+  --older-than <string>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -64623,7 +64929,18 @@ const call = (name: string | undefined, args: Record<string, unknown>) => {
 }
 
 createInterface({ input: process.stdin }).on("line", (line: string) => {
-  const request = JSON.parse(line) as Request
+  let request: Request
+  try {
+    request = JSON.parse(line) as Request
+  } catch {
+    // A malformed line is answered, not thrown: JSON-RPC's parse error.
+    send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } })
+    return
+  }
+  if (typeof request !== "object" || request === null || typeof request.method !== "string") {
+    send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } })
+    return
+  }
   if (request.method === "initialize") {
     send({
       jsonrpc: "2.0",
@@ -65415,7 +65732,7 @@ Run a scripted agent with filesystem tools inside a bounded QuickJS cell loop.
 
 The cell reaches tools through registered flows. The host supplies a capability envelope, the sandbox limits cell evaluation, and durable call boundaries record tool outcomes for replay.
 
-Only read/write flows are exposed, with capabilities scoped to the scratch root and a host service that resolves relative paths there and rejects absolute paths, traversal and links. The host must exclusively own the tree during the run; this is not an OS boundary against concurrent host mutations. The scripted seat makes the test deterministic and requires no API key.
+Only read/write flows are exposed, with capabilities scoped to the scratch root and a host service that resolves relative paths there and rejects absolute paths, traversal and links. On POSIX the root must belong to the running user and grant no group or other permissions (mode & 0o077 === 0), so no other user can even reach the tree, whatever its inner modes, to swap a path component between the link check and the file operation. The host must still exclusively own the tree during the run; this is not an OS boundary against concurrent mutations by the same user. The scripted seat makes the test deterministic and requires no API key.
 
 ## Run the test
 
@@ -65466,7 +65783,7 @@ import * as Path from "effect/Path"
 import * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import { lstatSync, mkdirSync } from "node:fs"
+import { lstatSync, mkdirSync, statSync } from "node:fs"
 import { durableEngine } from "./durable-layer.ts"
 
 /** What the step must answer with. Nothing downstream parses model text. */
@@ -65577,6 +65894,22 @@ const confinedFileSystem = (root: string) => Effect.gen(function*() {
       description: "Scratch roots must not contain capability glob characters"
     })))
   }
+  // The link walk below checks, then acts, so it is only sound while no other
+  // principal can change the tree. On POSIX, refuse a root another user owns or
+  // that grants any group or other permission: a traversable root would let
+  // another user reach a writable inner directory. The check is POSIX only;
+  // Windows has no getuid and libuv reports every writable directory as 0o777.
+  const uid = process.getuid?.()
+  if (uid !== undefined) {
+    const rootInfo = statSync(canonicalRoot)
+    if (rootInfo.uid !== uid || (rootInfo.mode & 0o077) !== 0) {
+      return yield* Effect.fail(new PlatformError.PlatformError(new PlatformError.BadArgument({
+        module: "FileSystem",
+        method: "root",
+        description: "Scratch roots must be owned by this user and grant no group or other permissions"
+      })))
+    }
+  }
   const resolve = (requested: string) => Effect.try({
     try: () => {
       if (path.isAbsolute(requested) || requested.split(/[/\\]/).includes("..") || requested.includes("\0")) {
@@ -65642,7 +65975,7 @@ export const main = (filename: string, root: string, model?: Model.Model): Effec
   Effect.gen(function*() {
     const source = "notes.md"
     const target = "line-count.txt"
-    yield* Effect.sync(() => mkdirSync(root, { recursive: true }))
+    yield* Effect.sync(() => mkdirSync(root, { recursive: true, mode: 0o700 }))
     const { services, canonicalRoot } = yield* confinedFileSystem(root)
     const scratch = Context.get(services, FileSystem.FileSystem)
     yield* scratch.writeFileString(source, "alpha\nbeta\ngamma")
@@ -67256,24 +67589,38 @@ export interface Summary {
 }
 
 /** The recorded entries the in-process action cache holds, keyed by digest. */
-interface SharedTier {
+export interface SharedTier {
   readonly url: string
   readonly reads: () => number
   readonly writes: () => number
   readonly close: () => Promise<void>
 }
 
+/** The largest entry body the example tier accepts, in bytes. */
+export const maxEntryBytes = 1024 * 1024
+
 /**
  * A real HTTP action cache: `GET /ac/{key}` answers a stored entry or 404,
  * `PUT /ac/{key}` records one. `refusePut` makes every write answer 503, which
  * is how the third scenario reproduces an unreachable shared tier.
+ *
+ * A key that is not valid percent-encoding answers 400, and a body larger than
+ * `maxEntryBytes` answers 413, so a malformed request cannot crash or exhaust
+ * the process.
  */
-const startSharedTier = (refusePut: boolean): Promise<SharedTier> => {
+export const startSharedTier = (refusePut: boolean): Promise<SharedTier> => {
   const entries = new Map<string, string>()
   let reads = 0
   let writes = 0
   const server: Server = createServer((request, response) => {
-    const key = decodeURIComponent((request.url ?? "").replace(/^\/ac\//, ""))
+    let key: string
+    try {
+      key = decodeURIComponent((request.url ?? "").replace(/^\/ac\//, ""))
+    } catch {
+      request.resume()
+      response.writeHead(400).end()
+      return
+    }
     if (request.method === "GET") {
       reads++
       const entry = entries.get(key)
@@ -67291,8 +67638,21 @@ const startSharedTier = (refusePut: boolean): Promise<SharedTier> => {
         return
       }
       const chunks: Array<Buffer> = []
-      request.on("data", (chunk: Buffer) => chunks.push(chunk))
+      let size = 0
+      let tooLarge = false
+      request.on("data", (chunk: Buffer) => {
+        if (tooLarge) return
+        size += chunk.length
+        if (size > maxEntryBytes) {
+          tooLarge = true
+          chunks.length = 0
+          response.writeHead(413, { connection: "close" }).end()
+          return
+        }
+        chunks.push(chunk)
+      })
       request.on("end", () => {
+        if (tooLarge) return
         writes++
         entries.set(key, Buffer.concat(chunks).toString("utf8"))
         response.writeHead(201).end()
@@ -68667,6 +69027,139 @@ export const main = (options: MainOptions): Promise<MainResult> =>
         )
       ),
       Effect.orDie
+    )
+  )
+```
+
+---
+
+# Placed deploy
+https://smithers.sh/docs/examples/42-placed-deploy/
+
+Run a secret-using action only on the host that holds the secret.
+
+`Ship` calls `PushRelease`, which sends `DEPLOY_TOKEN` to the deploy endpoint. The caller's engine has no such variable. Its `Hosts` table binds the action's placement, `remote({ target: "deploy" })`, to the holder's engine, which serves `PlacedAction.served(PushRelease)` and runs the body with its own vault and its own deploy endpoint. The caller names a version and journals the result; the value and the endpoint never enter its process.
+
+The holder here listens without authentication to keep the example short. A real holder serves the group behind a bearer, as `@smthrs/gateway` serves `/rpc` behind `ControlAuth`: anyone who reaches it can ship a version.
+
+## Run the test
+
+The complete program is [`examples/src/42-placed-deploy.ts`](https://github.com/smithersai/smithers/blob/main/examples/src/42-placed-deploy.ts). Clone the repository and follow [CONTRIBUTING.md](https://github.com/smithersai/smithers/blob/main/CONTRIBUTING.md) to install and build its packages.
+
+From the repository root, run this example's assertions:
+
+```bash
+pnpm --filter @smthrs/examples exec vitest run test/42-placed-deploy.test.ts
+```
+
+Vitest reports the assertions that passed, failed, or were skipped. Examples that call live providers need the credentials described below; a skipped test does not verify a provider call.
+
+## Related reference
+
+[`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/targets`](/docs/reference/api/targets/)
+
+## Source
+
+```ts title="examples/src/42-placed-deploy.ts"
+import { FlowProxy, FlowProxyServer, Hosts, PlacedAction } from "@smthrs/engine"
+import { Action, Flow, Interpreter } from "@smthrs/flow"
+import * as Placement from "@smthrs/plan/Placement"
+import * as Secret from "@smthrs/targets/Secret"
+import * as SecretProxy from "@smthrs/targets/SecretProxy"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import { FetchHttpClient, HttpRouter, type HttpServer } from "effect/unstable/http"
+import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { durableEngine } from "./durable-layer.ts"
+
+/** Sends one release to the deploy endpoint with the deploy token. */
+export const PushRelease = Action.make("examples/PlacedDeploy/PushRelease", {
+  payload: { version: Schema.String },
+  success: Schema.Struct({ version: Schema.String, status: Schema.Number })
+})
+
+/** The flow a caller runs. Nothing in it names a machine or an endpoint. */
+export const Ship = Flow.make("examples/PlacedDeploy/Ship", {
+  payload: { version: Schema.String },
+  success: Schema.Struct({ version: Schema.String, status: Schema.Number }),
+  body: (payload) => PushRelease.call(payload)
+})
+
+/** Where `PushRelease` runs: whichever host a table binds `deploy` to. */
+export const deploy = Placement.remote({ target: "deploy" })
+
+/**
+ * The body, run with one host's environment and its deploy endpoint. The
+ * vault mints a placeholder for `DEPLOY_TOKEN`, bound to that endpoint's
+ * origin, and substitutes the value only while it builds the one request
+ * there. A host without the variable fails with `SecretUnavailable`.
+ */
+export const push = (read: SecretProxy.Read, endpoint: string) => ({ version }: { readonly version: string }) =>
+  Effect.promise(async () => {
+    const vault = SecretProxy.makeVault({ read })
+    const placeholder = vault.mint(Secret.HttpSecret(Secret.Secret("DEPLOY_TOKEN"), [endpoint]))
+    const boundary = vault.request(new URL(endpoint).origin)
+    const response = await fetch(new URL("/release", endpoint), {
+      method: "POST",
+      headers: { authorization: boundary.substitute(`Bearer ${placeholder}`) },
+      body: version
+    })
+    return { version, status: response.status }
+  })
+
+/**
+ * The holder: a durable engine that serves `PushRelease` over HTTP on
+ * `server` and runs its body with `read`, the holder's environment, against
+ * `endpoint`, the holder's deploy endpoint.
+ */
+export const holder = <E, R>(
+  filename: string,
+  read: SecretProxy.Read,
+  endpoint: string,
+  server: Layer.Layer<HttpServer.HttpServer, E, R>
+) => {
+  const served = PlacedAction.served(PushRelease)
+  return HttpRouter.serve(
+    RpcServer.layerHttp({ group: FlowProxy.toRpcGroup([served]), path: "/", protocol: "http" }).pipe(
+      Layer.provide(FlowProxyServer.layerRpcHandlers([served])),
+      Layer.provide(RpcSerialization.layerJson)
+    )
+  ).pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(PushRelease.toLayer(push(read, endpoint)), Interpreter.layer(served)).pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(durableEngine(filename, "examples-placed-deploy-holder"))
+      )
+    ),
+    Layer.provideMerge(server)
+  )
+}
+
+/**
+ * The caller: a durable engine that runs `Ship` and binds `deploy` to the
+ * holder at `holderUrl`. Without one, `deploy` runs here, with `read` and
+ * `endpoint` standing for this host's own environment and endpoint.
+ */
+export const caller = (filename: string, read: SecretProxy.Read, endpoint: string, holderUrl?: string) =>
+  Layer.mergeAll(PlacedAction.layer(PushRelease, deploy, push(read, endpoint)), Interpreter.layer(Ship)).pipe(
+    Layer.provideMerge(Action.layerImplementations),
+    Layer.provideMerge(durableEngine(filename, "examples-placed-deploy-caller")),
+    Layer.provideMerge(
+      holderUrl === undefined ? Hosts.layer({}) : Hosts.layer({
+        deploy: {
+          _tag: "Proxy",
+          connect: (group) =>
+            RpcClient.make(group).pipe(
+              Effect.provide(
+                RpcClient.layerProtocolHttp({ url: holderUrl }).pipe(
+                  Layer.provide(RpcSerialization.layerJson),
+                  Layer.provide(FetchHttpClient.layer)
+                )
+              )
+            )
+        }
+      })
     )
   )
 ```

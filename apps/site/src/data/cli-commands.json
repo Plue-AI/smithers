@@ -2650,6 +2650,102 @@
       }
     },
     {
+      "name": "cache steps evict",
+      "description": "Remove a step result only if its provenance matches",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string"
+            },
+            "ifRecordedBy": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ifRecordedBy"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "cache steps ls",
+      "description": "List recent step cache heads",
+      "schema": {
+        "options": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "cache steps show",
+      "description": "Inspect a recorded step result",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "cache steps sweep",
+      "description": "Remove old step cache heads; recorded replay evidence is preserved",
+      "schema": {
+        "options": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string"
+            },
+            "olderThan": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "olderThan"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "cache token create",
       "description": "Mint a public read token: it can only read this repository's build cache and is safe to commit",
       "schema": {
@@ -4228,6 +4324,11 @@
               "default": false,
               "type": "boolean"
             },
+            "wait": {
+              "default": false,
+              "description": "Wait for the run's status before exiting",
+              "type": "boolean"
+            },
             "budgetTokens": {
               "description": "Token ceiling for this run",
               "type": "integer",
@@ -4261,6 +4362,7 @@
             "ref",
             "quiet",
             "detached",
+            "wait",
             "cloud"
           ],
           "additionalProperties": false
@@ -8720,6 +8822,58 @@
           "required": [
             "quiet",
             "message"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "runs wait",
+      "description": "Wait for a durable run to settle",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "run": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Durable run ID"
+            }
+          },
+          "required": [
+            "run"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "description": "Project directory; defaults to the nearest Smithers project",
+              "type": "string"
+            },
+            "remote": {
+              "description": "Remote control plane URL; defaults to SMITHERS_REMOTE",
+              "type": "string"
+            },
+            "mcpConfig": {
+              "description": "Path to the configured MCP servers",
+              "type": "string"
+            },
+            "quiet": {
+              "default": false,
+              "description": "Suppress progress messages",
+              "type": "boolean"
+            },
+            "timeout": {
+              "description": "Maximum wait in milliseconds",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "quiet"
           ],
           "additionalProperties": false
         }

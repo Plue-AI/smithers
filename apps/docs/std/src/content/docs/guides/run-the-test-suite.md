@@ -97,10 +97,9 @@ prove.
 
 Jev makes that attribution. The flow asks the `probe/attribution` classifier
 through the `Evaluator` service of [`@smthrs/model`](https://model.smithers.sh/reference/api/), so a host
-binds an evaluator on a subscription seat. Two answers still come from
-the exit code alone, because an exit code is a fact rather than prose: a zero
-exit is never attributed anywhere but the tree, and 126 and 127 are the shell's
-own refusal to start the command. There is no third path. A judge that cannot
+binds an evaluator on a subscription seat. Only a zero exit is attributed without a judge. Exit codes 126 and 127
+also go through attribution: a runner can return them after executing tests.
+A judge that cannot
 be reached, refuses, times out, or answers something unusable fails the call
 with `provider_unavailable`, `timeout`, or `request_failed`, because a guess at
 whether a reproduction reproduced is worth less than no answer at all.

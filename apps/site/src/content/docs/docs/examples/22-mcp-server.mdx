@@ -84,7 +84,18 @@ const call = (name: string | undefined, args: Record<string, unknown>) => {
 }
 
 createInterface({ input: process.stdin }).on("line", (line: string) => {
-  const request = JSON.parse(line) as Request
+  let request: Request
+  try {
+    request = JSON.parse(line) as Request
+  } catch {
+    // A malformed line is answered, not thrown: JSON-RPC's parse error.
+    send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } })
+    return
+  }
+  if (typeof request !== "object" || request === null || typeof request.method !== "string") {
+    send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } })
+    return
+  }
   if (request.method === "initialize") {
     send({
       jsonrpc: "2.0",

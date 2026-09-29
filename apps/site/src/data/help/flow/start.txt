@@ -15,6 +15,7 @@ Options:
   --quiet                                        Suppress progress messages
   --data <string>
   --detached, -d
+  --wait                                         Wait for the run's status before exiting
   --budget-tokens <number>                       Token ceiling for this run
   --budget-ms <number>                           Wall-clock ceiling in milliseconds for this run
   --on-exceeded <fail|warn|skip-remaining|park>  What the run does at a ceiling

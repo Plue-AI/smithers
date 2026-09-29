@@ -292,11 +292,11 @@ the receipt alone, so the notification id stays admissible once a boundary
 drains. The literal remains in `AdmissionDecision` because a reader must stay
 total over a record any writer could have produced.
 
-| Export       | Signature                                             | Returns                                                                                                                                                                                                                                                                                                                                             |
-| ------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `isAdmitted` | `(event: Event) => event is Admitted`                 | Whether the owned event is an admission record.                                                                                                                                                                                                                                                                                                     |
-| `isPromoted` | `(event: Event) => event is Promoted`                 | Whether the owned event is a promotion record.                                                                                                                                                                                                                                                                                                      |
-| `fromEntry`  | `(entry: JournalEvent.Entry) => Option.Option<Event>` | The owned event a journal entry carries. Foreign entries and structurally invalid payloads answer `None`, so a projection over a shared journal stays total. An admission counts only under `admissionSourceId` of the notification it carries, and a promotion only under a `/notifications/drain/` source, so another writer cannot forge either. |
+| Export       | Signature                                             | Returns                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isAdmitted` | `(event: Event) => event is Admitted`                 | Whether the owned event is an admission record.                                                                                                                                                                                                                                                                                                                                                                                                |
+| `isPromoted` | `(event: Event) => event is Promoted`                 | Whether the owned event is a promotion record.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `fromEntry`  | `(entry: JournalEvent.Entry) => Option.Option<Event>` | The owned event a journal entry carries. Foreign entries and structurally invalid payloads answer `None`, so a projection over a shared journal stays total. An admission counts only under `admissionSourceId` of the notification it carries, and a promotion only under a `/notifications/drain/` source, so another producer's record with the same event type is ignored. The source scopes records; it does not authenticate the writer. |
 
 ## Projection
 
@@ -429,9 +429,10 @@ Both owned event types are excluded from condition detection: they are written
 into the journal the detectors read, and they carry the alert's own vocabulary,
 so reading them as evidence would let a page close the condition it paged about.
 
-A `flows.alerts.delivered` entry suppresses a page only when the alerter wrote
-it, under the source `/notifications/alerts/<alertId>/delivered`. The same entry
-from any other writer to the run's journal is ignored.
+A `flows.alerts.delivered` entry suppresses a page only under the source the
+alerter writes, `/notifications/alerts/<alertId>/delivered`. The same entry under
+any other source is ignored. The journal does not bind a source to a writer, so
+this keeps other producers' records out; it does not authenticate the writer.
 
 See [`@smthrs/control`](/docs/reference/api/control/) for the run conditions the entries come
 from.

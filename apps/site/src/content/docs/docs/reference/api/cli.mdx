@@ -145,9 +145,9 @@ The Node composition for the command tree.
 | `executionDatabasePath` | `(root: string) => string` | `<root>/.flows/engine.db`. |
 | `EngineDurable` | `Application.Engine & { stores }` | The durable engine plus the shared database seam other stores hang off. |
 | `engineDurable` | `(root: string, registry?, authority?) => EngineDurable` | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects. |
-| `layerSeatEvaluator` | layer | The native subscription judge, backed by the existing seat resolver and `RequestExecutor`. Resolves connected ChatGPT or Claude subscriptions at judgment time, including account pools. Missing seats and invalid verdicts fail closed; provider API keys are never a fallback. |
-| `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. |
-| `seatCandidates`, `layerSeatCatalog` | constructor, layer | The seats Jev routes an undeclared or `auto` run to: each alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with, once per model, never Jev. |
+| `layerSeatEvaluator` | layer | The native judge: Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`; a missing key reads as unreachable) over its own egress HTTP client (fetch under Bun), backed up by the `luna` seat (`openai:gpt-6-luna`) only when Jev is unreachable, times out, or answers 5xx or 429 through its retries. Luna resolves through the seat resolver and the host `RequestExecutor` at judgment time, including account pools; if it cannot resolve either, the judgment fails `unreachable`. A gateway refusal (401, 403) or an invalid Jev answer fails without a fallback. |
+| `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. A `claude-code:<model>` seat runs on the user's signed-in Claude Code through the Claude Agent SDK, one locked-down, tool-less session per conversation whose turns are the frames' new messages; it resolves only without `ANTHROPIC_API_KEY`, and this process never reads a Claude credential. Its session is discarded unless `SMITHERS_HIJACKABLE=1`, which keeps it on disk so `claude --resume <sessionId>`, run in the system temporary directory, opens it; the journaled `model-settled` row carries the `sessionId`. |
+| `seatCandidates`, `layerSeatCatalog` | constructor, layer | The routing graph's seats an undeclared or `auto` run may route to: each `SeatRouter.seats` alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with. A Claude seat is offered on `ANTHROPIC_API_KEY` or on a Claude subscription signed in to Claude Code, never as a `claude-code` seat. |
 | `supervisorStance` | `(environment) => "careful" \| "paranoid"` | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`. |
 | `testRunner`, `testFlows`, `checkpointStore` | constructors | The `test` flow's runner, the flows it registers, and the checkpoint store. `testRunner(environment, root, workspaceRoot?)` declares the runner for `workspaceRoot`, named inside the mount `SMITHERS_TEST_CWD` gives `root`. |
 | `rebuildableTransport` | constructor | The replaceable HTTP dispatcher a model captures and uses after seat resolution returns. |
@@ -358,6 +358,16 @@ Read-only projections of a run's events. Nothing here opens a database, so
 | `notFound` | `(runId, nodeId, nodes) => string` | The usage message for a node the run does not have. |
 | `render` | `(node) => string` | One node's human rendering. |
 
+## CloudSession
+
+The signed-in Smithers Cloud session for hosts other than the CLI (the terminal UI reads the factory's issue list with it). The token and origin come from where `smthrs auth login` and `smthrs config` put them.
+
+| Export | Signature | Meaning |
+| --- | --- | --- |
+| `Cloud` | interface | `origin`, and `get(path, signal?)` for a `/api/…` path on that origin as the signed-in person: no redirects, 30 s, at most 4 MiB. |
+| `signedIn` | `(env) => Promise<Cloud \| undefined>` | The session, or undefined without an origin or a login. |
+| `repository` | `(directory, env) => string \| undefined` | The `owner/name` a checkout's git or jj remote names, as `smthrs open` reads it. |
+
 ## Agents
 
 The agent configurations `smthrs mcp add` writes into.
@@ -431,10 +441,12 @@ Which seats this machine can run.
 | --- | --- | --- |
 | `Candidate`, `order` | | The seats considered, in preference order. |
 | `Detection`, `detect` | `(host) => ReadonlyArray<Detection>` | What this machine has, from host facts passed in. |
+| `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => Promise<ClaudeCodeLogin \| undefined>` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
+| `claudeCode` | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
+| `claudeCodeSeats`, `claudeCodeModel` | | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one. |
 | `Chosen`, `chooseSeat` | | The seat picked, and why. |
 | `compatible`, `compatibleKey` | | The provider compatibility table and its lookup. |
 | `defaultSeat` | `Record<Candidate, string>` | The seat string each candidate resolves to. |
-| `seatDescriptions` | `Record<string, string>` | One line per seat alias: label, provider, context window. |
 | `starterSeats` | `ReadonlyArray<readonly [variable: string, seat: string]>` | Ordered credential-variable and model-seat pairs used by scaffolding, aligned with the executor's supported provider routes. |
 | `NoSeatError`, `SeatSyntaxError`, `noSeatMessage` | | The two refusals, and the sentence that names what to set. |
 
