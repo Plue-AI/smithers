@@ -690,3 +690,71 @@ test("the page URL, the document URI and the languageId follow plue's route and 
   expect(documentLanguageId("typescript", "lib/x.mjs")).toBe("javascript")
   expect(documentLanguageId("typescript", "noext")).toBe("typescript")
 })
+test("a silent socket upgrade times out both callers, ignores a late open, and the next action retries", async () => {
+  const server = serve()
+  const route = sessionRoute()
+  let closed = 0
+  const late = { open: undefined as (() => void) | undefined }
+  let dials = 0
+  const lsp = createCloudLspClient({
+    http: route.http,
+    baseUrl: "http://local.invalid",
+    socketUrl: () => server.url,
+    socketProtocol: () => "smithers.local.test",
+    requestTimeoutMs: 50,
+    socketFactory: (url, protocols) => {
+      dials += 1
+      if (dials > 1) return new WebSocket(url, [...(protocols ?? [])])
+      const stalled = {
+        readyState: WebSocket.CONNECTING as number,
+        onopen: null as (() => void) | null,
+        onclose: null,
+        onmessage: null,
+        onerror: null,
+        close: () => { closed += 1; stalled.readyState = WebSocket.CLOSED }
+      }
+      queueMicrotask(() => { late.open = stalled.onopen ?? undefined })
+      return stalled as unknown as WebSocket
+    }
+  })
+  clients.push(lsp)
+  const hover = lsp.hover(DOC, { line: 1, character: 1 })
+  const definition = lsp.definition(DOC, { line: 1, character: 1 })
+  const results = await promptly(Promise.all([hover, definition]))
+  expect(results).toEqual([
+    { refusal: { code: "language_server_timeout", message: "The workspace language server did not open within 0.05 s." } },
+    { refusal: { code: "language_server_timeout", message: "The workspace language server did not open within 0.05 s." } }
+  ])
+  expect(route.posts).toHaveLength(1)
+  expect(dials).toBe(1)
+  expect(closed).toBe(1)
+  late.open?.()
+  expect(server.initializes()).toBe(0)
+  expect("ok" in (await lsp.hover(DOC, { line: 1, character: 1 }))).toBe(true)
+  expect(dials).toBe(2)
+})
+
+test("dispose before a silent upgrade deadline settles shared callers as disposed", async () => {
+  const server = serve()
+  const route = sessionRoute()
+  let closeCount = 0
+  const lsp = createCloudLspClient({
+    http: route.http,
+    baseUrl: "http://local.invalid",
+    socketUrl: () => server.url,
+    socketProtocol: () => "smithers.local.test",
+    requestTimeoutMs: 50,
+    socketFactory: () => ({
+      readyState: WebSocket.CONNECTING,
+      close: () => { closeCount += 1 }
+    }) as unknown as WebSocket
+  })
+  clients.push(lsp)
+  const hover = lsp.hover(DOC, { line: 1, character: 1 })
+  const definition = lsp.definition(DOC, { line: 1, character: 1 })
+  await until(() => route.posts.length === 1)
+  await Bun.sleep(10)
+  lsp.dispose()
+  expect(await promptly(Promise.all([hover, definition]))).toEqual([closing, closing])
+  expect(closeCount).toBe(1)
+})

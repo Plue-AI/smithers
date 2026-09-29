@@ -583,7 +583,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
       return { close: { code: 0, reason: "the code intelligence connection could not be authorized" } }
     }
     assertActive()
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let socket: WebSocket
       try {
         socket = socketFactory(url, protocol === undefined ? undefined : [protocol])
@@ -597,9 +597,22 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
       sockets.add(socket)
       let settled = false
       let initializeId: number | undefined
+      // The request timer starts only after onopen; bound the upgrade separately.
+      const openingTimer = setTimeout(() => {
+        if (settled || conn.socket !== socket) return
+        settled = true
+        conn.failDial = undefined
+        releaseSocket(conn, socket)
+        reject(new Refused({
+          code: "language_server_timeout",
+          message: `The workspace language server did not open within ${requestTimeoutMs / 1000} s.`
+        }))
+      }, requestTimeoutMs)
+      ;(openingTimer as { unref?: () => void }).unref?.()
       const failDial = (code: number, reason: string): void => {
         if (settled) return
         settled = true
+        clearTimeout(openingTimer)
         conn.failDial = undefined
         releaseSocket(conn, socket)
         if (initializeId !== undefined) {
@@ -614,7 +627,8 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
       }
       conn.failDial = failDial
       socket.onopen = () => {
-        if (conn.socket !== socket) return
+        if (conn.socket !== socket || settled) return
+        clearTimeout(openingTimer)
         const initialize = enqueue(conn, "initialize", {
           processId: null,
           clientInfo: { name: "smithers" },
