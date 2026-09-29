@@ -540,6 +540,11 @@ describe("Transcript", () => {
         calls: [{ flow: "bash", ordinal: 2, ok: true, summary: "{\"stdout\":\"README\"}" }],
         nextFrame: 16
       }),
+      new AgentEvent.OutputDemanded({
+        eventType: AgentEvent.eventType.outputDemanded,
+        note: "## Your previous answer did not validate",
+        nextFrame: 16
+      }),
       new AgentEvent.NarrowedDemanded({
         eventType: AgentEvent.eventType.narrowedDemanded,
         flow: "bash",
@@ -592,6 +597,7 @@ describe("Transcript", () => {
       ModelRequest.Message.user(
         UnobservedCall.demand([{ flow: "bash", ordinal: 2, ok: true, summary: "{\"stdout\":\"README\"}" }])
       ),
+      ModelRequest.Message.user("## Your previous answer did not validate"),
       ModelRequest.Message.user(DemandText.narrowed("bash", "pytest tests", "pytest tests -k one")),
       ModelRequest.Message.user(
         DemandText.narrowOnly("bash", "pytest tests/a.py tests/b.py -k one", ["tests/a.py", "tests/b.py"])
@@ -890,6 +896,7 @@ describe("Transcript", () => {
     "flows.harness.unresolved-demanded.v1",
     "flows.harness.failed-call-demanded.v1",
     "flows.harness.unobserved-demanded.v1",
+    "flows.harness.output-demanded.v1",
     "flows.harness.claim-demanded.v1"
   ])("rejects malformed %s evidence", (eventType) => {
     const result = Transcript.projectStateResult([entry(1, eventType, { eventType })])

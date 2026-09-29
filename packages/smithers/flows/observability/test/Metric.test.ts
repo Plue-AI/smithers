@@ -41,8 +41,10 @@ describe("Metric registry", () => {
       runThroughput: "flows_run_throughput",
       activeSeats: "flows_seat_active",
       quotaParks: "flows_quota_park",
+      structuredOutputRejections: "flows_agent_structured_output_rejections",
+      structuredOutputExhausted: "flows_agent_structured_output_exhausted",
       droppedLogRecords: "flows_observability_log_dropped"
     })
-    expect(Object.keys(FlowsMetric.registry)).toHaveLength(4)
+    expect(Object.keys(FlowsMetric.registry)).toHaveLength(6)
   })
 })

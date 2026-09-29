@@ -39,6 +39,26 @@ export const quotaParks = Metric.counter(`${prefix}quota_park`, {
 })
 
 /**
+ * Counts agent answers refused by their declared output schema.
+ *
+ * @category metrics
+ * @since 1.0.0-rc.1
+ */
+export const structuredOutputRejections = Metric.counter(`${prefix}agent_structured_output_rejections`, {
+  description: "Agent answers refused by their declared output schema"
+})
+
+/**
+ * Counts agent steps that failed after spending every output correction.
+ *
+ * @category metrics
+ * @since 1.0.0-rc.1
+ */
+export const structuredOutputExhausted = Metric.counter(`${prefix}agent_structured_output_exhausted`, {
+  description: "Agent steps whose output corrections were exhausted"
+})
+
+/**
  * Counts operational log records lost before durable delivery.
  *
  * Advances once per record dropped by a saturated forwarding queue, once per
@@ -62,5 +82,7 @@ export const registry = {
   runThroughput,
   activeSeats,
   quotaParks,
+  structuredOutputRejections,
+  structuredOutputExhausted,
   droppedLogRecords
 } as const

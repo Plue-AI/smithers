@@ -14,7 +14,7 @@ schema.
 
 ## The correction ladder
 
-A decode miss spends a correction slot on a re-prompt. Three numbers decide how
+A decode miss spends a correction slot. Three numbers decide how
 hard a step tries to answer in shape, and each is declared where the person who
 cares about it works:
 
@@ -30,11 +30,23 @@ miss terminal stays terminal under a generous host. Both numbers must be
 non-negative safe integers; anything else raises `InvalidCorrectionBudget` at
 declaration time rather than at the first decode miss.
 
-A correction repeats the task verbatim and appends the validation issues: it
-assumes the model can still answer the question it was asked. Each correction
-is a whole new cell run under its own session and its own prompt, so its model
-call is a distinct sealed step with its own content key. A settled ladder
-replays whole across a process restart and pays the provider nothing.
+The run is asked for the value itself, `ctx.done({ ... })`, not a JSON string.
+Every `ctx.done` is decoded as it happens. A miss goes back to the same
+session as a correction, journaled as the harness's `OutputDemanded`: the run
+keeps its realm, its settled calls, and what its cell printed, so fixing the
+shape repeats no work.
+
+When the run has no frame left to answer in, or its last same-session
+correction still misses, the step falls back to a fresh session: the task
+repeated verbatim with the validation issues appended. Each fresh session is
+a whole new cell run under its own session and prompt, so its model call is a
+distinct sealed step with its own content key. A settled ladder replays whole
+across a process restart and pays the provider nothing. Corrections of both
+kinds spend the one budget.
+
+`flows_agent_structured_output_rejections` counts every refused answer and
+`flows_agent_structured_output_exhausted` every step that failed after its
+budget and repair.
 
 ## The repair slot
 
@@ -82,7 +94,8 @@ A session is key material and is hashed into the step key, so three distinct
 keys say a ladder ran but not which call was the ask. `AgentAction` sets
 `FlowEngineLike.Correction` around each rung and the port stamps the ordinal
 onto that rung's own `RecordedModelStep`: a projection reading the run's sealed
-steps gets `correction: 0` for the ask and `1`, `2` for its re-prompts. The
+steps gets `correction: 0` for the ask and, for each fresh-session rung, the
+corrections already spent when it opened. The
 field is optional: a model call outside a ladder has no ordinal, and a record
 written before the field existed still decodes for a parked run resuming onto a
 newer package.

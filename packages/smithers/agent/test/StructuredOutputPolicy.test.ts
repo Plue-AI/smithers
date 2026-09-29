@@ -647,8 +647,10 @@ describe("a rejection on the durable engine", () => {
       stream: (request) => replaying ? refuses.stream(request) : recording.stream(request)
     })
     // No transport ladder: a refused call after the boundary is the assertion,
-    // and retrying it would only spend the test's wall clock.
-    const composition = host({ defaultCorrections: 2, modelRetryPolicy: Schedule.recurs(0) })
+    // and retrying it would only spend the test's wall clock. One frame per
+    // run leaves no frame to correct in, so every miss takes the fresh-session
+    // fallback this case is about.
+    const composition = host({ defaultCorrections: 2, maxFrames: 1, modelRetryPolicy: Schedule.recurs(0) })
 
     const observed = await durable(
       Effect.gen(function*() {
@@ -765,8 +767,8 @@ describe("a correction ladder interrupted mid-flight", () => {
     const model = parkingMidCorrection(asked, phase)
     // No transport ladder: the quota refusal is the park, not a hiccup to
     // retry, and the correction budget is one so the ladder is exactly two
-    // asks long.
-    const composition = host({ defaultCorrections: 1, modelRetryPolicy: Schedule.recurs(0) })
+    // asks long. One frame per run makes the correction a fresh session.
+    const composition = host({ defaultCorrections: 1, maxFrames: 1, modelRetryPolicy: Schedule.recurs(0) })
 
     const observed = await onTestClock(
       Effect.gen(function*() {

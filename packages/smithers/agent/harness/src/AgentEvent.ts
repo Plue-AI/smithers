@@ -740,6 +740,27 @@ export class FailedCallDemanded extends Schema.TaggedClass<FailedCallDemanded>(
 }) {}
 
 /**
+ * The controller handing back a completion whose output does not fit the
+ * shape the host declared for it.
+ *
+ * `note` is the correction the run was shown, verbatim, so a transcript
+ * rebuilt from the journal holds what the model read. The same session
+ * answers it, with everything its earlier frames bound still in scope.
+ *
+ * @category events
+ * @since 1.0.0-rc.1
+ */
+export class OutputDemanded extends Schema.TaggedClass<OutputDemanded>(
+  "flows/harness/AgentEvent/OutputDemanded"
+)("output-demanded", {
+  eventType: Schema.Literal("flows.harness.output-demanded.v1"),
+  /** The correction handed back with the completion. */
+  note: Schema.String,
+  /** The frame the demand was attached to, which is the one that must answer it. */
+  nextFrame: Schema.Int
+}) {}
+
+/**
  * The controller handing back a completion its own cell wrote before reading
  * the calls it made.
  *
@@ -1609,6 +1630,7 @@ export const AgentEvent = Schema.Union([
   UnresolvedDemanded,
   FailedCallDemanded,
   UnobservedDemanded,
+  OutputDemanded,
   ClaimDemanded,
   DecisionSettled,
   SupervisorSettled,
@@ -1697,5 +1719,6 @@ export const eventType = {
   unresolvedDemanded: "flows.harness.unresolved-demanded.v1",
   failedCallDemanded: "flows.harness.failed-call-demanded.v1",
   unobservedDemanded: "flows.harness.unobserved-demanded.v1",
+  outputDemanded: "flows.harness.output-demanded.v1",
   vacuousVerificationObserved: "flows.harness.vacuous-verification-observed.v1"
 } as const

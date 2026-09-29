@@ -100,6 +100,7 @@ Serializable events emitted by harness adapters.
 | `UnresolvedDemanded` | class | events | The controller refusing one completion that stepped around a failing check. |
 | `FailedCallDemanded` | class | events | The controller handing back a completion its own cell wrote before a call in that cell failed. |
 | `UnobservedDemanded` | class | events | The controller handing back a completion its own cell wrote before reading the calls it made. |
+| `OutputDemanded` | class | events | The controller handing back a completion whose output does not fit the shape the host declared for it. |
 | `NarrowOnlyDemanded` | class | events | The controller refusing one completion that holds a single reading. |
 | `ClaimDemanded` | class | events | What Jev read off one completion claim, whether or not it braked. |
 | `SupervisorSettled` | class | events | What Jev read off one frame of a running run, whether or not it nudged. |

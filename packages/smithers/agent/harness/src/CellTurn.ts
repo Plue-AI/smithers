@@ -664,6 +664,14 @@ export class State extends Schema.Class<State>("flows/harness/CellTurn/State")({
     Schema.withDecodingDefaultKey(Effect.succeed(0))
   ),
   /**
+   * Completions this run has already had handed back for an output that did
+   * not fit the host's declared shape. Capped by `Input.output`.
+   */
+  outputDemands: NonNegativeSafeInt.pipe(
+    Schema.withConstructorDefault(Effect.succeed(0)),
+    Schema.withDecodingDefaultKey(Effect.succeed(0))
+  ),
+  /**
    * Frames this run may be given to prove a claim its own record does not
    * support. Past it an unproven claim fails the run rather than standing.
    * Zero disarms the brake. See {@link defaultClaimDemands} and
@@ -1005,6 +1013,33 @@ export interface Input {
    * the catalog and the instructions, and renders only the rows it keeps.
    */
   readonly memory?: Memory | undefined
+  /**
+   * The shape the host requires of the run's final output; omitted accepts
+   * any. See {@link OutputCheck}.
+   */
+  readonly output?: OutputCheck | undefined
+}
+
+/**
+ * A host's check of a completion's output.
+ *
+ * `check` answers the output with the correction to hand back, or `undefined`
+ * when it fits. A refused completion goes back to the same session, which
+ * keeps its realm and everything its earlier frames printed, so fixing the
+ * shape never repeats the work that produced the answer. At most `cap`
+ * completions are handed back, and only while a frame is left to answer in;
+ * past either, the completion stands and the host decides what follows.
+ *
+ * The verdict is a recorded boundary, so a replay is served the decision the
+ * original attempt made.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface OutputCheck {
+  /** `corrected` is how many completions this run has already had handed back for it. */
+  readonly check: (output: string, corrected: number) => Effect.Effect<string | undefined>
+  readonly cap: number
 }
 
 /**
@@ -1198,6 +1233,7 @@ export const make = (options: {
     unresolvedDemands: 0,
     failedCallDemands: 0,
     unobservedDemands: 0,
+    outputDemands: 0,
     claimCap: options.claimCap ?? defaultClaimDemands,
     claimDemands: 0,
     openingDigest: "",
@@ -3760,6 +3796,57 @@ const frame = (
         `${printed}\n\nThe completed answer before this follow-up:\n${transition.output}`
       )
       return yield* finish(exit, step)
+    }
+    if (
+      transition._tag === "complete" && input.output !== undefined &&
+      state.outputDemands < input.output.cap && Frame.handBackRoom(state, readOnlyFrames)
+    ) {
+      // Ahead of the evidence demands and the claim brake: an answer the host
+      // cannot read is corrected before anything spends a demand judging it.
+      const check = input.output.check
+      const note = yield* engine.record({
+        name: "output-judgement",
+        identity: {
+          session: state.session,
+          frame: state.frame,
+          boundary: `output-judgement:${cell.digest}`
+        },
+        success: Schema.NullOr(Schema.String),
+        execute: Effect.map(
+          Effect.suspend(() => check(transition.output, state.outputDemands)),
+          (refused) => refused ?? null
+        )
+      })
+      if (note !== null) {
+        if (exit.live.value) yield* exit.offer
+        yield* emit(
+          new AgentEvent.OutputDemanded({
+            eventType: eventType.outputDemanded,
+            note,
+            nextFrame: state.frame + 1
+          })
+        )
+        yield* close(exit, "continue")
+        // Shown what its own cell printed, as a continuing frame is, so the
+        // correction never costs the work that produced the answer.
+        return continuing(
+          exit,
+          appended(
+            contextWindow,
+            answer,
+            [ModelRequest.Message.user(printed), ModelRequest.Message.user(note)],
+            liveCellEcho
+          ),
+          false,
+          {
+            interventions: 1,
+            pendingReadOnlyDemand: undefined,
+            outputDemands: state.outputDemands + 1,
+            // An answer the host could not read is not worth restoring.
+            bouncedCompletion: undefined
+          }
+        )
+      }
     }
     if (transition._tag === "complete") {
       // The completion's own evidence, judged once per demand; see

@@ -251,6 +251,11 @@ export interface Options {
    */
   readonly claimCap?: number | undefined
   /**
+   * The shape the run's final output must fit, corrected in the same session;
+   * see `CellTurn.OutputCheck`. Omitted accepts any output.
+   */
+  readonly output?: CellTurn.OutputCheck | undefined
+  /**
    * Provider-run tools every model call of this run may use, such as the
    * provider's own web search; see `CellTurn.make`. Omitted declares none.
    */
@@ -949,6 +954,7 @@ const runProductionUnmeasured: Service["run"] = (options) =>
             instructions: options.instructions,
             pinned,
             monitors,
+            ...(options.output === undefined ? {} : { output: options.output }),
             ...(options.memory === undefined ? {} : { memory: openingMemory(options.memory) })
           })
           // The same opt-in and the same port the supervisor recalls through.

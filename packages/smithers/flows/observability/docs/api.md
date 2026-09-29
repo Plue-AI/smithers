@@ -574,6 +574,8 @@ and the handles.
 const runThroughput: Metric.Counter // "flows_run_throughput"
 const activeSeats: Metric.Gauge // "flows_seat_active"
 const quotaParks: Metric.Counter // "flows_quota_park"
+const structuredOutputRejections: Metric.Counter // "flows_agent_structured_output_rejections"
+const structuredOutputExhausted: Metric.Counter // "flows_agent_structured_output_exhausted"
 const droppedLogRecords: Metric.Counter // "flows_observability_log_dropped"
 ```
 
@@ -584,6 +586,10 @@ const droppedLogRecords: Metric.Counter // "flows_observability_log_dropped"
   interruption.
 - `quotaParks` advances when a sealed quota decision is first executed, not
   when it is replayed after a wake or a process restart.
+- `structuredOutputRejections` advances once per agent answer its declared
+  output schema refuses, in the same session or a fresh one.
+- `structuredOutputExhausted` advances once per agent step that fails after
+  spending every output correction and its repair.
 - `droppedLogRecords` advances once per record lost by `JournalLogger`.
 
 Step-cache lookup and write counters remain owned by
@@ -597,11 +603,13 @@ const registry: {
   readonly runThroughput: typeof runThroughput
   readonly activeSeats: typeof activeSeats
   readonly quotaParks: typeof quotaParks
+  readonly structuredOutputRejections: typeof structuredOutputRejections
+  readonly structuredOutputExhausted: typeof structuredOutputExhausted
   readonly droppedLogRecords: typeof droppedLogRecords
 }
 ```
 
-All four handles as one object, for a host that enumerates them. The four
+All six handles as one object, for a host that enumerates them. The six
 series names are the dashboard contract; treat them as public API.
 
 ## Otel

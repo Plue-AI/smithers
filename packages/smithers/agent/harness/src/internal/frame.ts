@@ -55,6 +55,16 @@ export type StateChanges = Partial<ConstructorParameters<typeof State>[0]>
 export const hasNextFrame = (state: State): boolean => state.maxFrames === 0 || state.frame + 1 < state.maxFrames
 
 /**
+ * Whether a completion can be handed back: a frame is left to answer in, and
+ * spending it cannot end the run at the read-only cap. See `judgeCompletion`.
+ *
+ * @since 1.0.0-rc.1
+ * @private
+ */
+export const handBackRoom = (state: State, readOnlyFrames: number): boolean =>
+  hasNextFrame(state) && (state.readOnlyCap === 0 || readOnlyFrames + 1 < state.readOnlyCap * 2)
+
+/**
  * One call a cell made this frame, as the frame's accounting reads it.
  *
  * Every call the frame settles is remembered so a raise can hand the model its
@@ -859,9 +869,7 @@ export const judgeCompletion = (
 ): Effect.Effect<CompletionJudgement, HarnessError.HarnessError, Evaluator.Evaluator> =>
   Effect.gen(function*() {
     const { calls, facts, workspaceDigest } = accounting
-    const room = hasNextFrame(state) &&
-      (state.readOnlyCap === 0 || facts.readOnlyFrames + 1 < state.readOnlyCap * 2) &&
-      state.demandedFrame !== state.frame
+    const room = handBackRoom(state, facts.readOnlyFrames) && state.demandedFrame !== state.frame
     const nextFrame = state.frame + 1
     if (room) {
       const measured = measuredDemand(state, accounting, contextWindow, nextFrame, claim)

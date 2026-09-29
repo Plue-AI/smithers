@@ -424,6 +424,19 @@ describe("trace", () => {
         }
       ],
       [
+        "output-demanded",
+        new AgentEvent.OutputDemanded({
+          eventType: "flows.harness.output-demanded.v1",
+          note: "## Your previous answer did not validate",
+          nextFrame: 2
+        }),
+        {
+          eventType: "control.agent.output-demanded",
+          // The correction the same session was handed, verbatim.
+          payload: { note: "## Your previous answer did not validate", nextFrame: 2 }
+        }
+      ],
+      [
         "unobserved-demanded",
         new AgentEvent.UnobservedDemanded({
           eventType: "flows.harness.unobserved-demanded.v1",

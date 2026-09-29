@@ -497,7 +497,7 @@ is used exactly like any other declared action: `.call()` in a flow body,
 `.layer` in the composition. The layer resolves the seat through `SeatResolver`,
 runs one agent loop through `Agent` inside the current flow execution, and
 decodes the run's final answer with the declared output schema, spending
-`Options.corrections` re-prompts before it reports a typed
+`Options.corrections` corrections before it reports a typed
 `StructuredOutputFailure`.
 
 ### AgentAction.Options
@@ -510,7 +510,7 @@ decodes the run's final answer with the declared output schema, spending
 | `phase`       | `SeatRouter.Phase`                                | The phase of work a `Seat.auto` seat routes as. Jev classifies it when absent. A panel route runs the members in parallel, then the merger on the answers of those that did not fail. |
 | `prompt`      | `(payload) => string`                             | The task, built from the decoded payload. Required.                                                                                                                                   |
 | `system`      | `ReadonlyArray<string>`                           | Stable system teaching for this step, after the host's and before the schema's.                                                                                                       |
-| `corrections` | `number`                                          | How many times a decode miss may be re-prompted. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal and beats a generous host default.         |
+| `corrections` | `number`                                          | How many times a decode miss may be corrected, in the same session or a fresh one. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal.         |
 | `repair`      | `Repair<Payload>`                                 | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                         |
 | `modelParams` | `ModelRequest.GenerationParams`                   | Generation parameters for the step's model calls.                                                                                                                                     |
 | `maxFrames`   | `number`                                          | The cell-loop bound for this step, ahead of the host's.                                                                                                                               |

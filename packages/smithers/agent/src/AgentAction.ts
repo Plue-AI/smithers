@@ -21,9 +21,11 @@
  * Structured output is enforced at this boundary by
  * `@smthrs/harness/StructuredOutput`, whose own module documentation states
  * the recovery contract: the declared schema is rendered
- * into the run's system teaching, the final `complete` transition's `output` is
- * decoded by it, and a decode miss spends a correction slot on a re-prompt
- * before it becomes a typed `StructuredOutputFailure`.
+ * into the run's system teaching, every `complete` transition's `output` is
+ * decoded by it, and a decode miss spends a correction slot on handing the
+ * answer back to the same session, or on a fresh-session re-prompt when that
+ * session has no frame left, before it becomes a typed
+ * `StructuredOutputFailure`.
  *
  * The host half is two services. {@link Host} carries the registry, the sandbox
  * budget, and the catalog every model-backed action in a composition shares;
@@ -50,6 +52,7 @@ import { Action, DurableClock, type Flow, FlowRuntime } from "@smthrs/flow"
 import * as Fault from "@smthrs/flow/Fault"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as CellCalls from "@smthrs/harness/CellCalls"
+import type * as CellTurn from "@smthrs/harness/CellTurn"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { HarnessError } from "@smthrs/harness/HarnessError"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
@@ -325,7 +328,11 @@ export interface Options<
   /** Stable system teaching for this step, after the host's and before the schema's. */
   readonly system?: ReadonlyArray<string> | undefined
   /**
-   * How many times a decode miss may be re-prompted before the step fails.
+   * How many times a decode miss may be corrected before the step fails.
+   *
+   * A miss goes back to the same session while it has a frame to answer in,
+   * and to a fresh session otherwise; each correction of either kind spends
+   * one.
    *
    * Falls back to {@link Host.defaultCorrections}, and then to one, which
    * matches the harness's existing "correct once, then report" posture. Zero
@@ -767,6 +774,7 @@ export const make = <
       const solve = (root: string, question: string, ids: ReadonlyArray<string>) =>
         Effect.gen(function*() {
           const seatId = ids[0]!
+          const decoding = yield* Effect.context<Output["DecodingServices"]>()
           const resolvedSeats = yield* Effect.forEach(ids, (id) => seats.resolve(id))
           const seat = resolvedSeats[0]!
           const fallbackSeats = resolvedSeats.slice(1)
@@ -785,9 +793,10 @@ export const make = <
             prompt: string,
             teaching: ReadonlyArray<string>,
             askSeat: string,
-            correction: number | undefined
+            correction: number | undefined,
+            output: CellTurn.OutputCheck | undefined
           ): Effect.Effect<
-            string,
+            { readonly output: string; readonly corrected: number },
             AgentFailure,
             | FlowRuntime.FlowRuntime
             | FlowRuntime.FlowInstance
@@ -831,6 +840,7 @@ export const make = <
                   maxFrames: options.maxFrames ?? host.maxFrames,
                   readOnlyCap: options.readOnlyCap,
                   claimCap: host.claimCap,
+                  output,
                   serverTools: host.serverTools,
                   judged: host.judged,
                   supervisor: host.supervisor,
@@ -847,9 +857,38 @@ export const make = <
                     cause: outcome
                   })
                 }
-                return outcome.output
+                return { output: outcome.output, corrected: outcome.corrected }
               }).pipe(Effect.provideService(FlowEngineLike.Correction, correction))
             )
+
+          /** Journals and counts one answer the declared schema refused. */
+          const rejected = (failure: StructuredOutput.StructuredOutputFailure, attempt: number) =>
+            record(structuredOutputRejectedEvent, instance.executionId, {
+              action: tag,
+              attempt,
+              limit,
+              schema: failure.schema,
+              candidate: failure.candidate,
+              issuesDigest: StructuredOutput.issuesDigest(failure)
+            }).pipe(Effect.andThen(Metric.update(ObservabilityMetric.structuredOutputRejections, 1)))
+
+          /**
+           * The same-session correction for an ask opened with `spent`
+           * corrections already used: a completion the schema refuses goes
+           * back to the run that wrote it, which keeps its realm and what its
+           * cells printed, while the budget lasts.
+           */
+          const inSession = (spent: number): CellTurn.OutputCheck | undefined =>
+            spent >= limit ? undefined : {
+              cap: limit - spent,
+              check: (answer, corrected) =>
+                StructuredOutput.decode(options.output, answer, { corrections: spent + corrected, limit }).pipe(
+                  Effect.as(undefined),
+                  Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
+                    rejected(failure, spent + corrected).pipe(Effect.as(StructuredOutput.correction(failure)))),
+                  Effect.provideContext(decoding)
+                )
+            }
 
           /**
            * The bounded repair, or the exhausted failure when none was declared.
@@ -875,7 +914,9 @@ export const make = <
             | Output["DecodingServices"]
           > => {
             const declaredRepair = options.repair
-            if (declaredRepair === undefined) return Effect.fail(failure)
+            if (declaredRepair === undefined) {
+              return Effect.fail(failure)
+            }
             return ask(
               `${root}#repair`,
               declaredRepair.prompt(failure, payload),
@@ -889,19 +930,28 @@ export const make = <
               // The repair is not a rung of the ladder: it is the one ask that
               // follows the ladder's exhaustion, and numbering it `limit + 1`
               // would present it as a correction the policy never allowed.
+              undefined,
               undefined
             ).pipe(
-              Effect.flatMap((answer) => StructuredOutput.decode(options.output, answer, { corrections: limit, limit }))
+              Effect.flatMap(({ output }) =>
+                StructuredOutput.decode(options.output, output, { corrections: limit, limit }).pipe(
+                  Effect.tapError((failure) =>
+                    failure._tag === "/harness/StructuredOutputFailure" ? rejected(failure, limit) : Effect.void
+                  )
+                )
+              )
             )
           }
 
-          // One attempt is one whole cell run. The correction re-prompt is a NEW
-          // run under a distinct session carrying the diagnostics, so its sealed
+          // One attempt is one whole cell run, which corrects its own answer in
+          // its own session first. A rung that still ends on a refused answer
+          // (no frame or correction left to answer in) falls back to a NEW run
+          // under a distinct session carrying the diagnostics, so its sealed
           // step keys differ from the attempt it is correcting and a replay
-          // reproduces both rather than collapsing them onto one recorded model
-          // call.
+          // reproduces both rather than collapsing them onto one recorded
+          // model call. Both kinds spend the one correction budget.
           const attempt = (
-            correction: number,
+            spent: number,
             prompt: string
           ): Effect.Effect<
             Output["Type"],
@@ -916,25 +966,26 @@ export const make = <
             | Evaluator.Evaluator
             | Output["DecodingServices"]
           > =>
-            ask(`${root}#${correction}`, prompt, system, seatId, correction).pipe(
-              Effect.flatMap((answer) =>
-                StructuredOutput.decode(options.output, answer, { corrections: correction, limit })
-              ),
-              Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
-                record(structuredOutputRejectedEvent, instance.executionId, {
-                  action: tag,
-                  attempt: correction,
-                  limit,
-                  schema: failure.schema,
-                  candidate: failure.candidate,
-                  issuesDigest: StructuredOutput.issuesDigest(failure)
-                }).pipe(
-                  Effect.andThen(
-                    correction >= limit
-                      ? repair(failure)
-                      : attempt(correction + 1, `${question}\n\n${StructuredOutput.correction(failure)}`)
-                  )
-                ))
+            ask(`${root}#${spent}`, prompt, system, seatId, spent, inSession(spent)).pipe(
+              Effect.flatMap(({ corrected, output }) => {
+                const used = spent + corrected
+                return StructuredOutput.decode(options.output, output, { corrections: used, limit }).pipe(
+                  Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
+                    rejected(failure, used).pipe(
+                      Effect.andThen(
+                        used >= limit
+                          ? repair(failure).pipe(
+                            Effect.tapError((last) =>
+                              last._tag === "/harness/StructuredOutputFailure"
+                                ? Metric.update(ObservabilityMetric.structuredOutputExhausted, 1)
+                                : Effect.void
+                            )
+                          )
+                          : attempt(used + 1, `${question}\n\n${StructuredOutput.correction(failure)}`)
+                      )
+                    ))
+                )
+              })
             )
 
           return yield* attempt(0, question)
@@ -948,7 +999,9 @@ export const make = <
       const solved = panel === undefined ? solve(sessionRoot, task, ids) : Effect.gen(function*() {
         const results = yield* Effect.forEach(panel.seats, (member, index) =>
           solve(`${sessionRoot}/panel/${index}`, task, [member.seat, ...member.backups]).pipe(
-            Effect.flatMap((answer) => Schema.encodeUnknownEffect(options.output)(answer)),
+            Effect.flatMap((answer) =>
+              Schema.encodeUnknownEffect(options.output)(answer)
+            ),
             Effect.mapError((failure) =>
               Schema.isSchemaError(failure)
                 ? new HarnessError({
@@ -965,7 +1018,9 @@ export const make = <
         })
         const failed = panel.seats.filter((_, index) =>
           Result.isFailure(results[index]!)
-        ).map(({ seat }) => seat)
+        ).map(({ seat }) =>
+          seat
+        )
         if (answered.length === 0) {
           return yield* Effect.fail((results[0] as Result.Failure<never, AgentFailure>).failure)
         }

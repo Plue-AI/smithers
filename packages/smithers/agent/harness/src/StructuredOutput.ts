@@ -208,7 +208,8 @@ export const digest = (schema: Schema.Top): string => Digest.digest(Digest.canon
  * Written against the cell contract: a cell finishes by calling
  * `ctx.done(output)`, and the sandbox rejects a returned transition, so the
  * instruction is about the argument of that call and not about the assistant
- * message around it.
+ * message around it. The run passes the value itself: a structured value
+ * reaches {@link decode} as canonical JSON, and a string as its own text.
  *
  * @category prompts
  * @since 0.1.0
@@ -217,9 +218,9 @@ export const digest = (schema: Schema.Top): string => Digest.digest(Digest.canon
 export const instructions = (schema: Schema.Top): string =>
   `## Required output shape
 
-Finish by calling \`ctx.done(output)\`. The \`output\` you pass must be a string
-holding exactly ONE JSON document that validates against this JSON Schema. No
-prose, no explanation, and no code fence around it.
+Finish by calling \`ctx.done(output)\` with the value itself: a JavaScript
+value that validates against this JSON Schema, such as
+\`ctx.done({ ...fields })\`. Do not stringify it, and add no prose around it.
 
 \`\`\`json
 ${JSON.stringify(jsonSchema(schema), null, 2)}
@@ -257,8 +258,8 @@ export const correction = (failure: StructuredOutputFailure): string =>
   `## Your previous answer did not validate
 
 The output you passed to \`ctx.done\` could not be decoded against the required
-schema. Call \`ctx.done(output)\` again with the same information as ONE JSON
-document that validates.
+schema. Call \`ctx.done(output)\` again with the same information as a value
+that validates.
 
 Validation issues:
 ${failure.issues.map((issue) => `- ${issue}`).join("\n")}`
@@ -376,11 +377,21 @@ const textIssuesOf = (code: OutputIssueCode, message: string): ReadonlyArray<Out
     new OutputIssue({ code, path: "", message: issueMessage(line) })
   )
 
+const quoted = (text: string): boolean => {
+  try {
+    return typeof JSON.parse(text) === "string"
+  } catch {
+    return false
+  }
+}
+
 /**
  * Decodes one agent answer with the declared output schema.
  *
  * Tries every {@link candidates} entry in order and returns the first the
- * schema accepts. When none does, the failure reports the issues raised by the
+ * schema accepts, then the trimmed answer itself as a string unless it is a
+ * JSON string literal, which is how a `ctx.done("text")` answer reaches a
+ * string schema. When none does, the failure reports the issues raised by the
  * LAST candidate, which is the narrowest text the extractor could isolate and
  * therefore the one a correction prompt should be about.
  *
@@ -415,6 +426,15 @@ export const decode = <S extends Schema.Top>(
       if (result._tag === "Success") return result.success
       code = "schema_mismatch"
       issues = schemaIssuesOf(result.failure)
+    }
+    // `ctx.done("text")` reaches the boundary as the text itself, not as a
+    // JSON string, so a schema that accepts the raw answer takes it as it is.
+    // An answer that is a whole JSON string literal already said which string
+    // it meant, and its quotes are not part of it.
+    const raw = offered[0]!
+    if (raw.length > 0 && !quoted(raw)) {
+      const result = yield* Effect.result(decoder(raw))
+      if (result._tag === "Success") return result.success
     }
     return yield* new StructuredOutputFailure({
       // Once the budget is spent, exhaustion is the actionable classification;

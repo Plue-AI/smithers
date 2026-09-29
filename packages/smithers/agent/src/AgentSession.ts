@@ -1035,6 +1035,12 @@ export const trace = (
           nextFrame: event.nextFrame
         }
       }
+    case "output-demanded":
+      // The correction the same session was handed, verbatim.
+      return {
+        eventType: "control.agent.output-demanded",
+        payload: { note: tracedField(event.note), nextFrame: event.nextFrame }
+      }
     case "claim-demanded":
       // All three probabilities and the latency, on every reading rather than
       // only on a firing, because this is the one demand a grader cannot

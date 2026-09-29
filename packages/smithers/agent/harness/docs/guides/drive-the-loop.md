@@ -175,7 +175,7 @@ Every decision the controller makes is an `AgentEvent`, journaled in order:
 `CellCallSettled` per call, `CellPrinted`, `CellSettled`, and
 `TransitionApplied`. Interventions journal as `ReadOnlyDemandIssued`,
 `RepeatDemanded`, `NarrowedDemanded`, `UnmovedDemanded`, `UnresolvedDemanded`,
-`FailedCallDemanded`, `UnobservedDemanded`, `NarrowOnlyDemanded`, `ClaimDemanded`, `SufficiencyObserved`, and
+`FailedCallDemanded`, `UnobservedDemanded`, `OutputDemanded`, `NarrowOnlyDemanded`, `ClaimDemanded`, `SufficiencyObserved`, and
 `MutationObserved`. A run
 ends on `TurnClosed` with its outcome, beside `Resolved`, `Suspended`, or
 `Aborted`. `AgentEvent.eventType` maps every tag to its journal event type.

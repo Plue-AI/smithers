@@ -202,6 +202,7 @@ const decodeUnmovedDemanded = Schema.decodeUnknownResult(AgentEvent.UnmovedDeman
 const decodeUnresolvedDemanded = Schema.decodeUnknownResult(AgentEvent.UnresolvedDemanded)
 const decodeFailedCallDemanded = Schema.decodeUnknownResult(AgentEvent.FailedCallDemanded)
 const decodeUnobservedDemanded = Schema.decodeUnknownResult(AgentEvent.UnobservedDemanded)
+const decodeOutputDemanded = Schema.decodeUnknownResult(AgentEvent.OutputDemanded)
 const decodeClaimDemanded = Schema.decodeUnknownResult(AgentEvent.ClaimDemanded)
 
 const transcriptMessage = (
@@ -433,6 +434,12 @@ export const projectStateResult = (
         const decoded = decode(decodeUnobservedDemanded, entry)
         if (Result.isFailure(decoded)) return Result.fail(decoded.failure)
         appendDemand(UnobservedCall.demand(decoded.success.calls))
+        break
+      }
+      case eventType.outputDemanded: {
+        const decoded = decode(decodeOutputDemanded, entry)
+        if (Result.isFailure(decoded)) return Result.fail(decoded.failure)
+        appendDemand(decoded.success.note)
         break
       }
       case eventType.claimDemanded: {

@@ -189,6 +189,8 @@ export interface Options {
   readonly instructions?: CellTurn.Input["instructions"]
   /** Flow names the run-start relevance reading never judges; omitted pins none. */
   readonly pinned?: CellTurn.Input["pinned"]
+  /** The shape a completion must fit; omitted accepts any. */
+  readonly output?: CellTurn.Input["output"]
   /** The memory the supervisor recalls from; omitted binds none. */
   readonly memory?: Supervisor.Memory | undefined
   /** Observes every event before the controller advances; omitted observes nothing. */
@@ -294,7 +296,8 @@ export const run = async (options: Options): Promise<Run> => {
     judged: options.judged,
     stance: options.stance,
     instructions: options.instructions,
-    pinned: options.pinned
+    pinned: options.pinned,
+    output: options.output
   }).pipe(
     Stream.runForEach((event) => Effect.sync(() => events.push(event))),
     Effect.provide(

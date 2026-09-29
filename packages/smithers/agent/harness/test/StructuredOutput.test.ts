@@ -36,6 +36,13 @@ describe("StructuredOutput.instructions", () => {
     expect(text).not.toContain("return {")
   })
 
+  it("asks for the value itself rather than a JSON string", () => {
+    const text = StructuredOutput.instructions(Review)
+    expect(text).toContain("JavaScript\nvalue")
+    expect(text).toContain("Do not stringify it")
+    expect(text).not.toContain("JSON document")
+  })
+
   it("renders a schema with no fields at all", () => {
     expect(StructuredOutput.instructions(Schema.Struct({}))).toContain("Required output shape")
   })
@@ -169,6 +176,29 @@ describe("StructuredOutput.candidates", () => {
 })
 
 describe("StructuredOutput.decode", () => {
+  it("takes a raw answer as the string a string schema declares", () => {
+    const result = decode(Schema.String, "Looks fine to me.")
+    expect(result._tag === "Success" ? result.success : undefined).toBe("Looks fine to me.")
+  })
+
+  it("takes a raw answer that parses as another JSON value as a string", () => {
+    const result = decode(Schema.String, "123")
+    expect(result._tag === "Success" ? result.success : undefined).toBe("123")
+  })
+
+  it("reads a JSON string literal as the string it quotes, never with its quotes", () => {
+    const quoted = decode(Schema.String, "\"hi\"")
+    expect(quoted._tag === "Success" ? quoted.success : undefined).toBe("hi")
+    const short = decode(Schema.String.check(Schema.isMinLength(3)), "\"x\"")
+    expect(short._tag).toBe("Failure")
+  })
+
+  it("never offers a raw answer to a schema that refuses strings", () => {
+    const result = decode(Review, "Looks fine to me.")
+    const failure = result._tag === "Failure" ? result.failure : undefined
+    expect(failure?.code).toBe("invalid_json")
+  })
+
   it("decodes a bare document", () => {
     const result = decode(Review, "{\"approved\":true,\"issues\":[]}")
     expect(result._tag === "Success" ? result.success : undefined).toEqual({ approved: true, issues: [] })

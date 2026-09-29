@@ -19,6 +19,7 @@ import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import type * as Route from "@smthrs/model/Route"
+import * as ObservabilityMetric from "@smthrs/observability/Metric"
 import { Node } from "@smthrs/plan"
 import { make as makePlugin } from "@smthrs/plugin"
 import type { FlowsHooks } from "@smthrs/plugin"
@@ -31,6 +32,7 @@ import {
   Fiber,
   Layer,
   ManagedRuntime,
+  Metric,
   Option,
   Schedule,
   Schema,
@@ -264,6 +266,124 @@ describe("AgentAction.make", () => {
     expect(requests[1]).toContain("did not validate")
   })
 
+  it("corrects a schema miss in the same session, keeping its realm and repeating no call", async () => {
+    const calls: Array<string> = []
+    const requests: Array<string> = []
+    const events: Array<AgentEvent.AgentEvent> = []
+    const descriptor = new Descriptor.FlowDescriptor({
+      name: "inspect",
+      description: "Inspect a diff.",
+      body: new Descriptor.BodyRefMarkdown({ path: "/flows/inspect/flow.md", baseDirectory: "/flows/inspect" }),
+      input: new Descriptor.SchemaRefNone(),
+      output: new Descriptor.SchemaRefNone(),
+      model: Option.some("anthropic:test-model"),
+      flows: [],
+      capabilities: [],
+      effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+      placement: Option.none(),
+      modelInvocable: true,
+      path: "/flows/inspect",
+      frontmatter: {},
+      provenance: new Descriptor.Provenance({ source: "test", root: "/flows" })
+    })
+    const counters = Effect.all([
+      Metric.value(ObservabilityMetric.structuredOutputRejections),
+      Metric.value(ObservabilityMetric.structuredOutputExhausted)
+    ])
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const before = yield* counters
+        const result = yield* ReviewFlow.execute({ diff: "diff" }, { executionId: "same-session" })
+        const after = yield* counters
+        return { result, before, after }
+      }).pipe(
+        Effect.provide(stack(
+          Layer.mergeAll(Reviewer.layer, Interpreter.layer(ReviewFlow)),
+          {
+            ...host,
+            registry: Registry.makeNoop({
+              visible: () => Effect.succeed([descriptor]),
+              getOption: () => Effect.succeed(Option.some(descriptor)),
+              runPrompt: (_name, input) => Effect.succeed(`Inspect ${input.args}`)
+            }),
+            promptRunner: ({ text }) =>
+              Effect.sync(() => {
+                calls.push(text)
+                return new Cell.CallResult({ outcome: "success", value: "expensive-tool-output-7f3a" })
+              })
+          },
+          scripted([
+            [
+              `const inspected = await ctx.call("inspect", { args: "diff" })`,
+              `console.log(inspected)`,
+              `ctx.done("Looks fine to me.")`
+            ].join("\n"),
+            `ctx.done({ approved: inspected.endsWith("7f3a"), issues: [] })`
+          ], requests)
+        )),
+        Effect.provideService(
+          EventSink.EventSink,
+          EventSink.make({ emit: (event) => Effect.sync(() => void events.push(event)) })
+        )
+      )
+    )
+
+    expect(observed.result).toEqual({ approved: true, issues: [] })
+    // The expensive call ran once, and the correction read its printed result
+    // and its binding instead of asking for it again.
+    expect(calls).toEqual(["Inspect diff"])
+    expect(requests).toHaveLength(2)
+    expect(requests[1]).toContain("expensive-tool-output-7f3a")
+    expect(requests[1]).toContain("did not validate")
+    expect(requests[1]).toContain("- inspected (string")
+    expect(events.filter((event) => event._tag === "output-demanded")).toHaveLength(1)
+    expect(observed.after[0].count - observed.before[0].count).toBe(1)
+    expect(observed.after[1].count - observed.before[1].count).toBe(0)
+  })
+
+  it("falls back to a fresh session when the run has no frame left to correct in", async () => {
+    const OneFrame = AgentAction.make("agent/test/OneFrame", {
+      payload: { diff: Schema.String },
+      output: Review,
+      seat: "anthropic:test-model",
+      prompt: ({ diff }) => `Review this diff:\n${diff}`,
+      maxFrames: 1
+    })
+    const OneFrameFlow = Flow.make("agent/test/OneFrameFlow", {
+      payload: { diff: Schema.String },
+      success: Review,
+      error: AgentAction.AgentFailure,
+      body: ({ diff }) => OneFrame.call({ diff })
+    })
+    const requests: Array<string> = []
+    const events: Array<AgentEvent.AgentEvent> = []
+    const result = await Effect.runPromise(
+      OneFrameFlow.execute({ diff: "diff" }, { executionId: "fresh-fallback" }).pipe(
+        Effect.provide(stack(
+          Layer.mergeAll(OneFrame.layer, Interpreter.layer(OneFrameFlow)),
+          host,
+          scripted([
+            `console.log("first-session-7f3a"); ctx.done("Looks fine to me.")`,
+            answering(`{"approved":true,"issues":[]}`)
+          ], requests)
+        )),
+        Effect.provideService(
+          EventSink.EventSink,
+          EventSink.make({ emit: (event) => Effect.sync(() => void events.push(event)) })
+        )
+      )
+    )
+
+    expect(result).toEqual({ approved: true, issues: [] })
+    expect(requests).toHaveLength(2)
+    // A new session: the task restated with the diagnostics, and nothing the
+    // first session printed.
+    expect(requests[1]).toContain("Review this diff:")
+    expect(requests[1]).toContain("did not validate")
+    expect(requests[1]).not.toContain("first-session-7f3a")
+    expect(events.filter((event) => event._tag === "output-demanded")).toHaveLength(0)
+  })
+
   it("fails typed when the run ends without a completed answer", async () => {
     const requests: Array<string> = []
     const exit = await Effect.runPromise(
@@ -334,16 +454,20 @@ describe("AgentAction.make", () => {
 
   it("fails typed when the correction budget is exhausted", async () => {
     const requests: Array<string> = []
+    const exhausted = Metric.value(ObservabilityMetric.structuredOutputExhausted)
+    const before = await Effect.runPromise(exhausted)
     const exit = await Effect.runPromise(
       Effect.exit(run([answering("Looks fine to me.")], requests, "review-4"))
     )
+    expect((await Effect.runPromise(exhausted)).count - before.count).toBe(1)
 
     expect(exit._tag).toBe("Failure")
     const failure = exit._tag === "Failure" ? exit.cause : undefined
     const rendered = JSON.stringify(failure)
     expect(rendered).toContain("StructuredOutputFailure")
-    // One first attempt plus one correction, and no third call.
+    // One first attempt plus one same-session correction, and no third call.
     expect(requests).toHaveLength(2)
+    expect(requests[1]).toContain("did not validate")
   })
 })
 

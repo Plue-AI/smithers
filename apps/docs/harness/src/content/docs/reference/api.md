@@ -905,7 +905,7 @@ journals them in order: `DisciplineArmed` once at the start, the frame cycle
 `CellPrinted`, `CellSettled`, `TransitionApplied`), the interventions and
 observations (`ReadOnlyDemandIssued`, `ReadOnlyDemanded`, `RepeatDemanded`,
 `NarrowedDemanded`, `NarrowOnlyDemanded`, `UnmovedDemanded`,
-`UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `ClaimDemanded`,
+`UnresolvedDemanded`, `FailedCallDemanded`, `UnobservedDemanded`, `OutputDemanded`, `ClaimDemanded`,
 `DecisionSettled`,
 `SufficiencyObserved`, `VacuousVerificationObserved`,
 `MutationObserved`, `CheckpointMinted`, `CompactionSettled`,
@@ -1026,6 +1026,7 @@ writes and `Transcript` reads:
 | `unresolved-demanded`           | `unresolvedDemanded`          | `flows.harness.unresolved-demanded.v1`           |
 | `failed-call-demanded`          | `failedCallDemanded`          | `flows.harness.failed-call-demanded.v1`          |
 | `unobserved-demanded`           | `unobservedDemanded`          | `flows.harness.unobserved-demanded.v1`           |
+| `output-demanded`               | `outputDemanded`              | `flows.harness.output-demanded.v1`               |
 | `vacuous-verification-observed` | `vacuousVerificationObserved` | `flows.harness.vacuous-verification-observed.v1` |
 
 ## HarnessError
@@ -1080,14 +1081,16 @@ export const decode: <S extends Schema.Top>(
 
 `decode` tries every `candidates(text)` entry in order, the complete
 BOM-stripped response first and then the balanced JSON container whose
-matching close ends last (`lastBalanced`), and returns the first the schema
-accepts. When none does, the `StructuredOutputFailure` reports the issues of
+matching close ends last (`lastBalanced`), then the trimmed answer itself as a
+string unless it is a JSON string literal, and returns the first the schema
+accepts. The last is how `ctx.done("text")` reaches a string schema. When none does, the `StructuredOutputFailure` reports the issues of
 the last candidate, with `code` one of `invalid_json`, `schema_mismatch`,
 `no_candidate`, or `correction_exhausted` once the budget is spent.
 
 The prompt half is `instructions(schema)`, which renders the declared schema
-as a JSON Schema document for the run's system teaching: the model is told
-the shape before it answers, and the answer is still validated locally.
+as a JSON Schema document for the run's system teaching and asks for the value
+itself as the `ctx.done` argument, not a JSON string: the model is told the
+shape before it answers, and the answer is still validated locally.
 `digest(schema)` is the schema's canonical digest, `jsonSchema(schema)` its
 JSON Schema document, `issuesDigest(failure)` the digest of one failure's
 rendered issues, and `correction(failure)` the teaching appended when a
@@ -1298,6 +1301,16 @@ callback, an alias), and a cell whose calls are effects with discarded
 results, are spared. `FailedCallDemanded` takes precedence, and with no frame
 left the answer stands; a refused answer is also what the run ends on when
 the budget runs out before it completes again.
+
+`Input.output` (`OutputCheck`, `{ check, cap }`) is the host's shape for the
+final output. Before any demand above, `check(output, corrected)` answers a
+completion with a correction note or `undefined`; the verdict is a recorded
+boundary. A refused completion is handed back to the same session, with what
+its cell printed and the note, and journaled as `OutputDemanded`
+(`{ note, nextFrame }`). The realm and every settled call stay, so the
+correction repeats no work. At most `cap` completions are handed back, and
+only while a frame is left; past either the completion stands and the host
+decides. `AgentAction` supplies it from the declared output schema.
 
 ## UnresolvedFailure
 

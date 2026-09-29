@@ -328,6 +328,11 @@ describe("AgentEvent", () => {
         calls: [{ flow: "bash", ordinal: 3, ok: true, summary: "{\"exitCode\":0}" }],
         nextFrame: 7
       }),
+      new AgentEvent.OutputDemanded({
+        eventType: "flows.harness.output-demanded.v1",
+        note: "## Your previous answer did not validate",
+        nextFrame: 7
+      }),
       new AgentEvent.ClaimDemanded({
         eventType: "flows.harness.claim-demanded.v1",
         complete: 0.12,
