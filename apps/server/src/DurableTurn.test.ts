@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { TURN_PATH, TURN_REPLAY_PATH, TURN_RETIRE_PATH, TURN_ERASE_PATH } from "@smthrs/rpc/AgentApiRoutes"
@@ -11,7 +11,7 @@ import { ExecutionContext, executionContextFrom, layersFromEnv } from "./Environ
 import { Transport, transportFrom } from "./Http"
 import { handleRequest } from "./index"
 import { memoryDurableObjects } from "./memoryDurableObjects"
-import { TURN_JOURNAL_RETENTION_MS } from "./TurnJournal"
+import { TURN_JOURNAL_PRODUCER_MS, TURN_JOURNAL_RETENTION_MS } from "./TurnJournal"
 import { LOGIN_ALL_KEY, loginDailyKey, sha256Hex, TurnRateLimiter } from "./turnLimit"
 
 const journal = { version: 1 as const, legId: "leg-1", token: "private_replay_capability_12345678901234567890" }
@@ -87,6 +87,76 @@ const deliveries = async (response: Response): Promise<AgentTurnJournalDelivery[
 const output = (frames: AgentTurnJournalDelivery[]) => frames.flatMap(frame => frame.type === "batch" ? frame.batch.frames : [])
 
 describe("the public durable turn transport", () => {
+  test("a lost acceptance receipt leaves one durable failure for replay after the producer deadline", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      let lost = false
+      const host = makeHost(undefined, intercept(async (request, next) => {
+        const accept = new URL(request.url).pathname === "/journal" && (await request.clone().json() as any).operation === "accept"
+        const response = await next()
+        if (accept && !lost) { lost = true; throw new Error("Simulated lost acceptance receipt") }
+        return response
+      }))
+      expect((await host.post(TURN_PATH, turn)).status).toBe(503)
+      expect(host.modelCalls()).toBe(0)
+      expect(host.spent()).toEqual(admission("alice"))
+      host.objects.restart()
+      now += 15 * 60 * 1000
+      const replay = await host.post(TURN_REPLAY_PATH, { runId: turn.runId, journal })
+      expect(replay.status).toBe(200)
+      const page = await replay.json() as any
+      expect(page.terminal).toBe(true)
+      expect(page.batches).toHaveLength(1)
+      expect(page.batches[0].frames).toEqual([{ runId: turn.runId, type: "done", error: expect.any(String) }])
+      expect(await (await host.post(TURN_PATH, turn)).json()).toMatchObject({ status: "existing", terminal: true })
+      expect(host.modelCalls()).toBe(0)
+      expect(host.spent()).toEqual(admission("alice"))
+      host.objects.restart()
+      expect((await (await host.post(TURN_REPLAY_PATH, { runId: turn.runId, journal })).json() as any).batches).toEqual(page.batches)
+    } finally { clock.mockRestore() }
+  })
+
+  test("a live model stream cannot publish output after its producer deadline", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      let modelStream!: ReadableStreamDefaultController<Uint8Array>
+      const host = makeHost(() => new Response(new ReadableStream<Uint8Array>({
+        start(controller) { modelStream = controller }
+      }), { headers: { "content-type": "application/x-ndjson" } }))
+      const response = await host.post(TURN_PATH, turn)
+      expect(response.status).toBe(200)
+      const reader = response.body!.getReader()
+      const accepted = new TextDecoder().decode((await reader.read()).value)
+      expect(accepted).toContain('"type":"accepted"')
+      now += TURN_JOURNAL_PRODUCER_MS
+      modelStream.enqueue(new TextEncoder().encode(`${JSON.stringify(delta("late model output"))}\n${JSON.stringify(done)}\n`))
+      modelStream.close()
+      const deliveriesAfterDeadline: AgentTurnJournalDelivery[] = []
+      const decoder = new TextDecoder()
+      let pending = ""
+      for (;;) {
+        const next = await reader.read()
+        if (next.done) break
+        pending += decoder.decode(next.value, { stream: true })
+        const lines = pending.split("\n")
+        pending = lines.pop() ?? ""
+        deliveriesAfterDeadline.push(...lines.filter(Boolean).map(line => AgentTurnJournalDeliverySchema.parse(JSON.parse(line))))
+      }
+      expect(pending).toBe("")
+      expect(output(deliveriesAfterDeadline)).toEqual([])
+      const replay = await host.post(TURN_REPLAY_PATH, { runId: turn.runId, journal })
+      expect(replay.status).toBe(200)
+      const page = await replay.json() as any
+      expect(page.terminal).toBe(true)
+      expect(page.batches).toHaveLength(1)
+      expect(page.batches[0].frames).toEqual([{ runId: turn.runId, type: "done", error: expect.any(String) }])
+      expect(JSON.stringify(page)).not.toContain("late model output")
+      expect(host.modelCalls()).toBe(1)
+    } finally { clock.mockRestore() }
+  })
+
   test("a refused fresh leg answers its budget refusal and writes no journal object", async () => {
     const host = makeHost()
     host.refuseBudget(true)

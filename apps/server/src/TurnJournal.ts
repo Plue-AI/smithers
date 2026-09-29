@@ -20,6 +20,8 @@ import { sha256Hex } from "./turnLimit"
 export const TURN_JOURNAL_BATCH_BYTES = 96 * 1024
 export const TURN_JOURNAL_OUTPUT_BYTES = 8 * 1024 * 1024
 export const TURN_JOURNAL_MAX_BATCHES = 8192
+/** Absolute output authority deadline; reads settle expired producers without re-executing them. */
+export const TURN_JOURNAL_PRODUCER_MS = 15 * 60 * 1000
 /** Every leg object, output and tombstone alike, is deleted this long after it was first written. */
 export const TURN_JOURNAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 export const TURN_JOURNAL_HEAD_KEY = "turn-journal:v1:head"
@@ -136,6 +138,39 @@ const admitHead = (storage: DurableStorageShape, saved: AgentTurnJournalHead, au
     if (audit !== undefined) audit.verifiedHeadHash = saved.hash
   })
 
+/** Commit every producer or interruption batch through the same bounded prefix write. */
+const commitBatch = (storage: DurableStorageShape, current: AgentTurnJournalHead, batch: AgentTurnBatch, audit: TurnJournalAudit | undefined) =>
+  Effect.gen(function* () {
+    const projection = yield* Effect.try({
+      try: () => projectAgentTurnBatch(current, batch),
+      catch: () => new JournalRefusal({ reason: "conflict" })
+    })
+    const bytes = projection.bytes - current.bytes
+    // Reserve one small terminal failure batch even after ordinary retention
+    // is exhausted. The producer must explicitly record why output stopped.
+    const terminalReserve = batch.frames.length === 1 && batch.frames[0]!.type === "done" && bytes <= 2048
+    if (bytes > TURN_JOURNAL_BATCH_BYTES || (projection.bytes > TURN_JOURNAL_OUTPUT_BYTES || batch.batch > TURN_JOURNAL_MAX_BATCHES) && !terminalReserve ||
+      batch.batch > TURN_JOURNAL_MAX_BATCHES + 1) return yield* refuse("limit")
+    const next = yield* seal("head", projection)
+    yield* storage.put(turnJournalBatchKey(batch.batch), batch)
+    yield* storage.put(TURN_JOURNAL_HEAD_KEY, next)
+    if (audit !== undefined) audit.verifiedHeadHash = next.hash
+    return next
+  })
+
+/** The mutex makes expiry and append mutually exclusive; the terminal head fences the writer. */
+const settleExpired = (storage: DurableStorageShape, current: AgentTurnJournalHead, audit: TurnJournalAudit | undefined) =>
+  Effect.gen(function* () {
+    if (current.terminal || (yield* Clock.currentTimeMillis) < current.acceptance.acceptedAt + TURN_JOURNAL_PRODUCER_MS) return current
+    const cursor = current.cursor
+    const batch = yield* seal("batch", {
+      version: 1 as const, runId: cursor.runId, legId: cursor.legId,
+      batch: cursor.batch + 1, from: cursor.position + 1, previousHash: cursor.hash,
+      frames: [{ runId: cursor.runId, type: "done" as const, error: "The response timed out. Review saved output before retrying." }]
+    })
+    return yield* commitBatch(storage, current, batch, audit)
+  })
+
 /**
  * Called under the object's one lifetime mutex. The batch write precedes a
  * single head write: only the head makes a prefix visible. A crash before the
@@ -146,7 +181,7 @@ const admitHead = (storage: DurableStorageShape, saved: AgentTurnJournalHead, au
 export const executeTurnJournal = (command: AgentTurnJournalCommand, audit?: TurnJournalAudit): Effect.Effect<unknown, StorageFailure | JournalRefusal, DurableStorage> =>
   Effect.gen(function* () {
     const storage = yield* DurableStorage
-    const current = yield* load(storage)
+    let current = yield* load(storage)
     if (command.operation === "erase" && current === undefined) {
       // A privacy request can race a POST whose acceptance receipt was lost.
       // Persist absence as retired so a delayed producer cannot recreate it.
@@ -167,6 +202,7 @@ export const executeTurnJournal = (command: AgentTurnJournalCommand, audit?: Tur
           return yield* refuse("conflict")
         }
         yield* admitHead(storage, current, audit)
+        current = yield* settleExpired(storage, current, audit)
         // Never return the original writer capability to a retry.
         return { status: "existing", cursor: current.cursor, terminal: current.terminal }
       }
@@ -217,6 +253,7 @@ export const executeTurnJournal = (command: AgentTurnJournalCommand, audit?: Tur
       if (after.runId !== current.cursor.runId || after.legId !== current.cursor.legId || after.batch > current.cursor.batch) return yield* refuse("cursor")
       const boundary = after.batch === 0 ? baseline.cursor : cursorAfter(yield* loadBatch(storage, current, after.batch))
       if (!sameCursor(after, boundary)) return yield* refuse("cursor")
+      current = yield* settleExpired(storage, current, audit)
       let next = after
       const batches: AgentTurnBatch[] = []
       for (let number = after.batch + 1; number <= Math.min(current.cursor.batch, after.batch + command.limit); number++) {
@@ -233,6 +270,7 @@ export const executeTurnJournal = (command: AgentTurnJournalCommand, audit?: Tur
     if (retired(current)) return yield* refuse("retired")
     if (current.acceptance.writerHash !== command.writerHash) return yield* refuse("forbidden")
     yield* admitHead(storage, current, audit)
+    current = yield* settleExpired(storage, current, audit)
     const expected = command.expected
     const batch = yield* seal("batch", {
       version: 1 as const, runId: expected.runId, legId: expected.legId,
@@ -243,24 +281,11 @@ export const executeTurnJournal = (command: AgentTurnJournalCommand, audit?: Tur
       const previousWrite = yield* loadBatch(storage, current, batch.batch)
       return previousWrite.hash === batch.hash
         ? { status: "duplicate", batch: previousWrite, cursor: cursorAfter(previousWrite) }
-        : yield* refuse("conflict")
+        : yield* refuse(current.terminal ? "terminal" : "conflict")
     }
     if (!sameCursor(expected, current.cursor)) return yield* refuse("cursor")
     if (current.terminal) return yield* refuse("terminal")
-    const projection = yield* Effect.try({
-      try: () => projectAgentTurnBatch(current, batch),
-      catch: () => new JournalRefusal({ reason: "conflict" })
-    })
-    const bytes = projection.bytes - current.bytes
-    // Reserve one small terminal failure batch even after ordinary retention
-    // is exhausted. The producer must explicitly record why output stopped.
-    const terminalReserve = command.frames.length === 1 && command.frames[0]!.type === "done" && bytes <= 2048
-    if (bytes > TURN_JOURNAL_BATCH_BYTES || (projection.bytes > TURN_JOURNAL_OUTPUT_BYTES || batch.batch > TURN_JOURNAL_MAX_BATCHES) && !terminalReserve ||
-      batch.batch > TURN_JOURNAL_MAX_BATCHES + 1) return yield* refuse("limit")
-    const next = yield* seal("head", projection)
-    yield* storage.put(turnJournalBatchKey(batch.batch), batch)
-    yield* storage.put(TURN_JOURNAL_HEAD_KEY, next)
-    if (audit !== undefined) audit.verifiedHeadHash = next.hash
+    const next = yield* commitBatch(storage, current, batch, audit)
     return { status: "committed", batch, cursor: next.cursor }
   })
 

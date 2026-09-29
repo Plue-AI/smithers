@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { TURN_PATH, TURN_REPLAY_PATH } from "@smthrs/rpc/AgentApiRoutes"
-import { AgentTurnJournalDeliverySchema, AgentTurnJournalReplySchema } from "@smthrs/rpc/AgentTurnJournal"
+import { AgentTurnJournalDeliverySchema, AgentTurnJournalHeadSchema, AgentTurnJournalReplySchema } from "@smthrs/rpc/AgentTurnJournal"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { createAppStore } from "../mainview/state/AppStore"
 import { startLocalServer } from "./server"
@@ -29,6 +30,79 @@ const nextLine = (stream: ReadableStream<Uint8Array>) => {
 }
 
 describe("native HTTP journal survives an actual killed writer", () => {
+  test("SIGKILL after durable acceptance but before inference expires the orphan without starting a second producer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "smithers-killed-before-inference-"))
+    await writeFile(join(root, "index.html"), "<!doctype html><title>Crash fixture</title>")
+    let calls = 0
+    const model = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => {
+      calls++
+      return new Response("unexpected inference", { status: 500 })
+    } })
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/NativeTurnJournalCrashHost.ts"), root,
+      `http://127.0.0.1:${model.port}/chat`, "before-inference"], { stdout: "pipe", stderr: "pipe" })
+    const stderr = new Response(child.stderr).text()
+    const receipt = nextLine(child.stdout)
+    let reopened: LocalServer | undefined
+    let restoreClock: (() => void) | undefined
+    try {
+      const ready = JSON.parse(await receipt()) as { type: string; origin: string; token: string }
+      expect(ready.type).toBe("ready")
+      // The callback blocks the child event loop, so the POST cannot return.
+      void post(ready.origin, ready.token, TURN_PATH, turn).catch(() => undefined)
+      expect(JSON.parse(await receipt())).toEqual({ type: "boundary" })
+      child.kill("SIGKILL")
+      await child.exited
+      expect(child.signalCode).toBe("SIGKILL")
+      expect(await stderr).toBe("")
+      expect(calls).toBe(0)
+
+      const db = new Database(join(root, "state", "chat-journal", "turns.sqlite"), { readonly: true })
+      const row = db.query<{ value: string }, [string]>("SELECT value FROM turn_storage WHERE key = ?").get("turn-journal:v1:head")
+      db.close()
+      const head = AgentTurnJournalHeadSchema.parse(JSON.parse(row?.value ?? "null"))
+      expect(head.acceptance.runId).toBe(turn.runId)
+      expect(head.acceptance.legId).toBe(journal.legId)
+      expect(head.cursor.batch).toBe(0)
+      expect(head.terminal).toBe(false)
+
+      reopened = await startLocalServer({ port: 0, distDir: root, home: root, stateDir: join(root, "state"),
+        cloudMode: "hybrid", cloudApi: null, identityUpstream: null,
+        chat: { chatUrl: `http://127.0.0.1:${model.port}/chat` }, log: () => {} })
+      expect((await post(reopened.origin, ready.token, TURN_REPLAY_PATH, { runId: turn.runId, journal })).status).toBe(401)
+      const initial = await post(reopened.origin, reopened.sessionToken, TURN_REPLAY_PATH, { runId: turn.runId, journal })
+      expect(initial.status).toBe(200)
+      const firstPage = AgentTurnJournalReplySchema.parse(await initial.json())
+      if (firstPage.status !== "ok") throw new Error("Expected the accepted orphan")
+      expect(firstPage.terminal).toBe(false)
+      expect(firstPage.batches).toEqual([])
+      expect(firstPage.head).toEqual(head.cursor)
+
+      const clock = spyOn(Date, "now").mockImplementation(() => head.acceptance.acceptedAt + 15 * 60 * 1000 + 1)
+      restoreClock = () => clock.mockRestore()
+      const expired = await post(reopened.origin, reopened.sessionToken, TURN_REPLAY_PATH, { runId: turn.runId, journal })
+      expect(expired.status).toBe(200)
+      const finalPage = AgentTurnJournalReplySchema.parse(await expired.json())
+      if (finalPage.status !== "ok") throw new Error("Expected a terminal replay")
+      expect(finalPage.terminal).toBe(true)
+      expect(finalPage.batches).toHaveLength(1)
+      const done = finalPage.batches[0]?.frames[0]
+      if (done?.type !== "done") throw new Error("Expected a recorded terminal failure")
+      if (typeof done.error !== "string") throw new Error("Expected a terminal error message")
+      expect(done.error.length).toBeGreaterThan(0)
+      const duplicate = await post(reopened.origin, reopened.sessionToken, TURN_PATH, turn)
+      expect(duplicate.status).toBe(200)
+      expect(await duplicate.json()).toEqual({ status: "existing", cursor: finalPage.head, terminal: true })
+      expect(calls).toBe(0)
+    } finally {
+      restoreClock?.()
+      child.kill("SIGKILL")
+      await child.exited
+      await reopened?.stop()
+      await model.stop(true)
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 20_000)
+
   for (const boundary of ["acceptance", "batch"] as const) test(`SIGKILL after committed ${boundary} preserves the prefix and never replaces inference`, async () => {
     const root = await mkdtemp(join(tmpdir(), "smithers-killed-turn-"))
     await writeFile(join(root, "index.html"), "<!doctype html><title>Crash fixture</title>")
@@ -84,7 +158,7 @@ describe("native HTTP journal survives an actual killed writer", () => {
       expect(replay.status).toBe(200)
       const page = AgentTurnJournalReplySchema.parse(await replay.json())
       if (page.status !== "ok") throw new Error("Expected verified committed replay")
-      expect(page.terminal).toBe(false) // Hard death must not fabricate a terminal fact.
+      expect(page.terminal).toBe(false) // Before deadline, replay does not infer producer death.
       expect(page.more).toBe(false)
       expect(page.batches).toEqual(committed.type === "batch" ? [committed.batch] : [])
       expect(page.head).toEqual(committed.cursor)

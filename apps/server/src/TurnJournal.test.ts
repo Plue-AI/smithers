@@ -5,7 +5,7 @@ import { memoryStorage, storageLayer } from "./DurableStorage"
 import type { NativeStorage } from "./DurableStorage"
 import { TurnCancelRegistry } from "./turns"
 import { memoryDurableObjects } from "./memoryDurableObjects"
-import { TURN_JOURNAL_HEAD_KEY, TURN_JOURNAL_RETENTION_MS, turnJournalBatchKey, verifyTurnJournal } from "./TurnJournal"
+import { TURN_JOURNAL_HEAD_KEY, TURN_JOURNAL_PRODUCER_MS, TURN_JOURNAL_RETENTION_MS, turnJournalBatchKey, verifyTurnJournal } from "./TurnJournal"
 
 const auth = { ownerHash: "1".repeat(64), accessHash: "2".repeat(64) }
 const writerHash = "3".repeat(64)
@@ -31,6 +31,158 @@ const read = (object: TurnCancelRegistry, after: AgentTurnCursor | null = null, 
   call(object, { operation: "read", ...auth, after, limit })
 
 describe("durable turn output", () => {
+  test("an accepted producer has one absolute deadline across reads, retries and restart", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      const storage = memoryStorage()
+      const { object, initial } = await create(storage)
+      const acceptedAt = (storage.data.get(TURN_JOURNAL_HEAD_KEY) as AgentTurnJournalHead).acceptance.acceptedAt
+      now = acceptedAt + TURN_JOURNAL_PRODUCER_MS - 1
+      expect((await read(object)).body).toMatchObject({ terminal: false, head: initial, batches: [] })
+      expect((await call(object, acceptance)).body).toMatchObject({ status: "existing", terminal: false })
+      const reopened = new TurnCancelRegistry({ storage })
+      now = acceptedAt + TURN_JOURNAL_PRODUCER_MS
+      const settled = await read(reopened)
+      expect(settled.status).toBe(200)
+      expect(settled.body).toMatchObject({ terminal: true, head: { batch: 1, position: 1 } })
+      expect(settled.body.batches).toHaveLength(1)
+      expect(settled.body.batches[0].frames).toEqual([{ runId: "turn", type: "done", error: expect.any(String) }])
+      expect((await call(reopened, acceptance)).body).toMatchObject({ status: "existing", terminal: true })
+      expect((await append(reopened, initial, [delta("late")])).body.code).toBe("terminal")
+      expect((await read(new TurnCancelRegistry({ storage }))).body.batches).toEqual(settled.body.batches)
+    } finally { clock.mockRestore() }
+  })
+
+  test("authorized late append settles once while simultaneous reads and foreign callers cannot alter the result", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      const storage = memoryStorage()
+      const { object, initial } = await create(storage)
+      now = (storage.data.get(TURN_JOURNAL_HEAD_KEY) as AgentTurnJournalHead).acceptance.acceptedAt + TURN_JOURNAL_PRODUCER_MS
+      expect((await call(object, { operation: "read", ...auth, ownerHash: "9".repeat(64), after: null, limit: 1 })).status).toBe(403)
+      expect((await call(object, { ...acceptance, ownerHash: "9".repeat(64) })).status).toBe(403)
+      expect((await call(object, { operation: "append", writerHash: "9".repeat(64), expected: initial, frames: [delta("foreign")] })).status).toBe(403)
+      expect(storage.data.has(turnJournalBatchKey(1))).toBe(false)
+      const answers = await Promise.all([append(object, initial, [delta("late")]), read(object), call(object, acceptance)])
+      expect(answers[0]!.body.code).toBe("terminal")
+      expect(answers[1]!.body.terminal).toBe(true)
+      expect(answers[2]!.body).toMatchObject({ status: "existing", terminal: true })
+      const batches = (await read(object)).body.batches
+      expect(batches).toHaveLength(1)
+      expect(batches[0].frames).toEqual([{ runId: "turn", type: "done", error: expect.any(String) }])
+      expect((await append(object, initial, [delta("later")])).body.code).toBe("terminal")
+      expect((await read(object)).body.batches).toEqual(batches)
+    } finally { clock.mockRestore() }
+  })
+
+  test("a lost settlement head receipt and an orphan stage recover to one terminal batch", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      for (const failAfterWrite of [false, true]) {
+        const storage = memoryStorage()
+        let fail = false
+        const wrapped: NativeStorage = { ...storage, put: async (key, value) => {
+          if (fail && key === TURN_JOURNAL_HEAD_KEY) {
+            fail = false
+            if (!failAfterWrite) throw new Error("settlement stage has no head")
+            await storage.put(key, value)
+            throw new Error("settlement head receipt lost")
+          }
+          await storage.put(key, value)
+        } }
+        const { object } = await create(wrapped)
+        now = (storage.data.get(TURN_JOURNAL_HEAD_KEY) as AgentTurnJournalHead).acceptance.acceptedAt + TURN_JOURNAL_PRODUCER_MS
+        fail = true
+        expect((await read(object)).status).toBe(503)
+        expect(storage.data.has(turnJournalBatchKey(1))).toBe(true)
+        const recovered = await read(new TurnCancelRegistry({ storage: wrapped }))
+        expect(recovered.body).toMatchObject({ terminal: true, head: { batch: 1, position: 1 } })
+        expect(recovered.body.batches).toHaveLength(1)
+        expect(recovered.body.batches[0].frames).toEqual([{ runId: "turn", type: "done", error: expect.any(String) }])
+        expect((await read(new TurnCancelRegistry({ storage: wrapped }))).body.batches).toEqual(recovered.body.batches)
+      }
+    } finally { clock.mockRestore() }
+  })
+
+  test("the first retry of a lost acceptance observes expiry without a new writer grant", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      const storage = memoryStorage()
+      const { object, initial } = await create(storage)
+      now = (storage.data.get(TURN_JOURNAL_HEAD_KEY) as AgentTurnJournalHead).acceptance.acceptedAt + TURN_JOURNAL_PRODUCER_MS
+      const retry = await call(new TurnCancelRegistry({ storage }), { ...acceptance, writerHash: "a".repeat(64) })
+      expect(retry.body).toMatchObject({ status: "existing", terminal: true, cursor: { batch: 1, position: 1 } })
+      expect(retry.body.cursor).not.toEqual(initial)
+      expect(JSON.stringify(retry.body)).not.toContain(writerHash)
+      expect((await append(object, initial, [delta("late original writer")])).body.code).toBe("terminal")
+      expect((await call(object, { operation: "append", writerHash: "a".repeat(64), expected: initial, frames: [delta("new writer")]})).status).toBe(403)
+      expect((await read(object)).body.batches[0].frames).toEqual([{ runId: "turn", type: "done", error: expect.any(String) }])
+    } finally { clock.mockRestore() }
+  })
+
+  test("partial output does not renew the deadline and its exact receipt remains replayable", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      const storage = memoryStorage()
+      const { object, initial } = await create(storage)
+      const acceptedAt = (storage.data.get(TURN_JOURNAL_HEAD_KEY) as AgentTurnJournalHead).acceptance.acceptedAt
+      now = acceptedAt + TURN_JOURNAL_PRODUCER_MS - 1
+      const first = await append(object, initial, [delta("saved partial")])
+      expect(first.body.status).toBe("committed")
+      now = acceptedAt + TURN_JOURNAL_PRODUCER_MS
+      const retry = await append(object, initial, [delta("saved partial")])
+      expect(retry.body).toMatchObject({ status: "duplicate", batch: first.body.batch, cursor: first.body.cursor })
+      const late = await append(object, first.body.cursor, [delta("late output")])
+      expect(late.body.code).toBe("terminal")
+      const replay = await read(new TurnCancelRegistry({ storage }))
+      expect(replay.body.terminal).toBe(true)
+      expect(replay.body.batches).toHaveLength(2)
+      expect(replay.body.batches[0]).toEqual(first.body.batch)
+      expect(replay.body.batches[1].frames).toEqual([{ runId: "turn", type: "done", error: expect.any(String) }])
+      expect(replay.body.head.position).toBe(2)
+    } finally { clock.mockRestore() }
+  })
+
+  test("a completed turn stays complete after the producer deadline", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      const storage = memoryStorage()
+      const { object, initial } = await create(storage)
+      const complete = await append(object, initial, [terminal])
+      expect(complete.body.status).toBe("committed")
+      now = (storage.data.get(TURN_JOURNAL_HEAD_KEY) as AgentTurnJournalHead).acceptance.acceptedAt + TURN_JOURNAL_PRODUCER_MS
+      const replay = await read(new TurnCancelRegistry({ storage }))
+      expect(replay.body).toMatchObject({ terminal: true, head: complete.body.cursor })
+      expect(replay.body.batches).toEqual([complete.body.batch])
+      expect((await call(object, acceptance)).body).toMatchObject({ status: "existing", terminal: true, cursor: complete.body.cursor })
+      expect(storage.data.has(turnJournalBatchKey(2))).toBe(false)
+    } finally { clock.mockRestore() }
+  })
+
+  test("bad replay cursor and corrupt history do not create a settlement batch", async () => {
+    let now = Date.now()
+    const clock = spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      const storage = memoryStorage()
+      const { object, initial } = await create(storage)
+      const partial = await append(object, initial, [delta("private partial")])
+      now = (storage.data.get(TURN_JOURNAL_HEAD_KEY) as AgentTurnJournalHead).acceptance.acceptedAt + TURN_JOURNAL_PRODUCER_MS
+      expect((await read(object, { ...initial, hash: "9".repeat(64) })).body.code).toBe("cursor")
+      expect(storage.data.has(turnJournalBatchKey(2))).toBe(false)
+      const batch = storage.data.get(turnJournalBatchKey(1)) as any
+      storage.data.set(turnJournalBatchKey(1), { ...batch, frames: [delta("tampered")] })
+      const answer = await read(new TurnCancelRegistry({ storage }), partial.body.cursor)
+      expect(answer.body.code).toBe("corrupt")
+      expect(storage.data.has(turnJournalBatchKey(2))).toBe(false)
+    } finally { clock.mockRestore() }
+  })
+
   test("concurrent acceptance grants one writer; retries cannot re-execute accepted inference", async () => {
     const storage = memoryStorage()
     const object = new TurnCancelRegistry({ storage })

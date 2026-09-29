@@ -1,4 +1,7 @@
-# Durable turn output
+---
+title: Durable chat output
+description: Acceptance, replay, interruption, and retention of recorded chat responses.
+---
 
 `TurnJournal.ts` implements the acceptance and output store. The public Worker
 turn POST and native Bun host use `DurableTurn.ts` to publish committed batches.
@@ -137,8 +140,20 @@ Output batches commit before HTTP publication. Disconnect, malformed output,
 truncation, and retention exhaustion record terminal observations when storage
 remains available. After an uncertain append, the producer reads the actual
 head before adding a failure; it cannot skip unseen output in the live response.
-Producer death after acceptance without terminal evidence remains ambiguous.
-No deadline or reconnect grants permission to execute it again.
+Each accepted response has a fixed 15-minute producer deadline measured from
+its persisted acceptance time. Authenticated replay or repeated acceptance,
+or an authorized append, settles unfinished output at or after that deadline
+with a durable interrupted `done` frame. Settlement uses the same batch/head
+commit and mutex as output, so concurrent reads settle once and late producers
+cannot extend the terminal prefix. Before the deadline, replay preserves the
+unfinished state. Completed responses are unchanged.
+
+This bounds even a healthy response to 15 minutes; it is not an idle timeout
+and output does not renew it. The deadline revokes output authority, not proof
+that remote inference or a tool stopped. No deadline or reconnect grants
+permission to execute uncertain work again. Settlement occurs on the next
+authorized access, including browser polling, and retries if storage fails.
+Existing saved responses use their original acceptance time without migration.
 
 Native storage lives at `<stateDir>/chat-journal/turns.sqlite`. A private
 directory, kernel process lease, per-object mutex, WAL and synchronous FULL
@@ -154,12 +169,18 @@ model invocation. The headless launcher uses its own persistent `headless`
 directory, overridable with `SMITHERS_LOCAL_STATE_DIR`.
 
 Actual Worker route tests cover 1,006 output frames across pages/restart, lost
-append receipts, publication held behind commit, disconnect, malformed output,
-current identity and capability checks, delete-only proofs and delayed initial
+acceptance and append receipts, deadline settlement, publication held behind
+commit, disconnect, malformed output, current identity and capability checks, delete-only proofs and delayed initial
 acceptance after erasure. Native tests exercise the actual authenticated Bun
 router and a file SQLite close/reopen, competing host lease refusal, shutdown
 interruption, replay equality and deletion, including a pinned reader that
-holds private WAL bytes through the first erasure attempt. A real Chromium
+holds private WAL bytes through the first erasure attempt. An owned native
+process enters the real native journal through a fixture HTTP route and is
+SIGKILLed after SQLite acceptance and before inference starts; a restarted
+host uses the authenticated native router to replay one interrupted response
+after the deadline with zero inference calls. The deterministic deadline
+tests advance the clock,
+while the process kill and SQLite persistence are real. A real Chromium
 test drops every committed output batch from the actual native response,
 reloads, and recovers the complete answer with exactly one inference POST;
 a second reload preserves that single answer. Browser effect and applied-cursor
@@ -171,8 +192,8 @@ failure tests remain necessary alongside this transport composition proof.
   hash the exact admitted inference inputs, excluding raw credentials.
 - Keep legacy transport coverage explicit: it has no replay cursor.
 - Commit output before publication. On interruption, record a terminal
-  observation if possible; a killed producer without terminal evidence remains
-  an explicit ambiguous outcome and cannot auto-restart.
+  observation if possible; a killed producer is durably marked interrupted on
+  authorized access after its producer deadline and cannot auto-restart.
 - Apply a complete batch, its durable tool-call decision and its cursor in one
   local event transaction. Replayed batches must not duplicate text or run tools.
 - Restore the turn's pending call, continuation items and held claim text from
