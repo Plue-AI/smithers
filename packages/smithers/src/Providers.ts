@@ -201,7 +201,9 @@ export const seatDescriptions: Readonly<Record<string, string>> = {
   astra: `GPT-6 Astra, OpenAI, ${contextWindow(seatAliases.astra!)}`,
   luna: `GPT-6 Luna, OpenAI, ${contextWindow(seatAliases.luna!)}`,
   opus: `Claude Opus 5.5, Anthropic, ${contextWindow(seatAliases.opus!)}`,
+  sonnet: `Claude Sonnet 5.5, Anthropic, fast capable Claude for clear implementation, ${contextWindow(seatAliases.sonnet!)}`,
   fable: `Claude Fable 5.1, Anthropic, ${contextWindow(seatAliases.fable!)}`,
+  kimi: `Kimi K3, Moonshot, backup seat, ${contextWindow(seatAliases.kimi!)}`,
   qwen: `Qwen 3.8, Cerebras, ${contextWindow(seatAliases.qwen!)}`
 }
 

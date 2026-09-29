@@ -29,7 +29,9 @@ describe("Providers.seatDescriptions", () => {
       astra: "GPT-6 Astra, OpenAI, 400K context",
       luna: "GPT-6 Luna, OpenAI, 400K context",
       opus: "Claude Opus 5.5, Anthropic, 1M context",
+      sonnet: "Claude Sonnet 5.5, Anthropic, fast capable Claude for clear implementation, 1M context",
       fable: "Claude Fable 5.1, Anthropic, 1M context",
+      kimi: "Kimi K3, Moonshot, backup seat, 128K context",
       qwen: "Qwen 3.8, Cerebras, 128K context"
     })
   })
@@ -43,17 +45,18 @@ describe("NodeControl.seatCandidates", () => {
       homeDirectory: "/home/op",
       readFile: () => undefined
     })
-    expect(candidates.map((candidate) => candidate.id)).toEqual(["opus", "fable"])
+    expect(candidates.map((candidate) => candidate.id)).toEqual(["opus", "sonnet", "fable"])
     expect(candidates.every((candidate) => !candidate.description.includes(key))).toBe(true)
     expect(candidates.map((candidate) => candidate.description)).toEqual([
       Providers.seatDescriptions.opus,
+      Providers.seatDescriptions.sonnet,
       Providers.seatDescriptions.fable
     ])
   })
 
   it("offers the Anthropic aliases for a Claude subscription", () => {
-    expect(ids({ CLAUDE_CODE_OAUTH_TOKEN: "oauth" })).toEqual(["opus", "fable"])
-    expect(ids({ ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "token" })).toEqual(["opus", "fable"])
+    expect(ids({ CLAUDE_CODE_OAUTH_TOKEN: "oauth" })).toEqual(["opus", "sonnet", "fable"])
+    expect(ids({ ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "token" })).toEqual(["opus", "sonnet", "fable"])
   })
 
   it("offers the OpenAI aliases for the Codex subscription the resolver signs with", () => {
@@ -79,6 +82,7 @@ describe("NodeControl.seatCandidates", () => {
       "astra",
       "luna",
       "opus",
+      "sonnet",
       "fable"
     ])
     expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt" }))
@@ -89,6 +93,7 @@ describe("NodeControl.seatCandidates", () => {
       "astra",
       "luna",
       "opus",
+      "sonnet",
       "fable"
     ])
     expect(ids(pool)).toEqual([])
@@ -112,7 +117,7 @@ describe("NodeControl.seatCandidates", () => {
   })
 
   it("never offers Jev", () => {
-    const all = ids({ ANTHROPIC_API_KEY: "a", OPENAI_API_KEY: "o", CEREBRAS_API_KEY: "c" })
+    const all = ids({ ANTHROPIC_API_KEY: "a", OPENAI_API_KEY: "o", MOONSHOT_API_KEY: "m", CEREBRAS_API_KEY: "c" })
     expect(all).toEqual(Object.keys(Providers.seatAliases))
     expect(all.some((id) => Providers.isDecisionSeat(id) || Providers.isDecisionSeat(Providers.expandSeat(id)))).toBe(
       false
@@ -132,7 +137,7 @@ describe("NodeControl.layerSeatCatalog", () => {
   it("reads the Codex session from the file system, with the default variants", async () => {
     const home = mkdtempSync(join(tmpdir(), "seat-catalog-"))
     const missing = await read({ SMITHERS_OPENAI_AUTH: "api-key", CODEX_HOME: home, ANTHROPIC_API_KEY: "a" })
-    expect(missing.candidates.map((candidate) => candidate.id)).toEqual(["opus", "fable"])
+    expect(missing.candidates.map((candidate) => candidate.id)).toEqual(["opus", "sonnet", "fable"])
     expect(missing.variants).toBe(SeatRouter.defaultVariants)
     writeFileSync(join(home, "auth.json"), session)
     const signed = await read({ SMITHERS_OPENAI_AUTH: "chatgpt", CODEX_HOME: home })
