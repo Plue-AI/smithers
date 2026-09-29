@@ -589,6 +589,16 @@ const repositoryCapabilities = (
   ]
 }
 
+/** Older sign-outs could seal request metadata after definitively clearing its owner.
+ * Inspect verified boot state, never transient identity availability or unverified rows. */
+export const appProjectionHasOrphanedProviderRequests = (snapshot: AppProjectionSnapshot): boolean => {
+  const identity = snapshot.identitySessions.find(row => row.id === "identity")
+  // Seeding missing identity creates an unknown row with a null owner. Neither
+  // that row nor a later outage is a definitive signed-out observation.
+  return identity?.state === "signed-out" && accountOwnerOf(identity) === null &&
+    snapshot.sessions.some(row => (row.codingProviderRequests?.length ?? 0) > 0)
+}
+
 /** One account-boundary predicate governs projection cleanup and private journal rotation. */
 export const appTransitionErasesPrivateState = (snapshot: AppProjectionSnapshot, transition: AppTransition): boolean => {
   if (transition.type === "app.reset") return true

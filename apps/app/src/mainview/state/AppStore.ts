@@ -51,6 +51,7 @@ import {
 APP_PROJECTION_COLLECTION_NAMES,
 
 TRACE_MESSAGE_PREFIX,appProjectionKey,
+appProjectionHasOrphanedProviderRequests,
 appTransitionErasesPrivateState,
 seedAppProjection,
 type AppProjectionSnapshot
@@ -1245,18 +1246,31 @@ const initializeAppStore = async (
       collections.appEventCheckpoints.size !== 1) throw new AppEventIntegrityError("head")
     if (collections.appEventRetirements.has(retiredAppStreamKey(savedHead.streamId))) throw new AppEventIntegrityError("scope")
     const upgrading = needsAppProjectorUpgrade(savedHead, savedCheckpoint)
-    const upgraded = upgrading
-      ? initializeAppStream(seedAppProjection(readProjection(collections), seedContext), crypto.randomUUID(), "projector-upgrade")
+    const upgradeSource = upgrading ? readProjection(collections) : undefined
+    const upgraded = upgradeSource !== undefined
+      ? initializeAppStream(seedAppProjection(upgradeSource, seedContext), crypto.randomUUID(), "projector-upgrade")
       : undefined
     const verified = upgraded ?? replayAppEvents(savedCheckpoint, [...collections.appEvents.values()].map(storedRow), savedHead)
-    if (bootRetirement?.phase !== "pending") {
+    // Seeding a missing legacy identity does not prove that its owner signed out.
+    const orphanedProviderRequests = appProjectionHasOrphanedProviderRequests(upgradeSource ?? verified.snapshot)
+    if (orphanedProviderRequests && upgradeSource !== undefined) {
+      // Old projector suffixes cannot be replayed by this build. Destructive
+      // cleanup needs a sealed signed-out head, not merely cached identity rows.
+      const identities = IdentitySessionSchema.array().safeParse(savedCheckpoint.snapshot.identitySessions)
+      if (savedCheckpoint.sequence !== savedHead.sequence || savedCheckpoint.revision !== savedHead.revision ||
+        savedCheckpoint.stateHash !== savedHead.stateHash || savedCheckpoint.eventHash !== savedHead.eventHash ||
+        !identities.success || !appProjectionHasOrphanedProviderRequests({ ...upgradeSource, identitySessions: identities.data })) {
+        throw new PrivacyAuthorityMissing()
+      }
+    }
+    if (bootRetirement?.phase !== "pending" && !orphanedProviderRequests) {
       recoveryBoundary = { head: verified.head, checkpoint: upgraded?.checkpoint ?? savedCheckpoint,
         events: upgraded === undefined ? [...collections.appEvents.values()].map(storedRow) : [], commands: verified.snapshot.commandIntents }
       recoverySnapshot = verified.snapshot
     }
     // A verified upgrade and the target tombstone also prove a privacy rotation
     // committed when the subsequent marker update was interrupted.
-    const retirementApplied = bootRetirement !== undefined && (savedHead.streamId === bootRetirement.targetStreamId ||
+    let retirementApplied = bootRetirement !== undefined && (savedHead.streamId === bootRetirement.targetStreamId ||
       (savedCheckpoint.reason === "projector-upgrade" && collections.appEventRetirements.has(retiredAppStreamKey(bootRetirement.targetStreamId))))
     if (bootRetirement !== undefined && bootRetirement.phase !== "pending" && !retirementApplied) throw new PrivacyAuthorityMissing()
     const boot = appendAppEvent(verified, { kind: "boot", seed: seedContext }, {
@@ -1265,17 +1279,37 @@ const initializeAppStore = async (
     initial = upgraded !== undefined
       ? { state: upgraded, checkpoint: upgraded.checkpoint, clearEvents: true, retire: savedHead.streamId }
       : boot === undefined ? { state: verified } : { state: boot, event: boot.event }
-    if (bootRetirement?.phase === "pending") {
-      addPendingTurnErasures(privacyRecord!, bootRetirement, deriveTurnErasures(verified.snapshot.httpTurnLegs))
+    // A pre-fix signed-out checkpoint can still contain coding-account receipts.
+    // Retire it only after authority verifies, using the same durable fence and
+    // recovery-copy erasure as sign-out. A failed cleanup must fail the open.
+    if (orphanedProviderRequests && bootRetirement?.phase !== "pending" && resolved.privacy !== undefined) {
+      if (resolved.mode === "memory") throw new PrivacyStorageUnavailable()
+      bootRetirement = beginPrivacyRetirement(privacyStorage(privacyRecord), {
+        id: crypto.randomUUID(), mode: "account", backend: resolved.mode, targetStreamId: crypto.randomUUID()
+      }, deriveTurnErasures(verified.snapshot.httpTurnLegs))
+      retirementApplied = false
+    }
+    if (bootRetirement?.phase === "pending" || orphanedProviderRequests) {
+      if (bootRetirement?.phase === "pending") {
+        addPendingTurnErasures(privacyRecord!, bootRetirement, deriveTurnErasures(verified.snapshot.httpTurnLegs))
+        // An interrupted older sign-out may already name the contaminated
+        // stream. Its replacement needs a new identity before retiring it.
+        if (orphanedProviderRequests && retirementApplied) {
+          const targetStreamId = crypto.randomUUID()
+          retargetPrivacyRetirement(privacyRecord!, bootRetirement, targetStreamId)
+          bootRetirement = { ...bootRetirement, targetStreamId }
+          retirementApplied = false
+        }
+      }
       if (!retirementApplied) {
-        const transition: AppTransition = bootRetirement.mode === "reset"
+        const transition: AppTransition = bootRetirement?.mode === "reset"
           ? { type: "app.reset", actor: "system" }
           : { type: "identity.session.cleared", actor: "user" }
         const cleaned = appendAppEvent(initial.state, { kind: "transition", transition }, {
           eventId: crypto.randomUUID(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
         })
         if (cleaned === undefined) throw new PrivacyAuthorityMissing()
-        const rotated = initializeAppStream(cleaned.snapshot, bootRetirement.targetStreamId, "privacy-reset")
+        const rotated = initializeAppStream(cleaned.snapshot, bootRetirement?.targetStreamId ?? crypto.randomUUID(), "privacy-reset")
         initial = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: savedHead.streamId }
       }
     }
