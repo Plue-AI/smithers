@@ -48,8 +48,9 @@ export const liveSeats = (model: string) =>
 
 /** The same subscription judge and proxy-aware transport as the native host. */
 export const hostEvaluator = (
-  environment: Readonly<Record<string, string | undefined>>
-): Layer.Layer<Evaluator.Evaluator> => evaluatorLayer(environment)
+  environment: Readonly<Record<string, string | undefined>>,
+  jevHttp?: Layer.Layer<HttpClient.HttpClient>
+): Layer.Layer<Evaluator.Evaluator> => evaluatorLayer(environment, jevHttp)
 
 export const agentLayers = (
   seats: Layer.Layer<SeatResolver.SeatResolver>,

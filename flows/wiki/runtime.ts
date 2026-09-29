@@ -8,6 +8,7 @@ import { Action, Interpreter } from "@smthrs/flow"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer } from "effect"
+import type * as HttpClient from "effect/unstable/http/HttpClient"
 import { evaluatorLayer } from "../repository/jev-checks.ts"
 import Wiki from "./flow.ts"
 import { checkCitations, unsupportedCitations } from "./jev-citations.ts"
@@ -17,8 +18,9 @@ import { Assess, CheckCitations, Collect, ReviewPage, ValidateReview, Write } fr
 
 /** The same subscription judge and proxy-aware transport as the native host. */
 export const hostEvaluator = (
-  environment: Readonly<Record<string, string | undefined>>
-): Layer.Layer<Evaluator.Evaluator> => evaluatorLayer(environment)
+  environment: Readonly<Record<string, string | undefined>>,
+  jevHttp?: Layer.Layer<HttpClient.HttpClient>
+): Layer.Layer<Evaluator.Evaluator> => evaluatorLayer(environment, jevHttp)
 
 export const agentLayers = (
   seats: Layer.Layer<SeatResolver.SeatResolver>,

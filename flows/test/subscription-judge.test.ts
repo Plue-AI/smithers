@@ -1,6 +1,8 @@
-/** Standalone flow hosts share the native subscription judge and fail closed. */
+/** Standalone flow hosts share the native Jev judge and subscription backup. */
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect, type Layer } from "effect"
+import { Effect, Layer } from "effect"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -27,7 +29,27 @@ for (
     repository: evaluatorLayer
   })
 ) {
-  test(`${name}: subscription judgments need no gateway or provider key`, async () => {
+  test(`${name}: Jev answers through its own client before Luna`, async () => {
+    const seen: string[] = []
+    const jevHttp = HttpClient.make((request) => {
+      seen.push(request.url)
+      assert.equal(request.headers.authorization, "Bearer fixture-jev")
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({
+        answers: { complete: { type: "boolean", probability: 0.9 } }
+      })))
+    })
+    const result = await evaluate(compose({
+      AI_GATEWAY_API_KEY: "fixture-jev",
+      CODEX_HOME: "/nonexistent"
+    }, Layer.succeed(HttpClient.HttpClient)(jevHttp)))
+    assert.equal(result._tag, "Success")
+    if (result._tag === "Success") {
+      assert.deepEqual(result.success.answers.complete, { type: "boolean", probability: 0.9 })
+    }
+    assert.deepEqual(seen, [Evaluator.defaultBaseUrl])
+  })
+
+  test(`${name}: missing Jev key uses the subscription Luna backup`, async () => {
     const seen: string[] = []
     let answer = JSON.stringify({ answers: { complete: { type: "boolean", probability: 0.95 } } })
     let available = true
@@ -68,7 +90,7 @@ for (
       if (result._tag === "Success") {
         assert.deepEqual(result.success.answers.complete, { type: "boolean", probability: 0.95 })
       }
-      assert.deepEqual(seen, ["/routes", "/routes", "/chatgpt/codex/responses"])
+      assert.deepEqual(seen, ["/routes", "/chatgpt/codex/responses"])
 
       answer = "{\"answers\":{\"complete\":{\"type\":\"boolean\",\"probability\":2}}}"
       const invalid = await evaluate(layer)
@@ -91,9 +113,8 @@ for (
     }
   })
 
-  test(`${name}: API keys cannot substitute for a missing subscription`, async () => {
+  test(`${name}: provider keys cannot substitute for a missing backup subscription`, async () => {
     const result = await evaluate(compose({
-      AI_GATEWAY_API_KEY: "unused",
       OPENAI_API_KEY: "unused",
       ANTHROPIC_API_KEY: "unused",
       CODEX_HOME: "/nonexistent"
@@ -101,7 +122,7 @@ for (
     assert.equal(result._tag, "Failure")
     if (result._tag === "Failure") {
       assert.equal(result.failure.code, "unreachable")
-      assert.match(result.failure.message, /Connect a subscription seat/)
+      assert.equal(result.failure.message, Evaluator.unreachableMessage)
     }
   })
 }

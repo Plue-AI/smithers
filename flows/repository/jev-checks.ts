@@ -3,6 +3,7 @@ import { environmentDispatcher, layerRebuildableRequestExecutor, layerSeatEvalua
 import * as Classifier from "@smthrs/model/Classifier"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, Result, Schema } from "effect"
+import type * as HttpClient from "effect/unstable/http/HttpClient"
 import { matchesGlob } from "node:path"
 import { CodingError } from "../coding/schema.ts"
 import type { Comparison, SemanticVerdict } from "./checks.ts"
@@ -249,8 +250,9 @@ export const jevSemanticCheck = (
  * Seat resolution is lazy, so newly connected accounts work without a restart.
  * Missing subscriptions and invalid verdicts fail closed when asked to judge. */
 export const evaluatorLayer = (
-  environment: Readonly<Record<string, string | undefined>>
+  environment: Readonly<Record<string, string | undefined>>,
+  jevHttp?: Layer.Layer<HttpClient.HttpClient>
 ): Layer.Layer<Evaluator.Evaluator> =>
-  layerSeatEvaluator(environment).pipe(
+  layerSeatEvaluator(environment, jevHttp).pipe(
     Layer.provide(layerRebuildableRequestExecutor(environmentDispatcher(environment)))
   )

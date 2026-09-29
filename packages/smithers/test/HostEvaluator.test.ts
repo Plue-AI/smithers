@@ -71,7 +71,7 @@ const sse = (request: Parameters<RequestExecutor.RequestExecutor["execute"]>[0],
     })
   )
 }
-type Gateway = "answers" | "unreachable" | "never" | "invalid" | 401 | 400 | 503
+type Gateway = "answers" | "unreachable" | "never" | "invalid" | 400 | 401 | 403 | 422 | 429 | 503
 /**
  * Jev's gateway behaves as `gateway` says, over its own HTTP client; the
  * model executor serves only the pool and Luna.
@@ -151,15 +151,15 @@ it("answers with Luna, without a gateway request, when no gateway key is set", a
   expect(sent).not.toContain(jevUrl)
 })
 
-it("answers with Luna when the gateway stays unavailable through its retries", async () => {
-  const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, 503)
+it.each([429, 503] as const)("answers with Luna when the gateway keeps answering %s", async (status) => {
+  const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, status)
   const result = await Effect.runPromise(run)
   expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
   expect(sent.filter((url) => url === jevUrl)).toHaveLength(Evaluator.defaultAttempts)
   expect(sent.at(-1)).toBe("https://pool.example/chatgpt/codex/responses")
 })
 
-it.each([[401, "refused"], [400, "invalid_question"]] as const)(
+it.each([[400, "invalid_question"], [401, "refused"], [403, "refused"], [422, "invalid_question"]] as const)(
   "does not fall back to Luna when the gateway answers %s",
   async (status, code) => {
     const { run, sent } = judge({ AI_GATEWAY_API_KEY: "vck_test" }, status)
