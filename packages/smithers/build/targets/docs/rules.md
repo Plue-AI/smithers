@@ -131,3 +131,7 @@ or pull-request operations. Use an implemented publication tool or CI job.
 | `VitestWatch`            | VitestWatch       | run                | no        | no               | flow body        |
 
 105 rules.
+
+`PnpmWorkspace` declares `packages`, `allowBuilds`, and `linkWorkspacePackages`
+directly. Its `settings` field refuses those names so the generated YAML has
+one value for each key.

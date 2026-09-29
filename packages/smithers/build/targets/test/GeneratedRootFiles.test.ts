@@ -1,6 +1,7 @@
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
 import { describe, expect, it } from "vitest"
+import * as Yaml from "yaml"
 import * as Install from "../src/Install.ts"
 import * as Lockfile from "../src/Lockfile.ts"
 import * as PackageManager from "../src/PackageManager.ts"
@@ -80,6 +81,48 @@ describe("Tsconfig", () => {
 })
 
 describe("PnpmWorkspace", () => {
+  it("refuses additional settings that repeat modeled workspace keys", () => {
+    for (
+      const [name, value] of [
+        ["packages", "packages/*"],
+        ["allowBuilds", false],
+        ["linkWorkspacePackages", false]
+      ] as const
+    ) {
+      expect(() =>
+        PnpmWorkspaceFile.PnpmWorkspace({
+          packageManager,
+          packages: ["packages/*"],
+          allowBuilds: { esbuild: false },
+          settings: { [name]: value }
+        })
+      ).toThrow(`PnpmWorkspace settings cannot contain ${name}`)
+      expect(() =>
+        PnpmWorkspaceFile.render(PnpmWorkspaceFile.Attrs.make({
+          packages: ["packages/*"],
+          settings: { [name]: value }
+        }))
+      ).toThrow(`PnpmWorkspace settings cannot contain ${name}`)
+    }
+  })
+
+  it("emits valid YAML for additional settings through the public target", () => {
+    const attrs = Target.metadata(PnpmWorkspaceFile.PnpmWorkspace({
+      packageManager,
+      packages: ["packages/*"],
+      allowBuilds: { esbuild: false },
+      settings: { verifyDepsBeforeRun: "always" }
+    })).attrs as PnpmWorkspaceFile.Attrs
+    const document = Yaml.parseDocument(PnpmWorkspaceFile.render(attrs), { uniqueKeys: true })
+    expect(document.errors).toEqual([])
+    expect(document.toJS()).toEqual({
+      packages: ["packages/*"],
+      allowBuilds: { esbuild: false },
+      linkWorkspacePackages: true,
+      verifyDepsBeforeRun: "always"
+    })
+  })
+
   it("renders packages, sorted allowBuilds, and the link policy", () => {
     const rendered = PnpmWorkspaceFile.render(PnpmWorkspaceFile.Attrs.make({
       packageManager,

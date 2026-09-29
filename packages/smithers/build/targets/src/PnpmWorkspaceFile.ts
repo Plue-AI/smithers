@@ -103,6 +103,14 @@ const key = (value: string): string =>
 /** Orders map keys by UTF-16 code unit, never by locale. */
 const byCodeUnit = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0
 
+const checkSettings = (settings: Readonly<Record<string, boolean | string>> | undefined): void => {
+  for (const name of ["packages", "allowBuilds", "linkWorkspacePackages"]) {
+    if (settings !== undefined && Object.hasOwn(settings, name)) {
+      throw new Error(`PnpmWorkspace settings cannot contain ${name}; declare it as a top-level attribute`)
+    }
+  }
+}
+
 /**
  * Renders the file contents for one declaration.
  *
@@ -115,6 +123,7 @@ const byCodeUnit = (left: string, right: string): number => left < right ? -1 : 
  * @since 0.1.0
  */
 export const render = (attrs: Attrs): string => {
+  checkSettings(attrs.settings)
   const lines = [
     "packages:",
     ...attrs.packages.map((entry) => `  - ${JSON.stringify(entry)}`)
@@ -173,6 +182,7 @@ const definition = Target.make("PnpmWorkspace", {
  */
 export const PnpmWorkspace = Object.assign(
   (attrs: Parameters<typeof definition>[0]) => {
+    checkSettings(attrs.settings)
     const manager = (attrs as { readonly packageManager?: unknown }).packageManager
     // An omitted manager is the workspace's, resolved when the graph is
     // planned; the executor refuses there if the workspace declares something
