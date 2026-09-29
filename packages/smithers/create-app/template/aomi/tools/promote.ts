@@ -19,6 +19,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import * as ts from "typescript"
 import type { FlowSummary } from "../src/api.ts"
 
 // ---------------------------------------------------------------------------
@@ -233,6 +234,43 @@ const writeFlowFlow = Flow.make({
 // Handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Check self-contained TypeScript diagnostics without touching the store.
+ * The Worker has no project filesystem: external imports cannot be resolved
+ * here, so their module-resolution diagnostics are left to the app build.
+ */
+const typecheckFlow = (id: string, source: string): string | undefined => {
+  const path = `flows/${id}/flow.ts`
+  const options: ts.CompilerOptions = {
+    noEmit: true,
+    noLib: true,
+    noResolve: true,
+    strict: true,
+    target: ts.ScriptTarget.ES2024,
+    module: ts.ModuleKind.ESNext
+  }
+  const file = ts.createSourceFile(path, source, options.target!, true)
+  const host: ts.CompilerHost = {
+    getSourceFile: (name) => name === path ? file : undefined,
+    getDefaultLibFileName: () => "lib.d.ts",
+    writeFile: () => {},
+    getCurrentDirectory: () => "",
+    getDirectories: () => [],
+    fileExists: (name) => name === path,
+    readFile: (name) => name === path ? source : undefined,
+    getCanonicalFileName: (name) => name,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => "\n"
+  }
+  const program = ts.createProgram([path], options, host)
+  const diagnostic = ts.getPreEmitDiagnostics(program, file)
+    .find((entry) => entry.file === file && entry.code !== 2307 && entry.code !== 2792)
+  if (diagnostic === undefined) return undefined
+  const position = diagnostic.file?.getLineAndCharacterOfPosition(diagnostic.start ?? 0)
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")
+  return `${path}:${(position?.line ?? 0) + 1}:${(position?.character ?? 0) + 1} TS${diagnostic.code}: ${message}`
+}
+
 const filesFor = (input: WriteFlowInput): Record<string, string> => ({
   [`flows/${input.id}/flow.ts`]: input.flowSource,
   [`flows/${input.id}/flow.e2e.ts`]: input.testSource,
@@ -281,9 +319,12 @@ export const promoteSource = (services: Context.Context<CellHistory | FlowStore>
                 })
               )
             }
-            // TODO(milestone-3): also typecheck flowSource before it is stored;
-            // a saved flow that does not compile breaks `//:typeCheck` for the
-            // whole app, and the model can fix it in this turn.
+            const diagnostic = typecheckFlow(input.id, input.flowSource)
+            if (diagnostic !== undefined) {
+              return yield* Effect.fail(new PromoteError({
+                message: `Flow source failed typecheck: ${diagnostic}. Fix flowSource and reissue flows/write-flow; no files were saved.`
+              }))
+            }
             const store = yield* FlowStore
             const written = yield* store.write(input.id, filesFor(input), input.description)
             return { files: written.files }
