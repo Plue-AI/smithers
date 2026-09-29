@@ -450,6 +450,8 @@ type BlobConfig struct {
 	// per-repository smithers build cache; 0 selects the protocol default of
 	// 16 MiB, which is also the absolute ceiling.
 	BuildCacheArtifactMaxBytes int64 `mapstructure:"build_cache_artifact_max_bytes"`
+	BuildCacheMaxAgeDays       int   `mapstructure:"build_cache_max_age_days"`
+	BuildCacheRepoQuotaBytes   int64 `mapstructure:"build_cache_repo_quota_bytes"`
 }
 
 // Load reads configuration from config files, environment variables, and defaults.
@@ -570,6 +572,8 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("blob.workflow_cache_repo_quota_bytes", 2*1024*1024*1024)
 	v.SetDefault("blob.workflow_cache_archive_max_bytes", 1024*1024*1024)
 	v.SetDefault("blob.build_cache_artifact_max_bytes", 16*1024*1024)
+	v.SetDefault("blob.build_cache_max_age_days", 30)
+	v.SetDefault("blob.build_cache_repo_quota_bytes", 1<<30)
 	v.SetDefault("observability.log_level", "info")
 	v.SetDefault("observability.trace_sample_rate", 0.01)
 	v.SetDefault("observability.otel_exporter", "none")
@@ -730,6 +734,8 @@ func Load(configFile string) (*Config, error) {
 		{"blob.workflow_cache_repo_quota_bytes", "SMITHERS_BLOB_WORKFLOW_CACHE_REPO_QUOTA_BYTES"},
 		{"blob.workflow_cache_archive_max_bytes", "SMITHERS_BLOB_WORKFLOW_CACHE_ARCHIVE_MAX_BYTES"},
 		{"blob.build_cache_artifact_max_bytes", "SMITHERS_BLOB_BUILD_CACHE_ARTIFACT_MAX_BYTES"},
+		{"blob.build_cache_max_age_days", "SMITHERS_BLOB_BUILD_CACHE_MAX_AGE_DAYS"},
+		{"blob.build_cache_repo_quota_bytes", "SMITHERS_BLOB_BUILD_CACHE_REPO_QUOTA_BYTES"},
 		{"observability.log_level", "SMITHERS_LOG_LEVEL"},
 		{"observability.trace_sample_rate", "SMITHERS_TRACE_SAMPLE_RATE"},
 		{"observability.otel_exporter", "SMITHERS_OTEL_EXPORTER"},
@@ -885,6 +891,12 @@ func Load(configFile string) (*Config, error) {
 	}
 	if d, err := time.ParseDuration(cfg.Agents.NeverStartedTimeout); err != nil || d <= 0 {
 		return nil, fmt.Errorf("agents.never_started_timeout must be a positive duration")
+	}
+	if cfg.Blob.BuildCacheMaxAgeDays < 1 || cfg.Blob.BuildCacheMaxAgeDays > 36500 {
+		return nil, fmt.Errorf("blob.build_cache_max_age_days must be between 1 and 36500")
+	}
+	if cfg.Blob.BuildCacheRepoQuotaBytes <= 0 {
+		return nil, fmt.Errorf("blob.build_cache_repo_quota_bytes must be positive")
 	}
 	return &cfg, nil
 }

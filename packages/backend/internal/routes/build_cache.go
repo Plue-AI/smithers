@@ -270,6 +270,11 @@ func (h *BuildCacheHandler) ActionCache(w http.ResponseWriter, r *http.Request) 
 		}
 		outcome, err := h.Service.PutEntry(r.Context(), repository.ID, keyDigest, publication)
 		if err != nil {
+			var apiErr *errors.APIError
+			if stdErrors.As(err, &apiErr) {
+				errors.WriteError(w, apiErr)
+				return
+			}
 			buildCacheTierFailed(w, "ac.put", err)
 			return
 		}

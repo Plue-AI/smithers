@@ -109,6 +109,7 @@ var migrationRegistry = []migrationSpec{
 	{71, "migrations/0071_workspace_service_previews.sql"},
 	{72, "migrations/0072_email_recipient_rate_limits.sql"},
 	{73, "migrations/0073_workflow_log_retention.sql"},
+	{74, "migrations/0074_build_cache_quota.sql"},
 }
 
 type migration struct {

@@ -978,9 +978,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	changesetHandler := &routes.ChangesetHandler{
 		Service: changesetService,
 	}
-	buildCacheHandler := &routes.BuildCacheHandler{
-		Service: services.NewBuildCacheService(services.NewPgxBuildCacheStore(queries, pool), blobStore, cfg.Blob.BuildCacheArtifactMaxBytes),
-	}
+	buildCacheService := services.NewBuildCacheService(services.NewPgxBuildCacheStore(queries, pool), blobStore, cfg.Blob.BuildCacheArtifactMaxBytes)
+	buildCacheService.MaxAge = time.Duration(cfg.Blob.BuildCacheMaxAgeDays) * 24 * time.Hour
+	buildCacheService.MaxRepositoryBytes = cfg.Blob.BuildCacheRepoQuotaBytes
+	buildCacheHandler := &routes.BuildCacheHandler{Service: buildCacheService}
+	buildCacheCleaner := cleanup.NewPeriodic("build_cache", time.Minute, time.Minute)
 	stackHandler := &routes.StackHandler{
 		Service: stackService,
 	}
@@ -1684,6 +1686,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		launchWorker(func() { pairSessionService.StartStaleSweeper(workerCtx) })
 		agentService.StartSessionReaper(workerCtx, time.Duration(cfg.Sandbox.AgentMaxRuntimeSecs)*time.Second)
 		authCleaner.Start(workerCtx)
+		buildCacheCleaner.Start(workerCtx, buildCacheService.Cleanup)
 		workflowCacheCleaner.Start(workerCtx)
 		workflowArtifactCleaner.Start(workerCtx)
 		auditCleaner.Start(workerCtx)
@@ -1821,6 +1824,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		stopWorkers()
 		if options.topology.workers() {
 			authCleaner.Stop()
+			buildCacheCleaner.Stop()
+			buildCacheCleaner.Wait()
 			workflowCacheCleaner.Stop()
 			workflowArtifactCleaner.Stop()
 			auditCleaner.Stop()

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/buildcache"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,8 +20,8 @@ var ErrLegacyFinalKeyPurgeFenced = errors.New("legacy final-key upload capabilit
 type LegacyFinalKeyPurgeGate func(context.Context) (bool, error)
 
 // LegacyFinalKeyPurgeFencedStore transparently preserves the production GCS
-// store's create-only upload/promotion features while guarding every direct
-// physical purge of a final object name. Staging namespaces remain purgeable.
+// store's create-only upload/promotion features while guarding physical purges
+// of legacy client-upload names. Staging and server-only cache keys remain purgeable.
 type LegacyFinalKeyPurgeFencedStore struct {
 	store    Store
 	signer   CreateOnlyUploadSigner
@@ -94,7 +96,7 @@ func (s *LegacyFinalKeyPurgeFencedStore) Put(ctx context.Context, key, contentTy
 }
 
 func (s *LegacyFinalKeyPurgeFencedStore) allowPurge(ctx context.Context, key string) error {
-	if isKnownStagingUploadKey(key) {
+	if isKnownStagingUploadKey(key) || isServerWrittenBuildCacheKey(key) {
 		return nil
 	}
 	allowed, err := s.gate(ctx)
@@ -105,6 +107,17 @@ func (s *LegacyFinalKeyPurgeFencedStore) allowPurge(ctx context.Context, key str
 		return fmt.Errorf("%w: %s", ErrLegacyFinalKeyPurgeFenced, key)
 	}
 	return nil
+}
+
+// Build-cache artifacts have only ever used verified, server-side Put; no
+// legacy signed upload capability can recreate these exact keys after purge.
+func isServerWrittenBuildCacheKey(key string) bool {
+	parts := strings.Split(key, "/")
+	if len(parts) != 3 || parts[0] != "build-cache" || !buildcache.IsHexDigest(parts[2]) {
+		return false
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	return err == nil && id > 0 && strconv.FormatInt(id, 10) == parts[1]
 }
 
 func isKnownStagingUploadKey(key string) bool {

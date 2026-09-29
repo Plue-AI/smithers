@@ -24,6 +24,7 @@ import (
 // The advisory lock classes the self-hosted smithers cache service uses, kept
 // so an operator reading either implementation sees the same numbers.
 const (
+	buildCacheRepositoryLockClass    int32 = 0x62637270
 	buildCachePublicationLockClass   int32 = 0x74666c77
 	buildCacheArtifactLockClass      int32 = 0x74666361
 	buildCacheMaxPublicationAttempts       = 3
@@ -51,6 +52,11 @@ const (
 // classify a publication have to run under one advisory lock and one row
 // lock, or the answer describes a row that may already be gone.
 type BuildCacheTx interface {
+	DeleteBuildCacheEntry(ctx context.Context, arg db.DeleteBuildCacheEntryParams) (string, error)
+	DeleteBuildCacheEntryFenced(ctx context.Context, arg db.DeleteBuildCacheEntryFencedParams) (string, error)
+	ExpireBuildCacheEntries(ctx context.Context, arg db.ExpireBuildCacheEntriesParams) error
+	ExpireBuildCacheArtifacts(ctx context.Context, arg db.ExpireBuildCacheArtifactsParams) ([]string, error)
+	BuildCacheRepositoryBytes(ctx context.Context, repositoryID int64) (int64, error)
 	InsertBuildCacheEntry(ctx context.Context, arg db.InsertBuildCacheEntryParams) (string, error)
 	LockBuildCacheEntry(ctx context.Context, arg db.LockBuildCacheEntryParams) (bool, error)
 	TouchBuildCacheEntry(ctx context.Context, arg db.TouchBuildCacheEntryParams) error
@@ -67,8 +73,7 @@ type BuildCacheTx interface {
 // BuildCacheStore is the persistence surface behind the build cache.
 type BuildCacheStore interface {
 	GetBuildCacheEntry(ctx context.Context, arg db.GetBuildCacheEntryParams) (string, error)
-	DeleteBuildCacheEntry(ctx context.Context, arg db.DeleteBuildCacheEntryParams) (string, error)
-	DeleteBuildCacheEntryFenced(ctx context.Context, arg db.DeleteBuildCacheEntryFencedParams) (string, error)
+	ListExpiredBuildCacheRepositories(ctx context.Context, cutoff time.Time) ([]int64, error)
 	GetBuildCacheArtifact(ctx context.Context, arg db.GetBuildCacheArtifactParams) (db.GetBuildCacheArtifactRow, error)
 	ListPresentBuildCacheArtifacts(ctx context.Context, arg db.ListPresentBuildCacheArtifactsParams) ([]string, error)
 	CreateBuildCacheReadToken(ctx context.Context, arg db.CreateBuildCacheReadTokenParams) (db.BuildCacheReadToken, error)
@@ -118,10 +123,13 @@ func NewPgxBuildCacheStore(queries *db.Queries, pool *pgxpool.Pool) BuildCacheSt
 // Action entries live in Postgres; artifact bytes live in the blob store under
 // a repository-scoped key, so two repositories never see each other's cache.
 type BuildCacheService struct {
-	store            BuildCacheStore
-	blobs            blob.Store
-	maxArtifactBytes int64
-	now              func() time.Time
+	// Configure before serving requests. Nonpositive values select safe defaults.
+	MaxAge             time.Duration
+	MaxRepositoryBytes int64
+	store              BuildCacheStore
+	blobs              blob.Store
+	maxArtifactBytes   int64
+	now                func() time.Time
 }
 
 // NewBuildCacheService constructs the service. maxArtifactBytes bounds one
@@ -130,7 +138,7 @@ func NewBuildCacheService(store BuildCacheStore, blobs blob.Store, maxArtifactBy
 	if maxArtifactBytes <= 0 || maxArtifactBytes > buildcache.MaxArtifactBodyBytes {
 		maxArtifactBytes = buildcache.DefaultArtifactBodyBytes
 	}
-	return &BuildCacheService{store: store, blobs: blobs, maxArtifactBytes: maxArtifactBytes, now: time.Now}
+	return &BuildCacheService{MaxAge: 30 * 24 * time.Hour, MaxRepositoryBytes: 1 << 30, store: store, blobs: blobs, maxArtifactBytes: maxArtifactBytes, now: time.Now}
 }
 
 // MaxArtifactBytes is the configured PUT /cas bound.
@@ -147,10 +155,83 @@ func buildCacheLockKey(repositoryID int64, key string) int32 {
 	return int32(h.Sum32())
 }
 
+func (s *BuildCacheService) cutoff() time.Time {
+	age := s.MaxAge
+	if age <= 0 {
+		age = 30 * 24 * time.Hour
+	}
+	return s.now().Add(-age)
+}
+
+// All writers take this lock first, including writes to distinct keys on
+// different replicas. Expiry never releases quota until object deletion succeeds.
+func (s *BuildCacheService) prepareWrite(ctx context.Context, tx BuildCacheTx, repositoryID int64) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := tx.AdvisoryLock(ctx, buildCacheRepositoryLockClass, buildCacheLockKey(repositoryID, "")); err != nil {
+		return err
+	}
+	cutoff := s.cutoff()
+	if err := tx.ExpireBuildCacheEntries(ctx, db.ExpireBuildCacheEntriesParams{RepositoryID: repositoryID, Cutoff: cutoff}); err != nil {
+		return err
+	}
+	keys, err := tx.ExpireBuildCacheArtifacts(ctx, db.ExpireBuildCacheArtifactsParams{RepositoryID: repositoryID, Cutoff: cutoff})
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := blob.PurgeAllGenerations(ctx, s.blobs, key); err != nil && !errors.Is(err, blob.ErrObjectNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
+// Cleanup reclaims a bounded batch from inactive repositories. Each repository
+// commits separately, so a failed or cancelled sweep preserves prior progress.
+func (s *BuildCacheService) Cleanup(ctx context.Context) error {
+	repositories, err := s.store.ListExpiredBuildCacheRepositories(ctx, s.cutoff())
+	if err != nil {
+		return err
+	}
+	var failures error
+	for _, repositoryID := range repositories {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(failures, err)
+		}
+		tx, err := s.store.Begin(ctx)
+		if err != nil {
+			return errors.Join(failures, err)
+		}
+		err = s.prepareWrite(ctx, tx, repositoryID)
+		if err == nil {
+			err = tx.Commit(ctx)
+		}
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		failures = errors.Join(failures, err)
+	}
+	return failures
+}
+
+func (s *BuildCacheService) checkQuota(ctx context.Context, tx BuildCacheTx, repositoryID int64) error {
+	used, err := tx.BuildCacheRepositoryBytes(ctx, repositoryID)
+	if err != nil {
+		return err
+	}
+	limit := s.MaxRepositoryBytes
+	if limit <= 0 {
+		limit = 1 << 30
+	}
+	if used > limit {
+		return pkgerrors.RequestEntityTooLarge("repository build cache quota exceeded")
+	}
+	return nil
+}
+
 // GetEntry returns the stored publication verbatim; the read is also the
 // access record. A row that fails re-validation is an error, never a hit.
 func (s *BuildCacheService) GetEntry(ctx context.Context, repositoryID int64, keyDigest string) (string, bool, error) {
-	body, err := s.store.GetBuildCacheEntry(ctx, db.GetBuildCacheEntryParams{RepositoryID: repositoryID, KeyDigest: keyDigest})
+	body, err := s.store.GetBuildCacheEntry(ctx, db.GetBuildCacheEntryParams{RepositoryID: repositoryID, KeyDigest: keyDigest, Cutoff: s.cutoff()})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", false, nil
@@ -172,6 +253,9 @@ func (s *BuildCacheService) PutEntry(ctx context.Context, repositoryID int64, ke
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := s.prepareWrite(ctx, tx, repositoryID); err != nil {
+		return "", err
+	}
 	if err := tx.AdvisoryLock(ctx, buildCachePublicationLockClass, buildCacheLockKey(repositoryID, keyDigest)); err != nil {
 		return "", err
 	}
@@ -191,6 +275,9 @@ func (s *BuildCacheService) PutEntry(ctx context.Context, repositoryID int64, ke
 	references := db.RecordBuildCacheEntryArtifactsParams{RepositoryID: repositoryID, KeyDigest: keyDigest, Digests: publication.Digests}
 	for attempt := 0; attempt < buildCacheMaxPublicationAttempts; attempt++ {
 		if _, err := tx.InsertBuildCacheEntry(ctx, params); err == nil {
+			if err := s.checkQuota(ctx, tx, repositoryID); err != nil {
+				return "", err
+			}
 			if len(references.Digests) > 0 {
 				if err := tx.RecordBuildCacheEntryArtifacts(ctx, references); err != nil {
 					return "", err
@@ -227,11 +314,18 @@ func (s *BuildCacheService) PutEntry(ctx context.Context, repositoryID int64, ke
 // DeleteEntry removes one entry, optionally fenced by the provenance it was
 // published with.
 func (s *BuildCacheService) DeleteEntry(ctx context.Context, repositoryID int64, keyDigest string, fence *buildcache.Fence) (bool, error) {
-	var err error
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := tx.AdvisoryLock(ctx, buildCacheRepositoryLockClass, buildCacheLockKey(repositoryID, "")); err != nil {
+		return false, err
+	}
 	if fence == nil {
-		_, err = s.store.DeleteBuildCacheEntry(ctx, db.DeleteBuildCacheEntryParams{RepositoryID: repositoryID, KeyDigest: keyDigest})
+		_, err = tx.DeleteBuildCacheEntry(ctx, db.DeleteBuildCacheEntryParams{RepositoryID: repositoryID, KeyDigest: keyDigest})
 	} else {
-		_, err = s.store.DeleteBuildCacheEntryFenced(ctx, db.DeleteBuildCacheEntryFencedParams{
+		_, err = tx.DeleteBuildCacheEntryFenced(ctx, db.DeleteBuildCacheEntryFencedParams{
 			RepositoryID:     repositoryID,
 			KeyDigest:        keyDigest,
 			RecordedRunID:    pgtype.Text{String: fence.RunID, Valid: true},
@@ -244,12 +338,12 @@ func (s *BuildCacheService) DeleteEntry(ctx context.Context, repositoryID int64,
 		}
 		return false, err
 	}
-	return true, nil
+	return true, tx.Commit(ctx)
 }
 
 // HasArtifact reports presence and freshens the row.
 func (s *BuildCacheService) HasArtifact(ctx context.Context, repositoryID int64, digest string) (bool, error) {
-	row, err := s.store.GetBuildCacheArtifact(ctx, db.GetBuildCacheArtifactParams{RepositoryID: repositoryID, Digest: digest})
+	row, err := s.store.GetBuildCacheArtifact(ctx, db.GetBuildCacheArtifactParams{RepositoryID: repositoryID, Digest: digest, Cutoff: s.cutoff()})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
@@ -261,14 +355,14 @@ func (s *BuildCacheService) HasArtifact(ctx context.Context, repositoryID int64,
 		return false, err
 	}
 	if !exists {
-		return false, errors.New("stored artifact failed its integrity check")
+		return false, nil
 	}
 	return true, nil
 }
 
 // OpenArtifact streams one artifact's bytes. The caller closes the reader.
 func (s *BuildCacheService) OpenArtifact(ctx context.Context, repositoryID int64, digest string) (io.ReadCloser, int64, bool, error) {
-	row, err := s.store.GetBuildCacheArtifact(ctx, db.GetBuildCacheArtifactParams{RepositoryID: repositoryID, Digest: digest})
+	row, err := s.store.GetBuildCacheArtifact(ctx, db.GetBuildCacheArtifactParams{RepositoryID: repositoryID, Digest: digest, Cutoff: s.cutoff()})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, 0, false, nil
@@ -278,7 +372,7 @@ func (s *BuildCacheService) OpenArtifact(ctx context.Context, repositoryID int64
 	reader, err := s.blobs.NewReader(ctx, row.GcsKey)
 	if err != nil {
 		if errors.Is(err, blob.ErrObjectNotFound) {
-			return nil, 0, false, errors.New("stored artifact failed its integrity check")
+			return nil, 0, false, nil
 		}
 		return nil, 0, false, err
 	}
@@ -301,12 +395,18 @@ func (s *BuildCacheService) PutArtifact(ctx context.Context, repositoryID int64,
 		return "", err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := s.prepareWrite(ctx, tx, repositoryID); err != nil {
+		return "", err
+	}
 	if err := tx.AdvisoryLock(ctx, buildCacheArtifactLockClass, buildCacheLockKey(repositoryID, digest)); err != nil {
 		return "", err
 	}
 	for attempt := 0; attempt < buildCacheMaxPublicationAttempts; attempt++ {
 		_, err := tx.InsertBuildCacheArtifact(ctx, db.InsertBuildCacheArtifactParams{RepositoryID: repositoryID, Digest: digest, SizeBytes: int64(len(body)), GcsKey: key})
 		if err == nil {
+			if err := s.checkQuota(ctx, tx, repositoryID); err != nil {
+				return "", err
+			}
 			if err := blob.Put(ctx, s.blobs, key, "application/octet-stream", bytes.NewReader(body)); err != nil {
 				return "", err
 			}
@@ -334,10 +434,13 @@ func (s *BuildCacheService) PutArtifact(ctx context.Context, repositoryID int64,
 		}
 		// The row outlived its object, or recorded a size the bytes do not
 		// have. The address now holds the content the client published.
-		if err := blob.Put(ctx, s.blobs, key, "application/octet-stream", bytes.NewReader(body)); err != nil {
+		if err := tx.RepairBuildCacheArtifact(ctx, db.RepairBuildCacheArtifactParams{SizeBytes: int64(len(body)), GcsKey: key, RepositoryID: repositoryID, Digest: digest}); err != nil {
 			return "", err
 		}
-		if err := tx.RepairBuildCacheArtifact(ctx, db.RepairBuildCacheArtifactParams{SizeBytes: int64(len(body)), GcsKey: key, RepositoryID: repositoryID, Digest: digest}); err != nil {
+		if err := s.checkQuota(ctx, tx, repositoryID); err != nil {
+			return "", err
+		}
+		if err := blob.Put(ctx, s.blobs, key, "application/octet-stream", bytes.NewReader(body)); err != nil {
 			return "", err
 		}
 		return ArtifactRepaired, tx.Commit(ctx)
@@ -345,20 +448,26 @@ func (s *BuildCacheService) PutArtifact(ctx context.Context, repositoryID int64,
 	return "", errors.New("artifact publication lost its row to repeated release")
 }
 
-// PresentDigests freshens and reports the artifacts that are present. A
-// successful probe is publication evidence, so the touch fences an age-based
-// release until the client can publish its entry.
+// PresentDigests reports unexpired artifact records and records access.
+// Access does not renew the creation-based maximum age.
 func (s *BuildCacheService) PresentDigests(ctx context.Context, repositoryID int64, digests []string) (map[string]struct{}, error) {
 	present := map[string]struct{}{}
 	if len(digests) == 0 {
 		return present, nil
 	}
-	rows, err := s.store.ListPresentBuildCacheArtifacts(ctx, db.ListPresentBuildCacheArtifactsParams{RepositoryID: repositoryID, Digests: digests})
+	rows, err := s.store.ListPresentBuildCacheArtifacts(ctx, db.ListPresentBuildCacheArtifactsParams{RepositoryID: repositoryID, Digests: digests, Cutoff: s.cutoff()})
 	if err != nil {
 		return nil, err
 	}
 	for _, digest := range rows {
-		present[strings.TrimSpace(digest)] = struct{}{}
+		digest = strings.TrimSpace(digest)
+		exists, err := s.blobs.Exists(ctx, ArtifactBlobKey(repositoryID, digest))
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			present[digest] = struct{}{}
+		}
 	}
 	return present, nil
 }

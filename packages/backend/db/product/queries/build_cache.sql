@@ -2,8 +2,16 @@
 UPDATE build_cache_entries
 SET last_accessed_at = NOW(),
     access_count = CASE WHEN access_count < 9223372036854775807 THEN access_count + 1 ELSE access_count END
-WHERE repository_id = sqlc.arg(repository_id)
-  AND key_digest = sqlc.arg(key_digest)
+WHERE build_cache_entries.repository_id = sqlc.arg(repository_id)
+  AND build_cache_entries.key_digest = sqlc.arg(key_digest)
+  AND build_cache_entries.created_at > sqlc.arg(cutoff)::timestamptz
+  AND NOT EXISTS (
+    SELECT 1 FROM build_cache_entry_artifacts r
+    JOIN build_cache_artifacts a ON a.repository_id = r.repository_id AND a.digest = r.digest
+    WHERE r.repository_id = build_cache_entries.repository_id
+      AND r.key_digest = build_cache_entries.key_digest
+      AND a.created_at <= sqlc.arg(cutoff)::timestamptz
+  )
 RETURNING body;
 
 -- name: InsertBuildCacheEntry :one
@@ -65,7 +73,8 @@ SET last_accessed_at = NOW(),
     access_count = CASE WHEN access_count < 9223372036854775807 THEN access_count + 1 ELSE access_count END
 WHERE repository_id = sqlc.arg(repository_id)
   AND digest = sqlc.arg(digest)
-RETURNING digest, size_bytes, gcs_key;
+  AND created_at > sqlc.arg(cutoff)::timestamptz
+RETURNING digest, size_bytes, gcs_key, created_at;
 
 -- name: InsertBuildCacheArtifact :one
 INSERT INTO build_cache_artifacts (repository_id, digest, size_bytes, gcs_key)
@@ -74,7 +83,7 @@ ON CONFLICT (repository_id, digest) DO NOTHING
 RETURNING digest;
 
 -- name: LockBuildCacheArtifact :one
-SELECT digest, size_bytes, gcs_key
+SELECT digest, size_bytes, gcs_key, created_at
 FROM build_cache_artifacts
 WHERE repository_id = sqlc.arg(repository_id)
   AND digest = sqlc.arg(digest)
@@ -91,6 +100,7 @@ WHERE repository_id = sqlc.arg(repository_id)
 UPDATE build_cache_artifacts
 SET size_bytes = sqlc.arg(size_bytes),
     gcs_key = sqlc.arg(gcs_key),
+    created_at = NOW(),
     last_accessed_at = NOW()
 WHERE repository_id = sqlc.arg(repository_id)
   AND digest = sqlc.arg(digest);
@@ -101,6 +111,7 @@ SET last_accessed_at = NOW(),
     access_count = CASE WHEN access_count < 9223372036854775807 THEN access_count + 1 ELSE access_count END
 WHERE repository_id = sqlc.arg(repository_id)
   AND digest = ANY(sqlc.arg(digests)::char(64)[])
+  AND created_at > sqlc.arg(cutoff)::timestamptz
 RETURNING digest;
 
 -- name: CreateBuildCacheReadToken :one
@@ -133,3 +144,45 @@ WHERE id = sqlc.arg(id)
   AND repository_id = sqlc.arg(repository_id)
   AND revoked_at IS NULL
 RETURNING id;
+
+-- name: ExpireBuildCacheEntries :exec
+WITH candidates AS (
+    (SELECT e.key_digest FROM build_cache_entries e
+     WHERE e.repository_id = sqlc.arg(repository_id) AND e.created_at <= sqlc.arg(cutoff)::timestamptz
+     ORDER BY e.created_at, e.key_digest LIMIT 64)
+    UNION
+    (SELECT r.key_digest FROM build_cache_entry_artifacts r
+     JOIN (
+       SELECT a.digest FROM build_cache_artifacts a
+       WHERE a.repository_id = sqlc.arg(repository_id) AND a.created_at <= sqlc.arg(cutoff)::timestamptz
+       ORDER BY a.created_at, a.digest LIMIT 16
+     ) expired ON expired.digest = r.digest
+     WHERE r.repository_id = sqlc.arg(repository_id) LIMIT 64)
+), doomed AS (SELECT key_digest FROM candidates LIMIT 64)
+DELETE FROM build_cache_entries e USING doomed d
+WHERE e.repository_id = sqlc.arg(repository_id) AND e.key_digest = d.key_digest;
+
+-- name: ExpireBuildCacheArtifacts :many
+WITH doomed AS (
+    SELECT a.digest FROM build_cache_artifacts a
+    WHERE a.repository_id = sqlc.arg(repository_id) AND a.created_at <= sqlc.arg(cutoff)::timestamptz
+      AND NOT EXISTS (SELECT 1 FROM build_cache_entry_artifacts r
+                      WHERE r.repository_id = a.repository_id AND r.digest = a.digest)
+    ORDER BY a.created_at, a.digest LIMIT 16
+)
+DELETE FROM build_cache_artifacts a USING doomed d
+WHERE a.repository_id = sqlc.arg(repository_id) AND a.digest = d.digest
+RETURNING a.gcs_key;
+
+-- name: BuildCacheRepositoryBytes :one
+SELECT COALESCE((SELECT size_bytes FROM build_cache_repository_usage
+WHERE repository_id = sqlc.arg(repository_id)), 0)::bigint AS bytes;
+
+-- name: ListExpiredBuildCacheRepositories :many
+SELECT DISTINCT repository_id FROM (
+    (SELECT e.repository_id FROM build_cache_entries e
+     WHERE e.created_at <= sqlc.arg(cutoff)::timestamptz ORDER BY e.created_at LIMIT 64)
+    UNION ALL
+    (SELECT a.repository_id FROM build_cache_artifacts a
+     WHERE a.created_at <= sqlc.arg(cutoff)::timestamptz ORDER BY a.created_at LIMIT 64)
+) expired;

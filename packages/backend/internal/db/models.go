@@ -355,6 +355,11 @@ type BuildCacheReadToken struct {
 	NamespacePrefix string             `json:"namespace_prefix"`
 }
 
+type BuildCacheRepositoryUsage struct {
+	RepositoryID int64 `json:"repository_id"`
+	SizeBytes    int64 `json:"size_bytes"`
+}
+
 type CanonicalImportReceipt struct {
 	SourceKind  string          `json:"source_kind"`
 	SourceID    string          `json:"source_id"`

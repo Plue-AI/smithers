@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"errors"
+	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +34,7 @@ type fakeEntry struct {
 	recordedRunID    pgtype.Text
 	recordedEventSeq pgtype.Int8
 	touched          int
+	createdAt        time.Time
 }
 
 func newFakeBuildCacheStore() *fakeBuildCacheStore {
@@ -51,36 +54,37 @@ func (s *fakeBuildCacheStore) GetBuildCacheEntry(_ context.Context, arg db.GetBu
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, ok := s.entries[fakeKey(arg.RepositoryID, arg.KeyDigest)]
-	if !ok {
+	if !ok || !entry.createdAt.After(arg.Cutoff) {
 		return "", pgx.ErrNoRows
+	}
+	for digest := range s.refs[fakeKey(arg.RepositoryID, arg.KeyDigest)] {
+		if !s.artifacts[fakeKey(arg.RepositoryID, digest)].CreatedAt.After(arg.Cutoff) {
+			return "", pgx.ErrNoRows
+		}
 	}
 	entry.touched++
 	s.entries[fakeKey(arg.RepositoryID, arg.KeyDigest)] = entry
 	return entry.body, nil
 }
 
-func (s *fakeBuildCacheStore) DeleteBuildCacheEntry(_ context.Context, arg db.DeleteBuildCacheEntryParams) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (t *fakeBuildCacheTx) DeleteBuildCacheEntry(_ context.Context, arg db.DeleteBuildCacheEntryParams) (string, error) {
 	k := fakeKey(arg.RepositoryID, arg.KeyDigest)
-	if _, ok := s.entries[k]; !ok {
+	if _, ok := t.store.entries[k]; !ok {
 		return "", pgx.ErrNoRows
 	}
-	delete(s.entries, k)
-	delete(s.refs, k)
+	delete(t.store.entries, k)
+	delete(t.store.refs, k)
 	return arg.KeyDigest, nil
 }
 
-func (s *fakeBuildCacheStore) DeleteBuildCacheEntryFenced(_ context.Context, arg db.DeleteBuildCacheEntryFencedParams) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (t *fakeBuildCacheTx) DeleteBuildCacheEntryFenced(_ context.Context, arg db.DeleteBuildCacheEntryFencedParams) (string, error) {
 	k := fakeKey(arg.RepositoryID, arg.KeyDigest)
-	entry, ok := s.entries[k]
+	entry, ok := t.store.entries[k]
 	if !ok || !entry.recordedRunID.Valid || entry.recordedRunID.String != arg.RecordedRunID.String || entry.recordedEventSeq.Int64 != arg.RecordedEventSeq.Int64 {
 		return "", pgx.ErrNoRows
 	}
-	delete(s.entries, k)
-	delete(s.refs, k)
+	delete(t.store.entries, k)
+	delete(t.store.refs, k)
 	return arg.KeyDigest, nil
 }
 
@@ -88,7 +92,7 @@ func (s *fakeBuildCacheStore) GetBuildCacheArtifact(_ context.Context, arg db.Ge
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	row, ok := s.artifacts[fakeKey(arg.RepositoryID, arg.Digest)]
-	if !ok {
+	if !ok || !row.CreatedAt.After(arg.Cutoff) {
 		return db.GetBuildCacheArtifactRow{}, pgx.ErrNoRows
 	}
 	return db.GetBuildCacheArtifactRow(row), nil
@@ -99,7 +103,7 @@ func (s *fakeBuildCacheStore) ListPresentBuildCacheArtifacts(_ context.Context, 
 	defer s.mu.Unlock()
 	present := []string{}
 	for _, digest := range arg.Digests {
-		if _, ok := s.artifacts[fakeKey(arg.RepositoryID, digest)]; ok {
+		if row, ok := s.artifacts[fakeKey(arg.RepositoryID, digest)]; ok && row.CreatedAt.After(arg.Cutoff) {
 			present = append(present, digest)
 		}
 	}
@@ -164,8 +168,11 @@ func (s *fakeBuildCacheStore) RevokeBuildCacheReadToken(_ context.Context, arg d
 func (s *fakeBuildCacheStore) Ping(context.Context) error { return s.pingErr }
 
 type fakeBuildCacheTx struct {
-	store *fakeBuildCacheStore
-	done  bool
+	store     *fakeBuildCacheStore
+	done      bool
+	entries   map[string]fakeEntry
+	artifacts map[string]db.LockBuildCacheArtifactRow
+	refs      map[string]map[string]struct{}
 }
 
 func (s *fakeBuildCacheStore) Begin(context.Context) (BuildCacheTx, error) {
@@ -173,7 +180,11 @@ func (s *fakeBuildCacheStore) Begin(context.Context) (BuildCacheTx, error) {
 		return nil, s.beginErr
 	}
 	s.mu.Lock()
-	return &fakeBuildCacheTx{store: s}, nil
+	refs := map[string]map[string]struct{}{}
+	for key, values := range s.refs {
+		refs[key] = maps.Clone(values)
+	}
+	return &fakeBuildCacheTx{store: s, entries: maps.Clone(s.entries), artifacts: maps.Clone(s.artifacts), refs: refs}, nil
 }
 
 func (t *fakeBuildCacheTx) AdvisoryLock(context.Context, int32, int32) error { return nil }
@@ -188,6 +199,7 @@ func (t *fakeBuildCacheTx) Commit(context.Context) error {
 
 func (t *fakeBuildCacheTx) Rollback(context.Context) error {
 	if !t.done {
+		t.store.entries, t.store.artifacts, t.store.refs = t.entries, t.artifacts, t.refs
 		t.done = true
 		t.store.mu.Unlock()
 	}
@@ -199,7 +211,7 @@ func (t *fakeBuildCacheTx) InsertBuildCacheEntry(_ context.Context, arg db.Inser
 	if _, ok := t.store.entries[k]; ok {
 		return "", pgx.ErrNoRows
 	}
-	t.store.entries[k] = fakeEntry{body: arg.Body, canonical: arg.ResultCanonical, recordedRunID: arg.RecordedRunID, recordedEventSeq: arg.RecordedEventSeq}
+	t.store.entries[k] = fakeEntry{createdAt: time.Now(), body: arg.Body, canonical: arg.ResultCanonical, recordedRunID: arg.RecordedRunID, recordedEventSeq: arg.RecordedEventSeq}
 	return arg.KeyDigest, nil
 }
 
@@ -237,7 +249,7 @@ func (t *fakeBuildCacheTx) InsertBuildCacheArtifact(_ context.Context, arg db.In
 	if _, ok := t.store.artifacts[k]; ok {
 		return "", pgx.ErrNoRows
 	}
-	t.store.artifacts[k] = db.LockBuildCacheArtifactRow{Digest: arg.Digest, SizeBytes: arg.SizeBytes, GcsKey: arg.GcsKey}
+	t.store.artifacts[k] = db.LockBuildCacheArtifactRow{Digest: arg.Digest, SizeBytes: arg.SizeBytes, GcsKey: arg.GcsKey, CreatedAt: time.Now()}
 	return arg.Digest, nil
 }
 
@@ -261,6 +273,91 @@ func (t *fakeBuildCacheTx) RepairBuildCacheArtifact(_ context.Context, arg db.Re
 	}
 	row.SizeBytes = arg.SizeBytes
 	row.GcsKey = arg.GcsKey
+	row.CreatedAt = time.Now()
 	t.store.artifacts[k] = row
 	return nil
+}
+
+func (t *fakeBuildCacheTx) ExpireBuildCacheEntries(_ context.Context, arg db.ExpireBuildCacheEntriesParams) error {
+	removed := 0
+	for key, entry := range t.store.entries {
+		if !strings.HasPrefix(key, fakeKey(arg.RepositoryID, "")) {
+			continue
+		}
+		expired := !entry.createdAt.After(arg.Cutoff)
+		for digest := range t.store.refs[key] {
+			if !t.store.artifacts[fakeKey(arg.RepositoryID, digest)].CreatedAt.After(arg.Cutoff) {
+				expired = true
+			}
+		}
+		if expired {
+			delete(t.store.entries, key)
+			delete(t.store.refs, key)
+			removed++
+		}
+		if removed == 64 {
+			break
+		}
+	}
+	return nil
+}
+func (t *fakeBuildCacheTx) ExpireBuildCacheArtifacts(_ context.Context, arg db.ExpireBuildCacheArtifactsParams) ([]string, error) {
+	var keys []string
+	for key, row := range t.store.artifacts {
+		if !strings.HasPrefix(key, fakeKey(arg.RepositoryID, "")) || row.CreatedAt.After(arg.Cutoff) {
+			continue
+		}
+		referenced := false
+		for entry, refs := range t.store.refs {
+			if strings.HasPrefix(entry, fakeKey(arg.RepositoryID, "")) {
+				if _, ok := refs[row.Digest]; ok {
+					referenced = true
+				}
+			}
+		}
+		if referenced {
+			continue
+		}
+		keys = append(keys, row.GcsKey)
+		delete(t.store.artifacts, key)
+		if len(keys) == 16 {
+			break
+		}
+	}
+	return keys, nil
+}
+func (s *fakeBuildCacheStore) ListExpiredBuildCacheRepositories(_ context.Context, cutoff time.Time) ([]int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := map[int64]bool{}
+	for key, row := range s.entries {
+		if !row.createdAt.After(cutoff) {
+			ids[int64([]rune(key)[0])] = true
+		}
+	}
+	for key, row := range s.artifacts {
+		if !row.CreatedAt.After(cutoff) {
+			ids[int64([]rune(key)[0])] = true
+		}
+	}
+	var result []int64
+	for id := range ids {
+		result = append(result, id)
+	}
+	return result, nil
+}
+func (t *fakeBuildCacheTx) BuildCacheRepositoryBytes(_ context.Context, repositoryID int64) (int64, error) {
+	var total int64
+	prefix := fakeKey(repositoryID, "")
+	for key, entry := range t.store.entries {
+		if strings.HasPrefix(key, prefix) {
+			total += max(1024, int64(len(entry.body)+len(entry.canonical)))
+		}
+	}
+	for key, artifact := range t.store.artifacts {
+		if strings.HasPrefix(key, prefix) {
+			total += max(1024, artifact.SizeBytes)
+		}
+	}
+	return total, nil
 }

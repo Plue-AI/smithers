@@ -7,9 +7,22 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const buildCacheRepositoryBytes = `-- name: BuildCacheRepositoryBytes :one
+SELECT COALESCE((SELECT size_bytes FROM build_cache_repository_usage
+WHERE repository_id = $1), 0)::bigint AS bytes
+`
+
+func (q *Queries) BuildCacheRepositoryBytes(ctx context.Context, repositoryID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, buildCacheRepositoryBytes, repositoryID)
+	var bytes int64
+	err := row.Scan(&bytes)
+	return bytes, err
+}
 
 const createBuildCacheReadToken = `-- name: CreateBuildCacheReadToken :one
 INSERT INTO build_cache_read_tokens (repository_id, created_by, name, token_hash, token_last_eight, namespace_prefix)
@@ -98,6 +111,72 @@ func (q *Queries) DeleteBuildCacheEntryFenced(ctx context.Context, arg DeleteBui
 	return key_digest, err
 }
 
+const expireBuildCacheArtifacts = `-- name: ExpireBuildCacheArtifacts :many
+WITH doomed AS (
+    SELECT a.digest FROM build_cache_artifacts a
+    WHERE a.repository_id = $1 AND a.created_at <= $2::timestamptz
+      AND NOT EXISTS (SELECT 1 FROM build_cache_entry_artifacts r
+                      WHERE r.repository_id = a.repository_id AND r.digest = a.digest)
+    ORDER BY a.created_at, a.digest LIMIT 16
+)
+DELETE FROM build_cache_artifacts a USING doomed d
+WHERE a.repository_id = $1 AND a.digest = d.digest
+RETURNING a.gcs_key
+`
+
+type ExpireBuildCacheArtifactsParams struct {
+	RepositoryID int64     `json:"repository_id"`
+	Cutoff       time.Time `json:"cutoff"`
+}
+
+func (q *Queries) ExpireBuildCacheArtifacts(ctx context.Context, arg ExpireBuildCacheArtifactsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, expireBuildCacheArtifacts, arg.RepositoryID, arg.Cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var gcs_key string
+		if err := rows.Scan(&gcs_key); err != nil {
+			return nil, err
+		}
+		items = append(items, gcs_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const expireBuildCacheEntries = `-- name: ExpireBuildCacheEntries :exec
+WITH candidates AS (
+    (SELECT e.key_digest FROM build_cache_entries e
+     WHERE e.repository_id = $1 AND e.created_at <= $2::timestamptz
+     ORDER BY e.created_at, e.key_digest LIMIT 64)
+    UNION
+    (SELECT r.key_digest FROM build_cache_entry_artifacts r
+     JOIN (
+       SELECT a.digest FROM build_cache_artifacts a
+       WHERE a.repository_id = $1 AND a.created_at <= $2::timestamptz
+       ORDER BY a.created_at, a.digest LIMIT 16
+     ) expired ON expired.digest = r.digest
+     WHERE r.repository_id = $1 LIMIT 64)
+), doomed AS (SELECT key_digest FROM candidates LIMIT 64)
+DELETE FROM build_cache_entries e USING doomed d
+WHERE e.repository_id = $1 AND e.key_digest = d.key_digest
+`
+
+type ExpireBuildCacheEntriesParams struct {
+	RepositoryID int64     `json:"repository_id"`
+	Cutoff       time.Time `json:"cutoff"`
+}
+
+func (q *Queries) ExpireBuildCacheEntries(ctx context.Context, arg ExpireBuildCacheEntriesParams) error {
+	_, err := q.db.Exec(ctx, expireBuildCacheEntries, arg.RepositoryID, arg.Cutoff)
+	return err
+}
+
 const getActiveBuildCacheReadTokenByHash = `-- name: GetActiveBuildCacheReadTokenByHash :one
 SELECT id, repository_id, created_by, name, token_hash, token_last_eight, last_used_at, revoked_at, created_at, namespace_prefix
 FROM build_cache_read_tokens
@@ -129,24 +208,32 @@ SET last_accessed_at = NOW(),
     access_count = CASE WHEN access_count < 9223372036854775807 THEN access_count + 1 ELSE access_count END
 WHERE repository_id = $1
   AND digest = $2
-RETURNING digest, size_bytes, gcs_key
+  AND created_at > $3::timestamptz
+RETURNING digest, size_bytes, gcs_key, created_at
 `
 
 type GetBuildCacheArtifactParams struct {
-	RepositoryID int64  `json:"repository_id"`
-	Digest       string `json:"digest"`
+	RepositoryID int64     `json:"repository_id"`
+	Digest       string    `json:"digest"`
+	Cutoff       time.Time `json:"cutoff"`
 }
 
 type GetBuildCacheArtifactRow struct {
-	Digest    string `json:"digest"`
-	SizeBytes int64  `json:"size_bytes"`
-	GcsKey    string `json:"gcs_key"`
+	Digest    string    `json:"digest"`
+	SizeBytes int64     `json:"size_bytes"`
+	GcsKey    string    `json:"gcs_key"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func (q *Queries) GetBuildCacheArtifact(ctx context.Context, arg GetBuildCacheArtifactParams) (GetBuildCacheArtifactRow, error) {
-	row := q.db.QueryRow(ctx, getBuildCacheArtifact, arg.RepositoryID, arg.Digest)
+	row := q.db.QueryRow(ctx, getBuildCacheArtifact, arg.RepositoryID, arg.Digest, arg.Cutoff)
 	var i GetBuildCacheArtifactRow
-	err := row.Scan(&i.Digest, &i.SizeBytes, &i.GcsKey)
+	err := row.Scan(
+		&i.Digest,
+		&i.SizeBytes,
+		&i.GcsKey,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 
@@ -154,18 +241,27 @@ const getBuildCacheEntry = `-- name: GetBuildCacheEntry :one
 UPDATE build_cache_entries
 SET last_accessed_at = NOW(),
     access_count = CASE WHEN access_count < 9223372036854775807 THEN access_count + 1 ELSE access_count END
-WHERE repository_id = $1
-  AND key_digest = $2
+WHERE build_cache_entries.repository_id = $1
+  AND build_cache_entries.key_digest = $2
+  AND build_cache_entries.created_at > $3::timestamptz
+  AND NOT EXISTS (
+    SELECT 1 FROM build_cache_entry_artifacts r
+    JOIN build_cache_artifacts a ON a.repository_id = r.repository_id AND a.digest = r.digest
+    WHERE r.repository_id = build_cache_entries.repository_id
+      AND r.key_digest = build_cache_entries.key_digest
+      AND a.created_at <= $3::timestamptz
+  )
 RETURNING body
 `
 
 type GetBuildCacheEntryParams struct {
-	RepositoryID int64  `json:"repository_id"`
-	KeyDigest    string `json:"key_digest"`
+	RepositoryID int64     `json:"repository_id"`
+	KeyDigest    string    `json:"key_digest"`
+	Cutoff       time.Time `json:"cutoff"`
 }
 
 func (q *Queries) GetBuildCacheEntry(ctx context.Context, arg GetBuildCacheEntryParams) (string, error) {
-	row := q.db.QueryRow(ctx, getBuildCacheEntry, arg.RepositoryID, arg.KeyDigest)
+	row := q.db.QueryRow(ctx, getBuildCacheEntry, arg.RepositoryID, arg.KeyDigest, arg.Cutoff)
 	var body string
 	err := row.Scan(&body)
 	return body, err
@@ -273,22 +369,54 @@ func (q *Queries) ListBuildCacheReadTokens(ctx context.Context, repositoryID int
 	return items, nil
 }
 
+const listExpiredBuildCacheRepositories = `-- name: ListExpiredBuildCacheRepositories :many
+SELECT DISTINCT repository_id FROM (
+    (SELECT e.repository_id FROM build_cache_entries e
+     WHERE e.created_at <= $1::timestamptz ORDER BY e.created_at LIMIT 64)
+    UNION ALL
+    (SELECT a.repository_id FROM build_cache_artifacts a
+     WHERE a.created_at <= $1::timestamptz ORDER BY a.created_at LIMIT 64)
+) expired
+`
+
+func (q *Queries) ListExpiredBuildCacheRepositories(ctx context.Context, cutoff time.Time) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listExpiredBuildCacheRepositories, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var repository_id int64
+		if err := rows.Scan(&repository_id); err != nil {
+			return nil, err
+		}
+		items = append(items, repository_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPresentBuildCacheArtifacts = `-- name: ListPresentBuildCacheArtifacts :many
 UPDATE build_cache_artifacts
 SET last_accessed_at = NOW(),
     access_count = CASE WHEN access_count < 9223372036854775807 THEN access_count + 1 ELSE access_count END
 WHERE repository_id = $1
   AND digest = ANY($2::char(64)[])
+  AND created_at > $3::timestamptz
 RETURNING digest
 `
 
 type ListPresentBuildCacheArtifactsParams struct {
-	RepositoryID int64    `json:"repository_id"`
-	Digests      []string `json:"digests"`
+	RepositoryID int64     `json:"repository_id"`
+	Digests      []string  `json:"digests"`
+	Cutoff       time.Time `json:"cutoff"`
 }
 
 func (q *Queries) ListPresentBuildCacheArtifacts(ctx context.Context, arg ListPresentBuildCacheArtifactsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listPresentBuildCacheArtifacts, arg.RepositoryID, arg.Digests)
+	rows, err := q.db.Query(ctx, listPresentBuildCacheArtifacts, arg.RepositoryID, arg.Digests, arg.Cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +436,7 @@ func (q *Queries) ListPresentBuildCacheArtifacts(ctx context.Context, arg ListPr
 }
 
 const lockBuildCacheArtifact = `-- name: LockBuildCacheArtifact :one
-SELECT digest, size_bytes, gcs_key
+SELECT digest, size_bytes, gcs_key, created_at
 FROM build_cache_artifacts
 WHERE repository_id = $1
   AND digest = $2
@@ -321,15 +449,21 @@ type LockBuildCacheArtifactParams struct {
 }
 
 type LockBuildCacheArtifactRow struct {
-	Digest    string `json:"digest"`
-	SizeBytes int64  `json:"size_bytes"`
-	GcsKey    string `json:"gcs_key"`
+	Digest    string    `json:"digest"`
+	SizeBytes int64     `json:"size_bytes"`
+	GcsKey    string    `json:"gcs_key"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func (q *Queries) LockBuildCacheArtifact(ctx context.Context, arg LockBuildCacheArtifactParams) (LockBuildCacheArtifactRow, error) {
 	row := q.db.QueryRow(ctx, lockBuildCacheArtifact, arg.RepositoryID, arg.Digest)
 	var i LockBuildCacheArtifactRow
-	err := row.Scan(&i.Digest, &i.SizeBytes, &i.GcsKey)
+	err := row.Scan(
+		&i.Digest,
+		&i.SizeBytes,
+		&i.GcsKey,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 
@@ -384,6 +518,7 @@ const repairBuildCacheArtifact = `-- name: RepairBuildCacheArtifact :exec
 UPDATE build_cache_artifacts
 SET size_bytes = $1,
     gcs_key = $2,
+    created_at = NOW(),
     last_accessed_at = NOW()
 WHERE repository_id = $3
   AND digest = $4

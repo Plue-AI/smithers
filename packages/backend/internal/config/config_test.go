@@ -18,6 +18,8 @@ import (
 // allEnvKeys is the complete list of environment variables that config.Load() binds.
 // Used by clearConfigEnv to ensure test isolation.
 var allEnvKeys = []string{
+	"SMITHERS_BLOB_BUILD_CACHE_MAX_AGE_DAYS",
+	"SMITHERS_BLOB_BUILD_CACHE_REPO_QUOTA_BYTES",
 	"SMITHERS_AGENT_NEVER_STARTED_TIMEOUT",
 	// Server
 	"SMITHERS_SERVER_ADDR",
@@ -779,6 +781,8 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			WorkflowCacheRepoQuotaBytes:  2 * 1024 * 1024 * 1024,
 			WorkflowCacheArchiveMaxBytes: 1024 * 1024 * 1024,
 			BuildCacheArtifactMaxBytes:   16 * 1024 * 1024,
+			BuildCacheMaxAgeDays:         30,
+			BuildCacheRepoQuotaBytes:     1 << 30,
 		},
 		Observability: ObservabilityConfig{
 			LogLevel:        "info",
@@ -1825,4 +1829,27 @@ func TestLoadDatabaseURLPrecedence(t *testing.T) {
 	cfg, err := Load("")
 	require.NoError(t, err)
 	assert.Equal(t, "postgres://explicit/db", cfg.Database.URL)
+}
+
+func TestLoadBuildCacheLimits(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("SMITHERS_BLOB_BUILD_CACHE_MAX_AGE_DAYS", "7")
+	t.Setenv("SMITHERS_BLOB_BUILD_CACHE_REPO_QUOTA_BYTES", "2048")
+	cfg, err := Load("")
+	require.NoError(t, err)
+	require.Equal(t, 7, cfg.Blob.BuildCacheMaxAgeDays)
+	require.Equal(t, int64(2048), cfg.Blob.BuildCacheRepoQuotaBytes)
+	for _, test := range []struct{ key, value string }{
+		{"SMITHERS_BLOB_BUILD_CACHE_MAX_AGE_DAYS", "0"},
+		{"SMITHERS_BLOB_BUILD_CACHE_MAX_AGE_DAYS", "-1"},
+		{"SMITHERS_BLOB_BUILD_CACHE_MAX_AGE_DAYS", "36501"},
+		{"SMITHERS_BLOB_BUILD_CACHE_REPO_QUOTA_BYTES", "0"},
+		{"SMITHERS_BLOB_BUILD_CACHE_REPO_QUOTA_BYTES", "-1"},
+	} {
+		t.Run(test.key+test.value, func(t *testing.T) {
+			t.Setenv(test.key, test.value)
+			_, err := Load("")
+			require.Error(t, err)
+		})
+	}
 }
