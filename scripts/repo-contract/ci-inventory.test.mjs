@@ -312,8 +312,12 @@ test("jobs that install the workspace restore the pnpm store", () => {
   }
 })
 
-test("the root TypeScript project includes every PACKAGE.ts outside packages/", () => {
+test("the root TypeScript project owns declarations, not package source or fixtures", () => {
   const { include } = JSON.parse(readFileSync(join(root, "tsconfig.json"), "utf8"))
-  for (const entry of ["scripts/*/PACKAGE.ts", "flows/PACKAGE.ts", "examples/PACKAGE.ts", "apps/docs/*/PACKAGE.ts"])
+  for (const entry of ["scripts/*/PACKAGE.ts", "flows/PACKAGE.ts", "examples/PACKAGE.ts", "apps/docs/*/PACKAGE.ts",
+    "packages/*/PACKAGE.ts", "packages/*/*/PACKAGE.ts", "packages/*/*/*/PACKAGE.ts"])
     assert.ok(include.includes(entry), `tsconfig.json include omits ${entry}`)
+  assert.ok(include.every((entry) => !entry.includes("/src/") && !entry.includes("/test/") && !entry.includes("/examples/")),
+    "package source, test fixtures, and examples must use their owning TypeScript projects")
 })
+

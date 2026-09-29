@@ -57,9 +57,7 @@ export const check = (docs: ReturnType<typeof Smithers.Filegroup>) =>
 export const test = (docs: ReturnType<typeof Smithers.Filegroup>) =>
   Smithers.NodeTest({
     runner: Smithers.testRunner(
-      ["test/playground.test.ts", "test/sponsor.test.ts", "test/recordings.test.ts", "test/coverage.test.ts"].map(
-        Smithers.file
-      )
+      [Smithers.file("test/playground.test.ts"), Smithers.file("test/sponsor.test.ts"), Smithers.file("test/recordings.test.ts"), Smithers.file("test/coverage.test.ts")]
     ),
     srcs: [Smithers.glob("test/**/*")],
     deps: [sourceFiles, docs, sitePages],

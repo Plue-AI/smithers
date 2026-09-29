@@ -34,6 +34,7 @@ const tsconfig = Smithers.Tsconfig({
   extends: rootTsconfig,
   compilerOptions: {
     noEmit: true,
+    lib: ["ES2024"],
     module: "NodeNext",
     moduleResolution: "NodeNext",
     paths: { "*": ["./*"] }
@@ -56,15 +57,8 @@ const tsconfig = Smithers.Tsconfig({
     // tree a build writes, which is the same reason `pnpm-workspace.yaml`
     // names one parent at a time.
     Smithers.glob("packages/*/PACKAGE.ts"),
-    Smithers.glob("packages/*/src/**/*"),
-    Smithers.glob("packages/*/test/**/*"),
     Smithers.glob("packages/*/*/PACKAGE.ts"),
-    Smithers.glob("packages/*/*/src/**/*"),
-    Smithers.glob("packages/*/*/test/**/*"),
     Smithers.glob("packages/*/*/*/PACKAGE.ts"),
-    Smithers.glob("packages/*/*/*/src/**/*"),
-    Smithers.glob("packages/*/*/*/test/**/*"),
-    Smithers.glob("packages/coding-agent/examples/**/*")
   ],
   exclude: [
     Smithers.glob("**/dist/**"),

@@ -2,6 +2,9 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    "lib": [
+      "ES2024"
+    ],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "paths": {
@@ -21,15 +24,8 @@
     "examples/PACKAGE.ts",
     "apps/docs/*/PACKAGE.ts",
     "packages/*/PACKAGE.ts",
-    "packages/*/src/**/*",
-    "packages/*/test/**/*",
     "packages/*/*/PACKAGE.ts",
-    "packages/*/*/src/**/*",
-    "packages/*/*/test/**/*",
-    "packages/*/*/*/PACKAGE.ts",
-    "packages/*/*/*/src/**/*",
-    "packages/*/*/*/test/**/*",
-    "packages/coding-agent/examples/**/*"
+    "packages/*/*/*/PACKAGE.ts"
   ],
   "exclude": [
     "**/dist/**",
