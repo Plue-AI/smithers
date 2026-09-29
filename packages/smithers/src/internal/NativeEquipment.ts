@@ -325,7 +325,13 @@ const providerSeats = (
             return Seat.make({
               id: seat,
               modelId: model,
-              model: ClaudeCode.make({ model, executable: signed.executable, environment }),
+              model: ClaudeCode.make({
+                model,
+                executable: signed.executable,
+                environment,
+                // A host whose runs a person can take over keeps each session for `claude --resume`.
+                hijackable: environment["SMITHERS_HIJACKABLE"] === "1"
+              }),
               route: ClaudeCode.route(model),
               contextWindowTokens: SeatResolver.contextWindowTokensFor(model)
             })

@@ -303,6 +303,8 @@ export const Settle = Schema.Struct({
   type: Schema.Literal("settle"),
   stopReason: StopReason,
   responseId: Schema.optional(Schema.String),
+  /** The vendor session that answered, for a seat that is a wrapped CLI: `claude --resume <sessionId>`. */
+  sessionId: Schema.optional(Schema.String),
   /**
    * Stored provider reasoning items required for replay-safe continuation: a
    * provider that keeps reasoning server side answers the next request with

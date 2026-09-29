@@ -76,6 +76,7 @@ const scripted = (answer: (turn: string) => Reply) => {
         emit({
           type: "result",
           subtype: "success",
+          session_id: `sess_${started.length}`,
           is_error: "error" in reply,
           result: "text" in reply ? reply.text : "API Error",
           stop_reason: "end_turn",
@@ -96,8 +97,9 @@ const scripted = (answer: (turn: string) => Reply) => {
   return { start, started }
 }
 
-const model = (start: ClaudeCode.Start) =>
+const model = (start: ClaudeCode.Start, hijackable?: boolean) =>
   ClaudeCode.make({
+    hijackable,
     model: "claude-opus-5-5",
     executable: "/opt/bin/claude",
     environment: { HOME: "/home/op" },
@@ -143,7 +145,7 @@ describe("ClaudeCode.make", () => {
         cacheWriteTokens: 5,
         totalTokens: 112
       },
-      { type: "settle", stopReason: "stop", responseId: "msg_1_1" }
+      { type: "settle", stopReason: "stop", responseId: "msg_1_1", sessionId: "sess_1" }
     ])
     expect(claude.started).toHaveLength(1)
     expect(claude.started[0]!.turns).toEqual(["do the task"])
@@ -164,6 +166,15 @@ describe("ClaudeCode.make", () => {
       title: "Smithers",
       effort: "xhigh"
     })
+  })
+
+  it("keeps the transcript for `claude --resume <sessionId>` only when the seat is hijackable", async () => {
+    for (const hijackable of [undefined, false, true]) {
+      const claude = scripted(() => ({ text: "ok" }))
+      const events = await run(model(claude.start, hijackable), request([user("task")]))
+      expect(claude.started[0]!.options.persistSession).toBe(hijackable === true)
+      expect(events.at(-1)).toMatchObject({ type: "settle", sessionId: "sess_1" })
+    }
   })
 
   it("sends the next request's new messages as one user turn on the same session", async () => {

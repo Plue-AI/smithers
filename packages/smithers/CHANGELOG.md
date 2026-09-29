@@ -4,6 +4,9 @@
 
 ### Added
 
+- A `claude-code` seat's `settle` event carries the Claude Code `sessionId`, and
+  `SMITHERS_HIJACKABLE=1` keeps its session so `claude --resume <sessionId>`
+  opens it. `claude auth status` is read once per process while signed in.
 - The native completion judge is Jev on the Vercel AI Gateway, with GPT-6 Luna
   as backup only when Jev is unreachable or times out; it no longer judges
   through the first subscription seat.

@@ -3,7 +3,7 @@
  * reader: the documented order, every way a candidate is or is not available,
  * the choice, and the two refusals.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -326,6 +326,26 @@ describe("Providers.claudeCodeLogin", () => {
       })
     } finally {
       rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("probes a signed-in Claude Code once per process, and a signed-out one every time", () => {
+    const count = (directory: string) => readFileSync(join(directory, "probes"), "utf8").split("\n").length - 1
+    const signedInDirectory = onPath(
+      `echo probe >> "\${0%/*}/probes"\necho '{"loggedIn":true,"authMethod":"claude.ai"}'`
+    )
+    const signedOutDirectory = onPath(`echo probe >> "\${0%/*}/probes"\necho '{"loggedIn":false}'\nexit 1`)
+    try {
+      for (let index = 0; index < 5; index++) Providers.claudeCodeLogin({ PATH: signedInDirectory })
+      expect(count(signedInDirectory)).toBe(1)
+      // Another login (config directory) is another answer.
+      Providers.claudeCodeLogin({ PATH: signedInDirectory, CLAUDE_CONFIG_DIR: "/other" })
+      expect(count(signedInDirectory)).toBe(2)
+      for (let index = 0; index < 3; index++) Providers.claudeCodeLogin({ PATH: signedOutDirectory })
+      expect(count(signedOutDirectory)).toBe(3)
+    } finally {
+      rmSync(signedInDirectory, { recursive: true, force: true })
+      rmSync(signedOutDirectory, { recursive: true, force: true })
     }
   })
 

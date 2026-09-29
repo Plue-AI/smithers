@@ -394,10 +394,26 @@ export interface ClaudeCodeLogin {
   readonly subscriptionType?: string | undefined
 }
 
+/** What changes the answer of `claude auth status`: the binary, and the variables that pick its login. */
+const loginVariables = [
+  "HOME",
+  "CLAUDE_CONFIG_DIR",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN"
+]
+
+/** Signed-in statuses, per process: `claude auth status` costs about 0.2 s and every seat resolve asks. */
+const signedIn = new Map<string, ClaudeCodeLogin>()
+
 /**
  * The `claude` on `environment`'s `PATH` and what `claude auth status`
  * reports, or `undefined` when there is no `claude` or it prints no status.
  * It runs the binary, so it is the one impure reading a {@link Host} makes.
+ *
+ * A signed-in status is remembered for the life of the process, per binary and
+ * login variables. A signed-out or missing status is never remembered, so
+ * `claude auth login` takes effect without a restart.
  *
  * @category constructors
  * @since 1.0.0
@@ -413,6 +429,9 @@ export const claudeCodeLogin = (environment: Environment.Source): ClaudeCodeLogi
       }
     })
   if (executable === undefined) return undefined
+  const key = JSON.stringify([executable, ...loginVariables.map((name) => Environment.read(environment, name))])
+  const known = signedIn.get(key)
+  if (known !== undefined) return known
   let text: string
   try {
     text = execFileSync(executable, ["auth", "status"], { env: { ...environment }, encoding: "utf8", timeout: 15_000 })
@@ -422,12 +441,14 @@ export const claudeCodeLogin = (environment: Environment.Source): ClaudeCodeLogi
   }
   try {
     const status = JSON.parse(text) as { loggedIn?: unknown; authMethod?: unknown; subscriptionType?: unknown }
-    return {
+    const login: ClaudeCodeLogin = {
       executable,
       loggedIn: status.loggedIn === true,
       authMethod: typeof status.authMethod === "string" ? status.authMethod : "none",
       subscriptionType: typeof status.subscriptionType === "string" ? status.subscriptionType : undefined
     }
+    if (login.loggedIn) signedIn.set(key, login)
+    return login
   } catch {
     return undefined
   }

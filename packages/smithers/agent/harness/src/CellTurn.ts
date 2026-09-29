@@ -2825,11 +2825,13 @@ const seal = (
         })
       }
       const settled = ModelEvent.ModelEvent.settledMessage(events)
+      const sessionId = events.find((event) => event.type === "settle")?.sessionId
       yield* emit(
         new AgentEvent.ModelSettled({
           eventType: eventType.modelSettled,
           message: settled.message,
           usage: settled.usage,
+          ...(sessionId === undefined ? {} : { sessionId }),
           durationMillis: settledAt - startedAt
         })
       )

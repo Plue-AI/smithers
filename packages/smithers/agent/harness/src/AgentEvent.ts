@@ -404,6 +404,8 @@ export class ModelSettled extends Schema.TaggedClass<ModelSettled>(
   eventType: Schema.Literal("flows.harness.model-settled.v1"),
   message: ModelRequest.AssistantMessage,
   usage: ModelEvent.Usage,
+  /** The vendor session that answered, for a wrapped CLI seat: `claude --resume <sessionId>`. */
+  sessionId: Schema.optional(Schema.String),
   /**
    * Wall-clock milliseconds the sealed step took, measured on the injected
    * clock.

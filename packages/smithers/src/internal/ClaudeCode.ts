@@ -80,6 +80,12 @@ export interface Options {
   readonly environment: Readonly<Record<string, string | undefined>>
   /** Claude Code's working directory, the system temporary directory by default: it never works in a repository. */
   readonly cwd?: string | undefined
+  /**
+   * Keeps each session's transcript on disk, so `claude --resume <sessionId>`
+   * can open it (the `sessionId` on the `settle` event). Off by default: an
+   * unattended seat leaves nothing behind.
+   */
+  readonly hijackable?: boolean | undefined
   readonly start?: Start | undefined
   /** How long an idle session stays open, one hour by default. */
   readonly idleMillis?: number | undefined
@@ -233,7 +239,8 @@ const read = async (messages: AsyncIterator<Sdk.SDKMessage>): Promise<ReadonlyAr
         {
           type: "settle",
           stopReason: message.stop_reason === "max_tokens" ? "length" : "stop",
-          ...(responseId === undefined ? {} : { responseId })
+          ...(responseId === undefined ? {} : { responseId }),
+          sessionId: message.session_id
         }
       ]
     }
@@ -272,7 +279,7 @@ export const make = (options: Options): Model.Model => {
     plugins: [],
     skills: [],
     permissionMode: "dontAsk",
-    persistSession: false,
+    persistSession: options.hijackable === true,
     // A session with no title is named by an extra model call over its first prompt.
     title: "Smithers",
     ...(request.params.reasoningEffort === undefined ? {} : { effort: effort[request.params.reasoningEffort] })

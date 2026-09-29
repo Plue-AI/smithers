@@ -2937,6 +2937,26 @@ describe("CellTurn call latency", () => {
   })
 })
 
+describe("CellTurn vendor session", () => {
+  it("journals the session a wrapped seat answered from on its model-settled row", async () => {
+    const step = (cell: string, sessionId?: string): ScriptedModel.Step => ({
+      events: [
+        ModelEvent.ModelEvent.TextStart({ type: "text-start", id: "cell" }),
+        ModelEvent.ModelEvent.TextDelta({ type: "text-delta", id: "cell", text: "```cell\n" + cell + "\n```" }),
+        ModelEvent.ModelEvent.TextEnd({ type: "text-end", id: "cell" }),
+        ModelEvent.ModelEvent.Usage({ inputTokens: 8, outputTokens: 4 }),
+        ModelEvent.ModelEvent.Settle({ type: "settle", stopReason: "stop", ...(sessionId ? { sessionId } : {}) })
+      ]
+    })
+    const { events } = await run({
+      state: state({ maxFrames: 2 }),
+      script: [step(`console.log("on it")`, "sess_1"), step(`ctx.done("done")`)]
+    })
+
+    expect(of(events, "model-settled").map((event) => event.sessionId)).toEqual(["sess_1", undefined])
+  })
+})
+
 describe("CellTurn compaction", () => {
   it("compacts through a sealed step, records the settlement, and asks the model on the compacted window", async () => {
     const crowdedState = CellTurn.make({

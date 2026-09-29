@@ -12,10 +12,10 @@ import { Seat } from "@smthrs/agent"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as ModelError from "@smthrs/model/ModelError"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
-import { Effect } from "effect"
+import { Effect, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -349,6 +349,33 @@ describe("NodeControl.seatResolver Claude subscriptions", () => {
       content: [{ type: "text", text: "hello" }]
     }])
   })
+
+  // The Agent SDK spawns `claude` with `--no-session-persistence` unless the
+  // session is kept; a stand-in records the argv and ends the turn.
+  it.each([[undefined, true], ["1", false]] as const)(
+    "keeps a claude-code session for `claude --resume` only when SMITHERS_HIJACKABLE is %s",
+    async (hijackable, ephemeral) => {
+      const directory = mkdtempSync(join(tmpdir(), "claude-code-seat-"))
+      cleanup = () => rmSync(directory, { recursive: true, force: true })
+      writeFileSync(
+        join(directory, "claude"),
+        `#!/bin/sh\nif [ "$1" = auth ]; then echo '${JSON.stringify(signedIn)}'; exit 0; fi\n` +
+          `echo "$@" > "\${0%/*}/argv"\nexit 1\n`,
+        { mode: 0o755 }
+      )
+      const resolved = await Effect.runPromise(
+        resolve({ PATH: directory, SMITHERS_HIJACKABLE: hijackable }, "claude-code:opus")
+      )
+      await Effect.runPromiseExit(Stream.runDrain(resolved.model.stream({
+        modelId: resolved.modelId,
+        system: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        tools: [],
+        params: {}
+      } as never)))
+      expect(readFileSync(join(directory, "argv"), "utf8").includes("--no-session-persistence")).toBe(ephemeral)
+    }
+  )
 
   it.each(
     [
