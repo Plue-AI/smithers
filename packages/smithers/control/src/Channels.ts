@@ -159,8 +159,7 @@ const unavailable = (feature: string): Unavailable =>
     ticket: "control-channel-registry"
   })
 
-const deliveryKey = (channel: string, run: RunSummary): string =>
-  `${channel}:${String((run as { readonly runId?: unknown }).runId)}`
+const deliveryKey = (channel: string, run: RunSummary): string => `${channel.length}:${channel}:${run.runId}`
 
 /** Collision-free control-plane key for one channel-owned external key. */
 const scopedKey = (channel: string, key: IdempotencyKey): IdempotencyKey =>

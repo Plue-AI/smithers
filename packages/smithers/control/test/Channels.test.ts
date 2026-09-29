@@ -6,6 +6,7 @@ import * as Channels from "../src/Channels.ts"
 import * as Control from "../src/Control.ts"
 import { InvalidInput, PersistenceError, Unauthorized } from "../src/ControlError.ts"
 import * as ControlRuntime from "../src/ControlRuntime.ts"
+import { RunSummary } from "../src/ControlSchema.ts"
 import type { RunStatus } from "../src/ControlSchema.ts"
 import * as WebhookChannel from "../src/WebhookChannel.ts"
 
@@ -626,7 +627,7 @@ describe("Channels", () => {
       const iterator = Map.prototype[Symbol.iterator]
       let copied = 0
       const spy = vi.spyOn(Map.prototype, Symbol.iterator).mockImplementation(function(this: Map<unknown, unknown>) {
-        if (this.has("constant-time:live")) copied += this.size
+        if (this.has("13:constant-time:live")) copied += this.size
         return iterator.call(this)
       })
       try {
@@ -670,5 +671,41 @@ describe("Channels", () => {
     }))
     expect(deliveries).toEqual([undefined, { cursor: "1", messageId: "message" }])
     expect(JSON.stringify({ secret: Redacted.make("do-not-persist") })).not.toContain("do-not-persist")
+  })
+
+  it("keeps delimiter-bearing channel and run identities separate", async () => {
+    await run(Effect.gen(function*() {
+      const channels = yield* Channels.Channels
+      for (const name of ["a", "a:b"]) {
+        yield* channels.register({
+          name,
+          schema: Schema.Unknown,
+          verify: () => Effect.void,
+          decode: () => Effect.succeed(null),
+          map: () => Effect.succeed({ _tag: "Start", flowId: "flow", input: {} }),
+          project: (summary, previous) => ({
+            cursor: "1",
+            messageId: previous?.messageId ?? `${name}/${summary.runId}/message`,
+            operation: previous === undefined ? "post" : "edit",
+            message: {}
+          })
+        })
+      }
+      const project = (channel: string, runId: string) =>
+        channels.project({
+          channel,
+          run: Schema.decodeUnknownSync(RunSummary)({
+            runId,
+            flowId: "flow",
+            status: "running",
+            createdAt: 0,
+            updatedAt: 0
+          })
+        })
+      expect(yield* project("a", "b:c")).toMatchObject({ operation: "post", messageId: "a/b:c/message" })
+      expect(yield* project("a:b", "c")).toMatchObject({ operation: "post", messageId: "a:b/c/message" })
+      expect(yield* project("a:b", "c")).toMatchObject({ operation: "edit", messageId: "a:b/c/message" })
+      expect(yield* project("a", "b:c")).toMatchObject({ operation: "edit", messageId: "a/b:c/message" })
+    }))
   })
 })

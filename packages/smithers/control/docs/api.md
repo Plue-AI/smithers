@@ -745,6 +745,8 @@ which is what keeps an untrusted public request from reaching planning.
 `decode` and `map` must be deterministic and side-effect free; a retry may
 evaluate either again. `fingerprintHeaders` names only the non-secret headers
 that change the decoded command.
+Outbound delivery cursors are scoped to the exact channel name and run ID,
+including names and IDs containing `:`.
 
 ## WebhookChannel
 
