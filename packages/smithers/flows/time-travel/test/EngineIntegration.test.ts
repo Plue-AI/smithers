@@ -268,6 +268,7 @@ describe("time travel over an engine-written journal", () => {
     expect(EngineStoreExports).toHaveProperty("EventTypes", {
       runDecision: "flows.engine.run-decision",
       attemptStarted: "flows.engine.attempt-started",
+      attemptFinished: "flows.engine.attempt-finished",
       snapshotIdentified: "flows.engine.snapshot-identified",
       planRecorded: "flows.engine.plan-recorded",
       subgraphAppended: "flows.engine.subgraph-appended",
@@ -512,11 +513,10 @@ describe("time travel over an engine-written journal", () => {
       // The child's state is the state AT the frame, so it differs from the
       // parent's current state (which the parent kept driving past).
       expect(result.childState).not.toBe(result.parentState)
-      // The parent recorded four attempts — the body's step and the three
-      // actions under it; the child inherits only the ones its copied prefix
-      // can explain.
+      // The parent recorded four attempts; the child inherits only the two
+      // with completion receipts at this frame.
       expect(result.parentAttempts).toBe(4)
-      expect(result.childAttempts).toBe(3)
+      expect(result.childAttempts).toBe(2)
       // The fork gets its OWN workspace and leaves the parent's tree alone:
       // `Jj.restore` acts on the one working copy the layer is rooted at, so a
       // fork that called it would restore the parent, which a fork never

@@ -100,11 +100,11 @@ const auditFromRow = (row: AuditRow) =>
 const attemptRefsJson = (refs: ReadonlyArray<TimeTravelStore.AttemptRef>): string =>
   JSON.stringify(refs.map((ref) => [ref.stepKeyDigest, ref.attempt]))
 
-const restartableStateJson = (stateJson: string) =>
+const restartableStateJson = (stateJson: string, forkKeyRunIds: ReadonlyArray<string>) =>
   Schema.decodeUnknownEffect(RunStateJson)(stateJson).pipe(
     Effect.flatMap((state) => {
       const { cancellation: _, result: __, ...restartable } = state
-      return Schema.encodeEffect(RunStateJson)(restartable)
+      return Schema.encodeEffect(RunStateJson)({ ...restartable, forkKeyRunIds })
     }),
     Effect.mapError((cause) => error("unknown", "could not materialize executable fork state", cause))
   )
@@ -329,7 +329,8 @@ export const make: Effect.Effect<
     const prefix = (
       runId: string,
       frame: TimeTravelStore.Snapshot["frame"],
-      eventType: string
+      eventType: string,
+      includeInherited = false
     ) =>
       sql<{ readonly seq: number; readonly payload_json: string }>`
         SELECT seq, payload_json FROM flows_journal_events
@@ -337,7 +338,8 @@ export const make: Effect.Effect<
           AND seq <= ${frame.seq}
           AND event_type = ${eventType}
           AND (
-            ${Dialect.jsonText(sql, sql`meta_json`, "$.lineageId")} IS NULL
+            ${includeInherited ? 1 : 0} = 1
+            OR ${Dialect.jsonText(sql, sql`meta_json`, "$.lineageId")} IS NULL
             OR ${Dialect.jsonText(sql, sql`meta_json`, "$.lineageId")} = ${frame.lineageId}
           )
         ORDER BY seq ASC
@@ -351,23 +353,42 @@ export const make: Effect.Effect<
      * transition replaces it wholesale, so the fold is "last state at or before
      * the frame".
      */
+    const forkStateRow = (runId: string) =>
+      sql<{ readonly state_json: string }>`
+        SELECT state_json FROM flows_runs
+        WHERE run_id = ${runId} AND EXISTS (
+          SELECT 1 FROM flows_time_travel_edges
+          WHERE child_run_id = ${runId} AND kind = 'fork'
+        )
+      `.pipe(Effect.mapError(mapError))
+
     const stateAtFrame = (
       runId: string,
       frame: TimeTravelStore.Snapshot["frame"]
     ): Effect.Effect<string | undefined, TimeTravelError> =>
-      prefix(runId, frame, EventTypes.runDecision).pipe(
-        Effect.flatMap((rows) =>
-          Effect.gen(function*() {
-            let state: unknown = undefined
-            for (const row of rows) {
-              const payload = yield* decodeJson(row.payload_json)
-              const decoded = decisionState(payload)
-              if (decoded._tag === "Some") state = decoded.value.state
-            }
-            return state === undefined ? undefined : yield* encodeJson(state)
-          })
-        )
-      )
+      Effect.gen(function*() {
+        const fork = yield* forkStateRow(runId)
+        const rows = yield* prefix(runId, frame, EventTypes.runDecision, fork.length > 0)
+        let state: unknown = undefined
+        for (const row of rows) {
+          const payload = yield* decodeJson(row.payload_json)
+          const decoded = decisionState(payload)
+          if (decoded._tag === "Some") state = decoded.value.state
+        }
+        if (state === undefined) return undefined
+        // A rewind into copied history retains this run's immutable origins.
+        if (fork[0] !== undefined) {
+          const current = yield* Schema.decodeUnknownEffect(RunStateJson)(fork[0].state_json).pipe(
+            Effect.mapError(mapError)
+          )
+          const atFrame = yield* Schema.decodeUnknownEffect(RunState)(state).pipe(Effect.mapError(mapError))
+          return yield* Schema.encodeEffect(RunStateJson)({
+            ...atFrame,
+            ...(current.forkKeyRunIds === undefined ? {} : { forkKeyRunIds: current.forkKeyRunIds })
+          }).pipe(Effect.mapError(mapError))
+        }
+        return yield* encodeJson(state)
+      })
 
     /**
      * The attempts admitted at a frame. `attempt-started` adds one and nothing
@@ -386,16 +407,21 @@ export const make: Effect.Effect<
 
     const attemptsAtFrame = (
       runId: string,
-      frame: TimeTravelStore.Snapshot["frame"]
+      frame: TimeTravelStore.Snapshot["frame"],
+      eventType: string = EventTypes.attemptStarted,
+      includeInherited = false
     ): Effect.Effect<ReadonlyArray<TimeTravelStore.AttemptRef>, TimeTravelError> =>
-      prefix(runId, frame, EventTypes.attemptStarted).pipe(
+      Effect.gen(function*() {
+        const inherited = includeInherited || (yield* forkStateRow(runId)).length > 0
+        return yield* prefix(runId, frame, eventType, inherited)
+      }).pipe(
         Effect.flatMap((rows) =>
           Effect.gen(function*() {
             const refs = new Map<string, TimeTravelStore.AttemptRef>()
             for (const row of rows) {
               const payload = yield* decodeJson(row.payload_json)
               const decoded = yield* attemptRef(payload).pipe(
-                Effect.mapError((cause) => error("invalid", `attempt-started at seq ${row.seq} is malformed`, cause))
+                Effect.mapError((cause) => error("invalid", `${eventType} at seq ${row.seq} is malformed`, cause))
               )
               refs.set(`${decoded.stepKeyDigest}:${decoded.attempt}`, decoded)
             }
@@ -972,6 +998,30 @@ export const make: Effect.Effect<
                   )
                 }
               }
+              const attempts = yield* attemptsAtFrame(parentRunId, frame, EventTypes.attemptFinished, true)
+              // An irreversible crossing without a completion cannot safely be
+              // made fresh work, nor may its parent's future result be copied.
+              // Require a frame outside that interval instead.
+              const unresolved = yield* sql<{ readonly count: number }>`
+                SELECT COUNT(*) AS count FROM flows_attempts AS attempts
+                WHERE attempts.run_id = ${parentRunId}
+                  AND (attempts.step_key_digest, attempts.attempt) NOT IN (${attemptRefsSelect(attempts)})
+                  AND EXISTS (
+                    SELECT 1 FROM flows_journal_events AS events
+                    WHERE events.run_id = ${parentRunId} AND events.seq <= ${frame.seq}
+                      AND events.event_type = ${EffectBoundary.eventType}
+                      AND ${Dialect.jsonText(sql, sql`events.payload_json`, "$.effect.tier")} = 'irreversible'
+                      AND ${Dialect.jsonText(sql, sql`events.payload_json`, "$.effect.id")} =
+                        ${Dialect.jsonText(sql, sql`events.payload_json`, "$.effect.runId")} || ':' ||
+                        attempts.step_key_digest || ':' || attempts.attempt
+                  )
+              `
+              if (Number(unresolved[0]!.count) > 0) {
+                return yield* Effect.fail(error(
+                  "already_crossed",
+                  "fork frame crosses an unfinished irreversible action; choose a frame before its boundary or after completion"
+                ))
+              }
               const runId = childRunId ?? (yield* mintForkId(parentRunId, frame))
               // The committed edge takes over the ordinal the reservation
               // held, so the intent is consumed in the same transaction.
@@ -996,7 +1046,13 @@ export const make: Effect.Effect<
               const parentState = yield* sql<{ readonly state_json: string }>`
             SELECT state_json FROM flows_runs WHERE run_id = ${parentRunId}
           `
-              const stateJson = yield* restartableStateJson(derived ?? parentState[0]!.state_json)
+              const parent = yield* Schema.decodeUnknownEffect(RunStateJson)(parentState[0]!.state_json).pipe(
+                Effect.mapError((cause) => error("unknown", "could not materialize executable fork state", cause))
+              )
+              const stateJson = yield* restartableStateJson(
+                derived ?? parentState[0]!.state_json,
+                [parentRunId, ...(parent.forkKeyRunIds ?? [])]
+              )
               yield* sql`
             INSERT INTO flows_runs (
               run_id,
@@ -1032,10 +1088,12 @@ export const make: Effect.Effect<
                * The copy had no predicate at all: a fork at seq 3 inherited every
                * attempt row the parent ever wrote, including the ones its own
                * copied journal has no record of, so the child replayed results
-               * from a future it was forked away from. The `attempt-started`
-               * fold names exactly the rows the copied prefix can explain.
+               * from a future it was forked away from. Only an attempt-finished
+               * receipt at or before the frame authorizes a terminal result:
+               * an attempt merely started there may have finished in the future.
                */
-              const attempts = yield* attemptsAtFrame(parentRunId, frame)
+              // The completed-at-frame set above includes ancestor lineages,
+              // exactly like the journal prefix this fork copies.
               // One statement for the whole set rather than one round trip per
               // surviving attempt while the writer lock is held.
               yield* sql`

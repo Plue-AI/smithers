@@ -144,7 +144,8 @@ describe("fork lineage", () => {
                 const [seq, eventType, payload] of [
                   [0, "flows.engine.run-decision", { state: { version: 1, flowName: "Lineage", payload: {} } }],
                   [1, "flows.engine.snapshot-identified", { snapshotId: "change-a" }],
-                  [2, "flows.engine.attempt-started", { stepKeyDigest: "digest", attempt: 0 }]
+                  [2, "flows.engine.attempt-started", { stepKeyDigest: "digest", attempt: 0 }],
+                  [3, "flows.engine.attempt-finished", { stepKeyDigest: "digest", attempt: 0, state: "succeeded" }]
                 ] as const
               ) {
                 yield* sql`
@@ -164,7 +165,7 @@ describe("fork lineage", () => {
               const timeTravel = yield* TimeTravel
               return yield* timeTravel.fork({
                 runId: "public-root",
-                frame: { lineageId: "public-root/root", seq: 2 }
+                frame: { lineageId: "public-root/root", seq: 3 }
               }, { workspaceRoot: directory })
             }).pipe(Effect.provide(layer()))
           )
@@ -179,7 +180,7 @@ describe("fork lineage", () => {
                 // Fork at the inherited tail rather than copying the child's
                 // own marker; this keeps the source identity unique and lets
                 // the test reach the anchor-copy contract below.
-                frame: { lineageId: "public-root/root", seq: 2 }
+                frame: { lineageId: "public-root/root", seq: 3 }
               }, { workspaceRoot: directory })
               const sql = yield* Effect.service(SqlClient.SqlClient)
               const attempts = yield* sql<{ readonly run_id: string; readonly step_key_digest: string }>`
@@ -214,8 +215,8 @@ describe("fork lineage", () => {
           result.markers.map((row) => ({ runId: row.run_id, offset: JSON.parse(row.payload_json).forkJournalOffset }))
         )
           .toEqual([
-            { runId: child.runId, offset: 2 },
-            { runId: result.grandchild.runId, offset: 2 }
+            { runId: child.runId, offset: 3 },
+            { runId: result.grandchild.runId, offset: 3 }
           ])
         expect(result.anchors).toEqual([
           { run_id: "public-root", change_id: "change-a" },

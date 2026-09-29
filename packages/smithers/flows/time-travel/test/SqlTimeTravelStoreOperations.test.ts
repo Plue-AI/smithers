@@ -757,6 +757,57 @@ describe("SqlTimeTravelStore persistence fault matrix", () => {
 })
 
 describe("SqlTimeTravelStore.archiveAndTruncate attempts", () => {
+  it.effect("keeps inherited completed attempts when truncating a fork on its own lineage", () =>
+    run((store, sql) =>
+      Effect.gen(function*() {
+        yield* insertRun(sql, "fork-source")
+        for (
+          const [seq, eventType, payload] of [
+            [0, "flows.engine.run-decision", { state: { version: 1, flowName: "Demo", payload: {} } }],
+            [1, "flows.engine.attempt-started", { stepKeyDigest: "inherited", attempt: 1 }],
+            [2, "flows.engine.attempt-finished", { stepKeyDigest: "inherited", attempt: 1, state: "succeeded" }]
+          ] as const
+        ) {
+          yield* sql`
+            INSERT INTO flows_journal_events
+              (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
+               event_type, payload_json, meta_json)
+            VALUES ('fork-source', ${seq}, ${`source-${seq}`}, 'source', ${seq}, 0,
+                    ${eventType}, ${JSON.stringify(payload)}, ${JSON.stringify({ lineageId: "main" })})
+          `
+        }
+        yield* sql`
+          INSERT INTO flows_attempts
+            (run_id, step_key_digest, attempt, state, started_at_ms, finished_at_ms, meta_json)
+          VALUES ('fork-source', 'inherited', 1, 'succeeded', 0, 1, '{}')
+        `
+        const child = yield* store.createFork("fork-source", { lineageId: "main", seq: 2 }, "fork-child")
+        yield* sql`
+          UPDATE flows_runs
+          SET status = 'running', owner_host_id = ${owner.hostId}, owner_pid = ${owner.pid},
+              owner_nonce = ${owner.nonce}, heartbeat_at_ms = 0
+          WHERE run_id = ${child.runId}
+        `
+        yield* sql`
+          INSERT INTO flows_journal_events
+            (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
+             event_type, payload_json, meta_json)
+          VALUES (${child.runId}, 4, 'child-own', 'child', 4, 0,
+                  'flows.engine.run-decision',
+                  ${JSON.stringify({ state: { version: 1, flowName: "Demo", payload: {} } })},
+                  ${JSON.stringify({ lineageId: "fork-child/root" })})
+        `
+
+        yield* store.archiveAndTruncate(child.runId, { lineageId: "fork-child/root", seq: 4 }, [], owner)
+        const attempts = yield* sql<{ readonly step_key_digest: string }>`
+          SELECT step_key_digest FROM flows_attempts WHERE run_id = ${child.runId}
+        `
+        expect(attempts).toEqual([{ step_key_digest: "inherited" }])
+        expect(JSON.parse((yield* store.stateAt(child.runId, { lineageId: "fork-child/root", seq: 4 }))!))
+          .toMatchObject({ forkKeyRunIds: ["fork-source"] })
+      })
+    ))
+
   it.effect("keeps only parent attempts named by the surviving prefix and removes attached-child attempts", () =>
     Effect.gen(function*() {
       const rows = yield* run((store, sql) =>
@@ -961,6 +1012,29 @@ describe("SqlTimeTravelStore.recordReceipt", () => {
 })
 
 describe("SqlTimeTravelStore derived reads", () => {
+  it.effect("reads a legacy fork state without key origins from its own lineage", () =>
+    run((store, sql) =>
+      Effect.gen(function*() {
+        yield* insertRun(sql, "legacy-parent")
+        yield* insertRun(sql, "legacy-child")
+        yield* sql`
+          INSERT INTO flows_time_travel_edges (parent_run_id, parent_seq, child_run_id, kind, attached)
+          VALUES ('legacy-parent', 0, 'legacy-child', 'fork', 0)
+        `
+        const state = { version: 1, flowName: "Legacy", payload: { value: 1 } }
+        yield* sql`
+          INSERT INTO flows_journal_events
+            (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
+             event_type, payload_json, meta_json)
+          VALUES ('legacy-child', 0, 'legacy-decision', 'legacy', 0, 0,
+                  'flows.engine.run-decision', ${JSON.stringify({ state })},
+                  ${JSON.stringify({ lineageId: "legacy-child/root" })})
+        `
+        expect(JSON.parse((yield* store.stateAt("legacy-child", { lineageId: "legacy-child/root", seq: 0 }))!))
+          .toEqual(state)
+      })
+    ))
+
   it.effect("reads back the plan digest an anchor recorded, and refuses an attempt record it cannot decode", () =>
     Effect.gen(function*() {
       const result = yield* run((store, sql) =>
@@ -1100,6 +1174,27 @@ describe("SqlTimeTravelStore.nextForkId", () => {
 })
 
 describe("SqlTimeTravelStore.createFork", () => {
+  it.effect("rejects invalid derived state even when the parent row is restartable", () =>
+    run((store, sql) =>
+      Effect.gen(function*() {
+        yield* insertRun(sql, "derived-invalid-parent")
+        yield* sql`
+          INSERT INTO flows_journal_events
+            (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
+             event_type, payload_json, meta_json)
+          VALUES ('derived-invalid-parent', 0, 'invalid-decision', 'source', 0, 0,
+                  'flows.engine.run-decision',
+                  ${JSON.stringify({ state: { version: 2, flowName: "Demo", payload: {} } })},
+                  ${JSON.stringify({ lineageId: "main" })})
+        `
+        const failure = yield* Effect.flip(store.createFork("derived-invalid-parent", {
+          lineageId: "main",
+          seq: 0
+        }))
+        expect(failure).toMatchObject({ code: "unknown", message: "could not materialize executable fork state" })
+      })
+    ))
+
   it.effect("creates distinct coherent forks when two store handles race at one parent frame", () =>
     Effect.gen(function*() {
       const directory = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "flows-time-travel-store-race-")))
@@ -1198,10 +1293,11 @@ describe("SqlTimeTravelStore.createFork", () => {
             state: { version: 1, flowName: "Demo", payload: { seed: "at-frame" } }
           })
           yield* event(1, "flows.engine.attempt-started", { stepKeyDigest: "digest", attempt: 1 })
+          yield* event(2, "flows.engine.attempt-finished", { stepKeyDigest: "digest", attempt: 1, state: "succeeded" })
           // Everything below the fork frame: a later state the child must not
           // inherit, and a later attempt its copied journal cannot explain.
-          yield* event(2, "flows.engine.attempt-started", { stepKeyDigest: "later", attempt: 1 })
-          yield* event(3, "flows.engine.run-decision", {
+          yield* event(3, "flows.engine.attempt-started", { stepKeyDigest: "later", attempt: 1 })
+          yield* event(4, "flows.engine.run-decision", {
             decision: "transitioned",
             state: { version: 1, flowName: "Demo", payload: { seed: "final" } }
           })
@@ -1214,8 +1310,12 @@ describe("SqlTimeTravelStore.createFork", () => {
           `
           }
 
-          const first = yield* store.createFork("parent", { lineageId: "main", seq: 1 })
-          const second = yield* store.createFork("parent", { lineageId: "main", seq: 1 })
+          const first = yield* store.createFork("parent", { lineageId: "main", seq: 2 })
+          const second = yield* store.createFork("parent", { lineageId: "main", seq: 2 })
+          const beforeFinish = yield* store.createFork("parent", { lineageId: "main", seq: 1 })
+          const unfinishedCopy = yield* sql<{ readonly step_key_digest: string }>`
+            SELECT step_key_digest FROM flows_attempts WHERE run_id = ${beforeFinish.runId}
+          `
           const forkEvents = yield* sql<
             {
               readonly seq: number
@@ -1236,41 +1336,45 @@ describe("SqlTimeTravelStore.createFork", () => {
           const parentAttempts = yield* sql<{ readonly step_key_digest: string }>`
           SELECT step_key_digest FROM flows_attempts WHERE run_id = 'parent' ORDER BY step_key_digest
         `
-          return { first, second, forkEvents, forkRun, forkAttempts, parentAttempts }
+          const atCopiedFrame = yield* store.stateAt(first.runId, { lineageId: "main", seq: 2 })
+          return { first, second, forkEvents, forkRun, forkAttempts, parentAttempts, atCopiedFrame, unfinishedCopy }
         })
       )
 
-      expect(result.first.runId).toBe("parent:fork:1:1")
-      expect(result.second.runId).toBe("parent:fork:1:2")
+      expect(result.first.runId).toBe("parent:fork:2:1")
+      expect(result.second.runId).toBe("parent:fork:2:2")
       // The store commits the row and nothing else: the warnings a fork
       // discloses are computed above it and ride `TimeTravel.ForkResult`.
       expect(Object.keys(result.first).sort()).toEqual(["edge", "runId"])
       expect(result.first.edge).toEqual({
         parentRunId: "parent",
-        parentSeq: 1,
-        childRunId: "parent:fork:1:1",
+        parentSeq: 2,
+        childRunId: "parent:fork:2:1",
         kind: "fork",
         attached: false
       })
       // The copied prefix, then the fork-created marker directly above it.
-      expect(result.forkEvents.map((row) => row.seq)).toEqual([0, 1, 2])
-      expect(result.forkEvents[0]!.event_id).toBe("fork:parent:fork:1:1:e0")
-      expect(result.forkEvents[2]!.event_type).toBe(Frame.forkCreatedEventType)
-      expect(JSON.parse(result.forkEvents[2]!.payload_json)).toEqual({
+      expect(result.forkEvents.map((row) => row.seq)).toEqual([0, 1, 2, 3])
+      expect(result.forkEvents[0]!.event_id).toBe("fork:parent:fork:2:1:e0")
+      expect(result.forkEvents[3]!.event_type).toBe(Frame.forkCreatedEventType)
+      expect(JSON.parse(result.forkEvents[3]!.payload_json)).toEqual({
         parentRunId: "parent",
-        forkJournalOffset: 1,
-        childRunId: "parent:fork:1:1"
+        forkJournalOffset: 2,
+        childRunId: "parent:fork:2:1"
       })
       expect(result.forkRun[0]!.status).toBe("pending")
       // The state AT the frame, not the parent's current state.
       expect(JSON.parse(result.forkRun[0]!.state_json)).toEqual({
         version: 1,
         flowName: "Demo",
-        payload: { seed: "at-frame" }
+        payload: { seed: "at-frame" },
+        forkKeyRunIds: ["parent"]
       })
+      expect(JSON.parse(result.atCopiedFrame!)).toMatchObject({ forkKeyRunIds: ["parent"] })
       // Filtered to the frame: `later` started after it and is not inherited,
       // while the parent keeps both.
       expect(result.forkAttempts).toEqual([{ step_key_digest: "digest" }])
+      expect(result.unfinishedCopy).toEqual([])
       expect(result.parentAttempts).toEqual([{ step_key_digest: "digest" }, { step_key_digest: "later" }])
     }))
 
@@ -1391,7 +1495,7 @@ describe("SqlTimeTravelStore attempt statements", () => {
   const insertAttempts = (sql: SqlClient.SqlClient, runId: string, digests: ReadonlyArray<string>) =>
     Effect.forEach(digests, (digest, index) =>
       Effect.gen(function*() {
-        const seq = index + 1
+        const seq = index * 2 + 1
         yield* sql`
           INSERT INTO flows_journal_events
             (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
@@ -1407,6 +1511,17 @@ describe("SqlTimeTravelStore attempt statements", () => {
           INSERT INTO flows_attempts
             (run_id, step_key_digest, attempt, state, started_at_ms, meta_json)
           VALUES (${runId}, ${digest}, 1, 'succeeded', 0, '{}')
+        `
+        yield* sql`
+          INSERT INTO flows_journal_events
+            (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
+             event_type, payload_json, meta_json)
+          VALUES (
+            ${runId}, ${seq + 1}, ${`finished-${seq + 1}`}, 'source', ${seq + 1}, 0,
+            'flows.engine.attempt-finished',
+            ${JSON.stringify({ stepKeyDigest: digest, attempt: 1, state: "succeeded" })},
+            ${JSON.stringify({ lineageId: "main" })}
+          )
         `
       }))
 
@@ -1426,7 +1541,7 @@ describe("SqlTimeTravelStore attempt statements", () => {
         `
         yield* insertAttempts(sql, "set-parent", ["a", "b", "c", "future"])
         statements.length = 0
-        yield* store.createFork("set-parent", { lineageId: "main", seq: 3 }, "set-child")
+        yield* store.createFork("set-parent", { lineageId: "main", seq: 6 }, "set-child")
         const copied = yield* sql<{ readonly step_key_digest: string; readonly attempt: number }>`
           SELECT step_key_digest, attempt FROM flows_attempts WHERE run_id = 'set-child' ORDER BY step_key_digest
         `
@@ -1449,7 +1564,7 @@ describe("SqlTimeTravelStore attempt statements", () => {
         yield* insertOwnedRun(sql, "set-truncate")
         yield* insertAttempts(sql, "set-truncate", ["a", "b", "c", "d"])
         statements.length = 0
-        yield* store.archiveAndTruncate("set-truncate", { lineageId: "main", seq: 1 }, [], owner)
+        yield* store.archiveAndTruncate("set-truncate", { lineageId: "main", seq: 2 }, [], owner)
         const kept = yield* sql<{ readonly step_key_digest: string; readonly attempt: number }>`
           SELECT step_key_digest, attempt FROM flows_attempts WHERE run_id = 'set-truncate'
         `

@@ -15,6 +15,7 @@
 export const EventTypes = {
   runDecision: "flows.engine.run-decision",
   attemptStarted: "flows.engine.attempt-started",
+  attemptFinished: "flows.engine.attempt-finished",
   snapshotIdentified: "flows.engine.snapshot-identified",
   planRecorded: "flows.engine.plan-recorded",
   subgraphAppended: "flows.engine.subgraph-appended",

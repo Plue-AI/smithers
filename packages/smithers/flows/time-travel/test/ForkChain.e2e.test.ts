@@ -42,7 +42,12 @@ describe.skipIf(!jjInstalled)("real public fork chain", () => {
                   const [seq, eventType, payload] of [
                     [0, "flows.engine.run-decision", { state: { version: 1, flowName: "ForkChain", payload: {} } }],
                     [1, "flows.engine.snapshot-identified", { snapshotId: anchor.changeId }],
-                    [2, "flows.engine.attempt-started", { stepKeyDigest: "sealed-digest", attempt: 0 }]
+                    [2, "flows.engine.attempt-started", { stepKeyDigest: "sealed-digest", attempt: 0 }],
+                    [3, "flows.engine.attempt-finished", {
+                      stepKeyDigest: "sealed-digest",
+                      attempt: 0,
+                      state: "succeeded"
+                    }]
                   ] as const
                 ) {
                   yield* sql`
@@ -76,7 +81,7 @@ describe.skipIf(!jjInstalled)("real public fork chain", () => {
                 const timeTravel = yield* TimeTravel
                 const child = yield* timeTravel.fork({
                   runId: "fork-root",
-                  frame: { lineageId: "fork-root/root", seq: 2 }
+                  frame: { lineageId: "fork-root/root", seq: 3 }
                 }, { workspaceRoot })
                 const cached = yield* cache.get("sealed-digest")
                 return { cached: Option.getOrThrow(cached), child, parentRows }
@@ -93,7 +98,7 @@ describe.skipIf(!jjInstalled)("real public fork chain", () => {
                 const timeTravel = yield* TimeTravel
                 const grandchild = yield* timeTravel.fork({
                   runId: first.child.runId,
-                  frame: { lineageId: "fork-root/root", seq: 3 }
+                  frame: { lineageId: "fork-root/root", seq: 4 }
                 }, { workspaceRoot })
                 const sql = yield* Effect.service(SqlClient.SqlClient)
                 const cache = yield* CacheStore.CacheStore
@@ -136,8 +141,8 @@ describe.skipIf(!jjInstalled)("real public fork chain", () => {
             ])
             expect(second.cached).toEqual(first.cached)
             expect(second.edges).toEqual([
-              { parent_run_id: "fork-root", parent_seq: 2, child_run_id: first.child.runId },
-              { parent_run_id: first.child.runId, parent_seq: 3, child_run_id: second.grandchild.runId }
+              { parent_run_id: "fork-root", parent_seq: 3, child_run_id: first.child.runId },
+              { parent_run_id: first.child.runId, parent_seq: 4, child_run_id: second.grandchild.runId }
             ])
           }))
       }),

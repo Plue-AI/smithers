@@ -29,6 +29,7 @@ import type * as Crypto from "effect/Crypto"
 import type * as Effect from "effect/Effect"
 import type * as Exit from "effect/Exit"
 import type * as Option from "effect/Option"
+import type * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import type * as Round from "./Round.ts"
 
@@ -184,6 +185,21 @@ export interface Encoded {
       flow: Flow.Any,
       executionId: string
     ) => Effect.Effect<void>)
+    | undefined
+  /**
+   * Resolve a fork's copied attempt identity before retry and dispatch lookup.
+   * The engine supplies its canonical derivation; persistence selects an
+   * ancestor only when the child's own history contains that attempt.
+   * Fresh fork work uses run-scoped keys so a parent's future cache cannot
+   * answer it. Ordinary runs retain their declared cache environment.
+   */
+  readonly actionReplayKey?:
+    | ((
+      derive: (
+        executionId: string,
+        runScoped: boolean
+      ) => Effect.Effect<string, Schema.SchemaError, Crypto.Crypto>
+    ) => Effect.Effect<string, Schema.SchemaError, FlowRuntime.FlowInstance | Crypto.Crypto>)
     | undefined
   readonly actionExecute: (
     options: ActionExecuteOptions

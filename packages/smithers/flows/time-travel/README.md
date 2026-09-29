@@ -21,9 +21,10 @@ reads the effect-boundary evidence that decides whether a rewind is safe.
 
 Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
-**Fork replay limitation:** copied attempt rows retain their parent digests, so
-actions keyed by the run ID execute again in the child. See
-[Keep sealed steps from re-executing](https://time-travel.smithers.sh/guides/fork-a-run/#keep-sealed-steps-from-re-executing).
+A durable fork reuses completed action results through its frame, including
+compensable and irreversible actions. Steps after the frame execute under the
+child's own identity, even with a shared cache environment. See
+[Fork a run](https://time-travel.smithers.sh/guides/fork-a-run/).
 
 Node.js 26.4.0 or later. The package ships ESM and CommonJS with TypeScript
 declarations, and its root entry point bundles for the browser with no `node:`

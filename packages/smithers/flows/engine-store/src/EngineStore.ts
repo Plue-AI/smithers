@@ -36,6 +36,7 @@ import * as EngineJj from "./internal/EngineJj.ts"
 import * as NodeJournal from "./internal/NodeJournal.ts"
 import * as RunDriver from "./internal/RunDriver.ts"
 import * as OwnerIdentity from "./OwnerIdentity.ts"
+import { RunState } from "./RunState.ts"
 import * as StepBoundary from "./StepBoundary.ts"
 import * as StepSandbox from "./StepSandbox.ts"
 import * as WakeBus from "./WakeBus.ts"
@@ -209,6 +210,16 @@ const makeWithEngineJj = (
     const actionJj = yield* Jj.Jj
     const engineJj = yield* EngineJj.EngineJj
     const runStore = yield* RunStore.RunStore
+    const forkOrigins = new WeakMap<FlowRuntime.FlowInstance["Service"], ReadonlyArray<string>>()
+    const keyOrigins = Effect.fnUntraced(function*(instance: FlowRuntime.FlowInstance["Service"]) {
+      const cached = forkOrigins.get(instance)
+      if (cached !== undefined) return cached
+      const row = yield* runStore.get(instance.executionId).pipe(Effect.orDie)
+      const state = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(RunState))(row.stateJson).pipe(Effect.orDie)
+      const origins = state.forkKeyRunIds ?? []
+      forkOrigins.set(instance, origins)
+      return origins
+    })
     const stepBoundary = yield* StepBoundary.StepBoundary
     /**
      * Both halves of the isolated-execution lane are OPTIONAL and resolved
@@ -412,6 +423,30 @@ const makeWithEngineJj = (
             Effect.catch((error) => error.code === "fence_lost" ? Effect.interrupt : Effect.die(error)),
             Effect.asVoid
           )),
+      actionReplayKey: Effect.fnUntraced(function*(derive) {
+        const instance = yield* FlowRuntime.FlowInstance
+        const origins = yield* keyOrigins(instance)
+        if (origins.length === 0) return yield* derive(instance.executionId, false)
+        // Prefer this child's own work on resume, then only ancestor keys
+        // backed by attempts copied into this child. Never read parent rows.
+        const probed = new Set<string>()
+        for (const runId of [instance.executionId, ...origins]) {
+          for (const runScoped of [true, false]) {
+            const key = yield* derive(runId, runScoped)
+            if (probed.has(key)) continue
+            probed.add(key)
+            const digest = yield* Schema.decodeUnknownEffect(Sha256)(key).pipe(Effect.orDie)
+            const found = yield* AttemptProbe.probeAttempts(
+              attemptStore,
+              attemptSurvivors,
+              instance.executionId,
+              digest
+            )
+            if (Option.isSome(found)) return key
+          }
+        }
+        return yield* derive(instance.executionId, true)
+      }),
       // The durable schedule-to-close origin (issue #45): the first
       // attempt's persisted `startedAtMs` for the action key. It lives in
       // the same `flows_attempts` rows that already restore the attempt

@@ -51,15 +51,17 @@ it("keeps the runtime requirement in its own README paragraph", () => {
   expect(readRaw("../README.md")).toMatch(/\n\nNode\.js 26\.4\.0 or later\./)
 })
 
-it("states the fork replay limitation once, and links the other pages to it", () => {
+it("documents completed-prefix reuse and fresh child actions", () => {
   const guide = readRaw("../docs/guides/fork-a-run.md")
   const readme = readRaw("../README.md")
-  const anchor = "guides/fork-a-run/#keep-sealed-steps-from-re-executing"
 
-  expect(guide.match(/copied attempt rows retain their parent digests/g)).toHaveLength(1)
-  expect(readme.match(/copied attempt rows retain their parent digests/g)).toHaveLength(1)
-  expect(readme).not.toContain("Make repeated external effects idempotent")
-  expect(readme).toContain(anchor)
+  expect(guide).toContain("## Keep completed steps from re-executing")
+  expect(guide).toContain("This includes sealed, compensable, and irreversible actions")
+  expect(guide).toContain("Actions first reached after the frame use the child's own identity")
+  expect(guide).toContain("A frame inside an irreversible action")
+  expect(readme).toContain("A durable fork reuses completed action results through its frame")
+  expect(readme).toContain("child's own identity, even with a shared cache environment")
+  expect(readme).toContain("https://time-travel.smithers.sh/guides/fork-a-run/")
 })
 
 it("tells a handler author that receipts persist unredacted and must not carry credentials", () => {

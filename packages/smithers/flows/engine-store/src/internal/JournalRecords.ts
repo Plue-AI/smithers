@@ -103,7 +103,7 @@ export const attemptStarted = (options: EventOptions, payload: unknown) =>
  * @category events
  */
 export const attemptFinished = (options: EventOptions, payload: unknown) =>
-  event(options, "flows.engine.attempt-finished", payload)
+  event(options, EventTypes.attemptFinished, payload)
 /**
  * A durable deferred was resolved from outside the run. Journaled because the
  * resolution is the only evidence of it — a replay cannot re-derive a value

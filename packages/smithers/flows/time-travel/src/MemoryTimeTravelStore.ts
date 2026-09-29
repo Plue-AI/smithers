@@ -224,7 +224,8 @@ export const make = (options: Options = {}): TimeTravelStore.Service & { readonl
         record.runId === runId &&
         record.seq <= frame.seq &&
         record.eventType === eventType &&
-        (record.lineageId === undefined || record.lineageId === frame.lineageId)
+        (record.lineageId === undefined || record.lineageId === frame.lineageId ||
+          edges.some((edge) => edge.childRunId === runId && edge.kind === "fork"))
       )
       .sort((left, right) => left.seq - right.seq)
   const atomic = <A>(body: () => A): Effect.Effect<A, TimeTravelError> =>
