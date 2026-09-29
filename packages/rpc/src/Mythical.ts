@@ -275,6 +275,48 @@ export const MythicalChecksSchema = z.object({
 export type MythicalChecks = z.infer<typeof MythicalChecksSchema>
 
 /**
+ * A typed failure: the failure registry's class (whose fault it was) and the
+ * error's tag, `<_tag>/<code>`.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MythicalFaultSchema = z.object({
+  class: z.enum(["user", "wait", "infra", "dependency", "bug", "factory", "policy"]),
+  tag: z.string()
+})
+
+/**
+ * The decoded value accepted by {@link MythicalFaultSchema}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type MythicalFault = z.infer<typeof MythicalFaultSchema>
+
+/**
+ * A TODO's progress: `replans` plans failed so far (it runs plan
+ * `replans + 1` of 3), `veryHard` while it runs its one continuation after
+ * the last replan, and the typed `fault` it retries after or stopped at.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MythicalTodoSchema = z.object({
+  replans: z.number().int().nonnegative(),
+  veryHard: z.boolean().optional(),
+  fault: MythicalFaultSchema.optional()
+})
+
+/**
+ * The decoded value accepted by {@link MythicalTodoSchema}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type MythicalTodo = z.infer<typeof MythicalTodoSchema>
+
+/**
  * The GitHub pull request that carries an item.
  *
  * @since 1.0.0
@@ -318,6 +360,8 @@ export const MythicalItemSchema = z.object({
   plan: MythicalPlanSchema.optional(),
   integration: MythicalIntegrationSchema.optional(),
   checks: MythicalChecksSchema.optional(),
+  /** Present when the item is a TODO. */
+  todo: MythicalTodoSchema.optional(),
   pullRequest: MythicalPullRequestSchema.optional(),
   dependsOn: z.array(z.string()),
   updatedAt: z.string(),

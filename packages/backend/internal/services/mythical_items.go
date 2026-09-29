@@ -1073,6 +1073,7 @@ func mythicalRetry(item db.MythicalItem, reason string, now time.Time) *db.Mythi
 	checks.Outages = 0
 	switch {
 	case item.Attempt < mythicalAttempts:
+		checks.Replans++
 		next.State, next.Reason = "retrying", reason
 	case !checks.VeryHard:
 		// Both replans failed too: the work continues once more on the last
@@ -2389,6 +2390,7 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 		next := item
 		next.State, next.Reason, next.Attempt, next.NextAttemptAt = "queued", "", 0, pgtype.Timestamptz{}
 		retried := mythicalChecksOf(next)
+		retried.Replans = 0
 		if person {
 			// A person's retry lifts every bound: they count again from now.
 			retried.resume()
@@ -2742,6 +2744,12 @@ type mythicalChecks struct {
 	// TodoEvent is the GitHub event id of the last maintainer application
 	// of todo the stack acted on.
 	TodoEvent int64 `json:"todoEvent,omitempty"`
+	// Replans counts the plans that failed since the item was last queued
+	// fresh: the item runs plan Replans+1 of mythicalAttempts.
+	Replans int `json:"replans,omitempty"`
+	// Drivers are the people who took over the item's run
+	// (mythicalDrivers); kept here so no other write drops them.
+	Drivers []mythicalDriver `json:"drivers,omitempty"`
 	// CIWait is when the stack began waiting for CI on an approved head.
 	CIWait *mythicalCIWait `json:"ciWait,omitempty"`
 }

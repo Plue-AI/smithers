@@ -3,6 +3,7 @@ import {
   isSettledItemState,
   MYTHICAL_ROUTES,
   MythicalEventSchema,
+  MythicalItemSchema,
   MythicalLaneSchema,
   MythicalLaneSubmissionSchema,
   mythicalRoute,
@@ -72,6 +73,7 @@ const snapshot = {
       attempt: 2,
       lane: 1,
       runs: { request: "run-9" },
+      todo: { replans: 1, fault: { class: "factory", tag: "coding/Error/stalled" } },
       integration: { conflict: { changeId: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", paths: ["apps/app/src/a.ts"] } },
       dependsOn: ["item-1"],
       updatedAt: "2026-09-25T12:00:00Z"
@@ -134,6 +136,14 @@ describe("the mythical stack contract", () => {
     expect(MythicalLaneSchema.safeParse({ ...lane, account: { provider: "gemini", count: 1 } }).success).toBe(false)
     expect(MythicalLaneSchema.safeParse({ ...lane, account: { provider: "codex", count: 0 } }).success).toBe(false)
     expect(MythicalLaneSchema.safeParse({ ...lane, startedAt: "a while ago" }).success).toBe(false)
+  })
+
+  test("a TODO's progress decodes, and an unknown fault class is refused", () => {
+    const continuing = { ...snapshot.items[2], todo: { replans: 2, veryHard: true } }
+    expect(MythicalItemSchema.parse(continuing).todo).toEqual({ replans: 2, veryHard: true })
+    const unknown = { ...snapshot.items[2], todo: { replans: 0, fault: { class: "network", tag: "x" } } }
+    expect(MythicalItemSchema.safeParse(unknown).success).toBe(false)
+    expect(MythicalItemSchema.safeParse({ ...snapshot.items[2], todo: { replans: -1 } }).success).toBe(false)
   })
 
   test("an unknown item state is refused rather than rendered as something else", () => {

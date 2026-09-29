@@ -92,6 +92,7 @@ func TestMythicalPolicy_RetryAndTransientDelayPreserveItem(t *testing.T) {
 		if attempt < 3 {
 			want.State = "retrying"
 			want.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(30 * time.Second), Valid: true}
+			want.Checks = json.RawMessage(`{"replans":1}`) // one plan failed
 		} else {
 			// The last replan failed: one very hard continuation on it.
 			want.State, want.Reason, want.Attempt = "retrying", "very hard: new failure", attempt-1

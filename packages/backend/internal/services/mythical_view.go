@@ -67,16 +67,17 @@ type MythicalPullRequestView struct {
 }
 
 type MythicalItemView struct {
-	ID          string                   `json:"id"`
-	Issue       *MythicalIssueView       `json:"issue,omitempty"`
-	State       string                   `json:"state"`
-	Reason      string                   `json:"reason,omitempty"`
-	Attempt     int32                    `json:"attempt"`
-	Lane        *int32                   `json:"lane,omitempty"`
-	Runs        MythicalRunsView         `json:"runs"`
-	Plan        json.RawMessage          `json:"plan,omitempty"`
-	Integration json.RawMessage          `json:"integration,omitempty"`
-	Checks      json.RawMessage          `json:"checks,omitempty"`
+	ID          string             `json:"id"`
+	Issue       *MythicalIssueView `json:"issue,omitempty"`
+	State       string             `json:"state"`
+	Reason      string             `json:"reason,omitempty"`
+	Attempt     int32              `json:"attempt"`
+	Lane        *int32             `json:"lane,omitempty"`
+	Runs        MythicalRunsView   `json:"runs"`
+	Plan        json.RawMessage    `json:"plan,omitempty"`
+	Integration json.RawMessage    `json:"integration,omitempty"`
+	// Todo is how far a TODO's plan got; absent for an item that is none.
+	Todo        *MythicalTodoView        `json:"todo,omitempty"`
 	PullRequest *MythicalPullRequestView `json:"pullRequest,omitempty"`
 	DependsOn   []string                 `json:"dependsOn"`
 	UpdatedAt   string                   `json:"updatedAt"`
@@ -84,6 +85,36 @@ type MythicalItemView struct {
 	// item row, whatever its state then (often skipped, waiting for a label);
 	// it is not when the issue became actionable.
 	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// MythicalTodoView is a TODO's progress for display: the replans so far
+// (the item runs plan replans+1 of 3), whether it runs its one very-hard
+// continuation, and the typed fault it retries after or stopped at.
+type MythicalTodoView struct {
+	Replans  int                `json:"replans"`
+	VeryHard bool               `json:"veryHard,omitempty"`
+	Fault    *MythicalFaultView `json:"fault,omitempty"`
+}
+
+// MythicalFaultView is one typed failure: the failure registry's class and
+// the error's tag.
+type MythicalFaultView struct {
+	Class string `json:"class"`
+	Tag   string `json:"tag"`
+}
+
+// mythicalTodoView projects an item's checks onto the wire; the checks
+// column itself is the stack's bookkeeping and never leaves the service.
+func mythicalTodoView(item db.MythicalItem) *MythicalTodoView {
+	checks := mythicalChecksOf(item)
+	if !checks.Todo && checks.AutoTodo == "" {
+		return nil
+	}
+	view := &MythicalTodoView{Replans: checks.Replans, VeryHard: checks.VeryHard}
+	if checks.Fault != nil {
+		view.Fault = &MythicalFaultView{Class: checks.Fault.Class, Tag: checks.Fault.Tag}
+	}
+	return view
 }
 
 type MythicalLaneView struct {
@@ -281,7 +312,7 @@ func mythicalSettled(state string) bool {
 func mythicalItemView(item db.MythicalItem) MythicalItemView {
 	row := MythicalItemView{ID: uuidString(item.ID), State: item.State, Reason: item.Reason, Attempt: item.Attempt,
 		Runs: MythicalRunsView{Request: item.RequestRunID, Vibe: item.VibeRunID, Verify: item.VerifyRunID},
-		Plan: item.Plan, Integration: item.Integration, Checks: item.Checks, DependsOn: []string{}}
+		Plan: item.Plan, Integration: item.Integration, Todo: mythicalTodoView(item), DependsOn: []string{}}
 	if item.IssueNumber.Valid {
 		row.Issue = &MythicalIssueView{Number: item.IssueNumber.Int64, Title: item.IssueTitle, URL: item.IssueURL}
 	}

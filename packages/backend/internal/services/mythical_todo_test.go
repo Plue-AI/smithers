@@ -1191,3 +1191,29 @@ func TestMythicalMergeReadsTheIssuesLabelsNotOnlyTheirHistory(t *testing.T) {
 	assert.Equal(t, "GitHub did not answer for the issue's labels; retrying", item.Reason)
 	assert.Empty(t, o.github.merges, "a label gone from the issue never merges on its history")
 }
+
+// The read wire carries a TODO's progress, never the stack's bookkeeping:
+// the replans so far, the very-hard continuation, and the typed fault. The
+// checks column (labels, notices, event ids) stays in the service.
+func TestMythicalSnapshotShowsATodosProgressOnly(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 381, Title: "Show", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	o.fail(o.launcher.last("coding/request"), "run-381", "factory", "coding/Error/stalled", "")
+	o.wake()
+	view, err := o.service.Snapshot(ctx, o.repoID, "o/smithers", "", MythicalViewer{UserID: o.userID})
+	require.NoError(t, err)
+	var item *MythicalItemView
+	for i := range view.Items {
+		if view.Items[i].Issue != nil && view.Items[i].Issue.Number == 381 {
+			item = &view.Items[i]
+		}
+	}
+	require.NotNil(t, item)
+	encoded, err := json.Marshal(item)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"todo":{"replans":1,"fault":{"class":"factory","tag":"coding/Error/stalled"}}`)
+	assert.NotContains(t, string(encoded), `"checks"`, "the bookkeeping never leaves the service")
+}
