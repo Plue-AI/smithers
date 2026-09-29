@@ -99,9 +99,10 @@ func (m *MemoryStore) Stat(_ context.Context, key string) (ObjectAttrs, error) {
 func (m *MemoryStore) NewReader(_ context.Context, key string) (io.ReadCloser, error) {
 	m.mu.Lock()
 	payload, ok := m.data[key]
+	_, exists := m.objects[key]
 	m.mu.Unlock()
 	if !ok {
-		if _, exists := m.objects[key]; exists {
+		if exists {
 			return nil, fmt.Errorf("MemoryStore holds no content for %q", key)
 		}
 		return nil, ErrObjectNotFound

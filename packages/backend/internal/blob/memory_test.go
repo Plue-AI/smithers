@@ -108,3 +108,46 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestMemoryStore_NewReaderConcurrentMetadata(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	ctx := context.Background()
+	key := "objects/concurrent-reader"
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 100000; i++ {
+			_, err := store.SignedUploadURL(ctx, key, "application/octet-stream", 0, time.Minute)
+			if err != nil {
+				t.Errorf("register: %v", err)
+				return
+			}
+			if err := store.Delete(ctx, key); err != nil {
+				t.Errorf("delete: %v", err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 100000; i++ {
+			reader, err := store.NewReader(ctx, key)
+			if reader != nil {
+				_ = reader.Close()
+				t.Error("metadata-only object returned content")
+				return
+			}
+			if err != ErrObjectNotFound && (err == nil || err.Error() != "MemoryStore holds no content for \"objects/concurrent-reader\"") {
+				t.Errorf("unexpected reader error: %v", err)
+				return
+			}
+		}
+	}()
+	close(start)
+	wg.Wait()
+}
