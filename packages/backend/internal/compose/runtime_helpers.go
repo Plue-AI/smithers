@@ -141,12 +141,17 @@ func workspaceSessionTargetWorkspaceID(r *http.Request) string {
 type inFlightRequestTracker struct {
 	closing               atomic.Bool
 	mu                    sync.Mutex
-	cancels               map[uint64]context.CancelFunc
+	cancels               map[uint64]*trackedRequest
 	nextID                uint64
 	active                atomic.Int64
 	completed             atomic.Int64
 	shutdownActive        atomic.Int64
 	shutdownCompletedBase atomic.Int64
+}
+
+type trackedRequest struct {
+	cancel context.CancelFunc
+	forced bool // Set under mu before cancellation reaches the handler.
 }
 
 func newInFlightRequestTracker() *inFlightRequestTracker {
@@ -168,17 +173,20 @@ func (t *inFlightRequestTracker) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		if t.cancels == nil {
-			t.cancels = make(map[uint64]context.CancelFunc)
+			t.cancels = make(map[uint64]*trackedRequest)
 		}
 		t.nextID++
 		id := t.nextID
-		t.cancels[id] = cancel
+		request := &trackedRequest{cancel: cancel}
+		t.cancels[id] = request
 		t.active.Add(1)
 		t.mu.Unlock()
 		defer func() {
 			t.mu.Lock()
 			delete(t.cancels, id)
-			t.completed.Add(1)
+			if !request.forced {
+				t.completed.Add(1)
+			}
 			t.active.Add(-1)
 			t.mu.Unlock()
 			cancel()
@@ -225,8 +233,9 @@ func (t *inFlightRequestTracker) WaitForDrain(ctx context.Context) error {
 func (t *inFlightRequestTracker) cancelActive() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for _, cancel := range t.cancels {
-		cancel()
+	for _, request := range t.cancels {
+		request.forced = true
+		request.cancel()
 	}
 }
 
