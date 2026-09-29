@@ -107,10 +107,10 @@ var hostProcessEnvironment = map[string]struct{}{
 }
 
 // startEnvironmentName admits a per-start variable (HostLaunch.Environment):
-// the landing credential, or a repository variable that no catalog, runtime
-// or host setting owns.
+// the landing or build-cache read credential, or a repository variable that
+// no catalog, runtime or host setting owns.
 func startEnvironmentName(name string, catalog Catalog) bool {
-	if name == "SMITHERS_JJHUB_TOKEN" || name == "SMITHERS_JJHUB_API_URL" {
+	if _, minted := startCredentialEnvironment[name]; minted {
 		return true
 	}
 	_, configured := catalog.Environment[name]
@@ -121,10 +121,9 @@ func startEnvironmentName(name string, catalog Catalog) bool {
 // its box's coding host: no Smithers, host, loader or database name. A model
 // seat's key is set after it, so a repository variable never replaces one.
 func RepositoryVariable(name string) bool {
-	_, reserved := reservedEnvironment[name]
 	_, database := databaseEnvironment[name]
 	_, process := hostProcessEnvironment[name]
-	return !reserved && !database && !process && !strings.HasPrefix(name, "SMITHERS_") &&
+	return !reservedName(name) && !database && !process && !strings.HasPrefix(name, "SMITHERS_") &&
 		!strings.HasPrefix(name, "LD_") && !strings.HasPrefix(name, "DYLD_") && startEnvironmentPattern.MatchString(name)
 }
 

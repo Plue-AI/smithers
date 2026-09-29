@@ -35,6 +35,7 @@ import { RunJob, RunSetup, setupLayers, SuggestSetup } from "../repository/setup
 import { RunTrigger, triggerLayers } from "../repository/triggers.ts"
 import { ReviewPage } from "../wiki/workflow.ts"
 import { atomOperations, EditAtom } from "./atoms.ts"
+import { repositoryCheckEnvironment } from "./check-environment.ts"
 import { checkDelegate, checkLayers } from "./checks.ts"
 import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
@@ -80,6 +81,8 @@ export interface Options extends NativeOptions {
   readonly implementationModel: string
   readonly exporterPath?: string | undefined
   readonly checkEnvironment?: Readonly<Record<string, string>> | undefined
+  /** The read-only build-cache credential, added only to repository checks' environment. */
+  readonly cacheEnvironment?: Readonly<Record<string, string>> | undefined
   /** Exact packaged host bytes and owning-process fence for the Go bridge. */
   readonly runtimeArtifactDigest?: string | undefined
   readonly runtimeSourceRevision?: string | undefined
@@ -476,7 +479,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             repositoryPath: options.repositoryPath,
             fs,
             exporterPath: options.exporterPath,
-            environment: options.checkEnvironment,
+            environment: repositoryCheckEnvironment(options),
             evaluator
           }),
           changeLayers({

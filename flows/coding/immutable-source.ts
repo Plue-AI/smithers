@@ -34,6 +34,36 @@ const capture = <E>(stream: Stream.Stream<Uint8Array, E>) =>
     }
   }).pipe(Effect.map((state) => ({ text: state.text + state.decoder.decode(), truncated: state.bytes > outputLimit })))
 
+const credentialName = /TOKEN|SECRET|PASSWORD|CREDENTIAL|_KEY$/i
+const redaction = "[redacted]"
+
+/** Credentials in a process's environment (a check's build-cache read token),
+ * which its retained output must never carry. */
+export const environmentSecrets = (environment: Readonly<Record<string, string>> | undefined): Array<string> =>
+  [...new Set(Object.entries(environment ?? {}).flatMap(([name, value]) => credentialName.test(name) && value.length >= 8 ? [value] : []))]
+    .sort((a, b) => b.length - a.length)
+
+/** Replaces every secret in retained output. A truncated prefix can end inside
+ * one, so a trailing partial secret is removed too. */
+export const redactOutput = (
+  output: { readonly text: string; readonly truncated: boolean },
+  secrets: ReadonlyArray<string>
+) => {
+  let text = output.text
+  for (const secret of secrets) text = text.split(secret).join(redaction)
+  if (output.truncated) {
+    for (const secret of secrets) {
+      for (let length = Math.min(secret.length - 1, text.length); length >= 4; length--) {
+        if (text.endsWith(secret.slice(0, length))) {
+          text = text.slice(0, text.length - length) + redaction
+          break
+        }
+      }
+    }
+  }
+  return { text, truncated: output.truncated }
+}
+
 export const contained = (root: string, candidate: string, path: Path.Path) => {
   const relative = path.relative(root, candidate)
   return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -57,7 +87,8 @@ export const runSourceProcess = (
       capture(process.stderr),
       process.exitCode
     ], { concurrency: "unbounded" })
-    return { stdout, stderr, exitCode }
+    const secrets = environmentSecrets(options.environment)
+    return { stdout: redactOutput(stdout, secrets), stderr: redactOutput(stderr, secrets), exitCode }
   }).pipe(
     Effect.scoped,
     Effect.timeoutOrElse({

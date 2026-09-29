@@ -48,11 +48,14 @@ func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testin
 	// A start's landing credential reaches the host but not its identity, so
 	// an inspection without it still matches the live host (#2198).
 	landing := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer",
-		Environment: map[string]string{"SMITHERS_JJHUB_TOKEN": "landing", "SMITHERS_JJHUB_API_URL": "https://api.example/api"}}
+		Environment: map[string]string{"SMITHERS_JJHUB_TOKEN": "landing", "SMITHERS_JJHUB_API_URL": "https://api.example/api",
+			"SMITHERS_CACHE_TOKEN": "cache-read", "SMITHERS_CACHE_URL": "https://api.example/api/repos/o/r/build-cache"}}
 	withLanding, err := BuildProcessSpec(landing, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
 	require.NoError(t, err)
 	assert.Equal(t, "landing", withLanding.Environment["SMITHERS_JJHUB_TOKEN"])
 	assert.Equal(t, "https://api.example/api", withLanding.Environment["SMITHERS_JJHUB_API_URL"])
+	assert.Equal(t, "cache-read", withLanding.Environment["SMITHERS_CACHE_TOKEN"])
+	assert.Equal(t, "https://api.example/api/repos/o/r/build-cache", withLanding.Environment["SMITHERS_CACHE_URL"])
 	assert.Equal(t, spec.Identity, withLanding.Identity)
 	for _, name := range []string{"SMITHERS_API_KEY", "PATH", "HOME", "LD_PRELOAD", "NODE_OPTIONS", "BASH_ENV", "JJ_CONFIG", "SMITHERS_ANYTHING", "BAD-NAME"} {
 		landing.Environment = map[string]string{name: "stolen"}
@@ -67,9 +70,12 @@ func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testin
 	landing.Catalog = catalog
 	_, err = BuildProcessSpec(landing, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
 	require.Error(t, err, "a start never overrides the catalog")
-	catalog.Environment = map[string]string{"SMITHERS_JJHUB_TOKEN": "static"}
-	_, err = validateCatalog(catalog)
-	require.Error(t, err, "a catalog never carries a landing credential")
+	for _, name := range []string{"SMITHERS_JJHUB_TOKEN", "SMITHERS_JJHUB_API_URL", "SMITHERS_CACHE_TOKEN", "SMITHERS_CACHE_URL"} {
+		catalog.Environment = map[string]string{name: "static"}
+		_, err = validateCatalog(catalog)
+		require.Error(t, err, "a catalog never carries a start credential: %s", name)
+		assert.False(t, RepositoryVariable(name), name)
+	}
 }
 
 func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {

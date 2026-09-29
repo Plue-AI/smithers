@@ -29,9 +29,21 @@ var reservedEnvironment = map[string]struct{}{
 	"SMITHERS_OWNER_GENERATION": {}, "SMITHERS_FLOW_ARTIFACT_SHA256": {},
 	"SMITHERS_SOURCE_REVISION": {}, "SMITHERS_REPO": {},
 	"SMITHERS_CODING_IMPLEMENT_MODEL": {},
-	// The box's landing credential is minted per start (HostLaunch.Environment).
+	AccountPoolURLEnv:                 {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
+}
+
+// startCredentialEnvironment is what a start supplies and no catalog may:
+// the box's landing credential and its build-cache read credential
+// (HostLaunch.Environment). They are reserved like reservedEnvironment.
+var startCredentialEnvironment = map[string]struct{}{
 	"SMITHERS_JJHUB_TOKEN": {}, "SMITHERS_JJHUB_API_URL": {},
-	AccountPoolURLEnv: {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
+	"SMITHERS_CACHE_TOKEN": {}, "SMITHERS_CACHE_URL": {},
+}
+
+func reservedName(name string) bool {
+	_, reserved := reservedEnvironment[name]
+	_, minted := startCredentialEnvironment[name]
+	return reserved || minted
 }
 
 // A host shares its workspace with repository commands, so a database
@@ -116,7 +128,7 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 		if strings.TrimSpace(name) != name || name == "" || strings.ContainsAny(name, "=\x00") || strings.IndexByte(value, 0) >= 0 {
 			return Catalog{}, fmt.Errorf("flow host catalog %q environment is invalid", catalog.Key)
 		}
-		if _, reserved := reservedEnvironment[name]; reserved {
+		if reservedName(name) {
 			return Catalog{}, fmt.Errorf("flow host catalog %q environment replaces reserved identity %s", catalog.Key, name)
 		}
 		if _, database := databaseEnvironment[name]; database {

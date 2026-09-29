@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -43,10 +44,34 @@ func boxHostLandingTokenScopes(repositoryID int64, workspaceID string) string {
 		middleware.LandingWorkspaceScope(workspaceID)}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
 }
 
+// boxHostCacheTokenName names the build-cache read credential of one box
+// coding host, minted and revoked with its landing credential.
+func boxHostCacheTokenName(hostID string) string { return "flow-host-cache-" + hostID }
+
+// boxHostCacheTokenScopes lets the coding host's checks read the repository's
+// remote target cache and nothing else. It never publishes: it is a
+// system-issued credential, which BuildCacheAccess never classifies as a
+// writer, and it lacks write:repository besides. It is a separate credential
+// from the landing one because checks run the change's unreviewed code, which
+// must not hold a credential that can land. The inert workspace entry lets a
+// box's stop revoke it.
+func boxHostCacheTokenScopes(repositoryID int64, workspaceID string) string {
+	return strings.Join([]string{string(middleware.ScopeReadRepository), middleware.RepositoryRestrictionScope(repositoryID),
+		middleware.LandingWorkspaceScope(workspaceID)}, ",")
+}
+
+// boxHostTokenName reports whether a token is one a box coding host holds.
+func boxHostTokenName(name string) bool {
+	return strings.HasPrefix(name, boxHostLandingTokenName("")) || strings.HasPrefix(name, boxHostCacheTokenName(""))
+}
+
 type boxHostQuerier interface {
 	accessTokenStore
 	providerPoolTokenLister
 	HasWritableWorkspaceShares(context.Context, string) (bool, error)
+	GetRepoByID(context.Context, int64) (db.Repository, error)
+	GetUserByID(context.Context, int64) (db.User, error)
+	GetOrgByID(context.Context, int64) (db.Organization, error)
 }
 
 var _ boxHostQuerier = (*db.Queries)(nil)
@@ -56,7 +81,9 @@ var _ boxHostQuerier = (*db.Queries)(nil)
 // (#2198): the box's agent environment, and, on an unshared box, the
 // repository-scoped landing credential that coding/vibe and the
 // repository-job callbacks use, after restoring the source publisher and the
-// root-owned landing binding (/etc/smithers/workspace-coding.json) it needs.
+// root-owned landing binding (/etc/smithers/workspace-coding.json) it needs,
+// plus SMITHERS_CACHE_URL and a read-only SMITHERS_CACHE_TOKEN for the
+// repository's remote target cache, which the host forwards to its checks.
 // A runtime without that binding (a self-host process or microVM runtime)
 // answers none. A box with write shares gets no credential: a guest with the
 // owner's UID could read it.
@@ -84,13 +111,29 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	if _, err = s.ensureWorkspaceHeadReporter(ctx, workspace); err != nil {
 		return nil, err
 	}
+	repository, err := q.GetRepoByID(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	owner, err := repositoryOwnerName(ctx, q, repository)
+	if err != nil {
+		return nil, err
+	}
 	s.RetireBoxHostCredential(ctx, hostID, userID)
 	token, err := issueTemporaryRepoTokenWithTTL(ctx, q, userID, boxHostLandingTokenName(hostID),
 		boxHostLandingTokenScopes(repositoryID, workspace.ID), boxHostLandingTokenTTL)
 	if err != nil {
 		return nil, err
 	}
+	cache, err := issueTemporaryRepoTokenWithTTL(ctx, q, userID, boxHostCacheTokenName(hostID),
+		boxHostCacheTokenScopes(repositoryID, workspace.ID), boxHostLandingTokenTTL)
+	if err != nil {
+		revokeTemporaryRepoCloneToken(ctx, q, userID, token.ID)
+		return nil, err
+	}
 	environment["SMITHERS_JJHUB_TOKEN"], environment["SMITHERS_JJHUB_API_URL"] = token.Plaintext, base+"/api"
+	environment["SMITHERS_CACHE_TOKEN"] = cache.Plaintext
+	environment["SMITHERS_CACHE_URL"] = base + "/api/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repository.Name) + "/build-cache"
 	return environment, nil
 }
 
@@ -125,8 +168,8 @@ func boxHostAgentVariable(name string) bool {
 	return agentEnvironmentNamePattern.MatchString(name) && flowhost.RepositoryVariable(name)
 }
 
-// RetireBoxHostCredential revokes a box coding host's landing credential when
-// the host stops, is replaced, or fails to start.
+// RetireBoxHostCredential revokes a box coding host's landing and cache
+// credentials when the host stops, is replaced, or fails to start.
 func (s *WorkspaceService) RetireBoxHostCredential(ctx context.Context, hostID string, userID int64) {
 	q, ok := s.q.(boxHostQuerier)
 	if !ok || userID <= 0 {
@@ -138,7 +181,7 @@ func (s *WorkspaceService) RetireBoxHostCredential(ctx context.Context, hostID s
 		return
 	}
 	for _, token := range tokens {
-		if token.Name == boxHostLandingTokenName(hostID) {
+		if token.Name == boxHostLandingTokenName(hostID) || token.Name == boxHostCacheTokenName(hostID) {
 			revokeTemporaryRepoCloneToken(ctx, q, userID, token.ID)
 		}
 	}
@@ -180,7 +223,7 @@ func (s *WorkspaceService) RestartLostBox(ctx context.Context, workspaceID strin
 	return err
 }
 
-// retireBoxHostCredentials revokes every landing credential minted for a
+// retireBoxHostCredentials revokes every credential minted for a
 // box's coding hosts when the box stops, suspends or is destroyed: its host
 // process ends with it, and the next start mints its own.
 func (s *WorkspaceService) retireBoxHostCredentials(ctx context.Context, workspace db.Workspace) {
@@ -195,7 +238,7 @@ func (s *WorkspaceService) retireBoxHostCredentials(ctx context.Context, workspa
 	}
 	scope := middleware.LandingWorkspaceScope(workspace.ID)
 	for _, token := range tokens {
-		if strings.HasPrefix(token.Name, boxHostLandingTokenName("")) && slices.Contains(strings.Split(token.Scopes, ","), scope) {
+		if boxHostTokenName(token.Name) && slices.Contains(strings.Split(token.Scopes, ","), scope) {
 			revokeTemporaryRepoCloneToken(ctx, q, workspace.UserID, token.ID)
 		}
 	}

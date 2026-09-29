@@ -9,6 +9,7 @@ import * as Serve from "../../packages/smithers/src/Serve.ts"
 import { packageVersion } from "../../packages/smithers/src/Version.ts"
 import { layer as checkReceiptLayer } from "../repository/check-receipt.ts"
 import { remoteLayer } from "../repository/remote.ts"
+import { consume as consumeCheckEnvironment } from "./check-environment.ts"
 import { share } from "./host-modules.ts"
 import { layer, optionsFromEnv } from "./host.ts"
 import { load as loadLanding } from "./landing-config.ts"
@@ -54,7 +55,8 @@ if (parsed.values.version) {
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY selects the packaged native workspace helper.\n" +
       "Optional SMITHERS_CODING_PLAN_MODEL, SMITHERS_CODING_POC_MODEL and SMITHERS_CODING_WIKI_MODEL select provider:model roles.\n" +
       "The project's \"seats\" map routes roles to aliases (sol, astra, luna, opus, fable, qwen); SMITHERS_CODING_SEATS (JSON) overrides it.\n" +
-      "The provisioned SMITHERS_JJHUB_TOKEN and SMITHERS_JJHUB_API_URL enable coding/vibe; the token is consumed before any tool starts.\n"
+      "The provisioned SMITHERS_JJHUB_TOKEN and SMITHERS_JJHUB_API_URL enable coding/vibe; the token is consumed before any tool starts.\n" +
+      "The provisioned SMITHERS_CACHE_URL and read-only SMITHERS_CACHE_TOKEN reach checks only.\n"
   )
 } else {
   if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "serve") {
@@ -86,6 +88,7 @@ if (parsed.values.version) {
   })
   mkdirSync(stateRoot, { recursive: true, mode: 0o700 })
   const runtimeBridge = await resolveRuntimeBridgeIdentity(process.argv[1]!, process.env)
+  const repositoryProcesses = consumeCheckEnvironment(process.env)
   const options = {
     repositoryPath: root,
     stateRoot,
@@ -103,18 +106,8 @@ if (parsed.values.version) {
     ...(process.env.SMITHERS_CODING_SEATS === undefined
       ? {}
       : { seats: parseSeats(process.env.SMITHERS_CODING_SEATS) }),
-    checkEnvironment: Object.fromEntries([
-      "PATH",
-      "HOME",
-      "HTTP_PROXY",
-      "HTTPS_PROXY",
-      "NO_PROXY",
-      "http_proxy",
-      "https_proxy",
-      "no_proxy",
-      "SSL_CERT_FILE",
-      "NODE_EXTRA_CA_CERTS"
-    ].flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]]]))
+    checkEnvironment: repositoryProcesses.environment,
+    cacheEnvironment: repositoryProcesses.cache
   }
   // The reserved repository credential leaves process.env here, before the
   // host, model seats or any approved shell tool can inherit it.

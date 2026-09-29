@@ -220,6 +220,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-vibe-admission.test.ts"),
     Smithers.file("//flows/test/coding-landing.test.ts"),
     Smithers.file("//flows/test/coding-landing-config.test.ts"),
+    Smithers.file("//flows/test/coding-check-environment.test.ts"),
     Smithers.file("//flows/test/coding-vibe-landing.test.ts"),
     Smithers.file("//flows/test/coding-source-publication.test.ts"),
     Smithers.file("//flows/test/coding-dispatch.test.ts")
@@ -424,12 +425,14 @@ const securityReview = Smithers.SecurityReview({
         "A prompt-injected agent or approved shell tool reads SMITHERS_JJHUB_TOKEN or the gateway credential and acts as the workspace on its repository.",
       lookFor: [
         "SMITHERS_JJHUB_TOKEN read from process.env anywhere other than coding/landing-config.ts, or read before it is deleted there.",
-        "A spawned process or check environment built from process.env instead of the PATH/HOME/proxy allowlist in coding/serve.ts.",
+        "A spawned process or check environment built from process.env instead of the PATH/HOME/proxy allowlist in coding/check-environment.ts.",
+        "SMITHERS_CACHE_TOKEN or SMITHERS_CACHE_URL left in process.env after coding/check-environment.ts consumes them, or given to anything but repository checks (repositoryCheckEnvironment).",
         "A token or credential passed to a model prompt, a run output, a receipt, an error message, or Redacted.value outside the HTTP bearer header.",
         "invoke/serve.ts rpc or serve paths that print or journal the credential file contents."
       ],
       paths: [
         "coding/serve.ts",
+        "coding/check-environment.ts",
         "coding/landing-config.ts",
         "coding/landing.ts",
         "coding/host.ts",

@@ -69,8 +69,12 @@ not fully bind. A rebased revision therefore replays every cacheable target
 whose content key is unchanged, and runs the rest; there is no separate
 diff-based selection. Bun's package cache lives beside it, so a replayed check
 does not download its dependencies again. This cache is evidence for one
-workspace VM: check code runs as the same user and could write it. Remote
-build-cache credentials are not forwarded to checks.
+workspace VM: check code runs as the same user and could write it. On a Cloud
+box, repository checks (not setup, inspection or reproduction commands) also
+get the box's read-only remote cache credential
+(`SMITHERS_CACHE_URL`, with the token as `SMITHERS_CACHE_TOKEN` and
+`SMITHERS_CACHE_READ_TOKEN`), so they can replay the repository's published
+results; it never publishes, and it is removed from the host's own environment.
 The example requires an explicit host `environment.PATH` containing `node`;
 without a supplied PATH the command must name an absolute executable. Tools
 that need HOME, a package cache or other build settings receive those explicitly.
