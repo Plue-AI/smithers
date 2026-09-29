@@ -1431,3 +1431,149 @@ describe("default caps through the host", () => {
     expect(Host.capNotice(undefined, "r")).toBeUndefined()
   })
 })
+
+describe("Host.run with a box", () => {
+  const placedRun = async (cwd: string, cell: string, box?: Host.Box) => {
+    const host = Host.make({
+      cwd,
+      environment: {},
+      judge: ScriptedJudge.layer,
+      approvals: "all",
+      ...(box ? { box } : {})
+    })
+    const events: Array<AgentEvent.AgentEvent> = []
+    try {
+      const outcome = await host.run({
+        prompt: "place",
+        role: "worker",
+        seat: `replay:${doneReplay(cwd, cell)}`,
+        history: [],
+        onEvent: (event) => events.push(event)
+      }).done
+      return { outcome, events }
+    } finally {
+      await host.dispose()
+    }
+  }
+  const scratch = (prefix: string) => {
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
+    roots.push(directory)
+    return directory
+  }
+  const calls = (events: ReadonlyArray<AgentEvent.AgentEvent>) =>
+    events.flatMap((event) => (event._tag === "cell-call-started" ? [event.call] : []))
+  const settled = (events: ReadonlyArray<AgentEvent.AgentEvent>) =>
+    events.flatMap((event) => (event._tag === "cell-call-settled" ? [event] : []))
+
+  test("runs bash in the box's workdir, writes nothing to cwd, and records the call a local run records", async () => {
+    const cwd = scratch("tui-box-cwd-")
+    const workdir = scratch("tui-box-workdir-")
+    const cell = "const shell = await ctx.call(\"bash\", { command: \"pwd -P && echo placed > placed.txt\" }); " +
+      "ctx.done(shell.stdout.trim())"
+    const placed = await placedRun(cwd, cell, { name: "test-box", workdir, prefix: () => Promise.resolve([]) })
+
+    expect(placed.outcome).toEqual({ _tag: "done", answer: workdir })
+    expect(readFileSync(join(workdir, "placed.txt"), "utf8")).toBe("placed\n")
+    expect(existsSync(join(cwd, "placed.txt"))).toBe(false)
+
+    const local = await placedRun(cwd, cell)
+    expect(local.outcome).toEqual({ _tag: "done", answer: cwd })
+    // The durable call (its identity, input and effects: the key material) is the same wherever it ran.
+    expect(calls(placed.events)).toEqual(calls(local.events))
+    // The laptop tree never moves, so observing it would hand the claim back for another frame.
+    expect(calls(placed.events).length).toBe(1)
+    expect(basis(placed.events)).not.toContain("observed")
+    const shape = (events: ReadonlyArray<AgentEvent.AgentEvent>) =>
+      settled(events).map(({ result, ...rest }) => ({
+        ...rest,
+        result: { ...result, value: { ...(result as { value: object }).value, stdout: "" } }
+      }))
+    expect(shape(placed.events)).toEqual(shape(local.events))
+  })
+
+  test("tells a placed worker the box's workdir and rules, never this tree's, and offers no walking search", async () => {
+    const cwd = scratch("tui-box-context-cwd-")
+    const workdir = scratch("tui-box-context-workdir-")
+    writeFileSync(join(cwd, "AGENTS.md"), "# Local rule\n\n- Only this laptop's tree.\n")
+    writeFileSync(join(workdir, "AGENTS.md"), "# Box rule\n\n- Only the box checkout.\n")
+    const { events } = await placedRun(cwd, "ctx.done(\"ok\")", {
+      name: "test-box",
+      workdir,
+      prefix: () => Promise.resolve([])
+    })
+    const opening = events.find((event) => event._tag === "model-requested" && event.frame === 0)
+    const request = opening?._tag === "model-requested" ? opening.request : undefined
+    const system = request?.system.map((part) => part.text).join("\n") ?? ""
+    expect(system).toContain(`You are a coding agent working in ${workdir}.`)
+    expect(system).toContain("Your filesystem and shell flows run on test-box, not on this machine.")
+    expect(system).not.toContain("Only this laptop's tree.")
+    expect(system).toContain("- Only the box checkout.")
+    expect(system).toContain("\n- bash (irreversible)")
+    expect(system).toContain("\n- read (sealed)")
+    expect(system).not.toMatch(/\n- (grep|glob) \(/)
+  })
+
+  test("an unreachable box fails the call, the turn goes on, and the next call reaches it", async () => {
+    const cwd = scratch("tui-box-fault-cwd-")
+    const workdir = scratch("tui-box-fault-workdir-")
+    const fault = join(workdir, "fault")
+    const prefix = () => {
+      if (!existsSync(fault)) return Promise.resolve([])
+      rmSync(fault)
+      return Promise.reject(new Error("workspace not running"))
+    }
+    const cell = [
+      "await ctx.call(\"bash\", { command: \"touch fault\" })",
+      "const lost = await ctx.call(\"bash\", { command: \"echo lost\" })",
+      "const back = await ctx.call(\"bash\", { command: \"echo back\" })",
+      "ctx.done(back.stdout.trim())"
+    ].join("; ")
+    const { outcome, events } = await placedRun(cwd, cell, { name: "test-box", workdir, prefix })
+
+    expect(outcome).toMatchObject({ _tag: "done", answer: expect.stringContaining("back") })
+    const results = settled(events).slice(0, 3).map((event) => event.result)
+    expect(results.map((result) => result.outcome)).toEqual(["success", "failure", "success"])
+    expect(results[1]).toMatchObject({ code: "flow_failed" })
+  })
+
+  test("a box whose rules read exits non-zero fails the turn rather than running without them", async () => {
+    const cwd = scratch("tui-box-rules-exit-cwd-")
+    const workdir = scratch("tui-box-rules-exit-workdir-")
+    // The session opens (probe, prepare); the rules read's transport then exits 255, as a lost ssh does.
+    let calls = 0
+    const { outcome } = await placedRun(cwd, "ctx.done(\"never\")", {
+      name: "rules-exit-box",
+      workdir,
+      prefix: () => Promise.resolve(++calls <= 2 ? [] : ["/bin/sh", "-c", "exit 255", "lost"])
+    })
+    expect(outcome).toMatchObject({ _tag: "failed" })
+    expect((outcome as { message: string }).message).toContain("rules-exit-box could not read its rules: exit 255")
+  })
+
+  test("a box that cannot read its own rules fails the turn rather than dropping them", async () => {
+    const cwd = scratch("tui-box-rules-cwd-")
+    const workdir = scratch("tui-box-rules-workdir-")
+    // The session opens (probe, prepare); the next command, the rules read, cannot reach the box.
+    let calls = 0
+    const { outcome } = await placedRun(cwd, "ctx.done(\"never\")", {
+      name: "rules-box",
+      workdir,
+      prefix: () => ++calls <= 2 ? Promise.resolve([]) : Promise.reject(new Error("503 from the workspace API"))
+    })
+    expect(outcome).toMatchObject({ _tag: "failed" })
+    expect((outcome as { message: string }).message).toContain(
+      "rules-box could not be reached: 503 from the workspace API"
+    )
+  })
+
+  test("a box that cannot be reached at all fails the turn with the box's name, not a hang", async () => {
+    const cwd = scratch("tui-box-gone-")
+    const { outcome } = await placedRun(cwd, "ctx.done(\"never\")", {
+      name: "gone-box",
+      workdir: "/home/developer/workspace",
+      prefix: () => Promise.reject(new Error("403 forbidden"))
+    })
+    expect(outcome).toMatchObject({ _tag: "failed" })
+    expect((outcome as { message: string }).message).toContain("gone-box could not be reached: 403 forbidden")
+  })
+})

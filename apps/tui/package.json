@@ -33,6 +33,7 @@
     "@smthrs/plan": "workspace:*",
     "@smthrs/registry": "workspace:*",
     "@smthrs/rpc": "workspace:*",
+    "@smthrs/sandbox": "workspace:*",
     "@smthrs/std": "workspace:*",
     "diff": "9.0.0",
     "effect": "4.0.0-rc.115",

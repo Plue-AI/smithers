@@ -51,6 +51,7 @@ import { realpathSync } from "node:fs"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import type * as Agents from "./agents.ts"
 import * as Approvals from "./approvals.ts"
+import * as Box from "./box.ts"
 import * as Changes from "./changes.ts"
 import * as Context from "./context.ts"
 import { delegateModels, detect, routing, workerFallbackSeats } from "./models.ts"
@@ -61,6 +62,8 @@ import * as Runtime from "./runtime.ts"
 import * as Session from "./session.ts"
 import * as Subprocess from "./subprocess.ts"
 import * as Transcript from "./transcript.ts"
+
+export type { Box } from "./box.ts"
 
 /** How a turn ended. */
 export type Outcome =
@@ -252,6 +255,8 @@ export const make = (options: {
   readonly ledger?: Budget.Ledger
   /** Test seam for the seat resolver; the native one when absent. */
   readonly seats?: Layer.Layer<SeatResolver.SeatResolver>
+  /** Where a worker's filesystem and shell flows run; this machine when absent. */
+  readonly box?: Box.Box
 }): Host => {
   const approvalMode = options.approvals ?? "ask"
   const env = options.environment
@@ -553,7 +558,11 @@ export const make = (options: {
         : []
       const agent = yield* Agent.Agent
       const engine = yield* FlowRuntime.FlowRuntime
-      const services = yield* Effect.context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>()
+      const box = input.role === "coordinator" ? undefined : options.box
+      const services = box === undefined
+        ? yield* Effect.context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>()
+        // The host id keeps two TUIs with the same pid, as in two containers, apart on one box.
+        : yield* Layer.build(Box.layer(box, `${hostId}-${session}`))
       const grants = yield* GrantStore.GrantStore
       const flow = turnFlow(index)
       const settled = Deferred.makeUnsafe<string, unknown>()
@@ -568,14 +577,16 @@ export const make = (options: {
       const turn = turnOptions(
         // A coordinator's delegation without a model is routed at launch.
         catalog === undefined ? input : { ...input, workerSeat: Seat.auto },
-        options.cwd,
+        // A placed worker's paths are the box's; this tree's jj rule and files say nothing about it.
+        box?.workdir ?? options.cwd,
         input.role === "coordinator"
           ? []
           : workerSources(
             services,
             yield* Effect.context<Evaluator.Evaluator>(),
             options.cwd,
-            input.onPatch ?? (() => {})
+            input.onPatch ?? (() => {}),
+            box !== undefined
           )
       )
       const body = agent.run({
@@ -588,9 +599,10 @@ export const make = (options: {
           }
           : { capacity: { park: false } }),
         prompt: input.prompt,
-        system: [...turn.system, ...variant],
+        system: [...turn.system, ...(box === undefined ? [] : [Box.teaching(box)]), ...variant],
         // The coordinator is never judged, so it is shown every file whole.
-        instructions: Context.instructions(options.cwd),
+        // A placed worker follows the box checkout's rules, never this tree's.
+        instructions: box === undefined ? Context.instructions(options.cwd) : yield* Box.instructions(services, box),
         pinnedSources: turn.pinnedSources,
         ...(turn.reasoningEffort === undefined
           ? {}
@@ -645,7 +657,8 @@ export const make = (options: {
         // The coordinator has no filesystem or shell flow, so nothing it runs
         // moves the tree. Measuring anyway walked the checkout twice a turn:
         // a one-line `ctx.done()` answer showed 8 s late in this repository.
-        (effect) => (input.role === "coordinator" ? unobserved(effect) : effect)
+        // A box's tree is not this one: measuring the local tree would call every placed edit a no-op.
+        (effect) => (input.role === "coordinator" || box !== undefined ? unobserved(effect) : effect)
       )
       const scope = yield* Effect.scope
       yield* engine.register(flow, () =>
@@ -709,27 +722,33 @@ export const make = (options: {
 /**
  * A worker's standard catalog: filesystem and shell, each capturing its
  * patches, then `jev` when the host has a judge. Without one `jev` is absent,
- * never a flow that refuses.
+ * never a flow that refuses. `placed` services are another machine's: the
+ * local tree does not move, so nothing is captured for undo.
  */
 export const workerSources = (
   services: ServiceContext.Context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>,
   judge: ServiceContext.Context<Evaluator.Evaluator> | undefined,
   cwd: string,
-  onPatch: (receipt: Changes.Receipt) => void
-): ReadonlyArray<FlowBinding.Source> => [
-  // `rg` searches this repository in seconds; the in-process walk took
-  // longer than grep's 120 s ceiling. It stays the fallback without rg.
-  Changes.capture(
-    StandardFlows.filesystem(
-      services,
-      Subprocess.which("rg", process.env) === null ? undefined : NativeSearch.make(services)
-    ),
-    cwd,
-    onPatch
-  ),
-  Changes.capture(StandardFlows.shell(services), cwd, onPatch),
-  ...(judge === undefined ? [] : [StandardFlows.jev(judge)])
-]
+  onPatch: (receipt: Changes.Receipt) => void,
+  placed = false
+): ReadonlyArray<FlowBinding.Source> => {
+  const capture = (source: FlowBinding.Source) => placed ? source : Changes.capture(source, cwd, onPatch)
+  return [
+    // `rg` searches this repository in seconds; the in-process walk took
+    // longer than grep's 120 s ceiling. It stays the fallback without rg.
+    // Both search flows walk the tree one file operation at a time, which on
+    // a box is one SSH connection each, so a placed worker runs `rg` in
+    // `bash` instead: one command on the box.
+    placed
+      ? without(StandardFlows.filesystem(services), ["grep", "glob"])
+      : capture(StandardFlows.filesystem(
+        services,
+        Subprocess.which("rg", process.env) === null ? undefined : NativeSearch.make(services)
+      )),
+    capture(StandardFlows.shell(services)),
+    ...(judge === undefined ? [] : [StandardFlows.jev(judge)])
+  ]
+}
 
 /** Keeps ordinary calls bounded while a worker can wait for children across resets. */
 const boundedCalls = (source: FlowBinding.Source, callMs: number): FlowBinding.Source => ({
@@ -803,6 +822,13 @@ export const turnOptions = (
     ...(reasoningEffort === undefined ? {} : { reasoningEffort })
   }
 }
+
+/** `source` without the flows `names` lists. */
+const without = (source: FlowBinding.Source, names: ReadonlyArray<string>): FlowBinding.Source => ({
+  name: source.name,
+  bindings: () =>
+    Effect.map(source.bindings(), (bindings) => bindings.filter((binding) => !names.includes(binding.descriptor.name)))
+})
 
 /** `source` with only the flows `allowed` names. */
 const only = (source: FlowBinding.Source, allowed: ReadonlySet<string>): FlowBinding.Source => ({
