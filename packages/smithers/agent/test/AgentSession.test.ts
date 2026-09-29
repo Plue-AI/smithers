@@ -735,7 +735,7 @@ const textOf = (request: ModelRequest.ModelRequest): string =>
     .join("\n")
 
 describe("AgentSession", () => {
-  it("claim-demanded journal row carries usage", () => {
+  it.each([false, true])("claim-demanded journal row carries usage and refused=%s", (refused) => {
     const usage = { inputTokens: 321, outputTokens: 17 }
     const event = {
       _tag: "claim-demanded",
@@ -744,13 +744,14 @@ describe("AgentSession", () => {
       invented: 0.2,
       latencyMs: 12,
       usage,
-      demanded: true,
+      demanded: !refused,
+      refused,
       currentDigest: "digest",
       nextFrame: 2
     } as Parameters<typeof AgentSession.trace>[0]
     expect(AgentSession.trace(event)).toMatchObject({
       eventType: "control.agent.claim-demanded",
-      payload: { usage }
+      payload: { usage, demanded: !refused, refused }
     })
   })
 
