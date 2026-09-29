@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 func TestNewBillingComposition_UnlimitedHasNoCommerceSurface(t *testing.T) {
@@ -67,6 +69,20 @@ func TestUnlimitedBillingPolicy_CommitsExactlyTheProductMutation(t *testing.T) {
 		},
 	)
 	assert.ErrorIs(t, err, want)
+	assert.Equal(t, 1, calls)
+}
+
+func TestUnlimitedBillingPolicy_AgentRunCommitExactlyOnce(t *testing.T) {
+	policy := NewUnlimitedBillingPolicy()
+	assert.Error(t, policy.AuthorizeAgentRunCommitted(t.Context(), 1, nil))
+	want := errors.New("run insert failed")
+	calls := 0
+	err := policy.AuthorizeAgentRunCommitted(t.Context(), 1, func(_ context.Context, conn db.DBTX) error {
+		calls++
+		assert.Nil(t, conn)
+		return want
+	})
+	require.ErrorIs(t, err, want)
 	assert.Equal(t, 1, calls)
 }
 

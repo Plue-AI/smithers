@@ -102,7 +102,9 @@ func (*releaseReservationBilling) AuthorizePrivateRepo(context.Context, string, 
 func (*releaseReservationBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
 	return nil
 }
-func (*releaseReservationBilling) AuthorizeAgentRun(context.Context, int64) error { return nil }
+func (*releaseReservationBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
+}
 func (*releaseReservationBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }

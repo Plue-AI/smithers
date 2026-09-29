@@ -26,8 +26,11 @@ func (b *agentDispatchCovBilling) AuthorizeWorkflowDispatch(context.Context, int
 	return nil
 }
 
-func (b *agentDispatchCovBilling) AuthorizeAgentRun(context.Context, int64) error {
-	return b.err
+func (b *agentDispatchCovBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	if b.err != nil {
+		return b.err
+	}
+	return commit(ctx, nil)
 }
 
 func (b *agentDispatchCovBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
@@ -52,10 +55,19 @@ func TestAgentDispatch_Cov_AuthorizeTokenAndStepBranches(t *testing.T) {
 
 	dispatch.svc.sandbox = &mockSandboxVMClient{}
 	dispatch.svc.billing = &agentDispatchCovBilling{err: assert.AnError}
-	err = dispatch.authorize()
-	require.ErrorIs(t, err, assert.AnError)
-	dispatch.svc.billing = &agentDispatchCovBilling{}
 	require.NoError(t, dispatch.authorize())
+	var created int
+	dispatch.svc.dispatchQ = &mockAgentDispatchQuerier{createWorkflowRunFn: func(_ context.Context, arg db.CreateWorkflowRunParams) (db.WorkflowRun, error) {
+		created++
+		return db.WorkflowRun{ID: 10, RepositoryID: arg.RepositoryID}, nil
+	}}
+	dispatch.wfDef = db.WorkflowDefinition{ID: 7}
+	err = dispatch.createWorkflowRun()
+	require.ErrorIs(t, err, assert.AnError)
+	assert.Zero(t, created, "billing denial must stop the consuming write")
+	dispatch.svc.billing = &agentDispatchCovBilling{}
+	require.NoError(t, dispatch.createWorkflowRun())
+	assert.Equal(t, 1, created)
 
 	assert.Equal(t, "smithers", normalizeAgentProvider(""))
 	assert.Equal(t, "smithers", normalizeAgentProvider(" Smithers "))

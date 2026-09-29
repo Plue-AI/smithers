@@ -68,6 +68,7 @@ type mockWorkspaceQuerier struct {
 	countActiveSessionsForWorkspaceFn      func(ctx context.Context, workspaceID string) (int64, error)
 	countActiveSessionsForUserFn           func(ctx context.Context, userID int64) (int64, error)
 	listIdleWorkspacesFn                   func(ctx context.Context) ([]db.Workspace, error)
+	listRunningWorkspacesFn                func(ctx context.Context) ([]db.Workspace, error)
 	listStalePendingWorkspacesFn           func(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error)
 	createWorkspaceSnapshotFn              func(ctx context.Context, arg db.CreateWorkspaceSnapshotParams) (db.WorkspaceSnapshot, error)
 	getWorkspaceSnapshotFn                 func(ctx context.Context, id string) (db.WorkspaceSnapshot, error)
@@ -322,6 +323,13 @@ func (m *mockWorkspaceQuerier) CountActiveSessionsForUser(ctx context.Context, u
 func (m *mockWorkspaceQuerier) ListIdleWorkspaces(ctx context.Context) ([]db.Workspace, error) {
 	if m.listIdleWorkspacesFn != nil {
 		return m.listIdleWorkspacesFn(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockWorkspaceQuerier) ListRunningWorkspaces(ctx context.Context) ([]db.Workspace, error) {
+	if m.listRunningWorkspacesFn != nil {
+		return m.listRunningWorkspacesFn(ctx)
 	}
 	return nil, nil
 }

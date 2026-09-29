@@ -50,7 +50,7 @@ const (
 	billingAdvisoryLockReleaseTimeout = 5 * time.Second
 
 	// storageAuthorizationLockSQL is the shared per-owner quota lock. It
-	// serializes storage writers, private-repository consumers, and inbound
+	// serializes storage writers, repository and agent-run admission, and inbound
 	// transfers so each check observes the prior consuming commit. The id
 	// parameter is typed bigint and cast to text inside the statement: writing
 	// it as $2::text would make Postgres infer a text parameter, which pgx cannot
@@ -63,7 +63,7 @@ type BillingPolicy interface {
 	SandboxEntitlement(ctx context.Context, userID int64) (SandboxEntitlement, error)
 	AuthorizePrivateRepo(ctx context.Context, ownerType string, ownerID int64) error
 	AuthorizeWorkflowDispatch(ctx context.Context, repositoryID int64) error
-	AuthorizeAgentRun(ctx context.Context, repositoryID int64) error
+	AuthorizeAgentRunCommitted(ctx context.Context, repositoryID int64, commit func(context.Context, db.DBTX) error) error
 	AuthorizeStorageIncrease(ctx context.Context, repositoryID int64, additionalBytes int64) error
 	// AuthorizePairing gates a user's participation in a Smithers Pair session
 	// at create and join/invite-accept ONLY (amendment B: live members are
@@ -1041,16 +1041,85 @@ func (s *BillingService) AuthorizeWorkflowDispatch(ctx context.Context, reposito
 	return s.enforceMetricLimit(plan.Limits.CIMinutes, usage[BillingMetricCIMinutes], "CI minutes")
 }
 
-func (s *BillingService) AuthorizeAgentRun(ctx context.Context, repositoryID int64) error {
+// AuthorizeAgentRunCommitted reserves an agent run while holding the owner's
+// quota lock. The callback must insert using the supplied transaction; its write
+// and the admission check commit together. Queued runs reserve capacity until
+// they finish, while infrastructure failures that never started release it.
+// Metered admission requires a transaction-capable store; unlimited policies
+// may pass a nil connection to use the caller's ordinary query handle.
+func (s *BillingService) AuthorizeAgentRunCommitted(ctx context.Context, repositoryID int64, commit func(context.Context, db.DBTX) error) error {
+	if commit == nil {
+		return pkgerrors.Internal("agent run commit is required")
+	}
+	txq, ok := s.queries.(billingTxQuerier)
+	if !ok {
+		return pkgerrors.Internal("agent run transactions unavailable")
+	}
+	tx, err := txq.BeginTx(ctx)
+	if err != nil {
+		return pkgerrors.Internal("failed to begin agent run authorization transaction").WithCause(err)
+	}
+	defer releaseBillingAdvisoryLockTransaction(ctx, tx, "agent run authorization")
+	// Keep transfers from changing the quota owner between the check and insert.
+	if _, err := tx.Exec(ctx, repoOwnershipSharedLockSQL, repositoryID); err != nil {
+		return pkgerrors.Internal("failed to lock repository ownership").WithCause(err)
+	}
+	txService, err := s.inTransaction(tx)
+	if err != nil {
+		return pkgerrors.Internal("failed to bind agent run transaction").WithCause(err)
+	}
+	owner, _, err := txService.resolveRepoOwner(ctx, repositoryID)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, storageAuthorizationLockSQL, owner.OwnerType, owner.OwnerID); err != nil {
+		return pkgerrors.Internal("failed to lock agent run usage").WithCause(err)
+	}
+	// workflow_runs.created_at defaults to the transaction's timestamp. Use
+	// that same clock for the quota window even if the lock wait crosses into
+	// another UTC month (or the application and database clocks differ).
+	var admittedAt time.Time
+	if err := tx.QueryRow(ctx, "SELECT CURRENT_TIMESTAMP").Scan(&admittedAt); err != nil {
+		return pkgerrors.Internal("failed to read agent run admission time").WithCause(err)
+	}
+	txService.now = func() time.Time { return admittedAt }
+	if err := txService.authorizeAgentRunAdmission(ctx, repositoryID); err != nil {
+		return err
+	}
+	if err := commit(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return pkgerrors.Internal("failed to commit agent run admission").WithCause(err)
+	}
+	return nil
+}
+
+func (s *BillingService) authorizeAgentRunAdmission(ctx context.Context, repositoryID int64) error {
 	owner, _, err := s.resolveRepoOwner(ctx, repositoryID)
 	if err != nil {
 		return err
 	}
-	plan, usage, _, _, err := s.resolveLocalState(ctx, owner)
+	plan, err := s.resolvePlan(ctx, owner)
 	if err != nil {
 		return err
 	}
-	return s.enforceMetricLimit(plan.Limits.AgentRuns, usage[BillingMetricAgentRuns], "agent runs")
+	periodStart, periodEnd := billingPeriodWindow(s.now())
+	admissions, err := s.queries.CountAgentRunAdmissionsByOwner(ctx, db.CountAgentRunAdmissionsByOwnerParams{
+		OwnerType: owner.OwnerType, OwnerID: owner.OwnerID,
+		PeriodStart: periodStart, PeriodEnd: periodEnd,
+	})
+	if err != nil {
+		return pkgerrors.Internal("failed to count agent run admissions").WithCause(err)
+	}
+	if plan.Limits.AgentRuns < unlimitedBillingQuantity && admissions >= plan.Limits.AgentRuns {
+		err := pkgerrors.New(pkgerrors.CodePlanLimitExceeded, "agent runs quota exceeded for the current billing plan")
+		limit, remaining := int(plan.Limits.AgentRuns), 0
+		err.PlanKey, err.LimitKind = plan.Key, BillingMetricAgentRuns
+		err.Limit, err.Remaining, err.ResetAt = &limit, &remaining, &periodEnd
+		return err
+	}
+	return nil
 }
 
 func (s *BillingService) AuthorizeStorageIncrease(ctx context.Context, repositoryID int64, additionalBytes int64) error {

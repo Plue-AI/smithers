@@ -318,12 +318,14 @@ func TestPerUserConcurrentWorkflowRuns_DefaultsToFive(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 }
 
-func TestPerUserConcurrentSandboxes_FailOpenOnCounterError(t *testing.T) {
+func TestPerUserConcurrentSandboxes_FailClosedOnCounterError(t *testing.T) {
 	t.Parallel()
 
 	counter := &stubSandboxCounter{count: 99, err: errors.New("db down")}
 	mw := PerUserConcurrentSandboxes(counter, 3)
+	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	req := httptest.NewRequest(http.MethodPost, "/api/sandboxes", nil)
@@ -333,9 +335,10 @@ func TestPerUserConcurrentSandboxes_FailOpenOnCounterError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	before := promtestutil.ToFloat64(QuotaCounterErrors.WithLabelValues("concurrent_sandboxes"))
 	handler.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusNoContent, rec.Code, "should fail open on counter error")
+	require.Equal(t, http.StatusInternalServerError, rec.Code, "counter error must refuse new sandbox admission")
+	assert.False(t, called, "the protected handler must not run after a failed count")
 	require.Equal(t, before+1, promtestutil.ToFloat64(QuotaCounterErrors.WithLabelValues("concurrent_sandboxes")),
-		"a fail-open counter error must be counted so a disabled cap is visible")
+		"a counter error must be counted so admission failures are visible")
 }
 
 func TestPerUserCap_AnonymousRequestsPassThrough(t *testing.T) {

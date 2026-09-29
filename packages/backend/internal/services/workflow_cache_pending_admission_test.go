@@ -144,7 +144,9 @@ func (*serializedWorkflowCacheBilling) AuthorizePrivateRepo(context.Context, str
 func (*serializedWorkflowCacheBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
 	return nil
 }
-func (*serializedWorkflowCacheBilling) AuthorizeAgentRun(context.Context, int64) error { return nil }
+func (*serializedWorkflowCacheBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
+}
 func (*serializedWorkflowCacheBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }

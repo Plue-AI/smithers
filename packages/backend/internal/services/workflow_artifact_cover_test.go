@@ -33,8 +33,8 @@ func (b *workflowArtifactCovBilling) AuthorizeWorkflowDispatch(context.Context, 
 	return nil
 }
 
-func (b *workflowArtifactCovBilling) AuthorizeAgentRun(context.Context, int64) error {
-	return nil
+func (b *workflowArtifactCovBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
 }
 
 func (b *workflowArtifactCovBilling) AuthorizeStorageIncrease(_ context.Context, repositoryID int64, additionalBytes int64) error {

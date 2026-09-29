@@ -58,7 +58,9 @@ func (*dynamicLFSBillingPolicy) AuthorizePrivateRepo(context.Context, string, in
 	return nil
 }
 func (*dynamicLFSBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error { return nil }
-func (*dynamicLFSBillingPolicy) AuthorizeAgentRun(context.Context, int64) error         { return nil }
+func (*dynamicLFSBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
+}
 func (p *dynamicLFSBillingPolicy) AuthorizeStorageIncrease(_ context.Context, _ int64, additionalBytes int64) error {
 	p.preflightDeltas = append(p.preflightDeltas, additionalBytes)
 	return p.authorizeErr

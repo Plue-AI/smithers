@@ -516,6 +516,7 @@ type WorkspaceQuerier interface {
 	UpdateWorkspaceTargetBookmark(ctx context.Context, arg db.UpdateWorkspaceTargetBookmarkParams) (db.Workspace, error)
 	CountActiveSessionsForWorkspace(ctx context.Context, workspaceID string) (int64, error)
 	ListIdleWorkspaces(ctx context.Context) ([]db.Workspace, error)
+	ListRunningWorkspaces(ctx context.Context) ([]db.Workspace, error)
 	ListStalePendingWorkspaces(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error)
 	ListStaleStartingWorkspacesWithVM(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error)
 	FailStaleStartingWorkspace(ctx context.Context, arg db.FailStaleStartingWorkspaceParams) (db.Workspace, error)

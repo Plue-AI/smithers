@@ -225,7 +225,7 @@ func TestBilling_H_PublicEntryGuardsAndPolicyErrors(t *testing.T) {
 	authSvc := billingHService(authQueries, nil)
 	err = authSvc.AuthorizeWorkflowDispatch(ctx, 404)
 	assert.Equal(t, 404, httpStatus(err))
-	err = authSvc.AuthorizeAgentRun(ctx, 404)
+	err = authSvc.authorizeAgentRunAdmission(ctx, 404)
 	assert.Equal(t, 404, httpStatus(err))
 
 	billingHSeedUserRepo(authQueries, 10, 42)
@@ -234,7 +234,10 @@ func TestBilling_H_PublicEntryGuardsAndPolicyErrors(t *testing.T) {
 	}
 	err = authSvc.AuthorizeWorkflowDispatch(ctx, 10)
 	assert.Equal(t, 500, httpStatus(err))
-	err = authSvc.AuthorizeAgentRun(ctx, 10)
+	authQueries.countAgentRunAdmissionsByOwnerFn = func(context.Context, db.CountAgentRunAdmissionsByOwnerParams) (int64, error) {
+		return 0, errors.New("admission count failed")
+	}
+	err = authSvc.authorizeAgentRunAdmission(ctx, 10)
 	assert.Equal(t, 500, httpStatus(err))
 
 	err = billingHService(billingHNewQuerier(), nil).AuthorizeStorageIncrease(ctx, 404, 1)

@@ -2547,8 +2547,10 @@ func (s *stubBillingPolicy) AuthorizePrivateRepo(ctx context.Context, ownerType 
 	return nil
 }
 
-func (s *stubBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error       { return nil }
-func (s *stubBillingPolicy) AuthorizeAgentRun(context.Context, int64) error               { return nil }
+func (s *stubBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error { return nil }
+func (s *stubBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
+}
 func (s *stubBillingPolicy) AuthorizeStorageIncrease(context.Context, int64, int64) error { return nil }
 func (s *stubBillingPolicy) AuthorizePairing(context.Context, int64) error                { return nil }
 

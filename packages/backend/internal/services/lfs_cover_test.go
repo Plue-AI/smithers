@@ -31,8 +31,8 @@ func (p *lfsCovBillingPolicy) AuthorizePrivateRepo(context.Context, string, int6
 func (p *lfsCovBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error {
 	return nil
 }
-func (p *lfsCovBillingPolicy) AuthorizeAgentRun(context.Context, int64) error {
-	return nil
+func (p *lfsCovBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
 }
 func (p *lfsCovBillingPolicy) AuthorizeStorageIncrease(_ context.Context, _ int64, additionalBytes int64) error {
 	p.storageCalls++

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -300,6 +301,48 @@ func (s *WorkspaceService) CleanupIdleWorkspaces(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// CleanupOverQuotaWorkspaces suspends running workspaces after their owner has
+// exhausted today's sandbox hours, regardless of workspace or session activity.
+func (s *WorkspaceService) CleanupOverQuotaWorkspaces(ctx context.Context) error {
+	if s.q == nil || s.billing == nil {
+		return nil
+	}
+	workspaces, err := s.q.ListRunningWorkspaces(ctx)
+	if err != nil {
+		return fmt.Errorf("list running workspaces: %w", err)
+	}
+
+	// Resolve each owner's plan and metering once per pass. A failed read leaves
+	// that owner's workspaces running; returning the error lets the cleaner count
+	// the failure and retry on its next tick.
+	exhausted := make(map[int64]bool)
+	var errs []error
+	for _, workspace := range workspaces {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(errs, err)...)
+		}
+		overQuota, checked := exhausted[workspace.UserID]
+		if !checked {
+			entitlement, err := sandboxEntitlementForUser(ctx, s.billing, workspace.UserID)
+			if err != nil {
+				slog.Warn("sandbox hours check failed", "user_id", workspace.UserID, "error", err)
+				errs = append(errs, fmt.Errorf("sandbox hours for user %d: %w", workspace.UserID, err))
+			} else {
+				overQuota = sandboxDailyHoursExhausted(entitlement)
+			}
+			exhausted[workspace.UserID] = overQuota
+		}
+		if !overQuota {
+			continue
+		}
+		if err := s.suspendWorkspace(ctx, workspace); err != nil {
+			slog.Warn("over-quota workspace suspend failed", "workspace_id", workspace.ID, "user_id", workspace.UserID, "error", err)
+			errs = append(errs, fmt.Errorf("suspend over-quota workspace %s: %w", workspace.ID, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // CleanupStalePendingWorkspaces marks stale pending/starting workspaces without a VM as failed.

@@ -86,6 +86,9 @@ type agentDispatch struct {
 	// has already been called for this dispatch, to prevent double-calling during
 	// cleanup() after a step that already called markInfraFailed.
 	infraFailedMarked bool
+	// A failed admission COMMIT may still have persisted the run and session
+	// link. Cleanup must fail that run without mutating a later session retry.
+	runAdmissionUncertain bool
 }
 
 // agentTaskPayload is the JSON structure persisted in workflow_tasks.payload for agent runs.
@@ -120,7 +123,6 @@ func (d *agentDispatch) execute() (DispatchAgentRunResult, error) {
 		d.storeTokenHash,
 		d.loadMessageHistory,
 		d.createWorkflowTask,
-		d.linkSessionToWorkflowRun,
 		d.admitCodingTurn,
 		d.refuseRetiredAgentLoop,
 		d.prepareRepoClone,
@@ -205,7 +207,11 @@ func (d *agentDispatch) cleanup() {
 	// (prepareRepoClone onward) where a failure would otherwise leave DB rows
 	// in a stale "queued" or "pending" state.
 	if d.run.ID != 0 && !d.infraFailedMarked {
-		d.svc.markAgentDispatchInfrastructureFailed(ctx, d.task.ID, d.step.ID, d.run.ID, d.input.SessionID, "dispatch failed")
+		sessionID := d.input.SessionID
+		if d.runAdmissionUncertain {
+			sessionID = ""
+		}
+		d.svc.markAgentDispatchInfrastructureFailed(ctx, d.task.ID, d.step.ID, d.run.ID, sessionID, "dispatch failed")
 	}
 	if d.flowOperationID != "" {
 		d.cancelCodingTurn(ctx)
@@ -307,11 +313,6 @@ func (d *agentDispatch) authorize() error {
 	if totalAllowedPathBytes > 24*1024 {
 		return pkgerrors.BadRequest("allowed_paths exceeds the maximum encoded size")
 	}
-	if d.svc.billing != nil {
-		if err := d.svc.billing.AuthorizeAgentRun(d.ctx, d.input.RepositoryID); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -386,22 +387,58 @@ func (d *agentDispatch) upsertWorkflowDefinition() error {
 }
 
 func (d *agentDispatch) createWorkflowRun() error {
-	run, err := d.svc.dispatchQ.CreateWorkflowRun(d.ctx, db.CreateWorkflowRunParams{
-		RepositoryID:         d.input.RepositoryID,
-		WorkflowDefinitionID: d.wfDef.ID,
-		Status:               "queued",
-		TriggerEvent:         "agent_message",
-		TriggerRef:           "",
-		TriggerCommitSha:     "",
-		// Agent runs are driven end-to-end by this dispatch: the agent plane
-		// keeps both queue consumers (gVisor task runner and sandbox
-		// whole-workflow scheduler) from claiming the run or its task.
-		ExecutionPlane: WorkflowRunPlaneAgent,
-	})
-	if err != nil {
-		return pkgerrors.Internal("create workflow run: " + err.Error())
+	commit := func(ctx context.Context, conn db.DBTX) error {
+		queries := d.svc.dispatchQ
+		if conn != nil {
+			queries = db.New(conn)
+		}
+		run, err := queries.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
+			RepositoryID:         d.input.RepositoryID,
+			WorkflowDefinitionID: d.wfDef.ID,
+			Status:               "queued",
+			TriggerEvent:         "agent_message",
+			TriggerRef:           "",
+			TriggerCommitSha:     "",
+			// Agent runs are driven end-to-end by this dispatch: the agent plane
+			// keeps both queue consumers (gVisor task runner and sandbox
+			// whole-workflow scheduler) from claiming the run or its task.
+			ExecutionPlane: WorkflowRunPlaneAgent,
+		})
+		if err != nil {
+			return pkgerrors.Internal("create workflow run: " + err.Error())
+		}
+		// Claim in the admission transaction so a crash cannot leave an
+		// unlinked monthly reservation. The session reaper can recover a linked
+		// run even when no task was created. The claim also fences concurrent
+		// dispatches that both passed ensureNoActiveRun's unlocked precheck.
+		claimed, err := queries.ClaimAgentSessionForDispatch(ctx, d.input.SessionID, run.ID)
+		if err != nil || !claimed {
+			if conn == nil {
+				// An unlimited policy may use ordinary queries instead of an
+				// admission transaction. Its insert is already durable; fail only
+				// that run, never the session held by the winning dispatch.
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+				d.svc.markAgentDispatchInfrastructureFailed(cleanupCtx, 0, 0, run.ID, "", "session claim failed")
+				cancel()
+			}
+			if err != nil {
+				return pkgerrors.Internal("link session to workflow run: " + err.Error())
+			}
+			return pkgerrors.Conflict("agent session already has an active run")
+		}
+		// Retain the identity before COMMIT: a lost commit acknowledgment must
+		// not make cleanup forget a run that the database already persisted.
+		d.run = run
+		return nil
 	}
-	d.run = run
+	if d.svc.billing != nil {
+		if err := d.svc.billing.AuthorizeAgentRunCommitted(d.ctx, d.input.RepositoryID, commit); err != nil {
+			d.runAdmissionUncertain = d.run.ID != 0
+			return err
+		}
+	} else if err := commit(d.ctx, nil); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -534,26 +571,6 @@ func (d *agentDispatch) createWorkflowTask() error {
 		return pkgerrors.Internal("create workflow task: " + err.Error())
 	}
 	d.task = task
-	return nil
-}
-
-// linkSessionToWorkflowRun atomically claims the session for this run.
-// ensureNoActiveRun is only an unlocked precheck — two concurrent dispatches
-// for one session can both pass it, and an unconditional re-point here would
-// let both provision VMs and 401-lock the losing run's session callbacks. The
-// claim (ClaimAgentSessionForDispatch) locks the session row, re-verifies no
-// live run, re-points workflow_run_id, and resets the session to a
-// dispatchable state (status='active', started_at/finished_at cleared) so a
-// re-dispatched terminal session can transition terminal — and be finalized —
-// again when this run finishes.
-func (d *agentDispatch) linkSessionToWorkflowRun() error {
-	claimed, err := d.svc.dispatchQ.ClaimAgentSessionForDispatch(d.ctx, d.input.SessionID, d.run.ID)
-	if err != nil {
-		return pkgerrors.Internal("link session to workflow run: " + err.Error())
-	}
-	if !claimed {
-		return pkgerrors.Conflict("agent session already has an active run")
-	}
 	return nil
 }
 

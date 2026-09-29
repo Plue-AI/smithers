@@ -144,6 +144,50 @@ func TestListIdleWorkspaces_ExcludesFreshPendingSession(t *testing.T) {
 	assert.Equal(t, workspace.ID, rows[0].ID)
 }
 
+func TestListRunningWorkspaces_IncludesActiveAcrossOwnersOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("db integration test; requires Postgres (set SMITHERS_TEST_DATABASE_URL)")
+	}
+	ctx := context.Background()
+	tx, err := sharedPool.BeginTx(ctx, pgx.TxOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+	q := New(tx)
+	firstOwner := mustCreateUser(t, tx, "hours-cap-first-owner")
+	secondOwner := mustCreateUser(t, tx, "hours-cap-second-owner")
+
+	create := func(owner int64, name, status string, deleted bool) Workspace {
+		repo := mustCreateRepoForUser(t, tx, owner, "hours-cap-"+name)
+		ws, createErr := q.CreateWorkspace(ctx, CreateWorkspaceParams{
+			RepositoryID: repo, UserID: owner, Name: name, Status: status,
+		})
+		require.NoError(t, createErr)
+		if deleted {
+			_, deleteErr := tx.Exec(ctx, `UPDATE workspaces SET deleted_at = NOW() WHERE id = $1`, ws.ID)
+			require.NoError(t, deleteErr)
+		}
+		return ws
+	}
+	active := create(firstOwner, "active", "running", false)
+	otherOwner := create(secondOwner, "other-owner", "running", false)
+	stopped := create(firstOwner, "stopped", "stopped", false)
+	suspended := create(firstOwner, "suspended", "suspended", false)
+	pending := create(firstOwner, "pending", "pending", false)
+	deleted := create(firstOwner, "deleted", "running", true)
+
+	rows, err := q.ListRunningWorkspaces(ctx)
+	require.NoError(t, err)
+	byID := make(map[string]Workspace, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	assert.Equal(t, firstOwner, byID[active.ID].UserID)
+	assert.Equal(t, secondOwner, byID[otherOwner.ID].UserID)
+	for _, absent := range []Workspace{stopped, suspended, pending, deleted} {
+		assert.NotContains(t, byID, absent.ID)
+	}
+}
+
 func TestWorkspaceLastAccessedBackfill_SeedsFromLastActivity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("db integration test; requires Postgres (set SMITHERS_TEST_DATABASE_URL)")

@@ -35,17 +35,41 @@ ORDER BY t.created_at DESC, t.id DESC LIMIT sqlc.arg(row_limit)::int;
 
 
 -- name: ListNeverStartedAgentSessions :many
-SELECT * FROM agent_sessions WHERE status = 'active' AND started_at IS NULL
-AND deleted_at IS NULL AND created_at < sqlc.arg(cutoff)::timestamptz
-ORDER BY created_at, id LIMIT 200;
+-- A re-dispatched session gets a fresh provisioning deadline from its run.
+SELECT s.* FROM agent_sessions s
+LEFT JOIN workflow_runs wr ON wr.id = s.workflow_run_id
+WHERE s.status = 'active' AND s.started_at IS NULL
+AND s.deleted_at IS NULL AND COALESCE(wr.created_at, s.created_at) < sqlc.arg(cutoff)::timestamptz
+ORDER BY COALESCE(wr.created_at, s.created_at), s.id LIMIT 200;
 
 
--- name: FailNeverStartedAgentSession :one
-UPDATE agent_sessions SET status = 'failed', finished_at = now(), updated_at = now(),
-metadata = metadata || '{"failure_reason":"never_started"}'::jsonb
-WHERE id = sqlc.arg(id) AND status = 'active' AND started_at IS NULL
-AND deleted_at IS NULL AND created_at < sqlc.arg(cutoff)::timestamptz
-RETURNING *;
+-- name: FailNeverStartedAgentSessionRaw :one
+-- Release an abandoned admission and its unfinished work atomically with the
+-- session failure; any failed write leaves the session eligible for retry.
+WITH failed_session AS (
+    UPDATE agent_sessions s SET status = 'failed', finished_at = now(), updated_at = now(),
+    metadata = metadata || '{"failure_reason":"never_started"}'::jsonb
+    WHERE s.id = sqlc.arg(id) AND s.status = 'active' AND s.started_at IS NULL
+    AND s.workflow_run_id IS NOT DISTINCT FROM sqlc.narg(workflow_run_id)::bigint
+    AND s.deleted_at IS NULL AND COALESCE(
+        (SELECT wr.created_at FROM workflow_runs wr WHERE wr.id = s.workflow_run_id), s.created_at
+    ) < sqlc.arg(cutoff)::timestamptz
+    RETURNING s.*
+), failed_tasks AS (
+    UPDATE workflow_tasks wt
+    SET status = 'failed', last_error = 'never_started', finished_at = now(), updated_at = now()
+    WHERE wt.workflow_run_id IN (SELECT workflow_run_id FROM failed_session)
+      AND wt.status IN ('pending', 'assigned', 'running')
+), failed_steps AS (
+    UPDATE workflow_steps ws SET status = 'failure', completed_at = now(), updated_at = now()
+    WHERE ws.workflow_run_id IN (SELECT workflow_run_id FROM failed_session)
+      AND ws.status IN ('queued', 'running')
+), failed_run AS (
+    UPDATE workflow_runs wr SET status = 'failure', completed_at = now(), updated_at = now()
+    WHERE wr.id IN (SELECT workflow_run_id FROM failed_session)
+      AND wr.status IN ('queued', 'running')
+)
+SELECT * FROM failed_session;
 
 
 -- name: AdminGetUserForErasure :one

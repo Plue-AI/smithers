@@ -546,7 +546,7 @@ func (s *workflowRunService) createRunForDefinition(
 	// dispatch, push/release/schedule triggers, targeted and broadcast event
 	// dispatch), so enforce the owner's CI-minute cap before inserting the run.
 	// Agent runs are created by agent_dispatch.go, which applies its own
-	// AuthorizeAgentRun gate.
+	// AuthorizeAgentRunCommitted gate.
 	if s.billing != nil {
 		if err := s.billing.AuthorizeWorkflowDispatch(ctx, input.RepositoryID); err != nil {
 			return WorkflowRunResult{}, err

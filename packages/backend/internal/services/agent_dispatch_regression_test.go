@@ -228,21 +228,35 @@ func TestDispatchAgentRun_LongSessionHistoryKeepsNewestMessages(t *testing.T) {
 // UPDATE after an unlocked precheck, so two concurrent dispatches could both
 // pass ensureNoActiveRun, both provision VMs, and race on the re-point. The
 // link is now an atomic claim; a lost claim must abort the dispatch with 409
-// and terminalize the loser's already-created run — before any VM exists.
+// and terminalize only the loser's newly-created taskless run.
 func TestDispatchAgentRun_LostClaimRejectsWithConflict(t *testing.T) {
 	t.Parallel()
 
 	vmCreated := false
-	runFailed := false
+	createdStep := false
+	createdTask := false
+	failedRunID := int64(0)
+	winnerSessionTerminated := false
 	dq := &mockAgentDispatchQuerier{
-		claimAgentSessionForDispatchFn: func(_ context.Context, _ string, _ int64) (bool, error) {
+		claimAgentSessionForDispatchFn: func(_ context.Context, _ string, runID int64) (bool, error) {
+			assert.Equal(t, int64(10), runID)
 			return false, nil // a concurrent dispatch already claimed the session
 		},
-		markWorkflowTaskTerminalByIDFn: func(_ context.Context, arg db.MarkWorkflowTaskTerminalByIDParams) (int64, error) {
-			if arg.Status == "failed" {
-				runFailed = true
-			}
-			return 1, nil
+		createWorkflowStepFn: func(context.Context, db.CreateWorkflowStepParams) (db.WorkflowStep, error) {
+			createdStep = true
+			return db.WorkflowStep{}, nil
+		},
+		createWorkflowTaskFn: func(context.Context, db.CreateWorkflowTaskParams) (db.WorkflowTask, error) {
+			createdTask = true
+			return db.WorkflowTask{}, nil
+		},
+		failWorkflowRunFn: func(_ context.Context, runID int64) error {
+			failedRunID = runID
+			return nil
+		},
+		updateAgentSessionTerminalStatusFn: func(context.Context, db.UpdateAgentSessionTerminalStatusParams) (db.AgentSession, error) {
+			winnerSessionTerminated = true
+			return db.AgentSession{}, nil
 		},
 	}
 	svc := newTestDispatchService(dq, nil)
@@ -263,7 +277,10 @@ func TestDispatchAgentRun_LostClaimRejectsWithConflict(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, 409, apiErr.Status)
 	assert.False(t, vmCreated, "the losing dispatch must never provision a VM")
-	assert.True(t, runFailed, "the losing dispatch's orphaned run/task must be terminalized")
+	assert.False(t, createdStep, "the loser must stop before creating a step")
+	assert.False(t, createdTask, "the loser must stop before creating a task")
+	assert.Equal(t, int64(10), failedRunID, "the loser's taskless run must be terminalized")
+	assert.False(t, winnerSessionTerminated, "the winning session must remain active")
 }
 
 // Regression (issue #112): markInfraFailed ran the terminal DB writes on the

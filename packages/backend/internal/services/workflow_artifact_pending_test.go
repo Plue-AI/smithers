@@ -161,7 +161,9 @@ func (*artifactAdmissionBilling) AuthorizePrivateRepo(context.Context, string, i
 func (*artifactAdmissionBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
 	return nil
 }
-func (*artifactAdmissionBilling) AuthorizeAgentRun(context.Context, int64) error { return nil }
+func (*artifactAdmissionBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
+}
 func (*artifactAdmissionBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }

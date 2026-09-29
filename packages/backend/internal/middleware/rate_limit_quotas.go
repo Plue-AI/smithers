@@ -342,12 +342,12 @@ func PerUserConcurrentWorkflowRuns(counter ConcurrentWorkflowRunCounter, max int
 	}, max, "concurrent_workflow_runs", "concurrent workflow runs limit reached")
 }
 
-// QuotaCounterErrors counts per-user cap checks that failed open because the
-// active-count query errored, by cap scope. compose registers it on the
+// QuotaCounterErrors counts per-user cap checks whose active-count query
+// errored, by cap scope. compose registers it on the
 // Smithers registry.
 var QuotaCounterErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Name: "smithers_quota_counter_errors_total",
-	Help: "Per-user cap checks that failed open because counting active resources failed, by scope.",
+	Help: "Per-user cap checks where counting active resources failed, by scope.",
 }, []string{"scope"})
 
 // PerUserConcurrentSandboxes blocks new sandbox creation once the user
@@ -376,18 +376,21 @@ func userCountCapMiddleware(count func(ctx context.Context, userID int64) (int, 
 			}
 			current, err := count(r.Context(), user.ID)
 			if err != nil {
-				// Fail open on counter errors — this is a safety guard, not a
-				// security boundary, and we'd rather not 500 on a transient
-				// DB blip. Report it: a counter that keeps failing disables
-				// the cap for every user, and that must show in logs and
-				// /metrics.
+				// Sandbox starts must never bypass their cap when the count is
+				// unavailable. Other scopes retain their existing fail-open policy.
 				QuotaCounterErrors.WithLabelValues(scope).Inc()
-				LoggerFromContext(r.Context()).Error("per-user cap counter failed; allowing request",
+				refused := scope == "concurrent_sandboxes"
+				LoggerFromContext(r.Context()).Error("per-user cap counter failed",
 					"scope", scope,
+					"refused", refused,
 					"user_id", user.ID,
 					"request_id", RequestIDFromContext(r.Context()),
 					"error", err,
 				)
+				if refused {
+					errors.WriteError(w, errors.Internal("sandbox quota check unavailable"))
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

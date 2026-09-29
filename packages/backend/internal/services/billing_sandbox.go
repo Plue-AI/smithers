@@ -46,12 +46,13 @@ func (s *BillingService) SandboxEntitlement(ctx context.Context, userID int64) (
 	}, nil
 }
 
-// AuthorizeSandboxStart is the only sandbox-hours authority. It meters awake
+// AuthorizeSandboxStart is the sandbox-hours admission authority. It meters awake
 // runtime per user from sandbox_usage_intervals against the plan's
 // sandbox_hours_per_day, and plan concurrency. Every VM start reaches it:
 // workspace provisioning (create, fork, session create), workspace resume,
 // and agent dispatch. Request middleware must not add a second hours bucket;
-// it cannot see runtime.
+// it cannot see runtime. CleanupOverQuotaWorkspaces enforces the same daily
+// limit while workspaces remain running.
 func (s *BillingService) AuthorizeSandboxStart(ctx context.Context, userID int64) error {
 	if s == nil {
 		return nil
@@ -112,7 +113,7 @@ func authorizeSandboxEntitlement(entitlement SandboxEntitlement) error {
 		}
 		return sandboxPlanLimitError(entitlement, "concurrent_sandboxes", entitlement.ConcurrentSandboxes, upgrade, message)
 	}
-	if entitlement.HoursPerDay >= 0 && entitlement.SecondsUsedToday >= entitlement.HoursPerDay*3600 {
+	if sandboxDailyHoursExhausted(entitlement) {
 		message := fmt.Sprintf("Your %s plan includes %d sandbox-hours per day; you have used them. ", name, entitlement.HoursPerDay)
 		if upgrade != "" {
 			message += fmt.Sprintf("Upgrade to %s for unlimited hours, or try again after %s.", billingPlanDisplayName(upgrade), entitlement.DayResetsAt.Format(time.RFC3339))
@@ -124,6 +125,12 @@ func authorizeSandboxEntitlement(entitlement SandboxEntitlement) error {
 		return e
 	}
 	return nil
+}
+
+func sandboxDailyHoursExhausted(entitlement SandboxEntitlement) bool {
+	// Compare whole hours to avoid overflowing when a policy supplies a large cap.
+	return entitlement.HoursPerDay >= 0 && entitlement.SecondsUsedToday >= 0 &&
+		entitlement.SecondsUsedToday/3600 >= entitlement.HoursPerDay
 }
 
 func authorizeCountedSandboxResumeForUser(ctx context.Context, policy BillingPolicy, userID int64, workspaceID, vmID string) error {

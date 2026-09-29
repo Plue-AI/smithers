@@ -28,7 +28,9 @@ func (*finalizerBarrierBilling) AuthorizePrivateRepo(context.Context, string, in
 func (*finalizerBarrierBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
 	return nil
 }
-func (*finalizerBarrierBilling) AuthorizeAgentRun(context.Context, int64) error { return nil }
+func (*finalizerBarrierBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
+}
 func (*finalizerBarrierBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }

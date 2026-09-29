@@ -821,22 +821,60 @@ func (q *Queries) AdminTombstoneUser(ctx context.Context, arg AdminTombstoneUser
 	return result.RowsAffected(), nil
 }
 
-const failNeverStartedAgentSession = `-- name: FailNeverStartedAgentSession :one
-UPDATE agent_sessions SET status = 'failed', finished_at = now(), updated_at = now(),
-metadata = metadata || '{"failure_reason":"never_started"}'::jsonb
-WHERE id = $1 AND status = 'active' AND started_at IS NULL
-AND deleted_at IS NULL AND created_at < $2::timestamptz
-RETURNING id, repository_id, user_id, workflow_run_id, title, status, metadata, workspace_id, started_at, finished_at, created_at, updated_at, deleted_at
+const failNeverStartedAgentSessionRaw = `-- name: FailNeverStartedAgentSessionRaw :one
+WITH failed_session AS (
+    UPDATE agent_sessions s SET status = 'failed', finished_at = now(), updated_at = now(),
+    metadata = metadata || '{"failure_reason":"never_started"}'::jsonb
+    WHERE s.id = $1 AND s.status = 'active' AND s.started_at IS NULL
+    AND s.workflow_run_id IS NOT DISTINCT FROM $2::bigint
+    AND s.deleted_at IS NULL AND COALESCE(
+        (SELECT wr.created_at FROM workflow_runs wr WHERE wr.id = s.workflow_run_id), s.created_at
+    ) < $3::timestamptz
+    RETURNING s.id, s.repository_id, s.user_id, s.workflow_run_id, s.title, s.status, s.metadata, s.workspace_id, s.started_at, s.finished_at, s.created_at, s.updated_at, s.deleted_at
+), failed_tasks AS (
+    UPDATE workflow_tasks wt
+    SET status = 'failed', last_error = 'never_started', finished_at = now(), updated_at = now()
+    WHERE wt.workflow_run_id IN (SELECT workflow_run_id FROM failed_session)
+      AND wt.status IN ('pending', 'assigned', 'running')
+), failed_steps AS (
+    UPDATE workflow_steps ws SET status = 'failure', completed_at = now(), updated_at = now()
+    WHERE ws.workflow_run_id IN (SELECT workflow_run_id FROM failed_session)
+      AND ws.status IN ('queued', 'running')
+), failed_run AS (
+    UPDATE workflow_runs wr SET status = 'failure', completed_at = now(), updated_at = now()
+    WHERE wr.id IN (SELECT workflow_run_id FROM failed_session)
+      AND wr.status IN ('queued', 'running')
+)
+SELECT id, repository_id, user_id, workflow_run_id, title, status, metadata, workspace_id, started_at, finished_at, created_at, updated_at, deleted_at FROM failed_session
 `
 
-type FailNeverStartedAgentSessionParams struct {
-	ID     string    `json:"id"`
-	Cutoff time.Time `json:"cutoff"`
+type FailNeverStartedAgentSessionRawParams struct {
+	ID            string      `json:"id"`
+	WorkflowRunID pgtype.Int8 `json:"workflow_run_id"`
+	Cutoff        time.Time   `json:"cutoff"`
 }
 
-func (q *Queries) FailNeverStartedAgentSession(ctx context.Context, arg FailNeverStartedAgentSessionParams) (AgentSession, error) {
-	row := q.db.QueryRow(ctx, failNeverStartedAgentSession, arg.ID, arg.Cutoff)
-	var i AgentSession
+type FailNeverStartedAgentSessionRawRow struct {
+	ID            string             `json:"id"`
+	RepositoryID  int64              `json:"repository_id"`
+	UserID        int64              `json:"user_id"`
+	WorkflowRunID pgtype.Int8        `json:"workflow_run_id"`
+	Title         string             `json:"title"`
+	Status        string             `json:"status"`
+	Metadata      json.RawMessage    `json:"metadata"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	StartedAt     pgtype.Timestamptz `json:"started_at"`
+	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+}
+
+// Release an abandoned admission and its unfinished work atomically with the
+// session failure; any failed write leaves the session eligible for retry.
+func (q *Queries) FailNeverStartedAgentSessionRaw(ctx context.Context, arg FailNeverStartedAgentSessionRawParams) (FailNeverStartedAgentSessionRawRow, error) {
+	row := q.db.QueryRow(ctx, failNeverStartedAgentSessionRaw, arg.ID, arg.WorkflowRunID, arg.Cutoff)
+	var i FailNeverStartedAgentSessionRawRow
 	err := row.Scan(
 		&i.ID,
 		&i.RepositoryID,
@@ -856,11 +894,14 @@ func (q *Queries) FailNeverStartedAgentSession(ctx context.Context, arg FailNeve
 }
 
 const listNeverStartedAgentSessions = `-- name: ListNeverStartedAgentSessions :many
-SELECT id, repository_id, user_id, workflow_run_id, title, status, metadata, workspace_id, started_at, finished_at, created_at, updated_at, deleted_at FROM agent_sessions WHERE status = 'active' AND started_at IS NULL
-AND deleted_at IS NULL AND created_at < $1::timestamptz
-ORDER BY created_at, id LIMIT 200
+SELECT s.id, s.repository_id, s.user_id, s.workflow_run_id, s.title, s.status, s.metadata, s.workspace_id, s.started_at, s.finished_at, s.created_at, s.updated_at, s.deleted_at FROM agent_sessions s
+LEFT JOIN workflow_runs wr ON wr.id = s.workflow_run_id
+WHERE s.status = 'active' AND s.started_at IS NULL
+AND s.deleted_at IS NULL AND COALESCE(wr.created_at, s.created_at) < $1::timestamptz
+ORDER BY COALESCE(wr.created_at, s.created_at), s.id LIMIT 200
 `
 
+// A re-dispatched session gets a fresh provisioning deadline from its run.
 func (q *Queries) ListNeverStartedAgentSessions(ctx context.Context, cutoff time.Time) ([]AgentSession, error) {
 	rows, err := q.db.Query(ctx, listNeverStartedAgentSessions, cutoff)
 	if err != nil {

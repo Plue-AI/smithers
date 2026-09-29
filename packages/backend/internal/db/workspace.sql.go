@@ -1575,6 +1575,72 @@ func (q *Queries) ListPendingSessionsForWorkspace(ctx context.Context, workspace
 	return items, nil
 }
 
+const listRunningWorkspaces = `-- name: ListRunningWorkspaces :many
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at FROM workspaces
+WHERE status = 'running' AND deleted_at IS NULL
+ORDER BY user_id, id
+`
+
+// Daily runtime limits apply even while a workspace or its sessions are active.
+func (q *Queries) ListRunningWorkspaces(ctx context.Context) ([]Workspace, error) {
+	rows, err := q.db.Query(ctx, listRunningWorkspaces)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Workspace{}
+	for rows.Next() {
+		var i Workspace
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepositoryID,
+			&i.UserID,
+			&i.Name,
+			&i.IsFork,
+			&i.ParentWorkspaceID,
+			&i.TargetBookmark,
+			&i.SourceSnapshotID,
+			&i.Kind,
+			&i.EnvironmentSource,
+			&i.EnvironmentRevision,
+			&i.EnvironmentClosureHash,
+			&i.AgentSessionID,
+			&i.HeadPushTokenID,
+			&i.EnvironmentImage,
+			&i.DesktopSessionID,
+			&i.DesktopSessionTokenHash,
+			&i.DesktopSessionExpiresAt,
+			&i.VmID,
+			&i.ProvisioningGeneration,
+			&i.Status,
+			&i.FailureCode,
+			&i.FailureMessage,
+			&i.ProvisioningStage,
+			&i.LastActivityAt,
+			&i.IdleTimeoutSecs,
+			&i.SuspendedAt,
+			&i.StartedAt,
+			&i.ResumedAt,
+			&i.HeadChangeID,
+			&i.HeadCommitID,
+			&i.Ahead,
+			&i.Behind,
+			&i.LastAccessedAt,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RebuildRequiredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunningWorkspacesForUserRepoBookmark = `-- name: ListRunningWorkspacesForUserRepoBookmark :many
 SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces

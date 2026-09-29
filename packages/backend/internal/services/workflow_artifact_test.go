@@ -468,7 +468,9 @@ func (b *confirmCommitTrackingBilling) AuthorizePrivateRepo(context.Context, str
 func (b *confirmCommitTrackingBilling) AuthorizeWorkflowDispatch(context.Context, int64) error {
 	return nil
 }
-func (b *confirmCommitTrackingBilling) AuthorizeAgentRun(context.Context, int64) error { return nil }
+func (b *confirmCommitTrackingBilling) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
+}
 func (b *confirmCommitTrackingBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }

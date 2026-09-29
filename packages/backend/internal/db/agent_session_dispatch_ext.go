@@ -136,3 +136,12 @@ WHERE id = $1 AND status = 'active' AND deleted_at IS NULL
 	}
 	return true, nil
 }
+
+// FailNeverStartedAgentSession preserves the session result while the generated
+// statement atomically fails an abandoned run and its unfinished work.
+func (q *Queries) FailNeverStartedAgentSession(ctx context.Context, arg FailNeverStartedAgentSessionParams) (AgentSession, error) {
+	row, err := q.FailNeverStartedAgentSessionRaw(ctx, arg)
+	return AgentSession(row), err
+}
+
+type FailNeverStartedAgentSessionParams = FailNeverStartedAgentSessionRawParams

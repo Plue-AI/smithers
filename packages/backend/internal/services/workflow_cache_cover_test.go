@@ -25,8 +25,8 @@ func (p workflowCacheCovBillingPolicy) AuthorizePrivateRepo(context.Context, str
 func (p workflowCacheCovBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error {
 	return nil
 }
-func (p workflowCacheCovBillingPolicy) AuthorizeAgentRun(context.Context, int64) error {
-	return nil
+func (p workflowCacheCovBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	return commit(ctx, nil)
 }
 func (p workflowCacheCovBillingPolicy) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return p.storageErr

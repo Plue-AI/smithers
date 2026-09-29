@@ -12,9 +12,11 @@ type WorkspaceCleanupStore interface {
 	CleanupIdleSessions(ctx context.Context) error
 	CleanupStalePendingWorkspaces(ctx context.Context) error
 	CleanupIdleWorkspaces(ctx context.Context) error
+	CleanupOverQuotaWorkspaces(ctx context.Context) error
 }
 
-// WorkspaceCleaner periodically cleans up idle workspace sessions and workspaces.
+// WorkspaceCleaner periodically cleans up idle sessions and suspends idle or
+// over-quota workspaces.
 type WorkspaceCleaner struct {
 	periodicRunner
 	store WorkspaceCleanupStore
@@ -44,6 +46,9 @@ func (c *WorkspaceCleaner) sweep(ctx context.Context) error {
 	}
 	if err := c.store.CleanupIdleWorkspaces(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("cleanup idle workspaces: %w", err))
+	}
+	if err := c.store.CleanupOverQuotaWorkspaces(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("cleanup over-quota workspaces: %w", err))
 	}
 
 	if len(errs) > 0 {

@@ -140,10 +140,10 @@ func TestDispatchAgentRun_FullVMLifecycleFlow(t *testing.T) {
 	expectedOrder := []string{
 		"upsert_definition",
 		"create_run",
+		"link_session",
 		"create_step",
 		"store_token",
 		"create_task",
-		"link_session",
 		"create_clone_token",
 		"create_api_token",
 		// started_at is stamped BEFORE the VM is created so a provisioning

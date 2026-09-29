@@ -816,6 +816,12 @@ SET idle_timeout_secs = sqlc.arg(idle_timeout_secs), updated_at = NOW()
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL
 RETURNING *;
 
+-- name: ListRunningWorkspaces :many
+-- Daily runtime limits apply even while a workspace or its sessions are active.
+SELECT * FROM workspaces
+WHERE status = 'running' AND deleted_at IS NULL
+ORDER BY user_id, id;
+
 -- name: ListIdleWorkspaces :many
 -- Finds workspaces with status=running whose last_activity_at > idle_timeout_secs ago.
 -- Excludes workspaces that still have a LIVE (non-idle) running session: terminal

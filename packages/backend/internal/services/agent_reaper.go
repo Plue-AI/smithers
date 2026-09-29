@@ -120,7 +120,7 @@ func (s *AgentService) reapNeverStartedSessions(ctx context.Context) error {
 	}
 	var failures []error
 	for _, row := range rows {
-		terminal, err := q.FailNeverStartedAgentSession(ctx, db.FailNeverStartedAgentSessionParams{ID: row.ID, Cutoff: cutoff.Time})
+		terminal, err := q.FailNeverStartedAgentSession(ctx, db.FailNeverStartedAgentSessionParams{ID: row.ID, Cutoff: cutoff.Time, WorkflowRunID: row.WorkflowRunID})
 		if stdErrors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
@@ -280,7 +280,16 @@ func (s *AgentService) updateAgentWorkflowTerminalState(ctx context.Context, ses
 
 	task, err := s.dispatchQ.GetWorkflowTaskByRunID(ctx, workflowRunID)
 	if err != nil {
-		if !stdErrors.Is(err, pgx.ErrNoRows) {
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			// Admission and the session link commit before task creation. A
+			// crashed dispatch can therefore leave a taskless reservation, which
+			// cannot reach a terminal state through task-derived updates.
+			if failErr := s.dispatchQ.FailWorkflowRun(ctx, workflowRunID); failErr != nil {
+				logger.Error("failed to mark taskless agent run failed", "error", failErr)
+			} else {
+				NotifyWorkflowRunEvent(ctx, s.dispatchQ, workflowRunID, "agent.task_terminal")
+			}
+		} else {
 			logger.Error("failed to load workflow task for agent terminal transition", "error", err)
 		}
 		return

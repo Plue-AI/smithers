@@ -272,6 +272,30 @@ WHERE wr.repository_id IN (SELECT id FROM owned_repos)
         AND wt.started_at IS NOT NULL
   );
 
+-- name: CountAgentRunAdmissionsByOwner :one
+-- Pending runs reserve monthly capacity. Terminal runs consume it only if a
+-- task started, so provisioning failures release their reservation. Keep the
+-- completed usage counter above separate from this admission count.
+WITH owned_repos AS (
+    SELECT id FROM repositories
+    WHERE (sqlc.arg(owner_type)::text = 'user' AND user_id = sqlc.arg(owner_id)::bigint)
+       OR (sqlc.arg(owner_type)::text = 'org' AND org_id = sqlc.arg(owner_id)::bigint)
+)
+SELECT COUNT(*)::bigint
+FROM workflow_runs wr
+WHERE wr.repository_id IN (SELECT id FROM owned_repos)
+  AND wr.trigger_event = 'agent_message'
+  AND wr.created_at >= sqlc.arg(period_start)
+  AND wr.created_at < sqlc.arg(period_end)
+  AND (
+      wr.status IN ('queued', 'running')
+      OR EXISTS (
+          SELECT 1 FROM workflow_tasks wt
+          WHERE wt.workflow_run_id = wr.id AND wt.started_at IS NOT NULL
+      )
+  );
+
+
 -- ========================
 -- Credit audit history (balances live in credit_* tables)
 -- ========================

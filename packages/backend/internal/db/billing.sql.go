@@ -49,6 +49,49 @@ func (q *Queries) ClaimStripeProcessedEvent(ctx context.Context, arg ClaimStripe
 	return event_id, err
 }
 
+const countAgentRunAdmissionsByOwner = `-- name: CountAgentRunAdmissionsByOwner :one
+WITH owned_repos AS (
+    SELECT id FROM repositories
+    WHERE ($3::text = 'user' AND user_id = $4::bigint)
+       OR ($3::text = 'org' AND org_id = $4::bigint)
+)
+SELECT COUNT(*)::bigint
+FROM workflow_runs wr
+WHERE wr.repository_id IN (SELECT id FROM owned_repos)
+  AND wr.trigger_event = 'agent_message'
+  AND wr.created_at >= $1
+  AND wr.created_at < $2
+  AND (
+      wr.status IN ('queued', 'running')
+      OR EXISTS (
+          SELECT 1 FROM workflow_tasks wt
+          WHERE wt.workflow_run_id = wr.id AND wt.started_at IS NOT NULL
+      )
+  )
+`
+
+type CountAgentRunAdmissionsByOwnerParams struct {
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+	OwnerType   string    `json:"owner_type"`
+	OwnerID     int64     `json:"owner_id"`
+}
+
+// Pending runs reserve monthly capacity. Terminal runs consume it only if a
+// task started, so provisioning failures release their reservation. Keep the
+// completed usage counter above separate from this admission count.
+func (q *Queries) CountAgentRunAdmissionsByOwner(ctx context.Context, arg CountAgentRunAdmissionsByOwnerParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAgentRunAdmissionsByOwner,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.OwnerType,
+		arg.OwnerID,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countAgentRunsByOwner = `-- name: CountAgentRunsByOwner :one
 WITH owned_repos AS (
     SELECT id

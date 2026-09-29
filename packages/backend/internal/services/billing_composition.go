@@ -122,7 +122,12 @@ func (*UnlimitedBillingPolicy) AuthorizePrivateRepo(context.Context, string, int
 }
 
 func (*UnlimitedBillingPolicy) AuthorizeWorkflowDispatch(context.Context, int64) error { return nil }
-func (*UnlimitedBillingPolicy) AuthorizeAgentRun(context.Context, int64) error         { return nil }
+func (*UnlimitedBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ int64, commit func(context.Context, db.DBTX) error) error {
+	if commit == nil {
+		return errors.New("agent run commit is required")
+	}
+	return commit(ctx, nil)
+}
 func (*UnlimitedBillingPolicy) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }
