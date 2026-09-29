@@ -48,6 +48,23 @@ export const exitOf = (format: string): Exit | undefined => {
   return status === "" ? { code: null, signal: Number(signal) } : { code: Number(status) }
 }
 
+/**
+ * A tmux linked with libutempter (Debian and Ubuntu packages) sets SIGCHLD to
+ * SIG_DFL while its `utempter del` helper runs at the pane's PTY EOF. A pane
+ * that dies in that window loses its SIGCHLD, so tmux never reaps it and the
+ * pane stays `1::`. One SIGCHLD to the tmux server makes its handler reap every
+ * exited child with `waitpid(WAIT_ANY)`; a child still running is untouched.
+ * A server that is gone, or a pid tmux did not print, has nothing to reap.
+ */
+export const nudge = (server: number): void => {
+  if (!Number.isSafeInteger(server) || server <= 0) return
+  try {
+    process.kill(server, "SIGCHLD")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+  }
+}
+
 export class Tui {
   private readonly terminal: Terminal
   private stopped = false
@@ -129,19 +146,18 @@ export class Tui {
     return Number(this.run(["display-message", "-p", "#{pane_pid}"]).trim())
   }
 
-  /**
-   * A tmux linked with libutempter (Debian and Ubuntu packages) sets SIGCHLD to
-   * SIG_DFL while its `utempter del` helper runs at the pane's PTY EOF. A pane
-   * that dies in that window loses its SIGCHLD, so tmux never reaps it and the
-   * pane stays `1::`. A dead pane without a status gets one SIGCHLD per poll;
-   * tmux's handler reaps every exited child with `waitpid(WAIT_ANY)`.
-   */
+  /** The pane's exit, once tmux has reaped its process; `undefined` while alive or unreaped. */
   get exited(): Exit | undefined {
-    const format = this.run(["display-message", "-p", "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}:#{pid}"])
-      .trim()
-    const exit = exitOf(format)
-    if (exit === undefined && format.startsWith("1:")) process.kill(Number(format.split(":")[3]), "SIGCHLD")
-    return exit
+    return exitOf(this.run(["display-message", "-p", "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}"]).trim())
+  }
+
+  /**
+   * Whether the pane's process still holds its PTY. A dead pane is not alive
+   * whether or not tmux has reaped it, so a must-not-exit check sees an early
+   * exit even when `exited` has no status yet.
+   */
+  get alive(): boolean {
+    return this.run(["display-message", "-p", "#{pane_dead}"]).trim() !== "1"
   }
 
   async resize(cols: number, rows: number): Promise<void> {
@@ -221,8 +237,11 @@ export class Tui {
   async waitForExit(timeoutMs = 5_000): Promise<Exit> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      const exited = this.exited
+      const format = this.run(["display-message", "-p", "#{pane_dead}:#{pane_dead_status}:#{pane_dead_signal}:#{pid}"])
+        .trim()
+      const exited = exitOf(format)
       if (exited !== undefined) return exited
+      if (format.startsWith("1:")) nudge(Number(format.split(":")[3]))
       await sleep(50)
     }
     throw new Error(`timed out waiting for process exit; screen:\n${this.screen()}`)
