@@ -15,13 +15,13 @@ smthrs mcp add --agent codex
 smthrs mcp add                  # every agent it knows
 ```
 
-`--agent` is a flag, not a positional argument. `mcp add` writes an
-`mcpServers` entry named `smithers` into the agent's own configuration:
+`--agent` is a flag, not a positional argument. `mcp add` registers a
+server named `smithers` into the agent's own configuration:
 
 | Agent | File |
 | --- | --- |
 | `claude` | `~/.claude.json` |
-| `codex` | `~/.codex/mcp.json` |
+| `codex` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) |
 
 `smthrs mcp add` with no `--agent` wires every agent it knows. An unknown agent
 name is a usage error that lists the known ids. `smthrs mcp` on its own prints
@@ -33,7 +33,12 @@ local development install registers itself. Smithers 0.x registered
 `bunx smthrs --mcp`, which silently pointed every agent at the last published
 build.
 
-The write is a temp-file-plus-rename under a lock file, with the original
+Codex must be installed on `PATH`. Smithers uses `codex mcp add` and verifies
+the enabled server with `codex mcp list --json` before reporting success.
+Existing unrelated settings and servers are preserved. Verify registration with
+`codex mcp list`; this checks discovery, not an MCP connection.
+
+For Claude, the write is a temp-file-plus-rename under a lock file, with the original
 file's mode preserved, so a crash mid-write cannot leave a half-written
 configuration. The lock names the process holding it, so one left by a process
 that has since died is reclaimed rather than blocking every later run. If the file already holds the exact entry, nothing is written

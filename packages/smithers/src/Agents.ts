@@ -14,6 +14,7 @@
  * @since 1.0.0
  */
 
+import { spawnSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import {
   chmodSync,
@@ -30,7 +31,7 @@ import {
   writeFileSync
 } from "node:fs"
 import { homedir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { errorCode } from "./internal/ErrorCode.ts"
 
 /**
@@ -61,7 +62,7 @@ export interface Agent {
  */
 export const agents: ReadonlyArray<Agent> = [
   { id: "claude", mcpConfig: [".claude.json"] },
-  { id: "codex", mcpConfig: [".codex", "mcp.json"] }
+  { id: "codex", mcpConfig: [".codex", "config.toml"] }
 ]
 
 /**
@@ -305,14 +306,64 @@ const releaseLock = (lockPath: string, token: string): void => {
   }
 }
 
+/** Register through Codex's configuration writer and verify its discovery result. */
+const registerCodex = (
+  path: string,
+  home: string,
+  environment: NodeJS.ProcessEnv
+): Wired => {
+  const entry = launchCommand()
+  const run = (args: ReadonlyArray<string>): string => {
+    const result = spawnSync("codex", ["mcp", ...args], {
+      // Avoid project configuration overriding the user registration we verify.
+      cwd: dirname(path),
+      env: { ...environment, HOME: home, CODEX_HOME: dirname(path) },
+      encoding: "utf8",
+      timeout: 15_000,
+      maxBuffer: 1024 * 1024
+    })
+    if (result.error !== undefined) throw result.error
+    if (result.status !== 0) {
+      throw new Error(`codex mcp ${args[0]} failed: ${result.stderr.trim() || result.signal || result.status}`)
+    }
+    return result.stdout
+  }
+  const discoversEntry = (): boolean => {
+    const servers: unknown = JSON.parse(run(["list", "--json"]))
+    if (!Array.isArray(servers)) throw new Error("codex mcp list returned an invalid server list")
+    return servers.some((server: unknown) => {
+      if (server === null || typeof server !== "object") return false
+      if (!("name" in server) || server.name !== serverName || !("enabled" in server) || server.enabled !== true) {
+        return false
+      }
+      if (!("transport" in server) || server.transport === null || typeof server.transport !== "object") return false
+      const transport = server.transport
+      return "type" in transport && transport.type === "stdio" &&
+        "command" in transport && transport.command === entry.command &&
+        "args" in transport && JSON.stringify(transport.args) === JSON.stringify(entry.args)
+    })
+  }
+  if (discoversEntry()) return { agent: "codex", path, status: "unchanged" }
+  run(["add", serverName, "--", entry.command, ...entry.args])
+  if (!discoversEntry()) throw new Error("Codex did not discover the enabled Smithers MCP server after registration")
+  return { agent: "codex", path, status: "written" }
+}
+
 /**
  * Registers the Smithers MCP server with one agent.
  *
  * @category constructors
  * @since 1.0.0
  */
-export const addMcp = (agent: Agent, home: string = homedir()): Wired => {
-  const path = join(home, ...agent.mcpConfig)
+export const addMcp = (
+  agent: Agent,
+  home?: string,
+  environment: NodeJS.ProcessEnv = home === undefined ? process.env : { ...process.env, CODEX_HOME: undefined }
+): Wired => {
+  const directory = home ?? environment["HOME"] ?? homedir()
+  const path = agent.id === "codex"
+    ? resolve(environment["CODEX_HOME"] || join(directory, ".codex"), "config.toml")
+    : join(directory, ...agent.mcpConfig)
   const entry = launchCommand()
   const lockPath = `${path}.smithers.lock`
   const token = `${process.pid}:${Date.now()}:${randomUUID()}`
@@ -322,6 +373,7 @@ export const addMcp = (agent: Agent, home: string = homedir()): Wired => {
     const refusal = acquireLock(lockPath, path, token)
     if (refusal !== undefined) return { agent: agent.id, path, status: "failed", reason: refusal.reason }
     held = true
+    if (agent.id === "codex") return registerCodex(path, directory, environment)
     const configuration = readJson(path)
     if (isUnusable(configuration)) {
       return { agent: agent.id, path, status: "failed", reason: configuration.reason }
@@ -405,14 +457,18 @@ export const manualInstructions = (targets: ReadonlyArray<string> = agents.map((
     "",
     ...targets.map((target) => `  ${target} mcp add ${serverName} -- ${launch}`),
     "",
-    "Or add it to the agent's MCP configuration by hand:",
-    "",
-    "  {",
-    "    \"mcpServers\": {",
-    `      "${serverName}": { "command": ${JSON.stringify(entry.command)}, "args": ${JSON.stringify(entry.args)} }`,
-    "    }",
-    "  }",
-    "",
+    ...(targets.includes("claude") ?
+      [
+        "Or add it to Claude's MCP configuration by hand:",
+        "",
+        "  {",
+        "    \"mcpServers\": {",
+        `      "${serverName}": { "command": ${JSON.stringify(entry.command)}, "args": ${JSON.stringify(entry.args)} }`,
+        "    }",
+        "  }",
+        ""
+      ] :
+      []),
     "Docs: https://smithers.sh/docs/guides/mcp-setup/"
   ].join("\n")
 }

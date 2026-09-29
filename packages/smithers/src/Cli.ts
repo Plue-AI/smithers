@@ -93,7 +93,8 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
             message: `Unknown agent ${requested}. Known agents: ${Agents.agents.map((agent) => agent.id).join(", ")}`
           })
         }
-        const wired = targets.map((agent) => Agents.addMcp(agent, (config.environment ?? process.env)["HOME"]))
+        const environment = config.environment ?? process.env
+        const wired = targets.map((agent) => Agents.addMcp(agent, environment["HOME"], environment))
         if (wired.every((entry) => entry.status === "failed")) {
           const stderr = config.stderr ?? process.stderr
           stderr.write(`${Agents.manualInstructions(targets.map((agent) => agent.id))}\n`)

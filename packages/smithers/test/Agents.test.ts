@@ -86,13 +86,13 @@ describe("registering the MCP server", () => {
     expect(document.mcpServers.smithers.args).toContain("--mcp")
   })
 
-  it("creates the file and its directory when the agent has none", () => {
+  it("creates Claude's configuration when it has none", () => {
     const directory = home()
 
-    const wired = Agents.addMcp(Agents.find("codex")!, directory)
+    const wired = Agents.addMcp(Agents.find("claude")!, directory)
 
     expect(wired.status).toBe("written")
-    expect(wired.path).toBe(join(directory, ".codex", "mcp.json"))
+    expect(wired.path).toBe(join(directory, ".claude.json"))
     expect(existsSync(wired.path)).toBe(true)
   })
 
@@ -290,5 +290,6 @@ describe("registering the MCP server", () => {
     expect(instructions).toContain("\"mcpServers\"")
     expect(instructions).toContain("https://smithers.sh/docs/guides/mcp-setup/")
     expect(Agents.manualInstructions()).toContain("codex mcp add smithers -- ")
+    expect(Agents.manualInstructions(["codex"])).not.toContain("mcpServers")
   })
 })

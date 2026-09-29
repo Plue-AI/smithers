@@ -368,12 +368,12 @@ The agent configurations `smthrs mcp add` writes into.
 
 | Export | Signature | Meaning |
 | --- | --- | --- |
-| `serverName` | `"smithers"` | The `mcpServers` key written. |
-| `Agent`, `agents` | `{ id, mcpConfig }` | `claude` at `~/.claude.json`, `codex` at `~/.codex/mcp.json`. |
+| `serverName` | `"smithers"` | The registered server name. |
+| `Agent`, `agents` | `{ id, mcpConfig }` | `claude` at `~/.claude.json`, `codex` at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). |
 | `find` | `(id) => Agent \| undefined` | One agent by id. |
 | `launchCommand` | `(execPath?, entry?) => { command, args }` | The current executable and entry, verbatim, so a local development install registers itself rather than a package runner. |
 | `Wired` | `{ agent, path, status, reason? }` | What one wiring attempt did. |
-| `addMcp` | `(agent, home?) => Wired` | Registers the server, through a lock file and a temp-plus-rename with the mode preserved. |
+| `addMcp` | `(agent, home?, environment?) => Wired` | Registers through the Codex CLI and verifies discovery, or writes Claude JSON under a lock with atomic replacement. An explicit home isolates Codex unless the supplied environment sets `CODEX_HOME`. |
 | `manualInstructions` | `(targets?) => string` | What to do by hand when every write failed. |
 
 ## Serve
