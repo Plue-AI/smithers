@@ -11,6 +11,9 @@ Every capability a cell reaches is an ordinary flow. There is no `ctx.fs`, no
 journaled, permission-gated activity whether the flow reads a file or calls a
 remote tool. This guide covers binding the built-ins and adding your own.
 
+Each `cell-call-settled` event carries a frame in its call identity. If a run
+continues after a completion check, later frames have their own call events.
+
 ## Bind the standard flows
 
 `StandardFlows` pairs declarations that already exist with the handlers that

@@ -226,6 +226,11 @@ const eventsOf = (outcome: Outcome): ReadonlyArray<AgentEvent.AgentEvent> =>
 const settledCalls = (collected: ReadonlyArray<AgentEvent.AgentEvent>) =>
   collected.flatMap((event) => (event._tag === "cell-call-settled" ? [event] : []))
 
+// Completion checks can request another frame, and the recorded model then
+// repeats its last cell. Inspect one invocation without hiding duplicate calls.
+const firstFrameSettledCalls = (collected: ReadonlyArray<AgentEvent.AgentEvent>) =>
+  settledCalls(collected).filter((event) => event.identity.frame === 0)
+
 /** The posix path service, materialized once so bindings can be given a context. */
 const pathServices: Context.Context<Path.Path> = Effect.runSync(
   Effect.provide(Effect.context<Path.Path>(), Path.layer)
@@ -253,11 +258,12 @@ const directoryInfo: FileSystem.File.Info = { ...fileInfo(0), type: "Directory" 
 /** An in-memory kernel filesystem, enough for the standard filesystem flows. */
 const files = (initial: Readonly<Record<string, string>>) => {
   const contents = new Map(Object.entries(initial))
+  const createdDirectories = new Set<string>()
   const missing = FileSystem.makeNoop({})
   // `ls`, `glob` and `grep` walk the tree instead of reading one named path, so
   // the fixture answers for the directories its file paths imply.
   const directories = (): ReadonlySet<string> => {
-    const found = new Set(["/"])
+    const found = new Set(["/", ...createdDirectories])
     for (const path of contents.keys()) {
       let current = ""
       for (const part of path.split("/").slice(1, -1)) {
@@ -289,10 +295,18 @@ const files = (initial: Readonly<Record<string, string>>) => {
       const content = contents.get(path)
       return content === undefined ? missing.stream(path) : Stream.succeed(new TextEncoder().encode(content))
     },
-    exists: (path) => Effect.succeed(contents.has(path)),
-    makeDirectory: () => Effect.void,
+    exists: (path) => Effect.succeed(contents.has(path) || directories().has(path)),
+    makeDirectory: (path) =>
+      Effect.sync(() => {
+        let current = ""
+        for (const part of path.split("/").slice(1)) {
+          if (part === "") continue
+          current = `${current}/${part}`
+          createdDirectories.add(current)
+        }
+      }),
     // Atomic replacement writes a sibling, then renames it over the target.
-    realPath: (path) => contents.has(path) ? Effect.succeed(path) : missing.realPath(path),
+    realPath: (path) => contents.has(path) || directories().has(path) ? Effect.succeed(path) : missing.realPath(path),
     rename: (from, to) => {
       const content = contents.get(from)
       if (content === undefined) return missing.rename(from, to)
@@ -304,6 +318,7 @@ const files = (initial: Readonly<Record<string, string>>) => {
     remove: (path) =>
       Effect.sync(() => {
         contents.delete(path)
+        createdDirectories.delete(path)
       }),
     writeFile: (path, data) =>
       Effect.sync(() => {
@@ -496,7 +511,7 @@ ctx.done(JSON.stringify([a.content, b.content]))`
     )
 
     expect(outcome._tag).toBe("completed")
-    const settled = settledCalls(eventsOf(outcome))
+    const settled = firstFrameSettledCalls(eventsOf(outcome))
     expect(settled.map((event) => event.flowName)).toEqual(["write", "read", "write", "read"])
     const contents = settled.flatMap((event) =>
       event.flowName === "read" ? [(event.result.value as { readonly content: string }).content] : []
@@ -623,7 +638,7 @@ ctx.done([
 
     expect(outcome._tag).toBe("completed")
     const collected = eventsOf(outcome)
-    const settled = settledCalls(collected)
+    const settled = firstFrameSettledCalls(collected)
     expect(settled.map((event) => event.flowName)).toEqual([
       "ls",
       "glob",
