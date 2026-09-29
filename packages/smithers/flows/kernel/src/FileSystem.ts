@@ -681,8 +681,8 @@ export const layer: Layer.Layer<
     const atomic = (fileSystem as Partial<AtomicHostFileSystem>)[AtomicFileSystemTypeId]
     const normalizeFrom = (base: string, value: string): string =>
       path.normalize(path.isAbsolute(value) ? value : path.resolve(base, value))
-    const normalize = (value: string): string => normalizeFrom(workspace.root, value)
-    const logicalRoot = normalize(workspace.root)
+    const logicalRoot = path.normalize(path.resolve(workspace.root))
+    const normalize = (value: string): string => normalizeFrom(logicalRoot, value)
     const boundaryRoot = yield* fileSystem.realPath(logicalRoot)
     // Descriptor-relative hosts need the composition-time identity even when
     // they expose no batching. Already-isolated volumes need no native inode.
@@ -719,7 +719,7 @@ export const layer: Layer.Layer<
           ? deny(action, method, normalized, "path is outside the workspace")
           : Effect.succeed(resource)
       }
-      return canonicalResource(fileSystem, path, workspace.root, normalized).pipe(
+      return canonicalResource(fileSystem, path, logicalRoot, normalized).pipe(
         Effect.flatMap((resource) =>
           fileSystem.stat(normalized).pipe(
             Effect.matchEffect({

@@ -1,4 +1,9 @@
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, relative } from "node:path"
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import * as HostJj from "@smthrs/jj"
@@ -74,6 +79,48 @@ const testHost = Layer.mergeAll(
 )
 
 describe("HostServices", () => {
+  it.each(["workspace", "workspace/"] as const)(
+    "constructs guarded filesystem with relative workspace root %s through direct and aggregate layers",
+    async (suffix) => {
+      const directory = await mkdtemp(join(tmpdir(), "flows-relative-root-"))
+      try {
+        const absoluteRoot = join(directory, "workspace")
+        await mkdir(absoluteRoot)
+        await writeFile(join(absoluteRoot, "inside.txt"), "inside")
+        const relativeRoot = relative(process.cwd(), directory) + "/" + suffix
+        const consumer = Effect.gen(function*() {
+          const fs = yield* EffectFileSystem.FileSystem
+          return new TextDecoder().decode(yield* fs.readFile("inside.txt"))
+        })
+        const isolatedHost = Layer.effect(
+          EffectFileSystem.FileSystem,
+          Effect.map(EffectFileSystem.FileSystem, FileSystem.withIsolatedFileSystem)
+        ).pipe(Layer.provide(NodeFileSystem.layer))
+        const host = Layer.mergeAll(
+          isolatedHost,
+          NodePath.layer,
+          testHost,
+          Layer.succeed(EffectHttpClient.HttpClient)(
+            EffectHttpClient.make((request) => Effect.succeed({ status: 200, headers: {}, request } as never))
+          )
+        )
+        for (const guarded of [FileSystem.layer, HostServices.layer]) {
+          const result = await Effect.runPromise(
+            consumer.pipe(
+              Effect.provide(guarded),
+              Effect.provide(host),
+              Effect.provide(Workspace.layer(relativeRoot)),
+              Effect.provideService(GrantStore.GrantStore, allowAll)
+            )
+          )
+          expect(result).toBe("inside")
+        }
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+    }
+  )
+
   it("shares one closed platform-port list with one tag per slot", () => {
     expect(HostServices.HostServiceTags).toEqual([
       EffectFileSystem.FileSystem,
