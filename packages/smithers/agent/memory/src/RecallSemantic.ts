@@ -5,14 +5,15 @@
  * sqlite-vec is deferred to an optimization ticket. Projection is advisory:
  * authoritative MemoryStore writes complete first, projection failures retry
  * once, time out after `Options.projectionTimeout`, and are logged without
- * changing the write result. The vector upsert keeps the newest row by
- * `updatedAtMs`, so a late projection from another process cannot replace a
- * newer one.
+ * changing the write result. The vector upsert checks projected text against
+ * the authoritative row in the writer transaction, even when write clocks
+ * collide or regress.
  *
  * @see https://memory.smithers.sh/reference/api/
  * @since 0.1.0
  */
 
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Clock from "effect/Clock"
 import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -48,6 +49,8 @@ export interface Vector {
   readonly recordId: string
   readonly model: string
   readonly contentDigest: string
+  /** Authoritative searchable text, when projecting a committed memory row. */
+  readonly text?: string
   readonly dimensions: number
   readonly vector: ReadonlyArray<number> | Float32Array
   readonly updatedAtMs: number
@@ -70,8 +73,9 @@ export interface VectorStore {
     model: string
   ) => Stream.Stream<ReadonlyArray<Vector>, MemoryError.MemoryError>
   /**
-   * Store a projection, keeping the newest by `updatedAtMs`: an upsert older
-   * than the stored row for the same identity and model is a no-op.
+   * Store a projection. SQL adapters accept projections carrying authoritative
+   * text only while that text still matches the committed row; direct vector
+   * inserts without text retain timestamp-based ordering.
    */
   readonly upsert: (vector: Vector) => Effect.Effect<void, MemoryError.MemoryError>
 }
@@ -294,12 +298,38 @@ export const makeSqlVectorStore = (database: DatabaseService): VectorStore => {
         const failure = validateVector(vector)
         if (failure !== undefined) return yield* Effect.fail(failure)
         const { namespace } = yield* resolveNamespace(vector.bank)
+        const { sql } = database
+        // The comparison and vector write share the writer transaction. Time
+        // alone cannot order commits made within one millisecond (or after a
+        // clock regression). Direct vector inserts retain timestamp ordering.
+        const current = vector.text === undefined
+          ? sql`1 = 1`
+          : vector.recordKind === "note"
+          ? sql`EXISTS (SELECT 1 FROM memory_notes
+              WHERE id = ${vector.recordId} AND namespace_kind = ${namespace.kind}
+                AND namespace_id = ${namespace.id} AND text = ${vector.text})`
+          : sql`EXISTS (SELECT 1 FROM memory_facts
+              WHERE fact_key = ${vector.recordId} AND namespace_kind = ${namespace.kind}
+                AND namespace_id = ${namespace.id}
+                AND ${
+            Dialect.isPostgres(sql) ?
+              sql`CASE
+                  WHEN jsonb_typeof(value_json::jsonb) = 'string' THEN value_json::jsonb #>> '{}'
+                  WHEN jsonb_typeof(value_json::jsonb -> 'content') = 'string'
+                    THEN value_json::jsonb ->> 'content'
+                  ELSE value_json END` :
+              sql`CASE
+                  WHEN json_type(value_json) = 'text' THEN json_extract(value_json, '$')
+                  WHEN json_type(value_json) = 'object' AND json_type(value_json, '$.content') = 'text'
+                    THEN json_extract(value_json, '$.content')
+                  ELSE value_json END`
+          } = ${vector.text})`
         yield* database.write(
-          database.sql`
+          sql`
       INSERT INTO memory_vectors (
         record_kind, record_id, namespace_kind, namespace_id,
         embedding_model, content_digest, dimensions, vector_bytes, updated_at_ms
-      ) VALUES (
+      ) SELECT
         ${vector.recordKind},
         ${vector.recordId},
         ${namespace.kind},
@@ -309,7 +339,7 @@ export const makeSqlVectorStore = (database: DatabaseService): VectorStore => {
         ${vector.dimensions},
         ${vectorBytes(vector.vector)},
         ${vector.updatedAtMs}
-      )
+      WHERE ${current}
       ON CONFLICT (
         namespace_kind, namespace_id, record_kind, record_id, embedding_model
       ) DO UPDATE SET
@@ -317,7 +347,7 @@ export const makeSqlVectorStore = (database: DatabaseService): VectorStore => {
         dimensions = excluded.dimensions,
         vector_bytes = excluded.vector_bytes,
         updated_at_ms = excluded.updated_at_ms
-      WHERE excluded.updated_at_ms >= memory_vectors.updated_at_ms
+      WHERE ${vector.text === undefined ? sql`excluded.updated_at_ms >= memory_vectors.updated_at_ms` : current}
     `
         ).pipe(Effect.mapError(sqlError("memory vector upsert failed")), Effect.asVoid)
       })
@@ -469,6 +499,7 @@ export const makeProjector = (options: Options): Effect.Effect<Projector, never,
             recordId: snapshot.recordId,
             model,
             contentDigest: digest(snapshot.text),
+            text: snapshot.text,
             dimensions: response.vector.length,
             vector: response.vector,
             updatedAtMs: snapshot.updatedAtMs

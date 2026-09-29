@@ -354,6 +354,57 @@ describe("RecallSemantic", () => {
     expect(result.recalled).toEqual(["k"])
   })
 
+  it.each([1000, 900])("keeps the current fact when a late projection races a write at %i", async (secondTime) => {
+    const namespace = { kind: "flow", id: "collision" } as const
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        yield* TestClock.setTime(1000)
+        const store = yield* MemoryStore.MemoryStore
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const writer = yield* DurableWriter
+        const vectorStore = Semantic.makeSqlVectorStore({ sql, write: writer.write })
+        const entered = yield* Deferred.make<void>()
+        const gate = yield* Deferred.make<void>()
+        const slow = Embedding.make((inputs) =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(gate)),
+            Effect.as(inputs.map(Embedding.inProcessVector))
+          )
+        )
+        const fast = Embedding.makeInProcess()
+        const firstWriter = Semantic.decorateStore(store, makeProjector({ vectorStore }), slow)
+        const secondWriter = Semantic.decorateStore(store, makeProjector({ vectorStore }), fast)
+        const first = yield* Effect.forkChild(
+          firstWriter.putFact({ namespace, key: "k", value: "first", provenance: {} }),
+          { startImmediately: true }
+        )
+        yield* Deferred.await(entered)
+        const older = yield* store.getFact({ namespace, key: "k" })
+        yield* TestClock.setTime(secondTime)
+        yield* secondWriter.putFact({ namespace, key: "k", value: "second", provenance: {} })
+        const recall = () =>
+          Semantic.recall(
+            { banks: ["flow-collision"], query: "second" },
+            { vectorStore }
+          ).pipe(Effect.provideService(Embedding.Embedding, fast))
+        const before = yield* recall()
+        yield* Deferred.succeed(gate, undefined)
+        yield* Fiber.join(first)
+        const fact = yield* store.getFact({ namespace, key: "k" })
+        const after = yield* recall()
+        const rows = yield* sql<{ readonly content_digest: string }>`
+          SELECT content_digest FROM memory_vectors WHERE record_kind = 'fact' AND record_id = 'k'`
+        return { older, fact, before, after, rows }
+      }).pipe(Effect.provide(TestMemory.layerWithDatabase), Effect.provide(TestClock.layer()))
+    )
+    expect(result.older?.updatedAtMs).toBe(1000)
+    expect(result.fact?.updatedAtMs).toBe(secondTime)
+    expect(result.fact?.value).toBe("second")
+    expect(result.before.map((row) => row.text)).toEqual(["second"])
+    expect(result.after.map((row) => row.text)).toEqual(["second"])
+    expect(result.rows).toEqual([{ content_digest: digest("second") }])
+  })
+
   it("propagates projection interruption", async () => {
     const embedding = Embedding.make(() => Effect.interrupt)
     const projector = makeProjector({
