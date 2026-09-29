@@ -627,9 +627,32 @@ export function App(props: AppProps) {
     ? workerTab
     : undefined
   /** The worker the person drives from this tab (`t`): Enter runs its next frame. */
-  const driven = workerTab?.driver !== undefined && (workerTab.status === "running" || workerTab.status === "waiting")
+  // A wrapped worker is driven in its vendor's own TUI, never from the composer.
+  const driven = workerTab?.driver !== undefined && workerTab.harness === undefined &&
+      (workerTab.status === "running" || workerTab.status === "waiting")
     ? workerTab
     : undefined
+  /** Suspends the TUI for a taken-over wrapped worker's own TUI, then hands the worker back. */
+  const handOver = async (id: string) => {
+    try {
+      const { command, args } = await workspace.handedOver(id)
+      await External.exclusive(async () => {
+        renderer.suspend()
+        try {
+          const status = await External.run(command, args, props.host.cwd)
+          if (status === 126 || status === 127) setStatus(`${command} not found`, "warning")
+        } finally {
+          renderer.resume()
+          // Window changes went to the vendor while we were suspended.
+          process.kill(process.pid, "SIGWINCH")
+        }
+      })
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), "warning")
+    } finally {
+      workspace.release(id)
+    }
+  }
   const workerAction = (tab: Tab, action: Tabs.ActionId) => {
     switch (action) {
       case "stop":
@@ -659,6 +682,8 @@ export function App(props: AppProps) {
       case "takeover":
         // The composer drives it from its own tab; ctrl+y releases.
         if (!workspace.hijack(tab.id, "you")) return setStatus(`${tab.title} is not running`, "warning")
+        // A wrapped worker is driven in its vendor's own TUI; quitting it hands the worker back.
+        if (tab.harness !== undefined) return void handOver(tab.id)
         return flushSync(() => {
           if (surface !== `tab:${tab.id}`) showTab(`tab:${tab.id}`)
           setSteerTarget(undefined)
@@ -1264,6 +1289,27 @@ export function App(props: AppProps) {
         }
         try {
           userRuns.current.add(runs.request({ flow, input: parsed.input, by: "user" }).id)
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : String(error), "warning")
+        }
+        return true
+      }
+      case "claude":
+      case "codex": {
+        // A wrapped harness: the vendor's own agent, with its own tools, as a worker.
+        const prompt = argument.trim()
+        if (prompt === "") {
+          setText(`/${verb} `)
+          return true
+        }
+        try {
+          workspace.request({
+            id: `${verb}-${Date.now().toString(36)}`,
+            title: prompt.replace(/\s+/g, " ").slice(0, 60),
+            prompt,
+            harness: verb,
+            by: "user"
+          })
         } catch (error) {
           setStatus(error instanceof Error ? error.message : String(error), "warning")
         }

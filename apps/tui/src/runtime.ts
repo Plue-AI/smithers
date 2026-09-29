@@ -13,12 +13,13 @@ import * as Extension from "./extension.ts"
 import type { DelegateModel } from "./models.ts"
 import type * as Monitors from "./monitors.ts"
 import * as Panels from "./panels.ts"
+import type { Vendor } from "./wrapped.ts"
 
 export interface Ports {
   /** Throws a one-line refusal (`Contributions.Refusal`) when the contribution cannot be shown. */
   readonly publish: (contribution: Extension.Contribution) => void
   readonly delegate?: (
-    request: { id: string; title: string; prompt: string; model?: DelegateModel; agent?: string }
+    request: { id: string; title: string; prompt: string; model?: DelegateModel; agent?: string; harness?: Vendor }
   ) => unknown
   readonly wait?: (ids: ReadonlyArray<string>, signal?: AbortSignal) => Promise<unknown>
   /** `ask` (`ctx.help`): resolves with the answer of the parent agent or the person. */
@@ -199,13 +200,14 @@ export const source = (ports: Ports): FlowBinding.Source =>
     ...(ports.delegate === undefined ? [] : [
       bind(
         "agent.delegate",
-        "Request background work in a separate agent tab and return immediately. Six run at once by default; more queue FIFO. Reuse id to deduplicate. agent names one of the Agents in your context to run with its own prompt, model and flows. Workers may wait with agent.wait; the coordinator must not wait. Pass model only when the person names one.",
+        "Request background work in a separate agent tab and return immediately. Six run at once by default; more queue FIFO. Reuse id to deduplicate. agent names one of the Agents in your context to run with its own prompt, model and flows. harness runs it on Claude Code or Codex with their own tools, only when the person names one. Workers may wait with agent.wait; the coordinator must not wait. Pass model only when the person names one.",
         Schema.Struct({
           id: short,
           title: short,
           prompt: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32_000)),
           model: Schema.optional(Schema.Literals(["cerebras", "luna", "sol", "astra"])),
-          agent: Schema.optional(short)
+          agent: Schema.optional(short),
+          harness: Schema.optional(Schema.Literals(["claude", "codex"]))
         }),
         (input) => ports.delegate!(input)
       ),

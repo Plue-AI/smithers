@@ -78,6 +78,8 @@ export type Record =
   }
   | { readonly type: "name"; readonly name: string }
   | { readonly type: "user"; readonly at: number; readonly text: string; readonly steered?: boolean }
+  /** A row drawn as it happened: a wrapped harness's own `⏺`/`•` rows. */
+  | { readonly type: "note"; readonly at: number; readonly text: string }
   | { readonly type: "event"; readonly at: number; readonly event: Activity.Observed }
   | {
     readonly type: "outcome"
@@ -637,6 +639,9 @@ export const restore = (records: ReadonlyArray<Record>): {
     switch (record.type) {
       case "caption":
         transcript = Transcript.caption(transcript, record.prose)
+        break
+      case "note":
+        transcript = Transcript.note(transcript, record.text, record.at)
         break
       case "panel":
         Panels.keep(panels, record.panel)

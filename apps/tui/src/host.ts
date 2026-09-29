@@ -121,6 +121,13 @@ export interface Host {
   readonly cwd: string
   /** The host's run token cap; absent when it is off. */
   readonly runCap?: number
+  /**
+   * `ctx.call("memory", {task})` for a launch outside a cell: what a wrapped harness is told it knows.
+   * Absent where the host has no memory flow.
+   */
+  readonly memory?: (
+    task: string
+  ) => Promise<{ readonly text: string; readonly kept: number; readonly withheld: number }>
   readonly compaction: (used: number, window: number) => Promise<number | undefined>
   /** A one-line tab description, asked of `seat`: the seat the task already goes to. */
   readonly describe?: (input: { title: string; prompt: string; seat: string }) => Promise<string>

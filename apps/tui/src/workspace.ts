@@ -1,3 +1,6 @@
+import * as SmithersPlugin from "@smthrs/agent/SmithersPlugin"
+import { randomUUID } from "node:crypto"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import * as Log from "./log.ts"
 /** Background work outlives a chat turn. Each tab has its own durable transcript. */
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
@@ -17,6 +20,7 @@ import * as Steering from "./steering.ts"
 import * as Summary from "./summary.ts"
 import * as Transcript from "./transcript.ts"
 import * as Tree from "./tree.ts"
+import * as Wrapped from "./wrapped.ts"
 
 export interface Tab {
   readonly id: string
@@ -58,6 +62,13 @@ export interface Tab {
   readonly driver?: Driver
   /** Every finished take-over, oldest first; the mythical note's `drivers:`. */
   readonly drivers?: ReadonlyArray<Driver & { readonly to: number }>
+  /** A wrapped harness runs this worker with its own tools; `session` once the vendor started it. */
+  readonly harness?: {
+    readonly vendor: Wrapped.Vendor
+    readonly session?: string
+    /** The file holding the session's brief: every launch on the session passes these bytes. */
+    readonly brief?: string
+  }
 }
 /** A person driving a worker: since when, and how many messages they sent. */
 export interface Driver {
@@ -84,6 +95,8 @@ export interface Request {
   readonly agent?: string | undefined
   /** Who asked; only a person may start a `disable-model-invocation` agent. Default `agent`. */
   readonly by?: "user" | "agent"
+  /** Run it on a wrapped harness (Claude Code, Codex) instead of the cell harness. */
+  readonly harness?: Wrapped.Vendor | undefined
 }
 export interface Snapshot {
   readonly tabs: ReadonlyArray<Tab>
@@ -134,6 +147,15 @@ export class Workspace {
   private steering = new Map<string, { readonly queue: Steering.Queue; readonly writer: Session.Writer }>()
   private closed = false
   private unsubscribeAsks: () => void = () => {}
+  /** Wrapped workers the person took over: resolved once the vendor stopped, released by `release`. */
+  private handovers = new Map<
+    string,
+    { readonly ready: Deferred<string>; readonly back: Deferred<void>; withdrawn?: true }
+  >()
+  /** Each wrapped worker's headless vendor process now. */
+  private vendorRuns = new Map<string, Wrapped.Handle>()
+  /** The session each running wrapped worker's vendor named, before it is resumable. */
+  private announced = new Map<string, string>()
   /** Open `ask` calls from workers, routed up the tree to the person. */
   readonly asks: Asks.Asks = new Asks.Asks({
     tab: (id) => this.tabs.get(id),
@@ -458,6 +480,11 @@ export class Workspace {
       ...(request.model === undefined ? {} : { model: request.model }),
       ...(request.agent === undefined ? {} : { agent: { name: request.agent } }),
       ...(prior?.caps === undefined ? {} : { caps: prior.caps }),
+      ...(request.harness !== undefined
+        ? { harness: { vendor: request.harness } }
+        : prior?.harness === undefined
+        ? {}
+        : { harness: prior.harness }),
       // A relaunched take-over parks again for its driver; finished ones stay on record.
       ...(prior?.driver === undefined ? {} : { driver: prior.driver }),
       ...(prior?.drivers === undefined ? {} : { drivers: prior.drivers })
@@ -601,8 +628,9 @@ export class Workspace {
   }
   private async describe(tab: Tab): Promise<void> {
     let description = tab.title.replace(/\s+/g, " ").trim().slice(0, 80)
-    // The worker's own seat: the task never goes to a provider the user did not pick for it.
-    if (!tab.seat.startsWith("replay:") && tab.seat !== Seat.auto) {
+    // The worker's own seat: the task never goes to a provider the user did not pick for it. A wrapped
+    // worker's provider is its vendor, which is never asked for a title.
+    if (!tab.seat.startsWith("replay:") && tab.seat !== Seat.auto && tab.harness === undefined) {
       try {
         const generated = await this.options.host.describe?.({ title: tab.title, prompt: tab.prompt, seat: tab.seat })
         description = generated?.replace(/\s+/g, " ").trim().slice(0, 80) || description
@@ -631,7 +659,7 @@ export class Workspace {
     })
     try {
       writer.append({ type: "user", at, text: tab.prompt })
-      const handle = this.options.host.run({
+      const handle = tab.harness !== undefined ? this.runWrapped(tab, writer) : this.options.host.run({
         prompt: tab.prompt,
         seat: tab.seat,
         ...(tab.variant === undefined ? {} : { variant: tab.variant }),
@@ -774,6 +802,140 @@ export class Workspace {
       this.fail(tab, writer, error)
     }
   }
+  /**
+   * A wrapped worker's run: its memory and brief first, then the vendor headless on one session.
+   * A take-over stops it (Claude Code at once, Codex once its turn completes, the 0.x rule), hands
+   * the terminal over, and once released runs it on headless on the same session and brief.
+   */
+  private runWrapped(tab: Tab, writer: Session.Writer): Host.Turn {
+    const vendor = tab.harness!.vendor
+    // A retried or restarted worker has a new file; nothing from an older run writes into it.
+    const own = () => this.tabs.get(tab.id)?.file === writer.file
+    const note = (text: string) => {
+      if (!own()) return
+      const at = Date.now()
+      writer.append({ type: "note", at, text })
+      this.transcripts.set(tab.id, Transcript.note(this.transcript(tab.id), text, at))
+      this.changed()
+    }
+    let cancelled = false
+    let current: Wrapped.Handle | undefined
+    const body = async (): Promise<Host.Outcome> => {
+      // A take-over does not survive a restart: the vendor's own TUI went with the process.
+      const restored = this.tabs.get(tab.id)
+      if (restored?.driver !== undefined) this.tabs.put(ended(restored, Date.now()))
+      let resume = tab.harness!.session !== undefined
+      const file = tab.harness!.brief ?? `${tab.file}.brief.md`
+      let brief: string
+      if (existsSync(file)) brief = readFileSync(file, "utf8")
+      else {
+        const memory = this.options.host.memory
+        const recalled = memory === undefined ? undefined : await memory(tab.prompt).catch((error: unknown) => {
+          note(`→ memory failed: ${error instanceof Error ? error.message : String(error)}`)
+          return undefined
+        })
+        note(
+          memory === undefined
+            ? "→ memory unavailable"
+            : recalled === undefined
+            ? "→ memory none"
+            : `→ memory ${recalled.kept} in · ${recalled.withheld} withheld`
+        )
+        // The brief is frozen for the session: every launch on it passes these bytes, so the prefix caches.
+        brief = [SmithersPlugin.brief, recalled?.text ?? ""].filter((part) => part !== "").join("\n\n")
+        writeFileSync(file, brief, { mode: 0o600 })
+      }
+      const now = this.tabs.get(tab.id)
+      if (now !== undefined && now.harness?.brief !== file) {
+        this.tabs.put({ ...now, harness: { ...now.harness!, brief: file } })
+      }
+      // Claude Code takes the id we choose; it is recorded once the vendor reports it started.
+      const chosen = tab.harness!.session ?? (vendor === "claude" ? randomUUID() : undefined)
+      // The vendor repeats a call's usage on each of its blocks: count each call once.
+      const counted = new Set<string>()
+      {
+        for (;;) {
+          if (cancelled) return { _tag: "cancelled" }
+          const session = this.tabs.get(tab.id)?.harness?.session ?? chosen
+          const handle = Wrapped.run({
+            vendor,
+            prompt: resume ? Wrapped.continuePrompt : tab.prompt,
+            cwd: this.options.host.cwd,
+            brief,
+            ...(session === undefined ? {} : { session }),
+            resume,
+            approve: this.options.host.approvals?.mode ?? "all"
+          }, (folded) => {
+            if (!own()) return
+            if (folded.announce !== undefined) this.announced.set(tab.id, folded.announce)
+            const at = this.tabs.get(tab.id)!
+            if (folded.session !== undefined && at.harness?.session !== folded.session) {
+              this.tabs.put({ ...at, harness: { ...at.harness!, session: folded.session } })
+            }
+            for (const row of folded.rows) note(`${row.glyph} ${row.text}`)
+            const usage = folded.usage
+            if (usage !== undefined && (usage.call === undefined || !counted.has(usage.call))) {
+              if (usage.call !== undefined) counted.add(usage.call)
+              const transcript = this.transcript(tab.id)
+              this.transcripts.set(tab.id, {
+                ...transcript,
+                usage: {
+                  input: transcript.usage.input + usage.input,
+                  output: transcript.usage.output + usage.output,
+                  cached: transcript.usage.cached + usage.cached,
+                  context: usage.input
+                }
+              })
+              this.changed()
+            }
+          })
+          current = handle
+          this.vendorRuns.set(tab.id, handle)
+          const outcome = await handle.done
+          this.vendorRuns.delete(tab.id)
+          const handover = this.handovers.get(tab.id)
+          if (handover?.withdrawn === true && !cancelled) {
+            // Released before the terminal was handed over: the run just goes on.
+            this.handovers.delete(tab.id)
+            if (outcome._tag === "stopped") {
+              resume = true
+              continue
+            }
+          } else if (handover !== undefined && !cancelled && outcome._tag !== "failed") {
+            handover.ready.resolve(brief)
+            await handover.back.promise
+            this.handovers.delete(tab.id)
+            resume = true
+            continue
+          }
+          return outcome._tag === "done"
+            ? { _tag: "done", answer: outcome.answer }
+            : outcome._tag === "failed"
+            ? { _tag: "failed", message: outcome.message, detail: "" }
+            : { _tag: "cancelled" }
+        }
+      }
+    }
+    const done = (async (): Promise<Host.Outcome> => {
+      try {
+        return await body()
+      } finally {
+        // Whatever ended the run, a take-over waiting on it hears so and is gone.
+        this.handovers.get(tab.id)?.ready.reject(new Error(`${tab.title} stopped before it was handed over`))
+        this.handovers.delete(tab.id)
+        this.vendorRuns.delete(tab.id)
+        this.announced.delete(tab.id)
+      }
+    })()
+    return {
+      done,
+      cancel: () => {
+        cancelled = true
+        current?.stop()
+        this.handovers.get(tab.id)?.back.resolve()
+      }
+    }
+  }
   /** Settles the tab, its timeline and its worker file as failed. */
   private fail(tab: Tab, writer: Session.Writer, error: unknown) {
     this.handles.delete(tab.id)
@@ -862,8 +1024,20 @@ export class Workspace {
     const target = this.steering.get(id)
     const tab = this.tabs.get(id)
     if (target === undefined || tab?.status !== "running" || tab.driver !== undefined) return false
+    // A wrapped worker is handed over whole, on its vendor session: Claude Code's once a call on it
+    // settled, Codex's once named, as its hand-over waits for the turn to complete anyway.
+    if (
+      tab.harness !== undefined &&
+      (tab.harness.vendor === "claude" ? tab.harness.session : tab.harness.session ?? this.announced.get(id)) ===
+        undefined
+    ) return false
     const at = Date.now()
-    target.queue.hijack()
+    if (tab.harness === undefined) target.queue.hijack()
+    else {
+      this.handovers.set(id, { ready: deferred<string>(), back: deferred<void>() })
+      // Claude Code resumes from any message; Codex only after its turn completed.
+      if (tab.harness.vendor === "claude") this.vendorRuns.get(id)?.stop()
+    }
     this.transcripts.set(id, Transcript.note(this.transcript(id), `⇄ ${by} took over`, at))
     this.tabs.put({ ...tab, driver: { by, from: at, messages: 0 } })
     return true
@@ -892,10 +1066,37 @@ export class Workspace {
     if (tab?.driver === undefined) return false
     const at = Date.now()
     this.steering.get(id)?.queue.release()
+    // The run's own loop removes the hand-over once it takes the worker back. Released before the
+    // vendor stopped, the hand-over is withdrawn: its TUI never starts beside the headless run.
+    const handover = this.handovers.get(id)
+    if (handover !== undefined && !handover.ready.settled()) {
+      handover.withdrawn = true
+      handover.ready.reject(new Error(`${tab.title} was released before it was handed over`))
+    }
+    handover?.back.resolve()
     this.transcripts.set(id, Transcript.note(this.transcript(id), `⇄ ${tab.driver.by} released`, at))
     this.tabs.put(ended(tab, at))
     return true
   }
+  /**
+   * The vendor's own TUI on a taken-over wrapped worker's session, once its headless run has
+   * stopped: what the terminal runs until the person quits it and `release` hands it back.
+   */
+  handedOver = async (id: string): Promise<{ readonly command: string; readonly args: ReadonlyArray<string> }> => {
+    const handover = this.handovers.get(id)
+    if (handover === undefined) throw new Error(`${id} is not taken over`)
+    const brief = await handover.ready.promise
+    const tab = this.tabs.get(id)
+    if (tab?.harness?.session === undefined) throw new Error(`${id} has no session to resume`)
+    return Wrapped.interactive(
+      tab.harness.vendor,
+      tab.harness.session,
+      this.options.host.cwd,
+      brief,
+      this.options.host.approvals?.mode ?? "all"
+    )
+  }
+
   /** Whether a taken-over worker is parked for its driver now. */
   holding = (id: string): boolean => this.steering.get(id)?.queue.holding() === true
   /** Records an undo of a tab's calls in its own file and transcript. */
@@ -1080,4 +1281,30 @@ export const failureLine = (tab: Tab, transcript: Transcript.Transcript): string
   )
   const prefix = tab.failure?.line ?? "The worker stopped before finishing."
   return `${prefix} ${steps} of ~40 steps done. ${changed ? "Files changed." : "No files changed."}`
+}
+
+/** A promise and its settlers. */
+interface Deferred<A> {
+  readonly promise: Promise<A>
+  readonly resolve: (value: A) => void
+  readonly reject: (error: Error) => void
+  readonly settled: () => boolean
+}
+const deferred = <A>(): Deferred<A> => {
+  let done = false
+  let resolve: (value: A) => void = () => {}
+  let reject: (error: Error) => void = () => {}
+  const promise = new Promise<A>((ok, fail) => {
+    resolve = (value) => {
+      done = true
+      ok(value)
+    }
+    reject = (error) => {
+      done = true
+      fail(error)
+    }
+  })
+  // A hand-over nobody waits on may still be refused.
+  promise.catch(() => {})
+  return { promise, resolve, reject, settled: () => done }
 }

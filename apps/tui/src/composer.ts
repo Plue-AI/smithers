@@ -144,25 +144,31 @@ export const useComposer = (options: {
   const externalEditor = async (renderer: CliRenderer, setStatus: (text: string, tone: "warning") => void) => {
     if (editing.current !== undefined) return
     const editor = process.env.VISUAL ?? process.env.EDITOR ?? "nano"
-    renderer.suspend()
     const controller = new AbortController()
-    const done = External.edit(composer.current?.plainText ?? "", editor, undefined, controller.signal)
-    editing.current = { controller, done }
     let edited: string | undefined
+    const done = External.exclusive(async () => {
+      renderer.suspend()
+      try {
+        edited = await External.edit(composer.current?.plainText ?? "", editor, undefined, controller.signal)
+      } catch (error) {
+        Log.write("editor", error)
+        if (!controller.signal.aborted) setStatus("Editor unavailable", "warning")
+      } finally {
+        if (!controller.signal.aborted) {
+          renderer.resume()
+          // Window changes went to the foreground editor while we were suspended.
+          // Refresh the runtime's TTY dimensions and the renderer through its
+          // normal signal path, on both Node and Bun.
+          process.kill(process.pid, "SIGWINCH")
+        }
+      }
+      return edited
+    })
+    editing.current = { controller, done }
     try {
-      edited = await done
-    } catch (error) {
-      Log.write("editor", error)
-      if (!controller.signal.aborted) setStatus("Editor unavailable", "warning")
+      await done
     } finally {
       editing.current = undefined
-      if (!controller.signal.aborted) {
-        renderer.resume()
-        // Window changes went to the foreground editor while we were suspended.
-        // Refresh the runtime's TTY dimensions and the renderer through its
-        // normal signal path, on both Node and Bun.
-        process.kill(process.pid, "SIGWINCH")
-      }
     }
     if (edited !== undefined) setText(edited)
   }

@@ -58,7 +58,7 @@ export const elapsed = (tab: Pick<Tab, "startedAt" | "endedAt">, now: number): n
 export type ActionId = "stop" | "retry" | "model" | "wait" | "steer" | "takeover"
 
 /** What an action's availability reads: the status, and a failure's own offers. */
-type Worker = Pick<Tab, "status" | "failure" | "driver">
+type Worker = Pick<Tab, "status" | "failure" | "driver" | "harness">
 
 /** Each worker action is a button in the worker view and a registry key (`panel` context). */
 const registered: ReadonlyArray<
@@ -71,7 +71,8 @@ const registered: ReadonlyArray<
   {
     id: "steer",
     binding: "steer-worker",
-    when: (tab) => WorkerControls.allowed("steer", tab) && tab.driver === undefined
+    // A wrapped harness reads no steering queue; it is taken over instead.
+    when: (tab) => WorkerControls.allowed("steer", tab) && tab.driver === undefined && tab.harness === undefined
   },
   // A running worker only: a take-over parks it at its next frame boundary.
   { id: "takeover", binding: "take-over", when: (tab) => tab.status === "running" && tab.driver === undefined }

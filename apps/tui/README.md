@@ -148,7 +148,7 @@ The `?` key popup scrolls with PageUp/PageDown or the mouse wheel.
 `/model [query]`, `/theme`, `/thinking [level]`, `/new`, `/resume`, `/fork`, `/conversation`, `/compact`,
 `/name <name>`, `/copy`, `/summary`, `/tabs`, `/chat`, `/filter`,
 `/grep [text]`, `/ui [id]`, `/smithers`, `/flows`, `/flow <name> [json|key=value]`, `/agent [name] [prompt]`,
-`/retry <id>`, `/stop <id>`, `/hotkeys`, `/quit`, `/exit`. After `/model`, `/thinking`, `/flow` and `/agent`
+`/claude <prompt>`, `/codex <prompt>`, `/retry <id>`, `/stop <id>`, `/hotkeys`, `/quit`, `/exit`. After `/model`, `/thinking`, `/flow` and `/agent`
 the menu completes the argument, and the `/` menu lists the directory's flows.
 
 ## Look
@@ -413,6 +413,24 @@ Scores calibrate the next estimate. A running tab and a working turn show
 answers ETA questions, queued tabs included. The eval log is
 `<session dir>/<cwd slug>/evals/estimates.jsonl`. See
 `.plans/estimation-system.md`.
+
+## Wrapped harnesses
+
+`/claude <prompt>` and `/codex <prompt>` (or `agent.delegate` with
+`harness: "claude" | "codex"`) run Claude Code or Codex as a worker with its
+own tools. The worker first asks the host's `memory` flow about the task
+(`→ memory 7 in · 4 withheld`); the terminal host has no memory flow yet, so
+the row reads `→ memory unavailable`. It then passes the Smithers brief plus that memory once per session:
+`claude -p --output-format stream-json --append-system-prompt <brief>
+--session-id <id>`, or `codex exec --json -c developer_instructions=<brief>`.
+Its tab draws the vendor's stream in its own glyphs (`⏺ Read(x)`, `⎿`,
+`• Ran …`, `└`) and meters its tokens and cache hits. **t** stops the headless
+run (Codex after its turn completes) and hands the terminal to the vendor's
+own TUI on the same session (`claude --resume <id>`, `codex resume <id>`);
+quitting it hands the worker back, and it continues headless with
+`--resume` and the same brief bytes. Headless it cannot ask: under `--approve all` the vendor acts without asking,
+otherwise it only reads (Claude Code in plan mode, Codex in a read-only
+sandbox).
 
 ## Custom agents
 

@@ -86,7 +86,7 @@ export const rows = (input: {
       worker: tab,
       status: tab.status,
       name: tabTitle(tab),
-      seat: Tabs.model(seat, input.models),
+      seat: tab.harness?.vendor ?? Tabs.model(seat, input.models),
       clock: tab.status === "parked" && tab.wakeAt !== undefined
         ? at(tab.wakeAt)
         : tab.status === "queued"

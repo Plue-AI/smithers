@@ -1,0 +1,20 @@
+#!/bin/sh
+# A stand-in for Codex: logs its argv, then streams `exec --json` events when headless
+# or acts as its interactive TUI on the resumed thread until a line is typed.
+prompt=""
+[ "$1" = "exec" ] && prompt="$(cat)"
+printf '%s\n' "$(printf '%s <<< %s' "$*" "$prompt" | tr '\n' ' ')" >> "${FAKE_VENDOR_LOG:-/dev/null}"
+if [ "$1" != "exec" ]; then
+  printf 'codex thread %s\n> ' "$2"
+  read -r line
+  exit 0
+fi
+thread="${FAKE_CODEX_THREAD:-01a0eb2b-71f5-7b91-86ea-e585644f68d4}"
+pause="${FAKE_VENDOR_PAUSE:-0}"
+printf '{"type":"thread.started","thread_id":"%s"}\n' "$thread"
+printf '{"type":"turn.started"}\n'
+sleep "$pause"
+printf '{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"bun test","aggregated_output":"12 pass\\n","exit_code":0,"status":"completed"}}\n'
+sleep "$pause"
+printf '{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"Fixed the flaky queue."}}\n'
+printf '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":5,"reasoning_output_tokens":3}}\n'

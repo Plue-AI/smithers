@@ -215,7 +215,11 @@ export function WorkerView(props: {
   const usage = transcript.usage
   const facts = [
     ...(tab.driver === undefined ? [] : [`${tab.driver.by} since ${clock(tab.driver.from)}`]),
-    Tabs.model(tab.seat, props.models),
+    tab.harness === undefined
+      ? Tabs.model(tab.seat, props.models)
+      : `${tab.harness.vendor}${
+        tab.harness.session === undefined ? "" : ` · session ${tab.harness.session.slice(0, 8)}`
+      }`,
     Transcript.duration(Tabs.elapsed(tab, props.now)),
     ...(usage.input + usage.output === 0 ? [] : [`↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}`])
   ].join(" · ")
