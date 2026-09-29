@@ -225,7 +225,7 @@ export const plan = async (options: {
   if (options.rule === "Foundry.Build") {
     for (const skip of attrs.skip ?? []) argv.push("--skip", skip)
   }
-  const env = attrs.profile === undefined ? {} : { FOUNDRY_PROFILE: attrs.profile }
+  const env: Readonly<Record<string, string>> = attrs.profile === undefined ? {} : { FOUNDRY_PROFILE: attrs.profile }
   const outDirs = options.rule === "Foundry.Build"
     ? (attrs.outDirs ?? []).map((dir) => Input.resolvePath(options.packagePath, dir))
     : []
