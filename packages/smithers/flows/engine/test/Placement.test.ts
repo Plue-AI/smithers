@@ -255,10 +255,22 @@ describe("a placed .child()", () => {
         // Each retry's sleep registers only after the refused fetch settles on
         // real I/O. Node settles it within one macrotask; Bun can take dozens.
         // So wait out every ask in flight, and move the clock only between asks.
+        // An ask that neither fails nor settles within `inFlightTurns` turns
+        // is a transport that swallowed it, not a slow refusal.
+        const inFlightTurns = 10_000
         let adjustments = 0
+        let waited = 0
         while (asking.pollUnsafe() === undefined && adjustments < 60) {
           yield* Effect.promise(() => new Promise((resolve) => setImmediate(resolve)))
-          if (settled < asks) continue
+          if (settled < asks) {
+            if (++waited >= inFlightTurns) {
+              return yield* Effect.die(
+                new Error(`ask ${asks} stayed in flight for ${inFlightTurns} event-loop turns without settling`)
+              )
+            }
+            continue
+          }
+          waited = 0
           yield* TestClock.adjust("1 minute")
           adjustments++
         }

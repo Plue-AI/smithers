@@ -95,7 +95,8 @@ it("passes a flow whose bytes on disk did not change", async () => {
  * one `plan` reads made a flow file a run wrote plannable on a host that does
  * not rebuild authored flows, as a plan of no nodes.
  */
-it("reads drift without replacing the catalog a plan is made from", async () => {
+// Root reads a 0o000 directory, so the unreadable step cannot happen as root.
+it.skipIf(process.getuid?.() === 0)("reads drift without replacing the catalog a plan is made from", async () => {
   const root = mkdtempSync(join(tmpdir(), "smithers-drift-live-"))
   try {
     writeFlow(root, "Original review")

@@ -242,7 +242,7 @@ describe("the pick", () => {
 
 describe("the implementing step, defaulted to the bundled flow on this host", () => {
   it.each([undefined, "must-not-spend-this-key"])(
-    "keeps a detected subscription's auth mode when OPENAI_API_KEY is %s",
+    "asks for the detected Codex session, never OPENAI_API_KEY, when that key is %s",
     async (apiKey) => {
       const terminal = sink()
       const service: Ui.Service = {
@@ -263,6 +263,40 @@ describe("the implementing step, defaulted to the bundled flow on this host", ()
       ))
       expect(error.message).toContain("no ChatGPT credentials")
       expect(error.message).not.toContain("Set OPENAI_API_KEY")
+    }
+  )
+
+  // An operator who set `SMITHERS_OPENAI_AUTH=api-key` keeps it: a signed-in
+  // Codex file beside it neither becomes the seat nor overrides that mode.
+  it.each([
+    [undefined, undefined],
+    ["metered-key", "openai"]
+  ])(
+    "keeps an ambient api-key auth mode beside a signed-in Codex file when OPENAI_API_KEY is %s",
+    async (apiKey, source) => {
+      const documents: Array<string> = []
+      const outcome = await Effect.runPromise(Effect.result(
+        Suggest.run({
+          ...base,
+          json: true,
+          environment: { OPENAI_API_KEY: apiKey, SMITHERS_OPENAI_AUTH: "api-key" },
+          readFile: () => JSON.stringify({ tokens: { access_token: "test-access", refresh_token: "test-refresh" } }),
+          emit: (line) => void documents.push(line)
+        })
+      ))
+      const seats = documents.map((line) =>
+        JSON.parse(line) as { readonly document?: string; readonly source?: string }
+      )
+        .filter((document) => document.document === "seat")
+      if (source === undefined) {
+        expect(outcome._tag).toBe("Failure")
+        expect(outcome._tag === "Failure" && outcome.failure.message).toContain(
+          "set SMITHERS_OPENAI_AUTH=chatgpt to use this Codex login"
+        )
+        expect(seats).toEqual([])
+      } else {
+        expect(seats.map((seat) => seat.source)).toEqual([source])
+      }
     }
   )
 
