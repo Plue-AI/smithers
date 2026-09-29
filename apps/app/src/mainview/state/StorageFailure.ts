@@ -1,4 +1,4 @@
-import { PrivacyRetirementError } from "../chain/PrivacyRetirement"
+import { isPrivacyRetirementError, type PrivacyRetirementError } from "../chain/PrivacyRetirement"
 import { StorageWriteFailedError, type WriterMovedToAnotherTabError } from "./StorageRecoveryContract"
 
 export type StoreFailure = PrivacyRetirementError | StorageWriteFailedError
@@ -13,6 +13,6 @@ export const subscribeStorageFailure = (listener: () => void) => {
   return () => { listeners.delete(listener) }
 }
 export const reportStorageFailure = (reason: NonNullable<typeof failure>): void => {
-  if (failure === undefined || (failure instanceof StorageWriteFailedError && reason instanceof PrivacyRetirementError)) failure = reason
+  if (failure === undefined || (failure instanceof StorageWriteFailedError && isPrivacyRetirementError(reason))) failure = reason
   for (const listener of listeners) listener()
 }

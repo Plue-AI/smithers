@@ -9,7 +9,7 @@ import type { CollectionPersistence,DurableRowSink } from "../chain/DurableColle
 import { createCollectionPersistence,durableCollectionOptions } from "../chain/DurableCollection"
 import type { PersistedLoadReport } from "../chain/PersistenceBudget"
 import { EMPTY_PERSISTED_LOAD,PERSISTED_JOURNAL_COMPACTION_BYTES,PERSISTED_LOAD_TOAST_KEY,PERSISTED_LOAD_TOAST_TITLE,persistedLoadNotice } from "../chain/PersistenceBudget"
-import { PrivacyRetirementError,RESET_ERASURE_OUTBOX_KEY,addPendingTurnErasures,beginPrivacyRetirement,completePrivacyRetirement,deriveTurnErasures,enqueueTurnErasure,eraseLocalRecoveryCopies,preserveResetErasures,privacyStorage,readPrivacyRetirement,readResetErasures,retargetPrivacyRetirement,type PermittedStorageRows,type PrivacyRetirement } from "../chain/PrivacyRetirement"
+import { PrivacyAuthorityMissing,PrivacyCleanupPending,PrivacyKeyNotRemoved,PrivacyMarkerMismatch,PrivacyStorageUnavailable,isPrivacyRetirementError,RESET_ERASURE_OUTBOX_KEY,addPendingTurnErasures,beginPrivacyRetirement,completePrivacyRetirement,deriveTurnErasures,enqueueTurnErasure,eraseLocalRecoveryCopies,preserveResetErasures,privacyStorage,readPrivacyRetirement,readResetErasures,retargetPrivacyRetirement,type PermittedStorageRows,type PrivacyRetirement } from "../chain/PrivacyRetirement"
 import { createRemoteRetirementWorker } from "../chain/RemoteRetirement"
 import {
 APP_SCHEMA_VERSION,
@@ -429,6 +429,15 @@ const removeOpfsEntry = async (root: FileSystemDirectoryHandle, name: string): P
   }
 }
 
+/** Remove every owned OPFS entry: the database, its sidecars and handle pools. */
+const removeBrowserDatabase = async (): Promise<void> => {
+  if (typeof navigator === "undefined" || typeof navigator.storage?.getDirectory !== "function") return
+  const root = await navigator.storage.getDirectory() as OpfsDirectory
+  const owned: Array<string> = []
+  for await (const name of root.keys()) if (ownedOpfsEntry(name)) owned.push(name)
+  for (const name of owned) await removeOpfsEntry(root, name)
+}
+
 /**
  * Erase this browser's saved Smithers data and reload.
  *
@@ -500,26 +509,45 @@ export interface BrowserPersistenceHost {
   readonly openDatabase: (attempts: number) => Promise<SqliteRowDatabase>
   /** Inspect existence without opening/creating SQLite; needed only for unstamped legacy data. */
   readonly databaseExists?: () => Promise<boolean>
+  /**
+   * Remove the whole inactive database without opening it. A privacy cleanup
+   * resumed at boot uses it when that database will not open, so one broken
+   * file cannot fail every later launch.
+   */
+  readonly removeDatabase?: () => Promise<void>
 }
 
 export const resolvePersistence = async (host: BrowserPersistenceHost = {
   bootRecord: bootRecordStorage,
   openDatabase: openOpfsDatabaseWithinBudget,
-  databaseExists: browserDatabaseExists
+  databaseExists: browserDatabaseExists,
+  removeDatabase: removeBrowserDatabase
 }, assertOwned: () => void = () => {}): Promise<ResolvedPersistence> => {
   const record = fenceStorage(host.bootRecord(), assertOwned)
   const retirement = record === undefined ? undefined : readPrivacyRetirement(record)
   const privacy: NonNullable<ResolvedPersistence["privacy"]> = {
     record,
     eraseInactiveDatabase: async () => {
-      if (host.databaseExists === undefined) throw new PrivacyRetirementError()
+      if (host.databaseExists === undefined) throw new PrivacyStorageUnavailable()
       if (!await host.databaseExists()) return
-      const inactive = fenceDatabase(await host.openDatabase(OPFS_OPEN_ATTEMPTS), assertOwned)
-      try { await eraseSqliteRecoveryCopies(inactive) } finally { await inactive.close?.() }
+      try {
+        const inactive = fenceDatabase(await host.openDatabase(OPFS_OPEN_ATTEMPTS), assertOwned)
+        try { await eraseSqliteRecoveryCopies(inactive) } finally { await inactive.close?.() }
+        return
+      } catch (error) {
+        // The inactive store is not the live authority: removing it whole is a
+        // stricter erasure than dropping its tables. Without that door, or when
+        // removal fails too, the cleanup stays pending with a typed cause.
+        if (host.removeDatabase === undefined) throw error
+        console.warn("Smithers: the inactive SQLite store would not open for cleanup; removing it instead.")
+      }
+      assertOwned()
+      try { await host.removeDatabase() } catch { throw new PrivacyStorageUnavailable() }
+      if (await host.databaseExists()) throw new PrivacyKeyNotRemoved()
     }
   }
   const recorded = record === undefined ? null : readRecordedBackend(record)
-  if (retirement !== undefined && retirement.backend !== recorded) throw new PrivacyRetirementError()
+  if (retirement !== undefined && retirement.backend !== recorded) throw new PrivacyMarkerMismatch()
   if (recorded === "localStorage") {
     return {
       backend: { kind: "localStorage", storage: record },
@@ -554,7 +582,7 @@ export const resolvePersistence = async (host: BrowserPersistenceHost = {
     database = fenceDatabase(await host.openDatabase(opfsHoldsData ? OPFS_OPEN_ATTEMPTS : 1), assertOwned)
   } catch (error) {
     if (opfsHoldsData) {
-      if (retirement?.phase === "pending") throw new PrivacyRetirementError()
+      if (retirement?.phase === "pending") throw new PrivacyStorageUnavailable()
       console.error(
         "Smithers: this app's data lives in OPFS SQLite and that store could not be opened, so this session starts empty and saves nothing. The conversation is still on disk and comes back once the store opens again.",
         error
@@ -578,9 +606,9 @@ export const resolvePersistence = async (host: BrowserPersistenceHost = {
   const sqlite = await (async () => {
     if (retirement !== undefined) {
       const tables = await database.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'smithers_collection_rows'")
-      if (tables.length !== 1) throw new PrivacyRetirementError()
+      if (tables.length !== 1) throw new PrivacyAuthorityMissing()
       const authority = await database.execute<{ readonly collection_id: string }>("SELECT DISTINCT collection_id FROM smithers_collection_rows WHERE collection_id IN ('app-event-heads', 'app-event-checkpoints')")
-      if (authority.length !== 2) throw new PrivacyRetirementError()
+      if (authority.length !== 2) throw new PrivacyAuthorityMissing()
     }
     return openSqliteRowStorage(database, {
     collections: PERSISTED_COLLECTION_SPECS,
@@ -1072,7 +1100,7 @@ const initializeAppStore = async (
       const raw = persistedLocally.getItem(ENVELOPE_STORAGE_KEY)
       const envelope = raw === null ? undefined : parseStorageEnvelope(raw)
       if (envelope?.version !== 1 || envelope.entries["smithers-mvp.app-event-heads"] === undefined ||
-        envelope.entries["smithers-mvp.app-event-checkpoints"] === undefined) throw new PrivacyRetirementError()
+        envelope.entries["smithers-mvp.app-event-checkpoints"] === undefined) throw new PrivacyAuthorityMissing()
     }
     enforceSchemaVersion(persistedLocally, { onMismatch: "validate" })
     /* Open recovers any interrupted localStorage commit and validates the
@@ -1140,17 +1168,17 @@ const initializeAppStore = async (
   }
   const privacyBookkeeping = new Set([SCHEMA_VERSION_STORAGE_KEY, PERSISTENCE_BACKEND_STORAGE_KEY, THEME_MIRROR_KEY, PALETTE_MIRROR_KEY])
   const finishRetirement = async (intent: PrivacyRetirement): Promise<void> => {
-    if (resolved.privacy === undefined || resolved.mode === "memory") throw new PrivacyRetirementError()
+    if (resolved.privacy === undefined || resolved.mode === "memory") throw new PrivacyStorageUnavailable()
     const record = privacyStorage(privacyRecord)
-    if (readPrivacyRetirement(record)?.id !== intent.id) throw new PrivacyRetirementError()
+    if (readPrivacyRetirement(record)?.id !== intent.id) throw new PrivacyMarkerMismatch()
     const permitted: PermittedStorageRows = new Map(Object.values(collections).map(collection => [collection.id,
       new Map([...collection.keys()].map(key => [typeof key === "number" ? `n:${key}` : `s:${key}`, storedRow(collection.get(key)!)]))]))
     if (resolvedBackend.kind === "opfs") {
-      if (resolvedBackend.retireRecoveryCopies === undefined) throw new PrivacyRetirementError()
+      if (resolvedBackend.retireRecoveryCopies === undefined) throw new PrivacyStorageUnavailable()
       await resolvedBackend.retireRecoveryCopies(permitted)
       eraseLocalRecoveryCopies(record, privacyBookkeeping)
     } else {
-      if (transactional === undefined) throw new PrivacyRetirementError()
+      if (transactional === undefined) throw new PrivacyStorageUnavailable()
       transactional.retireRecoveryCopies(privacyBookkeeping, permitted)
       await resolved.privacy.eraseInactiveDatabase()
     }
@@ -1161,7 +1189,7 @@ const initializeAppStore = async (
       [THEME_MIRROR_KEY, permittedSession?.theme ?? "light"], [PALETTE_MIRROR_KEY, permittedSession?.palette ?? DEFAULT_PALETTE]
     ] as const) {
       record.setItem(key, value)
-      if (record.getItem(key) !== value) throw new PrivacyRetirementError()
+      if (record.getItem(key) !== value) throw new PrivacyKeyNotRemoved()
     }
     completePrivacyRetirement(record, intent)
     wakeRemoteRetirement()
@@ -1205,7 +1233,7 @@ const initializeAppStore = async (
   if (savedHead === undefined && savedCheckpoint === undefined && collections.appEvents.size === 0) {
     // A privacy intent can only have been accepted after event authority existed.
     // Never recover it by importing an opaque backup or inventing a fresh history.
-    if (bootRetirement !== undefined) throw new PrivacyRetirementError()
+    if (bootRetirement !== undefined) throw new PrivacyAuthorityMissing()
     // Old row snapshots are an explicit coverage boundary, never invented history.
     const previous = readProjection(collections)
     const baseline = initializeAppStream(seedAppProjection(previous, seedContext), crypto.randomUUID(),
@@ -1229,7 +1257,7 @@ const initializeAppStore = async (
     // committed when the subsequent marker update was interrupted.
     const retirementApplied = bootRetirement !== undefined && (savedHead.streamId === bootRetirement.targetStreamId ||
       (savedCheckpoint.reason === "projector-upgrade" && collections.appEventRetirements.has(retiredAppStreamKey(bootRetirement.targetStreamId))))
-    if (bootRetirement !== undefined && bootRetirement.phase !== "pending" && !retirementApplied) throw new PrivacyRetirementError()
+    if (bootRetirement !== undefined && bootRetirement.phase !== "pending" && !retirementApplied) throw new PrivacyAuthorityMissing()
     const boot = appendAppEvent(verified, { kind: "boot", seed: seedContext }, {
       eventId: crypto.randomUUID(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
     })
@@ -1245,7 +1273,7 @@ const initializeAppStore = async (
         const cleaned = appendAppEvent(initial.state, { kind: "transition", transition }, {
           eventId: crypto.randomUUID(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
         })
-        if (cleaned === undefined) throw new PrivacyRetirementError()
+        if (cleaned === undefined) throw new PrivacyAuthorityMissing()
         const rotated = initializeAppStream(cleaned.snapshot, bootRetirement.targetStreamId, "privacy-reset")
         initial = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: savedHead.streamId }
       }
@@ -1278,13 +1306,13 @@ const initializeAppStore = async (
   const rejectStorage = (reason: StoreFailure) => {
     // An already-queued retirement may fail after the first ordinary write.
     // Its privacy fence must still close reads and own the recovery reason.
-    if (rejectedStorage !== undefined && (!(reason instanceof PrivacyRetirementError) || rejectedStorage instanceof PrivacyRetirementError)) return
+    if (rejectedStorage !== undefined && (!isPrivacyRetirementError(reason) || isPrivacyRetirementError(rejectedStorage))) return
     rejectedStorage = reason
     for (const listener of storageFailureListeners) listener(reason)
   }
   // A failed privacy retirement closes reads too. An ordinary failed write
   // still leaves committed rows available for inspection and recovery.
-  const assertReadable = (): void => { assertOwned(); if (rejectedStorage instanceof PrivacyRetirementError) throw rejectedStorage }
+  const assertReadable = (): void => { assertOwned(); if (isPrivacyRetirementError(rejectedStorage)) throw rejectedStorage }
   let scheduleAutoCompaction = (): void => {}
   let compactionTimer: ReturnType<typeof setTimeout> | undefined
   let compacting = false
@@ -1305,7 +1333,7 @@ const initializeAppStore = async (
       if (write.checkpoint !== undefined) committedCheckpoint = write.checkpoint
       if (write.retirement !== undefined) await finishRetirement(write.retirement)
     } catch (error) {
-      if (write.retirement !== undefined) rejectStorage(new PrivacyRetirementError())
+      if (write.retirement !== undefined) rejectStorage(isPrivacyRetirementError(error) ? error : new PrivacyCleanupPending())
       else if (resolvedBackend.kind === "opfs" && acceptedGeneration === generation) {
         // SQLite retains its failed writer state. A notice written through
         // that same journal would fail silently, so stop consumers and notify
@@ -1576,7 +1604,7 @@ const initializeAppStore = async (
     if (disposed) throw new Error("The app state owner is closed. Open the current store before dispatching.")
     assertReadable()
     if (rejectedStorage !== undefined) throw rejectedStorage
-    if (privacyRecord !== undefined && readPrivacyRetirement(privacyRecord)?.phase === "pending") throw new PrivacyRetirementError()
+    if (privacyRecord !== undefined && readPrivacyRetirement(privacyRecord)?.phase === "pending") throw new PrivacyCleanupPending()
     if (resetTransaction !== undefined) return resetTransaction
     if (transition.type === "composer.changed" && pendingDraft?.transaction.state === "pending") {
       const pending = pendingDraft
@@ -1614,13 +1642,13 @@ const initializeAppStore = async (
         try {
           const record = privacyStorage(privacyRecord)
           const backend = resolved.mode === "memory" ? readRecordedBackend(record) : resolved.mode
-          if (backend === null) throw new PrivacyRetirementError()
+          if (backend === null) throw new PrivacyStorageUnavailable()
           const retirement = beginPrivacyRetirement(record, { id: crypto.randomUUID(),
             mode: transition.type === "app.reset" ? "reset" : "account", backend, targetStreamId: rotated.head.streamId },
             deriveTurnErasures(previous.snapshot.httpTurnLegs))
-          if (resolved.mode === "memory") throw new PrivacyRetirementError()
+          if (resolved.mode === "memory") throw new PrivacyStorageUnavailable()
           write = { ...write, retirement }
-        } catch (error) { rejectStorage(new PrivacyRetirementError()); throw error }
+        } catch (error) { rejectStorage(isPrivacyRetirementError(error) ? error : new PrivacyCleanupPending()); throw error }
       }
     }
     const acceptedGeneration = generation
@@ -1882,7 +1910,7 @@ const initializeAppStore = async (
   const compactEvents = async (): Promise<void> => {
       assertReadable()
       if (disposed) throw new Error("The app state owner is closed.")
-      if (privacyRecord !== undefined && readPrivacyRetirement(privacyRecord)?.phase === "pending") throw new PrivacyRetirementError()
+      if (privacyRecord !== undefined && readPrivacyRetirement(privacyRecord)?.phase === "pending") throw new PrivacyCleanupPending()
       commitDraft()
       // Compact a settled head. Preparations created while the checkpoint write
       // is in flight then reference that same retained head, never an ancestor
@@ -1890,7 +1918,7 @@ const initializeAppStore = async (
       while (pendingWrites.size > 0) await Promise.allSettled([...pendingWrites].map(transaction => transaction.isPersisted.promise))
       assertReadable()
       if (disposed) throw new Error("The app state owner is closed.")
-      if (privacyRecord !== undefined && readPrivacyRetirement(privacyRecord)?.phase === "pending") throw new PrivacyRetirementError()
+      if (privacyRecord !== undefined && readPrivacyRetirement(privacyRecord)?.phase === "pending") throw new PrivacyCleanupPending()
       // A prepared human form edit may await command admission without any row
       // write to drain. Retain the exact verified ancestor it references until
       // its owning command applies or refuses it; never rebind pending input to
@@ -1982,7 +2010,7 @@ const initializeAppStore = async (
         : browserSqliteRecoveryReader(),
       ...(resolved.mode === "memory" ? { memory: recoveryStorage(persistedLocally) } : {})
     }),
-    privacyWriteState: () => rejectedStorage instanceof PrivacyRetirementError ? "failed"
+    privacyWriteState: () => isPrivacyRetirementError(rejectedStorage) ? "failed"
       : privacyRecord !== undefined && readPrivacyRetirement(privacyRecord)?.phase === "pending" ? "pending" : "ready",
     onStorageFailure: listener => {
       storageFailureListeners.add(listener)

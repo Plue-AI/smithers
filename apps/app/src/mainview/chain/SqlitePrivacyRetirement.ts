@@ -1,8 +1,8 @@
 import type { SqliteRowDatabase } from "./SqliteRowStorage"
-import { PrivacyRetirementError } from "./PrivacyRetirement"
+import { PrivacyAuthorityMissing } from "./PrivacyRetirement"
 
 const quote = (name: string): string => {
-  if (name.includes("\0")) throw new PrivacyRetirementError()
+  if (name.includes("\0")) throw new PrivacyAuthorityMissing()
   return `"${name.replaceAll('"', '""')}"`
 }
 /** This connection must name the app-owned database, never an arbitrary user database. */
@@ -15,14 +15,14 @@ export const eraseSqliteRecoveryCopies = async (
   try {
     const tables = await database.execute<{ readonly name: unknown; readonly type: unknown }>("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') ORDER BY type DESC, name")
     for (const { name, type } of tables) {
-      if (typeof name !== "string") throw new PrivacyRetirementError()
+      if (typeof name !== "string") throw new PrivacyAuthorityMissing()
       if (name.startsWith("sqlite_")) {
         // ANALYZE samples can retain old row values even after DELETE. These
         // internal tables cannot be dropped, but their logical rows can go.
-        if (name !== "sqlite_sequence" && !/^sqlite_stat[1-4]$/.test(name)) throw new PrivacyRetirementError()
+        if (name !== "sqlite_sequence" && !/^sqlite_stat[1-4]$/.test(name)) throw new PrivacyAuthorityMissing()
         await database.execute(`DELETE FROM ${quote(name)}`)
       } else {
-        if (type !== "table" && type !== "view") throw new PrivacyRetirementError()
+        if (type !== "table" && type !== "view") throw new PrivacyAuthorityMissing()
         await database.execute(`DROP ${type === "view" ? "VIEW" : "TABLE"} ${quote(name)}`)
       }
     }
