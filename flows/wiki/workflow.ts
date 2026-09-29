@@ -72,7 +72,25 @@ export const validateOrRepairReview = (
         )
     }),
     Node.bindPlanned((validated) => CheckCitations.call({ evidence, review: validated })),
-    Node.map((checked) => checked.review)
+    // Derive the effective assessment without mutating either action receipt.
+    // Citation uncertainty can weaken support, never erase semantic findings.
+    Node.map((checked) => ({
+      ...checked.review,
+      sections: checked.review.sections.map((section) => {
+        const uncertain = checked.citations.citations.filter((citation) =>
+          citation.section === section.id && citation.outcome === "uncertain"
+        )
+        if (section.verdict !== "supported" || uncertain.length === 0) return section
+        return {
+          ...section,
+          verdict: "uncertain" as const,
+          explanation: section.explanation + "\nCitation check uncertain: " +
+            uncertain.map((citation) =>
+              `${citation.path}:${citation.line} (${citation.choice}, confidence ${citation.confidence})`
+            ).join("; ")
+        }
+      })
+    }))
   )
 export const Assess = Action.make("wiki/assess-review", {
   payload: { evidence: Evidence, review: Schema.NullOr(Review), reviewer: Schema.NullOr(Schema.String) },

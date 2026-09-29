@@ -25,8 +25,10 @@ live checkout or a surviving temporary directory. The existing evidence-only
 reviewer receives no tool authority from this composition.
 
 Each review passes the existing deterministic citation and section assessment
-before its bound page is recorded. Unsupported or uncertain sections produce a
-failed ordinary check receipt. Findings name the checked Change, exact source
+before its bound page is recorded. Citation confidence below 0.8 makes an
+otherwise supported section uncertain, while preserving semantic uncertain and
+unsupported findings and the original action receipts. Unsupported or uncertain
+sections produce a failed ordinary check receipt. Findings name the checked Change, exact source
 commit, page, section and owning Markdown path. The existing correction policy
 can repair that owner while preserving the old review evidence. A completed
 check procedure must still have a passed domain receipt to validate the Change.

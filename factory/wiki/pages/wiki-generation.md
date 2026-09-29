@@ -18,13 +18,13 @@ Complete input files are hashed and archived, so a change outside an excerpt sti
 
 The reviewer has no tools, and reviews fan out through `Node.all`. Each quoted citation must match one visible source line exactly after trimming ASCII spaces and tabs at its edges. A review with invalid coverage or citations gets one additional call with the validator feedback and the same captured source; a second validation failure is terminal. The host never shifts citation lines.
 
-Exact assessment does not prove a cited line bears on its claim, so Jev then classifies each claim and citation as `supports`, `contradicts` or `unrelated`. A confident `contradicts` or `unrelated` refuses the page, and an unavailable Jev fails the step, so a page is never published unchecked.
+Exact assessment does not prove a cited line bears on its claim, so Jev then classifies each claim and citation as `supports`, `contradicts` or `unrelated`. Confidence below 0.8 makes an otherwise supported section uncertain, writes a `needs-changes` draft and fails verified mode. Semantic uncertain and unsupported findings remain unchanged. The original reviewer and citation-check receipts remain in the execution attempt store; the snapshot contains the combined assessment. A confident `contradicts` or `unrelated` refuses the page, and an unavailable Jev fails the step, so a page is never published unchecked.
 
 A failed semantic review writes its findings in a `needs-changes` preview and fails the verified flow. Source changes while reviewing reject the write, and no mode overwrites canonical human-authored pages.
 
 ## Reuse unchanged reviews
 
-Incremental generation reuses supported reviews from a terminal run through the journal and attempt store. It requires the same reviewer ID and review-policy sources, matches the page specification, input, content and section digests, and revalidates citations; changed or uncertain pages receive a new model review.
+Incremental generation reuses supported reviews from a terminal run through the journal and attempt store. It requires the same reviewer ID and review-policy sources, matches the page specification, input, content and section digests, and revalidates citations; changed pages and uncertain assessments in the selected prior execution require a new model review.
 
 The configured coding host keys that reuse on the identity of its review task: a digest of the review policy sources (`policySources` in `flows/wiki/reuse.ts`), injected by the bundler into the deployed artifact. Nothing else in the host build is covered, so a host deploy that leaves the review task alone keeps prior reviews reusable.
 
