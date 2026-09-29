@@ -5,8 +5,8 @@ package routes
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/smithersai/smithers/packages/backend/db/product"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -90,15 +91,30 @@ func TestWorkspaceCreateLoad_ConcurrentCreatesHonorUserCap(t *testing.T) {
 	wg.Wait()
 
 	statusCounts := map[int]int{}
-	var created, throttled, serverErrors, missingRetryAfter int
+	var acceptedIDs []string
+	var throttled, serverErrors, missingRetryAfter int
+	// Drain background provisioning before pool teardown even if an assertion fails.
+	t.Cleanup(func() {
+		for _, id := range acceptedIDs {
+			requireLoadWorkspaceProvisioned(t, queries, id)
+		}
+	})
 	for i, result := range results {
-		require.NoErrorf(t, result.err, "request %d failed before receiving a response", i)
+		if !assert.NoErrorf(t, result.err, "request %d failed before receiving a response", i) {
+			continue
+		}
 		statusCounts[result.status]++
 		switch {
-		case result.status == http.StatusCreated:
-			created++
+		case result.status == http.StatusAccepted:
+			var workspace services.WorkspaceResponse
+			if !assert.NoError(t, json.Unmarshal([]byte(result.body), &workspace)) || !assert.NotEmpty(t, workspace.ID) {
+				continue
+			}
+			assert.Contains(t, []string{"starting", "running"}, workspace.Status)
+			acceptedIDs = append(acceptedIDs, workspace.ID)
 		case result.status == http.StatusTooManyRequests:
 			throttled++
+			assert.Contains(t, result.body, `"quota_exceeded"`, "request %d must be refused for quota", i)
 			if result.retryAfter == "" {
 				missingRetryAfter++
 			}
@@ -107,11 +123,14 @@ func TestWorkspaceCreateLoad_ConcurrentCreatesHonorUserCap(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, 1, created, "status counts: %#v; responses: %#v", statusCounts, results)
+	assert.Len(t, acceptedIDs, 1, "status counts: %#v; responses: %#v", statusCounts, results)
 	assert.Equal(t, 49, throttled, "status counts: %#v; responses: %#v", statusCounts, results)
 	assert.Zero(t, missingRetryAfter, "all 429 responses must include Retry-After")
 	assert.Zero(t, serverErrors, "status counts: %#v; responses: %#v", statusCounts, results)
 
+	for _, id := range acceptedIDs {
+		requireLoadWorkspaceProvisioned(t, queries, id)
+	}
 	finalCount, err := queries.CountActiveWorkspacesByUser(ctx, user.ID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), finalCount)
@@ -158,8 +177,8 @@ func seedWorkspaceCreateLoadTestUser(t *testing.T, pool *pgxpool.Pool, queries *
 	var repoID int64
 	err = pool.QueryRow(
 		ctx,
-		`INSERT INTO repositories (user_id, name, lower_name, description, storage_set_id, is_public, default_bookmark)
-		 VALUES ($1, $2, $3, '', 's1', TRUE, 'main')
+		`INSERT INTO repositories (user_id, name, lower_name, description, is_public, default_bookmark)
+		 VALUES ($1, $2, $3, '', TRUE, 'main')
 		 RETURNING id`,
 		user.ID,
 		repoName,
@@ -217,6 +236,11 @@ func (s *workspaceCreateLoadSandbox) CreateService(context.Context, string, sand
 	return sandbox.CreateServiceResult{Success: true}, nil
 }
 
+func (s *workspaceCreateLoadSandbox) Execute(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	ok := int32(0)
+	return sandbox.ExecResult{StatusCode: &ok}, nil
+}
+
 func (s *workspaceCreateLoadSandbox) InspectSandbox(_ context.Context, vmID string) (sandbox.Sandbox, error) {
 	return sandbox.Sandbox{ID: vmID, State: sandbox.StateRunning}, nil
 }
@@ -251,4 +275,23 @@ func (s *workspaceCreateLoadSandbox) GrantAccess(context.Context, string, string
 
 func (s *workspaceCreateLoadSandbox) CreateIdentityToken(context.Context, string) (sandbox.CreatedToken, error) {
 	return sandbox.CreatedToken{ID: "load-token", Token: "load-token"}, nil
+}
+
+// Wait for asynchronous provisioning and verify the accepted row still occupies its slot.
+func requireLoadWorkspaceProvisioned(t *testing.T, queries *db.Queries, id string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		workspace, err := queries.GetWorkspace(context.Background(), id)
+		require.NoError(t, err)
+		if workspace.Status != "starting" {
+			require.Equal(t, "running", workspace.Status)
+			require.NotEmpty(t, workspace.VmID)
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("workspace %s never left status starting", id)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
