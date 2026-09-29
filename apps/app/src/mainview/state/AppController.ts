@@ -13,7 +13,7 @@ import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 import { AUTH_SIGN_IN_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
-import type { CatalogItem,CommandRegistry } from "../flows/Commands"
+import type { CatalogItem,CommandOutcome,CommandRegistry } from "../flows/Commands"
 import { createCommandRegistry } from "../flows/Commands"
 import { bindFlowPreloading } from "../flows/FlowAction"
 import type { CommandActions } from "../flows/Flows"
@@ -221,6 +221,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly cancelReset: () => void
   readonly submitCommand: (submission: FlowSubmission) => Promise<import("../flows/Commands").CommandOutcome>
   readonly runCommand: (name: string, args?: string, originCardId?: string) => boolean
+  readonly runCommandForResult: (name: string, args?: string, originCardId?: string) => Promise<CommandOutcome>
   readonly makeConnectorReadOnly: (id: string) => string | void
   readonly askConnectorRemoval: (id: string) => string | void
   readonly cancelConnectorRemoval: () => void
@@ -2134,15 +2135,21 @@ export const createAppController = (
     return outcome
   }
 
-  const runCommand: AppController["runCommand"] = (name, args, originCardId) => {
-    if (ctx.disposed) return false
-    if (privacyActions.before({ name, actor: "user", source: "command" }, args) !== undefined) return true
-    if (commands.find(name) === undefined) return false
+  const beginCommand = (name: string, args?: string, originCardId?: string): { readonly accepted: boolean; readonly result: Promise<CommandOutcome> } => {
+    if (ctx.disposed) return { accepted: false, result: Promise.resolve({ status: "failed", error: "The controller is closed." }) }
+    const early = privacyActions.before({ name, actor: "user", source: "command" }, args)
+    if (early !== undefined) return { accepted: true, result: Promise.resolve(early) }
+    if (commands.find(name) === undefined) return { accepted: false, result: Promise.resolve({ status: "unknown-command" }) }
     /* Everything the door says from here on belongs to this press (controller/spokenLines.ts). */
     const saidBefore = latestOrdinal(store.collections)
-    void commands.run(name, args, undefined, originCardId).then((outcome) => { if (!ctx.disposed) surfaceCommandFailure(name, outcome, saidBefore) })
-    return true
+    const result = commands.run(name, args, undefined, originCardId).then((outcome) => {
+      if (!ctx.disposed) surfaceCommandFailure(name, outcome, saidBefore)
+      return outcome
+    })
+    return { accepted: true, result }
   }
+  const runCommand: AppController["runCommand"] = (name, args, originCardId) => beginCommand(name, args, originCardId).accepted
+  const runCommandForResult: AppController["runCommandForResult"] = (name, args, originCardId) => beginCommand(name, args, originCardId).result
 
   /*
    * The public controller IS the command surface: one map feeds the registry
@@ -2170,6 +2177,7 @@ export const createAppController = (
     slashItems: (needle) => commands.slashItems(needle),
     slashTree: (needle) => commands.slashTree(needle),
     runCommand,
+    runCommandForResult,
     submitCommand,
     dispose
   }

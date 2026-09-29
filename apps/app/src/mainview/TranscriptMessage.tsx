@@ -1,7 +1,7 @@
 import { dynamicFlowAction, flowAction, flowProps } from "./flows/FlowAction"
 import { Button, ChatMessage, Markdown, Marker, Reasoning } from "@smthrs/ui"
 import { CheckCircle2, Copy, HelpCircle, RotateCcw } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useController } from "./ControllerContext"
 import { INIT_GREETING, INIT_TITLE, type InitMessage } from "./Onboarding"
 import type { Message } from "./state/AppState"
@@ -9,6 +9,7 @@ import { scrubToolEcho } from "./state/MessageScrub"
 import { timeLabel } from "./Timestamps"
 import { StorageRecoveryButton } from "./StorageRecoveryButton"
 import { STORAGE_RECOVERY_EXPORT } from "./state/StorageRecoveryContract"
+import type { CommandOutcome } from "./flows/Commands"
 
 const systemNoteLabel = (message: Message): string => {
   if (message.statusDetail !== undefined) return `Turn interrupted — ${message.statusDetail}`
@@ -20,9 +21,10 @@ function CopyMessageButton({
   onCopy
 }: {
   readonly text: string
-  readonly onCopy: (text: string) => void
+  readonly onCopy: (text: string) => Promise<CommandOutcome>
 }) {
   const [copied, setCopied] = useState(false)
+  const copyAttempt = useRef(0)
   return (
     <Button
       variant="ghost"
@@ -32,9 +34,15 @@ function CopyMessageButton({
       aria-label={copied ? "Copied" : "Copy message"}
       title={copied ? "Copied" : "Copy message"}
       onClick={() => {
-        onCopy(text)
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), 1200)
+        const attempt = ++copyAttempt.current
+        setCopied(false)
+        void onCopy(text).then(outcome => {
+          if (outcome.status !== "executed" || attempt !== copyAttempt.current) return
+          setCopied(true)
+          window.setTimeout(() => {
+            if (attempt === copyAttempt.current) setCopied(false)
+          }, 1200)
+        })
       }}
     >
       {copied ? <span className="message-action-copied">Copied</span> : <Copy size={12} />}
@@ -143,7 +151,7 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
       <span className="message-actions">
         <CopyMessageButton
           text={entry.message.text}
-          onCopy={(text) => controller.runCommand("chat.copy-message", text)}
+          onCopy={(text) => controller.runCommandForResult("chat.copy-message", text)}
         />
         {entry.message.status === "failed" ?
           (

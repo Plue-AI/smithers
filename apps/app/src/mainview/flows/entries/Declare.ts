@@ -44,6 +44,7 @@ export type CommandActions =
     | "slashItems"
     | "slashTree"
     | "runCommand"
+    | "runCommandForResult"
     | "submitCommand"
     | "commands"
     | "tappedFetch"
@@ -51,8 +52,9 @@ export type CommandActions =
     | "localAuth"
     // Live stack snapshots are what the Stack views read, never an act.
     | "stackSnapshots"
-    // Live wiki navigation indexes are what the Wiki views read, never an act.
+    // Live wiki navigation indexes and attachments are what the Wiki views read, never an act.
     | "wikiIndexes"
+    | "wikiAttachments"
     // Feature flags and the download URL are the composition root's configuration, never an action.
     | "features"
     | "downloadUrl"

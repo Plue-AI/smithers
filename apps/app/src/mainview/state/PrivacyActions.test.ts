@@ -98,14 +98,15 @@ test("a refused Chat action keeps its notice through cleanup and background work
   } finally { await t.dispose() }
 })
 
-for (const door of ["button", "submission", "agent", "native", "agent form", "chat", "input mode"] as const) {
+for (const door of ["button", "button result", "submission", "agent", "native", "agent form", "chat", "input mode"] as const) {
   test(`${door} returns an honest refusal before gestures, network work, or durable admission`, async () => {
     const t = await fixture()
     try {
       const before = t.store.collections.commandIntents.size
       if (door === "button") expect(t.controller.runCommand("account.show")).toBe(true)
       else {
-        const outcome = door === "submission" ? await t.controller.submitCommand({ name: "account.show", actor: "user", payload: {} })
+        const outcome = door === "button result" ? await t.controller.runCommandForResult("account.show")
+          : door === "submission" ? await t.controller.submitCommand({ name: "account.show", actor: "user", payload: {} })
           : door === "agent" ? await t.controller.commands.runForAgent("account.show")
           : door === "native" ? await t.controller.commands.runAsAgent("account.show")
           : door === "agent form" ? await t.controller.commands.submit({ name: "account.show", actor: "agent", payload: {} })

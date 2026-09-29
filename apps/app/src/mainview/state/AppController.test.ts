@@ -133,6 +133,15 @@ describe("the controller's command surface", () => {
     expect("snapshot" in controller).toBe(false)
   })
 
+  test("runCommandForResult reports an unknown command and a closed controller", async () => {
+    const controller = createAppController(await webStore(), webAgent())
+    expect(await controller.runCommandForResult("definitely-not-a-command")).toEqual({ status: "unknown-command" })
+    await controller.dispose()
+    expect(await controller.runCommandForResult("chat.copy-message", "text")).toEqual({
+      status: "failed", error: "The controller is closed."
+    })
+  })
+
   /*
    * ui-state-store/maintainability/1: the returned controller must BE the
    * command registry's action map plus the composition root's own members —
@@ -157,6 +166,7 @@ describe("the controller's command surface", () => {
       "localAuth",
       "stackSnapshots",
       "wikiIndexes",
+      "wikiAttachments",
       "controlFocus",
       "formFocus",
       "storageRecoveryState",
@@ -169,6 +179,7 @@ describe("the controller's command surface", () => {
       "slashItems",
       "slashTree",
       "runCommand",
+      "runCommandForResult",
       "submitCommand",
       "dispose"
     ]

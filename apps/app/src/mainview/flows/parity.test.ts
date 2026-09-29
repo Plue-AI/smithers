@@ -138,7 +138,7 @@ const PRESENTATION_ONLY = [
   "maximizeThenFocus",
   "minimizeThenFocus",
   "openNamespace", // slash-menu namespace draft edit
-  "onCopy(", // delegated: TranscriptMessage.tsx binds it to runCommand("chat.copy-message", ...)
+  "onCopy(", // delegated: TranscriptMessage.tsx binds it to runCommandForResult("chat.copy-message", ...)
   "onDownload}", // delegated: TranscriptMessage.tsx binds StorageRecoveryButton to storage.recovery.export
   "onDecideApproval(", // delegated: App.tsx binds it to approval.approve / approval.deny
   "onRecoAction(", // delegated: App.tsx binds it to reco.accept / reco.edit / reco.dismiss
@@ -510,7 +510,7 @@ describe("launch-law parity: every affordance is a command", () => {
     const message = files["../TranscriptMessage.tsx"]
     expect(app).toContain("<TranscriptMessage")
     expect(message).toMatch(/onDownload=\{\(\) => \{\s*controller\.runCommand\(STORAGE_RECOVERY_EXPORT\)/)
-    expect(message).toContain("runCommand(\"chat.copy-message\"")
+    expect(message).toContain("runCommandForResult(\"chat.copy-message\"")
     expect(message).toContain("runCommand(\"chat.retry\"")
     expect(message).toMatch(/runCommand\(\s*"agent\.explain"/)
     expect(app).toContain("runCommand(\"toast.dismiss\"")
