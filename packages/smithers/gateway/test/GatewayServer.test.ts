@@ -313,16 +313,22 @@ describe("loopback approval credential", () => {
               payload,
               headers: []
             }) + "\n"
-            const exchange = (credential?: string) => Effect.promise(async () => {
-              const frames = protocol === "ws"
-                ? await socketExchange(`${url}/${mount}/ws`, credential, request)
-                : [await (await fetch(`${url}/${mount}`, {
-                  method: "POST",
-                  headers: { ...(credential === undefined ? {} : { authorization: `Bearer ${credential}` }), "content-type": "application/json" },
-                  body: request
-                })).text()]
-              return frames.join("\n")
-            })
+            const exchange = (credential?: string) =>
+              Effect.promise(async () => {
+                const frames = protocol === "ws"
+                  ? await socketExchange(`${url}/${mount}/ws`, credential, request)
+                  : [
+                    await (await fetch(`${url}/${mount}`, {
+                      method: "POST",
+                      headers: {
+                        ...(credential === undefined ? {} : { authorization: `Bearer ${credential}` }),
+                        "content-type": "application/json"
+                      },
+                      body: request
+                    })).text()
+                  ]
+                return frames.join("\n")
+              })
             // An uncredentialed read stays available, even if a decision is pending.
             const listed = yield* control.list({ _tag: "flows" }).pipe(Effect.provide(client(url)))
             expect(listed).toBeDefined()
@@ -332,7 +338,7 @@ describe("loopback approval credential", () => {
               expect((yield* runtime.getPlan(card.planId)).decision).toBe("pending")
             }
             const reply = yield* exchange("session-secret")
-            expect(reply).toContain('"Success"')
+            expect(reply).toContain("\"Success\"")
             expect((yield* runtime.getPlan(card.planId)).decision).toBe(
               decision === "approve" ? "approved" : "denied"
             )

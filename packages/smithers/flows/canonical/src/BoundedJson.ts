@@ -270,7 +270,9 @@ const walk = (
       if (recordPrototype !== Object.prototype && recordPrototype !== null) {
         const native = strict?.native?.(value)
         if (native !== undefined) {
-          if (!Number.isSafeInteger(native.bytes) || native.bytes < 0) return refuse("bytes", "has an invalid native size")
+          if (!Number.isSafeInteger(native.bytes) || native.bytes < 0) {
+            return refuse("bytes", "has an invalid native size")
+          }
           return add(native.bytes) ? { ok: true, value: native.value as Json, bytes } : byteFailure()
         }
         return refuse("object", strict ? "must be an ordinary record" : "contains a non-plain object")

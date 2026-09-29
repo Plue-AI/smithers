@@ -582,15 +582,18 @@ describe("unified control dispatch", () => {
 })
 
 describe("runs wait status exits", () => {
-  it.each([["local", []], ["remote", ["--remote", "https://control.invalid"]]] as const)("exits 3 on timeout and 0 after success (%s)", async (_name, connection) => {
-    ports.list.mockReturnValueOnce(Effect.succeed({ _tag: "runs", items: [row("run-1", "running")] }))
-      .mockReturnValueOnce(Effect.succeed({ _tag: "runs", items: [row("run-1", "completed")] }))
-    const timed = await invoke(["runs", "wait", "run-1", "--timeout", "0", ...connection, "--json"])
-    expect(timed.codes).toEqual([3])
-    const done = await invoke(["runs", "wait", "run-1", ...connection, "--json"])
-    expect(done.codes).toEqual([])
-    expect(JSON.parse(done.stdout)).toMatchObject({ runId: "run-1", status: "completed" })
-  })
+  it.each([["local", []], ["remote", ["--remote", "https://control.invalid"]]] as const)(
+    "exits 3 on timeout and 0 after success (%s)",
+    async (_name, connection) => {
+      ports.list.mockReturnValueOnce(Effect.succeed({ _tag: "runs", items: [row("run-1", "running")] }))
+        .mockReturnValueOnce(Effect.succeed({ _tag: "runs", items: [row("run-1", "completed")] }))
+      const timed = await invoke(["runs", "wait", "run-1", "--timeout", "0", ...connection, "--json"])
+      expect(timed.codes).toEqual([3])
+      const done = await invoke(["runs", "wait", "run-1", ...connection, "--json"])
+      expect(done.codes).toEqual([])
+      expect(JSON.parse(done.stdout)).toMatchObject({ runId: "run-1", status: "completed" })
+    }
+  )
 
   it.each(["parked", "waiting-approval", "failed", "cancelled"] as const)("exits for %s", async (status) => {
     ports.list.mockReturnValue(Effect.succeed({ _tag: "runs", items: [row("run-1", status)] }))
@@ -601,7 +604,15 @@ describe("runs wait status exits", () => {
   it("waits for a remotely launched flow", async () => {
     ports.invoke.mockResolvedValue({ _tag: "Accepted", runId: "run-1" })
     ports.list.mockReturnValue(Effect.succeed({ _tag: "runs", items: [row("run-1", "completed")] }))
-    const result = await invoke(["flow", "start", "demo/ship", "--wait", "--remote", "https://control.invalid", "--json"])
+    const result = await invoke([
+      "flow",
+      "start",
+      "demo/ship",
+      "--wait",
+      "--remote",
+      "https://control.invalid",
+      "--json"
+    ])
     expect(result.codes).toEqual([])
     expect(ports.invoke.mock.calls[0]![0]).toEqual(["up", "demo/ship", "--wait"])
   })

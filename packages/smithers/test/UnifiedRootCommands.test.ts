@@ -2,9 +2,9 @@ import * as Audience from "@smthrs/build-cli/Audience"
 import type { RuntimeConfig } from "@smthrs/build-cli/Cli"
 import { Effect } from "effect"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
-import { DatabaseSync } from "node:sqlite"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { makeCli } from "../src/Cli.ts"
 import * as CliError from "../src/CliError.ts"
@@ -144,19 +144,39 @@ describe("unified root command dispatch", () => {
       const put = db.prepare(
         "INSERT INTO flows_step_cache VALUES (?, ?, ?, ?, ?, ?)"
       )
-      put.run("poisoned", '{"value":1}', "{}", 1000, "run-one", 1)
-      const wrong = await invoke(["cache", "steps", "evict", "poisoned", "--if-recorded-by", "run-two", "--root", root, "--json"])
+      put.run("poisoned", "{\"value\":1}", "{}", 1000, "run-one", 1)
+      const wrong = await invoke([
+        "cache",
+        "steps",
+        "evict",
+        "poisoned",
+        "--if-recorded-by",
+        "run-two",
+        "--root",
+        root,
+        "--json"
+      ])
       expect(wrong.codes).not.toContain(1)
       expect(db.prepare("SELECT recorded_run_id FROM flows_step_cache WHERE key_digest = ?").get("poisoned"))
         .toMatchObject({ recorded_run_id: "run-one" })
       const shown = await invoke(["cache", "steps", "show", "poisoned", "--root", root, "--json"])
       expect(shown.stdout).toContain("run-one")
-      const removed = await invoke(["cache", "steps", "evict", "poisoned", "--if-recorded-by", "run-one", "--root", root, "--json"])
+      const removed = await invoke([
+        "cache",
+        "steps",
+        "evict",
+        "poisoned",
+        "--if-recorded-by",
+        "run-one",
+        "--root",
+        root,
+        "--json"
+      ])
       expect(removed.codes).not.toContain(1)
       expect(db.prepare("SELECT 1 FROM flows_step_cache WHERE key_digest = ?").get("poisoned")).toBeUndefined()
       // A later execution can publish a fresh result under the same digest.
-      put.run("poisoned", '{"value":2}', "{}", Date.now(), "run-two", 2)
-      put.run("stale", '{"value":0}', "{}", 1000, "old-run", 3)
+      put.run("poisoned", "{\"value\":2}", "{}", Date.now(), "run-two", 2)
+      put.run("stale", "{\"value\":0}", "{}", 1000, "old-run", 3)
       const listed = await invoke(["cache", "steps", "ls", "--root", root, "--json"])
       expect(listed.stdout).toContain("poisoned")
       const sweep = await invoke(["cache", "steps", "sweep", "--older-than", "7d", "--root", root, "--json"])

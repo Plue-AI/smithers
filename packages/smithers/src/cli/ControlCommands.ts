@@ -25,28 +25,47 @@ import * as Presentation from "./Presentation.ts"
 import * as RunProgress from "./RunProgress.ts"
 
 /** Observe a durable row until it settles; a park is a settled wait, not a terminal run. */
-const waitForRun = async (runId: string, timeout: number | undefined, connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) => {
+const waitForRun = async (
+  runId: string,
+  timeout: number | undefined,
+  connection: Bridge.ConnectionOptions,
+  runtime: Bridge.Runtime
+) => {
   if (!Bridge.hasRecords(connection, runtime)) {
     await Bridge.project(checks(connection, runtime), connection, runtime)
     throw unknownRun(runId)
   }
-  return Bridge.query(Effect.gen(function*() {
-    const control = yield* Control.Control
-    const start = yield* Clock.currentTimeMillis
-    while (true) {
-      const page = yield* control.list({ _tag: "runs", filters: { runId } })
-      const row = page._tag === "runs" ? page.items.find((item) => item.runId === runId) : undefined
-      if (row === undefined) throw unknownRun(runId)
-      if (row.status === "completed" || row.status === "failed" || row.status === "cancelled" ||
-        row.status === "parked" || row.status === "waiting-approval") return row
-      if (timeout !== undefined && (yield* Clock.currentTimeMillis) - start >= timeout) return { ...row, status: "timeout" as const }
-      yield* Effect.sleep(timeout === undefined ? 200 : Math.min(200, Math.max(1, timeout - ((yield* Clock.currentTimeMillis) - start))))
-    }
-  }), connection, runtime)
+  return Bridge.query(
+    Effect.gen(function*() {
+      const control = yield* Control.Control
+      const start = yield* Clock.currentTimeMillis
+      while (true) {
+        const page = yield* control.list({ _tag: "runs", filters: { runId } })
+        const row = page._tag === "runs" ? page.items.find((item) => item.runId === runId) : undefined
+        if (row === undefined) throw unknownRun(runId)
+        if (
+          row.status === "completed" || row.status === "failed" || row.status === "cancelled" ||
+          row.status === "parked" || row.status === "waiting-approval"
+        ) return row
+        if (timeout !== undefined && (yield* Clock.currentTimeMillis) - start >= timeout) {
+          return { ...row, status: "timeout" as const }
+        }
+        yield* Effect.sleep(
+          timeout === undefined ? 200 : Math.min(200, Math.max(1, timeout - ((yield* Clock.currentTimeMillis) - start)))
+        )
+      }
+    }),
+    connection,
+    runtime
+  )
 }
 
-const waitCode = (status: string) => status === "completed" ? 0 : status === "cancelled" ? 130 :
-  status === "parked" || status === "waiting-approval" || status === "timeout" ? 3 : 1
+const waitCode = (status: string) =>
+  status === "completed" ? 0 : status === "cancelled" ?
+    130 :
+    status === "parked" || status === "waiting-approval" || status === "timeout"
+    ? 3
+    : 1
 
 export { cancelAll }
 
@@ -185,7 +204,9 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       alias: { detached: "d" },
       run: (c) =>
         guard(c, async () => {
-          if (c.options.wait && c.options.detached) throw new Error("--wait and --detached cannot be combined")
+          if (c.options.wait && c.options.detached) {
+            throw new Error("--wait and --detached cannot be combined")
+          }
           if (!Bridge.isRemote(c.options, runtime)) {
             const root = Project.root(c.options.root, process.cwd())
             if (!existsSync(join(root, "flows")) && !existsSync(join(root, ".flows"))) {
@@ -231,12 +252,16 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       description: "Wait for a durable run to settle",
       mcp: false,
       args: runArgs,
-      options: options.extend({ timeout: z.number().int().nonnegative().optional().describe("Maximum wait in milliseconds") }),
+      options: options.extend({
+        timeout: z.number().int().nonnegative().optional().describe("Maximum wait in milliseconds")
+      }),
       run: async (c) => {
         try {
           const row = await waitForRun(c.args.run, c.options.timeout, c.options, runtime)
           const code = waitCode(row.status)
-          if (code !== 0) return c.error({ code: row.status, message: `Run ${row.runId}: ${row.status}`, exitCode: code })
+          if (code !== 0) {
+            return c.error({ code: row.status, message: `Run ${row.runId}: ${row.status}`, exitCode: code })
+          }
           return Presentation.finish(c, row)
         } catch (cause) {
           return Presentation.fail(c, cause)

@@ -795,14 +795,16 @@ describe("RecallSemantic", () => {
     ])
   })
 
-  it.each([
-    ["largest finite Float32", 3.4028234663852886e38, true],
-    ["overflowing positive", 1e39, false],
-    ["overflowing negative", -1e39, false],
-    ["smallest subnormal Float32", 2 ** -149, true],
-    ["underflowing positive", 2 ** -150, false],
-    ["underflowing negative", -(2 ** -150), false]
-  ] as const)("checks Float32 storage range for %s without replacing a usable projection", async (
+  it.each(
+    [
+      ["largest finite Float32", 3.4028234663852886e38, true],
+      ["overflowing positive", 1e39, false],
+      ["overflowing negative", -1e39, false],
+      ["smallest subnormal Float32", 2 ** -149, true],
+      ["underflowing positive", 2 ** -150, false],
+      ["underflowing negative", -(2 ** -150), false]
+    ] as const
+  )("checks Float32 storage range for %s without replacing a usable projection", async (
     _label,
     component,
     accepted
@@ -840,7 +842,8 @@ describe("RecallSemantic", () => {
       expect(Exit.isFailure(result.attempt)).toBe(true)
       if (Exit.isSuccess(result.attempt)) throw new Error("expected vector rejection")
       expect(Option.getOrThrow(Cause.findErrorOption(result.attempt.cause))).toMatchObject({
-        code: "invalid_argument", path: ["vector", "0"]
+        code: "invalid_argument",
+        path: ["vector", "0"]
       })
       expect(result.rows[0]).toMatchObject({ contentDigest: "original", updatedAtMs: 1 })
       expect(Array.from(result.rows[0]!.vector)).toEqual([1])

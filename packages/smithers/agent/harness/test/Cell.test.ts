@@ -132,11 +132,13 @@ describe("Cell.extract", () => {
   })
 
   it("preserves inline backticks in strings and comments through the actual closing fence", () => {
-    for (const body of [
-      'console.log("```");ctx.done("ok")',
-      '// inline ``` is not a closing fence\nctx.done("ok")',
-      'ctx.done("ok") // inline ```'
-    ]) {
+    for (
+      const body of [
+        "console.log(\"```\");ctx.done(\"ok\")",
+        "// inline ``` is not a closing fence\nctx.done(\"ok\")",
+        "ctx.done(\"ok\") // inline ```"
+      ]
+    ) {
       const extracted = Result.getOrThrow(Cell.extract(fenced("cell", body)))
       expect(extracted.source.text).toBe(body)
       expect(extracted.blocks).toBe(1)
@@ -144,15 +146,15 @@ describe("Cell.extract", () => {
   })
 
   it("keeps inline delimiters in earlier cells without swallowing later cells", () => {
-    const first = 'const marker = "```" // inline ```'
-    const second = 'ctx.done(marker)'
+    const first = "const marker = \"```\" // inline ```"
+    const second = "ctx.done(marker)"
     const extracted = Result.getOrThrow(Cell.extract([fenced("cell", first), fenced("cell", second)].join("\n\n")))
     expect(extracted.source.text).toBe(first + "\n" + second)
     expect(extracted.blocks).toBe(2)
   })
 
   it("rejects a fence without a closing line even when its body contains inline backticks", () => {
-    const extracted = Cell.extract('```cell\nconsole.log("```");ctx.done("ok")')
+    const extracted = Cell.extract("```cell\nconsole.log(\"```\");ctx.done(\"ok\")")
     expect(extracted._tag).toBe("Failure")
     if (extracted._tag === "Failure") expect(extracted.failure.code).toBe("output_truncated")
   })

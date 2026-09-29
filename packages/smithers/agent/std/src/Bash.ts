@@ -190,8 +190,7 @@ export const Output = Schema.Struct({
   stderrDroppedBytes: Schema.Number.annotate({ description: "UTF-8 bytes omitted from the start of stderr" }),
   invalidProbe: Schema.optional(
     Probe.InvalidProbe.annotate({
-      description:
-        "Reserved for a confirmed launch failure; an exit code alone does not establish one"
+      description: "Reserved for a confirmed launch failure; an exit code alone does not establish one"
     })
   ),
   mutated: Schema.optional(

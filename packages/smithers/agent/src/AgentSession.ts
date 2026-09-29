@@ -688,9 +688,12 @@ const tracedRequest = (
       // Only the OpenAI protocols put this affinity key on the wire.
       // Anthropic uses cache breakpoints, not a session/key header.
       ...((event.binding?.protocolId === "openai-responses" || event.binding?.protocolId === "openai-responses-chatgpt")
-        && event.request.cacheKey !== undefined ? { cacheKey: event.request.cacheKey } : {}),
+          && event.request.cacheKey !== undefined ?
+        { cacheKey: event.request.cacheKey } :
+        {}),
       ...(event.binding?.protocolId === "anthropic-messages" && event.request.cacheBoundary !== undefined
-        ? { cacheBoundary: event.request.cacheBoundary } : {}),
+        ? { cacheBoundary: event.request.cacheBoundary } :
+        {}),
       // Each digest is of its field as it stood before the journal saw it.
       // The journal's redaction rewrites text that merely looks like a
       // credential (`maxTokens: 4096`, `cacheKey = id`) and leaves no mark on

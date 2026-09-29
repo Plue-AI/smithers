@@ -70,11 +70,13 @@ interface Prepared {
 const snapshotDecoded = (value: unknown): Effect.Effect<unknown, FsError> =>
   Effect.suspend(() => {
     const admitted = Boundary.admitDecoded(value)
-    return admitted.ok ? Effect.succeed(admitted.value) : Effect.fail(new FsError({
-      code: "decode_failed",
-      method: "Command.call",
-      description: "The decoded flow value did not satisfy the boundary"
-    }))
+    return admitted.ok ? Effect.succeed(admitted.value) : Effect.fail(
+      new FsError({
+        code: "decode_failed",
+        method: "Command.call",
+        description: "The decoded flow value did not satisfy the boundary"
+      })
+    )
   })
 
 const validateDecoded = (

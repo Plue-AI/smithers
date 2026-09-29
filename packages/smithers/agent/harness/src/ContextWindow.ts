@@ -579,9 +579,8 @@ export const compactMarked = (
     }
     if (replacedSegments.length === 0) return self
     const replaced = digest(replacedSegments.map((segment) => segment.digest))
-    const positions = self.segments.flatMap((segment, index) =>
-      compactable([segment]).length === 0 ? [] : [index]
-    ).slice(0, prefixLength)
+    const positions = self.segments.flatMap((segment, index) => compactable([segment]).length === 0 ? [] : [index])
+      .slice(0, prefixLength)
     const first = positions[0]!
     const selected = new Set(positions)
     const segments = [

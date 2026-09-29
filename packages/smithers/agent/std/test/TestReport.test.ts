@@ -222,7 +222,10 @@ describe("TestReport", () => {
   it("keeps unittest diagnostics from choosing pytest", () => {
     const output = "1 passed\nFAIL: test_x (tests.Case)\nRan 1 test in 0.001s\nFAILED (failures=1)"
     expect(TestReport.parse(output)).toEqual({
-      passed: 0, failed: ["tests.Case.test_x"], reportedFailed: 1, parsed: true
+      passed: 0,
+      failed: ["tests.Case.test_x"],
+      reportedFailed: 1,
+      parsed: true
     })
   })
 

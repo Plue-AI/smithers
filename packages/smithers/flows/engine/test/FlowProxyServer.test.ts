@@ -1007,8 +1007,10 @@ describe("FlowProxyServer.layerHttpApi", () => {
     )
     const logs: Array<unknown> = []
     const capture = Logger.make((entry) => {
-      if (entry.logLevel === "Error" &&
-        entry.fiber.getRef(References.CurrentLogAnnotations)["module"] === "FlowProxyServer") {
+      if (
+        entry.logLevel === "Error" &&
+        entry.fiber.getRef(References.CurrentLogAnnotations)["module"] === "FlowProxyServer"
+      ) {
         logs.push(entry.message)
       }
     })

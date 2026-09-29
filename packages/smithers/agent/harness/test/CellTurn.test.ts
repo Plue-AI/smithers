@@ -560,8 +560,13 @@ console.log(kept)`
   it("fails a run after five identical failing flow calls", async () => {
     const failing = { _tag: "Success" as const, value: { exitCode: 1, stdout: "failed" } }
     const { events, failure, model } = await run({
-      script: Array.from({ length: 30 }, () =>
-        emits(`const result = await ctx.call("fs/list", { path: "." }); if (result.exitCode !== 0) throw new Error("bash exited 1")`)),
+      script: Array.from(
+        { length: 30 },
+        () =>
+          emits(
+            `const result = await ctx.call("fs/list", { path: "." }); if (result.exitCode !== 0) throw new Error("bash exited 1")`
+          )
+      ),
       calls: Array.from({ length: 5 }, () => failing),
       state: state({ maxFrames: 30 })
     })
@@ -586,8 +591,10 @@ console.log(kept)`
   })
 
   it("resets the failure streak after a successful frame", async () => {
-    const script = Array.from({ length: 12 }, (_, index) =>
-      emits(index % 2 === 0 ? `throw new Error("bash exited 1")` : `console.log("working")`))
+    const script = Array.from(
+      { length: 12 },
+      (_, index) => emits(index % 2 === 0 ? `throw new Error("bash exited 1")` : `console.log("working")`)
+    )
     const { events, model } = await run({ script, state: state({ maxFrames: 12 }) })
 
     expect(model.recorder.requests).toHaveLength(12)
@@ -4432,7 +4439,11 @@ describe("CellTurn context ordering", () => {
         modelId: "test-model",
         segments: [
           { kind: "system", zone: "prefix", content: [ModelRequest.SystemPart.make({ text: teaching })] },
-          { kind: "instructions", zone: "prefix", content: [ModelRequest.SystemPart.make({ text: `The task for this run:\n\n${task}` })] },
+          {
+            kind: "instructions",
+            zone: "prefix",
+            content: [ModelRequest.SystemPart.make({ text: `The task for this run:\n\n${task}` })]
+          },
           { kind: "transcript", zone: "tail", content: [ModelRequest.Message.user("Begin")] }
         ]
       })

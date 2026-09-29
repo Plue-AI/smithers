@@ -13,8 +13,7 @@ const services = Layer.provideMerge(RecallKeyword.layer, TestMemory.layerWithDat
 
 const policy = { banks: ["worldview", "b"], maxTokens: 1000, retain: "on-complete" } as const
 
-const entriesOf = (): Promise<ReadonlyArray<Catalog.Entry>> =>
-  runOn(services, MemoryEntries.make(policy))
+const entriesOf = (): Promise<ReadonlyArray<Catalog.Entry>> => runOn(services, MemoryEntries.make(policy))
 
 const call = (entry: Catalog.Entry, payload: unknown): Promise<unknown> =>
   Effect.runPromise(entry.handler(payload) as Effect.Effect<unknown, never, never>)

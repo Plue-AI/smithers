@@ -83,7 +83,8 @@ const securityReview = Smithers.SecurityReview({
   checks: [
     {
       id: "proxy-execution-id-scope",
-      title: "A served execute, discard, resume, or interrupt never reaches an execution outside the caller's namespace",
+      title:
+        "A served execute, discard, resume, or interrupt never reaches an execution outside the caller's namespace",
       threat:
         "A remote client of a FlowProxy HTTP or RPC server joins, reads the result of, or re-drives another tenant's flow execution by guessing or reusing its execution id.",
       lookFor: [

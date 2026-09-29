@@ -167,8 +167,10 @@ export const layerAuth = (options: ServerOptions): Layer.Layer<ControlRpcs.Contr
           token,
           principal: { id: "local", kind: "operator" }
         }).authenticate(headers).pipe(
-          Effect.catchTag("/control/Unauthorized", () =>
-            Effect.succeed({ id: "loopback", kind: "anonymous", stampedAt: 0 }))
+          Effect.catchTag(
+            "/control/Unauthorized",
+            () => Effect.succeed({ id: "loopback", kind: "anonymous", stampedAt: 0 })
+          )
         )
       }
     })

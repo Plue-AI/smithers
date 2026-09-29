@@ -236,7 +236,10 @@ const first = (events: ReadonlyArray<Journaled>, kind: string) => events.find((e
 describe("the shipped Node executor under ScriptedJudge.layerAll", () => {
   it("forwards workspace AGENTS.md into the relevance gate", async () => {
     const root = await project()
-    await writeFile(join(root, "AGENTS.md"), "- Keep failing tests visible.\n\n- Publish benchmark claims with artifacts.\n")
+    await writeFile(
+      join(root, "AGENTS.md"),
+      "- Keep failing tests visible.\n\n- Publish benchmark claims with artifacts.\n"
+    )
     const { watched } = await runAll(root, ["survey"])
     const events = watched[0]!
     expect(events.at(-1)?.kind).toBe("control.run.completed")
@@ -244,7 +247,9 @@ describe("the shipped Node executor under ScriptedJudge.layerAll", () => {
       readonly kept: ReadonlyArray<{ readonly id: string; readonly kind: string }>
       readonly withheld: ReadonlyArray<{ readonly id: string; readonly kind: string }>
     }
-    expect([...settled.kept, ...settled.withheld].filter((item) => item.kind === "instruction").length).toBeGreaterThan(0)
+    expect([...settled.kept, ...settled.withheld].filter((item) => item.kind === "instruction").length).toBeGreaterThan(
+      0
+    )
     expect(settled.withheld.some((item) => item.id.includes("AGENTS.md"))).toBe(true)
     const prompts = events.filter((event) => event.kind === "control.agent.model-requested")
     expect(prompts.length).toBeGreaterThan(0)

@@ -130,14 +130,13 @@ describe("Flow definition combinators", () => {
       error: Schema.String,
       body: (payload) => Step.call(payload)
     })
-    const moduleLayer = Step.toLayer(() =>
-      Flow.withRollback(Effect.succeed("reserved"), () => Effect.void)
-    )
-    const definitionLayer = Step.toLayer(() =>
-      flow.withRollback(Effect.succeed("reserved"), () => Effect.void)
-    )
-    const moduleRequirements:
-      Layer.Layer<Action.Requirement<"Definition/rollback-types/step">, never, FlowRuntime.FlowRuntime> = moduleLayer
+    const moduleLayer = Step.toLayer(() => Flow.withRollback(Effect.succeed("reserved"), () => Effect.void))
+    const definitionLayer = Step.toLayer(() => flow.withRollback(Effect.succeed("reserved"), () => Effect.void))
+    const moduleRequirements: Layer.Layer<
+      Action.Requirement<"Definition/rollback-types/step">,
+      never,
+      FlowRuntime.FlowRuntime
+    > = moduleLayer
     const definitionRequirements: typeof moduleRequirements = definitionLayer
     expectTypeOf(definitionRequirements).toEqualTypeOf(moduleRequirements)
   })

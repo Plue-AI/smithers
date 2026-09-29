@@ -64,12 +64,20 @@ describe("the failure serializer every durable boundary shares", () => {
   }
 
   it("survives throwing accessors and reflective proxy traps", () => {
-    const getterFailure = { get message(): string { throw new Error("diagnostic getter failed") } }
+    const getterFailure = {
+      get message(): string {
+        throw new Error("diagnostic getter failed")
+      }
+    }
     const nestedGetter = { cause: getterFailure }
     const arrayGetter = [getterFailure]
     const trapped = new Proxy({}, {
-      getPrototypeOf() { throw new Error("prototype trap failed") },
-      ownKeys() { throw new Error("keys trap failed") }
+      getPrototypeOf() {
+        throw new Error("prototype trap failed")
+      },
+      ownKeys() {
+        throw new Error("keys trap failed")
+      }
     })
 
     for (const failure of [getterFailure, nestedGetter, arrayGetter, trapped]) {

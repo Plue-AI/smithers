@@ -113,7 +113,10 @@ describe.skipIf(!jjInstalled)("NodeJj", () => {
       const guide = readFileSync(new URL("../docs/quickstart.md", import.meta.url), "utf8")
       const snippet = guide.match(/```ts\n([\s\S]*?)\n```/)?.[1]
       expect(snippet).toContain("jj.diff(first.commitId, second.commitId)")
-      const code = snippet!.replace("const repository = process.cwd()", `const repository = ${JSON.stringify(repository)}`)
+      const code = snippet!.replace(
+        "const repository = process.cwd()",
+        `const repository = ${JSON.stringify(repository)}`
+      )
       const { stdout } = yield* Effect.promise(() =>
         execFilePromise("node", ["--input-type=module", "-e", code], { cwd: previousCwd })
       )

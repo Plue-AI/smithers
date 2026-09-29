@@ -4,9 +4,9 @@
  * @since 1.0.0
  */
 
-import { DatabaseSync } from "node:sqlite"
-import { existsSync } from "node:fs"
 import { Cli, z } from "incur"
+import { existsSync } from "node:fs"
+import { DatabaseSync } from "node:sqlite"
 import * as NodeControl from "../NodeControl.ts"
 
 interface Row {
@@ -48,13 +48,15 @@ export const createStepCacheCli = () =>
     .command("ls", {
       description: "List recent step cache heads",
       options: z.object({ root: z.string().optional() }),
-      run: (c) => files(rootOf(c.options)).flatMap((file) => withCache(file, true, (db) =>
-        present(db)
-          ? (db.prepare(`SELECT key_digest, created_at_ms, recorded_run_id, recorded_event_seq
+      run: (c) =>
+        files(rootOf(c.options)).flatMap((file) =>
+          withCache(file, true, (db) =>
+            present(db)
+              ? (db.prepare(`SELECT key_digest, created_at_ms, recorded_run_id, recorded_event_seq
               FROM flows_step_cache ORDER BY created_at_ms DESC, key_digest LIMIT 100`).all() as Array<object>)
-              .map((row) => ({ database: file, ...row }))
-          : []
-      ))
+                .map((row) => ({ database: file, ...row }))
+              : [])
+        )
     })
     .command("show", {
       description: "Inspect a recorded step result",
@@ -62,16 +64,21 @@ export const createStepCacheCli = () =>
       options: z.object({ root: z.string().optional() }),
       run: (c) => {
         if (!keyIsValid(c.args.key)) return c.error({ code: "invalid_key", message: "Invalid step cache key" })
-        return files(rootOf(c.options)).flatMap((file) => withCache(file, true, (db) => {
-          if (!present(db)) return []
-          const row = db.prepare(`SELECT ${columns} FROM flows_step_cache WHERE key_digest = ?`)
-            .get(c.args.key) as Row | undefined
-          return row === undefined ? [] : [{
-            database: file, key: row.key_digest, result: JSON.parse(row.result_json) as unknown,
-            meta: JSON.parse(row.meta_json) as unknown, createdAtMs: row.created_at_ms,
-            recordedBy: { runId: row.recorded_run_id, eventSeq: row.recorded_event_seq }
-          }]
-        }))
+        return files(rootOf(c.options)).flatMap((file) =>
+          withCache(file, true, (db) => {
+            if (!present(db)) return []
+            const row = db.prepare(`SELECT ${columns} FROM flows_step_cache WHERE key_digest = ?`)
+              .get(c.args.key) as Row | undefined
+            return row === undefined ? [] : [{
+              database: file,
+              key: row.key_digest,
+              result: JSON.parse(row.result_json) as unknown,
+              meta: JSON.parse(row.meta_json) as unknown,
+              createdAtMs: row.created_at_ms,
+              recordedBy: { runId: row.recorded_run_id, eventSeq: row.recorded_event_seq }
+            }]
+          })
+        )
       }
     })
     .command("evict", {
@@ -82,12 +89,14 @@ export const createStepCacheCli = () =>
         if (!keyIsValid(c.args.key) || !c.options.ifRecordedBy) {
           return c.error({ code: "invalid_provenance", message: "A valid key and --if-recorded-by run are required" })
         }
-        return files(rootOf(c.options)).map((file) => withCache(file, false, (db) => ({
-          database: file,
-          removed: present(db) && db.prepare(
-            "DELETE FROM flows_step_cache WHERE key_digest = ? AND recorded_run_id = ?"
-          ).run(c.args.key, c.options.ifRecordedBy).changes > 0
-        })))
+        return files(rootOf(c.options)).map((file) =>
+          withCache(file, false, (db) => ({
+            database: file,
+            removed: present(db) && db.prepare(
+                  "DELETE FROM flows_step_cache WHERE key_digest = ? AND recorded_run_id = ?"
+                ).run(c.args.key, c.options.ifRecordedBy).changes > 0
+          }))
+        )
       }
     })
     .command("sweep", {
@@ -101,11 +110,13 @@ export const createStepCacheCli = () =>
           return c.error({ code: "invalid_duration", message: "--older-than must be a positive duration such as 7d" })
         }
         const cutoff = Date.now() - age
-        return files(rootOf(c.options)).map((file) => withCache(file, false, (db) => ({
-          database: file,
-          removed: present(db)
-            ? db.prepare("DELETE FROM flows_step_cache WHERE created_at_ms < ?").run(cutoff).changes
-            : 0
-        })))
+        return files(rootOf(c.options)).map((file) =>
+          withCache(file, false, (db) => ({
+            database: file,
+            removed: present(db)
+              ? db.prepare("DELETE FROM flows_step_cache WHERE created_at_ms < ?").run(cutoff).changes
+              : 0
+          }))
+        )
       }
     })

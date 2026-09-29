@@ -81,7 +81,8 @@ const inheritedDataProperty = (
 ):
   | { readonly kind: "data"; readonly value: unknown }
   | { readonly kind: "accessor" }
-  | { readonly kind: "missing" } => {
+  | { readonly kind: "missing" } =>
+{
   let current: object | null = value
   while (current !== null) {
     const descriptor = Object.getOwnPropertyDescriptor(current, key)

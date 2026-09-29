@@ -2,12 +2,12 @@
  * Telling an invalid probe from a failing check. A zero exit needs no judge;
  * every non-zero exit needs attribution, including shell-reserved codes.
  */
+import * as Evaluator from "@smthrs/model/Evaluator"
+import { Effect, Layer, Result } from "effect"
 import { spawnSync } from "node:child_process"
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect, Layer, Result } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Probe from "../src/Probe.ts"
 
@@ -110,7 +110,6 @@ describe("Probe.classify", () => {
       )
     )
     expect(attribution).toEqual({ to: "tree", executed: true })
-
   })
 
   it("leaves the failure with the tree when the judge is not sure, and reports what it read", async () => {
@@ -203,7 +202,10 @@ describe("real shell exit attribution", () => {
     const dir = mkdtempSync(join(tmpdir(), "probe-exit-"))
     try {
       const file = join(dir, "example.test.mjs")
-      writeFileSync(file, 'import { test } from "node:test"; import { strict as assert } from "node:assert"; test("actual assertion", () => assert.equal(1, 2));')
+      writeFileSync(
+        file,
+        "import { test } from \"node:test\"; import { strict as assert } from \"node:assert\"; test(\"actual assertion\", () => assert.equal(1, 2));"
+      )
       const command = `node --test --test-reporter=tap "${file}" || exit ${code}`
       const run = spawnSync("sh", ["-c", command], { encoding: "utf8" })
       expect(run.status).toBe(code)
@@ -213,9 +215,13 @@ describe("real shell exit attribution", () => {
         observed.push(request.state)
         return { attribution: { choice: "tree" }, executed: { probability: 0.95 } }
       })
-      const attribution = success(await classify({
-        command, exitCode: run.status!, output: run.stdout + run.stderr
-      }, judge))
+      const attribution = success(
+        await classify({
+          command,
+          exitCode: run.status!,
+          output: run.stdout + run.stderr
+        }, judge)
+      )
       expect(attribution).toMatchObject({ to: "tree", executed: true })
       expect(attribution.invalidProbe).toBeUndefined()
       expect(observed).toHaveLength(1)
@@ -244,9 +250,13 @@ describe("real shell exit attribution", () => {
         observed.push(request.state)
         return { attribution: { choice: "unknown-command" }, executed: { probability: 0.05 } }
       })
-      const attribution = success(await classify({
-        command, exitCode: run.status!, output: run.stdout + run.stderr
-      }, judge))
+      const attribution = success(
+        await classify({
+          command,
+          exitCode: run.status!,
+          output: run.stdout + run.stderr
+        }, judge)
+      )
       expect(attribution.to).toBe("unknown-command")
       expect(attribution.invalidProbe?.reason).toBe("unknown-command")
       expect(observed).toHaveLength(1)
@@ -255,5 +265,3 @@ describe("real shell exit attribution", () => {
     }
   })
 })
-
-

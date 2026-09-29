@@ -109,7 +109,10 @@ const jevEvents: ReadonlyArray<AgentEvent.AgentEvent> = [
     latencyMs: 90,
     backups: ["astra"],
     panel: {
-      seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: ["astra"] }, { seat: "astra", backups: [] }],
+      seats: [{ seat: "opus", backups: ["sol"] }, { seat: "fable", backups: ["astra"] }, {
+        seat: "astra",
+        backups: []
+      }],
       merger: "fable"
     }
   }),

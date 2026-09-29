@@ -384,7 +384,11 @@ describe("decide", () => {
       expect(RetryPolicy.decide(policy, { attempt: 1, error: { retryAfterMs } }))
         .toEqual(RetryPolicy.retryAfter(100))
     }
-    const accessor = Object.defineProperty({}, "retryAfterMs", { get: () => { throw new Error("read") } })
+    const accessor = Object.defineProperty({}, "retryAfterMs", {
+      get: () => {
+        throw new Error("read")
+      }
+    })
     expect(RetryPolicy.decide(policy, { attempt: 1, error: accessor }))
       .toEqual(RetryPolicy.retryAfter(100))
   })

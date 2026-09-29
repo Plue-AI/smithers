@@ -194,8 +194,14 @@ class Unprovided extends Context.Service<Unprovided, { readonly value: string }>
 /** Never called; tsc checks it (#2704). */
 const unprovidedServiceProbe = () => {
   // @ts-expect-error provideInstance provides only the flow instance and runtime, not Unprovided
-  provideInstance(Effect.map(Unprovided, (service) => service.value), scriptedWith({ latestAttempt: Option.none(), attempts: [] }))
-  provideInstance(Effect.map(FlowRuntime.FlowInstance, (instance) => instance), scriptedWith({ latestAttempt: Option.none(), attempts: [] }))
+  provideInstance(
+    Effect.map(Unprovided, (service) => service.value),
+    scriptedWith({ latestAttempt: Option.none(), attempts: [] })
+  )
+  provideInstance(
+    Effect.map(FlowRuntime.FlowInstance, (instance) => instance),
+    scriptedWith({ latestAttempt: Option.none(), attempts: [] })
+  )
 }
 
 describe("regression: provide-then-cast test helpers erase layer requirements (#2704)", () => {

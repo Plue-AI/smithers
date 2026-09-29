@@ -19,8 +19,8 @@ import * as Schema from "effect/Schema"
 import { renderDiagnostic } from "../internal/Diagnostic.ts"
 import { toJsonExit } from "../internal/JsonExit.ts"
 import { makeActionExecute } from "./Dispatch.ts"
-import { placeExecute, placeInterrupt, placeResume } from "./Placed.ts"
 import type { Encoded } from "./Encoded.ts"
+import { placeExecute, placeInterrupt, placeResume } from "./Placed.ts"
 import { type Declarations, makeExecute } from "./Trampoline.ts"
 
 /**

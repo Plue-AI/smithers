@@ -34,9 +34,9 @@ const redactCredentialValues = (text: string): string => {
   let position = 0
   for (let match = keys.exec(text); match !== null; match = keys.exec(text)) {
     let start = keys.lastIndex
-    const escaped = text[start] === "\\" && (text[start + 1] === '"' || text[start + 1] === "'")
+    const escaped = text[start] === "\\" && (text[start + 1] === "\"" || text[start + 1] === "'")
     if (escaped) start++
-    const quote = text[start] === '"' || text[start] === "'" ? text[start] : undefined
+    const quote = text[start] === "\"" || text[start] === "'" ? text[start] : undefined
     let end = start
     if (quote !== undefined) {
       end++
@@ -62,18 +62,19 @@ const redactCredentialValues = (text: string): string => {
 }
 
 const sanitizeDiagnosticText = (value: string): string =>
-  redactCredentialValues(value.slice(0, diagnosticTextLimit)
-    // An authorization or cookie header value is a credential whatever its
-    // scheme (`Basic`, `Token`, a cookie list), so the rest of the header is
-    // dropped up to the end of the line or the quote that closes it.
-    .replace(
-      /((?:proxy-)?authorization|(?:set-)?cookies?)(["'\\]*\s*[=:]\s*["'\\]*)[^\r\n"'\\]+/gi,
-      "$1$2[REDACTED]"
-    )
-    .replace(/((?:bearer|basic)\s+)[^\s,;"'\\]+/gi, "$1[REDACTED]")
-    // A request URL carries credentials as userinfo or as a signed query.
-    .replace(/(\/\/)[^/@\s"'\\]+@/g, "$1[REDACTED]@")
-    .replace(/([?&][\w.-]*(?:key|sig|signature|auth|credential)=)[^&#\s"'\\]+/gi, "$1[REDACTED]")
+  redactCredentialValues(
+    value.slice(0, diagnosticTextLimit)
+      // An authorization or cookie header value is a credential whatever its
+      // scheme (`Basic`, `Token`, a cookie list), so the rest of the header is
+      // dropped up to the end of the line or the quote that closes it.
+      .replace(
+        /((?:proxy-)?authorization|(?:set-)?cookies?)(["'\\]*\s*[=:]\s*["'\\]*)[^\r\n"'\\]+/gi,
+        "$1$2[REDACTED]"
+      )
+      .replace(/((?:bearer|basic)\s+)[^\s,;"'\\]+/gi, "$1[REDACTED]")
+      // A request URL carries credentials as userinfo or as a signed query.
+      .replace(/(\/\/)[^/@\s"'\\]+@/g, "$1[REDACTED]@")
+      .replace(/([?&][\w.-]*(?:key|sig|signature|auth|credential)=)[^&#\s"'\\]+/gi, "$1[REDACTED]")
   )
 
 const primitiveDiagnostic = (value: unknown): unknown => {

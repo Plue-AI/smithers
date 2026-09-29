@@ -284,7 +284,9 @@ describe("custom agents", () => {
     f.loads[0]!.resolve(body())
     await tick()
     expect(f.workspace.snapshot().tabs[0]).toMatchObject({
-      status: "failed", code: "seat_as_agent", message: "claude-code:opus is a model seat; pass it as model"
+      status: "failed",
+      code: "seat_as_agent",
+      message: "claude-code:opus is a model seat; pass it as model"
     })
     f.workspace.dispose()
   })

@@ -303,9 +303,11 @@ describe("Command.call decoded boundary", () => {
   it("refuses unsafe decoded output after invocation", async () => {
     const surface = await surfaceFor(Schema.Number, Schema.Number)
     for (const output of [NaN, Infinity]) {
-      const exit = await Effect.runPromise(Effect.exit(surface.call("scalar", 1).pipe(
-        Effect.provide(FlowInvoker.layerNoop({ invoke: () => Effect.succeed(output) }))
-      )))
+      const exit = await Effect.runPromise(Effect.exit(
+        surface.call("scalar", 1).pipe(
+          Effect.provide(FlowInvoker.layerNoop({ invoke: () => Effect.succeed(output) }))
+        )
+      ))
       expect(exit._tag).toBe("Failure")
       if (exit._tag === "Failure") {
         expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
@@ -321,12 +323,17 @@ describe("Command.call decoded boundary", () => {
     let getterCalls = 0
     const accessor = Object.defineProperty({}, "value", {
       enumerable: true,
-      get: () => { getterCalls++; return "secret" }
+      get: () => {
+        getterCalls++
+        return "secret"
+      }
     })
     for (const output of [accessor, { value: "x".repeat(65_537) }]) {
-      const exit = await Effect.runPromise(Effect.exit(surface.call("scalar", { value: "ok" }).pipe(
-        Effect.provide(FlowInvoker.layerNoop({ invoke: () => Effect.succeed(output) }))
-      )))
+      const exit = await Effect.runPromise(Effect.exit(
+        surface.call("scalar", { value: "ok" }).pipe(
+          Effect.provide(FlowInvoker.layerNoop({ invoke: () => Effect.succeed(output) }))
+        )
+      ))
       expect(exit._tag).toBe("Failure")
     }
     expect(getterCalls).toBe(0)
@@ -339,16 +346,21 @@ describe("Command.call decoded boundary", () => {
       output: Schema.Number
     })
     let release: (() => void) | undefined
-    vi.spyOn(Route, "load").mockImplementation(() => Effect.promise(() =>
-      new Promise<typeof flow>((resolve) => { release = () => resolve(flow) })
-    ))
+    vi.spyOn(Route, "load").mockImplementation(() =>
+      Effect.promise(() =>
+        new Promise<typeof flow>((resolve) => {
+          release = () => resolve(flow)
+        })
+      )
+    )
     const surface = await Effect.runPromise(Command.make([makeRoute("scalar")]))
-    const invoke = vi.fn(({ input }: FlowInvoker.Invocation) =>
-      Effect.succeed((input as { number: number }).number))
+    const invoke = vi.fn(({ input }: FlowInvoker.Invocation) => Effect.succeed((input as { number: number }).number))
     const input = { number: 1 }
-    const pending = Effect.runPromise(surface.call("scalar", input).pipe(
-      Effect.provide(FlowInvoker.layerNoop({ invoke }))
-    ))
+    const pending = Effect.runPromise(
+      surface.call("scalar", input).pipe(
+        Effect.provide(FlowInvoker.layerNoop({ invoke }))
+      )
+    )
     await vi.waitFor(() => expect(release).toBeDefined())
     input.number = 2
     release!()

@@ -217,19 +217,24 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
   const identity = (value: string) => {
     const resolved = path.resolve(value)
     return fileSystem.realPath(resolved).pipe(
-      Effect.catch((error) => error.reason._tag === "NotFound"
-        ? fileSystem.realPath(path.dirname(resolved)).pipe(
-          Effect.map((parent) => path.resolve(parent, path.basename(resolved))),
-          Effect.catch((parentError) => parentError.reason._tag === "NotFound"
-            ? Effect.succeed(resolved)
-            : Effect.fail(parentError))
-        )
-        : Effect.fail(error)),
-      Effect.mapError(FsFailure.denied(value, () => new StdError.StdError({
-        code: "command_failed",
-        message: `Failed to resolve patch path ${value}`,
-        path: value
-      })))
+      Effect.catch((error) =>
+        error.reason._tag === "NotFound"
+          ? fileSystem.realPath(path.dirname(resolved)).pipe(
+            Effect.map((parent) => path.resolve(parent, path.basename(resolved))),
+            Effect.catch((parentError) =>
+              parentError.reason._tag === "NotFound"
+                ? Effect.succeed(resolved)
+                : Effect.fail(parentError)
+            )
+          )
+          : Effect.fail(error)
+      ),
+      Effect.mapError(FsFailure.denied(value, () =>
+        new StdError.StdError({
+          code: "command_failed",
+          message: `Failed to resolve patch path ${value}`,
+          path: value
+        })))
     )
   }
   const touched = new Set<string>()

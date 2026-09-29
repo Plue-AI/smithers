@@ -29,7 +29,7 @@ describe.skipIf(process.platform === "win32")("Exec capture", () => {
   it.live.each([
     {
       interpreter: "bash",
-      script: 'printf "stdin:%s|%s|%s" "$1" "$2" "$3"',
+      script: "printf \"stdin:%s|%s|%s\" \"$1\" \"$2\" \"$3\"",
       args: ["-c", "printf wrong", ""],
       expected: "stdin:-c|printf wrong|"
     },
@@ -39,17 +39,20 @@ describe.skipIf(process.platform === "win32")("Exec capture", () => {
       args: ["ordinary", "-x", ""],
       expected: "stdin:ordinary|-x|"
     }
-  ])("runs the stdin program with exact $interpreter arguments", ({ interpreter, script, args, expected }) =>
-    Effect.gen(function*() {
-      const result = yield* Bash.run({ mode: "unhermetic", interpreter, script, args })
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toBe(expected)
-    }).pipe(Effect.provide(Layer.merge(host, Path.layer))))
+  ])(
+    "runs the stdin program with exact $interpreter arguments",
+    ({ interpreter, script, args, expected }) =>
+      Effect.gen(function*() {
+        const result = yield* Bash.run({ mode: "unhermetic", interpreter, script, args })
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe(expected)
+      }).pipe(Effect.provide(Layer.merge(host, Path.layer)))
+  )
 
   it.live.each([
     {
       interpreter: "bash",
-      script: 'printf "stdin:%s|%s|%s" "$1" "$2" "$3"',
+      script: "printf \"stdin:%s|%s|%s\" \"$1\" \"$2\" \"$3\"",
       args: ["-c", "printf wrong", ""],
       expected: "stdin:-c|printf wrong|"
     },
@@ -59,18 +62,24 @@ describe.skipIf(process.platform === "win32")("Exec capture", () => {
       args: ["ordinary", "-x", ""],
       expected: "stdin:ordinary|-x|"
     }
-  ])("routes $interpreter stdin and exact arguments through the container wrapper", ({ interpreter, script, args, expected }) =>
-    Effect.gen(function*() {
-      const result = yield* Bash.run({ mode: "unhermetic", container: "local", interpreter, script, args })
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toBe(expected)
-    }).pipe(Effect.provide(Layer.mergeAll(
-      host,
-      Path.layer,
-      Layer.succeed(Container.Container, Container.make({
-        exec: (request) => Effect.succeed({ file: request.file, args: request.args })
-      }))
-    ))))
+  ])(
+    "routes $interpreter stdin and exact arguments through the container wrapper",
+    ({ interpreter, script, args, expected }) =>
+      Effect.gen(function*() {
+        const result = yield* Bash.run({ mode: "unhermetic", container: "local", interpreter, script, args })
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe(expected)
+      }).pipe(Effect.provide(Layer.mergeAll(
+        host,
+        Path.layer,
+        Layer.succeed(
+          Container.Container,
+          Container.make({
+            exec: (request) => Effect.succeed({ file: request.file, args: request.args })
+          })
+        )
+      )))
+  )
 
   for (const tool of ["Exec", "Bash"] as const) {
     for (const declared of [false, true]) {

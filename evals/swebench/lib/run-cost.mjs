@@ -70,7 +70,10 @@ const readJournalCost = (databasePath) => {
     if (row.event_type !== "control.agent.model-settled") {
       const metered = jevUsageOf(row.event_type, payload)
       if (metered === undefined) {
-        if (row.event_type === "control.agent.cell-call-settled" && payload.flowName === "jev" && payload.outcome === "success") {
+        if (
+          row.event_type === "control.agent.cell-call-settled" && payload.flowName === "jev" &&
+          payload.outcome === "success"
+        ) {
           jev.calls += 1
           unknown = true
           priceSource = "unknown: bounded Jev usage"

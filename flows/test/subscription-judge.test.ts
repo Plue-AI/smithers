@@ -34,9 +34,12 @@ for (
     const jevHttp = HttpClient.make((request) => {
       seen.push(request.url)
       assert.equal(request.headers.authorization, "Bearer fixture-jev")
-      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({
-        answers: { complete: { type: "boolean", probability: 0.9 } }
-      })))
+      return Effect.succeed(HttpClientResponse.fromWeb(
+        request,
+        Response.json({
+          answers: { complete: { type: "boolean", probability: 0.9 } }
+        })
+      ))
     })
     const result = await evaluate(compose({
       AI_GATEWAY_API_KEY: "fixture-jev",

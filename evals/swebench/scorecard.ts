@@ -340,7 +340,9 @@ const runNumbers = (workspace: string): RunNumbers | undefined => {
       const caller = jevCaller(row.event_type, payload)
       if (caller === "cell") cellCalledJev = true
       const metered = jevUsageOf(row.event_type, payload)
-      if (caller === undefined || (metered === undefined && !(caller === "cell" && payload.outcome === "success"))) continue
+      if (caller === undefined || (metered === undefined && !(caller === "cell" && payload.outcome === "success"))) {
+        continue
+      }
       readings[caller] += 1
       if (metered !== undefined) {
         jevInputTokens += metered.inputTokens

@@ -223,7 +223,10 @@ describe("Write", () => {
     const guarded = (actions: ReadonlyArray<"fs:read" | "fs:write">) =>
       KernelFileSystem.layer.pipe(
         Layer.provide(
-          Layer.effect(FileSystem.FileSystem, Effect.map(FileSystem.FileSystem, KernelFileSystem.withIsolatedFileSystem))
+          Layer.effect(
+            FileSystem.FileSystem,
+            Effect.map(FileSystem.FileSystem, KernelFileSystem.withIsolatedFileSystem)
+          )
             .pipe(Layer.provide(NodeFileSystem.layer))
         ),
         Layer.provide(GrantStore.layer({

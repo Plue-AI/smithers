@@ -68,9 +68,15 @@ check("classifier-less decision caller", jevCaller("control.agent.decision-settl
 // A result the journal bounded to a marker has an unknown question count, never zero.
 const marker = { truncated: true, bytes: 70_000, digest: "sha256:marker" }
 check("marker questions", jevCellQuestionsOf({ flowName: "jev", outcome: "success", value: marker }), undefined)
-check("marker usage", jevUsageOf("control.agent.cell-call-settled", {
-  flowName: "jev", outcome: "success", value: marker
-}), undefined)
+check(
+  "marker usage",
+  jevUsageOf("control.agent.cell-call-settled", {
+    flowName: "jev",
+    outcome: "success",
+    value: marker
+  }),
+  undefined
+)
 
 const ddl = `CREATE TABLE flows_journal_events (
   run_id TEXT NOT NULL, seq INTEGER NOT NULL, event_id TEXT NOT NULL UNIQUE, source_id TEXT NOT NULL,

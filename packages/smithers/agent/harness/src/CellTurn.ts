@@ -16,9 +16,9 @@
  * @since 0.1.0
  */
 
-import * as Fault from "@smthrs/flow/Fault"
 import { Effects, type KeyMaterial, Placement } from "@smthrs/core"
 import * as Digest from "@smthrs/core/Digest"
+import * as Fault from "@smthrs/flow/Fault"
 import { Capability, CapabilitySet, Permission } from "@smthrs/kernel"
 import { CanonicalJson, type Model, ModelCatalog, ModelEvent, ModelRequest } from "@smthrs/model"
 import type * as Evaluator from "@smthrs/model/Evaluator"
@@ -4173,7 +4173,8 @@ export const run = (
         if (current.failureFrames >= 5) {
           return yield* new HarnessError({
             code: "model_failed",
-            message: `Runaway guard: ${current.failureFrames} consecutive frames repeated the same failure: ${current.failureKey}`,
+            message:
+              `Runaway guard: ${current.failureFrames} consecutive frames repeated the same failure: ${current.failureKey}`,
             cause: { _tag: repeatedFailureTag, frames: current.failureFrames }
           })
         }

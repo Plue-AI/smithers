@@ -150,11 +150,16 @@ const atomsOf = (cleanup: VibeCleanup) => cleanup.result.changes.flatMap((change
 export const landingLayers = Layer.mergeAll(
   Interpreter.layer(LandVibe),
   Interpreter.layer(AwaitAppend),
-  ReadStack.toLayer(() => Effect.flatMap(Landing, (landing) =>
-    Effect.flatMap(landing.readStack ?? Effect.succeed(false), (stacked) =>
-      stacked ? Effect.map(landing.readDelivery, (delivery) => delivery === "pull-request") : Effect.succeed(false)
+  ReadStack.toLayer(() =>
+    Effect.flatMap(
+      Landing,
+      (landing) =>
+        Effect.flatMap(landing.readStack ?? Effect.succeed(false), (stacked) =>
+          stacked
+            ? Effect.map(landing.readDelivery, (delivery) => delivery === "pull-request")
+            : Effect.succeed(false))
     )
-  )),
+  ),
   SubmitLane.toLayer(({ cleanup, cleanedSource }) =>
     Effect.gen(function*() {
       const landing = yield* Landing, instance = yield* FlowRuntime.FlowInstance

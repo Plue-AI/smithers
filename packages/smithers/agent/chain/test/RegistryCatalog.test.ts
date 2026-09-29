@@ -63,8 +63,7 @@ const catalogFrom = (
   descriptors: ReadonlyArray<Descriptor.FlowDescriptor>,
   options: RegistryCatalog.Options = {},
   overrides: Partial<Registry.Registry> = {}
-): Promise<Catalog.Service> =>
-  runOn(registryOf(descriptors, overrides), RegistryCatalog.make(options))
+): Promise<Catalog.Service> => runOn(registryOf(descriptors, overrides), RegistryCatalog.make(options))
 
 const echoImplementation: RegistryCatalog.Implementation = (payload) => Effect.succeed({ echoed: payload })
 

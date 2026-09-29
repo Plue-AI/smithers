@@ -194,7 +194,11 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   const passed = await first
   assert.equal(passed.status, "passed")
   assert.ok(receiptMatches(implementation, check, passed))
-  assert.equal(JSON.parse(passed.evidence).stdout.trim(), "old source|value.txt", "the check reads the Change's written paths")
+  assert.equal(
+    JSON.parse(passed.evidence).stdout.trim(),
+    "old source|value.txt",
+    "the check reads the Change's written paths"
+  )
   assert.equal(await readFile(join(root, "value.txt"), "utf8"), "new live source")
   assert.equal(
     JSON.parse(jj("op", "log", "-n", "1", "--no-graph", "-T", "json(self)")).id,

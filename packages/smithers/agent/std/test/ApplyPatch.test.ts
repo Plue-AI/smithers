@@ -387,18 +387,21 @@ describe("printSummary", () => {
 })
 
 describe("ApplyPatch.run", () => {
-  it.each([
-    { reason: "PermissionDenied", code: "permission_denied" },
-    { reason: "Unknown", code: "command_failed" }
-  ] as const)("maps $reason during path preflight to $code", async ({ reason, code }) => {
+  it.each(
+    [
+      { reason: "PermissionDenied", code: "permission_denied" },
+      { reason: "Unknown", code: "command_failed" }
+    ] as const
+  )("maps $reason during path preflight to $code", async ({ reason, code }) => {
     const path = "/target.txt"
     const host = FileSystem.makeNoop({
-      realPath: () => Effect.fail(PlatformError.systemError({
-        _tag: reason,
-        module: "FileSystem",
-        method: "realPath",
-        pathOrDescriptor: path
-      }))
+      realPath: () =>
+        Effect.fail(PlatformError.systemError({
+          _tag: reason,
+          module: "FileSystem",
+          method: "realPath",
+          pathOrDescriptor: path
+        }))
     })
     const exit = await executeExit(Effect.provide(
       Effect.provideService(
@@ -646,38 +649,57 @@ describe("ApplyPatch.run", () => {
   })
 
   it("refuses equivalent path spellings and symlinks before writing on the real filesystem", async () => {
-    const results = await execute(Effect.scoped(Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const root = yield* fs.makeTempDirectoryScoped()
-      const original = `${root}/a.txt`
-      const alias = `${root}/alias.txt`
-      yield* fs.writeFileString(original, "one\ntwo\n")
-      yield* fs.symlink(original, alias)
-      const results = []
-      for (const second of [`${root}/./a.txt`, alias]) {
-        const exit = yield* Effect.exit(ApplyPatch.run({ input: wrap(
-          `*** Update File: ${original}\n@@\n-one\n+ONE\n*** Update File: ${second}\n@@\n-two\n+TWO`
-        ) }))
-        results.push({
-          failure: Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined,
+    const results = await execute(Effect.scoped(
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const root = yield* fs.makeTempDirectoryScoped()
+        const original = `${root}/a.txt`
+        const alias = `${root}/alias.txt`
+        yield* fs.writeFileString(original, "one\ntwo\n")
+        yield* fs.symlink(original, alias)
+        const results = []
+        for (const second of [`${root}/./a.txt`, alias]) {
+          const exit = yield* Effect.exit(ApplyPatch.run({
+            input: wrap(
+              `*** Update File: ${original}\n@@\n-one\n+ONE\n*** Update File: ${second}\n@@\n-two\n+TWO`
+            )
+          }))
+          results.push({
+            failure: Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined,
+            contents: yield* fs.readFileString(original)
+          })
+        }
+        const collision = yield* Effect.exit(ApplyPatch.run({
+          input: wrap(
+            `*** Update File: ${original}\n*** Move to: ${root}/b.txt\n@@\n-one\n+ONE\n*** Add File: ${root}/./b.txt\n+other`
+          )
+        }))
+        const collisionContents = yield* fs.readFileString(original)
+        const destinationExists = yield* fs.exists(`${root}/b.txt`)
+        const move = yield* Effect.exit(ApplyPatch.run({
+          input: wrap(
+            `*** Update File: ${original}\n*** Move to: ${root}/./a.txt\n@@\n-one\n+ONE`
+          )
+        }))
+        return {
+          results,
+          collision,
+          collisionContents,
+          destinationExists,
+          move,
           contents: yield* fs.readFileString(original)
-        })
-      }
-      const collision = yield* Effect.exit(ApplyPatch.run({ input: wrap(
-        `*** Update File: ${original}\n*** Move to: ${root}/b.txt\n@@\n-one\n+ONE\n*** Add File: ${root}/./b.txt\n+other`
-      ) }))
-      const collisionContents = yield* fs.readFileString(original)
-      const destinationExists = yield* fs.exists(`${root}/b.txt`)
-      const move = yield* Effect.exit(ApplyPatch.run({ input: wrap(
-        `*** Update File: ${original}\n*** Move to: ${root}/./a.txt\n@@\n-one\n+ONE`
-      ) }))
-      return { results, collision, collisionContents, destinationExists, move, contents: yield* fs.readFileString(original) }
-    }).pipe(Effect.provide(NodeFileSystem.layer), Effect.provide(Path.layer))))
+        }
+      }).pipe(Effect.provide(NodeFileSystem.layer), Effect.provide(Path.layer))
+    ))
     for (const result of results.results) {
       expect(result.failure).toMatchObject({ code: "invalid_input" })
       expect(result.contents).toBe("one\ntwo\n")
     }
-    expect(Exit.isFailure(results.collision) ? Option.getOrUndefined(Cause.findErrorOption(results.collision.cause)) : undefined)
+    expect(
+      Exit.isFailure(results.collision)
+        ? Option.getOrUndefined(Cause.findErrorOption(results.collision.cause))
+        : undefined
+    )
       .toMatchObject({ code: "invalid_input" })
     expect(results.collisionContents).toBe("one\ntwo\n")
     expect(results.destinationExists).toBe(false)

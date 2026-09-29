@@ -738,11 +738,19 @@ describe("AgentSession", () => {
   it("claim-demanded journal row carries usage", () => {
     const usage = { inputTokens: 321, outputTokens: 17 }
     const event = {
-      _tag: "claim-demanded", complete: 0.8, overclaims: 0.1, invented: 0.2,
-      latencyMs: 12, usage, demanded: true, currentDigest: "digest", nextFrame: 2
+      _tag: "claim-demanded",
+      complete: 0.8,
+      overclaims: 0.1,
+      invented: 0.2,
+      latencyMs: 12,
+      usage,
+      demanded: true,
+      currentDigest: "digest",
+      nextFrame: 2
     } as Parameters<typeof AgentSession.trace>[0]
     expect(AgentSession.trace(event)).toMatchObject({
-      eventType: "control.agent.claim-demanded", payload: { usage }
+      eventType: "control.agent.claim-demanded",
+      payload: { usage }
     })
   })
 
@@ -1342,16 +1350,19 @@ describe("AgentSession", () => {
       protocolId: "test-protocol",
       toolCount: 0
     })
-    const traceRequest = (protocolId: string, changes: Record<string, unknown>) => AgentSession.trace({
-      _tag: "model-requested",
-      scope: runId,
-      frame: 0,
-      attempt: 1,
-      purpose: "frame",
-      seat: "test-model",
-      binding: { ...prepared, protocolId },
-      request: { ...captured[0]!.request, ...changes }
-    } as unknown as Parameters<typeof AgentSession.trace>[0])!.payload as Record<string, unknown>
+    const traceRequest = (protocolId: string, changes: Record<string, unknown>) =>
+      AgentSession.trace(
+        {
+          _tag: "model-requested",
+          scope: runId,
+          frame: 0,
+          attempt: 1,
+          purpose: "frame",
+          seat: "test-model",
+          binding: { ...prepared, protocolId },
+          request: { ...captured[0]!.request, ...changes }
+        } as unknown as Parameters<typeof AgentSession.trace>[0]
+      )!.payload as Record<string, unknown>
     const chatgpt = traceRequest("openai-responses-chatgpt", { cacheKey: "frame-0" })
     expect(chatgpt).toMatchObject({ scope: runId, frame: 0, attempt: 1, cacheKey: "frame-0" })
     expect(traceRequest("openai-responses", { cacheKey: "response-key" }).cacheKey).toBe("response-key")
