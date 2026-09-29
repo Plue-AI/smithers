@@ -4718,6 +4718,9 @@ importers:
       '@smthrs/canonical':
         specifier: 1.0.0-rc.1
         version: link:../canonical
+      '@smthrs/capability':
+        specifier: 1.0.0-rc.1
+        version: link:../capability
       '@smthrs/crypto':
         specifier: 1.0.0-rc.1
         version: link:../crypto
@@ -4797,6 +4800,9 @@ importers:
       '@smthrs/canonical':
         specifier: 1.0.0-rc.1
         version: link:../canonical
+      '@smthrs/capability':
+        specifier: 1.0.0-rc.1
+        version: link:../capability
       '@smthrs/crypto':
         specifier: 1.0.0-rc.1
         version: link:../crypto
@@ -4900,6 +4906,9 @@ importers:
       '@smthrs/canonical':
         specifier: 1.0.0-rc.1
         version: link:../canonical
+      '@smthrs/capability':
+        specifier: 1.0.0-rc.1
+        version: link:../capability
       '@smthrs/crypto':
         specifier: 1.0.0-rc.1
         version: link:../crypto
