@@ -74,11 +74,12 @@ const guestEnvironment = (
   env: Readonly<Record<string, string | undefined>> | undefined
 ): Record<string, string | undefined> | undefined => {
   if (env === undefined) return undefined
-  const host = globalThis.process.env
+  const host = globalThis.process?.env
   const guest: Record<string, string | undefined> = {}
   for (const [name, value] of Object.entries(env)) {
     const upper = name.toUpperCase()
-    const hostAmbient = (ambient.has(upper) || upper.startsWith("LC_")) && value !== undefined && host[name] === value
+    const hostAmbient = host !== undefined && (ambient.has(upper) || upper.startsWith("LC_"))
+      && value !== undefined && host[name] === value
     if (!hostAmbient) guest[name] = value
   }
   return guest

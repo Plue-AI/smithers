@@ -79,10 +79,11 @@ seven of the ten providers. See
 
 ## Browser bundles
 
-The package bundles for the browser. No module reads a host global: the conformance fixture's per-process
-uniqueness comes from Web Crypto rather than a process id, because a bundler
-cannot catch a free `process` identifier that survives into the bundle and
-throws in a browser.
+The package bundles for the browser. The remote command adapter passes explicit
+guest environment values through when the runtime has no `process` global. When
+a host exposes `process.env`, it removes values copied from that ambient
+environment so the guest keeps its own defaults. The conformance fixture uses
+Web Crypto for uniqueness.
 
 `JustBashSandbox` is the provider a browser page can actually run, over a
 just-bash interpreter and a filesystem mounted on the same tree. The other
