@@ -56,6 +56,18 @@ describe("RunStore inert input boundary", () => {
       expect(yield* store.heartbeat("missing", stable, 0)).toEqual({ _tag: "NotFound" })
     })))
 
+  it.effect("admits a snapshot carrying extra string and symbol data fields and ignores them", () =>
+    migrated(Effect.gen(function*() {
+      const store = yield* RunStore
+      yield* store.create("extra-fields", "{}")
+      const expected = {
+        ...snapshot(yield* store.get("extra-fields")),
+        runId: "extra-fields",
+        [Symbol("extra")]: "ignored"
+      }
+      expect(yield* store.claim("extra-fields", expected, ownerA, 0)).toEqual({ _tag: "Claimed", claimedAtMs: 0 })
+    })))
+
   it.effect("rejects hostile owner records without invoking accessors or traps", () =>
     migrated(Effect.gen(function*() {
       const store = yield* RunStore
