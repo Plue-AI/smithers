@@ -1797,16 +1797,58 @@ describe("committed change mutations", () => {
 })
 
 describe("change repository resolution", () => {
-  test("change.facet updates only the explicitly named repository's card", async () => {
+  test("change.facet changes only the explicitly named repository when change IDs collide", async () => {
     const otherRoute = "api/repos/ana/other/changes/qupxosqw"
-    const { store, seam } = await harness({ ...viewRoutes, [otherRoute]: json(200, { ...CHANGE, description: "Other repository" }) })
-    await seam.viewChange("qupxosqw", undefined, "will/smithers")
-    await seam.viewChange("qupxosqw", undefined, "ana/other")
-    expect(await seam.setFacet("qupxosqw", "checks", "will/smithers")).toBeUndefined()
-    expect(store.collections.cards.get("change-ana/other-qupxosqw")?.kind).toBe("change")
-    expect((store.collections.cards.get("change-ana/other-qupxosqw") as Extract<import("../AppState").Card, { kind: "change" }>).payload.facet).toBeUndefined()
-    expect(payloadOf(store)?.facet).toBe("checks")
+    for (const owner of ["will/smithers", "ana/other"] as const) {
+      for (const ownerFirst of [true, false]) {
+        const { store, seam, requests } = await harness({
+          ...viewRoutes,
+          [otherRoute]: json(200, { ...CHANGE, description: "Other repository" })
+        })
+        const foreign = owner === "will/smithers" ? "ana/other" : "will/smithers"
+        const loadOrder = ownerFirst ? [owner, foreign] : [foreign, owner]
+        for (const repository of loadOrder) await seam.viewChange("qupxosqw", undefined, repository)
+        await store.eventHistory()
+        const cardId = (repo: string) => `change-${repo}-qupxosqw`
+        const beforeOwner = store.collections.cards.get(cardId(owner))
+        const beforeForeign = store.collections.cards.get(cardId(foreign))
+        expect(beforeOwner?.kind).toBe("change")
+        expect(beforeForeign?.kind).toBe("change")
+        requests.length = 0
+
+        expect(await seam.setFacet("qupxosqw", "checks", owner)).toBeUndefined()
+        await store.eventHistory()
+        const afterOwner = store.collections.cards.get(cardId(owner))
+        expect(afterOwner?.kind).toBe("change")
+        if (afterOwner?.kind === "change" && beforeOwner?.kind === "change") {
+          expect(afterOwner.payload).toEqual({ ...beforeOwner.payload, facet: "checks" })
+        }
+        expect(store.collections.cards.get(cardId(foreign))).toEqual(beforeForeign)
+        expect(requests).toEqual([])
+      }
+    }
   })
+
+  test("change.facet refuses an explicit repository whose change is not loaded", async () => {
+    const otherRoute = "api/repos/ana/other/changes/qupxosqw"
+    const { store, seam, requests } = await harness({
+      ...viewRoutes,
+      [otherRoute]: json(200, { ...CHANGE, description: "Other repository" })
+    })
+    await seam.viewChange("qupxosqw", undefined, "ana/other")
+    await store.eventHistory()
+    const foreignCard = store.collections.cards.get("change-ana/other-qupxosqw")
+    requests.length = 0
+
+    expect(await seam.setFacet("qupxosqw", "checks", "will/smithers")).toBe(
+      "Change qupxosqw is not loaded — /change.view qupxosqw reads it first"
+    )
+    await store.eventHistory()
+    expect(store.collections.cards.get("change-ana/other-qupxosqw")).toEqual(foreignCard)
+    expect(store.collections.cards.get("change-will/smithers-qupxosqw")).toBeUndefined()
+    expect(requests).toEqual([])
+  })
+
   test("bare mutations refuse duplicate change ids across repositories; explicit repositories still route", async () => {
     const otherRoute = "api/repos/ana/other/changes/qupxosqw"
     const { seam, requests } = await harness({

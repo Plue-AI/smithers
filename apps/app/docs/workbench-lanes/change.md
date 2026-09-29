@@ -19,6 +19,10 @@ Scope, in order:
 3. Flows `change.view|diff|land|split-ready|resolve|revert` with confirm per
    the table; slash payloads; registry/parity tests.
 4. Origin chip pin `qupxosqw#5`; `rev N exists · view` line on pinned cards.
+
+Facet selection uses the repository and change ID together. When two repositories
+contain the same change ID, selecting a facet updates only the named card.
+
 Exit: seam tests with doubles for every route (including a 403 degraded
 session); card tests per facet and per stale/moved state; T1 spec viewing a
 fixture landing request end to end. Never fake a route the backend lacks:
