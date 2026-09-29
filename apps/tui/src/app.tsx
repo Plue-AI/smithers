@@ -24,6 +24,7 @@ import * as Agents from "./agents.ts"
 import * as AppView from "./app-view.tsx"
 import { CompletionMenu, FlowFormView, PickerDialog, StatusLine } from "./app-view.tsx"
 import * as Approvals from "./approvals.ts"
+import * as Asks from "./asks.ts"
 import * as Clipboard from "./clipboard.ts"
 import * as Composer from "./composer.ts"
 import * as Context from "./context.ts"
@@ -101,6 +102,8 @@ interface TurnState {
 type Picker = Pickers.Picker
 
 type FlowForm = Dispatch.FlowForm
+/** A form's id prefix when it answers a worker's ask rather than filling a flow run. */
+const askForm = "ask:"
 
 export function App(props: AppProps) {
   const renderer = useRenderer()
@@ -378,12 +381,30 @@ export function App(props: AppProps) {
     setPanelFocus(false)
     changeForm({ id, flow: run.flow, fields, draft: Form.draftFrom(fields, run.input, "json"), focus: 0 })
   }, [runs, changeForm])
+  /** Opens the form for a worker's ask the person holds. */
+  const openAsk = useCallback((tabId: string) => {
+    const ask = workspace.asks.fromPerson(tabId)
+    if (ask === undefined) return
+    const fields = Form.formFieldsFor(Asks.schema(ask))
+    const title = workspace.snapshot().tabs.find((tab) => tab.id === tabId)?.title ?? tabId
+    setPanelFocus(false)
+    changeForm({
+      id: `${askForm}${ask.id}`,
+      flow: `◆ ${title} asks: ${ask.question}`,
+      fields,
+      // A choice starts on its first option, so Enter alone answers it.
+      draft: Form.draftFrom(fields, ask.options === undefined ? {} : { answer: ask.options[0] }, "json"),
+      focus: 0
+    })
+  }, [workspace, changeForm])
   useEffect(() => {
     const open = liveForm.current
     if (open !== undefined) {
-      const status = runs.get(open.id)?.status
+      const live = open.id.startsWith(askForm)
+        ? workspace.asks.get(open.id.slice(askForm.length))?.holder === Asks.person
+        : runs.get(open.id)?.status === "input"
       // A pending tool approval takes the keys; the run stays parked and `a` in its tab reopens the form.
-      if (status !== "input" || approvals.length > 0) changeForm(undefined)
+      if (!live || approvals.length > 0) changeForm(undefined)
       return
     }
     // Never pull the keyboard away from a draft, a dialog or an approval; a later render opens it.
@@ -588,9 +609,12 @@ export function App(props: AppProps) {
     views: uiPanels
   })
   const focusMain = basePanel?.placement === "main"
-  /** Approval keys the focused panel acts on: its `a` runs the selected row's action or opens a flow's form. */
+  /**
+   * Approval keys the focused panel acts on: its `a` runs the selected row's action, opens a flow's form,
+   * or answers the overview's or a worker tab's question, never an approval's "allow all".
+   */
   const panelKeys = panelFocus && panel !== undefined &&
-      (surface.startsWith("flow:") ||
+      (surface.startsWith("flow:") || surface.startsWith("tab:") || surface === "summary" ||
         panel.rows[Math.min(navigation.selected, panel.rows.length - 1)]?.action !== undefined)
     ? ["a"]
     : []
@@ -641,7 +665,8 @@ export function App(props: AppProps) {
     transcript: workspace.transcript,
     contextWindow: props.contextWindow,
     models: props.models,
-    now
+    now,
+    asks: workspace.asks.list()
   })
   const inboxRows = Inbox.flat(inbox)
   const overviewShown = surface === "summary" && inboxRows.length > 0 && !focusMain
@@ -661,6 +686,20 @@ export function App(props: AppProps) {
   const panelScroll = useRef<((direction: number) => void) | undefined>(undefined)
   const lastCtrlC = useRef(0)
   useEffect(() => Log.subscribe((message) => setStatus(message, "danger")), [setStatus])
+  /** Each ask that reaches the person says so once, wherever the person is looking. */
+  const announcedAsks = useRef(new Set<string>())
+  useEffect(() => {
+    const open = workspace.asks.list().filter((ask) => ask.holder === Asks.person)
+    for (const ask of open) {
+      if (announcedAsks.current.has(ask.id)) continue
+      announcedAsks.current.add(ask.id)
+      const title = workspace.snapshot().tabs.find((tab) => tab.id === ask.from)?.title ?? ask.from
+      setStatus(`◆ ${title} asks: ${ask.question}`, "info")
+    }
+    // Forget the answered ones, so the set stays as small as the open asks.
+    const ids = new Set(workspace.asks.list().map((ask) => ask.id))
+    for (const id of announcedAsks.current) if (!ids.has(id)) announcedAsks.current.delete(id)
+  }, [revision, workspace, setStatus])
   const discoveryFailure = runs.failure()
   useEffect(() => {
     if (discoveryFailure !== undefined) setStatus(discoveryFailure.message, "danger")
@@ -1601,9 +1640,15 @@ export function App(props: AppProps) {
           // Retarget the native input before later bytes in the same terminal
           // read arrive. Advancing only the ref leaves typing on the old field.
           change: (next) => flushSync(() => changeForm(next)),
-          schema: runs.schema,
-          input: (id) => runs.get(id)?.input,
-          fill: runs.fill
+          schema: (id) => {
+            const ask = id.startsWith(askForm) ? workspace.asks.get(id.slice(askForm.length)) : undefined
+            return ask === undefined ? runs.schema(id) : Asks.schema(ask)
+          },
+          input: (id) => id.startsWith(askForm) ? {} : runs.get(id)?.input,
+          fill: (id, payload) =>
+            id.startsWith(askForm)
+              ? void workspace.asks.answer(id.slice(askForm.length), String(payload.answer))
+              : runs.fill(id, payload)
         })
       }
       changeForm(undefined)
@@ -1726,6 +1771,11 @@ export function App(props: AppProps) {
           setOverview((current) => ({ ...current, selected: ids[at]!, card: undefined }))
         },
         peek: () => setOverview((current) => ({ ...current, selected: overviewSelected, peek: current.peek !== true })),
+        answer: () =>
+          flushSync(() => {
+            if (overviewRow?.ask !== undefined) openAsk(overviewRow.ask.from)
+            else if (overviewRow?.run?.status === "input") openForm(overviewRow.run.id)
+          }),
         card: (direction) => {
           if (overviewCard === undefined) return
           const next = Subagents.move(
@@ -1770,6 +1820,7 @@ export function App(props: AppProps) {
         },
         cancelRun: runs.cancel,
         fillRun: (id) => flushSync(() => openForm(id)),
+        answerWorker: (id) => flushSync(() => openAsk(id)),
         undo: undoRow,
         workerAction,
         scroll: (direction) => panelScroll.current?.(direction),
@@ -1895,6 +1946,11 @@ export function App(props: AppProps) {
         binding.owner !== undefined && (binding.context !== "panel" || binding.owner === ownerOf(surface))
       )
     ]
+    : footerContext === "overview"
+    // `a` shows only on a row it answers.
+    ? Keys.hintsFor("overview", merged).filter((binding) =>
+      binding.id !== "overview-answer" || overviewRow?.ask !== undefined || overviewRow?.run?.status === "input"
+    )
     : Keys.hintsFor(footerContext, merged)
   const meter = AppView.meter(transcript, window, compact)
   // The hints get the row less its padding, the margins, the status items and the meter; the path gives way first.

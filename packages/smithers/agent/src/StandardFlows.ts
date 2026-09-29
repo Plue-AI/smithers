@@ -898,6 +898,10 @@ export const AskInput = Schema.Struct({
   question: Schema.String.annotate({ description: "What the run needs a human to decide" }),
   options: Schema.optional(Schema.Array(Schema.String)).annotate({
     description: "The answers the run can act on, when the question is a choice"
+  }),
+  to: Schema.optional(Schema.Literals(["parent", "person"])).annotate({
+    description:
+      "Who answers: the agent that started this one, escalating toward the person (parent, the default), or the person"
   })
 })
 
@@ -920,7 +924,7 @@ export const AskOutput = Schema.Struct({
  */
 export const askFlow = Flow.make({
   name: "ask",
-  description: "Ask the person running this task a question, and wait for their answer.",
+  description: "Ask whoever started this task, the agent above or the person, a question, and wait for the answer.",
   input: AskInput,
   output: AskOutput,
   effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }

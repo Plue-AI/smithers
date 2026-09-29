@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test"
+import * as Asks from "../src/asks.ts"
 import type * as Flows from "../src/flows.ts"
 import * as Inbox from "../src/inbox.ts"
 import * as Transcript from "../src/transcript.ts"
@@ -89,5 +90,34 @@ describe("the overview inbox", () => {
     const [section] = rows([tab("a", "queued")], [], () => used(40_000, 0, 20_000))
     expect(section!.rows[0]).toMatchObject({ clock: "", window: 10 })
     expect(section!.rows[0]!.cache).toBeUndefined()
+  })
+
+  it("lists a worker whose ask the person holds under Needs you, and peeks at the question and its path", () => {
+    const ask: Asks.Ask = {
+      id: "ask-1",
+      from: "impl",
+      question: "Cookie or bearer?",
+      options: ["cookie", "bearer"],
+      holder: Asks.person,
+      trail: ["plan", Asks.person],
+      askedAt: now,
+      frames: 0,
+      returned: false
+    }
+    const shown = Inbox.rows({
+      tabs: [tab("plan", "running"), tab("impl", "running", { parent: "plan" })],
+      runs: [],
+      transcript: () => Transcript.empty,
+      contextWindow: () => 200_000,
+      models: [],
+      now,
+      asks: [ask, { ...ask, id: "ask-2", from: "plan", holder: "root" }]
+    })
+    expect(shape(shown)).toEqual([["needs", ["impl"]], ["working", ["plan"]]])
+    expect(Inbox.peek(shown[0]!.rows[0]!, () => Transcript.empty)).toEqual([
+      "Cookie or bearer?",
+      "cookie · bearer",
+      "asked plan → you"
+    ])
   })
 })

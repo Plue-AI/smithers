@@ -826,6 +826,28 @@ describe("turnOptions", () => {
     expect(options.system.some((part) => part.includes("You review changes."))).toBe(false)
   })
 
+  test("a worker that can ask gets the ask flow pinned beside its runtime flows", async () => {
+    const options = Host.turnOptions(
+      {
+        ...base,
+        runtime: {
+          publish: () => {},
+          delegate: () => ({}),
+          read: () => ({}),
+          list: () => [],
+          ask: async () => ({ answer: "yes", approved: true }),
+          answer: () => ({})
+        }
+      },
+      "/repo",
+      standard
+    )
+    const flows = await names(options.flows)
+    expect(flows).toContain("ask")
+    expect(flows).toContain("agent.answer")
+    expect(options.pinnedSources).toEqual(["tui/runtime", "host/approval"])
+  })
+
   test("an agent profile sets the system prompt, the envelope, the flows and the effort", async () => {
     const options = Host.turnOptions({ ...base, agent: profile }, "/repo", standard)
     expect(options.system.at(-1)).toBe("You review changes.")

@@ -77,7 +77,7 @@ for (const [cols, rows, burst] of [[60, 20, false], [40, 12, false], [40, 12, tr
   }, 60_000)
 }
 
-it("lists a flow waiting for its form under Needs you; enter opens it", async () => {
+it("lists a flow waiting for its form under Needs you; enter opens it and a answers it", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-form-"))
   const project = join(root, "project")
   mkdirSync(join(project, "flows/greet"), { recursive: true })
@@ -115,6 +115,14 @@ it("lists a flow waiting for its form under Needs you; enter opens it", async ()
     await tui.press("j")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Needs: "), 5_000, "flow tab")
+    await tui.press(key.escape)
+    await tui.press(key.ctrlS)
+    await tui.until((screen) => screen.includes("Needs you 1"), 5_000, "overview again")
+    await tui.press("a")
+    await tui.until((screen) => screen.includes("Name"), 5_000, "form from the overview")
+    await tui.type("ada")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("✓ greet") || screen.includes("Done 1"), 15_000, "answered")
   } finally {
     await tui?.stop()
     rmSync(root, { recursive: true, force: true })

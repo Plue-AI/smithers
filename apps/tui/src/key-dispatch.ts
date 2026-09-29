@@ -204,6 +204,8 @@ export const overviewKey = (key: KeyEvent, state: {
   readonly pane: () => void
   readonly tree: (step: -1 | 1) => void
   readonly peek: () => void
+  /** `a`: the selected row's form, when it waits on the person. */
+  readonly answer: () => void
   readonly card: (direction: Subagents.Direction) => void
   readonly open: () => void
   readonly files: () => void
@@ -216,6 +218,7 @@ export const overviewKey = (key: KeyEvent, state: {
   if (key.name === "return" || key.name === "kpenter") return act.open()
   if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1)
   if (key.name === "space" && state.pane === "tree") return act.peek()
+  if (key.name === "a" && state.pane === "tree") return act.answer()
   const moved = direction(key, true)
   if (moved !== undefined && state.pane === "tree") {
     if (moved === "right") return act.pane()
@@ -362,6 +365,8 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   readonly retryRun: (id: string) => void
   readonly cancelRun: (id: string) => void
   readonly fillRun: (id: string) => void
+  /** Opens the form for a worker's ask the person holds. */
+  readonly answerWorker: (id: string) => void
   /** Undo the selected row's changes, in a worker's own transcript when `tab` is set. */
   readonly undo: (row: Panels.Row | undefined, tab: string | undefined) => void
   readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
@@ -385,6 +390,7 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
     )
   }
   if (state.worker !== undefined) {
+    if (key.name === "a") return act.answerWorker(state.worker.id)
     const binding = Keys.bindingFor(key, "panel")
     const action = binding === undefined ? undefined : Tabs.actionFor(binding.id, state.worker)
     if (action !== undefined) return act.workerAction(state.worker, action.id)

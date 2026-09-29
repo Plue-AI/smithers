@@ -187,6 +187,7 @@ export const registry: ReadonlyArray<Binding> = [
   },
   { id: "overview-open", keys: ["enter"], label: "Open", context: "overview", group: "Summary" },
   { id: "overview-peek", keys: ["space"], label: "Peek", context: "overview", group: "Summary" },
+  { id: "overview-answer", keys: ["a"], label: "Answer", context: "overview", group: "Summary" },
   { id: "overview-files", keys: ["f"], label: "Files", context: "overview", group: "Summary" },
   { id: "overview-close", keys: ["esc"], label: "Close", context: "overview", group: "Summary" }
 ]
@@ -332,7 +333,7 @@ export const hintsFor = (context: KeyContext, list: ReadonlyArray<Binding> = reg
     selection: ["selection-move", "selection-milestone", "selection-close"],
     completion: ["complete-move", "complete", "complete-run", "complete-close"],
     card: ["card-move", "open-card", "close-card", "keys"],
-    overview: ["overview-pane", "overview-move", "overview-peek", "overview-open", "overview-close"]
+    overview: ["overview-pane", "overview-move", "overview-peek", "overview-open", "overview-answer", "overview-close"]
   }
   const available = bindingsFor(context, list)
   const builtIn = preferred[context].map((id) => available.find((binding) => binding.id === id)).filter(

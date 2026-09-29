@@ -4,6 +4,7 @@ import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import * as Seat from "@smthrs/agent/Seat"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Agents from "./agents.ts"
+import * as Asks from "./asks.ts"
 import type * as Context from "./context.ts"
 import type * as Extension from "./extension.ts"
 import type * as Host from "./host.ts"
@@ -50,6 +51,10 @@ export interface Tab {
   readonly code?: Agents.Code
   /** Conversation captured with the request so a queued launch survives restart. */
   readonly history?: ReadonlyArray<Context.Entry>
+}
+/** What `agent.wait` returns per tab: its outcome so far, and an ask it holds for the waiting parent. */
+export type Waited = Pick<Tab, "id" | "status" | "answer" | "message"> & {
+  readonly ask?: { readonly id: string; readonly question: string; readonly options?: ReadonlyArray<string> }
 }
 export interface Request {
   readonly id: string
@@ -109,6 +114,13 @@ export class Workspace {
   private cancelRequested = new Set<string>()
   private steering = new Map<string, { readonly queue: Steering.Queue; readonly writer: Session.Writer }>()
   private closed = false
+  private unsubscribeAsks: () => void = () => {}
+  /** Open `ask` calls from workers, routed up the tree to the person. */
+  readonly asks: Asks.Asks = new Asks.Asks({
+    tab: (id) => this.tabs.get(id),
+    tell: (id, text, shown) => this.tell(id, text, shown),
+    changed: () => this.changed()
+  })
   constructor(
     private options: {
       /** Ids owned by flow runs in the same session. */
@@ -220,6 +232,8 @@ export class Workspace {
     for (const panel of options.restored?.panels ?? []) Panels.keep(this.panels, panel)
     for (const id of options.restored?.cards ?? []) if (this.panels.has(id)) this.cards.add(id)
     queueMicrotask(() => this.tabs.drain())
+    // A holder that stops listening (parked, settled) passes its asks up at once.
+    this.unsubscribeAsks = this.tabs.subscribe(() => this.asks.check())
   }
   subscribe = (listener: () => void): () => void => this.tabs.subscribe(listener)
   private changed() {
@@ -292,7 +306,7 @@ export class Workspace {
     parentId: string,
     ids: ReadonlyArray<string>,
     signal?: AbortSignal
-  ): Promise<ReadonlyArray<Pick<Tab, "id" | "status" | "answer" | "message">>> => {
+  ): Promise<ReadonlyArray<Waited>> => {
     const parent = this.tabs.get(parentId)
     if (parent === undefined) throw new Error("Unknown parent tab")
     const children = ids.map((id) => {
@@ -302,6 +316,7 @@ export class Workspace {
     })
     // Waiting frees the seat, so queued work may start.
     this.tabs.move(parent, "block")
+    this.asks.waited(parentId)
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         unsubscribe()
@@ -321,10 +336,26 @@ export class Workspace {
           return
         }
         const tabs = children.map((id) => this.tabs.get(id)!)
-        if (!tabs.every(settled) || this.tabs.full()) return
+        // A descendant's ask for this parent ends the wait early, once; it answers, then waits again.
+        const asking = this.asks.waiting(parentId)
+        if ((!asking && !tabs.every(settled)) || this.tabs.full()) return
         cleanup()
         this.tabs.move(this.tabs.get(parentId)!, "unblock")
-        resolve(tabs.map(({ id, status, answer, message }) => ({ id, status, answer, message })))
+        const asks = asking ? this.asks.take(parentId) : []
+        const question = (id: string) => {
+          const ask = asks.find((each) => each.from === id)
+          return ask === undefined ? {} : {
+            ask: { id: ask.id, question: ask.question, ...(ask.options === undefined ? {} : { options: ask.options }) }
+          }
+        }
+        resolve([
+          ...tabs.map(({ id, status, answer, message }) => ({ id, status, answer, message, ...question(id) })),
+          ...asks.filter((ask) => !children.includes(ask.from)).map((ask) => ({
+            id: ask.from,
+            status: this.tabs.get(ask.from)?.status ?? "running",
+            ...question(ask.from)
+          }))
+        ])
       }
       const unsubscribe = this.subscribe(check)
       signal?.addEventListener("abort", aborted, { once: true })
@@ -590,7 +621,12 @@ export class Workspace {
           delegate: (request) => this.requestChild(tab, request),
           read: (id) => this.read(id.startsWith(`${tab.id}/`) ? id : `${tab.id}/${id}`),
           list: () => this.snapshot().tabs.filter((child) => child.parent === tab.id),
-          wait: (ids, signal) => this.wait(tab.id, ids, signal)
+          wait: (ids, signal) => this.wait(tab.id, ids, signal),
+          ask: (input, signal) => this.ask(tab.id, input, signal),
+          answer: (id, answer) => {
+            if (!this.asks.answer(id, answer, tab.id)) throw new Error(`No open ask ${id} for this agent`)
+            return { id, status: "answered" }
+          }
         },
         onSeat: ({ seat, variant }) => {
           const current = this.tabs.get(tab.id)
@@ -629,6 +665,7 @@ export class Workspace {
               parks: (current.parks ?? 0) + 1
             }, "park")
           }
+          if (event._tag === "cell-settled") this.asks.frame(tab.id)
           if (event._tag === "model-settled" && (this.tabs.get(tab.id)?.parks ?? 0) > 0) {
             this.tabs.put({ ...this.tabs.get(tab.id)!, parks: 0 })
           }
@@ -727,6 +764,52 @@ export class Workspace {
       failure,
       detail: error instanceof Error ? error.stack : undefined
     }, "fail")
+  }
+  /**
+   * A worker's `ask`: its seat is free while it waits, as `agent.wait` frees
+   * one, and it runs on once answered and a seat is free.
+   */
+  private async ask(
+    id: string,
+    input: Asks.Input,
+    signal?: AbortSignal
+  ): Promise<{ readonly answer: string; readonly approved: boolean }> {
+    const asker = this.tabs.get(id)
+    if (asker === undefined) throw new Error("Unknown tab")
+    const blocked = asker.status === "running"
+    if (blocked) this.tabs.move(asker, "block")
+    try {
+      return { answer: await this.asks.ask(asker, input, signal), approved: true }
+    } finally {
+      if (blocked) await this.seated(id, signal)
+    }
+  }
+  /** Resolves once a blocked worker has a seat again and is running. */
+  private seated(id: string, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      const check = () => {
+        const current = this.tabs.get(id)
+        if (this.closed || current === undefined || current.status !== "waiting" || signal?.aborted === true) {
+          unsubscribe()
+          return resolve()
+        }
+        if (this.tabs.full()) return
+        unsubscribe()
+        this.tabs.move(current, "unblock")
+        resolve()
+      }
+      const unsubscribe = this.subscribe(check)
+      check()
+    })
+  }
+  /** Tells a running worker `text` at its next boundary, shown in its tab as `shown`, not as the person's words. */
+  private tell(id: string, text: string, shown: string): boolean {
+    const target = this.steering.get(id)
+    if (target === undefined || this.tabs.get(id)?.status !== "running") return false
+    target.queue.steer(text)
+    this.transcripts.set(id, Transcript.note(this.transcript(id), shown, Date.now()))
+    this.changed()
+    return true
   }
   /** Sends `text` to a running worker at its next cell boundary; false when it is not running. */
   steer = (id: string, text: string): boolean => {
@@ -880,6 +963,7 @@ export class Workspace {
     }, wakeAt - Date.now())
   }
   dispose = (): void => {
+    this.unsubscribeAsks()
     this.closed = true
     const queued = this.tabs.close()
     this.changed()

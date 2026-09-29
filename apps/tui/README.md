@@ -113,7 +113,7 @@ Ctrl+O read it.
 | Shift+Tab                                             | Cycle reasoning effort                                                                                                                                                                                                                                                                                                 |
 | Ctrl+O                                                | Expand cell code, output, diffs, and the key list                                                                                                                                                                                                                                                                      |
 | Ctrl+T                                                | Inspect the run timeline; arrows scrub, [ ] or Shift+Left/Right step milestones, Home/End jump, Esc returns to live                                                                                                                                                                                                    |
-| Ctrl+S                                                | Open Summary / return to Chat (switch focus in a main view). With workers or flow runs it is the overview: Needs you (parked, failed, a flow waiting for its form), Working and Done, each row `glyph name seat clock window% cache%`, beside the selected worker's cards (Chat heads the list and shows the conversation review). Tab switches pane, arrows or hjkl move, Space peeks at the row's question or last step, Enter opens, Esc closes                                              |
+| Ctrl+S                                                | Open Summary / return to Chat (switch focus in a main view). With workers or flow runs it is the overview: Needs you (parked, failed, a worker's ask, a flow waiting for its form), Working and Done, each row `glyph name seat clock window% cache%`, beside the selected worker's cards (Chat heads the list and shows the conversation review). Tab switches pane, arrows or hjkl move, Space peeks at the row's question or last step, **a** answers it, Enter opens, Esc closes                                              |
 | Ctrl+], Ctrl+[, Ctrl+Right, Ctrl+Left                 | Next, previous tab: Chat, Summary, worker tabs, trees, and custom views. Click a tab to open it                                                                                                                                                                                                                        |
 | Ctrl+Y                                                | In a worker tab: back to its parent worker, or the chat for a top-level worker                                                                                                                                                                                                                                         |
 | Ctrl+\\ or `/chat`                                    | Return to full chat from a main view                                                                                                                                                                                                                                                                                   |
@@ -244,7 +244,16 @@ loaded into the UI process.
 
 The chat coordinator has `ui.publish`, `agent.delegate`, `tab.read`,
 `tab.list`, and `tab.retry`. Workers also have `agent.delegate`, `agent.wait({ids})`,
-`tab.read`, and `tab.list`. A worker can delegate children through depth 3;
+`tab.read`, `tab.list`, `ask` and `agent.answer`.
+A worker's `ask({question, options?, to?})` (`ctx.help`) waits for an answer.
+`to: "parent"`, the default, sends it to the nearest running agent above the
+worker, before its next cell or as `ask {id, question, options}` in the result
+of its `agent.wait`, which returns early; that agent answers with
+`agent.answer({id, answer})`. After three of its cells without an answer, or
+when it is parked or settled, the ask moves one level up. A top-level worker's
+ask, one past the root, and `to: "person"` go to the person: the worker shows
+◆ under Needs you, and **a** in the Summary overview or the worker's tab opens
+its form, a choice among `options` or free text. A worker can delegate children through depth 3;
 depth 4 returns `AgentDepthExceeded`. Waiting releases the worker's pool slot.
 Delegation takes `{id, title, prompt}`, persists before launch, and returns a
 `requested` receipt immediately. Reusing the id deduplicates the request.

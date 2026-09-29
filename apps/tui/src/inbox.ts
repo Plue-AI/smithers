@@ -5,6 +5,7 @@
  * worker tree. Pure: `subagent-view.tsx` draws it and `app.tsx` moves over it.
  */
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
+import * as Asks from "./asks.ts"
 import type * as Flows from "./flows.ts"
 import { settled } from "./lifecycle.ts"
 import type { Model } from "./models.ts"
@@ -35,6 +36,8 @@ export interface Row {
   readonly window?: number
   /** Cache hits over input tokens, percent. */
   readonly cache?: number
+  /** The worker's ask the person holds. */
+  readonly ask?: Asks.Ask
 }
 
 export interface Section {
@@ -68,7 +71,11 @@ export const rows = (input: {
   readonly contextWindow: (seat: string) => number
   readonly models: ReadonlyArray<Model>
   readonly now: number
+  /** Open asks; those the person holds put their asker under Needs you. */
+  readonly asks?: ReadonlyArray<Asks.Ask>
 }): ReadonlyArray<Section> => {
+  const asking = (tab: Tab) => input.asks?.find((ask) => ask.from === tab.id && ask.holder === Asks.person)
+  const needs = (tab: Tab) => needsYou(tab.status) || asking(tab) !== undefined
   const worker = (tab: Tab, group: Group, level: number): Row => {
     const seat = tab.activeSeat ?? tab.seat
     return {
@@ -84,7 +91,8 @@ export const rows = (input: {
         : tab.status === "queued"
         ? ""
         : SubagentCard.duration(Tabs.elapsed(tab, input.now)),
-      ...usage(input.transcript(tab.id).usage, input.contextWindow(seat))
+      ...usage(input.transcript(tab.id).usage, input.contextWindow(seat)),
+      ...(asking(tab) === undefined ? {} : { ask: asking(tab)! })
     }
   }
   const flow = (run: Flows.Run, group: Group): Row => ({
@@ -98,14 +106,14 @@ export const rows = (input: {
     clock: run.status === "queued" ? "" : SubagentCard.duration((run.endedAt ?? input.now) - run.startedAt)
   })
   const byId = new Map(input.tabs.map((tab) => [tab.id, tab]))
-  const needs: Array<Row> = input.tabs.filter((tab) => needsYou(tab.status)).map((tab) => worker(tab, "needs", 0))
+  const needing: Array<Row> = input.tabs.filter(needs).map((tab) => worker(tab, "needs", 0))
   // Each tree keeps its shape without the nodes Needs you already lists: their children rise a level.
   const trees: Array<{ readonly live: boolean; readonly tabs: Array<{ tab: Tab; level: number }> }> = []
   for (const node of Tree.walk(input.tabs)) {
     if (node.level === 0) trees.push({ live: false, tabs: [] })
     const tree = trees.at(-1)!
-    if (needsYou(node.tab.status)) continue
-    const lifted = [...ancestors(input.tabs, node.tab)].filter((id) => needsYou(byId.get(id)!.status)).length
+    if (needs(node.tab)) continue
+    const lifted = [...ancestors(input.tabs, node.tab)].filter((id) => needs(byId.get(id)!)).length
     tree.tabs.push({ tab: node.tab, level: node.level - lifted })
     if (!settled(node.tab.status)) trees[trees.length - 1] = { ...tree, live: true }
   }
@@ -118,11 +126,11 @@ export const rows = (input: {
     }
   }
   for (const run of input.runs) {
-    if (needsYou(run.status)) needs.push(flow(run, "needs"))
+    if (needsYou(run.status)) needing.push(flow(run, "needs"))
     else if (settled(run.status)) done.push(flow(run, "done"))
     else working.push(flow(run, "working"))
   }
-  return ([["needs", needs], ["working", working], ["done", done]] as const)
+  return ([["needs", needing], ["working", working], ["done", done]] as const)
     .filter(([, list]) => list.length > 0)
     .map(([group, list]) => ({ group, rows: list }))
 }
@@ -146,6 +154,13 @@ export const meter = (row: Pick<Row, "window" | "cache">): string =>
 
 /** What `space` shows for a row: the pending question, a failure or park, else the last step. */
 export const peek = (row: Row, transcript: (id: string) => Transcript.Transcript): ReadonlyArray<string> => {
+  if (row.ask !== undefined) {
+    return [
+      row.ask.question,
+      ...(row.ask.options === undefined ? [] : [row.ask.options.join(" · ")]),
+      ...(row.ask.trail.length > 1 ? [`asked ${row.ask.trail.slice(0, -1).join(" → ")} → you`] : [])
+    ]
+  }
   if (row.run !== undefined) return row.run.message === undefined ? [] : [row.run.message]
   const tab = row.worker
   if (tab === undefined) return []

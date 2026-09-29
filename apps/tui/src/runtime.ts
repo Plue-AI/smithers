@@ -1,5 +1,6 @@
 /** Agent-facing runtime UI and delegation use the harness's existing flow catalog. */
 import * as SmithersPlugin from "@smthrs/agent/SmithersPlugin"
+import * as StandardFlows from "@smthrs/agent/StandardFlows"
 import { Flow } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -20,6 +21,13 @@ export interface Ports {
     request: { id: string; title: string; prompt: string; model?: DelegateModel; agent?: string }
   ) => unknown
   readonly wait?: (ids: ReadonlyArray<string>, signal?: AbortSignal) => Promise<unknown>
+  /** `ask` (`ctx.help`): resolves with the answer of the parent agent or the person. */
+  readonly ask?: (
+    input: typeof StandardFlows.AskInput.Type,
+    signal?: AbortSignal
+  ) => Promise<typeof StandardFlows.AskOutput.Type>
+  /** Answers an ask this agent holds. */
+  readonly answer?: (id: string, answer: string) => unknown
   readonly read?: (id: string) => unknown
   readonly list?: () => unknown
   readonly retry?: (id: string) => unknown
@@ -29,9 +37,11 @@ export interface Ports {
   readonly flows?: SmithersPlugin.Ports
   readonly monitors?: Pick<Monitors.Monitors, "create" | "list" | "stop">
 }
-/** Keeps every ordinary flow call bounded; only `agent.wait` holds a worker cell open. */
+/** Calls that wait on another agent or the person, unbounded. */
+export const waiting: ReadonlyArray<string> = ["agent.wait", StandardFlows.askFlow.name]
+/** Keeps every ordinary flow call bounded; only waiting calls hold a worker cell open. */
 export const boundedBinding = (binding: FlowBinding.Binding, callMs: number): FlowBinding.Binding =>
-  binding.descriptor.name === "agent.wait" ? binding : {
+  waiting.includes(binding.descriptor.name) ? binding : {
     ...binding,
     run: (call) =>
       binding.run(call).pipe(Effect.timeoutOrElse({
@@ -219,9 +229,15 @@ export const source = (ports: Ports): FlowBinding.Source =>
         Schema.Struct({}),
         () => ports.list!()
       ),
+      ...(ports.answer === undefined ? [] : [bind(
+        "agent.answer",
+        "Answer a child's ask, delivered to you as a message or in agent.wait's result, by its id.",
+        Schema.Struct({ id: short, answer: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8_000)) }),
+        (input) => ports.answer!(input.id, input.answer)
+      )]),
       ...(ports.wait === undefined ? [] : [bind(
         "agent.wait",
-        "Wait for child tabs to settle. Pass child request ids; returns each id, status, answer or message. Waiting releases this worker's pool slot.",
+        "Wait for child tabs to settle. Pass child request ids; returns each id, status, answer or message. A child's ask returns it early with ask {id, question, options}: answer it with agent.answer, then wait again. Waiting releases this worker's pool slot.",
         Schema.Struct({ ids: Schema.Array(short).check(Schema.isMinLength(1)) }),
         (input, signal) => ports.wait!(input.ids, signal),
         [],

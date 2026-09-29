@@ -419,7 +419,7 @@ export const make = (options: {
           steps: 50_000_000,
           callMs: input.role === "worker" ? 2_147_000_000 : callMs,
           totalMs: options.totalMs ?? Sandbox.defaultLimits.totalMs,
-          ...(input.role === "worker" ? { pauseTotalMsFor: ["agent.wait"] } : {})
+          ...(input.role === "worker" ? { pauseTotalMsFor: Runtime.waiting } : {})
         },
         // Coordinators acknowledge immediately; worker completions stay judged.
         ...(input.role === "coordinator"
@@ -563,7 +563,19 @@ export const turnOptions = (
         (input.seat.startsWith("cerebras:") || input.seat === "openai:gpt-6-sol") ?
       "low" :
       undefined)
-  const runtime = input.runtime === undefined ? [] : [Runtime.source(input.runtime)]
+  const asker = input.runtime?.ask
+  const runtime = input.runtime === undefined ? [] : [
+    Runtime.source(input.runtime),
+    ...(asker === undefined ? [] : [
+      StandardFlows.approval({
+        ask: (question) =>
+          Effect.tryPromise({
+            try: (signal) => asker(question, signal),
+            catch: (cause) => new StandardFlows.ApprovalUnavailable({ message: String(cause) })
+          })
+      })
+    ])
+  ]
   return {
     system: [
       ...Context.system(cwd, input.history),
@@ -574,7 +586,7 @@ export const turnOptions = (
           `Background tabs: ${input.background ?? "[]"}`
         ]
         : [
-          "Start each cell with a short purpose sentence. Split independent work with agent.delegate, then use agent.wait({ids}) and aggregate the child answers. Children can delegate to depth 3; depth 4 is refused. End with one sentence and essential evidence. Never claim unobserved tests passed."
+          "Start each cell with a short purpose sentence. Split independent work with agent.delegate, then use agent.wait({ids}) and aggregate the child answers. Children can delegate to depth 3; depth 4 is refused. When you cannot decide alone, ask({question, options}) goes to the agent that started you, then up to the person; answer a child's ask with agent.answer({id, answer}). End with one sentence and essential evidence. Never claim unobserved tests passed."
         ]),
       ...(agent === undefined ? [] : [agent.system])
     ],

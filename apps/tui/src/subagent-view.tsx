@@ -256,7 +256,7 @@ export function Crumb(props: {
 export const overviewWidths = (
   width: number
 ): { readonly tree: number; readonly cards: number; readonly grid: number } => {
-  const tree = Math.min(64, Math.max(30, Math.floor(width * 0.52)))
+  const tree = Math.min(72, Math.max(30, Math.floor(width * 0.6)))
   const cards = Math.max(10, width - tree)
   return { tree, cards, grid: cards - 2 }
 }
@@ -270,7 +270,7 @@ const groupColor = (group: Inbox.Group): string =>
 
 /** A row's glyph: a needs-you node is `◆` in the needs color, the rest the shared status glyph. */
 export const rowGlyph = (row: Inbox.Row, now: number): { readonly glyph: string; readonly tone: string } =>
-  row.status === "input" ? { glyph: "◆", tone: color.needs } : Tabs.style(row.status, now)
+  row.status === "input" || row.ask !== undefined ? { glyph: "◆", tone: color.needs } : Tabs.style(row.status, now)
 
 /** Fixed columns right of the name: seat, clock, window and cache. */
 const columns = { seat: 7, clock: 7, meter: 10 } as const
@@ -341,14 +341,18 @@ export function Overview(props: {
       </box>
     )
   }
+  // A narrow pane keeps the names readable: the window and cache column goes first.
+  const meterWidth = inner - columns.seat - columns.clock - columns.meter >= 24 ? columns.meter : 0
   const aside = (each: Inbox.Row) => {
     const pad = (text: string, width: number) => SubagentCard.clip(text, width).padEnd(width)
-    return `${pad(each.seat, columns.seat)}${pad(each.clock, columns.clock)}${Inbox.meter(each)}`
+    return `${pad(each.seat, columns.seat)}${pad(each.clock, columns.clock)}${
+      meterWidth === 0 ? "" : Inbox.meter(each)
+    }`
   }
   const nodeRow = (each: Inbox.Row) => {
     const glyph = rowGlyph(each, props.cards.now)
     const lead = `  ${"  ".repeat(each.level)}${glyph.glyph} `
-    const right = columns.seat + columns.clock + columns.meter
+    const right = columns.seat + columns.clock + meterWidth
     const room = Math.max(1, inner - 1 - stringWidth(lead) - right)
     const title = SubagentCard.clip(each.name, room)
     const gap = Math.max(1, inner - 1 - stringWidth(lead) - stringWidth(title) - right)

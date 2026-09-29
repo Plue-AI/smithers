@@ -10,7 +10,8 @@ const workers: Record<string, { title: string; prompt: string; model?: "sol" | "
   strip: { title: "Refactor tab strip overflow", prompt: "Refactor the tab strip overflow." },
   frame: { title: "Profile frame budget", prompt: "Profile the frame budget.", model: "astra" },
   docs: { title: "Document which-key", prompt: "Document which-key." },
-  lint: { title: "Lint the key registry", prompt: "Lint the key registry." }
+  lint: { title: "Lint the key registry", prompt: "Lint the key registry." },
+  api: { title: "implement/api", prompt: "Implement the OAuth session." }
 }
 /** The chat's delegating cell: each worker is requested from an `agent.delegate` call, as a model's cell does. */
 const delegate = (input: Host.TurnInput, prose: string, ids: ReadonlyArray<string>) => {
@@ -78,6 +79,16 @@ const host: Host.Host = {
           cancel: () => {}
         }
       }
+      // The api worker asks for help (`ctx.help`); a top-level worker's ask goes to the person.
+      if (id === "api") {
+        return {
+          done: input.runtime!.ask!({
+            question: "Session cookie or bearer header?",
+            options: ["Session cookie", "Bearer header"]
+          }).then(({ answer }) => ({ _tag: "done", answer: `Using: ${answer}` })),
+          cancel: () => {}
+        }
+      }
       // The audit worker delegates a child of its own, for the overview's tree.
       if (id === "audit") {
         input.runtime?.delegate?.({ id: "refresh", title: "Check the refresh path", prompt: "Check it." })
@@ -105,6 +116,10 @@ const host: Host.Host = {
     if (input.prompt === "delegate") {
       delegate(input, "I'll split this into three workers.", ["audit", "flaky", "strip"])
       answer = "Requested three workers."
+    }
+    if (input.prompt === "help") {
+      delegate(input, "One worker.", ["api"])
+      answer = "Requested one worker."
     }
     if (input.prompt === "more") {
       delegate(input, "Three more.", ["frame", "docs", "lint"])

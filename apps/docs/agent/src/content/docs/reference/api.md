@@ -1658,7 +1658,8 @@ that wants the run to wait for a person fails with a `HarnessError` carrying a
 ```ts
 const AskInput = Schema.Struct({
   question: Schema.String,
-  options: Schema.optional(Schema.Array(Schema.String))
+  options: Schema.optional(Schema.Array(Schema.String)),
+  to: Schema.optional(Schema.Literals(["parent", "person"]))
 })
 
 const AskOutput = Schema.Struct({
@@ -1666,6 +1667,10 @@ const AskOutput = Schema.Struct({
   approved: Schema.Boolean
 })
 ```
+
+`to` says who answers. `parent`, the default, is the agent that started this
+one, escalating toward the person; `person` skips the agents. A host with no
+agent above the run asks the person either way.
 
 ### StandardFlows.ApprovalUnavailable
 

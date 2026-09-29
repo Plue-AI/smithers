@@ -583,6 +583,7 @@ const panelActs = (calls: unknown[]): Parameters<typeof Dispatch.panelKey>[3] =>
   retryRun: (id) => calls.push(["retry", id]),
   cancelRun: (id) => calls.push(["cancel", id]),
   fillRun: (id) => calls.push(["fill", id]),
+  answerWorker: (id) => calls.push(["answer", id]),
   undo: (row, tab) => calls.push(["undo", row?.id, tab]),
   workerAction: (tab, action) => calls.push(["worker", tab.id, action]),
   scroll: (step) => calls.push(["scroll", step]),
@@ -740,7 +741,9 @@ test.each(
     ["cards", "pageup", [["scroll", -1]]],
     ["tree", "pagedown", [["scroll", 1]]],
     ["tree", "space", ["peek"]],
-    ["cards", "space", []]
+    ["cards", "space", []],
+    ["tree", "a", ["answer"]],
+    ["cards", "a", []]
   ] as const
 )("overview %s %s routes only its active pane", (pane, name, expected) => {
   const calls: unknown[] = []
@@ -751,6 +754,7 @@ test.each(
     pane: () => calls.push("pane"),
     tree: (step) => calls.push(["tree", step]),
     peek: () => calls.push("peek"),
+    answer: () => calls.push("answer"),
     card: (step) => calls.push(["card", step]),
     open: () => calls.push("open"),
     files: () => calls.push("files"),
@@ -979,4 +983,15 @@ test.each(
   })).toBe(false)
   expect(calls).toEqual([])
   expect(event.defaultPrevented).toBe(false)
+})
+
+test("a in a worker tab opens the form for that worker's ask", () => {
+  const calls: unknown[] = []
+  Dispatch.panelKey(key("a"), panel, {
+    surface: "tab:worker",
+    navigation: Panels.initial(),
+    worker: worker("running"),
+    flow: { retry: false, stop: false }
+  }, panelActs(calls))
+  expect(calls).toEqual([["answer", "worker"]])
 })
