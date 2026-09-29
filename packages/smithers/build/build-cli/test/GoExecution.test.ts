@@ -13,10 +13,27 @@ import * as PackageTree from "../src/PackageTree.ts"
 import { serve } from "./helpers/ServeCli.ts"
 import { write } from "./helpers/WriteFile.ts"
 
+// Go downloads can leave module-cache directories without write permission.
+const makeRemovable = async (path: string): Promise<void> => {
+  const stats = await Fs.lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
+  if (stats === undefined || !stats.isDirectory()) return
+  await Fs.chmod(path, stats.mode | 0o700)
+  for (const entry of await Fs.readdir(path)) {
+    await makeRemovable(NodePath.join(path, entry))
+  }
+}
+
 const temporaryDirectories: Array<string> = []
 afterAll(async () =>
-  Promise.all(temporaryDirectories.map((directory) => Fs.rm(directory, { recursive: true, force: true })))
+  Promise.all(temporaryDirectories.map(async (directory) => {
+    await makeRemovable(directory)
+    await Fs.rm(directory, { recursive: true, force: true })
+  }))
 )
+
 // Probe from a module with the fixture's minimum version so an older launcher
 // can still select a compatible toolchain through GOTOOLCHAIN.
 const goPath = PackageTree.findOnPath("go")
@@ -356,13 +373,20 @@ func TestExternalImport(t *testing.T) { if externalhelper.Want < 1 || helper.Wan
   it("captures the module cache as one tar blob and restores it on a hit", async () => {
     const root = await fixture()
     await write(root, "PACKAGE.ts", packageWithoutSandbox(await Fs.readFile(NodePath.join(root, "PACKAGE.ts"), "utf8")))
+    const readonlyCache = NodePath.join(root, ".gomodcache", "fixture-read-only")
+    await Fs.mkdir(readonlyCache, { recursive: true })
+    await Fs.writeFile(NodePath.join(readonlyCache, "PATENTS"), "cached fixture\n", { mode: 0o444 })
+    await Fs.chmod(readonlyCache, 0o555)
     expect((await serve(root, ["//:fetch"])).logs).toContain("//:fetch  ran")
     expect(await Fs.readdir(NodePath.join(root, ".flows/tmp"))).toEqual([])
+    await makeRemovable(NodePath.join(root, ".gomodcache"))
     await Fs.rm(NodePath.join(root, ".gomodcache"), { recursive: true, force: true })
     const second = await serve(root, ["//:fetch"])
     expect(second.logs).toContain("//:fetch  hit")
     expect(await Fs.readdir(NodePath.join(root, ".flows/tmp"))).toEqual([])
     await expect(Fs.stat(NodePath.join(root, ".gomodcache"))).resolves.toMatchObject({})
+    expect(await Fs.readFile(NodePath.join(readonlyCache, "PATENTS"), "utf8")).toBe("cached fixture\n")
+    expect((await Fs.stat(readonlyCache)).mode & 0o777).toBe(0o555)
   }, 120_000)
 })
 
