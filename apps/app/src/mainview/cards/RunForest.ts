@@ -200,12 +200,12 @@ export const runForestOf = (
     for (const root of roots) edges.push({ from: id, to: root, reason: "spawn" })
   }
 
-  /* What started it: a push or a schedule is a root of the forest. */
+  /* What started it: a message, a push or a schedule is a root of the forest. */
   runTriggersOf({ ...card, payload: { ...card.payload, events: graphEventsOf(card) } }).forEach((trigger, index) => {
     if (trigger.kind === "approval") return
     const id = `origin:${index}`
     nodes.push({ id, kind: "trigger", dependsOn: [], tier: "sealed", forest: true,
-      action: trigger.kind === "push" ? trigger.ref : trigger.slug, word: trigger.kind })
+      action: trigger.kind === "message" ? trigger.author : trigger.kind === "push" ? trigger.ref : trigger.slug, word: trigger.kind })
     for (const root of roots) edges.push({ from: id, to: root, reason: "fires" })
   })
 

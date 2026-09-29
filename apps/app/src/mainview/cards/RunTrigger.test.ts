@@ -5,8 +5,9 @@ import { runTriggersOf, runTriggerWords } from "./RunTrigger"
 /*
  * The Steps view's trigger rows (#2115) come only from what was recorded: the
  * launch's pinned pushed ref, the schedule a dispatch named, and the
- * journal's approval decisions with their principal. Nothing is read off a
- * bare input, and a run with no record leads with no row.
+ * journal's approval decisions with their principal, and the message a
+ * dispatched turn's admission recorded. Nothing is read off a bare input, and
+ * a run with no record leads with no row.
  */
 
 const card = (payload: Partial<Extract<Card, { kind: "run-trace" }>["payload"]>): Card => ({
@@ -54,7 +55,33 @@ describe("recorded run triggers", () => {
     expect(rows.map((row) => row.kind)).toEqual(["schedule", "approval"])
   })
 
+  test("a dispatched turn leads with the message its admission recorded: who, which conversation, the exact text", () => {
+    const trigger = { kind: "message", author: "alice", conversationId: "session-1", messageId: "314", text: "  Why does /hello greet null?\n", origin: "chat" }
+    const dispatched = (payload: Partial<Extract<Card, { kind: "run-trace" }>["payload"]>) => card({ workflow: "coding/dispatch", ...payload })
+    const message = { kind: "message" as const, author: "alice", conversationId: "session-1", messageId: "314", text: "  Why does /hello greet null?\n" }
+    expect(runTriggersOf(dispatched({ input: { turnId: "run-7", prompt: trigger.text, history: [], role: "coding/dispatch", trigger } }))).toEqual([message])
+    // Replaying the journal never adds a second message row: the record is the admitted input, once.
+    const decision = { sequence: 3, kind: "control.approval.approved", occurredAt: 3000, payload: { principal: "will" } }
+    const replayed = dispatched({ input: { trigger }, events: [decision, decision] })
+    expect(runTriggersOf(replayed).filter((row) => row.kind === "message")).toEqual([message])
+    expect(runTriggersOf(replayed).map((row) => row.kind)).toEqual(["message", "approval", "approval"])
+  })
+
+  test("no recorded message is no row: never read off the prompt, another flow, a client request or a partial record", () => {
+    const trigger = { kind: "message", author: "alice", conversationId: "session-1", messageId: "314", text: "hi", origin: "chat" }
+    const dispatched = (input: Record<string, unknown>) => card({ workflow: "coding/dispatch", input })
+    expect(runTriggersOf(dispatched({ turnId: "run-7", prompt: "Fix the build", history: [], role: "coding/dispatch" }))).toEqual([])
+    expect(runTriggersOf(card({ workflow: "coding/dispatch" }))).toEqual([])
+    expect(runTriggersOf(card({ input: { trigger } }))).toEqual([])
+    expect(runTriggersOf(dispatched({ trigger, _workflowLaunch: launch({ workflow: "coding/dispatch" }) }))).toEqual([])
+    for (const broken of [
+      { ...trigger, kind: "push" }, { ...trigger, origin: "email" }, { ...trigger, author: " " }, { ...trigger, conversationId: undefined },
+      { ...trigger, messageId: 314 }, { ...trigger, text: "" }, "alice said hi", null, [trigger]
+    ]) expect(runTriggersOf(dispatched({ trigger: broken }))).toEqual([])
+  })
+
   test("the words name the source and nothing else", () => {
+    expect(runTriggerWords({ kind: "message", author: "alice", conversationId: "s", messageId: "1", text: "Fix it" }, "coding/dispatch")).toBe("Fix it")
     expect(runTriggerWords({ kind: "push", ref: "spike" }, "coding/request")).toBe("from spike · coding/request")
     expect(runTriggerWords({ kind: "schedule", slug: "nightly", cron: "0 2 * * *" }, "coding/check")).toBe("schedule nightly · 0 2 * * *")
     expect(runTriggerWords({ kind: "schedule", slug: "nightly" }, "coding/check")).toBe("schedule nightly")

@@ -54,12 +54,25 @@ type codingTurnMessage struct {
 	Content string `json:"content"`
 }
 
+// codingTurnTrigger is the message that started a turn, as admission
+// authenticated it: who posted it, in which conversation, and its exact text.
+// The Steps view renders it as the run's trigger (#2115).
+type codingTurnTrigger struct {
+	Kind           string `json:"kind"`
+	Author         string `json:"author"`
+	ConversationID string `json:"conversationId"`
+	MessageID      string `json:"messageId"`
+	Text           string `json:"text"`
+	Origin         string `json:"origin"`
+}
+
 type codingTurnInput struct {
 	TurnID  string              `json:"turnId"`
 	Prompt  string              `json:"prompt"`
 	History []codingTurnMessage `json:"history"`
 	Role    string              `json:"role"`
 	Model   string              `json:"model,omitempty"`
+	Trigger *codingTurnTrigger  `json:"trigger,omitempty"`
 }
 
 type agentFlowProjection struct {
@@ -94,7 +107,25 @@ func (dispatch *agentDispatch) codingTurnRequest() (codingTurnInput, error) {
 		Prompt:  prompt,
 		History: history,
 		Role:    codingDispatchRole,
+		Trigger: dispatch.messageTrigger(prompt),
 	}, nil
+}
+
+// messageTrigger records the authenticated message a turn answers. A turn
+// with no authenticated author or no admitted message records none.
+func (dispatch *agentDispatch) messageTrigger(text string) *codingTurnTrigger {
+	author := strings.TrimSpace(dispatch.input.MessageAuthor)
+	if author == "" || dispatch.input.TriggerMessageID <= 0 || dispatch.input.SessionID == "" {
+		return nil
+	}
+	return &codingTurnTrigger{
+		Kind:           "message",
+		Author:         author,
+		ConversationID: dispatch.input.SessionID,
+		MessageID:      strconv.FormatInt(dispatch.input.TriggerMessageID, 10),
+		Text:           text,
+		Origin:         "chat",
+	}
 }
 
 func agentFlowScope(repositoryID, userID int64) jobs.Scope {

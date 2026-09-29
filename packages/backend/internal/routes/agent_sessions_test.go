@@ -238,6 +238,7 @@ func TestAgentSessionHandler_PostMessage_UserDispatchesSandboxRun(t *testing.T) 
 	assert.Equal(t, int64(101), gotDispatch.RepositoryID)
 	assert.Equal(t, int64(7), gotDispatch.UserID)
 	assert.Equal(t, int64(55), gotDispatch.TriggerMessageID)
+	assert.Equal(t, "alice", gotDispatch.MessageAuthor, "the authenticated poster, never parsed from the text")
 	assert.Equal(t, "alice", gotDispatch.RepoOwner)
 	assert.Equal(t, "demo", gotDispatch.RepoName)
 }

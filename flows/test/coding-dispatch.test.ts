@@ -213,6 +213,22 @@ test("the caller's window is bounded at the schema, not at the prompt", () => {
   assert.equal(decode({ ...baseInput, prompt: "" })._tag, "None")
 })
 
+test("a recorded message trigger is provenance the schema bounds and the prompt never reads", () => {
+  const decode = Schema.decodeUnknownOption(DispatchInput)
+  const trigger = { kind: "message", author: "alice", conversationId: "session-1", messageId: "314", text: baseInput.prompt, origin: "chat" }
+  const decoded = decode({ ...baseInput, trigger })
+  assert.equal(decoded._tag, "Some")
+  if (decoded._tag === "Some") assert.deepEqual(decoded.value.trigger, trigger)
+  assert.equal(decode({ ...baseInput, trigger: { ...trigger, kind: "push" } })._tag, "None")
+  assert.equal(decode({ ...baseInput, trigger: { ...trigger, author: "" } })._tag, "None")
+  assert.equal(decode({ ...baseInput, trigger: { ...trigger, text: "" } })._tag, "None")
+  assert.equal(decode({ ...baseInput, trigger: { ...trigger, origin: "email" } })._tag, "None")
+  const { conversationId: _, ...partial } = trigger
+  assert.equal(decode({ ...baseInput, trigger: partial })._tag, "None")
+  const input = { ...baseInput, trigger: { ...trigger, text: "untrusted provenance" } } as typeof DispatchInput.Type
+  assert.equal(conversation(input), conversation(baseInput as typeof DispatchInput.Type))
+})
+
 test("the dispatched turn is one model call: no plan, no checks, no second loop", () => {
   const calls = [...Graph.nodes(Graph.build(Dispatch, baseInput as typeof DispatchInput.Type))]
     .filter((node) => node.kind === "ActionCall")

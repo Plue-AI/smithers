@@ -237,7 +237,7 @@ export const RunTraceBody = ({
     ran.calls > 0 ? count(ran.calls, "call") : undefined,
     whole.counts.spans > 0 ? durationWords(ran.wall) : undefined
   ].filter((fact) => fact !== undefined)
-  /* What started the run, as it was recorded (RunTrigger.ts): the pinned pushed ref, the schedule, each approval decision. Never inferred. */
+  /* What started the run, as it was recorded (RunTrigger.ts): the message, the pinned pushed ref, the schedule, each approval decision. Never inferred. */
   const triggers = runTriggersOf(card)
   const scrub = card.payload.liveTail === false ? (
     <span className="run-trace-scrub">
@@ -300,7 +300,7 @@ export const RunTraceBody = ({
             {scrub}
           </div>
           <PhaseStrip model={whole} records={card.payload.events ?? []} runId={runId} cursorSeq={card.payload.cursorSeq} onRunCommand={onRunCommand} />
-          {/* The triggers as their own rows (DESIGN §3.4, #2115): one per recorded source — the pushed ref, the schedule, each approval decision with who made it. */}
+          {/* The triggers as their own rows (DESIGN §3.4, #2115): one per recorded source — the message with who posted it and its conversation, the pushed ref, the schedule, each approval decision with who made it. */}
           {triggers.map((trigger, index) => {
             const at = trigger.kind === "approval" && trigger.at !== undefined ? trigger.at : model.extent.start
             return (
@@ -309,7 +309,16 @@ export const RunTraceBody = ({
                 <span className="run-step-time">{at > 0 ? timeLabel(at) : ""}</span>
                 <span className="run-step-type">trigger</span>
                 <span className="run-trigger-text">
-                  {runTriggerWords(trigger, card.payload.workflow)}
+                  {trigger.kind === "message" ? (
+                    <>
+                      <AgentMark persona={{ id: trigger.author, name: trigger.author }} size={16} onRunCommand={onRunCommand} />{" "}
+                      <q className="run-trigger-quote" data-testid={`run-trigger-quote-${runId}`}>{trigger.text}</q>{" "}
+                      <button type="button" className="run-trace-filter"
+                        {...flowAction(onRunCommand, "agent.session.view", flowArgs("agent.session.view", { sessionId: trigger.conversationId, repo: card.payload.repo }))}>
+                        Open
+                      </button>
+                    </>
+                  ) : runTriggerWords(trigger, card.payload.workflow)}
                   {trigger.kind === "approval" && trigger.principal !== undefined
                     ? <> <AgentMark persona={{ id: trigger.principal, name: trigger.principal }} size={16} onRunCommand={onRunCommand} /></>
                     : null}

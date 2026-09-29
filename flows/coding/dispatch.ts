@@ -50,6 +50,17 @@ export type TurnMessage = typeof TurnMessage.Type
  */
 export const historyWindow = 200
 
+/** Who posted the message that started a turn, where, and its exact text. */
+export const MessageTrigger = Schema.Struct({
+  kind: Schema.Literal("message"),
+  author: Schema.NonEmptyString.check(Schema.isMaxLength(256)),
+  conversationId: Schema.NonEmptyString.check(Schema.isMaxLength(256)),
+  messageId: Schema.NonEmptyString.check(Schema.isMaxLength(128)),
+  text: Schema.NonEmptyString.check(Schema.isMaxLength(32_768)),
+  origin: Schema.Literal("chat")
+})
+export type MessageTrigger = typeof MessageTrigger.Type
+
 export const DispatchInput = Schema.Struct({
   /** The caller's identity for this turn, echoed back so a reply can be matched. */
   turnId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)),
@@ -66,7 +77,13 @@ export const DispatchInput = Schema.Struct({
    * `provider:model` id. Absent, the role resolves through the host's role
    * table, which is what an unconfigured caller wants.
    */
-  model: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-z0-9-]+:[^\s:]+$/)))
+  model: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-z0-9-]+:[^\s:]+$/))),
+  /**
+   * The message that started this turn, as the caller's admission
+   * authenticated it. Provenance only: the turn reads `prompt`, never this.
+   * Absent when no person's message started the turn.
+   */
+  trigger: Schema.optionalKey(MessageTrigger)
 })
 export type DispatchInput = typeof DispatchInput.Type
 

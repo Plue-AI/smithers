@@ -323,6 +323,7 @@ func (h *AgentSessionHandler) PostMessage(w http.ResponseWriter, r *http.Request
 			SessionID:      sessionID,
 			RepositoryID:   repoCtx.Repository.ID,
 			UserID:         user.ID,
+			MessageAuthor:  user.Username,
 			RepoOwner:      repoCtx.Owner,
 			RepoName:       repoCtx.Repository.Name,
 			AgentProvider:  provider,

@@ -101,10 +101,15 @@ type DispatchAgentRunInput struct {
 	RepositoryID     int64
 	UserID           int64
 	TriggerMessageID int64
-	RepoOwner        string
-	RepoName         string
-	AgentProvider    string
-	AgentTransport   string
+	// MessageAuthor is the authenticated login that posted TriggerMessageID.
+	// Only the message route sets it; turns the product composes itself
+	// (review feedback, conflict and finding repairs) leave it empty, so no
+	// run records a person's message it never received.
+	MessageAuthor  string
+	RepoOwner      string
+	RepoName       string
+	AgentProvider  string
+	AgentTransport string
 	// SourceBookmark is the bookmark the run's workspace targets (RFD-004);
 	// empty means the repository's default bookmark.
 	SourceBookmark string

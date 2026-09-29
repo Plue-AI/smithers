@@ -115,6 +115,21 @@ const renderTrace = (overrides: Partial<Extract<Card, { kind: "run-trace" }>["pa
   return { host, dispatched }
 }
 
+test("a message-started run's Steps view leads with the author, the exact quoted text and a door to the conversation", () => {
+  const trigger = { kind: "message", author: "alice", conversationId: "session-9", messageId: "314", text: "Why does /hello greet null?", origin: "chat" }
+  const { host, dispatched } = renderTrace({ workflow: "coding/dispatch", traceView: "steps", input: { prompt: trigger.text, trigger } })
+  const rows = host.querySelectorAll("[data-trigger]")
+  expect([...rows].map((row) => row.getAttribute("data-trigger"))).toEqual(["message"])
+  expect(host.querySelector("[data-testid='run-trigger-quote-run-1']")?.textContent).toBe("Why does /hello greet null?")
+  expect(rows[0]!.querySelector(".agent-mark-name")?.textContent).toBe("alice")
+  click([...rows[0]!.querySelectorAll("button")].find((button) => button.textContent === "Open") ?? null)
+  expect(dispatched.at(-1)?.name).toBe("agent.session.view")
+  expect(dispatched.at(-1)?.args).toContain("session-9")
+
+  const bare = renderTrace({ workflow: "coding/dispatch", traceView: "steps", input: { prompt: "Why does /hello greet null?" } })
+  expect(bare.host.querySelector("[data-trigger='message']")).toBeNull()
+})
+
 /* One of the sentences flows/repository/triggers.ts refuses a registration with, and the verdict line that clips it. */
 const REFUSAL = 'Add a model to "nightly-lint" to schedule it.'
 const VERDICT = `failed — invalid_receipt: ${REFUSAL.slice(0, 20)}`

@@ -127,6 +127,65 @@ func TestAdmitCodingTurnPersistsCanonicalFlowRequestWithoutRuntimeCall(t *testin
 	}, projection)
 }
 
+func TestAdmitCodingTurnRecordsTheAuthenticatedMessageTrigger(t *testing.T) {
+	dispatcher := &recordingAgentFlowDispatcher{}
+	text := "Explain what greeting.mjs exports.\n  Keep it short.  "
+	payload, err := json.Marshal(agentTaskPayload{MessageHistory: []agentTaskPayloadMessage{
+		{Role: "user", Content: "Earlier question"},
+		{Role: "assistant", Content: "Earlier answer"},
+		{Role: "user", Content: text},
+	}})
+	require.NoError(t, err)
+	dispatch := &agentDispatch{
+		svc: &AgentService{flowDispatcher: dispatcher, workspaces: stubAgentWorkspaceBackend{}},
+		ctx: context.Background(),
+		input: DispatchAgentRunInput{
+			SessionID: "session-1", RepositoryID: 5, UserID: 9, TriggerMessageID: 314,
+			MessageAuthor: "alice", RepoOwner: "org", RepoName: "repo",
+		},
+		payload: payload,
+	}
+	dispatch.run.ID = 42
+
+	require.NoError(t, dispatch.admitCodingTurn())
+	// Admission replay re-derives the same request under the same id.
+	require.NoError(t, dispatch.admitCodingTurn())
+	require.Len(t, dispatcher.launches, 2)
+	assert.Equal(t, dispatcher.launches[0].RequestID, dispatcher.launches[1].RequestID)
+	assert.JSONEq(t, string(dispatcher.launches[0].Payload), string(dispatcher.launches[1].Payload))
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(dispatcher.launches[0].Payload, &raw))
+	assert.Equal(t, map[string]any{
+		"kind": "message", "author": "alice", "conversationId": "session-1",
+		"messageId": "314", "text": text, "origin": "chat",
+	}, raw["trigger"])
+}
+
+func TestCodingTurnRecordsNoTriggerWithoutAnAuthenticatedMessage(t *testing.T) {
+	payload, err := json.Marshal(agentTaskPayload{MessageHistory: []agentTaskPayloadMessage{
+		{Role: "user", Content: "A reviewer returned landing request #3 to you."},
+	}})
+	require.NoError(t, err)
+	for name, input := range map[string]DispatchAgentRunInput{
+		"composed turn":    {SessionID: "session-1", TriggerMessageID: 3},
+		"blank author":     {SessionID: "session-1", TriggerMessageID: 3, MessageAuthor: "  "},
+		"no message":       {SessionID: "session-1", MessageAuthor: "alice"},
+		"no conversation":  {TriggerMessageID: 3, MessageAuthor: "alice"},
+		"negative message": {SessionID: "session-1", TriggerMessageID: -1, MessageAuthor: "alice"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dispatch := &agentDispatch{payload: payload, input: input}
+			turn, err := dispatch.codingTurnRequest()
+			require.NoError(t, err)
+			assert.Nil(t, turn.Trigger)
+			encoded, err := json.Marshal(turn)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), "trigger")
+		})
+	}
+}
+
 func TestCodingDispatchEnabledNeedsDispatcherAndWorkspace(t *testing.T) {
 	dispatcher := &recordingAgentFlowDispatcher{}
 	owned := DispatchAgentRunInput{RepoOwner: "org", RepoName: "repo"}

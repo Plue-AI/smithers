@@ -16,12 +16,15 @@ import { WorkflowLaunchSchema } from "../state/WorkflowLaunch"
  *   (`control.approval.approved` / `.denied`), with the principal the control
  *   plane stamped on it.
  *
- * A run started by a chat message records no trigger yet: the factory's
- * issue dispatch owes that record (#2115), and until it exists the row is
- * absent rather than guessed from the input.
+ * - `message`: the chat message a dispatched turn answers, as the backend's
+ *   message admission authenticated it (`coding/dispatch` input `trigger`:
+ *   author, conversation, exact text). Only an admitted `coding/dispatch`
+ *   input carries it; a client-composed request never does, and a turn with
+ *   no recorded message has no row rather than one guessed from the prompt.
  */
 
 export type RunTrigger =
+  | { readonly kind: "message"; readonly author: string; readonly conversationId: string; readonly messageId: string; readonly text: string }
   | { readonly kind: "push"; readonly ref: string }
   | { readonly kind: "schedule"; readonly slug: string; readonly cron?: string }
   | { readonly kind: "approval"; readonly decision: "approved" | "denied"; readonly principal?: string; readonly at?: number }
@@ -29,6 +32,19 @@ export type RunTrigger =
 type RunCard = Extract<Card, { kind: "run-trace" }>
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
+const filled = (value: unknown): value is string => typeof value === "string" && value.trim() !== ""
+
+/** The message a dispatched turn's admission recorded (flows/coding/dispatch.ts `MessageTrigger`). */
+const messageTrigger = (card: RunCard): ReadonlyArray<RunTrigger> => {
+  const input = card.payload.input
+  if (card.payload.workflow !== "coding/dispatch" || input === undefined || "_workflowLaunch" in input) return []
+  const held = input.trigger
+  if (!isRecord(held) || held.kind !== "message" || held.origin !== "chat") return []
+  const { author, conversationId, messageId, text } = held
+  return filled(author) && filled(conversationId) && filled(messageId) && filled(text)
+    ? [{ kind: "message", author, conversationId, messageId, text }]
+    : []
+}
 
 /** The principal a control record names: the id as stamped, or the login/id/name of a structured one. */
 const principalOf = (value: unknown): string | undefined => {
@@ -66,15 +82,16 @@ const decisionTriggers = (card: RunCard): ReadonlyArray<RunTrigger> =>
     return [{ kind: "approval", decision: record.kind === "control.approval.approved" ? "approved" : "denied", ...(principal === undefined ? {} : { principal }), ...(stamped === undefined ? {} : { at: stamped }) }]
   })
 
-/** The run's recorded triggers, launch first, then each approval decision in journal order. */
+/** The run's recorded triggers: the message or launch, then each approval decision in journal order. */
 export const runTriggersOf = (card: Card | undefined): ReadonlyArray<RunTrigger> => {
   if (card?.kind !== "run-trace") return []
-  return [...launchTriggers(card), ...decisionTriggers(card)]
+  return [...messageTrigger(card), ...launchTriggers(card), ...decisionTriggers(card)]
 }
 
 /** A trigger's words beside its mark: the fewest that name the recorded source. */
 export const runTriggerWords = (trigger: RunTrigger, workflow: string): string => {
   switch (trigger.kind) {
+    case "message": return trigger.text
     case "push": return `from ${trigger.ref} · ${workflow}`
     case "schedule": return trigger.cron === undefined ? `schedule ${trigger.slug}` : `schedule ${trigger.slug} · ${trigger.cron}`
     case "approval": return trigger.principal === undefined ? trigger.decision : `${trigger.decision} by`
