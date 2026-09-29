@@ -7,6 +7,7 @@ import { runningWorkspace, withOwnedRepository } from "./portable/owned-reposito
 import type { APIRequestContext, Page } from "@playwright/test"
 import type { OwnedRepository } from "./portable/owned-repository"
 import { enableVerboseEvidence, expectFlowOutcome } from "./repositories-github/local"
+import { terminalExecutionProof, terminalExecutionProved } from "./support/terminal-proof"
 
 authenticatedTest.setTimeout(240_000)
 
@@ -183,11 +184,14 @@ authenticatedTest("a product terminal accepts keyboard input on its workspace", 
     await expect(terminal).toBeVisible()
     const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length)
     try {
-      const marker = `MATRIX_TERMINAL_${Date.now()}`
+      const proof = terminalExecutionProof(String(Date.now()))
       await terminal.locator(".xterm-helper-textarea").focus()
-      await page.keyboard.type(`printf '%s\\n' '${marker}'`)
+      await page.keyboard.type(proof.setValue)
       await page.keyboard.press("Enter")
-      await expect(terminal.locator(".xterm-rows")).toContainText(marker, { timeout: 30_000 })
+      await page.keyboard.type(proof.readValue)
+      await page.keyboard.press("Enter")
+      await expect.poll(async () => terminalExecutionProved(await terminal.locator(".xterm-rows").innerText(), proof.marker),
+        { timeout: 30_000 }).toBe(true)
     } finally {
       expect((await realApi(page, request, "POST", `${sessionPath}/${encodeURIComponent(sessionId)}/destroy`)).status()).toBe(204)
     }
