@@ -871,6 +871,9 @@ export const make = (
     // permit, persisted without it, then activated under it again.
     const resolving = new Set<string>()
     const granting = new Map<string, Deferred.Deferred<void, GrantStoreError>>()
+    // Planned rules occupy capacity until their write fails or they activate.
+    // Replies and envelopes share this count, guarded by the mutation permit.
+    let reservedRules = 0
 
     type PlannedReply =
       | {
@@ -957,12 +960,14 @@ export const make = (
               return yield* Effect.fail(invalid("grant pattern exceeds the requested authority"))
             }
             if (
-              configuredRules.length + envelopeRules.length + runRules.length + rememberedRules.length >=
+              configuredRules.length + envelopeRules.length + runRules.length + rememberedRules.length +
+                  reservedRules >=
                 maximumRules
             ) {
               return yield* Effect.fail(invalid(`rules exceed ${maximumRules} entries`))
             }
             resolving.add(requestId)
+            reservedRules += 1
             return {
               resolution,
               entry,
@@ -985,12 +990,14 @@ export const make = (
               return yield* Effect.fail(invalid("grant pattern exceeds the requested authority"))
             }
             if (
-              configuredRules.length + envelopeRules.length + runRules.length + rememberedRules.length >=
+              configuredRules.length + envelopeRules.length + runRules.length + rememberedRules.length +
+                  reservedRules >=
                 maximumRules
             ) {
               return yield* Effect.fail(invalid(`rules exceed ${maximumRules} entries`))
             }
             resolving.add(requestId)
+            reservedRules += 1
             return {
               resolution,
               entry,
@@ -1030,6 +1037,7 @@ export const make = (
     const activateReply = (requestId: string, planned: PlannedReply): Effect.Effect<void, GrantStoreError> =>
       Effect.gen(function*() {
         resolving.delete(requestId)
+        if (planned.resolution === "run" || planned.resolution === "remembered") reservedRules -= 1
         if (closed) {
           return yield* Effect.fail(new GrantStoreError({ code: "store_closed" }))
         }
@@ -1089,6 +1097,7 @@ export const make = (
               mutation.withPermit(
                 Effect.sync(() => {
                   resolving.delete(requestId)
+                  if (planned.resolution === "run" || planned.resolution === "remembered") reservedRules -= 1
                 })
               )
             )
@@ -1146,15 +1155,16 @@ export const make = (
         if (inFlight !== undefined) return { _tag: "Wait" as const, completion: inFlight }
         if (
           configuredRules.length + envelopeRules.length + runRules.length + rememberedRules.length +
-              patterns.length > maximumRules
+              reservedRules + patterns.length > maximumRules
         ) {
           return yield* Effect.fail(invalid(`rules exceed ${maximumRules} entries`))
         }
-        if (grantedEnvelopes.size >= maximumRules) {
+        if (grantedEnvelopes.size + granting.size >= maximumRules) {
           return yield* Effect.fail(invalid(`grant envelopes exceed ${maximumRules} entries`))
         }
         const completion = yield* Deferred.make<void, GrantStoreError>()
         granting.set(signature, completion)
+        reservedRules += patterns.length
         return {
           _tag: "Fresh" as const,
           signature,
@@ -1176,6 +1186,7 @@ export const make = (
     ): Effect.Effect<void, GrantStoreError> =>
       Effect.gen(function*() {
         granting.delete(planned.signature)
+        reservedRules -= planned.patterns.length
         if (closed) {
           return yield* Effect.fail(new GrantStoreError({ code: "store_closed" }))
         }
@@ -1221,6 +1232,7 @@ export const make = (
                     mutation.withPermit(
                       Effect.gen(function*() {
                         granting.delete(planned.signature)
+                        reservedRules -= planned.patterns.length
                         yield* Deferred.failCause(planned.completion, cause)
                       })
                     )

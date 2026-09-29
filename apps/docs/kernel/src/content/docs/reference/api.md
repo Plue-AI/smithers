@@ -196,7 +196,10 @@ slow or dead journal stalls only the admission that issued it, and a write
 exceeding `maximumPersistMillis` fails with `journal_failed`, leaving the
 request parked for a retry. A concurrent reply to a request whose decision is
 mid-write fails fast with `request_not_found`; a concurrent identical envelope
-admission adopts the in-flight outcome.
+admission adopts the in-flight outcome. Admissions reserve rule and envelope
+signature capacity before writing, so distinct concurrent decisions cannot
+exceed either ceiling. Failed or interrupted writes release their reservations;
+successful writes convert them to active grants.
 
 ### GrantStore.PendingRequest
 
