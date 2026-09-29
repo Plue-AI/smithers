@@ -1,6 +1,18 @@
 package services
 
-import "math"
+import (
+	"math"
+
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+)
+
+// CheckedPageOffset keeps a normalized page inside the SQL offset type.
+func CheckedPageOffset(page, perPage int, maxOffset int64) (int64, error) {
+	if page < 1 || perPage < 1 || int64(page-1) > maxOffset/int64(perPage) {
+		return 0, pkgerrors.BadRequest("page offset is too large")
+	}
+	return int64(page-1) * int64(perPage), nil
+}
 
 // ClampInt32 converts x to int32, clamping out-of-range values instead of letting
 // a large int wrap to a negative int32. Used for SQL OFFSET/LIMIT values derived

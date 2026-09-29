@@ -6,6 +6,7 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -387,6 +388,18 @@ func (s *ChangesetService) GetChangeset(ctx context.Context, viewer *db.User, or
 	return s.buildResponse(ctx, org, superproject, cs, members)
 }
 
+// ChangesetPageOffset normalizes legacy page sizes within the SQL int32 offset.
+func ChangesetPageOffset(page, perPage int) (int, int, int32, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 30
+	}
+	offset, err := CheckedPageOffset(page, perPage, math.MaxInt32)
+	return page, perPage, int32(offset), err
+}
+
 // ListChangesets returns a page of an organization's changesets.
 func (s *ChangesetService) ListChangesets(ctx context.Context, viewer *db.User, orgName string, page, perPage int) ([]ChangesetResponse, error) {
 	if viewer == nil {
@@ -396,16 +409,14 @@ func (s *ChangesetService) ListChangesets(ctx context.Context, viewer *db.User, 
 	if err != nil {
 		return nil, err
 	}
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 || perPage > 100 {
-		perPage = 30
+	page, perPage, offset, err := ChangesetPageOffset(page, perPage)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := s.queries.ListChangesetsByOrg(ctx, db.ListChangesetsByOrgParams{
 		OrganizationID: org.ID,
 		PageSize:       int32(perPage),
-		PageOffset:     int32((page - 1) * perPage),
+		PageOffset:     offset,
 	})
 	if err != nil {
 		return nil, pkgerrors.Internal("failed to list changesets").WithCause(err)

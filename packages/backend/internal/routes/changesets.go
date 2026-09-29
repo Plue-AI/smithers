@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	stdErrors "errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -103,8 +104,16 @@ func (h *ChangesetHandler) ListChangesets(w http.ResponseWriter, r *http.Request
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	page, parseErr := strconv.Atoi(r.URL.Query().Get("page"))
+	if stdErrors.Is(parseErr, strconv.ErrRange) {
+		errors.WriteError(w, errors.BadRequest("invalid page value"))
+		return
+	}
 	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+	if _, _, _, err := services.ChangesetPageOffset(page, perPage); err != nil {
+		errors.WriteError(w, err.(*errors.APIError))
+		return
+	}
 	items, err := h.Service.ListChangesets(r.Context(), user, org, page, perPage)
 	if err != nil {
 		writeRouteError(w, r, err)

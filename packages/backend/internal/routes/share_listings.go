@@ -186,7 +186,7 @@ func shareListingErr(w http.ResponseWriter, err error) {
 	pkgerrors.WriteError(w, pkgerrors.Internal("listing operation failed"))
 }
 
-func shareListingQueryFromRequest(r *http.Request) services.ShareListingQuery {
+func shareListingQueryFromRequest(r *http.Request) (services.ShareListingQuery, error) {
 	q := r.URL.Query()
 	query := services.ShareListingQuery{
 		Kind: q.Get("kind"),
@@ -194,11 +194,13 @@ func shareListingQueryFromRequest(r *http.Request) services.ShareListingQuery {
 	}
 	if page, err := strconv.Atoi(q.Get("page")); err == nil {
 		query.Page = page
+	} else if errors.Is(err, strconv.ErrRange) {
+		return query, pkgerrors.BadRequest("invalid page value")
 	}
 	if perPage, err := strconv.Atoi(q.Get("perPage")); err == nil {
 		query.PerPage = perPage
 	}
-	return query
+	return query, nil
 }
 
 // --- handlers ----------------------------------------------------------------
@@ -269,7 +271,17 @@ func (h *ShareListingHandler) Unpublish(w http.ResponseWriter, r *http.Request) 
 // List — GET /api/share/listings?kind=&q=&page=&perPage=
 // PUBLIC. A page of exact listing models with usage stats and safe snapshots.
 func (h *ShareListingHandler) List(w http.ResponseWriter, r *http.Request) {
-	page, err := h.Service.List(r.Context(), shareListingQueryFromRequest(r))
+	query, err := shareListingQueryFromRequest(r)
+	if err != nil {
+		shareListingErr(w, err)
+		return
+	}
+	_, _, _, err = services.ShareListingPageOffset(query.Page, query.PerPage)
+	if err != nil {
+		shareListingErr(w, err)
+		return
+	}
+	page, err := h.Service.List(r.Context(), query)
 	if err != nil {
 		shareListingErr(w, err)
 		return
@@ -299,7 +311,17 @@ func (h *ShareListingHandler) ListMine(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	page, err := h.Service.ListForOwner(r.Context(), actorID, shareListingQueryFromRequest(r))
+	query, err := shareListingQueryFromRequest(r)
+	if err != nil {
+		shareListingErr(w, err)
+		return
+	}
+	_, _, _, err = services.ShareListingPageOffset(query.Page, query.PerPage)
+	if err != nil {
+		shareListingErr(w, err)
+		return
+	}
+	page, err := h.Service.ListForOwner(r.Context(), actorID, query)
 	if err != nil {
 		shareListingErr(w, err)
 		return

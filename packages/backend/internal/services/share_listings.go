@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	stdErrors "errors"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -149,7 +150,11 @@ type ShareListingPage struct {
 
 // HasMore reports whether another page exists after this one.
 func (p ShareListingPage) HasMore() bool {
-	return int64(p.Page)*int64(p.PerPage) < p.Total
+	if p.Page < 1 || p.PerPage < 1 || p.Total <= 0 {
+		return false
+	}
+	offset, err := CheckedPageOffset(p.Page, p.PerPage, math.MaxInt64)
+	return err == nil && offset < p.Total && int64(p.PerPage) < p.Total-offset
 }
 
 // ShareListingEventResult reports what an install/run ping did. Accepted is
@@ -257,7 +262,10 @@ func (s *ShareListingService) Get(ctx context.Context, listingID string) (db.Sha
 
 // List returns a page of the public catalog. Public.
 func (s *ShareListingService) List(ctx context.Context, query ShareListingQuery) (ShareListingPage, error) {
-	page, perPage := clampShareListingPaging(query.Page, query.PerPage)
+	page, perPage, offset, err := ShareListingPageOffset(query.Page, query.PerPage)
+	if err != nil {
+		return ShareListingPage{}, err
+	}
 
 	kind := pgtype.Text{}
 	if query.Kind != "" {
@@ -281,7 +289,7 @@ func (s *ShareListingService) List(ctx context.Context, query ShareListingQuery)
 		Kind:         kind,
 		Q:            needle,
 		ResultLimit:  int64(perPage),
-		ResultOffset: int64((page - 1) * perPage),
+		ResultOffset: offset,
 	})
 	if err != nil {
 		return ShareListingPage{}, err
@@ -294,7 +302,10 @@ func (s *ShareListingService) ListForOwner(ctx context.Context, ownerUserID int6
 	if ownerUserID <= 0 {
 		return ShareListingPage{}, pkgerrors.Unauthorized("authentication required")
 	}
-	page, perPage := clampShareListingPaging(query.Page, query.PerPage)
+	page, perPage, offset, err := ShareListingPageOffset(query.Page, query.PerPage)
+	if err != nil {
+		return ShareListingPage{}, err
+	}
 
 	total, err := s.store.CountShareListingsForOwner(ctx, ownerUserID)
 	if err != nil {
@@ -303,7 +314,7 @@ func (s *ShareListingService) ListForOwner(ctx context.Context, ownerUserID int6
 	listings, err := s.store.ListShareListingsForOwner(ctx, db.ListShareListingsForOwnerParams{
 		OwnerUserID:  ownerUserID,
 		ResultLimit:  int64(perPage),
-		ResultOffset: int64((page - 1) * perPage),
+		ResultOffset: offset,
 	})
 	if err != nil {
 		return ShareListingPage{}, err
@@ -420,7 +431,8 @@ func shareListingEventCooldown(eventType string) (time.Duration, bool) {
 	}
 }
 
-func clampShareListingPaging(page, perPage int) (int, int) {
+// ShareListingPageOffset normalizes catalog paging within the SQL int64 offset.
+func ShareListingPageOffset(page, perPage int) (int, int, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -430,7 +442,8 @@ func clampShareListingPaging(page, perPage int) (int, int) {
 	if perPage > ShareListingMaxPageSize {
 		perPage = ShareListingMaxPageSize
 	}
-	return page, perPage
+	offset, err := CheckedPageOffset(page, perPage, math.MaxInt64)
+	return page, perPage, offset, err
 }
 
 // shareListingSlug folds a display name into a URL-safe handle. Non
