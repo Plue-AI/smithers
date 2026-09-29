@@ -15,6 +15,9 @@ export const sourceRevision = async (rootDir: string): Promise<string> => {
     if (revision && /^[0-9a-f]{40,64}$/.test(revision)) return revision
   }
   const gitRevision = await commandOutput(["git", "rev-parse", "HEAD"], rootDir)
-  if (gitRevision && /^[0-9a-f]{40,64}$/.test(gitRevision)) return gitRevision
+  if (gitRevision && /^[0-9a-f]{40,64}$/.test(gitRevision)) {
+    const status = await commandOutput(["git", "status", "--porcelain"], rootDir)
+    if (status === "") return gitRevision
+  }
   throw new Error("cannot identify the exact source revision")
 }
