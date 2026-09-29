@@ -118,7 +118,7 @@ const resume = (runId: string) =>
 
 if (role === "setup") {
   const exit = await Effect.runPromise(
-    setup.pipe(Effect.provide(stack), Effect.scoped, Effect.exit) as Effect.Effect<Exit.Exit<string, unknown>>
+    setup.pipe(Effect.provide(stack), Effect.scoped, Effect.exit)
   )
   if (Exit.isFailure(exit)) {
     process.stderr.write(`${String(exit.cause)}\n`)
@@ -152,9 +152,7 @@ for (let waited = 0; !existsSync(barrier); waited += 10) {
 }
 
 const outcome = await Effect.runPromise(
-  resume(runIdArg).pipe(Effect.provide(stack), Effect.scoped, Effect.exit) as Effect.Effect<
-    Exit.Exit<{ readonly _tag: string }, unknown>
-  >
+  resume(runIdArg).pipe(Effect.provide(stack), Effect.scoped, Effect.exit)
 )
 if (Exit.isSuccess(outcome)) {
   process.stdout.write(`CLAIM=won:${outcome.value._tag}\n`)

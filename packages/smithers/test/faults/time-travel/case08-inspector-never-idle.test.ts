@@ -65,7 +65,7 @@ describe("case08 the inspector is never idle", () => {
         Effect.provide(layer(workspace.root, workspace.filename, "case08-host")),
         Effect.scoped,
         Effect.orDie
-      ) as Effect.Effect<{ derived: ReadonlyArray<number>; recorded: number; frames: number; status: string }>
+      )
     )
 
     expect(observed.status).toBe("suspended")

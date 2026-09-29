@@ -74,7 +74,7 @@ describe("case11 frame scrub is view-only", () => {
         Effect.provide(layer(workspace.root, workspace.filename, "case11-host")),
         Effect.scoped,
         Effect.orDie
-      ) as Effect.Effect<{ before: unknown; after: unknown; views: ReadonlyArray<number>; status: string }>
+      )
     )
 
     expect(observed.status).toBe("suspended")

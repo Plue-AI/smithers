@@ -35,7 +35,7 @@ const failure = async (args: ReadonlyArray<string>): Promise<unknown> => {
     Effect.exit(runCommand(args)).pipe(
       Effect.provide(services),
       Effect.provide(NodeServices.layer)
-    ) as Effect.Effect<Exit.Exit<void, unknown>>
+    )
   )
   return Exit.isSuccess(exit) ? undefined : Cause.squash(exit.cause)
 }

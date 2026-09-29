@@ -1,10 +1,11 @@
 import { NodeServices } from "@effect/platform-node"
-import { Effect, Redacted } from "effect"
+import * as TestControl from "@smthrs/control/test/TestControl"
+import { Effect, Layer, Redacted } from "effect"
 import { TestConsole } from "effect/testing"
 import { Command } from "effect/unstable/cli"
 import { describe, expect, it } from "vitest"
 import { cli } from "../src/Command.ts"
-import { make } from "../src/Output.ts"
+import { layer as outputLayer, make } from "../src/Output.ts"
 import * as Unsupported from "../src/Unsupported.ts"
 import * as Verb from "../src/Verb.ts"
 
@@ -54,9 +55,10 @@ describe("flag descriptions", () => {
         Effect.gen(function*() {
           yield* Command.runWith(cli, { version: "test" })([...path, "--help"]).pipe(Effect.ignore)
           return yield* TestConsole.logLines
-        }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)) as Effect.Effect<
-          ReadonlyArray<unknown>
-        >
+        }).pipe(
+          Effect.provide(Layer.mergeAll(TestConsole.layer, outputLayer, TestControl.layer({ now: () => 0 }))),
+          Effect.provide(NodeServices.layer)
+        )
       )
       const help = lines.map(String).join("\n")
       const flags = help.split("\n").filter((line) => /^  --?/.test(line))

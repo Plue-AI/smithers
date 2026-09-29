@@ -105,7 +105,7 @@ const relayed = (rows: ReadonlyArray<JournalEvent.Entry>): ReadonlyArray<Relayed
 
 /** Drives one flow through a real engine over `native`, then relays it. */
 const supervised = (
-  flow: Flow.Any,
+  flow: typeof Chain,
   payload: Record<string, unknown>,
   runId: string
 ): Effect.Effect<ReadonlyArray<JournalEvent.Entry>, unknown, Scope.Scope> =>
@@ -121,7 +121,7 @@ const supervised = (
         journalSource: "supervised",
         isAlive: () => Effect.succeed(false)
       })
-      const layer = Layer.mergeAll(implementations, Interpreter.layer(flow as never)).pipe(
+      const layer = Layer.mergeAll(implementations, Interpreter.layer(flow)).pipe(
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
       )
@@ -155,18 +155,14 @@ const supervised = (
     )
     yield* Scope.close(scope, { _tag: "Success", value: undefined } as never)
     return rows
-  }).pipe(Effect.provide(NodeCrypto.layer)) as Effect.Effect<
-    ReadonlyArray<JournalEvent.Entry>,
-    unknown,
-    Scope.Scope
-  >
+  }).pipe(Effect.provide(NodeCrypto.layer))
 
 describe("node records reaching the control journal", () => {
   it(
     "relays every node the run drove, under the ids the graph was built with",
     () =>
       Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-        const rows = yield* supervised(Chain as never, { planId: "supervised-plan" }, "supervised-run")
+        const rows = yield* supervised(Chain, { planId: "supervised-plan" }, "supervised-run")
         const events = relayed(rows)
         const graph = Graph.build(Chain as never, { planId: "supervised-plan" })
         const ids = Graph.nodes(graph).map((node) => node.id).sort()
@@ -192,7 +188,7 @@ describe("node records reaching the control journal", () => {
     "relays a plan too large for one entry as pages, with no gap",
     () =>
       Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-        const rows = yield* supervised(Wide as never, { planId: "supervised-plan" }, "supervised-wide")
+        const rows = yield* supervised(Wide, { planId: "supervised-plan" }, "supervised-wide")
         const events = relayed(rows)
         const pages = events.filter((event) =>
           event.eventType === "flows.engine.plan-recorded" || event.eventType === "flows.engine.subgraph-appended"

@@ -1,5 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
-import { Effect } from "effect"
+import * as TestControl from "@smthrs/control/test/TestControl"
+import { Effect, Layer } from "effect"
 import { TestConsole } from "effect/testing"
 import { Command } from "effect/unstable/cli"
 import { describe, expect, it } from "vitest"
@@ -8,6 +9,7 @@ import { agentArguments, legacyArguments } from "../src/cli/Compatibility.ts"
 import { connectionOptions } from "../src/cli/ControlBridge.ts"
 import { cli } from "../src/Command.ts"
 import { executionRunId } from "../src/history/ExecutionTarget.ts"
+import * as Output from "../src/Output.ts"
 
 /** Every shared flag the root command advertises, with a sample spelling. */
 const declaredGlobals = async (): Promise<Array<{ readonly flag: string; readonly words: Array<string> }>> => {
@@ -15,9 +17,10 @@ const declaredGlobals = async (): Promise<Array<{ readonly flag: string; readonl
     Effect.gen(function*() {
       yield* Command.runWith(cli, { version: "test" })(["--help"]).pipe(Effect.ignore)
       return yield* TestConsole.logLines
-    }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)) as Effect.Effect<
-      ReadonlyArray<unknown>
-    >
+    }).pipe(
+      Effect.provide(Layer.mergeAll(TestConsole.layer, Output.layer, TestControl.layer({ now: () => 0 }))),
+      Effect.provide(NodeServices.layer)
+    )
   )
   const declared: Array<{ flag: string; words: Array<string> }> = []
   for (const line of lines.map(String).join("\n").split("\n")) {

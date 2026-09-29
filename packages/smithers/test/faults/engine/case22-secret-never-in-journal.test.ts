@@ -87,7 +87,7 @@ const journalText = (filename: string): Promise<string> =>
       Effect.provide(SqliteClient.layer({ filename })),
       Effect.scoped,
       Effect.orDie
-    ) as Effect.Effect<string>
+    )
   )
 
 /**
@@ -121,7 +121,7 @@ const columnsContaining = (filename: string, needle: string): Promise<ReadonlyAr
       Effect.provide(SqliteClient.layer({ filename })),
       Effect.scoped,
       Effect.orDie
-    ) as Effect.Effect<ReadonlyArray<string>>
+    )
   )
 
 describe("case22 a secret never reaches the journal", () => {

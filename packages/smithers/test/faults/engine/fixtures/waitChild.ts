@@ -18,17 +18,22 @@
  */
 import { DurableDeferred, FlowRuntime, HumanTask } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import type * as Scope from "effect/Scope"
 import {
   ApprovalFlow,
+  approvalRegistration,
   EventFlow,
+  eventRegistration,
   EventSignal,
   host,
   hostOptions,
   taskName,
   TimerFlow,
+  timerRegistration,
   type WaitMode
 } from "../harness/waitFlows.ts"
 
@@ -73,20 +78,19 @@ const announce = (value: unknown): void => {
   )
 }
 
-const run = <A, E, R>(
-  resolveWait: Effect.Effect<void, unknown, R>,
-  body: Effect.Effect<A, E, R>,
-  layer: Layer.Layer<R>
-): Promise<Exit.Exit<A, E>> =>
+/**
+ * Drives the run on `layer`, first satisfying the wait in `resolve`. Both
+ * effects may need only what `layer` provides (plus a scope), so tsc rejects
+ * a body that needs anything else.
+ */
+const run = <ROut, LE, A, E>(
+  resolveWait: Effect.Effect<void, unknown, NoInfer<ROut> | Scope.Scope>,
+  body: Effect.Effect<A, E, NoInfer<ROut> | Scope.Scope>,
+  layer: Layer.Layer<ROut, LE, Scope.Scope>
+): Promise<Exit.Exit<A, E | LE>> =>
   Effect.runPromise(
     Effect.gen(function*() {
-      if (phase === "resolve" || phase === "notify") yield* Effect.orDie(resolveWait)
-      // `notify` satisfies the wait and leaves. Nobody drives the run: that is
-      // what makes the two hosts that come next a real race.
-      if (phase === "notify") {
-        yield* Effect.sync(() => process.stdout.write("RESOLVED\n"))
-        return undefined as never
-      }
+      if (phase === "resolve") yield* Effect.orDie(resolveWait)
       const value = yield* body
       announce(value)
       return value
@@ -94,7 +98,25 @@ const run = <A, E, R>(
       Effect.provide(layer),
       Effect.scoped,
       Effect.exit
-    ) as Effect.Effect<Exit.Exit<A, E>>
+    )
+  )
+
+/**
+ * Satisfies the wait on `layer` and leaves. Nobody drives the run: that is
+ * what makes the two hosts that come next a real race.
+ */
+const notify = <ROut, LE>(
+  resolveWait: Effect.Effect<void, unknown, NoInfer<ROut> | Scope.Scope>,
+  layer: Layer.Layer<ROut, LE, Scope.Scope>
+): Promise<Exit.Exit<void, LE>> =>
+  Effect.runPromise(
+    Effect.orDie(resolveWait).pipe(
+      Effect.andThen(Effect.sync(() => process.stdout.write("RESOLVED\n"))),
+      Effect.asVoid,
+      Effect.provide(layer),
+      Effect.scoped,
+      Effect.exit
+    )
   )
 
 const answerQuestion = Effect.suspend(() => HumanTask.answer({ token: approvalToken, value: true }))
@@ -110,28 +132,45 @@ const completeSignal = Effect.gen(function*() {
 
 // Completing a deferred schedules a wake. A notifier must register no flows,
 // or it can claim the run before the two racing hosts have even started.
-const runtimeLayer = phase === "notify"
-  ? NodeRuntime.layerHost(hostOptions(options), Layer.empty)
-  : host(mode, options)
+const notifier = NodeRuntime.layerHost(hostOptions(options), Layer.empty)
 
-const exit: Exit.Exit<unknown, unknown> = mode === "approval"
+/** A service no wait host provides. */
+class Unprovided extends Context.Service<Unprovided, { readonly value: string }>()("test/waitChild/Unprovided") {}
+
+/**
+ * Never called; tsc checks it (#2704). This child runs as a script, so the
+ * directives are the whole assertion.
+ */
+const unprovidedServiceProbe = () => {
+  // @ts-expect-error the notifier host does not provide Unprovided
+  notify(Effect.map(Unprovided, (service) => service.value), notifier)
+  // @ts-expect-error the approval host does not provide Unprovided
+  run(Effect.void, Effect.map(Unprovided, (service) => service.value), host(approvalRegistration, options))
+  notify(Effect.void, notifier)
+  run(Effect.void, Effect.succeed(1), host(approvalRegistration, options))
+}
+void unprovidedServiceProbe
+
+const exit: Exit.Exit<unknown, unknown> = phase === "notify"
+  ? await notify(mode === "approval" ? answerQuestion : mode === "event" ? completeSignal : Effect.void, notifier)
+  : mode === "approval"
   ? await run(
-    answerQuestion as never,
+    answerQuestion,
     phase === "linger"
       ? ApprovalFlow.execute({ label }, { executionId, discard: true })
       : ApprovalFlow.execute({ label }, { executionId }),
-    runtimeLayer as never
+    host(approvalRegistration, options)
   )
   : mode === "event"
   ? await run(
-    completeSignal as never,
+    completeSignal,
     phase === "linger"
       ? EventFlow.execute({ label }, { executionId, discard: true })
       : EventFlow.execute({ label }, { executionId }),
-    runtimeLayer as never
+    host(eventRegistration(options), options)
   )
   : await run(
-    Effect.void as never,
+    Effect.void,
     phase === "linger"
       ? TimerFlow.execute({ millis }, { executionId, discard: true })
       : phase === "race-timer"
@@ -143,7 +182,7 @@ const exit: Exit.Exit<unknown, unknown> = mode === "approval"
         return yield* TimerFlow.execute({ millis }, { executionId })
       })
       : TimerFlow.execute({ millis }, { executionId }),
-    runtimeLayer as never
+    host(timerRegistration(options), options)
   )
 
 if (Exit.isFailure(exit)) {

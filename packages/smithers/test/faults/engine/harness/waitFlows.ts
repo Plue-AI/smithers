@@ -132,23 +132,19 @@ export const hostOptions = (options: WaitOptions) => ({
 })
 
 /**
- * The host for one wait mode.
+ * The host for one registration. Taking the registration itself, not a wait
+ * mode, keeps each flow's step requirement in the host's type, so a body run
+ * on it is checked against that registration (#2704).
  *
  * @since 1.0.0
  * @category layers
  */
-export const host = (mode: WaitMode, options: WaitOptions) => {
+export const host = <ROut, E, RIn>(registration: Layer.Layer<ROut, E, RIn>, options: WaitOptions) =>
   // Fault cases start and replace hosts in quick succession. On a busy CI
   // runner, several independent `jj --version` probes can take longer than
   // the production layer's 5s startup bound even though the binary is healthy.
   // Keep that production default unchanged and give this stress harness a
   // wider probe budget so a scheduler delay is not reported as a host fault.
-  const registration = mode === "approval"
-    ? approvalRegistration
-    : mode === "timer"
-    ? timerRegistration(options)
-    : eventRegistration(options)
-  return NodeRuntime.layerHost(hostOptions(options), registration).pipe(
+  NodeRuntime.layerHost(hostOptions(options), registration).pipe(
     Layer.provide(Layer.succeed(NodeJj.StartupTimeoutMs, 30_000))
   )
-}

@@ -116,14 +116,7 @@ describe.skipIf(!jjInstalled)("case12 rewind reverts the workspace with an audit
         Effect.provide(layer(workspace.root, workspace.filename, "case12-host")),
         Effect.scoped,
         Effect.orDie
-      ) as Effect.Effect<{
-        totalBefore: number
-        totalAfter: number
-        archived: number
-        auditStatus: string
-        ledgerBefore: string
-        ledgerAfter: string
-      }>
+      )
     )
 
     // The run really wrote into the workspace before the rewind.
