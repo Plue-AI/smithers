@@ -2290,14 +2290,17 @@ export const make = (deps: Dependencies) => {
            * Whether a failing exit ends this dispatch in a durable PARK rather
            * than a settlement (N-08). A body that reaches a wait point marks
            * its instance suspended and interrupts, so an interrupt-only exit
-           * under a suspended instance is a run that parked. Both the effect
+           * under a suspended instance is a run that parked. Quarantine from
+           * a nested action also parks its wrapper: resume must re-enter it
+           * to consume the inner action's preserved outcome. Both the effect
            * boundary and the attempt row read it: a park closes neither.
            */
           const parked = (cause: Cause.Cause<unknown>) =>
             Effect.map(
               Effect.serviceOption(FlowRuntime.FlowInstance),
               (instance) =>
-                Option.getOrUndefined(instance)?.suspended === true && Cause.hasInterruptsOnly(cause)
+                evidenceQuarantined(cause) !== undefined ||
+                (Option.getOrUndefined(instance)?.suspended === true && Cause.hasInterruptsOnly(cause))
             )
           /**
            * The row's meta as this dispatch last wrote it. The crossing writes

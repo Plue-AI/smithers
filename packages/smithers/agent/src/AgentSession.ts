@@ -59,6 +59,7 @@ import { Envelope, type PlanCard, type RunStatus } from "@smthrs/control/Control
 import * as Digest from "@smthrs/core/Digest"
 import { ExecutionFacts } from "@smthrs/engine-store"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
+import { AttemptEvidenceQuarantined } from "@smthrs/engine-store/Errors"
 import { Action, DurableDeferred, Fault, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
@@ -2815,6 +2816,11 @@ export const make = (
           // shutdown must leave the run reclaimable rather than misreport it
           // as a model failure.
           : Effect.void
+        : exit.cause.reasons.some((
+            reason
+          ) => (Cause.isDieReason(reason) && reason.defect instanceof AttemptEvidenceQuarantined)
+          )
+        ? writeStatus(runId, "parked", Cause.pretty(exit.cause))
         : Effect.andThen(
           Effect.annotateLogs(Effect.logWarning("An agent run failed"), {
             runId,
@@ -3559,6 +3565,18 @@ export const make = (
         if (options.canExecute !== undefined && !(yield* options.canExecute(runId))) return "unknown" as const
         const parked = yield* parkedHere(runId, 500)
         if (!parked) return "unknown" as const
+        // A saved clock, deferred, parent, or approval request is background
+        // intent. It can predate a later corruption park, so it cannot stand
+        // in for the explicit recovery decision the engine requires.
+        if (uptake._tag === "delegated") {
+          const eligible = yield* engineState.waiting(runId).pipe(
+            Effect.map((waiting) => Option.isNone(waiting) || waiting.value.reason !== "quarantine"),
+            Effect.catchCause((cause) =>
+              recoverCause(cause, "The parked engine wait could not be read", false, { runId })
+            )
+          )
+          if (!eligible) return "unknown" as const
+        }
         const hosted = yield* hostsPark(runId, uptake)
         if (!hosted) return "unknown" as const
         const claimed = yield* claimForResume(runId).pipe(

@@ -25,6 +25,7 @@ import type { RunStatus } from "@smthrs/control/ControlSchema"
 import * as Digest from "@smthrs/core/Digest"
 import { FlowEngine } from "@smthrs/engine"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
+import { AttemptEvidenceQuarantined } from "@smthrs/engine-store/Errors"
 import { type Flow, FlowRuntime } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
@@ -324,6 +325,7 @@ interface ScenarioOptions {
   readonly registry?: Partial<Registry.Registry> | undefined
   readonly catalog?: Executable.Catalog | undefined
   readonly engine?: ((service: EngineService) => EngineService) | undefined
+  readonly engineState?: Partial<DurableEngineState.Service> | undefined
   readonly orderTerminalStatus?: AgentSession.Options["orderTerminalStatus"]
 }
 
@@ -404,7 +406,10 @@ const withExecutor = <A>(
             ),
           ...options.runs
         }),
-        DurableEngineState.layerMemory,
+        Layer.succeed(DurableEngineState.DurableEngineState, {
+          ...DurableEngineState.makeMemory(),
+          ...options.engineState
+        }),
         NodeCrypto.layer
       )
     ),
@@ -415,7 +420,8 @@ const withExecutor = <A>(
         options.nowMs === undefined ? clock : {
           ...clock,
           currentTimeMillis: Effect.succeed(options.nowMs),
-          currentTimeMillisUnsafe: () => options.nowMs!
+          currentTimeMillisUnsafe: () => options.nowMs!,
+          currentTimeNanosUnsafe: () => BigInt(options.nowMs!) * 1_000_000n
         })
     ),
     Effect.runPromise
@@ -1241,6 +1247,27 @@ describe("the executor's driver admission fence", () => {
     expect(result).toEqual({ acceptance: "accepted", status: "failed" })
   })
 
+  it("keeps corrupt succeeded-attempt evidence recoverable in the control record", async () => {
+    const record = recorder()
+    const corruption = new AttemptEvidenceQuarantined({
+      code: "attempt_evidence_quarantined",
+      keyDigest: "saved-key",
+      attempt: 1,
+      path: "/saved.txt",
+      recordedDigest: "original",
+      measuredDigest: "corrupt"
+    })
+    const result = await launched(record, {
+      agent: Agent.makeNoop({ run: () => Stream.die(corruption) })
+    })
+
+    expect(result).toEqual({ acceptance: "accepted", status: "parked" })
+    expect(record.statuses).not.toContain("failed")
+    expect(record.journaled.map((entry) => entry.eventType)).toContain("control.run.parked")
+    expect(JSON.stringify(record.journaled.find((entry) => entry.eventType === "control.run.parked")?.payload))
+      .toContain("AttemptEvidenceQuarantined")
+  })
+
   it("journals the provider code and message ahead of the outer frame stack", async () => {
     const record = recorder()
     const failure = new HarnessError({
@@ -1280,6 +1307,63 @@ describe("the executor's resume bridge", () => {
       payload: {},
       meta: {}
     })
+
+  it("refuses a saved background request after a later quarantine park", async () => {
+    const record = recorder()
+    const resumed: Array<string> = []
+    const claimed: Array<string> = []
+    const outcome = await withExecutor(record, {
+      engine: (engine) =>
+        ({
+          ...engine,
+          poll: () => Effect.succeed(Option.some({ _tag: "Suspended" })),
+          resume: (_flow: unknown, id: string) => Effect.sync(() => void resumed.push(id))
+        }) as unknown as EngineService,
+      engineState: {
+        waiting: () =>
+          Effect.succeed(Option.some({
+            runId: "run-parked",
+            reason: "quarantine",
+            wakeAt: null,
+            token: "saved-key"
+          }))
+      },
+      runtime: {
+        resume: (id) =>
+          Effect.sync(() => {
+            claimed.push(id)
+            return launchInput.run
+          })
+      }
+    }, (executor) => executor.resumeRun({ runId: "run-parked" }))
+
+    expect(outcome).toBe("unknown")
+    expect(claimed).toEqual([])
+    expect(resumed).toEqual([])
+  })
+
+  it("leaves a background request standing when the engine wait cannot be read", async () => {
+    const record = recorder()
+    const claimed: Array<string> = []
+    const outcome = await withExecutor(record, {
+      engine: (engine) =>
+        ({
+          ...engine,
+          poll: () => Effect.succeed(Option.some({ _tag: "Suspended" }))
+        }) as unknown as EngineService,
+      engineState: { waiting: () => Effect.die("engine state unavailable") },
+      runtime: {
+        resume: (id) =>
+          Effect.sync(() => {
+            claimed.push(id)
+            return launchInput.run
+          })
+      }
+    }, (executor) => executor.resumeRun({ runId: "run-parked" }))
+
+    expect(outcome).toBe("unknown")
+    expect(claimed).toEqual([])
+  })
 
   it("keeps following the journal after the engine refuses one re-drive", async () => {
     const record = recorder()

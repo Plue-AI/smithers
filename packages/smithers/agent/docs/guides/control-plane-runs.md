@@ -202,6 +202,12 @@ left standing for `abandonedParkAfter` may be adopted by another host. The
 default is `Ownership.heartbeatStaleAfter` (30 seconds). The cutoff is inclusive
 and applies to the delegation's age, not the age of the parked run.
 
+Corrupt evidence on a succeeded action parks both the engine execution and its
+control record. A saved clock, deferred, parent, or approval wake cannot clear
+that quarantine, even if it was recorded before the corruption was detected.
+Use an explicit run resume to accept the saved outcome. The action is not run
+again, and the parked run can still be cancelled.
+
 The module exports the pieces this half is built from
 (`waitForRunning`, `waitForParked`, `preserveDriverInterrupt`,
 `registerDriver`, `settleDriverFailure`, `requestCancel`, `deliverSignal`,
