@@ -485,7 +485,7 @@ describe("the dispatcher table", () => {
       issues: "two-way",
       changes: "send-upstream",
       maintainers: ["roninjin10"],
-      todoSince: "2026-09-29T00:00:00Z",
+      todoSince: "2026-09-29T16:00:00Z",
       dailyTokens: 2_000_000_000
     });
     assert.equal(typeof projection.summary, "string");

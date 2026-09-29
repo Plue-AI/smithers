@@ -92,7 +92,12 @@ test(
     await symlink(join(root, "unlisted-policy.txt"), policy)
     const unrelated = invoke("wiki-cli-policy-unrelated")
     assert.equal(unrelated.status, 1)
-    assert.match(unrelated.output, /readPermissionDenied|symlink|symbolic link|ELOOP|Too many levels/i)
+    // Where the platform follows the link, the read of its target is refused
+    // by permission, naming the target the source permission does not cover.
+    assert.match(
+      unrelated.output,
+      /readPermissionDenied|permission_required: fs:read:\S*unlisted-policy\.txt|symlink|symbolic link|ELOOP|Too many levels/i
+    )
     assert.doesNotMatch(unrelated.output, /wiki-missing-prior was not found|Review policy source is too large/)
     assert.doesNotMatch(unrelated.stdout, /"verification":\s*"verified"/)
   }
