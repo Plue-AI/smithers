@@ -41,7 +41,7 @@ const supervisor = Supervisor.make({
 
 ### Declaration
 
-The topology comes from the plan's task list, so the flow input carries it as `tasks`:
+Unlike `run`, which delegates the tasks returned by `plan`, `make` fixes its worker topology from the flow input's `tasks` before the boss plan runs. The plan call is journaled and passed to workers, but its returned task list does not select the workers. A declaration without input `tasks` fails during graph building before the boss is called; supply the intended tasks in the input:
 
 ```ts
 Graph.build(supervisor, { goal: "ship the feature", tasks: [{ id: "api", workerType: "coder" }] })
