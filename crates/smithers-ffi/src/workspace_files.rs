@@ -1,6 +1,5 @@
 //! Retain file preimages outside the working tree before a native JJ snapshot.
 use std::fs;
-#[cfg(unix)]
 use std::fs::OpenOptions;
 use std::io::Write;
 #[cfg(unix)]
@@ -374,16 +373,34 @@ impl FilePatch {
             if edit.content.is_some() {
                 // Keep the recovery proposal independent of the working file: the Flow
                 // filesystem refuses content operations on files with multiple links.
+                // On Windows the copy stays writable until it is linked and unlinked,
+                // because Windows refuses to flush or delete a read-only file, so the
+                // proposal's mode lands on the installed file last there.
                 let proposal = self.directory.join(format!("{index}.after"));
                 let install = self.directory.join(format!("{index}.install"));
-                fs::copy(&proposal, &install).map_err(|_| io_error())?;
-                fs::File::open(&install)
-                    .and_then(|file| file.sync_all())
+                let proposed = fs::read(&proposal).map_err(|_| io_error())?;
+                let proposed_mode = fs::metadata(&proposal)
+                    .map(|info| mode(&info))
                     .map_err(|_| io_error())?;
+                let mut copy = create_staged_file(&install).map_err(|_| io_error())?;
+                copy.write_all(&proposed).map_err(|_| io_error())?;
+                #[cfg(unix)]
+                set_mode(&copy, proposed_mode).map_err(|_| io_error())?;
+                copy.sync_all().map_err(|_| io_error())?;
+                drop(copy);
                 fs::hard_link(&install, &target).map_err(|_| {
                     self.failure("file_recovery_required", "cannot install proposed file")
                 })?;
                 fs::remove_file(&install).map_err(|_| io_error())?;
+                #[cfg(windows)]
+                {
+                    let installed = OpenOptions::new()
+                        .write(true)
+                        .open(&target)
+                        .map_err(|_| io_error())?;
+                    set_mode(&installed, proposed_mode).map_err(|_| io_error())?;
+                    installed.sync_all().map_err(|_| io_error())?;
+                }
             }
         }
         self.verify()?;

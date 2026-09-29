@@ -163,6 +163,7 @@ only.
 | `testing` | `registers a skipped layered Effect body` | `test.skip` |
 | `smithers` | `reads and reconciles PostgreSQL history without SQLite files` | `it.skipIf(SMITHERS_TEST_PG_URL absent)` |
 | `smithers` | `runs a prompt on the Codex subscription with no provider keys` | `it.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1")` |
+| `smithers` | `ClaudeCode against the installed Claude Code` | `describe.runIf(SMITHERS_CLAUDE_CODE_SMOKE === "1")` |
 
 **PostgreSQL storage.** The `smithers` history case runs against a real
 database named by `SMITHERS_TEST_PG_URL`. No target supplies one, so it skips
@@ -266,6 +267,21 @@ subscription path stops completing runs and only a funded run notices. Run it
 with `codex login`, then
 `SMITHERS_LIVE_MODEL_TESTS=1 pnpm --filter @smthrs/cli test`. Closing it for
 the default gate means paying for a model seat in CI, which the RC does not do.
+
+**`smithers`: the installed Claude Code seat.** `ClaudeCode.test.ts` gates
+one suite on `SMITHERS_CLAUDE_CODE_SMOKE=1`: it sends three cell frames through
+the real, signed-in Claude Code on one session, the last carrying a steering
+message, and asserts the seat keeps the session and obeys the steer. Every
+other case in that file drives the seat through a scripted `query`, so they
+prove the options and the parse; only a real session proves Claude Code still
+answers the way those scripts encode. It spends the operator's Claude
+subscription, so it never runs by default. What breaks if it regresses: a
+Claude Code release changes its session or streaming behavior and a user's
+subscription seat stops completing runs. Run it with Claude Code signed in,
+then `SMITHERS_CLAUDE_CODE_SMOKE=1 pnpm --filter @smthrs/cli test`
+(`SMITHERS_CLAUDE_CODE_SMOKE_MODEL` picks the model; the default is `sonnet`).
+Closing it for the default gate means spending subscription quota on every
+run, which the RC does not do.
 
 **`build-cli`: the real codex session.** `AgentSession.test.ts` gates one case
 on `SMTHRS_CODEX_SMOKE=1`: it opens a session through the installed `codex`

@@ -568,6 +568,68 @@
       "reason": "Portable run-trace projection and step expansion shared by the browser and terminal run monitors."
     },
     {
+      "name": "@smthrs/agent",
+      "subpath": "./RunawayGuard",
+      "development": "./src/RunawayGuard.ts",
+      "published": {
+        "types": "./dist/esm/RunawayGuard.d.ts",
+        "import": "./dist/esm/RunawayGuard.js",
+        "require": "./dist/cjs/RunawayGuard.js"
+      },
+      "reason": "The frozen incident facts a Runaway or Stuck guard parks a run on, and the Timeout failure Stop settles it with, so a restarted host presents and decides the incident it was made on (#2120)."
+    },
+    {
+      "name": "@smthrs/model",
+      "subpath": "./EvaluatorBackup",
+      "development": "./src/EvaluatorBackup.ts",
+      "published": {
+        "types": "./dist/esm/EvaluatorBackup.d.ts",
+        "import": "./dist/esm/EvaluatorBackup.js",
+        "require": "./dist/cjs/EvaluatorBackup.js"
+      },
+      "reason": "Model-backed Evaluator judgments with the same answer validation as a resolved seat, and a transport-only fallback that consults the backup only when the primary is unavailable; the CLI composes it as Jev's GPT-6 Luna backup (4da531c75)."
+    },
+    {
+      "name": "@smthrs/engine",
+      "subpath": "./Hosts",
+      "development": "./src/Hosts.ts",
+      "published": {
+        "types": "./dist/esm/Hosts.d.ts",
+        "import": "./dist/esm/Hosts.js",
+        "require": "./dist/cjs/Hosts.js"
+      },
+      "reason": "The injected table a composing host uses to bind a flow's serializable Flow.Placement target to Here or to a Proxy engine; with no table every placement runs here, as before (2ed052e5a)."
+    },
+    {
+      "name": "@smthrs/engine",
+      "subpath": "./PlacedAction",
+      "development": "./src/PlacedAction.ts",
+      "published": {
+        "types": "./dist/esm/PlacedAction.d.ts",
+        "import": "./dist/esm/PlacedAction.js",
+        "require": "./dist/cjs/PlacedAction.js"
+      },
+      "reason": "Implements an action with a body that runs where the Hosts table binds its placement, otherwise on the holder's engine through a served one-node flow, so a secret the body uses lives only on its holder (a4b3e02ab)."
+    },
+    {
+      "name": "@smthrs/sandbox",
+      "subpath": "./CommandSandbox",
+      "development": "./src/CommandSandbox/index.ts",
+      "published": {
+        "types": "./dist/esm/CommandSandbox/index.d.ts",
+        "import": "./dist/esm/CommandSandbox/index.js",
+        "require": "./dist/cjs/CommandSandbox/index.js"
+      },
+      "reason": "The argv-prefix Sandbox.Provider: commands, reads and writes travel through nothing, ssh <args> or docker exec -i <container>, so a session reaches a remote host such as a Smithers Cloud workspace (6d08bf3b2)."
+    },
+    {
+      "name": "@smthrs/sandbox",
+      "subpath": "./CommandSandbox/*",
+      "development": null,
+      "published": null,
+      "reason": "Closes the CommandSandbox directory's deep paths, as every other provider directory in this package does, so ./CommandSandbox is its only entrypoint."
+    },
+    {
       "name": "@smthrs/cli",
       "subpath": "./BunControl",
       "development": "./src/BunControl.ts",
@@ -577,6 +639,17 @@
         "require": "./dist/cjs/BunControl.js"
       },
       "reason": "Public Bun composition of the existing native control host (the private internal/BunControl adapters), so a Bun process such as apps/tui runs a project's file flows in-process without the Node SQLite adapters. No new host behavior."
+    },
+    {
+      "name": "@smthrs/cli",
+      "subpath": "./CloudSession",
+      "development": "./src/CloudSession.ts",
+      "published": {
+        "types": "./dist/esm/CloudSession.d.ts",
+        "import": "./dist/esm/CloudSession.js",
+        "require": "./dist/cjs/CloudSession.js"
+      },
+      "reason": "The signed-in Smithers Cloud session for hosts other than the CLI: the origin and an authenticated GET resolved from where smthrs auth login and smthrs config put them, so apps/tui reads the factory's issue list. It reuses the CLI's session resolution and stores or prints no token."
     },
     {
       "name": "@smthrs/integrations",
